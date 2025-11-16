@@ -16,7 +16,9 @@ from proto.messages_pb2 import (
     MessageKind,
 )
 
-logging.basicConfig(level=logging.INFO, format="[worker] %(message)s", stream=sys.stderr)
+logging.basicConfig(
+    level=logging.INFO, format="[worker] %(message)s", stream=sys.stderr
+)
 
 _HEADER = struct.Struct("<I")
 
@@ -96,5 +98,7 @@ def main() -> None:
         else:
             logging.warning("Unhandled message kind: %s", kind)
             _send_ack(stdout, envelope.delivery_id, partition)
+
+
 if __name__ == "__main__":
     main()
