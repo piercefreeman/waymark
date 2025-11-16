@@ -16,7 +16,7 @@ from proto.messages_pb2 import (
     MessageKind,
 )
 
-logging.basicConfig(level=logging.INFO, format="[worker] %(message)s")
+logging.basicConfig(level=logging.INFO, format="[worker] %(message)s", stream=sys.stderr)
 
 _HEADER = struct.Struct("<I")
 
