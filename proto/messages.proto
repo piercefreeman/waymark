@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+package carabiner.messages;
+
+// Basic transport messages for Rust <-> Python worker communication.
+enum MessageKind {
+  MESSAGE_KIND_UNSPECIFIED = 0;
+  MESSAGE_KIND_BENCHMARK_COMMAND = 1;
+  MESSAGE_KIND_BENCHMARK_RESPONSE = 2;
+  MESSAGE_KIND_ACK = 3;
+  MESSAGE_KIND_HEARTBEAT = 4;
+}
+
+message Envelope {
+  uint64 delivery_id = 1;
+  // Optional identifier that allows grouping by logical partition.
+  uint32 partition_id = 2;
+  MessageKind kind = 3;
+  bytes payload = 4;
+}
+
+message BenchmarkCommand {
+  uint64 monotonic_ns = 1;
+  uint32 sequence = 2;
+  uint32 payload_size = 3;
+  bytes payload = 4;
+}
+
+message BenchmarkResponse {
+  uint64 correlated_delivery_id = 1;
+  uint32 sequence = 2;
+  uint64 worker_start_ns = 3;
+  uint64 worker_end_ns = 4;
+}
+
+message Ack {
+  uint64 acked_delivery_id = 1;
+}
