@@ -1,0 +1,22 @@
+[project]
+name = "carabiner-worker"
+version = "0.1.0"
+description = "Python worker transport harness for benchmarking"
+requires-python = ">=3.9"
+dependencies = [
+    "protobuf>=5.29,<6",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=8",
+    "ty>=0.0.1a26",
+    "ruff>=0.6",
+]
+
+[build-system]
+requires = ["uv_build>=0.8.13,<0.9.0"]
+build-backend = "uv_build"
