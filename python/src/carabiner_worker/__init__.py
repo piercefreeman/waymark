@@ -12,6 +12,8 @@ from .actions import (
     serialize_result_payload,
 )
 from .registry import registry
+from .workflow import Workflow, workflow, workflow_registry
+from .workflow_dag import WorkflowDag, build_workflow_dag
 
 __all__ = [
     "action",
@@ -19,6 +21,11 @@ __all__ = [
     "ActionCall",
     "ActionResultPayload",
     "ActionRunner",
+    "Workflow",
+    "workflow",
+    "workflow_registry",
+    "WorkflowDag",
+    "build_workflow_dag",
     "serialize_action_call",
     "deserialize_action_call",
     "serialize_result_payload",

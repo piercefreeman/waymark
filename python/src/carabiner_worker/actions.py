@@ -6,7 +6,7 @@ import inspect
 import logging
 import traceback
 from dataclasses import dataclass
-from typing import Any, Callable, Optional, TypeVar
+from typing import Any, Callable, Optional, TypeVar, overload
 
 from .registry import AsyncAction, registry
 from .serialization import _decode_value, _dumps, _encode_value, _loads
@@ -85,6 +85,14 @@ def deserialize_result_payload(payload: bytes) -> ActionResultPayload:
     return ActionResultPayload(result=_decode_value(data["result"]), error=None)
 
 
+@overload
+def action(func: TAsync, /) -> TAsync: ...
+
+
+@overload
+def action(*, name: Optional[str] = None) -> Callable[[TAsync], TAsync]: ...
+
+
 def action(
     func: Optional[TAsync] = None, *, name: Optional[str] = None
 ) -> Callable[[TAsync], TAsync] | TAsync:
@@ -95,6 +103,8 @@ def action(
             raise TypeError(f"action '{target.__name__}' must be defined with 'async def'")
         action_name = name or target.__name__
         registry.register(action_name, target)
+        target.__carabiner_action_name__ = action_name
+        target.__carabiner_action_module__ = target.__module__
         return target
 
     if func is not None:
