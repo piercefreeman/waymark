@@ -13,6 +13,7 @@ struct Options {
     partition_id: i32,
     log_interval_secs: Option<u64>,
     worker_count: usize,
+    user_module: String,
 }
 
 impl Default for Options {
@@ -25,6 +26,7 @@ impl Default for Options {
             partition_id: 0,
             log_interval_secs: Some(30),
             worker_count: 1,
+            user_module: PythonWorkerConfig::default().user_module,
         }
     }
 }
@@ -83,6 +85,12 @@ impl Options {
                         .ok_or_else(|| anyhow!("--workers requires a value"))?;
                     opts.worker_count = value.parse()?;
                 }
+                "--user-module" => {
+                    let value = args
+                        .next()
+                        .ok_or_else(|| anyhow!("--user-module requires a value"))?;
+                    opts.user_module = value;
+                }
                 other => {
                     return Err(anyhow!("unknown argument: {other}"));
                 }
@@ -95,7 +103,7 @@ impl Options {
 
 fn print_usage() {
     println!(
-        "Usage: cargo run --bin bench -- [--messages N] [--payload BYTES] [--concurrency N] [--database-url URL] [--partition ID] [--log-interval seconds] [--workers N]"
+        "Usage: cargo run --bin bench -- [--messages N] [--payload BYTES] [--concurrency N] [--database-url URL] [--partition ID] [--log-interval seconds] [--workers N] [--user-module MODULE]"
     );
 }
 
@@ -112,12 +120,9 @@ async fn main() -> Result<()> {
 
     info!(?options, "starting benchmark");
     let database = Database::connect(&options.database_url).await?;
-    let harness = BenchmarkHarness::new(
-        PythonWorkerConfig::default(),
-        options.worker_count,
-        database,
-    )
-    .await?;
+    let mut worker_config = PythonWorkerConfig::default();
+    worker_config.user_module = options.user_module.clone();
+    let harness = BenchmarkHarness::new(worker_config, options.worker_count, database).await?;
 
     let config = HarnessConfig {
         total_messages: options.total_messages,

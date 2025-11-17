@@ -9,6 +9,8 @@ bytes = "1"
 futures = "0.3"
 once_cell = "1"
 prost = "0.12"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 sqlx = { version = "0.7", default-features = false, features = ["runtime-tokio-rustls", "postgres", "macros", "migrate"] }
 thiserror = "1"
 tokio = { version = "1", features = ["full"] }

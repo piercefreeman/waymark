@@ -2,6 +2,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use futures::{StreamExt, future::BoxFuture, stream::FuturesUnordered};
+use serde_json::json;
 use tokio::{sync::mpsc, task::JoinHandle, time};
 use tracing::{Instrument, info, warn};
 
@@ -41,6 +42,10 @@ pub struct BenchmarkHarness {
     completion_handle: JoinHandle<()>,
 }
 
+const BENCHMARK_USER_MODULE: &str = "carabiner_worker.fixtures.benchmark_actions";
+const BENCHMARK_ACTION: &str = "benchmark.echo_payload";
+const BENCHMARK_REQUEST_MODEL: &str = "PayloadRequest";
+
 impl BenchmarkHarness {
     pub async fn new(
         config: PythonWorkerConfig,
@@ -63,11 +68,12 @@ impl BenchmarkHarness {
 
     pub async fn run(&self, config: &HarnessConfig) -> Result<BenchmarkSummary> {
         self.database.reset_partition(config.partition_id).await?;
+        let encoded_payload = build_benchmark_payload(config.payload_size);
         self.database
             .seed_actions(
                 config.partition_id,
                 config.total_messages,
-                config.payload_size,
+                &encoded_payload,
             )
             .await?;
 
@@ -310,4 +316,24 @@ async fn run_completion_worker(db: Database, mut rx: mpsc::Receiver<CompletionRe
     {
         warn!(?err, "failed to flush completion batch");
     }
+}
+
+fn build_benchmark_payload(payload_size: usize) -> Vec<u8> {
+    let payload_data = "x".repeat(payload_size);
+    let invocation = json!({
+        "action": BENCHMARK_ACTION,
+        "kwargs": {
+            "request": {
+                "kind": "basemodel",
+                "model": {
+                    "module": BENCHMARK_USER_MODULE,
+                    "name": BENCHMARK_REQUEST_MODEL,
+                },
+                "data": {
+                    "payload": payload_data,
+                }
+            }
+        }
+    });
+    serde_json::to_vec(&invocation).expect("serialize benchmark payload")
 }

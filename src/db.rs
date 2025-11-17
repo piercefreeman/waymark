@@ -61,9 +61,9 @@ impl Database {
         &self,
         partition_id: i32,
         action_count: usize,
-        payload_size: usize,
+        payload: &[u8],
     ) -> Result<()> {
-        let span = tracing::info_span!("db.seed_actions", partition_id, action_count, payload_size);
+        let span = tracing::info_span!("db.seed_actions", partition_id, action_count);
         let _guard = span.enter();
         let mut tx = self.pool.begin().await?;
         let instance_id: i64 = sqlx::query_scalar(
@@ -80,7 +80,6 @@ impl Database {
         .await?;
 
         for seq in 0..action_count {
-            let payload = vec![0u8; payload_size];
             sqlx::query(
                 r#"
                 INSERT INTO daemon_action_ledger (

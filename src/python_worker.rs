@@ -27,6 +27,7 @@ pub struct PythonWorkerConfig {
     pub script_path: PathBuf,
     pub python_binary: PathBuf,
     pub partition_id: u32,
+    pub user_module: String,
 }
 
 impl Default for PythonWorkerConfig {
@@ -35,6 +36,7 @@ impl Default for PythonWorkerConfig {
             script_path: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("python/worker.py"),
             python_binary: PathBuf::from("python3"),
             partition_id: 0,
+            user_module: "carabiner_worker.fixtures.benchmark_actions".to_string(),
         }
     }
 }
@@ -90,16 +92,27 @@ impl PythonWorker {
             .parent()
             .map(|path| path.to_path_buf())
             .unwrap_or_else(|| PathBuf::from("."));
+        let src_dir = script_dir.join("src");
+        let module_paths = if src_dir.exists() {
+            vec![script_dir.clone(), src_dir]
+        } else {
+            vec![script_dir.clone()]
+        };
+        let joined_python_path = module_paths
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect::<Vec<_>>()
+            .join(":");
         let python_path = match env::var("PYTHONPATH") {
-            Ok(existing) if !existing.is_empty() => {
-                format!("{existing}:{}", script_dir.display())
-            }
-            _ => script_dir.display().to_string(),
+            Ok(existing) if !existing.is_empty() => format!("{existing}:{joined_python_path}"),
+            _ => joined_python_path,
         };
 
         let mut command = Command::new(&config.python_binary);
         command
             .arg(&config.script_path)
+            .arg("--user-module")
+            .arg(&config.user_module)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())

@@ -1,15 +1,9 @@
 from __future__ import annotations
 
 import io
-import sys
-from pathlib import Path
 
-PROJECT_PY_DIR = Path(__file__).resolve().parents[1]
-if str(PROJECT_PY_DIR) not in sys.path:
-    sys.path.insert(0, str(PROJECT_PY_DIR))
-
-import worker  # noqa: E402
-from proto import messages_pb2 as pb2  # noqa: E402
+import worker
+from proto import messages_pb2 as pb2
 
 
 def test_write_read_round_trip() -> None:

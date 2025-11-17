@@ -103,6 +103,8 @@ dependencies = [
  "once_cell",
  "prost",
  "prost-build",
+ "serde",
+ "serde_json",
  "sqlx",
  "thiserror",
  "tokio",

@@ -5,6 +5,7 @@ description = "Python worker transport harness for benchmarking"
 requires-python = ">=3.9"
 dependencies = [
     "protobuf>=5.29,<6",
+    "pydantic>=2,<3",
 ]
 
 [project.optional-dependencies]
