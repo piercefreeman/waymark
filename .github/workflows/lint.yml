@@ -17,12 +17,8 @@ jobs:
       - name: Install protoc
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
 
-      - name: Ruff check
-        run: uvx ruff check python
-
-      - name: Ty type checking
-        working-directory: python
-        run: uv run ty check .
+      - name: Python lint
+        run: make python-lint-verify
 
       - name: Python tests
         working-directory: python
@@ -33,11 +29,8 @@ jobs:
         with:
           components: clippy, rustfmt
 
-      - name: Cargo fmt
-        run: cargo fmt -- --check
-
-      - name: Cargo clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: Rust lint
+        run: make rust-lint-verify
 
       - name: Cargo test
         run: cargo test

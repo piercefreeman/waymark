@@ -7,7 +7,7 @@ use thiserror::Error;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 pub mod proto {
-    include!(concat!(env!("OUT_DIR"), "/carabiner.messages.rs"));
+    tonic::include_proto!("carabiner.messages");
 }
 
 pub const FRAME_HEADER_LEN: usize = 4;

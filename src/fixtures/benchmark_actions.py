@@ -9,3 +9,4 @@ from .benchmark_common import PayloadRequest, PayloadResponse, summarize_payload
 async def echo_payload(request: PayloadRequest) -> PayloadResponse:
     """Echo the provided payload and return checksum metadata."""
     return summarize_payload(request.payload)
+

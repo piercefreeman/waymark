@@ -1,9 +1,10 @@
 [project]
-name = "carabiner-worker"
+name = "carabiner"
 version = "0.1.0"
 description = "Python worker transport harness for benchmarking"
 requires-python = ">=3.12"
 dependencies = [
+    "grpcio>=1.66,<2",
     "protobuf>=5.29,<6",
     "pydantic>=2,<3",
 ]
@@ -13,6 +14,7 @@ dev = ["pytest>=8"]
 
 [tool.uv]
 dev-dependencies = [
+    "grpcio-tools>=1.66,<2",
     "pytest>=8",
     "ty>=0.0.1a26",
     "ruff>=0.6",
@@ -28,12 +30,15 @@ ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
 "proto/messages_pb2.pyi" = ["N802"]
+"proto/messages_pb2_grpc.py" = ["N802"]
+"proto/messages_pb2_grpc.pyi" = ["N802"]
 
 [build-system]
-requires = ["maturin>=1.5,<2"]
-build-backend = "maturin"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
-[tool.maturin]
-manifest-path = "../Cargo.toml"
-python-source = "src"
-module-name = "carabiner_worker._bridge"
+[tool.hatch.build.targets.wheel]
+packages = ["src/carabiner_worker"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src", "proto", "README.md"]

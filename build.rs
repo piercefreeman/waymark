@@ -1,5 +1,8 @@
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-changed=proto/messages.proto");
-    prost_build::compile_protos(&["proto/messages.proto"], &["proto"])
-        .expect("failed to compile protos");
+    tonic_build::configure()
+        .build_server(true)
+        .build_client(true)
+        .compile(&["proto/messages.proto"], &["proto"])?;
+    Ok(())
 }

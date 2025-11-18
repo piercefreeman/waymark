@@ -1,11 +1,15 @@
+#!/usr/bin/env -S uv run --script
+# /// script
+# dependencies = ["click>=8", "rich>=13"]
+# ///
 from __future__ import annotations
 
-import argparse
-import json
 import re
-import sys
 from dataclasses import dataclass
-from typing import Iterable, List, TextIO
+from typing import IO, Iterable, List, TextIO
+
+import click
+from rich.console import Console
 
 ANSI_RE = re.compile(r"\x1B\[[0-9;]*[A-Za-z]")
 SPAN_PREFIX = re.compile(r"^(?P<ts>\S+)\s+\S+\s+(?P<msg>.*)$")
@@ -15,6 +19,7 @@ PROGRESS_RE = re.compile(
 ACTION_RE = re.compile(
     r"action completed action_id=(?P<action>\d+) round_trip_ms=(?P<rt>[^ ]+) ack_ms=(?P<ack>[^ ]+) worker_ms=(?P<worker>[^ ]+)"
 )
+console = Console()
 
 
 @dataclass
@@ -76,7 +81,7 @@ def parse_lines(lines: Iterable[str]) -> tuple[List[Progress], List[ActionMetric
     return progress, actions
 
 
-def summarize(progress: List[Progress], actions: List[ActionMetric], out: TextIO) -> None:
+def summarize(progress: List[Progress], actions: List[ActionMetric], out: IO[str]) -> None:
     print(f"progress points: {len(progress)}", file=out)
     for p in progress:
         print(
@@ -94,24 +99,21 @@ def summarize(progress: List[Progress], actions: List[ActionMetric], out: TextIO
         )
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Parse benchmark logs")
-    parser.add_argument("logfile", nargs="?", type=argparse.FileType("r"), default=sys.stdin)
-    parser.add_argument("--json", action="store_true")
-    args = parser.parse_args()
+@click.command()
+@click.argument("logfile", type=click.File("r"), default="-")
+@click.option("--json-output", is_flag=True, help="Emit JSON instead of human text.")
+def main(logfile: TextIO, json_output: bool) -> None:
+    progress, actions = parse_lines(logfile)
 
-    progress, actions = parse_lines(args.logfile)
-
-    if args.json:
-        json.dump(
-            {
+    if json_output:
+        console.print_json(
+            data={
                 "progress": [p.__dict__ for p in progress],
                 "actions": [a.__dict__ for a in actions],
-            },
-            sys.stdout,
+            }
         )
     else:
-        summarize(progress, actions, sys.stdout)
+        summarize(progress, actions, console.file)
 
 
 if __name__ == "__main__":

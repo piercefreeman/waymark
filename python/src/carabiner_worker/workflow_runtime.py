@@ -59,6 +59,14 @@ def _evaluate_kwargs(node: pb2.WorkflowDagNode, context: dict[str, Any]) -> Dict
     return evaluated
 
 
+def _guard_allows_execution(node: pb2.WorkflowDagNode, context: dict[str, Any]) -> bool:
+    guard_expr = getattr(node, "guard", "")
+    if not guard_expr:
+        return True
+    namespace = {**context}
+    return bool(eval(guard_expr, {}, namespace))  # noqa: S307 - controlled input
+
+
 def _import_support_blocks(node: pb2.WorkflowDagNode, namespace: dict[str, Any]) -> None:
     imports = node.kwargs.get("imports")
     definitions = node.kwargs.get("definitions")
@@ -99,6 +107,8 @@ async def execute_node(dispatch_b64: str) -> Any:
     dispatch.ParseFromString(payload)
     context = _build_context(dispatch)
     node = dispatch.node
+    if not _guard_allows_execution(node, context):
+        return WorkflowNodeResult(variables={})
     if node.action == "python_block":
         result_map = _execute_python_block(node, context)
     else:

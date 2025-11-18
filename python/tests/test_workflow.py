@@ -66,7 +66,7 @@ def test_workflow_registration_outside_pytest(monkeypatch: pytest.MonkeyPatch) -
     os.environ.pop("PYTEST_CURRENT_TEST", None)
     calls: list[bytes] = []
 
-    def fake_run_instance(database_url: str, payload: bytes) -> int:
+    async def fake_run_instance(database_url: str, payload: bytes) -> int:
         calls.append(payload)
         assert database_url.endswith("mountaineer_daemons")
         return 123

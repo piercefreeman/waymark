@@ -9,8 +9,11 @@ use sqlx::{
     postgres::{PgPoolOptions, PgRow},
 };
 
-use crate::messages::proto::{
-    WorkflowDagDefinition, WorkflowDagNode, WorkflowNodeContext, WorkflowNodeDispatch,
+use crate::{
+    dag_state::{DagStateMachine, InstanceDagState},
+    messages::proto::{
+        WorkflowDagDefinition, WorkflowDagNode, WorkflowNodeContext, WorkflowNodeDispatch,
+    },
 };
 
 #[derive(Clone)]
@@ -46,26 +49,6 @@ async fn load_instance_node_state(
     Ok((known_nodes, completed_nodes))
 }
 
-fn determine_unlocked_nodes(
-    dag: &WorkflowDagDefinition,
-    known_nodes: &HashSet<String>,
-    completed_nodes: &HashSet<String>,
-    concurrent: bool,
-) -> Vec<WorkflowDagNode> {
-    dag.nodes
-        .iter()
-        .filter(|node| {
-            if known_nodes.contains(&node.id) {
-                return false;
-            }
-            required_dependencies(node, concurrent)
-                .into_iter()
-                .all(|dep| completed_nodes.contains(dep))
-        })
-        .cloned()
-        .collect()
-}
-
 async fn build_variable_context(
     tx: &mut Transaction<'_, Postgres>,
     instance_id: i64,
@@ -99,14 +82,6 @@ async fn build_variable_context(
     Ok(context)
 }
 
-fn required_dependencies(node: &WorkflowDagNode, concurrent: bool) -> Vec<&str> {
-    let mut deps: Vec<&str> = node.depends_on.iter().map(|s| s.as_str()).collect();
-    if !concurrent {
-        deps.extend(node.wait_for_sync.iter().map(|s| s.as_str()));
-    }
-    deps
-}
-
 fn build_workflow_action_payload(
     node: &WorkflowDagNode,
     workflow_input: &[u8],
@@ -136,97 +111,6 @@ fn build_workflow_action_payload(
         }
     });
     Ok(serde_json::to_vec(&payload)?)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn build_node(id: &str, depends_on: &[&str], wait_for_sync: &[&str]) -> WorkflowDagNode {
-        WorkflowDagNode {
-            id: id.to_string(),
-            action: format!("action_{id}"),
-            kwargs: Default::default(),
-            depends_on: depends_on.iter().map(|s| s.to_string()).collect(),
-            wait_for_sync: wait_for_sync.iter().map(|s| s.to_string()).collect(),
-            module: String::new(),
-            produces: Vec::new(),
-        }
-    }
-
-    #[test]
-    fn sequential_workflows_respect_wait_for_sync() {
-        let dag = WorkflowDagDefinition {
-            concurrent: false,
-            nodes: vec![
-                build_node("node_0", &[], &[]),
-                build_node("node_1", &[], &["node_0"]),
-            ],
-        };
-        let mut known = HashSet::new();
-        let mut completed = HashSet::new();
-        let unlocked = determine_unlocked_nodes(&dag, &known, &completed, false);
-        assert_eq!(
-            unlocked.iter().map(|n| n.id.as_str()).collect::<Vec<_>>(),
-            vec!["node_0"]
-        );
-
-        known.insert("node_0".to_string());
-        let unlocked = determine_unlocked_nodes(&dag, &known, &completed, false);
-        assert!(unlocked.is_empty());
-
-        completed.insert("node_0".to_string());
-        let unlocked = determine_unlocked_nodes(&dag, &known, &completed, false);
-        assert_eq!(
-            unlocked.iter().map(|n| n.id.as_str()).collect::<Vec<_>>(),
-            vec!["node_1"]
-        );
-    }
-
-    #[test]
-    fn concurrent_workflows_ignore_wait_for_sync() {
-        let dag = WorkflowDagDefinition {
-            concurrent: true,
-            nodes: vec![
-                build_node("node_0", &[], &[]),
-                build_node("node_1", &[], &["node_0"]),
-            ],
-        };
-        let known = HashSet::new();
-        let completed = HashSet::new();
-        let unlocked = determine_unlocked_nodes(&dag, &known, &completed, true);
-        let actions: Vec<&str> = unlocked.iter().map(|n| n.id.as_str()).collect();
-        assert_eq!(actions, vec!["node_0", "node_1"]);
-    }
-
-    #[test]
-    fn dependencies_gate_unlocking() {
-        let dag = WorkflowDagDefinition {
-            concurrent: true,
-            nodes: vec![
-                build_node("node_0", &[], &[]),
-                build_node("node_1", &["node_0"], &[]),
-            ],
-        };
-        let mut known = HashSet::new();
-        let mut completed = HashSet::new();
-        let unlocked = determine_unlocked_nodes(&dag, &known, &completed, true);
-        assert_eq!(
-            unlocked.iter().map(|n| n.id.as_str()).collect::<Vec<_>>(),
-            vec!["node_0"]
-        );
-
-        known.insert("node_0".to_string());
-        let unlocked = determine_unlocked_nodes(&dag, &known, &completed, true);
-        assert!(unlocked.is_empty());
-
-        completed.insert("node_0".to_string());
-        let unlocked = determine_unlocked_nodes(&dag, &known, &completed, true);
-        assert_eq!(
-            unlocked.iter().map(|n| n.id.as_str()).collect::<Vec<_>>(),
-            vec!["node_1"]
-        );
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -557,8 +441,9 @@ impl Database {
             node_map.insert(node.id.clone(), node.clone());
         }
         let (known_nodes, completed_nodes) = load_instance_node_state(tx, instance.id).await?;
-        let unlocked =
-            determine_unlocked_nodes(&dag, &known_nodes, &completed_nodes, version.concurrent);
+        let dag_state = InstanceDagState::new(known_nodes, completed_nodes);
+        let dag_machine = DagStateMachine::new(&dag, version.concurrent);
+        let unlocked = dag_machine.ready_nodes(&dag_state);
         if unlocked.is_empty() {
             return Ok(0);
         }

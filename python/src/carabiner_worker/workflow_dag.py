@@ -19,11 +19,81 @@ class DagNode:
     depends_on: List[str] = field(default_factory=list)
     wait_for_sync: List[str] = field(default_factory=list)
     produces: List[str] = field(default_factory=list)
+    guard: Optional[str] = None
 
 
 @dataclass
 class WorkflowDag:
     nodes: List[DagNode]
+
+
+def _extract_action_name(expr: ast.AST) -> Optional[str]:
+    if isinstance(expr, ast.Name):
+        return expr.id
+    if isinstance(expr, ast.Attribute):
+        return expr.attr
+    return None
+
+
+class _ActionReferenceValidator(ast.NodeVisitor):
+    def __init__(self, action_names: Set[str]) -> None:
+        self._action_names = action_names
+        self._stack: List[ast.AST] = []
+
+    def visit(self, node: ast.AST) -> Any:  # type: ignore[override]
+        self._stack.append(node)
+        try:
+            return super().visit(node)
+        finally:
+            self._stack.pop()
+
+    def visit_Name(self, node: ast.Name) -> Any:  # type: ignore[override]
+        if isinstance(node.ctx, ast.Load) and node.id in self._action_names:
+            if not self._is_allowed_reference(node):
+                self._raise_error(node.id, node)
+        return self.generic_visit(node)
+
+    def visit_Attribute(self, node: ast.Attribute) -> Any:  # type: ignore[override]
+        name = _extract_action_name(node)
+        if name and name in self._action_names and not self._is_allowed_reference(node):
+            self._raise_error(name, node)
+        return self.generic_visit(node)
+
+    def _is_allowed_reference(self, node: ast.AST) -> bool:
+        parent = self._parent()
+        if isinstance(parent, ast.Call):
+            if parent.func is node:
+                return True
+            if self._is_run_action_call(parent) and parent.args and parent.args[0] is node:
+                return True
+        return False
+
+    def _is_run_action_call(self, call: ast.Call) -> bool:
+        func = call.func
+        if isinstance(func, ast.Attribute):
+            return func.attr == "run_action"
+        if isinstance(func, ast.Name):
+            return func.id == "run_action"
+        return False
+
+    def _parent(self) -> Optional[ast.AST]:
+        if len(self._stack) < 2:
+            return None
+        return self._stack[-2]
+
+    def _raise_error(self, name: str, node: ast.AST) -> None:
+        line = getattr(node, "lineno", "?")
+        column = getattr(node, "col_offset", "?")
+        raise ValueError(
+            f"action '{name}' is referenced outside supported call or list comprehension "
+            f"contexts (line {line}, column {column})"
+        )
+
+
+@dataclass
+class _ConditionalBranch:
+    call: ast.Call
+    target: Optional[str]
 
 
 def build_workflow_dag(workflow_cls: type["Workflow"]) -> WorkflowDag:
@@ -39,8 +109,11 @@ def build_workflow_dag(workflow_cls: type["Workflow"]) -> WorkflowDag:
     module_index = ModuleIndex(module_source)
     action_defs = _discover_action_names(module)
     function_source = textwrap.dedent(inspect.getsource(original_run))
+    tree = ast.parse(function_source)
+    validator = _ActionReferenceValidator(set(action_defs))
+    validator.visit(tree)
     builder = WorkflowDagBuilder(action_defs, module_index, function_source)
-    builder.visit(ast.parse(function_source))
+    builder.visit(tree)
     return WorkflowDag(builder.nodes)
 
 
@@ -139,6 +212,121 @@ class WorkflowDagBuilder(ast.NodeVisitor):
     def visit_For(self, node: ast.For) -> Any:
         self._capture_block(node)
 
+    def visit_If(self, node: ast.If) -> Any:
+        if self._handle_conditional_actions(node):
+            return
+        self.generic_visit(node)
+
+    def _handle_conditional_actions(self, node: ast.If) -> bool:
+        if not node.orelse:
+            if self._branch_contains_action(node.body):
+                line = getattr(node, "lineno", "?")
+                raise ValueError(f"conditional action at line {line} requires an else branch")
+            return False
+        if len(node.body) != 1 or len(node.orelse) != 1:
+            if self._branch_contains_action(node.body) or self._branch_contains_action(node.orelse):
+                line = getattr(node, "lineno", "?")
+                raise ValueError(
+                    f"conditional actions must contain a single action call per branch (line {line})"
+                )
+            return False
+        true_branch = self._extract_branch_statement(node.body[0])
+        false_branch = self._extract_branch_statement(node.orelse[0])
+        if true_branch is None or false_branch is None:
+            if self._branch_contains_action(node.body) or self._branch_contains_action(node.orelse):
+                line = getattr(node, "lineno", "?")
+                raise ValueError(
+                    f"unsupported conditional action structure near line {line}; "
+                    "only direct action calls are allowed in each branch"
+                )
+            return False
+        if bool(true_branch.target) != bool(false_branch.target):
+            line = getattr(node, "lineno", "?")
+            raise ValueError(
+                f"conditional branches must both assign to the same target or neither (line {line})"
+            )
+        if true_branch.target and false_branch.target and true_branch.target != false_branch.target:
+            line = getattr(node, "lineno", "?")
+            raise ValueError(
+                f"conditional branches assign to different targets near line {line}; "
+                "use a shared variable name"
+            )
+        condition_expr = f"({ast.unparse(node.test).strip()})"
+        condition_deps = sorted(set(self._dependencies_from_expr(node.test)))
+        true_guard = condition_expr
+        false_guard = f"not ({condition_expr})"
+        true_node = self._build_node(
+            true_branch.call,
+            target=None,
+            guard=true_guard,
+            extra_dependencies=condition_deps,
+        )
+        false_node = self._build_node(
+            false_branch.call,
+            target=None,
+            guard=false_guard,
+            extra_dependencies=condition_deps,
+        )
+        temp_true = temp_false = None
+        if true_branch.target:
+            temp_true = f"__branch_{true_branch.target}_{true_node.id}"
+            temp_false = f"__branch_{false_branch.target}_{false_node.id}"
+            true_node.produces = [temp_true]
+            false_node.produces = [temp_false]
+        self._append_node(true_node)
+        self._append_node(false_node)
+        if temp_true and temp_false and true_branch.target:
+            merge_node = self._build_branch_merge_node(
+                true_branch.target, temp_true, temp_false, [true_node.id, false_node.id]
+            )
+            self._var_to_node[true_branch.target] = merge_node.id
+            self._append_node(merge_node)
+        return True
+
+    def _extract_branch_statement(self, stmt: ast.stmt) -> Optional[_ConditionalBranch]:
+        if isinstance(stmt, ast.Assign):
+            call = self._extract_action_call(stmt.value)
+            if call is None:
+                return None
+            target = self._extract_target(stmt.targets)
+            if target is None:
+                return None
+            return _ConditionalBranch(call=call, target=target)
+        if isinstance(stmt, ast.Expr):
+            call = self._extract_action_call(stmt.value)
+            if call is None:
+                return None
+            return _ConditionalBranch(call=call, target=None)
+        return None
+
+    def _branch_contains_action(self, statements: List[ast.stmt]) -> bool:
+        for stmt in statements:
+            for sub in ast.walk(stmt):
+                if self._extract_action_call(sub) is not None:
+                    return True
+        return False
+
+    def _build_branch_merge_node(
+        self, target_name: str, true_var: str, false_var: str, dependencies: List[str]
+    ) -> DagNode:
+        merge_code = textwrap.dedent(
+            f"""
+            if "{true_var}" in locals():
+                {target_name} = {true_var}
+            elif "{false_var}" in locals():
+                {target_name} = {false_var}
+            else:
+                raise RuntimeError("conditional branch produced no value for {target_name}")
+            """
+        ).strip()
+        return DagNode(
+            id=self._new_node_id(),
+            action="python_block",
+            kwargs={"code": merge_code, "imports": "", "definitions": ""},
+            depends_on=sorted(set(dependencies)),
+            produces=[target_name],
+        )
+
     def _extract_action_call(self, expr: ast.AST) -> Optional[ast.Call]:
         if isinstance(expr, ast.Await):
             expr = expr.value
@@ -166,7 +354,7 @@ class WorkflowDagBuilder(ast.NodeVisitor):
         return new_call
 
     def _is_action_func(self, func: ast.AST) -> bool:
-        name = self._extract_name(func)
+        name = _extract_action_name(func)
         return bool(name and name in self._action_defs)
 
     def _match_gather_call(self, expr: ast.AST) -> Optional[ast.Call]:
@@ -266,7 +454,14 @@ class WorkflowDagBuilder(ast.NodeVisitor):
             return target.id
         return None
 
-    def _build_node(self, call: ast.Call, target: Optional[str]) -> DagNode:
+    def _build_node(
+        self,
+        call: ast.Call,
+        target: Optional[str],
+        *,
+        guard: Optional[str] = None,
+        extra_dependencies: Optional[List[str]] = None,
+    ) -> DagNode:
         name = self._format_call_name(call.func)
         node_id = self._new_node_id()
         kwargs: Dict[str, str] = {}
@@ -276,6 +471,8 @@ class WorkflowDagBuilder(ast.NodeVisitor):
                 continue
             kwargs[kw.arg] = ast.unparse(kw.value)
             dependencies.extend(self._dependencies_from_expr(kw.value))
+        if extra_dependencies:
+            dependencies.extend(extra_dependencies)
         action_name, module_name = self._action_defs.get(name, (name, None))
         return DagNode(
             id=node_id,
@@ -284,6 +481,7 @@ class WorkflowDagBuilder(ast.NodeVisitor):
             kwargs=kwargs,
             depends_on=sorted(set(dependencies)),
             produces=[target] if target else [],
+            guard=guard,
         )
 
     def _new_node_id(self) -> str:
@@ -292,17 +490,10 @@ class WorkflowDagBuilder(ast.NodeVisitor):
         return node_id
 
     def _format_call_name(self, func_ref: ast.AST) -> str:
-        name = self._extract_name(func_ref)
+        name = _extract_action_name(func_ref)
         if name is not None:
             return name
         return ast.unparse(func_ref)
-
-    def _extract_name(self, expr: ast.AST) -> Optional[str]:
-        if isinstance(expr, ast.Name):
-            return expr.id
-        if isinstance(expr, ast.Attribute):
-            return expr.attr
-        return None
 
     def _dependencies_from_expr(self, expr: ast.AST) -> List[str]:
         deps: List[str] = []
