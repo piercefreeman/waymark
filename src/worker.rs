@@ -1,6 +1,5 @@
 use std::{
     collections::HashMap,
-    convert::TryFrom,
     env,
     path::PathBuf,
     process::Stdio,
@@ -11,24 +10,24 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::{Context, Result as AnyResult};
+use anyhow::{Context, Result as AnyResult, anyhow};
 use tokio::{
-    io::{BufReader, BufWriter},
-    process::{Child, ChildStdin, ChildStdout, Command},
-    sync::{Mutex, oneshot},
+    process::{Child, Command},
+    sync::{Mutex, mpsc, oneshot},
     task::JoinHandle,
+    time::timeout,
 };
 use tracing::{debug, error, info, warn};
 
 use crate::{
     LedgerActionId, WorkflowInstanceId,
     messages::{self, MessageError, proto},
+    server_worker::{WorkerBridgeChannels, WorkerBridgeServer},
 };
 
 #[derive(Clone, Debug)]
 pub struct PythonWorkerConfig {
     pub script_path: PathBuf,
-    pub python_binary: PathBuf,
     pub partition_id: u32,
     pub user_module: String,
     pub extra_python_paths: Vec<PathBuf>,
@@ -37,8 +36,7 @@ pub struct PythonWorkerConfig {
 impl Default for PythonWorkerConfig {
     fn default() -> Self {
         Self {
-            script_path: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("python/worker.py"),
-            python_binary: PathBuf::from("python3"),
+            script_path: PathBuf::from("carabiner-worker"),
             partition_id: 0,
             user_module: "fixtures.benchmark_actions".to_string(),
             extra_python_paths: vec![PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src")],
@@ -83,7 +81,7 @@ pub struct ActionDispatchPayload {
 
 pub struct PythonWorker {
     child: Child,
-    writer: Arc<Mutex<BufWriter<ChildStdin>>>,
+    sender: mpsc::Sender<proto::Envelope>,
     shared: Arc<Mutex<SharedState>>,
     next_delivery: AtomicU64,
     partition_id: u32,
@@ -91,19 +89,17 @@ pub struct PythonWorker {
 }
 
 impl PythonWorker {
-    pub async fn spawn(config: PythonWorkerConfig) -> AnyResult<Self> {
-        let script_dir = config
-            .script_path
-            .parent()
-            .map(|path| path.to_path_buf())
-            .unwrap_or_else(|| PathBuf::from("."));
-        let src_dir = script_dir.join("src");
-        let module_paths = if src_dir.exists() {
-            vec![script_dir.clone(), src_dir]
-        } else {
-            vec![script_dir.clone()]
-        };
-        let mut module_paths = module_paths;
+    async fn spawn(config: PythonWorkerConfig, bridge: Arc<WorkerBridgeServer>) -> AnyResult<Self> {
+        let (worker_id, connection_rx) = bridge.reserve_worker().await;
+        let package_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("python");
+        let mut module_paths = Vec::new();
+        if package_root.exists() {
+            module_paths.push(package_root.clone());
+            let src_dir = package_root.join("src");
+            if src_dir.exists() {
+                module_paths.push(src_dir);
+            }
+        }
         module_paths.extend(config.extra_python_paths.clone());
         let joined_python_path = module_paths
             .iter()
@@ -115,41 +111,63 @@ impl PythonWorker {
             _ => joined_python_path,
         };
 
-        let mut command = Command::new(&config.python_binary);
+        let mut command = Command::new(&config.script_path);
         command
-            .arg(&config.script_path)
+            .arg("--bridge")
+            .arg(bridge.addr().to_string())
+            .arg("--worker-id")
+            .arg(worker_id.to_string())
             .arg("--user-module")
             .arg(&config.user_module)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
             .env("PYTHONPATH", python_path);
 
-        let mut child = command.spawn().context("failed to launch python worker")?;
-        let stdin = child.stdin.take().context("python worker stdin missing")?;
-        let stdout = child
-            .stdout
-            .take()
-            .context("python worker stdout missing")?;
+        let mut child = match command.spawn().context("failed to launch python worker") {
+            Ok(child) => child,
+            Err(err) => {
+                bridge.cancel_worker(worker_id).await;
+                return Err(err);
+            }
+        };
 
         info!(
             pid = child.id(),
             script = %config.script_path.display(),
+            worker_id,
             "spawned python worker"
         );
 
-        let writer = Arc::new(Mutex::new(BufWriter::new(stdin)));
+        let connection = match timeout(Duration::from_secs(15), connection_rx).await {
+            Ok(Ok(channels)) => channels,
+            Ok(Err(_)) => {
+                bridge.cancel_worker(worker_id).await;
+                let _ = child.start_kill();
+                let _ = child.wait().await;
+                return Err(anyhow!("worker bridge channel closed before attach"));
+            }
+            Err(_) => {
+                bridge.cancel_worker(worker_id).await;
+                let _ = child.start_kill();
+                let _ = child.wait().await;
+                return Err(anyhow!("timed out waiting for worker bridge attachment"));
+            }
+        };
+
+        let WorkerBridgeChannels {
+            to_worker,
+            mut from_worker,
+        } = connection;
         let shared = Arc::new(Mutex::new(SharedState::new()));
         let reader_shared = Arc::clone(&shared);
         let reader_handle = tokio::spawn(async move {
-            if let Err(err) = Self::reader_loop(stdout, reader_shared).await {
-                error!(?err, "python stdout loop exited");
+            if let Err(err) = Self::reader_loop(&mut from_worker, reader_shared).await {
+                error!(?err, "python worker stream exited");
             }
         });
 
         Ok(Self {
             child,
-            writer,
+            sender: to_worker,
             shared,
             next_delivery: AtomicU64::new(1),
             partition_id: config.partition_id,
@@ -193,7 +211,7 @@ impl PythonWorker {
             payload: messages::encode_message(&command),
         };
 
-        self.write_envelope(&envelope).await?;
+        self.send_envelope(envelope).await?;
 
         let ack_instant = ack_rx.await.map_err(|_| MessageError::ChannelClosed)?;
         let (response, response_instant) =
@@ -224,26 +242,18 @@ impl PythonWorker {
         })
     }
 
-    async fn write_envelope(&self, envelope: &proto::Envelope) -> Result<(), MessageError> {
-        let mut writer = self.writer.lock().await;
-        messages::write_envelope(&mut *writer, envelope).await
+    async fn send_envelope(&self, envelope: proto::Envelope) -> Result<(), MessageError> {
+        self.sender
+            .send(envelope)
+            .await
+            .map_err(|_| MessageError::ChannelClosed)
     }
 
     async fn reader_loop(
-        stdout: ChildStdout,
+        incoming: &mut mpsc::Receiver<proto::Envelope>,
         shared: Arc<Mutex<SharedState>>,
     ) -> Result<(), MessageError> {
-        let mut reader = BufReader::new(stdout);
-        loop {
-            let envelope = match messages::read_envelope(&mut reader).await {
-                Ok(frame) => frame,
-                Err(MessageError::Io(err)) if err.kind() == std::io::ErrorKind::UnexpectedEof => {
-                    debug!("python stdout closed");
-                    break;
-                }
-                Err(other) => return Err(other),
-            };
-
+        while let Some(envelope) = incoming.recv().await {
             let kind = proto::MessageKind::try_from(envelope.kind)
                 .unwrap_or(proto::MessageKind::Unspecified);
 
@@ -310,11 +320,15 @@ pub struct PythonWorkerPool {
 }
 
 impl PythonWorkerPool {
-    pub async fn new(config: PythonWorkerConfig, count: usize) -> AnyResult<Self> {
+    pub async fn new(
+        config: PythonWorkerConfig,
+        count: usize,
+        bridge: Arc<WorkerBridgeServer>,
+    ) -> AnyResult<Self> {
         let worker_count = count.max(1);
         let mut workers = Vec::with_capacity(worker_count);
         for _ in 0..worker_count {
-            let worker = PythonWorker::spawn(config.clone()).await?;
+            let worker = PythonWorker::spawn(config.clone(), Arc::clone(&bridge)).await?;
             workers.push(Arc::new(worker));
         }
         Ok(Self {

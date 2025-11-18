@@ -55,6 +55,11 @@ class MessageKind:
     MESSAGE_KIND_ACTION_RESULT: int
     MESSAGE_KIND_ACK: int
     MESSAGE_KIND_HEARTBEAT: int
+    MESSAGE_KIND_WORKER_HELLO: int
+
+class WorkerHello(_ProtoMessage):
+    def __init__(self, worker_id: int = ...) -> None: ...
+    worker_id: int
 
 class WorkflowDagNode(_ProtoMessage):
     def __init__(

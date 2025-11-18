@@ -12,8 +12,8 @@ pub struct BenchmarkResult {
     pub worker_duration: Duration,
 }
 
-impl From<crate::python_worker::RoundTripMetrics> for BenchmarkResult {
-    fn from(value: crate::python_worker::RoundTripMetrics) -> Self {
+impl From<crate::worker::RoundTripMetrics> for BenchmarkResult {
+    fn from(value: crate::worker::RoundTripMetrics) -> Self {
         Self {
             sequence: value.sequence,
             ack_latency: value.ack_latency,

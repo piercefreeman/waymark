@@ -1,4 +1,7 @@
-use std::time::{Duration, Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use anyhow::Result;
 use futures::{StreamExt, future::BoxFuture, stream::FuturesUnordered};
@@ -7,12 +10,11 @@ use tokio::{sync::mpsc, task::JoinHandle};
 use tracing::{Instrument, info, warn};
 
 use crate::{
-    benchmark_common::{BenchmarkResult, BenchmarkSummary, spawn_completion_worker},
+    benchmark::common::{BenchmarkResult, BenchmarkSummary, spawn_completion_worker},
     db::{CompletionRecord, Database},
     messages::MessageError,
-    python_worker::{
-        ActionDispatchPayload, PythonWorkerConfig, PythonWorkerPool, RoundTripMetrics,
-    },
+    server_worker::WorkerBridgeServer,
+    worker::{ActionDispatchPayload, PythonWorkerConfig, PythonWorkerPool, RoundTripMetrics},
 };
 
 #[derive(Debug, Clone)]
@@ -37,6 +39,7 @@ impl Default for HarnessConfig {
 }
 
 pub struct BenchmarkHarness {
+    worker_server: Arc<WorkerBridgeServer>,
     workers: PythonWorkerPool,
     database: Database,
     completion_tx: mpsc::Sender<CompletionRecord>,
@@ -53,9 +56,12 @@ impl BenchmarkHarness {
         worker_count: usize,
         database: Database,
     ) -> Result<Self> {
-        let workers = PythonWorkerPool::new(config, worker_count).await?;
+        let worker_server = WorkerBridgeServer::start(None).await?;
+        let workers =
+            PythonWorkerPool::new(config, worker_count, Arc::clone(&worker_server)).await?;
         let (tx, handle) = spawn_completion_worker(database.clone());
         Ok(Self {
+            worker_server,
             workers,
             database,
             completion_tx: tx,
@@ -168,6 +174,7 @@ impl BenchmarkHarness {
 
     pub async fn shutdown(self) -> Result<()> {
         let BenchmarkHarness {
+            worker_server,
             workers,
             completion_tx,
             completion_handle,
@@ -175,6 +182,7 @@ impl BenchmarkHarness {
         } = self;
         drop(completion_tx);
         workers.shutdown().await?;
+        worker_server.shutdown().await;
         if let Err(err) = completion_handle.await {
             warn!(?err, "completion worker failed");
         }

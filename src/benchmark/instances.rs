@@ -1,7 +1,8 @@
 use std::{
     env, fs,
-    path::{Path, PathBuf},
+    path::PathBuf,
     process::Command,
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -16,13 +17,15 @@ use tracing::{Instrument, info, warn};
 
 use crate::{
     WorkflowVersionId,
-    benchmark_common::{BenchmarkResult, BenchmarkSummary, spawn_completion_worker},
+    benchmark::{
+        common::{BenchmarkResult, BenchmarkSummary, spawn_completion_worker},
+        fixtures,
+    },
     db::{CompletionRecord, Database},
     instances,
     messages::{MessageError, proto::WorkflowRegistration},
-    python_worker::{
-        ActionDispatchPayload, PythonWorkerConfig, PythonWorkerPool, RoundTripMetrics,
-    },
+    server_worker::WorkerBridgeServer,
+    worker::{ActionDispatchPayload, PythonWorkerConfig, PythonWorkerPool, RoundTripMetrics},
 };
 
 #[derive(Debug, Clone)]
@@ -49,6 +52,7 @@ impl Default for WorkflowBenchmarkConfig {
 }
 
 pub struct WorkflowBenchmarkHarness {
+    worker_server: Arc<WorkerBridgeServer>,
     database: Database,
     workers: PythonWorkerPool,
     completion_tx: mpsc::Sender<CompletionRecord>,
@@ -69,18 +73,23 @@ impl WorkflowBenchmarkHarness {
     ) -> Result<Self> {
         let temp_dir = TempDir::new().context("create temp dir for workflow benchmark")?;
         let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let fixtures_dir = repo_root.join("src/fixtures");
         let package_dir = temp_dir.path().join("workflow_bench");
         fs::create_dir_all(&package_dir).context("create workflow package dir")?;
-        fs::write(package_dir.join("__init__.py"), b"").context("write package __init__")?;
-        copy_fixture(
-            &fixtures_dir.join("benchmark_common.py"),
-            &package_dir.join("benchmark_common.py"),
-        )?;
-        copy_fixture(
-            &fixtures_dir.join("benchmark_instances.py"),
-            &package_dir.join("benchmark_instances.py"),
-        )?;
+        fs::write(
+            package_dir.join("__init__.py"),
+            fixtures::INIT_PY.trim_start().as_bytes(),
+        )
+        .context("write package __init__")?;
+        fs::write(
+            package_dir.join("benchmark_common.py"),
+            fixtures::BENCHMARK_COMMON.trim_start().as_bytes(),
+        )
+        .context("write benchmark_common fixture")?;
+        fs::write(
+            package_dir.join("benchmark_instances.py"),
+            fixtures::BENCHMARK_INSTANCES.trim_start().as_bytes(),
+        )
+        .context("write benchmark_instances fixture")?;
         let user_module = "workflow_bench.benchmark_instances".to_string();
 
         let python_paths = vec![
@@ -96,7 +105,9 @@ impl WorkflowBenchmarkHarness {
             .context("register workflow version")?;
         worker_config.user_module = user_module.clone();
         worker_config.extra_python_paths = vec![temp_dir.path().to_path_buf()];
-        let workers = PythonWorkerPool::new(worker_config, worker_count).await?;
+        let worker_server = WorkerBridgeServer::start(None).await?;
+        let workers =
+            PythonWorkerPool::new(worker_config, worker_count, Arc::clone(&worker_server)).await?;
         let (completion_tx, completion_handle) = spawn_completion_worker(database.clone());
         let dag_node_count = registration
             .dag
@@ -104,6 +115,7 @@ impl WorkflowBenchmarkHarness {
             .map(|dag| dag.nodes.len())
             .unwrap_or(0);
         Ok(Self {
+            worker_server,
             database,
             workers,
             completion_tx,
@@ -222,6 +234,7 @@ impl WorkflowBenchmarkHarness {
 
     pub async fn shutdown(self) -> Result<()> {
         let WorkflowBenchmarkHarness {
+            worker_server,
             workers,
             completion_tx,
             completion_handle,
@@ -229,6 +242,7 @@ impl WorkflowBenchmarkHarness {
         } = self;
         drop(completion_tx);
         workers.shutdown().await?;
+        worker_server.shutdown().await;
         if let Err(err) = completion_handle.await {
             warn!(?err, "completion worker failed");
         }
@@ -238,11 +252,6 @@ impl WorkflowBenchmarkHarness {
     pub fn actions_per_instance(&self) -> usize {
         self.dag_node_count
     }
-}
-
-fn copy_fixture(src: &Path, dst: &Path) -> Result<()> {
-    fs::copy(src, dst).with_context(|| format!("copy {:?} to {:?}", src, dst))?;
-    Ok(())
 }
 
 fn build_registration_payload(python_paths: &[PathBuf], module: &str) -> Result<Vec<u8>> {

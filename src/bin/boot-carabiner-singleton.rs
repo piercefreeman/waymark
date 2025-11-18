@@ -5,7 +5,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow};
-use carabiner::server;
+use carabiner::server_client;
 use clap::Parser;
 use reqwest::Client;
 use serde::Deserialize;
@@ -19,7 +19,7 @@ use tracing::{debug, error, info};
 )]
 struct Args {
     /// Starting HTTP port to probe for existing servers.
-    #[arg(long, default_value_t = server::DEFAULT_HTTP_PORT)]
+    #[arg(long, default_value_t = DEFAULT_HTTP_PORT)]
     start_port: u16,
     /// Maximum number of sequential ports to try.
     #[arg(long, default_value_t = 10)]
@@ -39,6 +39,8 @@ struct Args {
 struct HealthPayload {
     service: String,
 }
+
+const DEFAULT_HTTP_PORT: u16 = 24117;
 
 #[derive(Debug, PartialEq, Eq)]
 enum HealthStatus {
@@ -106,7 +108,7 @@ async fn main() -> Result<()> {
 }
 
 async fn probe_health(client: &Client, host: &str, port: u16) -> Result<HealthStatus> {
-    let url = server::health_url(host, port);
+    let url = server_client::health_url(host, port);
     let response = client.get(&url).send().await;
     match response {
         Ok(resp) => {
@@ -114,7 +116,7 @@ async fn probe_health(client: &Client, host: &str, port: u16) -> Result<HealthSt
                 return Ok(HealthStatus::Different);
             }
             let payload = resp.json::<HealthPayload>().await?;
-            if payload.service == server::SERVICE_NAME {
+            if payload.service == server_client::SERVICE_NAME {
                 Ok(HealthStatus::Matching)
             } else {
                 Ok(HealthStatus::Different)

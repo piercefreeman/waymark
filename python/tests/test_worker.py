@@ -1,35 +1,40 @@
 from __future__ import annotations
 
-import io
+import asyncio
 
-import worker
+from carabiner_worker import worker
 from proto import messages_pb2 as pb2
 
 
-def test_write_read_round_trip() -> None:
-    ack = pb2.Ack(acked_delivery_id=42)
-    env = pb2.Envelope(
-        delivery_id=1,
-        partition_id=0,
-        kind=pb2.MessageKind.MESSAGE_KIND_ACK,
-        payload=ack.SerializeToString(),
-    )
-    buffer = io.BytesIO()
-    worker._write_frame(buffer, env)
-    buffer.seek(0)
-    parsed = worker._read_frame(buffer)
-    assert parsed is not None
-    assert parsed.delivery_id == env.delivery_id
-    assert parsed.partition_id == env.partition_id
+def test_outgoing_stream_includes_handshake() -> None:
+    async def scenario() -> None:
+        queue: "asyncio.Queue[pb2.Envelope]" = asyncio.Queue()
+        stream = worker._outgoing_stream(queue, worker_id=99)
+        hello = await anext(stream)
+        assert hello.kind == pb2.MessageKind.MESSAGE_KIND_WORKER_HELLO
+        hello_msg = pb2.WorkerHello()
+        hello_msg.ParseFromString(hello.payload)
+        assert hello_msg.worker_id == 99
+
+        payload = pb2.Envelope(
+            delivery_id=10, partition_id=2, kind=pb2.MessageKind.MESSAGE_KIND_ACK
+        )
+        await queue.put(payload)
+        forwarded = await anext(stream)
+        assert forwarded.delivery_id == payload.delivery_id
+
+    asyncio.run(scenario())
 
 
 def test_send_ack_helper() -> None:
-    buffer = io.BytesIO()
-    worker._send_ack(buffer, delivery_id=7, partition_id=3)
-    buffer.seek(0)
-    envelope = worker._read_frame(buffer)
-    assert envelope is not None
-    assert envelope.kind == pb2.MessageKind.MESSAGE_KIND_ACK
-    ack = pb2.Ack()
-    ack.ParseFromString(envelope.payload)
-    assert ack.acked_delivery_id == 7
+    async def scenario() -> None:
+        queue: "asyncio.Queue[pb2.Envelope]" = asyncio.Queue()
+        envelope = pb2.Envelope(delivery_id=7, partition_id=3)
+        await worker._send_ack(queue, envelope)
+        sent = queue.get_nowait()
+        assert sent.kind == pb2.MessageKind.MESSAGE_KIND_ACK
+        ack = pb2.Ack()
+        ack.ParseFromString(sent.payload)
+        assert ack.acked_delivery_id == 7
+
+    asyncio.run(scenario())

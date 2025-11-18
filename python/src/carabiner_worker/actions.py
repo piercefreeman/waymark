@@ -128,7 +128,7 @@ class ActionRunner:
         summary = ", ".join(names) if names else "<none>"
         logging.info("Registered %s actions: %s", len(names), summary)
 
-    def run_serialized(self, payload: bytes) -> tuple[ActionCall, Any]:
+    async def run_serialized(self, payload: bytes) -> tuple[ActionCall, Any]:
         """Deserialize a payload and execute the referenced action."""
         invocation = deserialize_action_call(payload)
         self._ensure_module_loaded(invocation.module)
@@ -136,9 +136,9 @@ class ActionRunner:
         if handler is None:
             raise RuntimeError(f"action '{invocation.action}' is not registered")
         result = handler(**invocation.kwargs)
-        if asyncio.iscoroutine(result):
-            return invocation, asyncio.run(result)
-        raise RuntimeError(
-            f"action '{invocation.action}' did not return a coroutine; "
-            "ensure it is defined with 'async def'"
-        )
+        if not asyncio.iscoroutine(result):
+            raise RuntimeError(
+                f"action '{invocation.action}' did not return a coroutine; "
+                "ensure it is defined with 'async def'"
+            )
+        return invocation, await result

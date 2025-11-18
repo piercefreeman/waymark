@@ -20,6 +20,7 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
+num_cpus = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 sqlx = { version = "0.7", default-features = false, features = ["runtime-tokio-rustls", "postgres", "macros", "migrate", "chrono", "uuid"] }
 tera = { version = "1.19", default-features = false, features = ["builtins"] }
