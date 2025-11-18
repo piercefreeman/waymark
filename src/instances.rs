@@ -11,9 +11,12 @@ use crate::{db::Database, messages::proto::WorkflowRegistration};
 pub async fn run_instance_payload(database_url: &str, payload: &[u8]) -> Result<i64> {
     let registration = WorkflowRegistration::decode(payload)
         .context("failed to decode workflow registration payload")?;
-    let dag_json = registration.dag_json;
+    let dag_def = registration
+        .dag
+        .context("workflow registration missing dag definition")?;
+    let dag_bytes = dag_def.encode_to_vec();
     let provided_hash = registration.dag_hash;
-    let computed_hash = format!("{:x}", Sha256::digest(dag_json.as_bytes()));
+    let computed_hash = format!("{:x}", Sha256::digest(&dag_bytes));
     if !provided_hash.is_empty() && provided_hash != computed_hash {
         tracing::warn!(
             provided = provided_hash,
@@ -26,8 +29,8 @@ pub async fn run_instance_payload(database_url: &str, payload: &[u8]) -> Result<
         .upsert_workflow_version(
             &registration.workflow_name,
             &computed_hash,
-            &dag_json,
-            registration.concurrent,
+            &dag_bytes,
+            dag_def.concurrent,
         )
         .await?;
     Ok(version_id)

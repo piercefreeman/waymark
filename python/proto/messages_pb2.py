@@ -20,7 +20,7 @@ _sym_db = _symbol_database.Default()
 
 
 DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(
-    b'\n\x0emessages.proto\x12\x12\x63\x61rabiner.messages"u\n\x08\x45nvelope\x12\x13\n\x0b\x64\x65livery_id\x18\x01 \x01(\x04\x12\x14\n\x0cpartition_id\x18\x02 \x01(\r\x12-\n\x04kind\x18\x03 \x01(\x0e\x32\x1f.carabiner.messages.MessageKind\x12\x0f\n\x07payload\x18\x04 \x01(\x0c"[\n\x0e\x41\x63tionDispatch\x12\x11\n\taction_id\x18\x01 \x01(\x04\x12\x13\n\x0binstance_id\x18\x02 \x01(\x04\x12\x10\n\x08sequence\x18\x03 \x01(\r\x12\x0f\n\x07payload\x18\x04 \x01(\x0c"s\n\x0c\x41\x63tionResult\x12\x11\n\taction_id\x18\x01 \x01(\x04\x12\x0f\n\x07success\x18\x02 \x01(\x08\x12\x0f\n\x07payload\x18\x03 \x01(\x0c\x12\x17\n\x0fworker_start_ns\x18\x04 \x01(\x04\x12\x15\n\rworker_end_ns\x18\x05 \x01(\x04" \n\x03\x41\x63k\x12\x19\n\x11\x61\x63ked_delivery_id\x18\x01 \x01(\x04"\xc8\x01\n\x0fWorkflowDagNode\x12\n\n\x02id\x18\x01 \x01(\t\x12\x0e\n\x06\x61\x63tion\x18\x02 \x01(\t\x12?\n\x06kwargs\x18\x03 \x03(\x0b\x32/.carabiner.messages.WorkflowDagNode.KwargsEntry\x12\x12\n\ndepends_on\x18\x04 \x03(\t\x12\x15\n\rwait_for_sync\x18\x05 \x03(\t\x1a-\n\x0bKwargsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01"\x99\x01\n\x14WorkflowRegistration\x12\x15\n\rworkflow_name\x18\x01 \x01(\t\x12\x12\n\nconcurrent\x18\x02 \x01(\x08\x12\x32\n\x05nodes\x18\x03 \x03(\x0b\x32#.carabiner.messages.WorkflowDagNode\x12\x10\n\x08\x64\x61g_json\x18\x04 \x01(\t\x12\x10\n\x08\x64\x61g_hash\x18\x05 \x01(\t*\x9f\x01\n\x0bMessageKind\x12\x1c\n\x18MESSAGE_KIND_UNSPECIFIED\x10\x00\x12 \n\x1cMESSAGE_KIND_ACTION_DISPATCH\x10\x01\x12\x1e\n\x1aMESSAGE_KIND_ACTION_RESULT\x10\x02\x12\x14\n\x10MESSAGE_KIND_ACK\x10\x03\x12\x1a\n\x16MESSAGE_KIND_HEARTBEAT\x10\x04\x62\x06proto3'
+    b'\n\x0emessages.proto\x12\x12\x63\x61rabiner.messages"u\n\x08\x45nvelope\x12\x13\n\x0b\x64\x65livery_id\x18\x01 \x01(\x04\x12\x14\n\x0cpartition_id\x18\x02 \x01(\r\x12-\n\x04kind\x18\x03 \x01(\x0e\x32\x1f.carabiner.messages.MessageKind\x12\x0f\n\x07payload\x18\x04 \x01(\x0c"[\n\x0e\x41\x63tionDispatch\x12\x11\n\taction_id\x18\x01 \x01(\x04\x12\x13\n\x0binstance_id\x18\x02 \x01(\x04\x12\x10\n\x08sequence\x18\x03 \x01(\r\x12\x0f\n\x07payload\x18\x04 \x01(\x0c"s\n\x0c\x41\x63tionResult\x12\x11\n\taction_id\x18\x01 \x01(\x04\x12\x0f\n\x07success\x18\x02 \x01(\x08\x12\x0f\n\x07payload\x18\x03 \x01(\x0c\x12\x17\n\x0fworker_start_ns\x18\x04 \x01(\x04\x12\x15\n\rworker_end_ns\x18\x05 \x01(\x04" \n\x03\x41\x63k\x12\x19\n\x11\x61\x63ked_delivery_id\x18\x01 \x01(\x04"\xc8\x01\n\x0fWorkflowDagNode\x12\n\n\x02id\x18\x01 \x01(\t\x12\x0e\n\x06\x61\x63tion\x18\x02 \x01(\t\x12?\n\x06kwargs\x18\x03 \x03(\x0b\x32/.carabiner.messages.WorkflowDagNode.KwargsEntry\x12\x12\n\ndepends_on\x18\x04 \x03(\t\x12\x15\n\rwait_for_sync\x18\x05 \x03(\t\x1a-\n\x0bKwargsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01"_\n\x15WorkflowDagDefinition\x12\x12\n\nconcurrent\x18\x01 \x01(\x08\x12\x32\n\x05nodes\x18\x02 \x03(\x0b\x32#.carabiner.messages.WorkflowDagNode"w\n\x14WorkflowRegistration\x12\x15\n\rworkflow_name\x18\x01 \x01(\t\x12\x36\n\x03\x64\x61g\x18\x02 \x01(\x0b\x32).carabiner.messages.WorkflowDagDefinition\x12\x10\n\x08\x64\x61g_hash\x18\x03 \x01(\t*\x9f\x01\n\x0bMessageKind\x12\x1c\n\x18MESSAGE_KIND_UNSPECIFIED\x10\x00\x12 \n\x1cMESSAGE_KIND_ACTION_DISPATCH\x10\x01\x12\x1e\n\x1aMESSAGE_KIND_ACTION_RESULT\x10\x02\x12\x14\n\x10MESSAGE_KIND_ACK\x10\x03\x12\x1a\n\x16MESSAGE_KIND_HEARTBEAT\x10\x04\x62\x06proto3'
 )
 
 _globals = globals()
@@ -30,8 +30,8 @@ if not _descriptor._USE_C_DESCRIPTORS:
     DESCRIPTOR._loaded_options = None
     _globals["_WORKFLOWDAGNODE_KWARGSENTRY"]._loaded_options = None
     _globals["_WORKFLOWDAGNODE_KWARGSENTRY"]._serialized_options = b"8\001"
-    _globals["_MESSAGEKIND"]._serialized_start = 761
-    _globals["_MESSAGEKIND"]._serialized_end = 920
+    _globals["_MESSAGEKIND"]._serialized_start = 823
+    _globals["_MESSAGEKIND"]._serialized_end = 982
     _globals["_ENVELOPE"]._serialized_start = 38
     _globals["_ENVELOPE"]._serialized_end = 155
     _globals["_ACTIONDISPATCH"]._serialized_start = 157
@@ -44,6 +44,8 @@ if not _descriptor._USE_C_DESCRIPTORS:
     _globals["_WORKFLOWDAGNODE"]._serialized_end = 602
     _globals["_WORKFLOWDAGNODE_KWARGSENTRY"]._serialized_start = 557
     _globals["_WORKFLOWDAGNODE_KWARGSENTRY"]._serialized_end = 602
-    _globals["_WORKFLOWREGISTRATION"]._serialized_start = 605
-    _globals["_WORKFLOWREGISTRATION"]._serialized_end = 758
+    _globals["_WORKFLOWDAGDEFINITION"]._serialized_start = 604
+    _globals["_WORKFLOWDAGDEFINITION"]._serialized_end = 699
+    _globals["_WORKFLOWREGISTRATION"]._serialized_start = 701
+    _globals["_WORKFLOWREGISTRATION"]._serialized_end = 820
 # @@protoc_insertion_point(module_scope)

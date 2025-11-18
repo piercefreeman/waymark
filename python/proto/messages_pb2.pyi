@@ -71,17 +71,22 @@ class WorkflowDagNode(_ProtoMessage):
     depends_on: list[str]
     wait_for_sync: list[str]
 
+class WorkflowDagDefinition(_ProtoMessage):
+    def __init__(
+        self,
+        concurrent: bool = ...,
+        nodes: list[WorkflowDagNode] | None = ...,
+    ) -> None: ...
+    concurrent: bool
+    nodes: list[WorkflowDagNode]
+
 class WorkflowRegistration(_ProtoMessage):
     def __init__(
         self,
         workflow_name: str = ...,
-        concurrent: bool = ...,
-        nodes: list[WorkflowDagNode] | None = ...,
-        dag_json: str = ...,
+        dag: WorkflowDagDefinition | None = ...,
         dag_hash: str = ...,
     ) -> None: ...
     workflow_name: str
-    concurrent: bool
-    nodes: list[WorkflowDagNode]
-    dag_json: str
+    dag: WorkflowDagDefinition
     dag_hash: str

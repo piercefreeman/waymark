@@ -64,3 +64,19 @@ def test_build_workflow_dag_with_python_block() -> None:
     assert dag.nodes[0].wait_for_sync == []
     assert dag.nodes[1].wait_for_sync == [dag.nodes[0].id]
     assert dag.nodes[2].wait_for_sync == [dag.nodes[1].id]
+
+    # Execute the captured python block to ensure it remains valid.
+    sample_records = [Record(5), Record(20)]
+    namespace: dict[str, object] = {
+        "records": sample_records,
+        "summary": type(
+            "Summary",
+            (),
+            {"transactions": type("Txns", (), {"records": sample_records})()},
+        )(),
+        "top_spenders": [],
+        "positives": [],
+        "helper_threshold": helper_threshold,
+    }
+    exec(python_block.kwargs["code"], namespace)  # noqa: S102 - intentional
+    assert namespace["positives"] == [20]

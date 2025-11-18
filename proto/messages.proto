@@ -46,10 +46,13 @@ message WorkflowDagNode {
   repeated string wait_for_sync = 5;
 }
 
+message WorkflowDagDefinition {
+  bool concurrent = 1;
+  repeated WorkflowDagNode nodes = 2;
+}
+
 message WorkflowRegistration {
   string workflow_name = 1;
-  bool concurrent = 2;
-  repeated WorkflowDagNode nodes = 3;
-  string dag_json = 4;
-  string dag_hash = 5;
+  WorkflowDagDefinition dag = 2;
+  string dag_hash = 3;
 }

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import inspect
-import json
 import os
 from functools import wraps
 from threading import RLock
@@ -62,14 +61,7 @@ class Workflow:
     @classmethod
     def _build_registration_payload(cls) -> pb2.WorkflowRegistration:
         dag = cls.workflow_dag()
-        dag_json = _dag_to_json(dag, cls.concurrent)
-        dag_hash = _hash_dag(dag_json)
-        message = pb2.WorkflowRegistration(
-            workflow_name=cls.short_name(),
-            concurrent=cls.concurrent,
-            dag_json=dag_json,
-            dag_hash=dag_hash,
-        )
+        dag_definition = pb2.WorkflowDagDefinition(concurrent=cls.concurrent)
         for node in dag.nodes:
             proto_node = pb2.WorkflowDagNode(
                 id=node.id,
@@ -78,7 +70,14 @@ class Workflow:
                 wait_for_sync=list(node.wait_for_sync),
             )
             proto_node.kwargs.update(node.kwargs)
-            message.nodes.append(proto_node)
+            dag_definition.nodes.append(proto_node)
+        dag_bytes = dag_definition.SerializeToString()
+        dag_hash = hashlib.sha256(dag_bytes).hexdigest()
+        message = pb2.WorkflowRegistration(
+            workflow_name=cls.short_name(),
+            dag=dag_definition,
+            dag_hash=dag_hash,
+        )
         return message
 
 
@@ -139,24 +138,3 @@ def workflow(cls: type[TWorkflow]) -> type[TWorkflow]:
 
 def _running_under_pytest() -> bool:
     return bool(os.environ.get("PYTEST_CURRENT_TEST"))
-
-
-def _dag_to_json(dag: WorkflowDag, concurrent: bool) -> str:
-    body = {
-        "concurrent": concurrent,
-        "nodes": [
-            {
-                "id": node.id,
-                "action": node.action,
-                "kwargs": node.kwargs,
-                "depends_on": node.depends_on,
-                "wait_for_sync": node.wait_for_sync,
-            }
-            for node in dag.nodes
-        ],
-    }
-    return json.dumps(body, sort_keys=True, separators=(",", ":"))
-
-
-def _hash_dag(json_payload: str) -> str:
-    return hashlib.sha256(json_payload.encode("utf-8")).hexdigest()

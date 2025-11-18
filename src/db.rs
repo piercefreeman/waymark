@@ -175,7 +175,7 @@ impl Database {
         &self,
         workflow_name: &str,
         dag_hash: &str,
-        dag_json: &str,
+        dag_bytes: &[u8],
         concurrent: bool,
     ) -> Result<i64> {
         let mut tx = self.pool.begin().await?;
@@ -193,14 +193,14 @@ impl Database {
 
         let id = sqlx::query_scalar::<_, i64>(
             r#"
-            INSERT INTO workflow_versions (workflow_name, dag_hash, dag_json, concurrent)
+            INSERT INTO workflow_versions (workflow_name, dag_hash, dag_proto, concurrent)
             VALUES ($1, $2, $3, $4)
             RETURNING id
             "#,
         )
         .bind(workflow_name)
         .bind(dag_hash)
-        .bind(dag_json)
+        .bind(dag_bytes)
         .bind(concurrent)
         .fetch_one(&mut *tx)
         .await?;
