@@ -112,3 +112,29 @@ class WorkflowNodeDispatch(_ProtoMessage):
     node: WorkflowDagNode
     workflow_input: bytes
     context: list[WorkflowNodeContext]
+
+class RegisterWorkflowRequest(_ProtoMessage):
+    def __init__(
+        self,
+        database_url: str = ...,
+        registration: WorkflowRegistration | None = ...,
+    ) -> None: ...
+    database_url: str
+    registration: WorkflowRegistration
+
+class RegisterWorkflowResponse(_ProtoMessage):
+    def __init__(self, workflow_version_id: int = ...) -> None: ...
+    workflow_version_id: int
+
+class WaitForInstanceRequest(_ProtoMessage):
+    def __init__(
+        self,
+        database_url: str = ...,
+        poll_interval_secs: float = ...,
+    ) -> None: ...
+    database_url: str
+    poll_interval_secs: float
+
+class WaitForInstanceResponse(_ProtoMessage):
+    def __init__(self, payload: bytes = ...) -> None: ...
+    payload: bytes

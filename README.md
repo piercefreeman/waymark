@@ -114,12 +114,17 @@ $ cargo run --bin bench -- \
 
 Add `--json` to the parser if you prefer JSON output.
 
-## Building Python Wheels
+## Local Server Runtime
 
-Since we have a rust base, you need to compile sources before using it during development. We use `maturin` for both the pyo3
-extension module and the CLI binaries. Use the helper script at the repo root:
+The Rust runtime now exposes both HTTP and gRPC APIs via the `carabiner-server` binary. Developers can either launch it
+directly or rely on the `boot-carabiner-singleton` helper which finds (or starts) a single shared instance on
+`127.0.0.1:24117`. The helper prints the active HTTP port to stdout so Python clients can connect without additional
+configuration:
 
 ```
-$ ./build_wheel.sh develop          # installs the dev artifacts into your current environment
-$ ./build_wheel.sh release          # writes merged wheels into target/wheels/
+$ cargo run --bin boot-carabiner-singleton
+24117
 ```
+
+The Python bridge automatically shells out to the helper unless you provide `CARABINER_SERVER_URL` or `CARABINER_SERVER_PORT`
+environment overrides. This keeps the development story lightweight without any maturin-built extensions.

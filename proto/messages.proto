@@ -70,3 +70,26 @@ message WorkflowNodeDispatch {
   bytes workflow_input = 2;
   repeated WorkflowNodeContext context = 3;
 }
+
+message RegisterWorkflowRequest {
+  string database_url = 1;
+  WorkflowRegistration registration = 2;
+}
+
+message RegisterWorkflowResponse {
+  int64 workflow_version_id = 1;
+}
+
+message WaitForInstanceRequest {
+  string database_url = 1;
+  double poll_interval_secs = 2;
+}
+
+message WaitForInstanceResponse {
+  bytes payload = 1;
+}
+
+service WorkflowService {
+  rpc RegisterWorkflow(RegisterWorkflowRequest) returns (RegisterWorkflowResponse);
+  rpc WaitForInstance(WaitForInstanceRequest) returns (WaitForInstanceResponse);
+}

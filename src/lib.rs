@@ -5,9 +5,8 @@ pub mod dag_state;
 pub mod db;
 pub mod instances;
 pub mod messages;
-#[cfg(feature = "python-extension")]
-mod pybridge;
 pub mod python_worker;
+pub mod server;
 
 pub use benchmark_actions::{BenchmarkHarness, HarnessConfig};
 pub use benchmark_common::{BenchmarkResult, BenchmarkSummary};
