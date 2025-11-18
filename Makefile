@@ -18,4 +18,4 @@ lint:
 	uv run --project python ruff check python --fix
 	uv run --project python ty check python
 	cargo fmt
-	cargo clippy -- -D warnings
+	cargo clippy --all-targets --all-features -- -D warnings

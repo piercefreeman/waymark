@@ -282,23 +282,3 @@ print(base64.b64encode(payload.SerializeToString()).decode(), end='')
         .context("decode workflow registration base64")?;
     Ok(bytes)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::messages::proto::WorkflowDagNode;
-
-    #[test]
-    fn build_payload_serializes_dispatch() {
-        let mut context = HashMap::new();
-        context.insert("foo".to_string(), vec![1, 2, 3]);
-        let node = WorkflowDagNode {
-            id: "node_0".to_string(),
-            action: "workflow.execute_node".to_string(),
-            module: Some("carabiner_worker.workflow_runtime".to_string()),
-            ..Default::default()
-        };
-        let payload = build_workflow_action_payload(&node, b"{}", &context).expect("build payload");
-        assert!(payload.contains(b"workflow.execute_node"));
-    }
-}

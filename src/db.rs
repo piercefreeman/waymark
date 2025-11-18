@@ -149,6 +149,8 @@ mod tests {
             kwargs: Default::default(),
             depends_on: depends_on.iter().map(|s| s.to_string()).collect(),
             wait_for_sync: wait_for_sync.iter().map(|s| s.to_string()).collect(),
+            module: String::new(),
+            produces: Vec::new(),
         }
     }
 
