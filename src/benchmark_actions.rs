@@ -43,7 +43,7 @@ pub struct BenchmarkHarness {
     completion_handle: JoinHandle<()>,
 }
 
-const BENCHMARK_USER_MODULE: &str = "carabiner_worker.fixtures.benchmark_actions";
+const BENCHMARK_USER_MODULE: &str = "fixtures.benchmark_actions";
 const BENCHMARK_ACTION: &str = "benchmark.echo_payload";
 const BENCHMARK_REQUEST_MODEL: &str = "PayloadRequest";
 

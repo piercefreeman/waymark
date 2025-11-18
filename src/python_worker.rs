@@ -37,8 +37,8 @@ impl Default for PythonWorkerConfig {
             script_path: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("python/worker.py"),
             python_binary: PathBuf::from("python3"),
             partition_id: 0,
-            user_module: "carabiner_worker.fixtures.benchmark_actions".to_string(),
-            extra_python_paths: Vec::new(),
+            user_module: "fixtures.benchmark_actions".to_string(),
+            extra_python_paths: vec![PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src")],
         }
     }
 }

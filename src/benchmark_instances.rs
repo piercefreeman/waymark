@@ -68,7 +68,7 @@ impl WorkflowBenchmarkHarness {
     ) -> Result<Self> {
         let temp_dir = TempDir::new().context("create temp dir for workflow benchmark")?;
         let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let fixtures_dir = repo_root.join("python/src/carabiner_worker/fixtures");
+        let fixtures_dir = repo_root.join("src/fixtures");
         let package_dir = temp_dir.path().join("workflow_bench");
         fs::create_dir_all(&package_dir).context("create workflow package dir")?;
         fs::write(package_dir.join("__init__.py"), b"").context("write package __init__")?;

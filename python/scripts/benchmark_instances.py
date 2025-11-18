@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import sys
+from pathlib import Path
 
-from carabiner_worker.fixtures.benchmark_instances import run_benchmark_instances
+REPO_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO_ROOT / "src"))
+
+from fixtures.benchmark_instances import run_benchmark_instances
 
 
 def parse_args() -> argparse.Namespace:

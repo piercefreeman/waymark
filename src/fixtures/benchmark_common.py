@@ -34,3 +34,4 @@ class InstanceRunStats(BaseModel):
     responses: int
     checksum: int
     total_bytes: int
+
