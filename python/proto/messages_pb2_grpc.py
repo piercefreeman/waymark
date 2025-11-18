@@ -148,3 +148,80 @@ class WorkflowService(object):
             metadata,
             _registered_method=True,
         )
+
+
+class WorkerBridgeStub(object):
+    """Missing associated documentation comment in .proto file."""
+
+    def __init__(self, channel):
+        """Constructor.
+
+        Args:
+            channel: A grpc.Channel.
+        """
+        self.Attach = channel.stream_stream(
+            "/carabiner.messages.WorkerBridge/Attach",
+            request_serializer=messages__pb2.Envelope.SerializeToString,
+            response_deserializer=messages__pb2.Envelope.FromString,
+            _registered_method=True,
+        )
+
+
+class WorkerBridgeServicer(object):
+    """Missing associated documentation comment in .proto file."""
+
+    def Attach(self, request_iterator, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+
+def add_WorkerBridgeServicer_to_server(servicer, server):
+    rpc_method_handlers = {
+        "Attach": grpc.stream_stream_rpc_method_handler(
+            servicer.Attach,
+            request_deserializer=messages__pb2.Envelope.FromString,
+            response_serializer=messages__pb2.Envelope.SerializeToString,
+        ),
+    }
+    generic_handler = grpc.method_handlers_generic_handler(
+        "carabiner.messages.WorkerBridge", rpc_method_handlers
+    )
+    server.add_generic_rpc_handlers((generic_handler,))
+    server.add_registered_method_handlers("carabiner.messages.WorkerBridge", rpc_method_handlers)
+
+
+# This class is part of an EXPERIMENTAL API.
+class WorkerBridge(object):
+    """Missing associated documentation comment in .proto file."""
+
+    @staticmethod
+    def Attach(
+        request_iterator,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.stream_stream(
+            request_iterator,
+            target,
+            "/carabiner.messages.WorkerBridge/Attach",
+            messages__pb2.Envelope.SerializeToString,
+            messages__pb2.Envelope.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )

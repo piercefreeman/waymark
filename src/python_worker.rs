@@ -2,7 +2,9 @@ use std::{
     collections::HashMap,
     convert::TryFrom,
     env,
+    net::SocketAddr,
     path::PathBuf,
+    pin::Pin,
     process::Stdio,
     sync::{
         Arc,
@@ -11,13 +13,21 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::{Context, Result as AnyResult};
+use anyhow::{Context, Result as AnyResult, anyhow};
+use futures::Stream;
+use prost::Message;
 use tokio::{
-    io::{BufReader, BufWriter},
-    process::{Child, ChildStdin, ChildStdout, Command},
-    sync::{Mutex, oneshot},
+    net::TcpListener,
+    process::{Child, Command},
+    sync::{Mutex, mpsc, oneshot},
     task::JoinHandle,
+    time::timeout,
 };
+use tokio_stream::{
+    StreamExt,
+    wrappers::{ReceiverStream, TcpListenerStream},
+};
+use tonic::{Request, Response, Status, Streaming, async_trait, transport::Server};
 use tracing::{debug, error, info, warn};
 
 use crate::{
@@ -28,7 +38,6 @@ use crate::{
 #[derive(Clone, Debug)]
 pub struct PythonWorkerConfig {
     pub script_path: PathBuf,
-    pub python_binary: PathBuf,
     pub partition_id: u32,
     pub user_module: String,
     pub extra_python_paths: Vec<PathBuf>,
@@ -37,8 +46,7 @@ pub struct PythonWorkerConfig {
 impl Default for PythonWorkerConfig {
     fn default() -> Self {
         Self {
-            script_path: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("python/worker.py"),
-            python_binary: PathBuf::from("python3"),
+            script_path: PathBuf::from("carabiner-worker"),
             partition_id: 0,
             user_module: "fixtures.benchmark_actions".to_string(),
             extra_python_paths: vec![PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src")],
@@ -81,9 +89,199 @@ pub struct ActionDispatchPayload {
     pub payload: Vec<u8>,
 }
 
+struct WorkerBridgeChannels {
+    to_worker: mpsc::Sender<proto::Envelope>,
+    from_worker: mpsc::Receiver<proto::Envelope>,
+}
+
+struct WorkerBridgeState {
+    pending: Mutex<HashMap<u64, oneshot::Sender<WorkerBridgeChannels>>>,
+}
+
+impl WorkerBridgeState {
+    fn new() -> Self {
+        Self {
+            pending: Mutex::new(HashMap::new()),
+        }
+    }
+
+    async fn reserve_worker(&self, worker_id: u64) -> oneshot::Receiver<WorkerBridgeChannels> {
+        let (tx, rx) = oneshot::channel();
+        let mut guard = self.pending.lock().await;
+        guard.insert(worker_id, tx);
+        rx
+    }
+
+    async fn cancel_worker(&self, worker_id: u64) {
+        let mut guard = self.pending.lock().await;
+        guard.remove(&worker_id);
+    }
+
+    async fn register_worker(
+        &self,
+        worker_id: u64,
+        channels: WorkerBridgeChannels,
+    ) -> Result<(), Status> {
+        let sender = {
+            let mut guard = self.pending.lock().await;
+            guard.remove(&worker_id)
+        };
+        match sender {
+            Some(waiter) => waiter
+                .send(channels)
+                .map_err(|_| Status::unavailable("worker reservation dropped")),
+            None => Err(Status::failed_precondition("unknown worker id")),
+        }
+    }
+}
+
+#[derive(Clone)]
+struct WorkerBridgeService {
+    state: Arc<WorkerBridgeState>,
+}
+
+impl WorkerBridgeService {
+    fn new(state: Arc<WorkerBridgeState>) -> Self {
+        Self { state }
+    }
+}
+
+#[async_trait]
+impl proto::worker_bridge_server::WorkerBridge for WorkerBridgeService {
+    type AttachStream =
+        Pin<Box<dyn Stream<Item = Result<proto::Envelope, Status>> + Send + 'static>>;
+
+    async fn attach(
+        &self,
+        request: Request<Streaming<proto::Envelope>>,
+    ) -> Result<Response<Self::AttachStream>, Status> {
+        let mut stream = request.into_inner();
+        let handshake = stream
+            .message()
+            .await
+            .map_err(|err| Status::internal(format!("failed to read handshake: {err}")))?
+            .ok_or_else(|| Status::invalid_argument("missing worker handshake"))?;
+        let kind = proto::MessageKind::try_from(handshake.kind)
+            .map_err(|_| Status::invalid_argument("invalid message kind"))?;
+        if kind != proto::MessageKind::WorkerHello {
+            return Err(Status::failed_precondition(
+                "expected WorkerHello as first message",
+            ));
+        }
+        let hello = proto::WorkerHello::decode(&*handshake.payload).map_err(|err| {
+            Status::invalid_argument(format!("invalid WorkerHello payload: {err}"))
+        })?;
+        let worker_id = hello.worker_id;
+        let (to_worker_tx, to_worker_rx) = mpsc::channel(64);
+        let (from_worker_tx, from_worker_rx) = mpsc::channel(64);
+        self.state
+            .register_worker(
+                worker_id,
+                WorkerBridgeChannels {
+                    to_worker: to_worker_tx,
+                    from_worker: from_worker_rx,
+                },
+            )
+            .await?;
+
+        let reader_state = Arc::clone(&self.state);
+        tokio::spawn(async move {
+            loop {
+                match stream.message().await {
+                    Ok(Some(envelope)) => {
+                        if from_worker_tx.send(envelope).await.is_err() {
+                            break;
+                        }
+                    }
+                    Ok(None) => break,
+                    Err(err) => {
+                        warn!(?err, worker_id, "worker stream receive error");
+                        break;
+                    }
+                }
+            }
+            // Ensure pending entry is cleared if the worker disconnects before registration completes.
+            reader_state.cancel_worker(worker_id).await;
+        });
+
+        let outbound = ReceiverStream::new(to_worker_rx).map(Ok::<proto::Envelope, Status>);
+        Ok(Response::new(Box::pin(outbound) as Self::AttachStream))
+    }
+}
+
+struct WorkerBridgeHandle {
+    addr: SocketAddr,
+    state: Arc<WorkerBridgeState>,
+    next_worker_id: AtomicU64,
+    shutdown_tx: Mutex<Option<oneshot::Sender<()>>>,
+    server_handle: Mutex<Option<JoinHandle<()>>>,
+}
+
+impl WorkerBridgeHandle {
+    async fn start() -> AnyResult<Arc<Self>> {
+        let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+            .await
+            .context("failed to bind worker bridge listener")?;
+        let addr = listener
+            .local_addr()
+            .context("failed to resolve bridge addr")?;
+        let state = Arc::new(WorkerBridgeState::new());
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
+        let service = WorkerBridgeService::new(Arc::clone(&state));
+        let server = tokio::spawn(async move {
+            let incoming = TcpListenerStream::new(listener);
+            let shutdown = async move {
+                let _ = shutdown_rx.await;
+            };
+            let result = Server::builder()
+                .add_service(proto::worker_bridge_server::WorkerBridgeServer::new(
+                    service,
+                ))
+                .serve_with_incoming_shutdown(incoming, shutdown)
+                .await;
+            if let Err(err) = result {
+                error!(?err, "worker bridge server exited with error");
+            }
+        });
+        Ok(Arc::new(Self {
+            addr,
+            state,
+            next_worker_id: AtomicU64::new(1),
+            shutdown_tx: Mutex::new(Some(shutdown_tx)),
+            server_handle: Mutex::new(Some(server)),
+        }))
+    }
+
+    fn addr(&self) -> SocketAddr {
+        self.addr
+    }
+
+    async fn reserve_worker(&self) -> (u64, oneshot::Receiver<WorkerBridgeChannels>) {
+        let worker_id = self.next_worker_id.fetch_add(1, Ordering::SeqCst);
+        let rx = self.state.reserve_worker(worker_id).await;
+        (worker_id, rx)
+    }
+
+    async fn cancel_worker(&self, worker_id: u64) {
+        self.state.cancel_worker(worker_id).await;
+    }
+
+    async fn shutdown(&self) {
+        if let Some(tx) = self.shutdown_tx.lock().await.take() {
+            let _ = tx.send(());
+        }
+        if let Some(handle) = self.server_handle.lock().await.take() {
+            match handle.await {
+                Ok(_) => {}
+                Err(err) => warn!(?err, "worker bridge task join failed"),
+            }
+        }
+    }
+}
+
 pub struct PythonWorker {
     child: Child,
-    writer: Arc<Mutex<BufWriter<ChildStdin>>>,
+    sender: mpsc::Sender<proto::Envelope>,
     shared: Arc<Mutex<SharedState>>,
     next_delivery: AtomicU64,
     partition_id: u32,
@@ -91,19 +289,17 @@ pub struct PythonWorker {
 }
 
 impl PythonWorker {
-    pub async fn spawn(config: PythonWorkerConfig) -> AnyResult<Self> {
-        let script_dir = config
-            .script_path
-            .parent()
-            .map(|path| path.to_path_buf())
-            .unwrap_or_else(|| PathBuf::from("."));
-        let src_dir = script_dir.join("src");
-        let module_paths = if src_dir.exists() {
-            vec![script_dir.clone(), src_dir]
-        } else {
-            vec![script_dir.clone()]
-        };
-        let mut module_paths = module_paths;
+    async fn spawn(config: PythonWorkerConfig, bridge: Arc<WorkerBridgeHandle>) -> AnyResult<Self> {
+        let (worker_id, connection_rx) = bridge.reserve_worker().await;
+        let package_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("python");
+        let mut module_paths = Vec::new();
+        if package_root.exists() {
+            module_paths.push(package_root.clone());
+            let src_dir = package_root.join("src");
+            if src_dir.exists() {
+                module_paths.push(src_dir);
+            }
+        }
         module_paths.extend(config.extra_python_paths.clone());
         let joined_python_path = module_paths
             .iter()
@@ -115,41 +311,63 @@ impl PythonWorker {
             _ => joined_python_path,
         };
 
-        let mut command = Command::new(&config.python_binary);
+        let mut command = Command::new(&config.script_path);
         command
-            .arg(&config.script_path)
+            .arg("--bridge")
+            .arg(bridge.addr().to_string())
+            .arg("--worker-id")
+            .arg(worker_id.to_string())
             .arg("--user-module")
             .arg(&config.user_module)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
             .env("PYTHONPATH", python_path);
 
-        let mut child = command.spawn().context("failed to launch python worker")?;
-        let stdin = child.stdin.take().context("python worker stdin missing")?;
-        let stdout = child
-            .stdout
-            .take()
-            .context("python worker stdout missing")?;
+        let mut child = match command.spawn().context("failed to launch python worker") {
+            Ok(child) => child,
+            Err(err) => {
+                bridge.cancel_worker(worker_id).await;
+                return Err(err);
+            }
+        };
 
         info!(
             pid = child.id(),
             script = %config.script_path.display(),
+            worker_id,
             "spawned python worker"
         );
 
-        let writer = Arc::new(Mutex::new(BufWriter::new(stdin)));
+        let connection = match timeout(Duration::from_secs(15), connection_rx).await {
+            Ok(Ok(channels)) => channels,
+            Ok(Err(_)) => {
+                bridge.cancel_worker(worker_id).await;
+                let _ = child.start_kill();
+                let _ = child.wait().await;
+                return Err(anyhow!("worker bridge channel closed before attach"));
+            }
+            Err(_) => {
+                bridge.cancel_worker(worker_id).await;
+                let _ = child.start_kill();
+                let _ = child.wait().await;
+                return Err(anyhow!("timed out waiting for worker bridge attachment"));
+            }
+        };
+
+        let WorkerBridgeChannels {
+            to_worker,
+            mut from_worker,
+        } = connection;
         let shared = Arc::new(Mutex::new(SharedState::new()));
         let reader_shared = Arc::clone(&shared);
         let reader_handle = tokio::spawn(async move {
-            if let Err(err) = Self::reader_loop(stdout, reader_shared).await {
-                error!(?err, "python stdout loop exited");
+            if let Err(err) = Self::reader_loop(&mut from_worker, reader_shared).await {
+                error!(?err, "python worker stream exited");
             }
         });
 
         Ok(Self {
             child,
-            writer,
+            sender: to_worker,
             shared,
             next_delivery: AtomicU64::new(1),
             partition_id: config.partition_id,
@@ -193,7 +411,7 @@ impl PythonWorker {
             payload: messages::encode_message(&command),
         };
 
-        self.write_envelope(&envelope).await?;
+        self.send_envelope(envelope).await?;
 
         let ack_instant = ack_rx.await.map_err(|_| MessageError::ChannelClosed)?;
         let (response, response_instant) =
@@ -224,26 +442,18 @@ impl PythonWorker {
         })
     }
 
-    async fn write_envelope(&self, envelope: &proto::Envelope) -> Result<(), MessageError> {
-        let mut writer = self.writer.lock().await;
-        messages::write_envelope(&mut *writer, envelope).await
+    async fn send_envelope(&self, envelope: proto::Envelope) -> Result<(), MessageError> {
+        self.sender
+            .send(envelope)
+            .await
+            .map_err(|_| MessageError::ChannelClosed)
     }
 
     async fn reader_loop(
-        stdout: ChildStdout,
+        incoming: &mut mpsc::Receiver<proto::Envelope>,
         shared: Arc<Mutex<SharedState>>,
     ) -> Result<(), MessageError> {
-        let mut reader = BufReader::new(stdout);
-        loop {
-            let envelope = match messages::read_envelope(&mut reader).await {
-                Ok(frame) => frame,
-                Err(MessageError::Io(err)) if err.kind() == std::io::ErrorKind::UnexpectedEof => {
-                    debug!("python stdout closed");
-                    break;
-                }
-                Err(other) => return Err(other),
-            };
-
+        while let Some(envelope) = incoming.recv().await {
             let kind = proto::MessageKind::try_from(envelope.kind)
                 .unwrap_or(proto::MessageKind::Unspecified);
 
@@ -307,19 +517,22 @@ impl Drop for PythonWorker {
 pub struct PythonWorkerPool {
     workers: Vec<Arc<PythonWorker>>,
     cursor: AtomicUsize,
+    bridge: Arc<WorkerBridgeHandle>,
 }
 
 impl PythonWorkerPool {
     pub async fn new(config: PythonWorkerConfig, count: usize) -> AnyResult<Self> {
         let worker_count = count.max(1);
+        let bridge = WorkerBridgeHandle::start().await?;
         let mut workers = Vec::with_capacity(worker_count);
         for _ in 0..worker_count {
-            let worker = PythonWorker::spawn(config.clone()).await?;
+            let worker = PythonWorker::spawn(config.clone(), Arc::clone(&bridge)).await?;
             workers.push(Arc::new(worker));
         }
         Ok(Self {
             workers,
             cursor: AtomicUsize::new(0),
+            bridge,
         })
     }
 
@@ -337,6 +550,7 @@ impl PythonWorkerPool {
     }
 
     pub async fn shutdown(self) -> AnyResult<()> {
+        let bridge = Arc::clone(&self.bridge);
         for worker in self.workers {
             match Arc::try_unwrap(worker) {
                 Ok(worker) => {
@@ -345,6 +559,7 @@ impl PythonWorkerPool {
                 Err(_) => warn!("python worker still in use during shutdown; skipping"),
             }
         }
+        bridge.shutdown().await;
         Ok(())
     }
 }

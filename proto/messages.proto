@@ -9,6 +9,7 @@ enum MessageKind {
   MESSAGE_KIND_ACTION_RESULT = 2;
   MESSAGE_KIND_ACK = 3;
   MESSAGE_KIND_HEARTBEAT = 4;
+  MESSAGE_KIND_WORKER_HELLO = 5;
 }
 
 message Envelope {
@@ -36,6 +37,10 @@ message ActionResult {
 
 message Ack {
   uint64 acked_delivery_id = 1;
+}
+
+message WorkerHello {
+  uint64 worker_id = 1;
 }
 
 message WorkflowDagNode {
@@ -92,4 +97,8 @@ message WaitForInstanceResponse {
 service WorkflowService {
   rpc RegisterWorkflow(RegisterWorkflowRequest) returns (RegisterWorkflowResponse);
   rpc WaitForInstance(WaitForInstanceRequest) returns (WaitForInstanceResponse);
+}
+
+service WorkerBridge {
+  rpc Attach(stream Envelope) returns (stream Envelope);
 }

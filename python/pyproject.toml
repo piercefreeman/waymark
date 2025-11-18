@@ -12,6 +12,9 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8"]
 
+[project.scripts]
+carabiner-worker = "carabiner_worker.worker:main"
+
 [tool.uv]
 dev-dependencies = [
     "grpcio-tools>=1.66,<2",
