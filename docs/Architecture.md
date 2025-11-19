@@ -22,7 +22,7 @@ The server receives these completed actions and uses them to increment a state m
 ## Workers
 
 The `start_workers` binary polls for the work to be done. Launch this a single
-time for each worker node you have in your cluster. Worker processes read their
+time for each physical worker node you have in your cluster. Worker processes read their
 configuration from `DATABASE_URL` plus optional `CARABINER_*` environment
 variables (poll interval, batch size, worker count, etc.) so the loop can be
 tuned per deployment without CLI flags. The dispatcher shares a single
@@ -32,15 +32,17 @@ round-robin worker pool. Workers still have no direct database access – they
 only handle gRPC traffic from the dispatcher.
 
 ```
-+-------------------+       poll queued actions        +---------------------+
-| Polling Dispatcher| -------------------------------->| PostgreSQL Ledger   |
-+-------------------+                                  +---------------------+
-          |                                                      |
-          | dispatch via bridge                                  |
-          v                                                      v
-+-------------------+   bidirectional gRPC   +-------------------------+
-| PythonWorkerPool  | <--------------------> | Python Worker Processes |
-+-------------------+                        +-------------------------+
+         +-------------------+       SQL poll/update      +------------+
+         | Polling Dispatcher| -------------------------> | PostgreSQL |
+         |   (dispatch loop) | <------------------------- |   Ledger   |
+         +-------------------+                           +------------+
+                    |
+                    | gRPC dispatch/results
+                    v
+         +-------------------+      gRPC only      +-----------------+
+         | PythonWorkerPool  | <-----------------> | Python workers  |
+         |   (bridge server) |                    | (carabiner-worker)
+         +-------------------+                    +-----------------+
 ```
 
 Tuning notes:
