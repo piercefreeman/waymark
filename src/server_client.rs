@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, sync::Arc, time::Duration};
+use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
 
 use anyhow::{Context, Result};
 use axum::{
@@ -17,8 +17,11 @@ use tonic::{Request, Response as GrpcResponse, Status, async_trait, transport::S
 use tracing::{error, info};
 
 use crate::{
-    WorkflowVersionId,
-    db::{Database, WorkflowVersionDetail, WorkflowVersionSummary},
+    WorkflowInstanceId, WorkflowVersionId,
+    db::{
+        Database, WorkflowInstanceActionDetail, WorkflowInstanceDetail, WorkflowInstanceSummary,
+        WorkflowVersionDetail, WorkflowVersionSummary,
+    },
     instances,
     messages::proto::{self, workflow_service_server::WorkflowServiceServer},
 };
@@ -185,6 +188,10 @@ async fn run_http_server(listener: TcpListener, state: HttpState) -> Result<()> 
     let app = Router::new()
         .route("/", get(list_workflows))
         .route("/workflow/:workflow_version_id", get(workflow_detail))
+        .route(
+            "/workflow/:workflow_version_id/run/:instance_id",
+            get(workflow_run_detail),
+        )
         .route(HEALTH_PATH, get(healthz))
         .route(REGISTER_PATH, post(register_workflow_http))
         .route(WAIT_PATH, post(wait_for_instance_http))
@@ -235,7 +242,16 @@ async fn workflow_detail(
     let templates = state.templates.clone();
     let database = state.database.clone();
     match database.load_workflow_version(version_id).await {
-        Ok(Some(workflow)) => Html(render_workflow_detail_page(&templates, &workflow)),
+        Ok(Some(workflow)) => {
+            let runs = match database.recent_instances_for_version(version_id, 10).await {
+                Ok(list) => list,
+                Err(err) => {
+                    error!(?err, workflow_version_id = %version_id, "failed to load recent runs");
+                    Vec::new()
+                }
+            };
+            Html(render_workflow_detail_page(&templates, &workflow, &runs))
+        }
         Ok(None) => Html(render_error_page(
             &templates,
             "Workflow not found",
@@ -254,6 +270,73 @@ async fn workflow_detail(
             ))
         }
     }
+}
+
+async fn workflow_run_detail(
+    State(state): State<HttpState>,
+    Path((version_id, instance_id)): Path<(WorkflowVersionId, WorkflowInstanceId)>,
+) -> Html<String> {
+    let templates = state.templates.clone();
+    let database = state.database.clone();
+    let instance_detail = match database.load_instance_with_actions(instance_id).await {
+        Ok(Some(detail)) => detail,
+        Ok(None) => {
+            return Html(render_error_page(
+                &templates,
+                "Run not found",
+                "The requested workflow run could not be located.",
+            ));
+        }
+        Err(err) => {
+            error!(?err, workflow_instance_id = %instance_id, "failed to load workflow run");
+            return Html(render_error_page(
+                &templates,
+                "Unable to load run",
+                "We encountered a database error while loading this workflow run.",
+            ));
+        }
+    };
+    let Some(instance_version_id) = instance_detail.instance.workflow_version_id else {
+        return Html(render_error_page(
+            &templates,
+            "Run not linked",
+            "This workflow run is missing its version metadata.",
+        ));
+    };
+    if instance_version_id != version_id {
+        return Html(render_error_page(
+            &templates,
+            "Workflow mismatch",
+            "This workflow run does not belong to the requested workflow version.",
+        ));
+    }
+    let workflow = match database.load_workflow_version(version_id).await {
+        Ok(Some(workflow)) => workflow,
+        Ok(None) => {
+            return Html(render_error_page(
+                &templates,
+                "Workflow not found",
+                "The requested workflow version could not be located.",
+            ));
+        }
+        Err(err) => {
+            error!(
+                ?err,
+                workflow_version_id = %version_id,
+                "failed to load workflow detail"
+            );
+            return Html(render_error_page(
+                &templates,
+                "Unable to load workflow",
+                "We hit an unexpected error when loading this workflow. Please try again shortly.",
+            ));
+        }
+    };
+    Html(render_workflow_run_page(
+        &templates,
+        &workflow,
+        &instance_detail,
+    ))
 }
 
 async fn register_workflow_http(
@@ -354,7 +437,11 @@ fn render_home_page(templates: &Tera, workflows: &[WorkflowVersionSummary]) -> S
     render_template(templates, "home.html", &context)
 }
 
-fn render_workflow_detail_page(templates: &Tera, workflow: &WorkflowVersionDetail) -> String {
+fn render_workflow_detail_page(
+    templates: &Tera,
+    workflow: &WorkflowVersionDetail,
+    runs: &[WorkflowInstanceSummary],
+) -> String {
     let nodes = workflow
         .dag
         .nodes
@@ -380,7 +467,186 @@ fn render_workflow_detail_page(templates: &Tera, workflow: &WorkflowVersionDetai
             waits_for_display: format_dependencies(&node.wait_for_sync),
         })
         .collect();
-    let info = WorkflowDetailMetadata {
+    let info = build_workflow_metadata(workflow);
+    let run_items = runs
+        .iter()
+        .map(|run| WorkflowInstanceListContext {
+            id: run.id.to_string(),
+            created_at: run.created_at.format("%Y-%m-%d %H:%M:%S UTC").to_string(),
+            status: describe_run_status(run.has_result, run.completed_actions, run.total_actions),
+            progress: format_run_progress(run.completed_actions, run.total_actions),
+            url: format!("/workflow/{}/run/{}", workflow.id, run.id),
+        })
+        .collect();
+    let context = WorkflowDetailPageContext {
+        title: format!("{} • Workflow Detail", workflow.workflow_name),
+        workflow: info,
+        nodes,
+        has_nodes: !workflow.dag.nodes.is_empty(),
+        graph_data: build_graph_data(workflow),
+        recent_runs: run_items,
+        has_runs: !runs.is_empty(),
+    };
+    render_template(templates, "workflow.html", &context)
+}
+
+fn describe_run_status(has_result: bool, completed: i64, total: i64) -> String {
+    if has_result {
+        "Completed".to_string()
+    } else if completed > 0 {
+        if total > 0 && completed >= total {
+            "Awaiting Finalization".to_string()
+        } else {
+            "In Progress".to_string()
+        }
+    } else {
+        "Pending".to_string()
+    }
+}
+
+fn format_run_progress(completed: i64, total: i64) -> String {
+    if total > 0 {
+        format!("{}/{}", completed, total)
+    } else {
+        "-".to_string()
+    }
+}
+
+fn render_workflow_run_page(
+    templates: &Tera,
+    workflow: &WorkflowVersionDetail,
+    detail: &WorkflowInstanceDetail,
+) -> String {
+    let workflow_meta = build_workflow_metadata(workflow);
+    let total_nodes = workflow.dag.nodes.len() as i64;
+    let completed_nodes = detail
+        .actions
+        .iter()
+        .filter(|action| action.status.eq_ignore_ascii_case("completed"))
+        .count() as i64;
+    let status_label = describe_run_status(
+        detail.instance.result_payload.is_some(),
+        completed_nodes,
+        total_nodes,
+    );
+    let progress = format_run_progress(completed_nodes, total_nodes);
+    let input_payload = format_optional_payload(&detail.instance.input_payload);
+    let result_payload = format_optional_payload(&detail.instance.result_payload);
+    let instance_meta = WorkflowRunMetadataContext {
+        id: detail.instance.id.to_string(),
+        created_at: detail
+            .instance
+            .created_at
+            .format("%Y-%m-%d %H:%M:%S UTC")
+            .to_string(),
+        status: status_label,
+        progress,
+        input_payload,
+        result_payload,
+    };
+    let mut action_map: HashMap<String, &WorkflowInstanceActionDetail> = HashMap::new();
+    for action in &detail.actions {
+        if let Some(node_id) = &action.workflow_node_id {
+            action_map.insert(node_id.clone(), action);
+        }
+    }
+    let nodes = workflow
+        .dag
+        .nodes
+        .iter()
+        .map(|node| {
+            if let Some(record) = action_map.get(&node.id) {
+                WorkflowRunNodeContext {
+                    id: node.id.clone(),
+                    action: if node.action.is_empty() {
+                        "action".to_string()
+                    } else {
+                        node.action.clone()
+                    },
+                    module: if node.module.is_empty() {
+                        "workflow".to_string()
+                    } else {
+                        node.module.clone()
+                    },
+                    status: describe_action_status(record),
+                    request_payload: format_payload(&record.payload),
+                    response_payload: format_optional_payload(&record.result_payload),
+                }
+            } else {
+                WorkflowRunNodeContext {
+                    id: node.id.clone(),
+                    action: if node.action.is_empty() {
+                        "action".to_string()
+                    } else {
+                        node.action.clone()
+                    },
+                    module: if node.module.is_empty() {
+                        "workflow".to_string()
+                    } else {
+                        node.module.clone()
+                    },
+                    status: "Pending".to_string(),
+                    request_payload: "-".to_string(),
+                    response_payload: "-".to_string(),
+                }
+            }
+        })
+        .collect();
+    let context = WorkflowRunPageContext {
+        title: format!("Run {} • {}", detail.instance.id, workflow.workflow_name),
+        workflow: workflow_meta,
+        instance: instance_meta,
+        nodes,
+    };
+    render_template(templates, "workflow_run.html", &context)
+}
+
+fn describe_action_status(action: &WorkflowInstanceActionDetail) -> String {
+    let status = action.status.to_lowercase();
+    if status == "completed" {
+        if action.success.unwrap_or(true) {
+            "Completed".to_string()
+        } else {
+            "Failed".to_string()
+        }
+    } else if status == "dispatched" {
+        "Dispatched".to_string()
+    } else if status == "queued" {
+        "Queued".to_string()
+    } else {
+        action.status.clone()
+    }
+}
+
+fn format_payload(bytes: &[u8]) -> String {
+    if bytes.is_empty() {
+        return "-".to_string();
+    }
+    if let Ok(text) = std::str::from_utf8(bytes) {
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(text)
+            && let Ok(pretty) = serde_json::to_string_pretty(&value)
+        {
+            return pretty;
+        }
+        let trimmed = text.trim();
+        return if trimmed.is_empty() {
+            "-".to_string()
+        } else {
+            trimmed.to_string()
+        };
+    }
+    general_purpose::STANDARD.encode(bytes)
+}
+
+fn format_optional_payload(value: &Option<Vec<u8>>) -> String {
+    match value {
+        Some(bytes) => format_payload(bytes),
+        None => "-".to_string(),
+    }
+}
+
+fn build_workflow_metadata(workflow: &WorkflowVersionDetail) -> WorkflowDetailMetadata {
+    WorkflowDetailMetadata {
         id: workflow.id.to_string(),
         name: workflow.workflow_name.clone(),
         hash: workflow.dag_hash.clone(),
@@ -393,15 +659,7 @@ fn render_workflow_detail_page(templates: &Tera, workflow: &WorkflowVersionDetai
         } else {
             "Serial".to_string()
         },
-    };
-    let context = WorkflowDetailPageContext {
-        title: format!("{} • Workflow Detail", workflow.workflow_name),
-        workflow: info,
-        nodes,
-        has_nodes: !workflow.dag.nodes.is_empty(),
-        graph_data: build_graph_data(workflow),
-    };
-    render_template(templates, "workflow.html", &context)
+    }
 }
 
 fn render_error_page(templates: &Tera, title: &str, message: &str) -> String {
@@ -472,6 +730,8 @@ struct WorkflowDetailPageContext {
     nodes: Vec<WorkflowNodeTemplateContext>,
     has_nodes: bool,
     graph_data: WorkflowGraphData,
+    recent_runs: Vec<WorkflowInstanceListContext>,
+    has_runs: bool,
 }
 
 #[derive(Serialize)]
@@ -491,6 +751,43 @@ struct WorkflowNodeTemplateContext {
     guard: String,
     depends_on_display: String,
     waits_for_display: String,
+}
+
+#[derive(Serialize)]
+struct WorkflowInstanceListContext {
+    id: String,
+    created_at: String,
+    status: String,
+    progress: String,
+    url: String,
+}
+
+#[derive(Serialize)]
+struct WorkflowRunPageContext {
+    title: String,
+    workflow: WorkflowDetailMetadata,
+    instance: WorkflowRunMetadataContext,
+    nodes: Vec<WorkflowRunNodeContext>,
+}
+
+#[derive(Serialize)]
+struct WorkflowRunMetadataContext {
+    id: String,
+    created_at: String,
+    status: String,
+    progress: String,
+    input_payload: String,
+    result_payload: String,
+}
+
+#[derive(Serialize)]
+struct WorkflowRunNodeContext {
+    id: String,
+    action: String,
+    module: String,
+    status: String,
+    request_payload: String,
+    response_payload: String,
 }
 
 #[derive(Serialize)]

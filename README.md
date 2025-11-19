@@ -35,7 +35,7 @@ async def build_greetings(user: User) -> GreetingSummary:
     return GreetingSummary(user=user, messages=messages)
 ```
 
-Your webserver wants to greet some user but do it (1) asynchronously and (2) guarantees this happens even if your app exits.
+Your webserver wants to greet some user but do it (1) asynchronously and (2) guarantees this happens even if your webapp exits. When you call `await workflow.run()` from within your code we'll queue up this work Postgres; none of the run logic is actually executed inline. Instead we parse the AST definition to determine your control logic. We'll identify that `fetch_user` and `build_greetings` are decorated with `@action`. We will call them in sequence, passing the data as necessary, on whatever background machines are able to handle more work. When the `summary` is returned to your original webapp caller it looks like everything just happened right in the same process. Whereas the actual code was orchestrated across multiple different machines.
 
 Actions are the distributed work that your system does: these are the parallelism primitives that can be retired, throw errors independently, etc.
 

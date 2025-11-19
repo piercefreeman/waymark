@@ -222,6 +222,41 @@ pub struct WorkflowVersionDetail {
     pub dag: WorkflowDagDefinition,
 }
 
+#[derive(Debug, Clone)]
+pub struct WorkflowInstanceSummary {
+    pub id: WorkflowInstanceId,
+    pub created_at: DateTime<Utc>,
+    pub completed_actions: i64,
+    pub total_actions: i64,
+    pub has_result: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct WorkflowInstanceDetail {
+    pub instance: WorkflowInstanceRecord,
+    pub actions: Vec<WorkflowInstanceActionDetail>,
+}
+
+#[derive(Debug, Clone)]
+pub struct WorkflowInstanceRecord {
+    pub id: WorkflowInstanceId,
+    pub workflow_version_id: Option<WorkflowVersionId>,
+    pub workflow_name: String,
+    pub created_at: DateTime<Utc>,
+    pub input_payload: Option<Vec<u8>>,
+    pub result_payload: Option<Vec<u8>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct WorkflowInstanceActionDetail {
+    pub action_seq: i32,
+    pub workflow_node_id: Option<String>,
+    pub status: String,
+    pub success: Option<bool>,
+    pub payload: Vec<u8>,
+    pub result_payload: Option<Vec<u8>>,
+}
+
 impl Database {
     pub async fn connect(database_url: &str) -> Result<Self> {
         let pool = PgPoolOptions::new()
@@ -296,6 +331,87 @@ impl Database {
             created_at,
             dag,
         }))
+    }
+
+    pub async fn recent_instances_for_version(
+        &self,
+        version_id: WorkflowVersionId,
+        limit: i64,
+    ) -> Result<Vec<WorkflowInstanceSummary>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT wi.id,
+                   wi.created_at,
+                   wi.result_payload IS NOT NULL AS has_result,
+                   COUNT(dal.id) AS total_actions,
+                   COUNT(*) FILTER (WHERE dal.status = 'completed') AS completed_actions
+            FROM workflow_instances wi
+            LEFT JOIN daemon_action_ledger dal ON dal.instance_id = wi.id
+            WHERE wi.workflow_version_id = $1
+            GROUP BY wi.id
+            ORDER BY wi.created_at DESC
+            LIMIT $2
+            "#,
+        )
+        .bind(version_id)
+        .bind(limit.max(1))
+        .map(|row: PgRow| WorkflowInstanceSummary {
+            id: row.get("id"),
+            created_at: row.get("created_at"),
+            completed_actions: row.get::<i64, _>("completed_actions"),
+            total_actions: row.get::<i64, _>("total_actions"),
+            has_result: row.get::<bool, _>("has_result"),
+        })
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
+    pub async fn load_instance_with_actions(
+        &self,
+        instance_id: WorkflowInstanceId,
+    ) -> Result<Option<WorkflowInstanceDetail>> {
+        let row = sqlx::query(
+            r#"
+            SELECT id, workflow_name, workflow_version_id, created_at, input_payload, result_payload
+            FROM workflow_instances
+            WHERE id = $1
+            "#,
+        )
+        .bind(instance_id)
+        .map(|row: PgRow| WorkflowInstanceRecord {
+            id: row.get("id"),
+            workflow_name: row.get("workflow_name"),
+            workflow_version_id: row.get("workflow_version_id"),
+            created_at: row.get("created_at"),
+            input_payload: row.get("input_payload"),
+            result_payload: row.get("result_payload"),
+        })
+        .fetch_optional(&self.pool)
+        .await?;
+        let Some(instance) = row else {
+            return Ok(None);
+        };
+        let actions = sqlx::query(
+            r#"
+            SELECT action_seq, workflow_node_id, status, success, payload, result_payload
+            FROM daemon_action_ledger
+            WHERE instance_id = $1
+            ORDER BY action_seq
+            "#,
+        )
+        .bind(instance_id)
+        .map(|row: PgRow| WorkflowInstanceActionDetail {
+            action_seq: row.get("action_seq"),
+            workflow_node_id: row.get("workflow_node_id"),
+            status: row.get("status"),
+            success: row.get("success"),
+            payload: row.get::<Vec<u8>, _>("payload"),
+            result_payload: row.get("result_payload"),
+        })
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(Some(WorkflowInstanceDetail { instance, actions }))
     }
 
     pub async fn reset_partition(&self, partition_id: i32) -> Result<()> {
