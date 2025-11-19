@@ -58,38 +58,23 @@ def action(func: TAsync, /) -> TAsync: ...
 
 
 @overload
-def action(
-    *,
-    name: Optional[str] = None,
-    timeout_seconds: Optional[int] = None,
-    max_retries: Optional[int] = None,
-) -> Callable[[TAsync], TAsync]: ...
+def action(*, name: Optional[str] = None) -> Callable[[TAsync], TAsync]: ...
 
 
 def action(
     func: Optional[TAsync] = None,
     *,
     name: Optional[str] = None,
-    timeout_seconds: Optional[int] = None,
-    max_retries: Optional[int] = None,
 ) -> Callable[[TAsync], TAsync] | TAsync:
-    """Decorator for registering async actions with optional timeout/retry metadata."""
+    """Decorator for registering async actions."""
 
     def decorator(target: TAsync) -> TAsync:
         if not inspect.iscoroutinefunction(target):
             raise TypeError(f"action '{target.__name__}' must be defined with 'async def'")
-        if timeout_seconds is not None and timeout_seconds < 0:
-            raise ValueError("timeout_seconds must be >= 0 when provided")
-        if max_retries is not None and max_retries < 0:
-            raise ValueError("max_retries must be >= 0 when provided")
         action_name = name or target.__name__
         registry.register(action_name, target)
         target.__carabiner_action_name__ = action_name
         target.__carabiner_action_module__ = target.__module__
-        if timeout_seconds is not None:
-            target.__carabiner_timeout_seconds__ = int(timeout_seconds)
-        if max_retries is not None:
-            target.__carabiner_max_retries__ = int(max_retries)
         return target
 
     if func is not None:

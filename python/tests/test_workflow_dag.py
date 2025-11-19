@@ -2,13 +2,19 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import List
 
 import pytest
 
 from carabiner_worker.actions import action
-from carabiner_worker.workflow import Workflow
-from carabiner_worker.workflow_dag import RETURN_VARIABLE, WorkflowDag, build_workflow_dag
+from carabiner_worker.workflow import RetryPolicy, Workflow
+from carabiner_worker.workflow_dag import (
+    RETURN_VARIABLE,
+    UNLIMITED_RETRIES,
+    WorkflowDag,
+    build_workflow_dag,
+)
 
 
 def helper_threshold(record: "Record") -> bool:
@@ -304,3 +310,31 @@ class InvalidReturnWorkflow(Workflow):
 def test_return_statement_cannot_await() -> None:
     with pytest.raises(ValueError, match="cannot directly await"):
         build_workflow_dag(InvalidReturnWorkflow)
+
+
+class RunActionPolicyWorkflow(Workflow):
+    async def run(self) -> None:
+        await self.run_action(
+            summarize(values=[1.0]),
+            retry=RetryPolicy(attempts=None),
+            timeout=timedelta(minutes=10),
+        )
+
+
+def test_run_action_records_timeout_and_retry_metadata() -> None:
+    dag = build_workflow_dag(RunActionPolicyWorkflow)
+    node = next(n for n in dag.nodes if n.action == "summarize")
+    assert node.timeout_seconds == 600
+    assert node.max_retries == UNLIMITED_RETRIES
+
+
+class LimitedRetryWorkflow(Workflow):
+    async def run(self) -> None:
+        await self.run_action(fetch_number(idx=42), retry=RetryPolicy(attempts=2))
+
+
+def test_run_action_limited_retry_metadata() -> None:
+    dag = build_workflow_dag(LimitedRetryWorkflow)
+    node = next(n for n in dag.nodes if n.action == "fetch_number")
+    assert node.max_retries == 2
+    assert node.timeout_seconds is None

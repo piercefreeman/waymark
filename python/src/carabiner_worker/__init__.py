@@ -10,7 +10,7 @@ from .actions import (
     serialize_result_payload,
 )
 from .registry import registry
-from .workflow import Workflow, workflow, workflow_registry
+from .workflow import BackoffPolicy, RetryPolicy, Workflow, workflow, workflow_registry
 from .workflow_dag import WorkflowDag, build_workflow_dag
 
 __all__ = [
@@ -20,6 +20,8 @@ __all__ = [
     "Workflow",
     "workflow",
     "workflow_registry",
+    "RetryPolicy",
+    "BackoffPolicy",
     "WorkflowDag",
     "build_workflow_dag",
     "serialize_result_payload",

@@ -27,6 +27,7 @@ class DagNode:
 
 
 RETURN_VARIABLE = "__workflow_return"
+UNLIMITED_RETRIES = 2_147_483_647
 
 
 @dataclass
@@ -40,6 +41,18 @@ class ActionDefinition:
     action_name: str
     module_name: Optional[str]
     signature: inspect.Signature
+
+
+@dataclass
+class RunActionConfig:
+    timeout_seconds: Optional[int] = None
+    max_retries: Optional[int] = None
+
+
+@dataclass
+class ParsedActionCall:
+    call: ast.Call
+    config: Optional[RunActionConfig] = None
     timeout_seconds: Optional[int] = None
     max_retries: Optional[int] = None
 
@@ -116,7 +129,7 @@ class _ActionReferenceValidator(ast.NodeVisitor):
 
 @dataclass
 class _ConditionalBranch:
-    call: ast.Call
+    call: ParsedActionCall
     target: Optional[str]
 
 
@@ -165,16 +178,12 @@ def _discover_action_names(module: Any) -> Dict[str, ActionDefinition]:
         attr = getattr(module, attr_name)
         action_name = getattr(attr, "__carabiner_action_name__", None)
         action_module = getattr(attr, "__carabiner_action_module__", None)
-        timeout_seconds = getattr(attr, "__carabiner_timeout_seconds__", None)
-        max_retries = getattr(attr, "__carabiner_max_retries__", None)
         if callable(attr) and action_name:
             signature = inspect.signature(attr)
             names[attr_name] = ActionDefinition(
                 action_name=action_name,
                 module_name=action_module or module.__name__,
                 signature=signature,
-                timeout_seconds=timeout_seconds,
-                max_retries=max_retries,
             )
     return names
 
@@ -439,31 +448,42 @@ class WorkflowDagBuilder(ast.NodeVisitor):
             produces=[target_name],
         )
 
-    def _extract_action_call(self, expr: ast.AST) -> Optional[ast.Call]:
+    def _extract_action_call(self, expr: ast.AST) -> Optional[ParsedActionCall]:
         if isinstance(expr, ast.Await):
             expr = expr.value
         if not isinstance(expr, ast.Call):
             return None
         if self._is_action_func(expr.func):
-            return expr
+            return ParsedActionCall(call=expr)
         run_action = self._convert_run_action(expr)
         if run_action is not None:
             return run_action
         return None
 
-    def _convert_run_action(self, call: ast.Call) -> Optional[ast.Call]:
+    def _convert_run_action(self, call: ast.Call) -> Optional[ParsedActionCall]:
         func = call.func
-        if not (isinstance(func, ast.Attribute) and func.attr == "run_action" and call.args):
+        if not self._is_run_action_invocation(func):
             return None
-        action_ref = call.args[0]
-        if not self._is_action_func(action_ref):
+        if not call.args:
+            raise ValueError("run_action requires an action coroutine argument")
+        if len(call.args) > 1:
+            raise ValueError("run_action accepts a single positional action argument")
+        action_expr = call.args[0]
+        if isinstance(action_expr, ast.Await):
+            action_expr = action_expr.value
+        if not isinstance(action_expr, ast.Call):
+            raise ValueError("run_action expects an action call as its first argument")
+        if not self._is_action_func(action_expr.func):
             return None
-        new_call = ast.Call(
-            func=action_ref,
-            args=[],
-            keywords=call.keywords,
-        )
-        return new_call
+        config = self._parse_run_action_metadata(call.keywords)
+        return ParsedActionCall(call=action_expr, config=config)
+
+    def _is_run_action_invocation(self, func: ast.AST) -> bool:
+        if isinstance(func, ast.Attribute):
+            return func.attr == "run_action"
+        if isinstance(func, ast.Name):
+            return func.id == "run_action"
+        return False
 
     def _is_action_func(self, func: ast.AST) -> bool:
         name = _extract_action_name(func)
@@ -494,8 +514,6 @@ class WorkflowDagBuilder(ast.NodeVisitor):
             item_vars: List[str] = []
             for idx, arg in enumerate(call.args):
                 action_call = self._extract_action_call(arg)
-                if action_call is None and isinstance(arg, ast.Await):
-                    action_call = self._extract_action_call(arg.value)
                 if action_call is None:
                     continue
                 item_var = self._collection_item_name(target_name, idx)
@@ -508,8 +526,6 @@ class WorkflowDagBuilder(ast.NodeVisitor):
             return
         for idx, arg in enumerate(call.args):
             action_call = self._extract_action_call(arg)
-            if action_call is None and isinstance(arg, ast.Await):
-                action_call = self._extract_action_call(arg.value)
             if action_call is None:
                 continue
             target_name = flat_targets[idx] if idx < len(flat_targets) else None
@@ -768,9 +784,10 @@ class WorkflowDagBuilder(ast.NodeVisitor):
         loop_var = generator.target.id
         produced: List[str] = []
         for idx, source in enumerate(sources):
-            substituted = self._substitute_call(action_call, {loop_var: source})
+            substituted_call = self._substitute_call(action_call.call, {loop_var: source})
+            parsed = ParsedActionCall(call=substituted_call, config=action_call.config)
             item_var = self._collection_item_name(target, idx)
-            dag_node = self._build_node(substituted, item_var)
+            dag_node = self._build_node(parsed, item_var)
             self._var_to_node[item_var] = dag_node.id
             produced.append(item_var)
             self._append_node(dag_node)
@@ -790,14 +807,151 @@ class WorkflowDagBuilder(ast.NodeVisitor):
         substituter = _NameSubstituter(mapping)
         return substituter.visit(copy.deepcopy(call))
 
+    def _parse_run_action_metadata(self, keywords: List[ast.keyword]) -> Optional[RunActionConfig]:
+        timeout_seconds: Optional[int] = None
+        max_retries: Optional[int] = None
+        for kw in keywords:
+            name = kw.arg
+            if name == "timeout":
+                timeout_seconds = self._evaluate_timeout_literal(kw.value)
+            elif name == "retry":
+                max_retries = self._evaluate_retry_literal(kw.value)
+            elif name == "backoff":
+                self._validate_backoff_literal(kw.value)
+            else:
+                raise ValueError(f"unsupported run_action keyword argument '{name}'")
+        if timeout_seconds is None and max_retries is None:
+            return None
+        return RunActionConfig(timeout_seconds=timeout_seconds, max_retries=max_retries)
+
+    def _evaluate_timeout_literal(self, expr: ast.AST) -> Optional[int]:
+        if isinstance(expr, ast.Constant):
+            value = expr.value
+            if value is None:
+                return None
+            if isinstance(value, (int, float)):
+                if value < 0:
+                    raise ValueError("timeout must be non-negative")
+                return int(value)
+        if isinstance(expr, ast.Call) and self._is_timedelta_constructor(expr.func):
+            seconds = self._compute_timedelta_seconds(expr)
+            if seconds < 0:
+                raise ValueError("timeout must be non-negative")
+            return int(seconds)
+        raise ValueError("timeout must be a numeric literal or datetime.timedelta")
+
+    def _is_timedelta_constructor(self, func: ast.AST) -> bool:
+        if isinstance(func, ast.Name):
+            return func.id == "timedelta"
+        if isinstance(func, ast.Attribute):
+            return func.attr == "timedelta"
+        return False
+
+    def _compute_timedelta_seconds(self, call: ast.Call) -> float:
+        positional = ["days", "seconds", "microseconds"]
+        total = 0.0
+        for idx, arg in enumerate(call.args):
+            if idx >= len(positional):
+                raise ValueError("timedelta positional args limited to days, seconds, microseconds")
+            value = self._literal_number(arg)
+            if value is None:
+                raise ValueError("timedelta positional args must be numeric literals")
+            total += value * self._timedelta_factor(positional[idx])
+        for kw in call.keywords:
+            if kw.arg is None:
+                continue
+            value = self._literal_number(kw.value)
+            if value is None:
+                raise ValueError("timedelta keyword args must be numeric literals")
+            total += value * self._timedelta_factor(kw.arg)
+        return total
+
+    def _timedelta_factor(self, name: str) -> float:
+        factors = {
+            "weeks": 7 * 24 * 60 * 60,
+            "days": 24 * 60 * 60,
+            "hours": 60 * 60,
+            "minutes": 60,
+            "seconds": 1,
+            "milliseconds": 1e-3,
+            "microseconds": 1e-6,
+        }
+        if name not in factors:
+            raise ValueError(f"unsupported timedelta keyword '{name}'")
+        return factors[name]
+
+    def _evaluate_retry_literal(self, expr: ast.AST) -> Optional[int]:
+        if isinstance(expr, ast.Constant):
+            value = expr.value
+            if value is None:
+                return None
+            if isinstance(value, int):
+                return self._normalize_retry_attempts(value)
+        if isinstance(expr, ast.Call) and self._is_retry_policy_constructor(expr.func):
+            attempts_expr: Optional[ast.AST] = None
+            for kw in expr.keywords:
+                if kw.arg in {"attempts", "max_attempts"}:
+                    attempts_expr = kw.value
+                else:
+                    raise ValueError(f"RetryPolicy received unsupported argument '{kw.arg}'")
+            if attempts_expr is None and expr.args:
+                attempts_expr = expr.args[0]
+            if attempts_expr is None:
+                return None
+            if isinstance(attempts_expr, ast.Constant) and attempts_expr.value is None:
+                return UNLIMITED_RETRIES
+            literal = self._literal_number(attempts_expr)
+            if literal is None:
+                raise ValueError("RetryPolicy attempts must be numeric")
+            return self._normalize_retry_attempts(int(literal))
+        raise ValueError("retry must be RetryPolicy(...) or None")
+
+    def _normalize_retry_attempts(self, value: int) -> int:
+        if value < 0:
+            raise ValueError("retry attempts must be >= 0")
+        if value == 0:
+            return 0
+        return min(value, UNLIMITED_RETRIES)
+
+    def _is_retry_policy_constructor(self, func: ast.AST) -> bool:
+        if isinstance(func, ast.Name):
+            return func.id == "RetryPolicy"
+        if isinstance(func, ast.Attribute):
+            return func.attr == "RetryPolicy"
+        return False
+
+    def _validate_backoff_literal(self, expr: ast.AST) -> None:
+        if isinstance(expr, ast.Constant) and expr.value is None:
+            return
+        if isinstance(expr, ast.Call) and self._is_backoff_policy_constructor(expr.func):
+            return
+        raise ValueError("backoff must be BackoffPolicy(...) or None")
+
+    def _is_backoff_policy_constructor(self, func: ast.AST) -> bool:
+        if isinstance(func, ast.Name):
+            return func.id == "BackoffPolicy"
+        if isinstance(func, ast.Attribute):
+            return func.attr == "BackoffPolicy"
+        return False
+
+    def _literal_number(self, expr: ast.AST) -> Optional[float]:
+        if isinstance(expr, ast.Constant) and isinstance(expr.value, (int, float)):
+            return float(expr.value)
+        if isinstance(expr, ast.UnaryOp) and isinstance(expr.op, ast.USub):
+            operand = expr.operand
+            if isinstance(operand, ast.Constant) and isinstance(operand.value, (int, float)):
+                return -float(operand.value)
+        return None
+
     def _build_node(
         self,
-        call: ast.Call,
+        parsed_call: ParsedActionCall,
         target: Optional[str],
         *,
         guard: Optional[str] = None,
         extra_dependencies: Optional[List[str]] = None,
     ) -> DagNode:
+        call = parsed_call.call
         name = self._format_call_name(call.func)
         node_id = self._new_node_id()
         kwargs: Dict[str, str] = {}
@@ -827,7 +981,7 @@ class WorkflowDagBuilder(ast.NodeVisitor):
             module_name = None
         if extra_dependencies:
             dependencies.extend(extra_dependencies)
-        return DagNode(
+        dag_node = DagNode(
             id=node_id,
             action=action_name,
             module=module_name,
@@ -835,9 +989,13 @@ class WorkflowDagBuilder(ast.NodeVisitor):
             depends_on=sorted(set(dependencies)),
             produces=[target] if target else [],
             guard=guard,
-            timeout_seconds=action_def.timeout_seconds if action_def else None,
-            max_retries=action_def.max_retries if action_def else None,
         )
+        if parsed_call.config:
+            if parsed_call.config.timeout_seconds is not None:
+                dag_node.timeout_seconds = parsed_call.config.timeout_seconds
+            if parsed_call.config.max_retries is not None:
+                dag_node.max_retries = parsed_call.config.max_retries
+        return dag_node
 
     def _map_positional_args(
         self,

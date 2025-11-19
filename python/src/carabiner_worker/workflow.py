@@ -5,9 +5,11 @@ import inspect
 import logging
 import os
 import sys
+from dataclasses import dataclass
+from datetime import timedelta
 from functools import wraps
 from threading import RLock
-from typing import Any, ClassVar, Dict, Optional, Sequence, TextIO, TypeVar
+from typing import Any, Awaitable, ClassVar, Dict, Optional, Sequence, TextIO, TypeVar
 
 from proto import messages_pb2 as pb2
 
@@ -19,6 +21,19 @@ from .workflow_dag import DagNode, WorkflowDag, build_workflow_dag
 logger = logging.getLogger(__name__)
 
 TWorkflow = TypeVar("TWorkflow", bound="Workflow")
+TResult = TypeVar("TResult")
+
+
+@dataclass(frozen=True)
+class RetryPolicy:
+    attempts: Optional[int] = None
+
+
+@dataclass(frozen=True)
+class BackoffPolicy:
+    base_delay: float = 0.0
+    multiplier: float = 2.0
+    max_delay: Optional[float] = None
 
 
 class Workflow:
@@ -37,6 +52,25 @@ class Workflow:
 
     async def run(self) -> Any:
         raise NotImplementedError
+
+    async def run_action(
+        self,
+        awaitable: Awaitable[TResult],
+        *,
+        retry: Optional[RetryPolicy] = None,
+        backoff: Optional[BackoffPolicy] = None,
+        timeout: Optional[float | int | timedelta] = None,
+    ) -> TResult:
+        """Helper that simply awaits the provided action coroutine.
+
+        The retry, backoff, and timeout arguments are consumed by the workflow
+        compiler rather than the runtime execution path.
+        """
+
+        # Parameters are intentionally unused at runtime; the workflow compiler
+        # inspects the AST to record them.
+        del retry, backoff, timeout
+        return await awaitable
 
     @classmethod
     def short_name(cls) -> str:
