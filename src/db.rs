@@ -23,8 +23,6 @@ const DEFAULT_ACTION_MAX_RETRIES: i32 = 1;
 const DEFAULT_TIMEOUT_RETRY_LIMIT: i32 = i32::MAX;
 const EXHAUSTED_EXCEPTION_TYPE: &str = "ExhaustedRetries";
 const EXHAUSTED_EXCEPTION_MODULE: &str = "carabiner.exceptions";
-const RETRY_KIND_FAILURE: &str = "failure";
-const RETRY_KIND_TIMEOUT: &str = "timeout";
 
 #[derive(Clone)]
 pub struct Database {
@@ -578,11 +576,16 @@ impl Database {
                 workflow_node_id,
                 function_name,
                 attempt_number,
-                last_error
+                last_error,
+                status,
+                max_retries,
+                timeout_retry_limit
             FROM daemon_action_ledger
             WHERE id = ANY($1)
-              AND status IN ('failed', 'timed_out')
-              AND attempt_number + 1 >= max_retries
+              AND (
+                  (status = 'failed' AND attempt_number + 1 >= max_retries)
+                  OR (status = 'timed_out' AND attempt_number + 1 >= timeout_retry_limit)
+              )
             "#,
         )
         .bind(action_ids)
@@ -593,10 +596,16 @@ impl Database {
         }
         let mut scheduled: Vec<(WorkflowInstanceId, Option<String>)> = Vec::new();
         for row in rows {
+            let limit = if row.status == "timed_out" {
+                row.timeout_retry_limit
+            } else {
+                row.max_retries
+            };
             let attempts = row.attempt_number + 1;
+            let capped_attempts = attempts.min(limit.max(1));
             let payload = encode_exhausted_retries_payload(
                 &row.function_name,
-                attempts,
+                capped_attempts,
                 row.last_error.as_deref(),
             );
             sqlx::query(
@@ -641,10 +650,44 @@ impl Database {
                 scheduled_at = NOW(),
                 result_payload = NULL,
                 success = NULL,
-                delivery_token = NULL
+                delivery_token = NULL,
+                retry_kind = 'failure'
             WHERE id = ANY($1)
-              AND status IN ('failed', 'timed_out')
+              AND status = 'failed'
               AND attempt_number + 1 < max_retries
+            "#,
+        )
+        .bind(action_ids)
+        .execute(tx.as_mut())
+        .await?;
+        Ok(result.rows_affected() as usize)
+    }
+
+    async fn requeue_timed_out_actions_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        action_ids: &[LedgerActionId],
+    ) -> Result<usize> {
+        if action_ids.is_empty() {
+            return Ok(0);
+        }
+        let result = sqlx::query(
+            r#"
+            UPDATE daemon_action_ledger
+            SET status = 'queued',
+                attempt_number = attempt_number + 1,
+                dispatched_at = NULL,
+                acked_at = NULL,
+                deadline_at = NULL,
+                delivery_id = NULL,
+                scheduled_at = NOW(),
+                result_payload = NULL,
+                success = NULL,
+                delivery_token = NULL,
+                retry_kind = 'timeout'
+            WHERE id = ANY($1)
+              AND status = 'timed_out'
+              AND attempt_number + 1 < timeout_retry_limit
             "#,
         )
         .bind(action_ids)
@@ -689,9 +732,25 @@ impl Database {
                     dispatch_payload,
                     timeout_seconds,
                     max_retries,
+                    timeout_retry_limit,
                     attempt_number,
-                    scheduled_at
-                ) VALUES ($1, $2, $3, 'queued', $4, $5, $6, $7, $8, 0, NOW())
+                    scheduled_at,
+                    retry_kind
+                ) VALUES (
+                    $1,
+                    $2,
+                    $3,
+                    'queued',
+                    $4,
+                    $5,
+                    $6,
+                    $7,
+                    $8,
+                    $9,
+                    0,
+                    NOW(),
+                    'failure'
+                )
                 "#,
             )
             .bind(instance_id)
@@ -702,6 +761,7 @@ impl Database {
             .bind(dispatch_payload)
             .bind(DEFAULT_ACTION_TIMEOUT_SECS)
             .bind(DEFAULT_ACTION_MAX_RETRIES)
+            .bind(DEFAULT_TIMEOUT_RETRY_LIMIT)
             .execute(&mut *tx)
             .await?;
         }
@@ -763,7 +823,10 @@ impl Database {
                 FROM daemon_action_ledger
                 WHERE status = 'queued'
                   AND scheduled_at <= NOW()
-                  AND attempt_number < max_retries
+                  AND (
+                      (retry_kind = 'timeout' AND attempt_number < timeout_retry_limit)
+                      OR (retry_kind <> 'timeout' AND attempt_number < max_retries)
+                  )
                 ORDER BY scheduled_at, action_seq
                 FOR UPDATE SKIP LOCKED
                 LIMIT $1
@@ -788,7 +851,9 @@ impl Database {
                      dal.timeout_seconds,
                      dal.max_retries,
                      dal.attempt_number,
-                     dal.delivery_token
+                     dal.delivery_token,
+                     dal.timeout_retry_limit,
+                     dal.retry_kind
             "#,
         )
         .bind(limit)
@@ -821,7 +886,8 @@ impl Database {
                 scheduled_at = NOW(),
                 result_payload = NULL,
                 success = NULL,
-                delivery_token = NULL
+                delivery_token = NULL,
+                retry_kind = 'failure'
             WHERE id = $1
             "#,
         )
@@ -865,7 +931,7 @@ impl Database {
             .promote_exhausted_actions_tx(&mut tx, &timed_out_ids)
             .await?;
         let requeued = self
-            .requeue_failed_actions_tx(&mut tx, &timed_out_ids)
+            .requeue_timed_out_actions_tx(&mut tx, &timed_out_ids)
             .await?;
         if requeued > 0 {
             tracing::debug!(count = requeued, "requeued timed out actions");
@@ -1187,9 +1253,26 @@ impl Database {
                     workflow_node_id,
                     timeout_seconds,
                     max_retries,
+                    timeout_retry_limit,
                     attempt_number,
-                    scheduled_at
-                ) VALUES ($1, $2, $3, 'queued', $4, $5, $6, $7, $8, $9, 0, NOW())
+                    scheduled_at,
+                    retry_kind
+                ) VALUES (
+                    $1,
+                    $2,
+                    $3,
+                    'queued',
+                    $4,
+                    $5,
+                    $6,
+                    $7,
+                    $8,
+                    $9,
+                    $10,
+                    0,
+                    NOW(),
+                    'failure'
+                )
                 RETURNING id
                 "#,
             )
@@ -1202,6 +1285,7 @@ impl Database {
             .bind(node_id)
             .bind(node_dispatch.timeout_seconds)
             .bind(node_dispatch.max_retries)
+            .bind(node_dispatch.timeout_retry_limit)
             .fetch_one(tx.as_mut())
             .await?;
             inserted += 1;
@@ -1221,5 +1305,75 @@ impl Database {
             "queued workflow actions"
         );
         Ok(inserted)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use prost::Message;
+    use sqlx::PgPool;
+
+    fn encode_error_payload(message: &str) -> Vec<u8> {
+        encode_exception_payload("RuntimeError", "tests", message)
+    }
+
+    #[sqlx::test]
+    async fn explicit_failure_does_not_retry_by_default(pool: PgPool) -> Result<()> {
+        sqlx::migrate!("./migrations").run(&pool).await?;
+        let database = Database { pool };
+        let dispatch = proto::WorkflowNodeDispatch {
+            node: None,
+            workflow_input: None,
+            context: Vec::new(),
+        };
+        let payload = dispatch.encode_to_vec();
+        database
+            .seed_actions(1, "tests", "action", &payload)
+            .await?;
+        let mut actions = database.dispatch_actions(1).await?;
+        let action = actions.pop().expect("dispatched action");
+        let record = CompletionRecord {
+            action_id: action.id,
+            success: false,
+            delivery_id: 1,
+            result_payload: encode_error_payload("boom"),
+            dispatch_token: Some(action.delivery_token),
+        };
+        database.mark_actions_batch(&[record]).await?;
+        let queued: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM daemon_action_ledger WHERE status = 'queued'")
+                .fetch_one(database.pool())
+                .await?;
+        assert_eq!(queued, 0);
+        Ok(())
+    }
+
+    #[sqlx::test]
+    async fn timeout_retries_are_unbounded_by_default(pool: PgPool) -> Result<()> {
+        sqlx::migrate!("./migrations").run(&pool).await?;
+        let database = Database { pool };
+        let dispatch = proto::WorkflowNodeDispatch {
+            node: None,
+            workflow_input: None,
+            context: Vec::new(),
+        };
+        let payload = dispatch.encode_to_vec();
+        database
+            .seed_actions(1, "tests", "action", &payload)
+            .await?;
+        let mut actions = database.dispatch_actions(1).await?;
+        let action = actions.pop().expect("dispatched action");
+        sqlx::query(
+            "UPDATE daemon_action_ledger SET deadline_at = NOW() - INTERVAL '5 seconds' WHERE id = $1",
+        )
+        .bind(action.id)
+        .execute(database.pool())
+        .await?;
+        let timed_out = database.mark_timed_out_actions(10).await?;
+        assert_eq!(timed_out, 1);
+        let redispatched = database.dispatch_actions(1).await?;
+        assert_eq!(redispatched.len(), 1);
+        Ok(())
     }
 }

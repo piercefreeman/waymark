@@ -809,6 +809,153 @@ class WorkflowDagBuilder(ast.NodeVisitor):
 
     def _parse_run_action_metadata(self, keywords: List[ast.keyword]) -> Optional[RunActionConfig]:
         timeout_seconds: Optional[int] = None
+        retry_limit: Optional[int] = None
+        timeout_retry_limit: Optional[int] = None
+        for kw in keywords:
+            name = kw.arg
+            if name is None:
+                raise ValueError("run_action does not accept **kwargs")
+            if name == "timeout":
+                timeout_seconds = self._evaluate_timeout_literal(kw.value)
+            elif name == "retry":
+                retry_value = self._evaluate_retry_literal(kw.value)
+                retry_limit = retry_value
+                timeout_retry_limit = retry_value
+            elif name == "backoff":
+                self._validate_backoff_literal(kw.value)
+            else:
+                raise ValueError(f"unsupported run_action keyword argument '{name}'")
+        if timeout_seconds is None and retry_limit is None and timeout_retry_limit is None:
+            return None
+        return RunActionConfig(
+            timeout_seconds=timeout_seconds,
+            max_retries=retry_limit,
+            timeout_retry_limit=timeout_retry_limit,
+        )
+
+    def _evaluate_timeout_literal(self, expr: ast.AST) -> Optional[int]:
+        if isinstance(expr, ast.Constant):
+            value = expr.value
+            if value is None:
+                return None
+            if isinstance(value, (int, float)):
+                if value < 0:
+                    raise ValueError("timeout must be non-negative")
+                return int(value)
+        if isinstance(expr, ast.Call) and self._is_timedelta_constructor(expr.func):
+            seconds = self._compute_timedelta_seconds(expr)
+            if seconds < 0:
+                raise ValueError("timeout must be non-negative")
+            return int(seconds)
+        raise ValueError("timeout must be a numeric literal or datetime.timedelta")
+
+    def _is_timedelta_constructor(self, func: ast.AST) -> bool:
+        if isinstance(func, ast.Name):
+            return func.id == "timedelta"
+        if isinstance(func, ast.Attribute):
+            return func.attr == "timedelta"
+        return False
+
+    def _compute_timedelta_seconds(self, call: ast.Call) -> float:
+        positional = ["days", "seconds", "microseconds"]
+        total = 0.0
+        for idx, arg in enumerate(call.args):
+            if idx >= len(positional):
+                raise ValueError("timedelta positional args limited to days, seconds, microseconds")
+            value = self._literal_number(arg)
+            if value is None:
+                raise ValueError("timedelta positional args must be numeric literals")
+            total += value * self._timedelta_factor(positional[idx])
+        for kw in call.keywords:
+            if kw.arg is None:
+                continue
+            value = self._literal_number(kw.value)
+            if value is None:
+                raise ValueError("timedelta keyword args must be numeric literals")
+            total += value * self._timedelta_factor(kw.arg)
+        return total
+
+    def _timedelta_factor(self, name: str) -> float:
+        factors = {
+            "weeks": 7 * 24 * 60 * 60,
+            "days": 24 * 60 * 60,
+            "hours": 60 * 60,
+            "minutes": 60,
+            "seconds": 1,
+            "milliseconds": 1e-3,
+            "microseconds": 1e-6,
+        }
+        if name not in factors:
+            raise ValueError(f"unsupported timedelta keyword '{name}'")
+        return factors[name]
+
+    def _evaluate_retry_literal(self, expr: ast.AST) -> Optional[int]:
+        if isinstance(expr, ast.Constant):
+            value = expr.value
+            if value is None:
+                return None
+            if isinstance(value, int):
+                return self._normalize_retry_attempts(value)
+        if isinstance(expr, ast.Call) and self._is_retry_policy_constructor(expr.func):
+            attempts_expr: Optional[ast.AST] = None
+            for kw in expr.keywords:
+                if kw.arg in {"attempts", "max_attempts"}:
+                    attempts_expr = kw.value
+                else:
+                    raise ValueError(f"RetryPolicy received unsupported argument '{kw.arg}'")
+            if attempts_expr is None and expr.args:
+                attempts_expr = expr.args[0]
+            if attempts_expr is None:
+                return None
+            if isinstance(attempts_expr, ast.Constant) and attempts_expr.value is None:
+                return UNLIMITED_RETRIES
+            literal = self._literal_number(attempts_expr)
+            if literal is None:
+                raise ValueError("RetryPolicy attempts must be numeric")
+            return self._normalize_retry_attempts(int(literal))
+        if isinstance(expr, ast.Constant) and expr.value is None:
+            return None
+        raise ValueError("retry must be RetryPolicy(...) or None")
+
+    def _normalize_retry_attempts(self, value: int) -> int:
+        if value < 0:
+            raise ValueError("retry attempts must be >= 0")
+        if value == 0:
+            return 0
+        return min(value, UNLIMITED_RETRIES)
+
+    def _is_retry_policy_constructor(self, func: ast.AST) -> bool:
+        if isinstance(func, ast.Name):
+            return func.id == "RetryPolicy"
+        if isinstance(func, ast.Attribute):
+            return func.attr == "RetryPolicy"
+        return False
+
+    def _validate_backoff_literal(self, expr: ast.AST) -> None:
+        if isinstance(expr, ast.Constant) and expr.value is None:
+            return
+        if isinstance(expr, ast.Call) and self._is_backoff_policy_constructor(expr.func):
+            return
+        raise ValueError("backoff must be BackoffPolicy(...) or None")
+
+    def _is_backoff_policy_constructor(self, func: ast.AST) -> bool:
+        if isinstance(func, ast.Name):
+            return func.id == "BackoffPolicy"
+        if isinstance(func, ast.Attribute):
+            return func.attr == "BackoffPolicy"
+        return False
+
+    def _literal_number(self, expr: ast.AST) -> Optional[float]:
+        if isinstance(expr, ast.Constant) and isinstance(expr.value, (int, float)):
+            return float(expr.value)
+        if isinstance(expr, ast.UnaryOp) and isinstance(expr.op, ast.USub):
+            operand = expr.operand
+            if isinstance(operand, ast.Constant) and isinstance(operand.value, (int, float)):
+                return -float(operand.value)
+        return None
+
+    def _parse_run_action_metadata(self, keywords: List[ast.keyword]) -> Optional[RunActionConfig]:
+        timeout_seconds: Optional[int] = None
         max_retries: Optional[int] = None
         for kw in keywords:
             name = kw.arg
@@ -995,6 +1142,8 @@ class WorkflowDagBuilder(ast.NodeVisitor):
                 dag_node.timeout_seconds = parsed_call.config.timeout_seconds
             if parsed_call.config.max_retries is not None:
                 dag_node.max_retries = parsed_call.config.max_retries
+            if parsed_call.config.timeout_retry_limit is not None:
+                dag_node.timeout_retry_limit = parsed_call.config.timeout_retry_limit
         return dag_node
 
     def _map_positional_args(

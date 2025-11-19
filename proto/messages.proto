@@ -62,6 +62,7 @@ message WorkflowDagNode {
   repeated WorkflowExceptionEdge exception_edges = 9;
   optional uint32 timeout_seconds = 10;
   optional uint32 max_retries = 11;
+  optional uint32 timeout_retry_limit = 12;
 }
 
 message WorkflowDagDefinition {

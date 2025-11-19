@@ -317,12 +317,14 @@ class WorkflowDagNode(google.protobuf.message.Message):
     EXCEPTION_EDGES_FIELD_NUMBER: builtins.int
     TIMEOUT_SECONDS_FIELD_NUMBER: builtins.int
     MAX_RETRIES_FIELD_NUMBER: builtins.int
+    TIMEOUT_RETRY_LIMIT_FIELD_NUMBER: builtins.int
     id: builtins.str
     action: builtins.str
     module: builtins.str
     guard: builtins.str
     timeout_seconds: builtins.int
     max_retries: builtins.int
+    timeout_retry_limit: builtins.int
     @property
     def kwargs(
         self,
@@ -359,16 +361,21 @@ class WorkflowDagNode(google.protobuf.message.Message):
         exception_edges: collections.abc.Iterable[Global___WorkflowExceptionEdge] | None = ...,
         timeout_seconds: builtins.int | None = ...,
         max_retries: builtins.int | None = ...,
+        timeout_retry_limit: builtins.int | None = ...,
     ) -> None: ...
     def HasField(
         self,
         field_name: typing.Literal[
             "_max_retries",
             b"_max_retries",
+            "_timeout_retry_limit",
+            b"_timeout_retry_limit",
             "_timeout_seconds",
             b"_timeout_seconds",
             "max_retries",
             b"max_retries",
+            "timeout_retry_limit",
+            b"timeout_retry_limit",
             "timeout_seconds",
             b"timeout_seconds",
         ],
@@ -378,6 +385,8 @@ class WorkflowDagNode(google.protobuf.message.Message):
         field_name: typing.Literal[
             "_max_retries",
             b"_max_retries",
+            "_timeout_retry_limit",
+            b"_timeout_retry_limit",
             "_timeout_seconds",
             b"_timeout_seconds",
             "action",
@@ -398,6 +407,8 @@ class WorkflowDagNode(google.protobuf.message.Message):
             b"module",
             "produces",
             b"produces",
+            "timeout_retry_limit",
+            b"timeout_retry_limit",
             "timeout_seconds",
             b"timeout_seconds",
             "wait_for_sync",
@@ -408,6 +419,10 @@ class WorkflowDagNode(google.protobuf.message.Message):
     def WhichOneof(
         self, oneof_group: typing.Literal["_max_retries", b"_max_retries"]
     ) -> typing.Literal["max_retries"] | None: ...
+    @typing.overload
+    def WhichOneof(
+        self, oneof_group: typing.Literal["_timeout_retry_limit", b"_timeout_retry_limit"]
+    ) -> typing.Literal["timeout_retry_limit"] | None: ...
     @typing.overload
     def WhichOneof(
         self, oneof_group: typing.Literal["_timeout_seconds", b"_timeout_seconds"]

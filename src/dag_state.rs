@@ -103,6 +103,7 @@ mod tests {
             exception_edges: Vec::new(),
             timeout_seconds: None,
             max_retries: None,
+            timeout_retry_limit: None,
         }
     }
 
@@ -216,6 +217,7 @@ mod tests {
             exception_edges: Vec::new(),
             timeout_seconds: None,
             max_retries: None,
+            timeout_retry_limit: None,
         };
         let dag = WorkflowDagDefinition {
             concurrent: false,
