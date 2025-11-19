@@ -115,8 +115,9 @@ def test_workflow_visualize_outputs_ascii_summary() -> None:
     output = VisualizationWorkflow.visualize(stream=buffer)
     assert buffer.getvalue().rstrip("\n") == output
 
-    # print to stdout so we can visualize it
-    sys.stdout.write(output)
+    # print to stdout so we can visualize it - we write it to stdout directly because
+    # stringio has tty=False so it doesn't support colors
+    VisualizationWorkflow.visualize(stream=sys.stdout)
     sys.stdout.flush()
 
     module_line = f"Workflow: {VisualizationWorkflow.__module__}.{VisualizationWorkflow.__name__}"
@@ -135,3 +136,15 @@ def test_workflow_visualize_outputs_ascii_summary() -> None:
     assert "node_2: viz_store_value" in output
     assert "      - identifier: 'alpha'" in output
     assert "      - result: transformed" in output
+
+
+class _TtyBuffer(io.StringIO):
+    def isatty(self) -> bool:  # type: ignore[override]
+        return True
+
+
+def test_workflow_visualize_placeholders_dim() -> None:
+    buffer = _TtyBuffer()
+    VisualizationWorkflow.visualize(stream=buffer)
+    output = buffer.getvalue()
+    assert "\u001b[2m    guard       : -\u001b[0m" in output
