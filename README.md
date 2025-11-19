@@ -6,7 +6,7 @@ carabiner is a library to let you build durable background tasks that withstand 
 
 ## Usage
 
-An example is worth a thousand words:
+An example is worth a thousand words. Here's how you define your workflow:
 
 ```python
 from dataclasses import dataclass
@@ -22,11 +22,14 @@ class GreetingWorkflow(Workflow):
         user = await fetch_user(self.user_id)      # first action
         summary = await build_greetings(user)      # second action, chained
         return summary
+```
 
+And here's how you describe your distributed actions:
 
+```python
 @action
 async def fetch_user(user_id: str) -> User:
-    ...  # e.g. load from database
+    return await my_db.get(User, user_id)
 
 
 @action
