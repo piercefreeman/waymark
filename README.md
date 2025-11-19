@@ -144,12 +144,29 @@ Nothing on the market provides this balance - `carabiner` aims to try. We don't 
 
 ## Other options
 
+**When should you use Carabiner?**
+
+- You're already using Python & Postgres for the core of your stack, either with Mountaineer or FastAPI
+- You have a lot of async heavy logic that needs to be durable and can be retried (3rd party API calls, db jobs, etc)
+- You want something that works the same locally as when deployed remotely
+- You want background job code to plug and play with your existing unit test & static analysis stack
+- You are focused on getting to product market fit versus scale
+
+**When shouldn't you?**
+
+- You have particularly latency sensitive background jobs, where you need <100ms acknowledgement and handling of each task.
+- You have a huge scale of concurrent background jobs, order of magnitude >50k actions being coordinated at the same time.
+- You have tried some existing task coordinators and need to scale your solution to the next 10x worth of traffic.
+
 There is no shortage of robust background queues in Python, including ones that scale to millions of requests a second:
 
 1. Temporal.io
 2. Celery/RabbitMQ
+3. Redis
 
-Almost all of these require a dedicated task broker that you host alongside your app. This usually isn't a huge deal during POCs, but they all have a ton of knobs and dials so you can performance tune it to your own environment. It's also yet another thing in which to build a competency. Cloud hosting of most of these are billed per-event and can get very expensive depending on how you orchestrate your jobs.
+Almost all of these require a dedicated task broker that you host alongside your app. This usually isn't a huge deal during POCs but can get complex as you need to performance tune it for production. Cloud hosting of most of these are billed per-event and can get very expensive depending on how you orchestrate your jobs.
+
+Open source solutions like RabbitMQ have been battle tested over decades & large companies like Temporal are able to throw a lot of resources towards optimization. Both of these solutions are great choices - just intended to solve for different scopes. Expect an associated higher amount of setup and management complexity.
 
 ## Local Server Runtime
 
