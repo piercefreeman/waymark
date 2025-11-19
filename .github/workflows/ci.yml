@@ -1,0 +1,115 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  python-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v1
+
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - name: Python lint
+        run: make python-lint-verify
+
+  python-tests:
+    runs-on: ubuntu-latest
+    needs: python-lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v1
+
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - name: Python tests
+        working-directory: python
+        run: uv run pytest tests
+
+  rust-lint:
+    runs-on: ubuntu-latest
+    needs: python-lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Rust lint
+        run: make rust-lint-verify
+
+  rust-tests:
+    runs-on: ubuntu-latest
+    needs: [python-tests, rust-lint]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cargo test
+        run: cargo test
+
+  integration:
+    runs-on: ubuntu-latest
+    needs: [python-tests, rust-tests]
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'pull_request' && contains(toJson(github.event.pull_request.labels), 'full-build'))
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: mountaineer
+          POSTGRES_PASSWORD: mountaineer
+          POSTGRES_DB: mountaineer_daemons
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v1
+
+      - name: Install protoc & clients
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler postgresql-client
+
+      - name: Prepare Python worker environment
+        working-directory: python
+        run: uv sync
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Wait for Postgres
+        run: pg_isready --host=localhost --port=5432 --username=mountaineer --dbname=mountaineer_daemons
+
+      - name: Run integration tests
+        env:
+          DATABASE_URL: postgresql://mountaineer:mountaineer@localhost:5432/mountaineer_daemons
+        run: cargo test workflow_executes_complex_flow -- --nocapture

@@ -63,6 +63,8 @@ class Workflow:
             if node.guard:
                 proto_node.guard = node.guard
             dag_definition.nodes.append(proto_node)
+        if dag.return_variable:
+            dag_definition.return_variable = dag.return_variable
         dag_bytes = dag_definition.SerializeToString()
         dag_hash = hashlib.sha256(dag_bytes).hexdigest()
         message = pb2.WorkflowRegistration(

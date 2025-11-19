@@ -115,6 +115,7 @@ mod tests {
                 build_node("node_0", &[], &[]),
                 build_node("node_1", &[], &["node_0"]),
             ],
+            return_variable: String::new(),
         };
         let machine = DagStateMachine::new(&dag, false);
         let mut state = build_state();
@@ -139,6 +140,7 @@ mod tests {
                 build_node("node_0", &[], &[]),
                 build_node("node_1", &[], &["node_0"]),
             ],
+            return_variable: String::new(),
         };
         let machine = DagStateMachine::new(&dag, true);
         let state = build_state();
@@ -155,6 +157,7 @@ mod tests {
                 build_node("node_0", &[], &[]),
                 build_node("node_1", &["node_0"], &[]),
             ],
+            return_variable: String::new(),
         };
         let machine = DagStateMachine::new(&dag, true);
         let mut state = build_state();
@@ -180,6 +183,7 @@ mod tests {
                 build_node("node_1", &["node_0"], &[]),
                 build_node("node_2", &["node_1"], &[]),
             ],
+            return_variable: String::new(),
         };
         let machine = DagStateMachine::new(&dag, false);
         let mut state = build_state();
@@ -210,6 +214,7 @@ mod tests {
         let dag = WorkflowDagDefinition {
             concurrent: false,
             nodes: vec![build_node("node_0", &[], &[]), guarded],
+            return_variable: String::new(),
         };
         let machine = DagStateMachine::new(&dag, false);
         let mut state = build_state();

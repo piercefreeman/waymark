@@ -87,9 +87,11 @@ class WorkflowDagDefinition(_ProtoMessage):
         self,
         concurrent: bool = ...,
         nodes: list[WorkflowDagNode] | None = ...,
+        return_variable: str = ...,
     ) -> None: ...
     concurrent: bool
     nodes: list[WorkflowDagNode]
+    return_variable: str
 
 class WorkflowRegistration(_ProtoMessage):
     def __init__(

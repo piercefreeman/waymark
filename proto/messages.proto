@@ -57,6 +57,7 @@ message WorkflowDagNode {
 message WorkflowDagDefinition {
   bool concurrent = 1;
   repeated WorkflowDagNode nodes = 2;
+  string return_variable = 3;
 }
 
 message WorkflowRegistration {

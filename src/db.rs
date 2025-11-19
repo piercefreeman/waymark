@@ -23,6 +23,33 @@ pub struct Database {
     pool: PgPool,
 }
 
+async fn store_instance_result_if_complete(
+    tx: &mut Transaction<'_, Postgres>,
+    instance: &WorkflowInstanceRow,
+    dag: &WorkflowDagDefinition,
+    context_values: &HashMap<String, Vec<u8>>,
+    completed_count: usize,
+) -> Result<()> {
+    if dag.nodes.len() != completed_count {
+        return Ok(());
+    }
+    if dag.return_variable.is_empty() {
+        return Ok(());
+    }
+    if instance.result_payload.is_some() {
+        return Ok(());
+    }
+    let Some(payload) = context_values.get(&dag.return_variable) else {
+        return Ok(());
+    };
+    sqlx::query("UPDATE workflow_instances SET result_payload = $2 WHERE id = $1")
+        .bind(instance.id)
+        .bind(payload)
+        .execute(tx.as_mut())
+        .await?;
+    Ok(())
+}
+
 async fn load_instance_node_state(
     tx: &mut Transaction<'_, Postgres>,
     instance_id: WorkflowInstanceId,
@@ -140,6 +167,7 @@ struct WorkflowInstanceRow {
     pub workflow_version_id: Option<WorkflowVersionId>,
     pub next_action_seq: i32,
     pub input_payload: Option<Vec<u8>>,
+    pub result_payload: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -490,7 +518,7 @@ impl Database {
     ) -> Result<usize> {
         let instance = sqlx::query_as::<_, WorkflowInstanceRow>(
             r#"
-            SELECT id, partition_id, workflow_name, workflow_version_id, next_action_seq, input_payload
+            SELECT id, partition_id, workflow_name, workflow_version_id, next_action_seq, input_payload, result_payload
             FROM workflow_instances
             WHERE id = $1
             FOR UPDATE
@@ -529,12 +557,21 @@ impl Database {
         let (known_nodes, completed_nodes) = load_instance_node_state(tx, instance.id).await?;
         let dag_state = InstanceDagState::new(known_nodes, completed_nodes);
         let dag_machine = DagStateMachine::new(&dag, version.concurrent);
+        let context_values = build_variable_context(tx, instance.id, &node_map).await?;
+        let completed_count = dag_state.completed().len();
         let unlocked = dag_machine.ready_nodes(&dag_state);
         if unlocked.is_empty() {
+            store_instance_result_if_complete(
+                tx,
+                &instance,
+                &dag,
+                &context_values,
+                completed_count,
+            )
+            .await?;
             return Ok(0);
         }
         let workflow_input = instance.input_payload.clone().unwrap_or_default();
-        let context_values = build_variable_context(tx, instance.id, &node_map).await?;
         let mut next_sequence = instance.next_action_seq;
         let mut inserted = 0usize;
         for node in unlocked {

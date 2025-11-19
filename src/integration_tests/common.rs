@@ -46,13 +46,14 @@ dependencies = [
     run_shell(env_dir.path(), "uv sync", &[]).await?;
 
     let mut run_envs = env_vars.to_vec();
-    let mut pythonpath = repo_python.display().to_string();
-    if let Ok(existing) = env::var("PYTHONPATH")
-        && !existing.is_empty()
-    {
-        pythonpath.push(':');
-        pythonpath.push_str(&existing);
+    let mut python_paths = vec![repo_python.join("src"), repo_python.clone()];
+    if let Some(existing) = env::var_os("PYTHONPATH") {
+        python_paths.extend(env::split_paths(&existing));
     }
+    let pythonpath = env::join_paths(&python_paths)
+        .context("failed to join python path entries")?
+        .into_string()
+        .map_err(|_| anyhow!("python path contains invalid unicode"))?;
     run_envs.push(("PYTHONPATH", pythonpath));
     run_shell(
         env_dir.path(),
