@@ -3,12 +3,16 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use prost::Message;
 use sha2::{Digest, Sha256};
-use sqlx::{Row, postgres::PgRow};
 use tokio::{runtime::Runtime, time::sleep};
 
-use crate::{WorkflowVersionId, db::Database, messages::proto::WorkflowRegistration};
+use crate::{
+    WorkflowInstanceId, WorkflowVersionId, db::Database, messages::proto::WorkflowRegistration,
+};
 
-pub async fn run_instance_payload(database_url: &str, payload: &[u8]) -> Result<WorkflowVersionId> {
+pub async fn run_instance_payload(
+    database_url: &str,
+    payload: &[u8],
+) -> Result<(WorkflowVersionId, WorkflowInstanceId)> {
     let registration = WorkflowRegistration::decode(payload)
         .context("failed to decode workflow registration payload")?;
     let dag_def = registration
@@ -33,37 +37,49 @@ pub async fn run_instance_payload(database_url: &str, payload: &[u8]) -> Result<
             dag_def.concurrent,
         )
         .await?;
-    Ok(version_id)
+    let instance_id = db
+        .create_workflow_instance(&registration.workflow_name, version_id, None)
+        .await?;
+    Ok((version_id, instance_id))
 }
 
 pub async fn wait_for_instance_poll(
     database_url: &str,
+    instance_id: WorkflowInstanceId,
     poll_interval: Duration,
 ) -> Result<Option<Vec<u8>>> {
     let db = Database::connect(database_url).await?;
     loop {
-        let payload = sqlx::query(
-            "SELECT dispatch_payload FROM daemon_action_ledger ORDER BY id DESC LIMIT 1",
-        )
-        .map(|row: PgRow| row.get(0))
-        .fetch_optional(db.pool())
-        .await?;
-        if payload.is_some() {
-            return Ok(payload);
+        let payload: Option<Option<Vec<u8>>> =
+            sqlx::query_scalar("SELECT result_payload FROM workflow_instances WHERE id = $1")
+                .bind(instance_id)
+                .fetch_optional(db.pool())
+                .await?;
+        match payload {
+            Some(Some(bytes)) => return Ok(Some(bytes)),
+            Some(None) => sleep(poll_interval).await,
+            None => return Ok(None),
         }
-        sleep(poll_interval).await;
     }
 }
 
-pub fn run_instance_blocking(database_url: &str, payload: Vec<u8>) -> Result<WorkflowVersionId> {
+pub fn run_instance_blocking(
+    database_url: &str,
+    payload: Vec<u8>,
+) -> Result<(WorkflowVersionId, WorkflowInstanceId)> {
     let rt = Runtime::new()?;
     rt.block_on(run_instance_payload(database_url, &payload))
 }
 
 pub fn wait_for_instance_blocking(
     database_url: &str,
+    instance_id: WorkflowInstanceId,
     poll_interval: Duration,
 ) -> Result<Option<Vec<u8>>> {
     let rt = Runtime::new()?;
-    rt.block_on(wait_for_instance_poll(database_url, poll_interval))
+    rt.block_on(wait_for_instance_poll(
+        database_url,
+        instance_id,
+        poll_interval,
+    ))
 }

@@ -150,10 +150,11 @@ message RegisterWorkflowRequest {
 
 message RegisterWorkflowResponse {
   string workflow_version_id = 1;
+  string workflow_instance_id = 2;
 }
 
 message WaitForInstanceRequest {
-  reserved 1;
+  string instance_id = 1;
   double poll_interval_secs = 2;
 }
 

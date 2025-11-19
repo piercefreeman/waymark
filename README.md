@@ -45,57 +45,74 @@ Instances are your control flow - also written in Python - that orchestrate the 
 
 Workflows can get much more complex than the example above:
 
-1. Helper functions
+1. Customizable retry policy
 
-You can declare helper functions in your file, in your class, or import helper functions from elsewhere in your project.
+    By default your Python code will execute like native logic would: any exceptions will throw and immediately fail. Actions are set to timeout after ~5min to keep the queues from backing up. If you want to control this logic to be more robust, you can set retry policies and backoff intervals so you can attempt the action multiple times until it succeeds.
 
-```python
-from myapp.helpers import _format_currency
+    ```python
+    from carabiner import RetryPolicy, BackoffPolicy
+    from datetime import timedelta
 
-async def run(self) -> Summary:
-    # actions related to one another
-    profile = await fetch_profile(user_id=self.user_id)
-    txns = await load_transactions(user_id=self.user_id)
-    summary = await compute_summary(profile=profile, txns=txns)
+    async def run(self):
+      await self.run_action(
+        inconsistent_action(0.5),
+        retry=RetryPolicy(attempts=50),
+        backoff=BackoffPolicy(base_delay=5),
+        timeout=timedelta(minutes=10)
+      )
+    ```
 
-    # helper functions
-    pretty = _format_currency(summary.transactions.total)
-```
+1. Branching control flows
 
-1. Nested logics
+    Use if statements, for loops, or any other Python primitives within the control logic. We will automatically detect these branches and compile them into a DAG node that gets executed just like your other actions.
 
-Use if statements, for loops, or any other Python primitives within the control logic. We will automatically detect these branches and compile them into a DAG node that gets executed just like your other actions.
-
-```python
-async def run(self) -> Summary:
-  # loop + non-action helper call
-  top_spenders: List[float] = []
-  for record in summary.transactions.records:
-      if _is_high_value(record):
-          top_spenders.append(record.amount)
-```
+    ```python
+    async def run(self) -> Summary:
+      # loop + non-action helper call
+      top_spenders: list[float] = []
+      for record in summary.transactions.records:
+          if _is_high_value(record):
+              top_spenders.append(record.amount)
+    ```
 
 1. asyncio primitives
 
-Use asyncio.gather to parallelize tasks. Use asyncio.sleep to sleep for a longer period of time.
+    Use asyncio.gather to parallelize tasks. Use asyncio.sleep to sleep for a longer period of time.
 
-```python
-from asyncio import gather, sleep
+    ```python
+    from asyncio import gather, sleep
 
-async def run(self) -> Summary:
-    # parallelize independent actions with gather
-    profile, settings, history = await gather(
-        fetch_profile(user_id=self.user_id),
-        fetch_settings(user_id=self.user_id),
-        fetch_purchase_history(user_id=self.user_id)
-    )
-    
-    # wait before sending email
-    await sleep(24*60*60)
-    recommendations = await email_ping(history)
-    
-    return Summary(profile=profile, settings=settings, recommendations=recommendations)
-```
+    async def run(self) -> Summary:
+        # parallelize independent actions with gather
+        profile, settings, history = await gather(
+            fetch_profile(user_id=self.user_id),
+            fetch_settings(user_id=self.user_id),
+            fetch_purchase_history(user_id=self.user_id)
+        )
+        
+        # wait before sending email
+        await sleep(24*60*60)
+        recommendations = await email_ping(history)
+        
+        return Summary(profile=profile, settings=settings, recommendations=recommendations)
+    ```
+
+1. Helper functions
+
+    You can declare helper functions in your file, in your class, or import helper functions from elsewhere in your project.
+
+    ```python
+    from myapp.helpers import _format_currency
+
+    async def run(self) -> Summary:
+        # actions related to one another
+        profile = await fetch_profile(user_id=self.user_id)
+        txns = await load_transactions(user_id=self.user_id)
+        summary = await compute_summary(profile=profile, txns=txns)
+
+        # helper functions
+        pretty = _format_currency(summary.transactions.total)
+    ```
 
 ## Configuration
 

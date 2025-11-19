@@ -5,6 +5,7 @@ import os
 import shlex
 import subprocess
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from threading import Lock, RLock
 from typing import AsyncIterator, Optional
 from urllib.parse import urlparse
@@ -24,6 +25,12 @@ _GRPC_CHANNEL: Optional[aio.Channel] = None
 _GRPC_STUB: Optional[pb2_grpc.WorkflowServiceStub] = None
 _BOOT_MUTEX = Lock()
 _ASYNC_BOOT_LOCK: asyncio.Lock = asyncio.Lock()
+
+
+@dataclass
+class RunInstanceResult:
+    workflow_version_id: str
+    workflow_instance_id: str
 
 
 def _boot_command() -> list[str]:
@@ -154,8 +161,8 @@ async def _workflow_stub() -> pb2_grpc.WorkflowServiceStub:
     return _GRPC_STUB  # type: ignore[return-value]
 
 
-async def run_instance(payload: bytes) -> str:
-    """Register a workflow definition over the gRPC bridge."""
+async def run_instance(payload: bytes) -> RunInstanceResult:
+    """Register a workflow definition and start an instance over the gRPC bridge."""
     async with ensure_singleton():
         stub = await _workflow_stub()
     registration = pb2.WorkflowRegistration()
@@ -167,20 +174,27 @@ async def run_instance(payload: bytes) -> str:
         response = await stub.RegisterWorkflow(request, timeout=30.0)
     except aio.AioRpcError as exc:  # pragma: no cover
         raise RuntimeError(f"register_workflow failed: {exc}") from exc
-    return response.workflow_version_id
+    return RunInstanceResult(
+        workflow_version_id=response.workflow_version_id,
+        workflow_instance_id=response.workflow_instance_id,
+    )
 
 
-async def wait_for_instance(poll_interval_secs: float = 1.0) -> Optional[bytes]:
-    """Block until the workflow daemon produces another instance payload."""
+async def wait_for_instance(
+    instance_id: str,
+    poll_interval_secs: float = 1.0,
+) -> Optional[bytes]:
+    """Block until the workflow daemon produces the requested instance payload."""
     async with ensure_singleton():
         stub = await _workflow_stub()
     request = pb2.WaitForInstanceRequest(
+        instance_id=instance_id,
         poll_interval_secs=poll_interval_secs,
     )
     try:
         response = await stub.WaitForInstance(request, timeout=None)
     except aio.AioRpcError as exc:  # pragma: no cover
-        status_fn = getattr(exc, "code", None)
+        status_fn = exc.code
         if callable(status_fn) and status_fn() == grpc.StatusCode.NOT_FOUND:
             return None
         raise RuntimeError(f"wait_for_instance failed: {exc}") from exc

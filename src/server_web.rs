@@ -94,10 +94,12 @@ struct RegisterWorkflowHttpRequest {
 #[derive(Debug, Serialize)]
 struct RegisterWorkflowHttpResponse {
     workflow_version_id: String,
+    workflow_instance_id: String,
 }
 
 #[derive(Debug, Deserialize)]
 struct WaitForInstanceHttpRequest {
+    instance_id: String,
     poll_interval_secs: Option<f64>,
 }
 
@@ -290,11 +292,12 @@ async fn register_workflow_http(
         .decode(payload.registration_b64)
         .map_err(|_| HttpError::bad_request("invalid base64 payload"))?;
     let database_url = state.database_url.clone();
-    let version_id = instances::run_instance_payload(database_url.as_ref(), &bytes)
+    let (version_id, instance_id) = instances::run_instance_payload(database_url.as_ref(), &bytes)
         .await
         .map_err(HttpError::internal)?;
     Ok(Json(RegisterWorkflowHttpResponse {
         workflow_version_id: version_id.to_string(),
+        workflow_instance_id: instance_id.to_string(),
     }))
 }
 
@@ -303,8 +306,12 @@ async fn wait_for_instance_http(
     Json(request): Json<WaitForInstanceHttpRequest>,
 ) -> Result<Json<WaitForInstanceHttpResponse>, HttpError> {
     let interval = sanitize_interval(request.poll_interval_secs);
+    let instance_id = request
+        .instance_id
+        .parse()
+        .map_err(|_| HttpError::bad_request("invalid instance_id"))?;
     let database_url = state.database_url.clone();
-    let payload = instances::wait_for_instance_poll(database_url.as_ref(), interval)
+    let payload = instances::wait_for_instance_poll(database_url.as_ref(), instance_id, interval)
         .await
         .map_err(HttpError::internal)?;
     let Some(bytes) = payload else {

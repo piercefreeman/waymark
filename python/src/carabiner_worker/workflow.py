@@ -12,6 +12,7 @@ from typing import Any, ClassVar, Dict, Optional, Sequence, TextIO, TypeVar
 from proto import messages_pb2 as pb2
 
 from . import bridge
+from .actions import deserialize_result_payload
 from .formatter import Formatter, supports_color
 from .workflow_dag import DagNode, WorkflowDag, build_workflow_dag
 
@@ -333,12 +334,23 @@ def workflow(cls: type[TWorkflow]) -> type[TWorkflow]:
         if _running_under_pytest():
             cls.workflow_dag()
             return await run_impl(self, *args, **kwargs)
-        version = cls._workflow_version_id
-        if version is None:
-            payload = cls._build_registration_payload()
-            version = await bridge.run_instance(payload.SerializeToString())
-            cls._workflow_version_id = version
-        return version
+        payload = cls._build_registration_payload()
+        run_result = await bridge.run_instance(payload.SerializeToString())
+        cls._workflow_version_id = run_result.workflow_version_id
+        result_bytes = await bridge.wait_for_instance(
+            instance_id=run_result.workflow_instance_id,
+            poll_interval_secs=1.0,
+        )
+        if result_bytes is None:
+            raise TimeoutError(
+                f"workflow instance {run_result.workflow_instance_id} did not complete"
+            )
+        arguments = pb2.WorkflowArguments()
+        arguments.ParseFromString(result_bytes)
+        result = deserialize_result_payload(arguments)
+        if result.error:
+            raise RuntimeError(f"workflow failed: {result.error}")
+        return result.result
 
     cls.__workflow_run_impl__ = run_impl
     cls.run = run_public  # type: ignore[assignment]

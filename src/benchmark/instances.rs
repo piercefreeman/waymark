@@ -100,7 +100,7 @@ impl WorkflowBenchmarkHarness {
         let registration_payload = build_registration_payload(&python_paths, &user_module)?;
         let registration = WorkflowRegistration::decode(registration_payload.as_slice())
             .context("decode workflow registration")?;
-        let version_id = instances::run_instance_payload(database_url, &registration_payload)
+        let (version_id, _) = instances::run_instance_payload(database_url, &registration_payload)
             .await
             .context("register workflow version")?;
         worker_config.user_module = user_module.clone();

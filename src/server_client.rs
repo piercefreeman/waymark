@@ -112,11 +112,13 @@ impl proto::workflow_service_server::WorkflowService for WorkflowGrpcService {
             .registration
             .ok_or_else(|| Status::invalid_argument("registration missing"))?;
         let payload = registration.encode_to_vec();
-        let version_id = instances::run_instance_payload(self.database_url.as_ref(), &payload)
-            .await
-            .map_err(|err| Status::internal(err.to_string()))?;
+        let (version_id, instance_id) =
+            instances::run_instance_payload(self.database_url.as_ref(), &payload)
+                .await
+                .map_err(|err| Status::internal(err.to_string()))?;
         Ok(GrpcResponse::new(proto::RegisterWorkflowResponse {
             workflow_version_id: version_id.to_string(),
+            workflow_instance_id: instance_id.to_string(),
         }))
     }
 
@@ -125,10 +127,15 @@ impl proto::workflow_service_server::WorkflowService for WorkflowGrpcService {
         request: Request<proto::WaitForInstanceRequest>,
     ) -> Result<GrpcResponse<proto::WaitForInstanceResponse>, Status> {
         let inner = request.into_inner();
+        let instance_id = inner
+            .instance_id
+            .parse()
+            .map_err(|err| Status::invalid_argument(format!("invalid instance_id: {err}")))?;
         let interval = sanitize_interval(Some(inner.poll_interval_secs));
-        let payload = instances::wait_for_instance_poll(self.database_url.as_ref(), interval)
-            .await
-            .map_err(|err| Status::internal(err.to_string()))?;
+        let payload =
+            instances::wait_for_instance_poll(self.database_url.as_ref(), instance_id, interval)
+                .await
+                .map_err(|err| Status::internal(err.to_string()))?;
         let bytes = payload.ok_or_else(|| Status::not_found("no workflow instance available"))?;
         Ok(GrpcResponse::new(proto::WaitForInstanceResponse {
             payload: bytes,

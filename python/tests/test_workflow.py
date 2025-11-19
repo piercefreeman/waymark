@@ -10,7 +10,7 @@ from collections.abc import Iterator
 import pytest
 
 from carabiner_worker import bridge
-from carabiner_worker.actions import action
+from carabiner_worker.actions import action, serialize_result_payload
 from carabiner_worker.workflow_dag import WorkflowDag
 
 workflow_module = importlib.import_module("carabiner_worker.workflow")
@@ -68,12 +68,25 @@ def test_workflow_short_name_override() -> None:
 def test_workflow_registration_outside_pytest(monkeypatch: pytest.MonkeyPatch) -> None:
     os.environ.pop("PYTEST_CURRENT_TEST", None)
     calls: list[bytes] = []
+    wait_calls: list[str] = []
+    wait_results = ["first", "second"]
 
-    async def fake_run_instance(payload: bytes) -> str:
+    async def fake_run_instance(payload: bytes) -> bridge.RunInstanceResult:
         calls.append(payload)
-        return "00000000-0000-0000-0000-000000000123"
+        suffix = len(calls)
+        return bridge.RunInstanceResult(
+            workflow_version_id=f"00000000-0000-0000-0000-0000000001{suffix:02d}",
+            workflow_instance_id=f"00000000-0000-0000-0000-0000000002{suffix:02d}",
+        )
+
+    async def fake_wait_for_instance(*, instance_id: str, poll_interval_secs: float = 1.0) -> bytes:
+        wait_calls.append(instance_id)
+        _ = poll_interval_secs  # unused in fake
+        payload = serialize_result_payload(wait_results[len(wait_calls) - 1])
+        return payload.SerializeToString()
 
     monkeypatch.setattr(bridge, "run_instance", fake_run_instance)
+    monkeypatch.setattr(bridge, "wait_for_instance", fake_wait_for_instance)
 
     @workflow_decorator
     class ProductionWorkflow(Workflow):
@@ -81,13 +94,16 @@ def test_workflow_registration_outside_pytest(monkeypatch: pytest.MonkeyPatch) -
             return "should not execute"
 
     instance = ProductionWorkflow()
-    version = asyncio.run(instance.run())
-    assert version == "00000000-0000-0000-0000-000000000123"
+    result = asyncio.run(instance.run())
+    assert result == "first"
     assert len(calls) == 1
-    # Subsequent runs reuse cached version id and do not re-register.
-    version_again = asyncio.run(instance.run())
-    assert version_again == "00000000-0000-0000-0000-000000000123"
-    assert len(calls) == 1
+    assert wait_calls == ["00000000-0000-0000-0000-000000000201"]
+
+    # Subsequent runs should invoke gRPC again and wait for their own instance id.
+    result_again = asyncio.run(instance.run())
+    assert result_again == "second"
+    assert len(calls) == 2
+    assert wait_calls[-1] == "00000000-0000-0000-0000-000000000202"
     os.environ["PYTEST_CURRENT_TEST"] = "true"
 
 

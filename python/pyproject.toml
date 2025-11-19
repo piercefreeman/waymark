@@ -22,6 +22,7 @@ dev-dependencies = [
     "pytest>=8",
     "ty>=0.0.1a26",
     "ruff>=0.6",
+    "mypy-protobuf>=3.7.0"
 ]
 
 [tool.ruff]

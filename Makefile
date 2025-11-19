@@ -11,6 +11,8 @@ build-proto:
 		--proto_path=../proto \
 		--python_out=../$(PY_PROTO_OUT) \
 		--grpc_python_out=../$(PY_PROTO_OUT) \
+		--mypy_out=../$(PY_PROTO_OUT) \
+		--mypy_grpc_out=../$(PY_PROTO_OUT) \
 		../$(PROTO_FILES)
 	@python scripts/fix_proto_imports.py
 

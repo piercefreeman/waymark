@@ -29,8 +29,7 @@ def supports_color(stream: TextIO) -> bool:
         return False
     if os.environ.get("FORCE_COLOR"):
         return True
-    isatty = getattr(stream, "isatty", None)
-    if callable(isatty) and isatty():
+    if stream.isatty():
         if sys.platform != "win32":
             return True
         return bool(
