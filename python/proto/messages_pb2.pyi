@@ -1,4 +1,7 @@
-from typing import Iterator, Protocol
+from typing import Any, Iterator, Protocol
+
+Struct = Any
+Value = Any
 
 class _ProtoMessage(Protocol):
     def SerializeToString(self) -> bytes: ...
@@ -131,6 +134,40 @@ class WorkflowNodeContext(_ProtoMessage):
     variable: str
     payload: bytes
     workflow_node_id: str
+
+class WorkflowArgumentValue(_ProtoMessage):
+    def __init__(
+        self,
+        primitive: PrimitiveWorkflowArgument | None = ...,
+        basemodel: BaseModelWorkflowArgument | None = ...,
+        exception: WorkflowErrorValue | None = ...,
+    ) -> None: ...
+    primitive: PrimitiveWorkflowArgument
+    basemodel: BaseModelWorkflowArgument
+    exception: WorkflowErrorValue
+
+class PrimitiveWorkflowArgument(_ProtoMessage):
+    def __init__(self, value: Value | None = ...) -> None: ...
+    value: Value
+
+class BaseModelWorkflowArgument(_ProtoMessage):
+    def __init__(self, module: str = ..., name: str = ..., data: Struct | None = ...) -> None: ...
+    module: str
+    name: str
+    data: Struct
+
+class WorkflowErrorValue(_ProtoMessage):
+    def __init__(
+        self,
+        type: str = ...,
+        module: str = ...,
+        message: str = ...,
+        traceback: str = ...,
+    ) -> None: ...
+    type: str
+    module: str
+    message: str
+    traceback: str
 
 class WorkflowNodeDispatch(_ProtoMessage):
     def __init__(

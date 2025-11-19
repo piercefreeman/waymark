@@ -162,8 +162,9 @@ fn build_workflow_action_payload(
         "action": "workflow.execute_node",
         "kwargs": {
             "dispatch_b64": {
-                "kind": "primitive",
-                "value": encoded,
+                "primitive": {
+                    "value": encoded,
+                }
             }
         }
     });

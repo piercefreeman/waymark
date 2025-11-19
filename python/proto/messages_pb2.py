@@ -16,11 +16,15 @@ _runtime_version.ValidateProtobufRuntimeVersion(
 )
 # @@protoc_insertion_point(imports)
 
+from google.protobuf import struct_pb2 as google_dot_protobuf_dot_struct__pb2
+
 _sym_db = _symbol_database.Default()
+_sym_db.RegisterFileDescriptor(google_dot_protobuf_dot_struct__pb2.DESCRIPTOR)
+
 
 
 DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(
-    b'\n\x0emessages.proto\x12\x12\x63\x61rabiner.messages"u\n\x08\x45nvelope\x12\x13\n\x0b\x64\x65livery_id\x18\x01 \x01(\x04\x12\x14\n\x0cpartition_id\x18\x02 \x01(\r\x12-\n\x04kind\x18\x03 \x01(\x0e\x32\x1f.carabiner.messages.MessageKind\x12\x0f\n\x07payload\x18\x04 \x01(\x0c"[\n\x0e\x41\x63tionDispatch\x12\x11\n\taction_id\x18\x01 \x01(\t\x12\x13\n\x0binstance_id\x18\x02 \x01(\t\x12\x10\n\x08sequence\x18\x03 \x01(\r\x12\x0f\n\x07payload\x18\x04 \x01(\x0c"s\n\x0c\x41\x63tionResult\x12\x11\n\taction_id\x18\x01 \x01(\t\x12\x0f\n\x07success\x18\x02 \x01(\x08\x12\x0f\n\x07payload\x18\x03 \x01(\x0c\x12\x17\n\x0fworker_start_ns\x18\x04 \x01(\x04\x12\x15\n\rworker_end_ns\x18\x05 \x01(\x04" \n\x03\x41\x63k\x12\x19\n\x11\x61\x63ked_delivery_id\x18\x01 \x01(\x04" \n\x0bWorkerHello\x12\x11\n\tworker_id\x18\x01 \x01(\x04"\xbd\x02\n\x0fWorkflowDagNode\x12\n\n\x02id\x18\x01 \x01(\t\x12\x0e\n\x06\x61\x63tion\x18\x02 \x01(\t\x12?\n\x06kwargs\x18\x03 \x03(\x0b\x32/.carabiner.messages.WorkflowDagNode.KwargsEntry\x12\x12\n\ndepends_on\x18\x04 \x03(\t\x12\x15\n\rwait_for_sync\x18\x05 \x03(\t\x12\x10\n\x08produces\x18\x06 \x03(\t\x12\x0e\n\x06module\x18\x07 \x01(\t\x12\r\n\x05guard\x18\x08 \x01(\t\x12\x42\n\x0f\x65xception_edges\x18\t \x03(\x0b\x32).carabiner.messages.WorkflowExceptionEdge\x1a-\n\x0bKwargsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01"x\n\x15WorkflowDagDefinition\x12\x12\n\nconcurrent\x18\x01 \x01(\x08\x12\x32\n\x05nodes\x18\x02 \x03(\x0b\x32#.carabiner.messages.WorkflowDagNode\x12\x17\n\x0freturn_variable\x18\x03 \x01(\t"a\n\x15WorkflowExceptionEdge\x12\x16\n\x0esource_node_id\x18\x01 \x01(\t\x12\x16\n\x0e\x65xception_type\x18\x02 \x01(\t\x12\x18\n\x10\x65xception_module\x18\x03 \x01(\t"w\n\x14WorkflowRegistration\x12\x15\n\rworkflow_name\x18\x01 \x01(\t\x12\x36\n\x03\x64\x61g\x18\x02 \x01(\x0b\x32).carabiner.messages.WorkflowDagDefinition\x12\x10\n\x08\x64\x61g_hash\x18\x03 \x01(\t"R\n\x13WorkflowNodeContext\x12\x10\n\x08variable\x18\x01 \x01(\t\x12\x0f\n\x07payload\x18\x02 \x01(\x0c\x12\x18\n\x10workflow_node_id\x18\x03 \x01(\t"\x9b\x01\n\x14WorkflowNodeDispatch\x12\x31\n\x04node\x18\x01 \x01(\x0b\x32#.carabiner.messages.WorkflowDagNode\x12\x16\n\x0eworkflow_input\x18\x02 \x01(\x0c\x12\x38\n\x07\x63ontext\x18\x03 \x03(\x0b\x32\'.carabiner.messages.WorkflowNodeContext"_\n\x17RegisterWorkflowRequest\x12>\n\x0cregistration\x18\x02 \x01(\x0b\x32(.carabiner.messages.WorkflowRegistrationJ\x04\x08\x01\x10\x02"7\n\x18RegisterWorkflowResponse\x12\x1b\n\x13workflow_version_id\x18\x01 \x01(\t":\n\x16WaitForInstanceRequest\x12\x1a\n\x12poll_interval_secs\x18\x02 \x01(\x01J\x04\x08\x01\x10\x02"*\n\x17WaitForInstanceResponse\x12\x0f\n\x07payload\x18\x01 \x01(\x0c*\xbe\x01\n\x0bMessageKind\x12\x1c\n\x18MESSAGE_KIND_UNSPECIFIED\x10\x00\x12 \n\x1cMESSAGE_KIND_ACTION_DISPATCH\x10\x01\x12\x1e\n\x1aMESSAGE_KIND_ACTION_RESULT\x10\x02\x12\x14\n\x10MESSAGE_KIND_ACK\x10\x03\x12\x1a\n\x16MESSAGE_KIND_HEARTBEAT\x10\x04\x12\x1d\n\x19MESSAGE_KIND_WORKER_HELLO\x10\x05\x32\xec\x01\n\x0fWorkflowService\x12m\n\x10RegisterWorkflow\x12+.carabiner.messages.RegisterWorkflowRequest\x1a,.carabiner.messages.RegisterWorkflowResponse\x12j\n\x0fWaitForInstance\x12*.carabiner.messages.WaitForInstanceRequest\x1a+.carabiner.messages.WaitForInstanceResponse2X\n\x0cWorkerBridge\x12H\n\x06\x41ttach\x12\x1c.carabiner.messages.Envelope\x1a\x1c.carabiner.messages.Envelope(\x01\x30\x01\x62\x06proto3'
+    b'\n\x0emessages.proto\x12\x12\x63\x61rabiner.messages\x1a\x1cgoogle/protobuf/struct.proto"u\n\x08\x45nvelope\x12\x13\n\x0b\x64\x65livery_id\x18\x01 \x01(\x04\x12\x14\n\x0cpartition_id\x18\x02 \x01(\r\x12-\n\x04kind\x18\x03 \x01(\x0e\x32\x1f.carabiner.messages.MessageKind\x12\x0f\n\x07payload\x18\x04 \x01(\x0c"[\n\x0e\x41\x63tionDispatch\x12\x11\n\taction_id\x18\x01 \x01(\t\x12\x13\n\x0binstance_id\x18\x02 \x01(\t\x12\x10\n\x08sequence\x18\x03 \x01(\r\x12\x0f\n\x07payload\x18\x04 \x01(\x0c"s\n\x0c\x41\x63tionResult\x12\x11\n\taction_id\x18\x01 \x01(\t\x12\x0f\n\x07success\x18\x02 \x01(\x08\x12\x0f\n\x07payload\x18\x03 \x01(\x0c\x12\x17\n\x0fworker_start_ns\x18\x04 \x01(\x04\x12\x15\n\rworker_end_ns\x18\x05 \x01(\x04" \n\x03\x41\x63k\x12\x19\n\x11\x61\x63ked_delivery_id\x18\x01 \x01(\x04" \n\x0bWorkerHello\x12\x11\n\tworker_id\x18\x01 \x01(\x04"\xbd\x02\n\x0fWorkflowDagNode\x12\n\n\x02id\x18\x01 \x01(\t\x12\x0e\n\x06\x61\x63tion\x18\x02 \x01(\t\x12?\n\x06kwargs\x18\x03 \x03(\x0b\x32/.carabiner.messages.WorkflowDagNode.KwargsEntry\x12\x12\n\ndepends_on\x18\x04 \x03(\t\x12\x15\n\rwait_for_sync\x18\x05 \x03(\t\x12\x10\n\x08produces\x18\x06 \x03(\t\x12\x0e\n\x06module\x18\x07 \x01(\t\x12\r\n\x05guard\x18\x08 \x01(\t\x12\x42\n\x0f\x65xception_edges\x18\t \x03(\x0b\x32).carabiner.messages.WorkflowExceptionEdge\x1a-\n\x0bKwargsEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01"x\n\x15WorkflowDagDefinition\x12\x12\n\nconcurrent\x18\x01 \x01(\x08\x12\x32\n\x05nodes\x18\x02 \x03(\x0b\x32#.carabiner.messages.WorkflowDagNode\x12\x17\n\x0freturn_variable\x18\x03 \x01(\t"a\n\x15WorkflowExceptionEdge\x12\x16\n\x0esource_node_id\x18\x01 \x01(\t\x12\x16\n\x0e\x65xception_type\x18\x02 \x01(\t\x12\x18\n\x10\x65xception_module\x18\x03 \x01(\t"w\n\x14WorkflowRegistration\x12\x15\n\rworkflow_name\x18\x01 \x01(\t\x12\x36\n\x03\x64\x61g\x18\x02 \x01(\x0b\x32).carabiner.messages.WorkflowDagDefinition\x12\x10\n\x08\x64\x61g_hash\x18\x03 \x01(\t"R\n\x13WorkflowNodeContext\x12\x10\n\x08variable\x18\x01 \x01(\t\x12\x0f\n\x07payload\x18\x02 \x01(\x0c\x12\x18\n\x10workflow_node_id\x18\x03 \x01(\t"\xe4\x01\n\x15WorkflowArgumentValue\x12\x42\n\tprimitive\x18\x01 \x01(\x0b\x32-.carabiner.messages.PrimitiveWorkflowArgumentH\x00\x12\x42\n\tbasemodel\x18\x02 \x01(\x0b\x32-.carabiner.messages.BaseModelWorkflowArgumentH\x00\x12;\n\texception\x18\x03 \x01(\x0b\x32&.carabiner.messages.WorkflowErrorValueH\x00\x42\x06\n\x04kind"B\n\x19PrimitiveWorkflowArgument\x12%\n\x05value\x18\x01 \x01(\x0b\x32\x16.google.protobuf.Value"`\n\x19\x42\x61seModelWorkflowArgument\x12\x0e\n\x06module\x18\x01 \x01(\t\x12\x0c\n\x04name\x18\x02 \x01(\t\x12%\n\x04\x64\x61ta\x18\x03 \x01(\x0b\x32\x17.google.protobuf.Struct"V\n\x12WorkflowErrorValue\x12\x0c\n\x04type\x18\x01 \x01(\t\x12\x0e\n\x06module\x18\x02 \x01(\t\x12\x0f\n\x07message\x18\x03 \x01(\t\x12\x11\n\ttraceback\x18\x04 \x01(\t"\x9b\x01\n\x14WorkflowNodeDispatch\x12\x31\n\x04node\x18\x01 \x01(\x0b\x32#.carabiner.messages.WorkflowDagNode\x12\x16\n\x0eworkflow_input\x18\x02 \x01(\x0c\x12\x38\n\x07\x63ontext\x18\x03 \x03(\x0b\x32\'.carabiner.messages.WorkflowNodeContext"_\n\x17RegisterWorkflowRequest\x12>\n\x0cregistration\x18\x02 \x01(\x0b\x32(.carabiner.messages.WorkflowRegistrationJ\x04\x08\x01\x10\x02"7\n\x18RegisterWorkflowResponse\x12\x1b\n\x13workflow_version_id\x18\x01 \x01(\t":\n\x16WaitForInstanceRequest\x12\x1a\n\x12poll_interval_secs\x18\x02 \x01(\x01J\x04\x08\x01\x10\x02"*\n\x17WaitForInstanceResponse\x12\x0f\n\x07payload\x18\x01 \x01(\x0c*\xbe\x01\n\x0bMessageKind\x12\x1c\n\x18MESSAGE_KIND_UNSPECIFIED\x10\x00\x12 \n\x1cMESSAGE_KIND_ACTION_DISPATCH\x10\x01\x12\x1e\n\x1aMESSAGE_KIND_ACTION_RESULT\x10\x02\x12\x14\n\x10MESSAGE_KIND_ACK\x10\x03\x12\x1a\n\x16MESSAGE_KIND_HEARTBEAT\x10\x04\x12\x1d\n\x19MESSAGE_KIND_WORKER_HELLO\x10\x05\x32\xec\x01\n\x0fWorkflowService\x12m\n\x10RegisterWorkflow\x12+.carabiner.messages.RegisterWorkflowRequest\x1a,.carabiner.messages.RegisterWorkflowResponse\x12j\n\x0fWaitForInstance\x12*.carabiner.messages.WaitForInstanceRequest\x1a+.carabiner.messages.WaitForInstanceResponse2X\n\x0cWorkerBridge\x12H\n\x06\x41ttach\x12\x1c.carabiner.messages.Envelope\x1a\x1c.carabiner.messages.Envelope(\x01\x30\x01\x62\x06proto3'
 )
 
 _globals = globals()
@@ -30,42 +34,50 @@ if not _descriptor._USE_C_DESCRIPTORS:
     DESCRIPTOR._loaded_options = None
     _globals["_WORKFLOWDAGNODE_KWARGSENTRY"]._loaded_options = None
     _globals["_WORKFLOWDAGNODE_KWARGSENTRY"]._serialized_options = b"8\001"
-    _globals["_MESSAGEKIND"]._serialized_start = 1598
-    _globals["_MESSAGEKIND"]._serialized_end = 1788
-    _globals["_ENVELOPE"]._serialized_start = 38
-    _globals["_ENVELOPE"]._serialized_end = 155
-    _globals["_ACTIONDISPATCH"]._serialized_start = 157
-    _globals["_ACTIONDISPATCH"]._serialized_end = 248
-    _globals["_ACTIONRESULT"]._serialized_start = 250
-    _globals["_ACTIONRESULT"]._serialized_end = 365
-    _globals["_ACK"]._serialized_start = 367
-    _globals["_ACK"]._serialized_end = 399
-    _globals["_WORKERHELLO"]._serialized_start = 401
-    _globals["_WORKERHELLO"]._serialized_end = 433
-    _globals["_WORKFLOWDAGNODE"]._serialized_start = 436
-    _globals["_WORKFLOWDAGNODE"]._serialized_end = 753
-    _globals["_WORKFLOWDAGNODE_KWARGSENTRY"]._serialized_start = 708
-    _globals["_WORKFLOWDAGNODE_KWARGSENTRY"]._serialized_end = 753
-    _globals["_WORKFLOWDAGDEFINITION"]._serialized_start = 755
-    _globals["_WORKFLOWDAGDEFINITION"]._serialized_end = 875
-    _globals["_WORKFLOWEXCEPTIONEDGE"]._serialized_start = 877
-    _globals["_WORKFLOWEXCEPTIONEDGE"]._serialized_end = 974
-    _globals["_WORKFLOWREGISTRATION"]._serialized_start = 976
-    _globals["_WORKFLOWREGISTRATION"]._serialized_end = 1095
-    _globals["_WORKFLOWNODECONTEXT"]._serialized_start = 1097
-    _globals["_WORKFLOWNODECONTEXT"]._serialized_end = 1179
-    _globals["_WORKFLOWNODEDISPATCH"]._serialized_start = 1182
-    _globals["_WORKFLOWNODEDISPATCH"]._serialized_end = 1337
-    _globals["_REGISTERWORKFLOWREQUEST"]._serialized_start = 1339
-    _globals["_REGISTERWORKFLOWREQUEST"]._serialized_end = 1434
-    _globals["_REGISTERWORKFLOWRESPONSE"]._serialized_start = 1436
-    _globals["_REGISTERWORKFLOWRESPONSE"]._serialized_end = 1491
-    _globals["_WAITFORINSTANCEREQUEST"]._serialized_start = 1493
-    _globals["_WAITFORINSTANCEREQUEST"]._serialized_end = 1551
-    _globals["_WAITFORINSTANCERESPONSE"]._serialized_start = 1553
-    _globals["_WAITFORINSTANCERESPONSE"]._serialized_end = 1595
-    _globals["_WORKFLOWSERVICE"]._serialized_start = 1791
-    _globals["_WORKFLOWSERVICE"]._serialized_end = 2027
-    _globals["_WORKERBRIDGE"]._serialized_start = 2029
-    _globals["_WORKERBRIDGE"]._serialized_end = 2117
+    _globals["_MESSAGEKIND"]._serialized_start = 2113
+    _globals["_MESSAGEKIND"]._serialized_end = 2303
+    _globals["_ENVELOPE"]._serialized_start = 68
+    _globals["_ENVELOPE"]._serialized_end = 185
+    _globals["_ACTIONDISPATCH"]._serialized_start = 187
+    _globals["_ACTIONDISPATCH"]._serialized_end = 278
+    _globals["_ACTIONRESULT"]._serialized_start = 280
+    _globals["_ACTIONRESULT"]._serialized_end = 395
+    _globals["_ACK"]._serialized_start = 397
+    _globals["_ACK"]._serialized_end = 429
+    _globals["_WORKERHELLO"]._serialized_start = 431
+    _globals["_WORKERHELLO"]._serialized_end = 463
+    _globals["_WORKFLOWDAGNODE"]._serialized_start = 466
+    _globals["_WORKFLOWDAGNODE"]._serialized_end = 783
+    _globals["_WORKFLOWDAGNODE_KWARGSENTRY"]._serialized_start = 738
+    _globals["_WORKFLOWDAGNODE_KWARGSENTRY"]._serialized_end = 783
+    _globals["_WORKFLOWDAGDEFINITION"]._serialized_start = 785
+    _globals["_WORKFLOWDAGDEFINITION"]._serialized_end = 905
+    _globals["_WORKFLOWEXCEPTIONEDGE"]._serialized_start = 907
+    _globals["_WORKFLOWEXCEPTIONEDGE"]._serialized_end = 1004
+    _globals["_WORKFLOWREGISTRATION"]._serialized_start = 1006
+    _globals["_WORKFLOWREGISTRATION"]._serialized_end = 1125
+    _globals["_WORKFLOWNODECONTEXT"]._serialized_start = 1127
+    _globals["_WORKFLOWNODECONTEXT"]._serialized_end = 1209
+    _globals["_WORKFLOWARGUMENTVALUE"]._serialized_start = 1212
+    _globals["_WORKFLOWARGUMENTVALUE"]._serialized_end = 1440
+    _globals["_PRIMITIVEWORKFLOWARGUMENT"]._serialized_start = 1442
+    _globals["_PRIMITIVEWORKFLOWARGUMENT"]._serialized_end = 1508
+    _globals["_BASEMODELWORKFLOWARGUMENT"]._serialized_start = 1510
+    _globals["_BASEMODELWORKFLOWARGUMENT"]._serialized_end = 1606
+    _globals["_WORKFLOWERRORVALUE"]._serialized_start = 1608
+    _globals["_WORKFLOWERRORVALUE"]._serialized_end = 1694
+    _globals["_WORKFLOWNODEDISPATCH"]._serialized_start = 1697
+    _globals["_WORKFLOWNODEDISPATCH"]._serialized_end = 1852
+    _globals["_REGISTERWORKFLOWREQUEST"]._serialized_start = 1854
+    _globals["_REGISTERWORKFLOWREQUEST"]._serialized_end = 1949
+    _globals["_REGISTERWORKFLOWRESPONSE"]._serialized_start = 1951
+    _globals["_REGISTERWORKFLOWRESPONSE"]._serialized_end = 2006
+    _globals["_WAITFORINSTANCEREQUEST"]._serialized_start = 2008
+    _globals["_WAITFORINSTANCEREQUEST"]._serialized_end = 2066
+    _globals["_WAITFORINSTANCERESPONSE"]._serialized_start = 2068
+    _globals["_WAITFORINSTANCERESPONSE"]._serialized_end = 2110
+    _globals["_WORKFLOWSERVICE"]._serialized_start = 2306
+    _globals["_WORKFLOWSERVICE"]._serialized_end = 2542
+    _globals["_WORKERBRIDGE"]._serialized_start = 2544
+    _globals["_WORKERBRIDGE"]._serialized_end = 2632
 # @@protoc_insertion_point(module_scope)

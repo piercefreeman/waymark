@@ -334,6 +334,7 @@ dependencies = [
  "num_cpus",
  "once_cell",
  "prost",
+ "prost-types",
  "reqwest",
  "serde",
  "serde_json",

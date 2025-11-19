@@ -2,80 +2,132 @@ from __future__ import annotations
 
 import importlib
 import json
-from enum import Enum
-from typing import Annotated, Any, Literal, Union
+import traceback
+from typing import Any
 
-from pydantic import BaseModel, Field, TypeAdapter
+from google.protobuf import json_format, struct_pb2
+from pydantic import BaseModel
+
+from proto import messages_pb2 as pb2
+
+Struct = struct_pb2.Struct  # type: ignore[attr-defined]
+Value = struct_pb2.Value  # type: ignore[attr-defined]
+NULL_VALUE = struct_pb2.NULL_VALUE  # type: ignore[attr-defined]
 
 PRIMITIVE_TYPES = (str, int, float, bool, type(None))
 
 
-class EncodedKind(str, Enum):
-    PRIMITIVE = "primitive"
-    BASEMODEL = "basemodel"
+def dumps(value: Any) -> dict[str, Any]:
+    """Serialize a Python value into the workflow argument schema."""
+
+    message = _to_argument_value(value)
+    return json_format.MessageToDict(message, preserving_proto_field_name=True)
 
 
-class EncodedModelIdentifier(BaseModel):
-    module: str
-    name: str
+def loads(data: Any) -> Any:
+    """Deserialize a workflow argument payload into a Python object."""
 
-    model_config = {"extra": "forbid"}
-
-
-class PrimitiveEncodedValue(BaseModel):
-    kind: Literal[EncodedKind.PRIMITIVE] = Field(default=EncodedKind.PRIMITIVE)
-    value: Any
-
-    model_config = {"extra": "forbid"}
-
-
-class BaseModelEncodedValue(BaseModel):
-    kind: Literal[EncodedKind.BASEMODEL] = Field(default=EncodedKind.BASEMODEL)
-    model: EncodedModelIdentifier
-    data: dict[str, Any]
-
-    model_config = {"extra": "forbid"}
+    if isinstance(data, dict):
+        argument = pb2.WorkflowArgumentValue()
+        json_format.ParseDict(data, argument)
+    elif isinstance(data, pb2.WorkflowArgumentValue):
+        argument = data
+    else:
+        raise TypeError("argument value payload must be a dict or ArgumentValue message")
+    return _from_argument_value(argument)
 
 
-_encoded_value_adapter = TypeAdapter(
-    Annotated[
-        Union[PrimitiveEncodedValue, BaseModelEncodedValue],
-        Field(discriminator="kind"),
-    ]
-)
+def dump_envelope(obj: Any) -> bytes:
+    return json.dumps(obj, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
 
 
-def _encode_value(value: Any) -> dict[str, Any]:
+def load_envelope(payload: bytes) -> Any:
+    if isinstance(payload, bytes):
+        text = payload.decode("utf-8")
+    elif isinstance(payload, str):  # pragma: no cover - convenience path
+        text = payload
+    else:
+        raise TypeError("payload must be bytes or str")
+    return json.loads(text)
+
+
+def _to_argument_value(value: Any) -> pb2.WorkflowArgumentValue:
+    argument = pb2.WorkflowArgumentValue()
     if isinstance(value, PRIMITIVE_TYPES):
-        return {"kind": "primitive", "value": value}
+        argument.primitive.value.CopyFrom(_python_to_value(value))
+        return argument
+    if isinstance(value, BaseException):
+        argument.exception.type = value.__class__.__name__
+        argument.exception.module = value.__class__.__module__
+        argument.exception.message = str(value)
+        tb_text = "".join(traceback.format_exception(type(value), value, value.__traceback__))
+        argument.exception.traceback = tb_text
+        return argument
     if _is_base_model(value):
         model_class = value.__class__
-        if hasattr(value, "model_dump"):
-            model_data = value.model_dump(mode="python")  # type: ignore[attr-defined]
-        elif hasattr(value, "dict"):
-            model_data = value.dict()  # type: ignore[attr-defined]
-        else:  # pragma: no cover - fallback path
-            model_data = value.__dict__
-        return {
-            "kind": "basemodel",
-            "model": {
-                "module": model_class.__module__,
-                "name": model_class.__qualname__,
-            },
-            "data": model_data,
-        }
+        model_data = _serialize_model_data(value)
+        argument.basemodel.module = model_class.__module__
+        argument.basemodel.name = model_class.__qualname__
+        struct = Struct()
+        struct.update(model_data)
+        argument.basemodel.data.CopyFrom(struct)
+        return argument
     raise TypeError(f"unsupported value type {type(value)!r}")
 
 
-def _decode_value(data: Any) -> Any:
-    if not isinstance(data, dict):
-        raise ValueError("encoded values must be objects")
-    encoded = _encoded_value_adapter.validate_python(data)
-    if encoded.kind is EncodedKind.PRIMITIVE:
-        return encoded.value
-    if encoded.kind is EncodedKind.BASEMODEL:
-        return _instantiate_serialized_model(encoded.model.module, encoded.model.name, encoded.data)
-    raise ValueError(f"unsupported encoded kind: {encoded.kind!r}")
+def _from_argument_value(argument: pb2.WorkflowArgumentValue) -> Any:
+    kind = argument.WhichOneof("kind")  # type: ignore[attr-defined]
+    if kind == "primitive":
+        return _value_to_python(argument.primitive.value)
+    if kind == "basemodel":
+        module = argument.basemodel.module
+        name = argument.basemodel.name
+        data = json_format.MessageToDict(argument.basemodel.data, preserving_proto_field_name=True)
+        return _instantiate_serialized_model(module, name, data)
+    if kind == "exception":
+        return {
+            "type": argument.exception.type,
+            "module": argument.exception.module,
+            "message": argument.exception.message,
+            "traceback": argument.exception.traceback,
+        }
+    raise ValueError("argument value missing kind discriminator")
+
+
+def _serialize_model_data(model: BaseModel) -> dict[str, Any]:
+    if hasattr(model, "model_dump"):
+        return model.model_dump(mode="python")  # type: ignore[attr-defined]
+    if hasattr(model, "dict"):
+        return model.dict()  # type: ignore[attr-defined]
+    return model.__dict__
+
+
+def _python_to_value(value: Any) -> Value:
+    message = Value()
+    if value is None:
+        message.null_value = NULL_VALUE
+    elif isinstance(value, bool):
+        message.bool_value = value
+    elif isinstance(value, (int, float)):
+        message.number_value = float(value)
+    elif isinstance(value, str):
+        message.string_value = value
+    else:  # pragma: no cover - unreachable given PRIMITIVE_TYPES
+        raise TypeError(f"unsupported primitive type {type(value)!r}")
+    return message
+
+
+def _value_to_python(value: Value) -> Any:
+    kind = value.WhichOneof("kind")
+    if kind == "null_value":
+        return None
+    if kind == "bool_value":
+        return value.bool_value
+    if kind == "number_value":
+        return value.number_value
+    if kind == "string_value":
+        return value.string_value
+    raise ValueError("unsupported primitive value kind")
 
 
 def _instantiate_serialized_model(module: str, name: str, model_data: dict[str, Any]) -> Any:
@@ -97,17 +149,3 @@ def _import_symbol(module: str, qualname: str) -> Any:
     if not isinstance(attr, type):
         raise ValueError(f"{qualname} from {module} is not a class")
     return attr
-
-
-def _dumps(obj: Any) -> bytes:
-    return json.dumps(obj, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-
-
-def _loads(payload: bytes) -> Any:
-    if isinstance(payload, bytes):
-        text = payload.decode("utf-8")
-    elif isinstance(payload, str):  # pragma: no cover - convenience path
-        text = payload
-    else:
-        raise TypeError("payload must be bytes or str")
-    return json.loads(text)

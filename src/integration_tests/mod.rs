@@ -173,30 +173,33 @@ fn decode_encoded_value(value: &serde_json::Value) -> Result<Option<String>> {
     if let Some(text) = value.as_str() {
         return Ok(Some(text.to_string()));
     }
-    let Some(kind) = value.get("kind").and_then(|v| v.as_str()) else {
-        return Ok(None);
-    };
-    match kind {
-        "primitive" => Ok(value
+    if let Some(primitive) = value.get("primitive") {
+        return Ok(primitive
             .get("value")
             .and_then(|v| v.as_str())
-            .map(|s| s.to_string())),
-        "basemodel" => {
-            if let Some(vars) = value
-                .get("data")
-                .and_then(|v| v.get("variables"))
-                .and_then(|v| v.as_object())
-            {
-                for entry in vars.values() {
-                    if let Some(result) = decode_encoded_value(entry)? {
-                        return Ok(Some(result));
-                    }
+            .map(|s| s.to_string()));
+    }
+    if let Some(basemodel) = value.get("basemodel") {
+        if let Some(vars) = basemodel
+            .get("data")
+            .and_then(|v| v.get("variables"))
+            .and_then(|v| v.as_object())
+        {
+            for entry in vars.values() {
+                if let Some(result) = decode_encoded_value(entry)? {
+                    return Ok(Some(result));
                 }
             }
-            Ok(None)
         }
-        _ => Ok(None),
+        return Ok(None);
     }
+    if let Some(exception) = value.get("exception") {
+        return Ok(exception
+            .get("message")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()));
+    }
+    Ok(None)
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

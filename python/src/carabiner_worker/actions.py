@@ -4,12 +4,11 @@ import asyncio
 import importlib
 import inspect
 import logging
-import traceback
 from dataclasses import dataclass
 from typing import Any, Callable, Optional, TypeVar, overload
 
 from .registry import AsyncAction, registry
-from .serialization import _decode_value, _dumps, _encode_value, _loads
+from .serialization import dump_envelope, dumps, load_envelope, loads
 
 TAsync = TypeVar("TAsync", bound=AsyncAction)
 
@@ -33,14 +32,14 @@ def serialize_action_call(module: str, action: str, /, **kwargs: Any) -> bytes:
         raise ValueError("action module must be a non-empty string")
     if not isinstance(action, str) or not action:
         raise ValueError("action name must be a non-empty string")
-    encoded_kwargs = {key: _encode_value(value) for key, value in kwargs.items()}
+    encoded_kwargs = {key: dumps(value) for key, value in kwargs.items()}
     payload = {"module": module, "action": action, "kwargs": encoded_kwargs}
-    return _dumps(payload)
+    return dump_envelope(payload)
 
 
 def deserialize_action_call(payload: bytes) -> ActionCall:
     """Deserialize a payload into an action invocation."""
-    data = _loads(payload)
+    data = load_envelope(payload)
     module = data.get("module")
     if not isinstance(module, str) or not module:
         raise ValueError("payload missing module name")
@@ -50,40 +49,32 @@ def deserialize_action_call(payload: bytes) -> ActionCall:
     kwargs_data = data.get("kwargs", {})
     if not isinstance(kwargs_data, dict):
         raise ValueError("payload kwargs must be an object")
-    kwargs = {key: _decode_value(value) for key, value in kwargs_data.items()}
+    kwargs = {key: loads(value) for key, value in kwargs_data.items()}
     return ActionCall(module=module, action=action, kwargs=kwargs)
 
 
 def serialize_result_payload(value: Any) -> bytes:
     """Serialize a successful action result."""
-    return _dumps({"result": _encode_value(value)})
+    return dump_envelope({"result": dumps(value)})
 
 
 def serialize_error_payload(action: str, exc: BaseException) -> bytes:
     """Serialize an error raised during action execution."""
-    error_payload = {
-        "error": {
-            "action": action,
-            "type": exc.__class__.__name__,
-            "module": exc.__class__.__module__,
-            "message": str(exc),
-            "traceback": traceback.format_exc(),
-        }
-    }
-    return _dumps(error_payload)
+    error_payload = {"error": dumps(exc)}
+    return dump_envelope(error_payload)
 
 
 def deserialize_result_payload(payload: bytes) -> ActionResultPayload:
     """Deserialize bytes produced by serialize_result_payload/error."""
-    data = _loads(payload)
+    data = load_envelope(payload)
     if "error" in data:
         error = data["error"]
         if not isinstance(error, dict):
             raise ValueError("error payload must be an object")
-        return ActionResultPayload(result=None, error=error)
+        return ActionResultPayload(result=None, error=loads(error))
     if "result" not in data:
         raise ValueError("result payload missing 'result' field")
-    return ActionResultPayload(result=_decode_value(data["result"]), error=None)
+    return ActionResultPayload(result=loads(data["result"]), error=None)
 
 
 @overload

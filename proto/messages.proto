@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package carabiner.messages;
 
+import "google/protobuf/struct.proto";
+
 // Basic transport messages for Rust <-> Python worker communication.
 enum MessageKind {
   MESSAGE_KIND_UNSPECIFIED = 0;
@@ -77,6 +79,31 @@ message WorkflowNodeContext {
   string variable = 1;
   bytes payload = 2;
   string workflow_node_id = 3;
+}
+
+message WorkflowArgumentValue {
+  oneof kind {
+    PrimitiveWorkflowArgument primitive = 1;
+    BaseModelWorkflowArgument basemodel = 2;
+    WorkflowErrorValue exception = 3;
+  }
+}
+
+message PrimitiveWorkflowArgument {
+  google.protobuf.Value value = 1;
+}
+
+message BaseModelWorkflowArgument {
+  string module = 1;
+  string name = 2;
+  google.protobuf.Struct data = 3;
+}
+
+message WorkflowErrorValue {
+  string type = 1;
+  string module = 2;
+  string message = 3;
+  string traceback = 4;
 }
 
 message WorkflowNodeDispatch {

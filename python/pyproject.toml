@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Python worker transport harness for benchmarking"
 requires-python = ">=3.12"
 dependencies = [
+    "googleapis-common-protos>=1.72.0",
     "grpcio>=1.66,<2",
     "protobuf>=5.29,<6",
     "pydantic>=2,<3",
@@ -32,9 +33,16 @@ select = ["E", "F", "I", "N", "W", "B"]
 ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
+"proto/messages_pb2.py" = ["E402", "N802"]
 "proto/messages_pb2.pyi" = ["N802"]
 "proto/messages_pb2_grpc.py" = ["N802"]
 "proto/messages_pb2_grpc.pyi" = ["N802"]
+
+[tool.ruff.format]
+exclude = [
+    "proto/messages_pb2.py",
+    "proto/messages_pb2_grpc.py",
+]
 
 [build-system]
 requires = ["hatchling"]

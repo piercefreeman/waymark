@@ -196,13 +196,12 @@ fn build_benchmark_payload(payload_size: usize) -> Vec<u8> {
         "action": BENCHMARK_ACTION,
         "kwargs": {
             "request": {
-                "kind": "basemodel",
-                "model": {
+                "basemodel": {
                     "module": BENCHMARK_USER_MODULE,
                     "name": BENCHMARK_REQUEST_MODEL,
-                },
-                "data": {
-                    "payload": payload_data,
+                    "data": {
+                        "payload": payload_data,
+                    }
                 }
             }
         }
