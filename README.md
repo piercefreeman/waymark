@@ -161,6 +161,8 @@ Nothing on the market provides this balance - `carabiner` aims to try. We don't 
 - You want background job code to plug and play with your existing unit test & static analysis stack
 - You are focused on getting to product market fit versus scale
 
+Performance is a top priority of carabiner. That's why it's written with a Rust core, is lightweight on your database connection by minimizing connections to ~1 per machine host, and runs continuous benchmarks on CI. But still - there's only so much we can do with Postgres as our backing store. And that's okay! Once you start to tax Postgres' capabilities you're probably at the scale where you should switch to a more complicated architecture.
+
 **When shouldn't you?**
 
 - You have particularly latency sensitive background jobs, where you need <100ms acknowledgement and handling of each task.

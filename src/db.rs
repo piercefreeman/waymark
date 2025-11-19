@@ -19,9 +19,12 @@ use crate::{
 };
 
 const DEFAULT_ACTION_TIMEOUT_SECS: i32 = 300;
-const DEFAULT_ACTION_MAX_RETRIES: i32 = 3;
+const DEFAULT_ACTION_MAX_RETRIES: i32 = 1;
+const DEFAULT_TIMEOUT_RETRY_LIMIT: i32 = i32::MAX;
 const EXHAUSTED_EXCEPTION_TYPE: &str = "ExhaustedRetries";
 const EXHAUSTED_EXCEPTION_MODULE: &str = "carabiner.exceptions";
+const RETRY_KIND_FAILURE: &str = "failure";
+const RETRY_KIND_TIMEOUT: &str = "timeout";
 
 #[derive(Clone)]
 pub struct Database {
@@ -178,6 +181,9 @@ fn build_workflow_node_dispatch(
     let max_retries = node
         .max_retries
         .unwrap_or(DEFAULT_ACTION_MAX_RETRIES as u32) as i32;
+    let timeout_retry_limit = node
+        .timeout_retry_limit
+        .unwrap_or(DEFAULT_TIMEOUT_RETRY_LIMIT as u32) as i32;
 
     Ok(QueuedWorkflowNode {
         module,
@@ -185,6 +191,7 @@ fn build_workflow_node_dispatch(
         dispatch,
         timeout_seconds,
         max_retries,
+        timeout_retry_limit,
     })
 }
 
@@ -270,6 +277,7 @@ struct QueuedWorkflowNode {
     dispatch: proto::WorkflowNodeDispatch,
     timeout_seconds: i32,
     max_retries: i32,
+    timeout_retry_limit: i32,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -280,6 +288,9 @@ struct ExhaustedActionRow {
     function_name: String,
     attempt_number: i32,
     last_error: Option<String>,
+    status: String,
+    max_retries: i32,
+    timeout_retry_limit: i32,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -295,6 +306,8 @@ pub struct LedgerAction {
     pub max_retries: i32,
     pub attempt_number: i32,
     pub delivery_token: Uuid,
+    pub timeout_retry_limit: i32,
+    pub retry_kind: String,
 }
 
 #[derive(Debug, Clone, FromRow)]

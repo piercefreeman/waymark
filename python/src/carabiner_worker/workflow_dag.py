@@ -24,6 +24,7 @@ class DagNode:
     exception_edges: List["ExceptionEdge"] = field(default_factory=list)
     timeout_seconds: Optional[int] = None
     max_retries: Optional[int] = None
+    timeout_retry_limit: Optional[int] = None
 
 
 RETURN_VARIABLE = "__workflow_return"
@@ -47,14 +48,13 @@ class ActionDefinition:
 class RunActionConfig:
     timeout_seconds: Optional[int] = None
     max_retries: Optional[int] = None
+    timeout_retry_limit: Optional[int] = None
 
 
 @dataclass
 class ParsedActionCall:
     call: ast.Call
     config: Optional[RunActionConfig] = None
-    timeout_seconds: Optional[int] = None
-    max_retries: Optional[int] = None
 
 
 @dataclass
