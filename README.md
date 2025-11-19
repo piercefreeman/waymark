@@ -114,6 +114,15 @@ Workflows can get much more complex than the example above:
         pretty = _format_currency(summary.transactions.total)
     ```
 
+### Error handling
+
+To build truly robust background tasks, you need to consider how things can go wrong. Actions can 'fail' in a few ways. This is supported by our `.run_action` syntax that allows users to provide additional parameters to modify the execution bounds on each action.
+
+1. Action explicitly throws an error and we want to retry it. Caused by intermittent database connectivity / overloaded webservers / or simply buggy code will throw an error.
+1. Actions raise an error that is a really a CarabinerTimeout. This indicates that we dequeued the task but weren't able to complete it in the time allocated. This could be because we dequeued the task, started work on it, then the server crashed. Or it could still be running in the background but simply took too much time. Either way we will raise a synthetic error that is representative of this execution.
+
+By default we will only try explicit actions one time if there is an explicit exception raised. We will try them infinite times in the case of a timeout since this is usually caused by cross device coordination issues.
+
 ## Configuration
 
 The main carabiner configuration is done through env vars, which is what you'll typically use in production when using a docker deployment pipeline. If we can't find an environment parameter we will fallback to looking for an .env that specifies it within your local filesystem.
