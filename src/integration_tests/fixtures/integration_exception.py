@@ -1,5 +1,5 @@
-from rappel_worker import action, workflow
-from rappel_worker.workflow import Workflow
+from rappel import action, workflow
+from rappel.workflow import Workflow
 
 
 @action

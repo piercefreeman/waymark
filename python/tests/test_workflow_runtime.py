@@ -4,9 +4,9 @@ import asyncio
 from typing import List
 
 from proto import messages_pb2 as pb2
-from rappel_worker import registry as action_registry
-from rappel_worker.actions import action, serialize_error_payload, serialize_result_payload
-from rappel_worker.workflow_runtime import WorkflowNodeResult, execute_node
+from rappel import registry as action_registry
+from rappel.actions import action, serialize_error_payload, serialize_result_payload
+from rappel.workflow_runtime import WorkflowNodeResult, execute_node
 
 _guard_calls: List[str] = []
 

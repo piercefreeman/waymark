@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from rappel_worker.exceptions import ExhaustedRetries
+from rappel.exceptions import ExhaustedRetries
 
 
 def test_exhausted_retries_inherits_exception() -> None:

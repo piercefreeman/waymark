@@ -69,7 +69,7 @@ def main(out_dir: str) -> None:
     console.log("[green]Building Rust binaries via cargo ...")
     run(["cargo", "build", "--release", "--bins"], cwd=repo_root)
 
-    stage_dir = repo_root / "python" / "src" / "rappel_worker" / "bin"
+    stage_dir = repo_root / "python" / "src" / "rappel" / "bin"
     console.log(f"[green]Staging binaries in {stage_dir} ...")
     staged = copy_binaries(repo_root, stage_dir)
 

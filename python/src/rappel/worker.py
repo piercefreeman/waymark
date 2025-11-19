@@ -14,7 +14,7 @@ import grpc
 
 from proto import messages_pb2 as pb2
 from proto import messages_pb2_grpc as pb2_grpc
-from rappel_worker.actions import serialize_error_payload, serialize_result_payload
+from rappel.actions import serialize_error_payload, serialize_result_payload
 
 from . import workflow_runtime
 

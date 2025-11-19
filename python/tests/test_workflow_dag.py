@@ -7,9 +7,9 @@ from typing import List
 
 import pytest
 
-from rappel_worker.actions import action
-from rappel_worker.workflow import RetryPolicy, Workflow
-from rappel_worker.workflow_dag import (
+from rappel.actions import action
+from rappel.workflow import RetryPolicy, Workflow
+from rappel.workflow_dag import (
     RETURN_VARIABLE,
     UNLIMITED_RETRIES,
     WorkflowDag,

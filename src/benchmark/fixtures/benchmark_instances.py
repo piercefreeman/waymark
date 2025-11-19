@@ -7,7 +7,7 @@ import os
 import time
 from dataclasses import dataclass
 
-from rappel_worker import Workflow, action, workflow
+from rappel import Workflow, action, workflow
 
 from .benchmark_common import InstanceRunStats, build_requests, summarize_payload
 

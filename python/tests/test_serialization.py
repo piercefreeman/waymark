@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from rappel_worker.actions import (
+from rappel.actions import (
     deserialize_result_payload,
     serialize_error_payload,
     serialize_result_payload,

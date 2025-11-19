@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from rappel_worker.actions import action
+from rappel.actions import action
 
 
 def test_action_decorator_registers_async_function() -> None:

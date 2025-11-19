@@ -22,7 +22,7 @@ const DEFAULT_ACTION_TIMEOUT_SECS: i32 = 300;
 const DEFAULT_ACTION_MAX_RETRIES: i32 = 1;
 const DEFAULT_TIMEOUT_RETRY_LIMIT: i32 = i32::MAX;
 const EXHAUSTED_EXCEPTION_TYPE: &str = "ExhaustedRetries";
-const EXHAUSTED_EXCEPTION_MODULE: &str = "rappel_worker.exceptions";
+const EXHAUSTED_EXCEPTION_MODULE: &str = "rappel.exceptions";
 
 #[derive(Clone)]
 pub struct Database {

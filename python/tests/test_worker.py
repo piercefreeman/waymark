@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 
 from proto import messages_pb2 as pb2
-from rappel_worker import worker
+from rappel import worker
 
 
 def test_outgoing_stream_includes_handshake() -> None:
