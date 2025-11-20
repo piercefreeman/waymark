@@ -16,5 +16,12 @@ logs:
 down:
 	$(COMPOSE_CMD) down -v
 
-docker-test: build
-	docker run --rm -w /app $(IMAGE_NAME) uv run --active pytest -vvv
+docker-test:
+	@echo "Running tests in docker-compose environment"
+	$(COMPOSE_CMD) up -d postgres daemons
+	@echo "Waiting for postgres to be healthy..."
+	@timeout 30 sh -c 'until docker compose exec postgres pg_isready -U rappel > /dev/null 2>&1; do sleep 1; done' || (echo "Postgres failed to become healthy" && exit 1)
+	@echo "Waiting for workers to be ready..."
+	@sleep 3
+	$(COMPOSE_CMD) run --rm -e DATABASE_URL=postgresql://rappel:rappel@postgres:5432/rappel_example webapp uv run --active pytest -vvv
+	$(COMPOSE_CMD) down -v

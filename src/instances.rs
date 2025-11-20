@@ -37,8 +37,14 @@ pub async fn run_instance_payload(
             dag_def.concurrent,
         )
         .await?;
+    // Serialize initial_context if provided
+    let input_payload = registration.initial_context.map(|ctx| ctx.encode_to_vec());
     let instance_id = db
-        .create_workflow_instance(&registration.workflow_name, version_id, None)
+        .create_workflow_instance(
+            &registration.workflow_name,
+            version_id,
+            input_payload.as_deref(),
+        )
         .await?;
     Ok((version_id, instance_id))
 }

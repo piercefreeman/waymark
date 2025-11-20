@@ -6,6 +6,10 @@
 - When writing code that uses WhichOneof in Python, use a switch statement to make sure that every value is handed and add a default case for assert_never.
 - NEVER write `getattr` in your own code unless I explicitly mention it. You should just be able to call it directly.
 
+## Workflow Conventions
+
+- NEVER modify the protobuf python files directly, instead modify the base messages if you have to and run `make build-proto`
+
 ## Unit Tests
 
 - Run python tests with `uv run pytest`

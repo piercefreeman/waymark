@@ -14,7 +14,9 @@ from . import bridge
 from .actions import deserialize_result_payload
 from .formatter import Formatter, supports_color
 from .logger import configure as configure_logger
+from .serialization import build_arguments_from_kwargs
 from .workflow_dag import DagNode, WorkflowDag, build_workflow_dag
+from .workflow_runtime import WorkflowNodeResult
 
 logger = configure_logger("rappel.workflow")
 
@@ -85,7 +87,9 @@ class Workflow:
         return cls._workflow_dag
 
     @classmethod
-    def _build_registration_payload(cls) -> pb2.WorkflowRegistration:
+    def _build_registration_payload(
+        cls, initial_context: Optional[pb2.WorkflowArguments] = None
+    ) -> pb2.WorkflowRegistration:
         dag = cls.workflow_dag()
         dag_definition = pb2.WorkflowDagDefinition(concurrent=cls.concurrent)
         for node in dag.nodes:
@@ -121,6 +125,8 @@ class Workflow:
             dag=dag_definition,
             dag_hash=dag_hash,
         )
+        if initial_context:
+            message.initial_context.CopyFrom(initial_context)
         return message
 
     @classmethod
@@ -370,7 +376,20 @@ def workflow(cls: type[TWorkflow]) -> type[TWorkflow]:
         if _running_under_pytest():
             cls.workflow_dag()
             return await run_impl(self, *args, **kwargs)
-        payload = cls._build_registration_payload()
+
+        # Get the signature of run() to map positional args to parameter names
+        sig = inspect.signature(run_impl)
+        params = list(sig.parameters.keys())[1:]  # Skip 'self'
+
+        # Convert positional args to kwargs
+        for i, arg in enumerate(args):
+            if i < len(params):
+                kwargs[params[i]] = arg
+
+        # Serialize kwargs using common logic
+        initial_context = build_arguments_from_kwargs(kwargs)
+
+        payload = cls._build_registration_payload(initial_context)
         run_result = await bridge.run_instance(payload.SerializeToString())
         cls._workflow_version_id = run_result.workflow_version_id
         if _skip_wait_for_instance():
@@ -392,6 +411,16 @@ def workflow(cls: type[TWorkflow]) -> type[TWorkflow]:
         result = deserialize_result_payload(arguments)
         if result.error:
             raise RuntimeError(f"workflow failed: {result.error}")
+
+        # Unwrap WorkflowNodeResult if present (internal worker representation)
+        if isinstance(result.result, WorkflowNodeResult):
+            # Extract the actual result from the variables dict
+            variables = result.result.variables
+            if "result" in variables:
+                return variables["result"]
+            # If no 'result' key, this might be an empty workflow
+            return None
+
         return result.result
 
     cls.__workflow_run_impl__ = run_impl
