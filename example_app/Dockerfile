@@ -1,7 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM rust:1.88-bullseye AS wheel-builder
-ARG PROTOC_VERSION=28.3
+FROM rust:1.88-bookworm AS wheel-builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -14,21 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libprotobuf-dev \
     protobuf-compiler \
-    unzip \
     && rm -rf /var/lib/apt/lists/*
-RUN set -eux; \
-    arch="$(uname -m)"; \
-    case "$arch" in \
-        x86_64|amd64) protoc_zip="protoc-${PROTOC_VERSION}-linux-x86_64.zip" ;; \
-        arm64|aarch64) protoc_zip="protoc-${PROTOC_VERSION}-linux-aarch_64.zip" ;; \
-        *) echo "Unsupported architecture: ${arch}" && exit 1 ;; \
-    esac; \
-    curl -LO "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/${protoc_zip}"; \
-    mkdir -p /tmp/protoc && unzip -q "${protoc_zip}" -d /tmp/protoc; \
-    mv /tmp/protoc/bin/protoc /usr/local/bin/protoc; \
-    chmod +x /usr/local/bin/protoc; \
-    cp -R /tmp/protoc/include/* /usr/local/include/; \
-    rm -rf /tmp/protoc "${protoc_zip}"
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/root/.local/bin:${PATH}"
 
@@ -36,7 +21,7 @@ WORKDIR /repo
 COPY . /repo
 RUN uv run scripts/build_wheel.py --out-dir target/wheels
 
-FROM python:3.12-slim AS runtime
+FROM python:3.12-slim-bookworm AS runtime
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
