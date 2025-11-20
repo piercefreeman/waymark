@@ -1,7 +1,9 @@
 ## Rappel example app
 
-`example_app` contains a minimal FastAPI + Jinja application that dispatches a
-rappel workflow. This is intended to show in mineature what it would take to actually deploy something to production:
+![Webapp Demo](https://raw.githubusercontent.com/piercefreeman/rappel/main/media/webapp_demo.png)
+
+`example_app` contains a minimal FastAPI webapp that dispatches a
+rappel workflow. This is intended to show in miniature what it would take to actually deploy a background task cluster to production:
 
 `docker-compose.yml` starts Postgres, a `daemons` container (running
 `start_workers`), and a `webapp` container that serves the FastAPI UI and boots

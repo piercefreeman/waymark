@@ -135,7 +135,7 @@ Rappel is in an early alpha. Particular areas of focus include:
 1. Performance tuning
 1. Unit and integration tests
 
-If you have a particular workflow that you think should be reported but isn't yet producing the correct DAG (you can visualize it via CLI by `.visualize()`) please file a ticket.
+If you have a particular workflow that you think should be working but isn't yet producing the correct DAG (you can visualize it via CLI by `.visualize()`) please file an issue.
 
 ## Configuration
 
