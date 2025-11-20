@@ -1,5 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
+# wheel image
 FROM rust:1.88-bookworm AS wheel-builder
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -21,7 +22,9 @@ WORKDIR /repo
 COPY . /repo
 RUN uv run scripts/build_wheel.py --out-dir target/wheels
 
-FROM python:3.12-slim-bookworm AS runtime
+# final image
+#FROM python:3.12-slim-bookworm AS runtime
+FROM python:3.12-bookworm AS runtime
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \

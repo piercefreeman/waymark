@@ -5,7 +5,7 @@ use rappel::{
     AppConfig, Database, PollingConfig, PollingDispatcher, PythonWorkerConfig, PythonWorkerPool,
     server_worker::WorkerBridgeServer,
 };
-use tokio::signal;
+use tokio::{select, signal};
 use tracing::info;
 
 #[tokio::main]
@@ -41,7 +41,7 @@ async fn main() -> Result<()> {
         "python worker pool started - waiting for shutdown signal"
     );
 
-    signal::ctrl_c().await?;
+    wait_for_shutdown().await?;
     info!("shutdown signal received - stopping workers");
     dispatcher.shutdown().await?;
     let pool = Arc::try_unwrap(pool)
@@ -49,4 +49,28 @@ async fn main() -> Result<()> {
     pool.shutdown().await?;
     worker_server.shutdown().await;
     Ok(())
+}
+
+async fn wait_for_shutdown() -> Result<()> {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal as unix_signal};
+
+        let mut terminate = unix_signal(SignalKind::terminate())?;
+        select! {
+            _ = signal::ctrl_c() => {
+                info!("Ctrl+C received");
+            }
+            _ = terminate.recv() => {
+                info!("SIGTERM received");
+            }
+        }
+        Ok(())
+    }
+    #[cfg(not(unix))]
+    {
+        signal::ctrl_c().await?;
+        info!("Ctrl+C received");
+        Ok(())
+    }
 }
