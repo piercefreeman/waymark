@@ -11,16 +11,10 @@ Our Dockerfile is a bit more complicated than you would need, because we actuall
 
 ## Running locally
 
-```bash
-# build the multi-stage image and launch the stack
-docker compose -f example_app/docker-compose.yml up --build
-```
-
-Or use the helper Makefile inside this directory:
+We're effectively just wrapping the docker-compose within our make file, but it makes it a bit easier to apply tests that should execute within the container.
 
 ```bash
 cd example_app
-make build          # docker build -f Dockerfile -t rappel-example-app ..
 make up             # docker compose up --build -d
 make docker-test    # run uv run pytest -vvv inside the built image
 make down           # stop and clean up

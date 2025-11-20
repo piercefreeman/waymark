@@ -15,8 +15,10 @@ from grpc import aio  # type: ignore[attr-defined]
 
 from proto import messages_pb2 as pb2
 from proto import messages_pb2_grpc as pb2_grpc
+from rappel.logger import configure as configure_logger
 
 DEFAULT_HOST = "127.0.0.1"
+LOGGER = configure_logger("rappel.bridge")
 
 _PORT_LOCK = RLock()
 _CACHED_PORT: Optional[int] = None
@@ -36,8 +38,10 @@ class RunInstanceResult:
 def _boot_command() -> list[str]:
     override = os.environ.get("CARABINER_BOOT_COMMAND")
     if override:
+        LOGGER.debug("Using CARABINER_BOOT_COMMAND=%s", override)
         return shlex.split(override)
     binary = os.environ.get("CARABINER_BOOT_BINARY", "boot-rappel-singleton")
+    LOGGER.debug("Using CARABINER_BOOT_BINARY=%s", binary)
     return [binary]
 
 
@@ -65,18 +69,26 @@ def _env_port_override() -> Optional[int]:
 
 def _boot_singleton_blocking() -> int:
     command = _boot_command()
+    LOGGER.info("Booting rappel singleton via: %s", " ".join(command))
     try:
         result = subprocess.run(
             command,
             check=True,
             capture_output=True,
             text=True,
+            timeout=10,
         )
-    except (OSError, subprocess.CalledProcessError) as exc:  # pragma: no cover
+    except subprocess.CalledProcessError as exc:  # pragma: no cover
+        LOGGER.error("boot command failed: %s", exc)
+        raise RuntimeError("unable to boot rappel server") from exc
+    except OSError as exc:  # pragma: no cover
+        LOGGER.error("unable to spawn boot command: %s", exc)
         raise RuntimeError("unable to boot rappel server") from exc
     output = result.stdout.strip()
     try:
-        return int(output)
+        port = int(output)
+        LOGGER.info("boot command reported singleton port %s", port)
+        return port
     except ValueError as exc:  # pragma: no cover
         raise RuntimeError(f"boot command returned invalid port: {output}") from exc
 
@@ -108,7 +120,9 @@ async def _ensure_port_async() -> int:
         if cached is not None:
             return cached
         loop = asyncio.get_running_loop()
+        LOGGER.info("No cached singleton found, booting new instance")
         port = await loop.run_in_executor(None, _boot_singleton_blocking)
+        LOGGER.info("Singleton ready on port %s", port)
         return _remember_port(port)
 
 

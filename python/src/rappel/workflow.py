@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import inspect
-import logging
 import os
 import sys
 from dataclasses import dataclass
@@ -16,9 +15,10 @@ from proto import messages_pb2 as pb2
 from . import bridge
 from .actions import deserialize_result_payload
 from .formatter import Formatter, supports_color
+from .logger import configure as configure_logger
 from .workflow_dag import DagNode, WorkflowDag, build_workflow_dag
 
-logger = logging.getLogger(__name__)
+logger = configure_logger("rappel.workflow")
 
 TWorkflow = TypeVar("TWorkflow", bound="Workflow")
 TResult = TypeVar("TResult")

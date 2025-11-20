@@ -120,6 +120,18 @@ jobs:
           DATABASE_URL: postgresql://mountaineer:mountaineer@localhost:5432/mountaineer_daemons
         run: cargo test workflow_executes_complex_flow -- --nocapture
 
+  example-app-tests:
+    runs-on: ubuntu-latest
+    needs: [python-tests, rust-tests]
+    timeout-minutes: 20
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'pull_request' && contains(toJson(github.event.pull_request.labels), 'full-build'))
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and test example_app
+        working-directory: example_app
+        run: make docker-test
+
   build-wheel:
     runs-on: ${{ matrix.os }}
     needs: [python-tests, rust-tests]

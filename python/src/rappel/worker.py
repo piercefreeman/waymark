@@ -17,8 +17,9 @@ from proto import messages_pb2_grpc as pb2_grpc
 from rappel.actions import serialize_error_payload, serialize_result_payload
 
 from . import workflow_runtime
+from .logger import configure as configure_logger
 
-LOGGER = logging.getLogger("rappel.worker")
+LOGGER = configure_logger("rappel.worker")
 aio = cast(Any, grpc).aio
 
 

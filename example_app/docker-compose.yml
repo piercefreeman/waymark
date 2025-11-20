@@ -32,6 +32,7 @@ services:
       DATABASE_URL: postgresql://rappel:rappel@postgres:5432/rappel_example
       CARABINER_USER_MODULE: example_app.workflows
       CARABINER_WORKER_COUNT: 2
+      RAPPEL_LOG_LEVEL: debug
 
   webapp:
     build: *app-build
@@ -39,6 +40,9 @@ services:
     depends_on:
       daemons:
         condition: service_started
+    environment:
+      DATABASE_URL: postgresql://rappel:rappel@postgres:5432/rappel_example
+      RAPPEL_LOG_LEVEL: debug
     ports:
       - "8000:8000"
 
