@@ -2,7 +2,7 @@
 
 ![Rappel Logo](https://raw.githubusercontent.com/piercefreeman/rappel/main/media/header.png)
 
-carabiner is a library to let you build durable background tasks that withstand device restarts, task crashes, and long-running jobs. It's built for Python and Postgres without any additional deploy time requirements.
+rappel is a library to let you build durable background tasks that withstand device restarts, task crashes, and long-running jobs. It's built for Python and Postgres without any additional deploy time requirements.
 
 ## Usage
 
@@ -55,7 +55,7 @@ Workflows can get much more complex than the example above:
     By default your Python code will execute like native logic would: any exceptions will throw and immediately fail. Actions are set to timeout after ~5min to keep the queues from backing up. If you want to control this logic to be more robust, you can set retry policies and backoff intervals so you can attempt the action multiple times until it succeeds.
 
     ```python
-    from carabiner import RetryPolicy, BackoffPolicy
+    from rappel import RetryPolicy, BackoffPolicy
     from datetime import timedelta
 
     async def run(self):
@@ -124,19 +124,19 @@ Workflows can get much more complex than the example above:
 To build truly robust background tasks, you need to consider how things can go wrong. Actions can 'fail' in a few ways. This is supported by our `.run_action` syntax that allows users to provide additional parameters to modify the execution bounds on each action.
 
 1. Action explicitly throws an error and we want to retry it. Caused by intermittent database connectivity / overloaded webservers / or simply buggy code will throw an error.
-1. Actions raise an error that is a really a CarabinerTimeout. This indicates that we dequeued the task but weren't able to complete it in the time allocated. This could be because we dequeued the task, started work on it, then the server crashed. Or it could still be running in the background but simply took too much time. Either way we will raise a synthetic error that is representative of this execution.
+1. Actions raise an error that is a really a RappelTimeout. This indicates that we dequeued the task but weren't able to complete it in the time allocated. This could be because we dequeued the task, started work on it, then the server crashed. Or it could still be running in the background but simply took too much time. Either way we will raise a synthetic error that is representative of this execution.
 
 By default we will only try explicit actions one time if there is an explicit exception raised. We will try them infinite times in the case of a timeout since this is usually caused by cross device coordination issues.
 
 ## Configuration
 
-The main carabiner configuration is done through env vars, which is what you'll typically use in production when using a docker deployment pipeline. If we can't find an environment parameter we will fallback to looking for an .env that specifies it within your local filesystem.
+The main rappel configuration is done through env vars, which is what you'll typically use in production when using a docker deployment pipeline. If we can't find an environment parameter we will fallback to looking for an .env that specifies it within your local filesystem.
 
 | Environment Variable | Description | Example |
 |---------------------|-------------|---------|
-| `DATABASE_URL` | PostgreSQL connection string for the carabiner server | `postgresql://mountaineer:mountaineer@localhost:5433/mountaineer_daemons` |
-| `CARABINER_HTTP_ADDR` | Optional HTTP bind address for `carabiner-server` | `0.0.0.0:24117` |
-| `CARABINER_GRPC_ADDR` | Optional gRPC bind address for `carabiner-server` | `0.0.0.0:24118` |
+| `DATABASE_URL` | PostgreSQL connection string for the rappel server | `postgresql://mountaineer:mountaineer@localhost:5433/mountaineer_daemons` |
+| `CARABINER_HTTP_ADDR` | Optional HTTP bind address for `rappel-server` | `0.0.0.0:24117` |
+| `CARABINER_GRPC_ADDR` | Optional gRPC bind address for `rappel-server` | `0.0.0.0:24118` |
 | `CARABINER_WORKER_COUNT` | Override number of Python workers spawned by `start_workers` | `8` |
 | `CARABINER_USER_MODULE` | Python module preloaded into each worker process | `my_app.actions` |
 | `CARABINER_POLL_INTERVAL_MS` | Poll interval for the dispatch loop (ms) | `100` |
@@ -154,11 +154,11 @@ After trying most of the ecosystem in the last 3 years, I believe background job
 
 On the point of control flow, we shouldn't be forced into a DAG definition (decorators, custom syntax). It should be regular control flow just distinguished because the flows are durable and because some portions of the parallelism can be run across machines.
 
-Nothing on the market provides this balance - `carabiner` aims to try. We don't expect ourselves to reach best in class functionality for load performance. Instead we intend for this to scale _most_ applications well past product market fit.
+Nothing on the market provides this balance - `rappel` aims to try. We don't expect ourselves to reach best in class functionality for load performance. Instead we intend for this to scale _most_ applications well past product market fit.
 
 ## Other options
 
-**When should you use Carabiner?**
+**When should you use Rappel?**
 
 - You're already using Python & Postgres for the core of your stack, either with Mountaineer or FastAPI
 - You have a lot of async heavy logic that needs to be durable and can be retried (3rd party API calls, db jobs, etc)
@@ -166,7 +166,7 @@ Nothing on the market provides this balance - `carabiner` aims to try. We don't 
 - You want background job code to plug and play with your existing unit test & static analysis stack
 - You are focused on getting to product market fit versus scale
 
-Performance is a top priority of carabiner. That's why it's written with a Rust core, is lightweight on your database connection by minimizing connections to ~1 per machine host, and runs continuous benchmarks on CI. But still - there's only so much we can do with Postgres as our backing store. And that's okay! Once you start to tax Postgres' capabilities you're probably at the scale where you should switch to a more complicated architecture.
+Performance is a top priority of rappel. That's why it's written with a Rust core, is lightweight on your database connection by minimizing connections to ~1 per machine host, and runs continuous benchmarks on CI. But still - there's only so much we can do with Postgres as our backing store. And that's okay! Once you start to tax Postgres' capabilities you're probably at the scale where you should switch to a more complicated architecture.
 
 **When shouldn't you?**
 
@@ -186,18 +186,18 @@ Open source solutions like RabbitMQ have been battle tested over decades & large
 
 ## Local Server Runtime
 
-The Rust runtime exposes both HTTP and gRPC APIs via the `carabiner-server` binary:
+The Rust runtime exposes both HTTP and gRPC APIs via the `rappel-server` binary:
 
 ```bash
-$ cargo run --bin carabiner-server
+$ cargo run --bin rappel-server
 ```
 
-Developers can either launch it directly or rely on the `boot-carabiner-singleton` helper which finds (or starts) a single shared instance on
+Developers can either launch it directly or rely on the `boot-rappel-singleton` helper which finds (or starts) a single shared instance on
 `127.0.0.1:24117`. The helper prints the active HTTP port to stdout so Python clients can connect without additional
 configuration:
 
 ```bash
-$ cargo run --bin boot-carabiner-singleton
+$ cargo run --bin boot-rappel-singleton
 24117
 ```
 
@@ -215,7 +215,7 @@ $ uv run scripts/build_wheel.py --out-dir target/wheels
 ```
 
 The script compiles every Rust binary (release profile), stages the required entrypoints
-(`carabiner-server`, `boot-carabiner-singleton`) inside the Python package, and invokes
+(`rappel-server`, `boot-rappel-singleton`) inside the Python package, and invokes
 `uv build --wheel` to produce an artifact suitable for publishing to PyPI.
 
 ## Benchmarking

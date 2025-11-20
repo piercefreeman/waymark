@@ -15,7 +15,7 @@ use crate::{
 };
 use prost::Message;
 
-pub const SERVICE_NAME: &str = "carabiner";
+pub const SERVICE_NAME: &str = "rappel";
 pub const HEALTH_PATH: &str = "/healthz";
 
 pub const REGISTER_PATH: &str = "/v1/workflows/register";
@@ -59,7 +59,7 @@ pub async fn run_servers(config: ServerConfig) -> Result<()> {
         .await
         .with_context(|| format!("failed to bind grpc listener on {grpc_addr}"))?;
 
-    info!(?http_addr, ?grpc_addr, "carabiner server listening");
+    info!(?http_addr, ?grpc_addr, "rappel server listening");
 
     let http_state = server_web::HttpState::new(
         SERVICE_NAME,

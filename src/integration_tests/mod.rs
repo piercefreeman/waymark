@@ -373,7 +373,7 @@ async fn workflow_executes_end_to_end() -> Result<()> {
         .join("python")
         .join(".venv")
         .join("bin")
-        .join("carabiner-worker");
+        .join("rappel-worker");
     let worker_config = PythonWorkerConfig {
         script_path: worker_script,
         user_module: INTEGRATION_MODULE.to_string(),
@@ -459,7 +459,7 @@ async fn workflow_executes_complex_flow() -> Result<()> {
         .join("python")
         .join(".venv")
         .join("bin")
-        .join("carabiner-worker");
+        .join("rappel-worker");
     let worker_config = PythonWorkerConfig {
         script_path: worker_script,
         user_module: "integration_complex".to_string(),
@@ -545,7 +545,7 @@ async fn workflow_handles_exception_flow() -> Result<()> {
         .join("python")
         .join(".venv")
         .join("bin")
-        .join("carabiner-worker");
+        .join("rappel-worker");
     let worker_config = PythonWorkerConfig {
         script_path: worker_script,
         user_module: "integration_exception".to_string(),

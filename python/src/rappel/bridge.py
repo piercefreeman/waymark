@@ -37,7 +37,7 @@ def _boot_command() -> list[str]:
     override = os.environ.get("CARABINER_BOOT_COMMAND")
     if override:
         return shlex.split(override)
-    binary = os.environ.get("CARABINER_BOOT_BINARY", "boot-carabiner-singleton")
+    binary = os.environ.get("CARABINER_BOOT_BINARY", "boot-rappel-singleton")
     return [binary]
 
 
@@ -73,7 +73,7 @@ def _boot_singleton_blocking() -> int:
             text=True,
         )
     except (OSError, subprocess.CalledProcessError) as exc:  # pragma: no cover
-        raise RuntimeError("unable to boot carabiner server") from exc
+        raise RuntimeError("unable to boot rappel server") from exc
     output = result.stdout.strip()
     try:
         return int(output)

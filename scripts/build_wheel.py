@@ -17,8 +17,8 @@ import click
 from rich.console import Console
 
 BIN_TARGETS = [
-    "carabiner-server",
-    "boot-carabiner-singleton",
+    "rappel-server",
+    "boot-rappel-singleton",
 ]
 
 console = Console()
@@ -61,7 +61,7 @@ def cleanup_paths(paths: Iterable[Path], stage_dir: Path) -> None:
     help="Directory to write the built wheel into.",
 )
 def main(out_dir: str) -> None:
-    """Build carabiner Python wheel with bundled binaries."""
+    """Build rappel Python wheel with bundled binaries."""
     repo_root = Path(__file__).resolve().parents[1]
     out_path = (repo_root / out_dir).resolve()
     out_path.mkdir(parents=True, exist_ok=True)
@@ -69,7 +69,7 @@ def main(out_dir: str) -> None:
     console.log("[green]Building Rust binaries via cargo ...")
     run(["cargo", "build", "--release", "--bins"], cwd=repo_root)
 
-    stage_dir = repo_root / "python" / "src" / "carabiner_worker" / "bin"
+    stage_dir = repo_root / "python" / "src" / "rappel" / "bin"
     console.log(f"[green]Staging binaries in {stage_dir} ...")
     staged = copy_binaries(repo_root, stage_dir)
 

@@ -1,6 +1,6 @@
 import asyncio
-from carabiner_worker import action, workflow
-from carabiner_worker.workflow import Workflow
+from rappel import action, workflow
+from rappel.workflow import Workflow
 
 
 @action

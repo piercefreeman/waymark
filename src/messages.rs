@@ -7,7 +7,7 @@ use thiserror::Error;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 pub mod proto {
-    tonic::include_proto!("carabiner.messages");
+    tonic::include_proto!("rappel.messages");
 }
 
 pub const FRAME_HEADER_LEN: usize = 4;

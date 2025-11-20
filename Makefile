@@ -15,6 +15,7 @@ build-proto:
 		--mypy_grpc_out=../$(PY_PROTO_OUT) \
 		../$(PROTO_FILES)
 	@python scripts/fix_proto_imports.py
+	$(MAKE) lint
 
 clean:
 	rm -rf target

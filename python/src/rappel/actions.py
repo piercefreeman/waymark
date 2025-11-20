@@ -73,8 +73,8 @@ def action(
             raise TypeError(f"action '{target.__name__}' must be defined with 'async def'")
         action_name = name or target.__name__
         registry.register(action_name, target)
-        target.__carabiner_action_name__ = action_name
-        target.__carabiner_action_module__ = target.__module__
+        target.__rappel_action_name__ = action_name
+        target.__rappel_action_module__ = target.__module__
         return target
 
     if func is not None:

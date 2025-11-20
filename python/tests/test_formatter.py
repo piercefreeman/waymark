@@ -4,7 +4,7 @@ import io
 
 import pytest
 
-from carabiner_worker.formatter import Formatter, supports_color
+from rappel.formatter import Formatter, supports_color
 
 
 class DummyStream(io.StringIO):

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
-use carabiner::{
+use rappel::{
     AppConfig, Database, PollingConfig, PollingDispatcher, PythonWorkerConfig, PythonWorkerPool,
     server_worker::WorkerBridgeServer,
 };

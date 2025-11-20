@@ -35,12 +35,12 @@ class WorkflowServiceStub(object):
             channel: A grpc.Channel.
         """
         self.RegisterWorkflow = channel.unary_unary(
-                '/carabiner.messages.WorkflowService/RegisterWorkflow',
+                '/rappel.messages.WorkflowService/RegisterWorkflow',
                 request_serializer=messages__pb2.RegisterWorkflowRequest.SerializeToString,
                 response_deserializer=messages__pb2.RegisterWorkflowResponse.FromString,
                 _registered_method=True)
         self.WaitForInstance = channel.unary_unary(
-                '/carabiner.messages.WorkflowService/WaitForInstance',
+                '/rappel.messages.WorkflowService/WaitForInstance',
                 request_serializer=messages__pb2.WaitForInstanceRequest.SerializeToString,
                 response_deserializer=messages__pb2.WaitForInstanceResponse.FromString,
                 _registered_method=True)
@@ -76,9 +76,9 @@ def add_WorkflowServiceServicer_to_server(servicer, server):
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
-            'carabiner.messages.WorkflowService', rpc_method_handlers)
+            'rappel.messages.WorkflowService', rpc_method_handlers)
     server.add_generic_rpc_handlers((generic_handler,))
-    server.add_registered_method_handlers('carabiner.messages.WorkflowService', rpc_method_handlers)
+    server.add_registered_method_handlers('rappel.messages.WorkflowService', rpc_method_handlers)
 
 
  # This class is part of an EXPERIMENTAL API.
@@ -99,7 +99,7 @@ class WorkflowService(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/carabiner.messages.WorkflowService/RegisterWorkflow',
+            '/rappel.messages.WorkflowService/RegisterWorkflow',
             messages__pb2.RegisterWorkflowRequest.SerializeToString,
             messages__pb2.RegisterWorkflowResponse.FromString,
             options,
@@ -126,7 +126,7 @@ class WorkflowService(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/carabiner.messages.WorkflowService/WaitForInstance',
+            '/rappel.messages.WorkflowService/WaitForInstance',
             messages__pb2.WaitForInstanceRequest.SerializeToString,
             messages__pb2.WaitForInstanceResponse.FromString,
             options,
@@ -150,7 +150,7 @@ class WorkerBridgeStub(object):
             channel: A grpc.Channel.
         """
         self.Attach = channel.stream_stream(
-                '/carabiner.messages.WorkerBridge/Attach',
+                '/rappel.messages.WorkerBridge/Attach',
                 request_serializer=messages__pb2.Envelope.SerializeToString,
                 response_deserializer=messages__pb2.Envelope.FromString,
                 _registered_method=True)
@@ -175,9 +175,9 @@ def add_WorkerBridgeServicer_to_server(servicer, server):
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
-            'carabiner.messages.WorkerBridge', rpc_method_handlers)
+            'rappel.messages.WorkerBridge', rpc_method_handlers)
     server.add_generic_rpc_handlers((generic_handler,))
-    server.add_registered_method_handlers('carabiner.messages.WorkerBridge', rpc_method_handlers)
+    server.add_registered_method_handlers('rappel.messages.WorkerBridge', rpc_method_handlers)
 
 
  # This class is part of an EXPERIMENTAL API.
@@ -198,7 +198,7 @@ class WorkerBridge(object):
         return grpc.experimental.stream_stream(
             request_iterator,
             target,
-            '/carabiner.messages.WorkerBridge/Attach',
+            '/rappel.messages.WorkerBridge/Attach',
             messages__pb2.Envelope.SerializeToString,
             messages__pb2.Envelope.FromString,
             options,

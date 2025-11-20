@@ -337,7 +337,7 @@ fn render_home_page(templates: &Tera, workflows: &[WorkflowVersionSummary]) -> S
         })
         .collect();
     let context = HomePageContext {
-        title: "Carabiner • Workflows".to_string(),
+        title: "Rappel • Workflows".to_string(),
         workflows: items,
     };
     render_template(templates, "home.html", &context)

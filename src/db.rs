@@ -22,7 +22,7 @@ const DEFAULT_ACTION_TIMEOUT_SECS: i32 = 300;
 const DEFAULT_ACTION_MAX_RETRIES: i32 = 1;
 const DEFAULT_TIMEOUT_RETRY_LIMIT: i32 = i32::MAX;
 const EXHAUSTED_EXCEPTION_TYPE: &str = "ExhaustedRetries";
-const EXHAUSTED_EXCEPTION_MODULE: &str = "carabiner.exceptions";
+const EXHAUSTED_EXCEPTION_MODULE: &str = "rappel.exceptions";
 
 #[derive(Clone)]
 pub struct Database {
@@ -862,13 +862,13 @@ impl Database {
         match result {
             Ok(records) => {
                 if !records.is_empty() {
-                    metrics::counter!("carabiner_actions_dispatched_total")
+                    metrics::counter!("rappel_actions_dispatched_total")
                         .increment(records.len() as u64);
                 }
                 Ok(records)
             }
             Err(err) => {
-                metrics::counter!("carabiner_dispatch_errors_total").increment(1);
+                metrics::counter!("rappel_dispatch_errors_total").increment(1);
                 Err(err.into())
             }
         }

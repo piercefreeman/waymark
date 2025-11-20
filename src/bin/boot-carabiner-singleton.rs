@@ -5,8 +5,8 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow};
-use carabiner::server_client;
 use clap::Parser;
+use rappel::server_client;
 use reqwest::Client;
 use serde::Deserialize;
 use tokio::time::sleep;
@@ -14,8 +14,8 @@ use tracing::{debug, error, info};
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "boot-carabiner-singleton",
-    about = "Ensure a single carabiner server instance is running for the host"
+    name = "boot-rappel-singleton",
+    about = "Ensure a single rappel server instance is running for the host"
 )]
 struct Args {
     /// Starting HTTP port to probe for existing servers.
@@ -28,7 +28,7 @@ struct Args {
     #[arg(long, default_value = "127.0.0.1")]
     host: String,
     /// Executable name to spawn for the server.
-    #[arg(long, default_value = "carabiner-server")]
+    #[arg(long, default_value = "rappel-server")]
     server_bin: String,
     /// Seconds to wait for a spawned server to report healthy.
     #[arg(long, default_value_t = 10)]
@@ -75,7 +75,7 @@ async fn main() -> Result<()> {
                 continue;
             }
             HealthStatus::Unavailable => {
-                info!(port, "booting new carabiner server");
+                info!(port, "booting new rappel server");
                 match spawn_server(&server_bin, &host, port) {
                     Ok(mut child) => {
                         let healthy = wait_for_health(
@@ -103,7 +103,7 @@ async fn main() -> Result<()> {
     }
 
     Err(anyhow!(
-        "unable to start or locate carabiner server after {max_ports} attempts"
+        "unable to start or locate rappel server after {max_ports} attempts"
     ))
 }
 
@@ -148,7 +148,7 @@ async fn wait_for_health(
         }
 
         if let Some(status) = child.try_wait()? {
-            debug!(?status, "carabiner server exited before becoming healthy");
+            debug!(?status, "rappel server exited before becoming healthy");
             return Ok(false);
         }
         sleep(Duration::from_millis(250)).await;

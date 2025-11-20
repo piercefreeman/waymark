@@ -1,7 +1,7 @@
 use std::{env, process, time::Duration};
 
 use anyhow::{Result, anyhow};
-use carabiner::{
+use rappel::{
     AppConfig, Database, PythonWorkerConfig, WorkflowBenchmarkConfig, WorkflowBenchmarkHarness,
 };
 use tracing::info;

@@ -320,40 +320,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b35204fbdc0b3f4446b89fc1ac2cf84a8a68971995d0bf2e925ec7cd960f9cb3"
 
 [[package]]
-name = "carabiner"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum 0.7.9",
- "base64 0.22.1",
- "bytes",
- "chrono",
- "clap",
- "dotenvy",
- "futures",
- "metrics",
- "num_cpus",
- "once_cell",
- "prost",
- "prost-types",
- "reqwest",
- "serde",
- "serde_json",
- "sha2",
- "sqlx",
- "tempfile",
- "tera",
- "thiserror 1.0.69",
- "tokio",
- "tokio-stream",
- "tonic",
- "tonic-build",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
 name = "cc"
 version = "1.2.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1968,6 +1934,40 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "99d9a13982dcf210057a8a78572b2217b667c3beacbf3a0d8b454f6f82837d38"
 dependencies = [
  "getrandom 0.3.4",
+]
+
+[[package]]
+name = "rappel"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum 0.7.9",
+ "base64 0.22.1",
+ "bytes",
+ "chrono",
+ "clap",
+ "dotenvy",
+ "futures",
+ "metrics",
+ "num_cpus",
+ "once_cell",
+ "prost",
+ "prost-types",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sqlx",
+ "tempfile",
+ "tera",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-stream",
+ "tonic",
+ "tonic-build",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]

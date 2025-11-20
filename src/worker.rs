@@ -37,7 +37,7 @@ pub struct PythonWorkerConfig {
 impl Default for PythonWorkerConfig {
     fn default() -> Self {
         Self {
-            script_path: PathBuf::from("carabiner-worker"),
+            script_path: PathBuf::from("rappel-worker"),
             user_module: "fixtures.benchmark_actions".to_string(),
             extra_python_paths: vec![PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src")],
         }

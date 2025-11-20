@@ -1,7 +1,7 @@
 use std::{env, process, time::Duration};
 
 use anyhow::{Result, anyhow};
-use carabiner::{AppConfig, BenchmarkHarness, Database, HarnessConfig, PythonWorkerConfig};
+use rappel::{AppConfig, BenchmarkHarness, Database, HarnessConfig, PythonWorkerConfig};
 use tracing::info;
 
 #[derive(Debug, Clone)]

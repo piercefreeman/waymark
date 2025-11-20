@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from carabiner_worker import action
+from rappel import action
 
 from .benchmark_common import PayloadRequest, PayloadResponse, summarize_payload
 

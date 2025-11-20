@@ -1,4 +1,4 @@
-"""gRPC worker client that executes carabiner actions."""
+"""gRPC worker client that executes rappel actions."""
 
 from __future__ import annotations
 
@@ -12,18 +12,18 @@ from typing import Any, AsyncIterator, cast
 
 import grpc
 
-from carabiner_worker.actions import serialize_error_payload, serialize_result_payload
 from proto import messages_pb2 as pb2
 from proto import messages_pb2_grpc as pb2_grpc
+from rappel.actions import serialize_error_payload, serialize_result_payload
 
 from . import workflow_runtime
 
-LOGGER = logging.getLogger("carabiner.worker")
+LOGGER = logging.getLogger("rappel.worker")
 aio = cast(Any, grpc).aio
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Carabiner workflow worker")
+    parser = argparse.ArgumentParser(description="Rappel workflow worker")
     parser.add_argument("--bridge", required=True, help="gRPC address of the Rust bridge")
     parser.add_argument("--worker-id", required=True, type=int, help="Logical worker identifier")
     parser.add_argument(

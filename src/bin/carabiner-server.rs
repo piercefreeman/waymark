@@ -1,16 +1,16 @@
 use std::net::SocketAddr;
 
 use anyhow::Result;
-use carabiner::{
+use clap::Parser;
+use rappel::{
     AppConfig,
     server_client::{self, ServerConfig},
 };
-use clap::Parser;
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "carabiner-server",
-    about = "Expose carabiner workflow operations over HTTP and gRPC"
+    name = "rappel-server",
+    about = "Expose rappel workflow operations over HTTP and gRPC"
 )]
 struct Args {
     /// HTTP address to bind, e.g. 127.0.0.1:24117

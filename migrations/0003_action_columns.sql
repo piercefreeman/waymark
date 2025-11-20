@@ -4,7 +4,7 @@ ALTER TABLE daemon_action_ledger
     ADD COLUMN kwargs_payload BYTEA;
 
 UPDATE daemon_action_ledger
-SET module = COALESCE(module, 'carabiner_worker.workflow_runtime'),
+SET module = COALESCE(module, 'rappel.workflow_runtime'),
     function_name = COALESCE(function_name, 'workflow.execute_node'),
     kwargs_payload = COALESCE(kwargs_payload, ''::BYTEA)
 WHERE module IS NULL OR function_name IS NULL OR kwargs_payload IS NULL;

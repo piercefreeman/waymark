@@ -9,11 +9,11 @@ from collections.abc import Iterator
 
 import pytest
 
-from carabiner_worker import bridge
-from carabiner_worker.actions import action, serialize_result_payload
-from carabiner_worker.workflow_dag import WorkflowDag
+from rappel import bridge
+from rappel.actions import action, serialize_result_payload
+from rappel.workflow_dag import WorkflowDag
 
-workflow_module = importlib.import_module("carabiner_worker.workflow")
+workflow_module = importlib.import_module("rappel.workflow")
 Workflow = workflow_module.Workflow
 workflow_decorator = workflow_module.workflow
 workflow_registry = workflow_module.workflow_registry

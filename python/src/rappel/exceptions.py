@@ -1,4 +1,4 @@
-"""Custom exception types raised by carabiner workflows."""
+"""Custom exception types raised by rappel workflows."""
 
 
 class ExhaustedRetriesError(Exception):

@@ -176,8 +176,8 @@ def _discover_action_names(module: Any) -> Dict[str, ActionDefinition]:
     names: Dict[str, ActionDefinition] = {}
     for attr_name in dir(module):
         attr = getattr(module, attr_name)
-        action_name = getattr(attr, "__carabiner_action_name__", None)
-        action_module = getattr(attr, "__carabiner_action_module__", None)
+        action_name = getattr(attr, "__rappel_action_name__", None)
+        action_module = getattr(attr, "__rappel_action_module__", None)
         if callable(attr) and action_name:
             signature = inspect.signature(attr)
             names[attr_name] = ActionDefinition(

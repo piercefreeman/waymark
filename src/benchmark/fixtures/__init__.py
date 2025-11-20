@@ -1,2 +1,2 @@
-"""Benchmark fixtures for carabiner."""
+"""Benchmark fixtures for rappel."""
 

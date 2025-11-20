@@ -3,10 +3,10 @@ from __future__ import annotations
 import asyncio
 from typing import List
 
-from carabiner_worker import registry as action_registry
-from carabiner_worker.actions import action, serialize_error_payload, serialize_result_payload
-from carabiner_worker.workflow_runtime import WorkflowNodeResult, execute_node
 from proto import messages_pb2 as pb2
+from rappel import registry as action_registry
+from rappel.actions import action, serialize_error_payload, serialize_result_payload
+from rappel.workflow_runtime import WorkflowNodeResult, execute_node
 
 _guard_calls: List[str] = []
 

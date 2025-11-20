@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package carabiner.messages;
+package rappel.messages;
 
 import "google/protobuf/struct.proto";
 

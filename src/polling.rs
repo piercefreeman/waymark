@@ -112,13 +112,13 @@ impl DispatcherTask {
             tokio::select! {
                 _ = ticker.tick() => {
                     if let Err(err) = self.poll_and_dispatch(&semaphore, &completion_tx).await {
-                        metrics::counter!("carabiner_dispatch_errors_total").increment(1);
+                        metrics::counter!("rappel_dispatch_errors_total").increment(1);
                         error!(?err, "polling cycle failed");
                     }
                 }
                 _ = timeout_ticker.tick() => {
                     if let Err(err) = self.check_timeouts().await {
-                        metrics::counter!("carabiner_dispatch_errors_total").increment(1);
+                        metrics::counter!("rappel_dispatch_errors_total").increment(1);
                         warn!(?err, "timeout check failed");
                     }
                 }
@@ -173,7 +173,7 @@ impl DispatcherTask {
             let tx = completion_tx.clone();
             tokio::spawn(async move {
                 if let Err(err) = Self::dispatch_action(db, pool, tx, action, permit).await {
-                    metrics::counter!("carabiner_dispatch_errors_total").increment(1);
+                    metrics::counter!("rappel_dispatch_errors_total").increment(1);
                     error!(?err, "dispatch task failed");
                 }
             });
@@ -272,7 +272,7 @@ impl DispatcherTask {
         let mut pending = Vec::new();
         std::mem::swap(buffer, &mut pending);
         if let Err(err) = database.mark_actions_batch(&pending).await {
-            metrics::counter!("carabiner_dispatch_errors_total").increment(1);
+            metrics::counter!("rappel_dispatch_errors_total").increment(1);
             error!(?err, "failed to mark action batch, retrying");
             buffer.extend(pending);
             sleep(Duration::from_millis(100)).await;

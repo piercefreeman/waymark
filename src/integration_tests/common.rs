@@ -28,7 +28,7 @@ pub async fn run_in_env(
     let repo_python = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("python")
         .canonicalize()?;
-    let mut deps = vec![format!("carabiner @ file://{}", repo_python.display())];
+    let mut deps = vec![format!("rappel @ file://{}", repo_python.display())];
     deps.extend(requirements.iter().map(|s| s.to_string()));
     let deps_toml = deps
         .iter()
@@ -37,7 +37,7 @@ pub async fn run_in_env(
         .join(",\n    ");
     let pyproject = format!(
         r#"[project]
-name = "carabiner-integration"
+name = "rappel-integration"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [

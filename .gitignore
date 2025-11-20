@@ -139,7 +139,7 @@ celerybeat.pid
 .envrc
 .venv
 python/.venv/
-python/src/carabiner_worker/bin/
+python/src/rappel/bin/
 env/
 venv/
 ENV/
