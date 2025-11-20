@@ -255,6 +255,47 @@ def test_list_comprehension_of_actions_expands_nodes_per_item() -> None:
     assert summarize_node.depends_on == [doubled_collection.id]
 
 
+class ForLoopActionWorkflow(Workflow):
+    async def run(self) -> None:
+        numbers = await asyncio.gather(fetch_number(idx=1), fetch_number(idx=2))
+        results = []
+        for number in numbers:
+            expanded = number + 1
+            doubled = await double_number(value=expanded)
+            results.append(doubled)
+        await summarize(values=results)
+
+
+def test_for_loop_actions_expand_per_item_nodes() -> None:
+    dag = build_workflow_dag(ForLoopActionWorkflow)
+    actions = [node.action for node in dag.nodes]
+    assert actions == [
+        "fetch_number",
+        "fetch_number",
+        "python_block",
+        "python_block",
+        "python_block",
+        "double_number",
+        "python_block",
+        "python_block",
+        "double_number",
+        "python_block",
+        "summarize",
+        "python_block",
+    ]
+    first_double = dag.nodes[5]
+    second_double = dag.nodes[8]
+    assert first_double.depends_on == [dag.nodes[4].id]
+    assert second_double.depends_on == [dag.nodes[7].id]
+    first_append = dag.nodes[6]
+    assert dag.nodes[3].id in first_append.depends_on
+    assert first_double.id in first_append.depends_on
+    last_append = dag.nodes[9]
+    summarize_node = dag.nodes[10]
+    assert summarize_node.depends_on == [last_append.id]
+    assert dag.return_variable == RETURN_VARIABLE
+
+
 class PositionalArgsWorkflow(Workflow):
     async def run(self) -> None:
         await positional_action("greeting", 3)

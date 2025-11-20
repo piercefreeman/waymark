@@ -40,7 +40,7 @@ Your webserver wants to greet some user but do it (1) asynchronously and (2) gua
 
 Actions are the distributed work that your system does: these are the parallelism primitives that can be retired, throw errors independently, etc.
 
-Instances are your control flow - also written in Python - that orchestrate the actions. They are intended to be fast business logic: list iterations. Not long-running or blocking network jobs, for instance.
+Workflows are your control flow - also written in Python - that orchestrate the actions. They are intended to be fast business logic: list iterations. Not long-running or blocking network jobs, for instance.
 
 ### Complex Workflows
 
@@ -48,7 +48,7 @@ Workflows can get much more complex than the example above:
 
 1. Customizable retry policy
 
-    By default your Python code will execute like native logic would: any exceptions will throw and immediately fail. Actions are set to timeout after ~5min to keep the queues from backing up. If you want to control this logic to be more robust, you can set retry policies and backoff intervals so you can attempt the action multiple times until it succeeds.
+    By default your Python code will execute like native logic would: any exceptions will throw and immediately fail. Actions are set to timeout after ~5min to keep the queues from backing up - although we will continuously retry timed out actions in case they were caused by a failed node in your cluster. If you want to control this logic to be more robust, you can set retry policies and backoff intervals so you can attempt the action multiple times until it succeeds.
 
     ```python
     from rappel import RetryPolicy, BackoffPolicy
@@ -82,18 +82,18 @@ Workflows can get much more complex than the example above:
     Use asyncio.gather to parallelize tasks. Use asyncio.sleep to sleep for a longer period of time.
 
     ```python
-    from asyncio import gather, sleep
+    import asyncio
 
     async def run(self, user_id: str) -> Summary:
         # parallelize independent actions with gather
-        profile, settings, history = await gather(
+        profile, settings, history = await asyncio.gather(
             fetch_profile(user_id=user_id),
             fetch_settings(user_id=user_id),
             fetch_purchase_history(user_id=user_id)
         )
 
         # wait before sending email
-        await sleep(24*60*60)
+        await asyncio.sleep(24*60*60)
         recommendations = await email_ping(history)
 
         return Summary(profile=profile, settings=settings, recommendations=recommendations)

@@ -3,7 +3,7 @@ import copy
 import inspect
 import textwrap
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Set, Tuple, cast
 
 if TYPE_CHECKING:  # pragma: no cover
     from .workflow import Workflow
@@ -275,6 +275,8 @@ class WorkflowDagBuilder(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_For(self, node: ast.For) -> Any:
+        if self._handle_action_for_loop(node):
+            return
         self._capture_block(node)
 
     def visit_If(self, node: ast.If) -> Any:
@@ -401,6 +403,47 @@ class WorkflowDagBuilder(ast.NodeVisitor):
             self._collections.pop(true_branch.target, None)
             self._append_node(merge_node)
         return True
+
+    def _handle_action_for_loop(self, node: ast.For) -> bool:
+        if node.orelse:
+            return False
+        iter_name = self._resolve_collection_name(node.iter)
+        if iter_name is None:
+            return False
+        sources = self._collections.get(iter_name)
+        if not sources:
+            return False
+        if not isinstance(node.target, ast.Name):
+            return False
+        if not self._branch_contains_action(node.body):
+            return False
+        loop_var = node.target.id
+        for source in sources:
+            for stmt in node.body:
+                substituted = self._substitute_node(stmt, {loop_var: source})
+                self._attach_snippet_override(substituted)
+                self._visit_loop_body_statement(substituted)
+        last_source = sources[-1]
+        if last_source in self._var_to_node:
+            self._var_to_node[loop_var] = self._var_to_node[last_source]
+        return True
+
+    def _visit_loop_body_statement(self, stmt: ast.stmt) -> None:
+        if isinstance(stmt, ast.Expr):
+            action_call = self._extract_action_call(stmt.value)
+            if action_call is not None:
+                self._append_node(self._build_node(action_call, target=None))
+                return
+            gather = self._match_gather_call(stmt.value)
+            if gather is not None:
+                self._handle_gather([], gather)
+                return
+            if self._is_complex_block(stmt.value):
+                self._capture_block(stmt)
+                return
+            self._capture_block(stmt)
+            return
+        self.visit(stmt)
 
     def _extract_branch_statement(self, stmt: ast.stmt) -> Optional[_ConditionalBranch]:
         if isinstance(stmt, ast.Assign):
@@ -541,7 +584,12 @@ class WorkflowDagBuilder(ast.NodeVisitor):
         )
 
     def _capture_block(self, node: ast.AST) -> None:
-        snippet = ast.get_source_segment(self._source, node)
+        override_snippet = vars(node).get("_rappel_snippet_override")
+        snippet = (
+            override_snippet
+            if override_snippet is not None
+            else ast.get_source_segment(self._source, node)
+        )
         snippet = self._normalize_block_snippet(snippet, node)
         if not snippet:
             return
@@ -797,6 +845,17 @@ class WorkflowDagBuilder(ast.NodeVisitor):
         if isinstance(expr, ast.Name):
             return expr.id
         return None
+
+    def _substitute_node(self, node: ast.stmt, replacements: Dict[str, str]) -> ast.stmt:
+        mapping: Dict[str, ast.AST] = {
+            name: ast.Name(id=expr, ctx=ast.Load()) for name, expr in replacements.items()
+        }
+        substituter = _NameSubstituter(mapping)
+        return cast(ast.stmt, substituter.visit(copy.deepcopy(node)))
+
+    def _attach_snippet_override(self, node: ast.AST) -> None:
+        if not hasattr(node, "_rappel_snippet_override"):
+            cast(Any, node)._rappel_snippet_override = ast.unparse(node)
 
     def _substitute_call(self, call: ast.Call, replacements: Dict[str, str]) -> ast.Call:
         mapping: Dict[str, ast.AST] = {}
@@ -1209,12 +1268,9 @@ class WorkflowDagBuilder(ast.NodeVisitor):
         return deps
 
     def _dependencies_from_node(self, node: ast.AST) -> List[str]:
-        produced = {name for name in self._collect_mutated_names(node)}
         deps: List[str] = []
         for sub in ast.walk(node):
             if isinstance(sub, ast.Name) and isinstance(sub.ctx, ast.Load):
-                if sub.id in produced:
-                    continue
                 if sub.id in self._var_to_node:
                     deps.append(self._var_to_node[sub.id])
         return deps
