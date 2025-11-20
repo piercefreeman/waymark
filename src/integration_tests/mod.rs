@@ -155,6 +155,10 @@ async fn dispatch_all_actions(
         let mut batch_records = Vec::new();
         let mut batch_metrics = Vec::new();
         for action in actions {
+            // Stop if we've already reached the target
+            if completed.len() + batch_metrics.len() >= target_actions {
+                break;
+            }
             let dispatch = proto::WorkflowNodeDispatch::decode(action.dispatch_payload.as_slice())
                 .context("failed to decode workflow dispatch")?;
             let payload = ActionDispatchPayload {
