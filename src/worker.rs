@@ -104,14 +104,19 @@ impl PythonWorker {
     async fn spawn(config: PythonWorkerConfig, bridge: Arc<WorkerBridgeServer>) -> AnyResult<Self> {
         let (worker_id, connection_rx) = bridge.reserve_worker().await;
         let package_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("python");
+        let working_dir = if package_root.is_dir() {
+            Some(package_root.clone())
+        } else {
+            None
+        };
         let mut module_paths = Vec::new();
-        if package_root.exists() {
-            module_paths.push(package_root.clone());
-            let src_dir = package_root.join("src");
+        if let Some(root) = working_dir.as_ref() {
+            module_paths.push(root.clone());
+            let src_dir = root.join("src");
             if src_dir.exists() {
                 module_paths.push(src_dir);
             }
-            let proto_dir = package_root.join("proto");
+            let proto_dir = root.join("proto");
             if proto_dir.exists() {
                 module_paths.push(proto_dir);
             }
@@ -138,8 +143,19 @@ impl PythonWorker {
             .arg("--user-module")
             .arg(&config.user_module)
             .stderr(Stdio::inherit())
-            .env("PYTHONPATH", python_path)
-            .current_dir(&package_root);
+            .env("PYTHONPATH", python_path);
+
+        if let Some(dir) = working_dir {
+            info!(?dir, "using package root for worker process");
+            command.current_dir(dir);
+        } else {
+            let cwd = env::current_dir().context("failed to resolve current directory")?;
+            info!(
+                ?cwd,
+                "package root missing, using current directory for worker process"
+            );
+            command.current_dir(cwd);
+        }
 
         let mut child = match command.spawn().context("failed to launch python worker") {
             Ok(child) => child,
