@@ -12,13 +12,25 @@ from pathlib import Path
 import toml
 from packaging.version import parse
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+
+def find_repo_root() -> Path:
+    """Walk upward from this file until we find a Cargo.toml."""
+    current = Path(__file__).resolve().parent
+    for candidate in (current, *current.parents):
+        if (candidate / "Cargo.toml").exists():
+            return candidate
+    raise FileNotFoundError("Cargo.toml not found")
+
+
+REPO_ROOT = find_repo_root()
 
 
 def update_cargo_version(new_version: str) -> None:
     cargo_path = REPO_ROOT / "Cargo.toml"
     if not cargo_path.exists():
         raise FileNotFoundError("Cargo.toml not found")
+
+    print(f"Updating Cargo.toml at {cargo_path}")
 
     filedata = toml.loads(cargo_path.read_text())
     if "package" not in filedata:
