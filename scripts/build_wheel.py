@@ -4,8 +4,6 @@
 # ///
 """Build a distributable wheel that bundles Rust binaries and Python package."""
 
-
-
 import base64
 import hashlib
 import os
@@ -97,7 +95,11 @@ def install_scripts_in_wheel(out_dir: Path, stage_dir: Path) -> None:
                 if not binary.is_file():
                     continue
                 binary_name = binary.name
-                base_name = binary_name[:-len(suffix)] if suffix and binary_name.endswith(suffix) else binary_name
+                base_name = (
+                    binary_name[: -len(suffix)]
+                    if suffix and binary_name.endswith(suffix)
+                    else binary_name
+                )
                 alias_names = SCRIPT_ALIASES.get(base_name, ())
                 script_names = [binary_name, *[f"{alias}{suffix}" for alias in alias_names]]
                 data = binary.read_bytes()
@@ -114,7 +116,11 @@ def install_scripts_in_wheel(out_dir: Path, stage_dir: Path) -> None:
                 record_data = archive.read(record_path).decode("utf-8")
                 record_lines = [line for line in record_data.splitlines() if line]
                 for filename, payload in new_entries:
-                    digest = base64.urlsafe_b64encode(hashlib.sha256(payload).digest()).decode("ascii").rstrip("=")
+                    digest = (
+                        base64.urlsafe_b64encode(hashlib.sha256(payload).digest())
+                        .decode("ascii")
+                        .rstrip("=")
+                    )
                     record_lines.append(f"{filename},sha256={digest},{len(payload)}")
                 archive.writestr(record_path, "\n".join(record_lines) + "\n")
 
@@ -122,9 +128,7 @@ def install_scripts_in_wheel(out_dir: Path, stage_dir: Path) -> None:
 def assert_entrypoints_in_wheel(out_dir: Path) -> None:
     wheels = _wheel_files(out_dir)
     suffix = ".exe" if sys.platform == "win32" else ""
-    package_expected = {
-        f"rappel/bin/{entry.packaged_name}{suffix}" for entry in ENTRYPOINTS
-    }
+    package_expected = {f"rappel/bin/{entry.packaged_name}{suffix}" for entry in ENTRYPOINTS}
     for wheel in wheels:
         with zipfile.ZipFile(wheel) as archive:
             contents = set(archive.namelist())

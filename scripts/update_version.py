@@ -4,8 +4,6 @@
 # ///
 """Synchronize Cargo and Python versions for tagged releases."""
 
-
-
 import sys
 from pathlib import Path
 

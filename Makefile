@@ -29,11 +29,17 @@ python-lint:
 	cd python && uv run ruff format .
 	cd python && uv run ruff check . --fix
 	cd python && uv run ty check . --exclude proto/messages_pb2_grpc.py
+	cd scripts && uv run ruff format .
+	cd scripts && uv run ruff check . --fix
+	cd scripts && uv run ty check .
 
 python-lint-verify:
 	cd python && uv run ruff format --check .
 	cd python && uv run ruff check .
 	cd python && uv run ty check . --exclude proto/messages_pb2_grpc.py
+	cd scripts && uv run ruff format --check .
+	cd scripts && uv run ruff check .
+	cd scripts && uv run ty check .
 
 rust-lint:
 	cargo fmt

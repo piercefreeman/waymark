@@ -1,0 +1,28 @@
+[project]
+name = "carabiner-scripts"
+version = "0.0.0"
+description = "Helper scripts for packaging and maintenance."
+requires-python = ">=3.12"
+dependencies = [
+    "click>=8",
+    "packaging>=23",
+    "rich>=13",
+    "toml>=0.10",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.6",
+    "ty>=0.0.1a26",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "B"]
+ignore = ["E501"]
+
+[tool.ruff.format]
+exclude = ["__pycache__"]

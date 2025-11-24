@@ -4,8 +4,6 @@
 # ///
 """Collect per-platform wheel artifacts into a structured directory."""
 
-
-
 import shutil
 from pathlib import Path
 from typing import Iterable

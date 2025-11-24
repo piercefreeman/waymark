@@ -1,10 +1,7 @@
 #!/usr/bin/env python3
 """Post-process generated protobuf files to enforce package-relative imports."""
 
-
-
 from pathlib import Path
-
 
 PROTO_DIR = Path("python/proto")
 
@@ -27,12 +24,8 @@ def _rewrite_messages_pb2_grpc() -> None:
             stub_target.write_text(stub_text.replace(stub_needle, stub_replacement))
 
 
-STRUCT_IMPORT_LINE = (
-    "from google.protobuf import struct_pb2 as google_dot_protobuf_dot_struct__pb2"
-)
-REGISTER_LINE = (
-    "_sym_db.RegisterFileDescriptor(google_dot_protobuf_dot_struct__pb2.DESCRIPTOR)"
-)
+STRUCT_IMPORT_LINE = "from google.protobuf import struct_pb2 as google_dot_protobuf_dot_struct__pb2"
+REGISTER_LINE = "_sym_db.RegisterFileDescriptor(google_dot_protobuf_dot_struct__pb2.DESCRIPTOR)"
 
 
 def _ensure_struct_import(pb2_text: str) -> str:

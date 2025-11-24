@@ -163,13 +163,9 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Update project version (tag)
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: uv run scripts/update_version.py ${{ github.ref_name }}
-
-      - name: Update project version (full-build)
-        if: github.event_name == 'pull_request' && contains(toJson(github.event.pull_request.labels), 'full-build')
-        run: uv run scripts/update_version.py 0.1.0
+      - name: Update project version
+        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'pull_request' && contains(toJson(github.event.pull_request.labels), 'full-build'))
+        run: uv run scripts/update_version.py ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '0.1.0' }}
 
       - name: Build wheel artifact
         run: uv run scripts/build_wheel.py --out-dir target/wheels
