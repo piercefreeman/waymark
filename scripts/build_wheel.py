@@ -1,6 +1,6 @@
 #!/usr/bin/env -S uv run --script
 # /// script
-# dependencies = ["click>=8", "rich>=13"]
+# dependencies = ["click>=8", "rich>=13", "packaging>=23"]
 # ///
 """Build a distributable wheel that bundles Rust binaries and Python package."""
 
@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Iterable, Sequence
 
 import click
+from packaging import tags
 from rich.console import Console
 
 
@@ -79,6 +80,60 @@ def _dist_info_prefix(archive: zipfile.ZipFile) -> str:
         if name.endswith(".dist-info/WHEEL"):
             return name.split(".dist-info/")[0]
     raise RuntimeError("unable to locate .dist-info directory in wheel")
+
+
+def _platform_tag() -> tags.Tag:
+    tag_iter = tags.sys_tags()
+    try:
+        return next(tag_iter)
+    except StopIteration:
+        raise RuntimeError("unable to determine platform tag from sys_tags()") from None
+
+
+def _set_wheel_tag(wheel: Path) -> Path:
+    tag = _platform_tag()
+    with zipfile.ZipFile(wheel, mode="a") as archive:
+        prefix = _dist_info_prefix(archive)
+        wheel_info_path = f"{prefix}.dist-info/WHEEL"
+        record_path = f"{prefix}.dist-info/RECORD"
+        original = archive.read(wheel_info_path).decode("utf-8")
+        lines: list[str] = []
+        has_root = False
+        for line in original.splitlines():
+            if line.startswith("Root-Is-Purelib:"):
+                lines.append("Root-Is-Purelib: false")
+                has_root = True
+                continue
+            if line.startswith("Tag:"):
+                continue
+            lines.append(line)
+        if not has_root:
+            lines.append("Root-Is-Purelib: false")
+        tag_value = f"{tag.interpreter}-{tag.abi}-{tag.platform}"
+        lines.append(f"Tag: {tag_value}")
+        new_wheel_body = "\n".join(lines) + "\n"
+        archive.writestr(wheel_info_path, new_wheel_body.encode("utf-8"))
+
+        record_data = archive.read(record_path).decode("utf-8").splitlines()
+        record_lines: list[str] = []
+        digest = (
+            base64.urlsafe_b64encode(hashlib.sha256(new_wheel_body.encode("utf-8")).digest())
+            .decode("ascii")
+            .rstrip("=")
+        )
+        size = len(new_wheel_body.encode("utf-8"))
+        for entry in record_data:
+            if entry.startswith(f"{wheel_info_path},"):
+                continue
+            record_lines.append(entry)
+        record_lines.append(f"{wheel_info_path},sha256={digest},{size}")
+        archive.writestr(record_path, "\n".join(record_lines) + "\n")
+
+    new_name = f"{prefix}-{tag_value}.whl"
+    new_path = wheel.with_name(new_name)
+    wheel.rename(new_path)
+    console.log(f"[green]Tagged wheel as platform-specific: {new_path.name}")
+    return new_path
 
 
 def install_scripts_in_wheel(out_dir: Path, stage_dir: Path) -> None:
@@ -184,6 +239,9 @@ def main(out_dir: str) -> None:
         console.log("[green]Injecting binary scripts into wheel ...")
         install_scripts_in_wheel(out_path, stage_dir)
         assert_entrypoints_in_wheel(out_path)
+        console.log("[green]Tagging wheel with platform-specific tag ...")
+        for wheel in _wheel_files(out_path):
+            _set_wheel_tag(wheel)
         console.log(f"[bold green]Wheel written to {out_path}")
     finally:
         console.log("[green]Cleaning staged binaries ...")
