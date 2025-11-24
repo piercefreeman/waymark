@@ -16,13 +16,13 @@ dev = ["pytest>=8"]
 [project.scripts]
 rappel-worker = "rappel.worker:main"
 
-[tool.uv]
-dev-dependencies = [
+[dependency-groups]
+dev = [
     "grpcio-tools>=1.66,<2",
     "pytest>=8",
     "ty>=0.0.1a26",
     "ruff>=0.6",
-    "mypy-protobuf>=3.7.0"
+    "mypy-protobuf>=3.7.0",
 ]
 
 [tool.ruff]

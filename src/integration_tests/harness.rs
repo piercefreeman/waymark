@@ -81,6 +81,7 @@ impl WorkflowHarness {
             .join("rappel-worker");
         let worker_config = PythonWorkerConfig {
             script_path: worker_script,
+            script_args: Vec::new(),
             user_module: config.user_module.to_string(),
             extra_python_paths: vec![python_env.path().to_path_buf()],
         };

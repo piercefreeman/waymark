@@ -10,6 +10,7 @@ use anyhow::{Context, Result, anyhow};
 use base64::{Engine as _, engine::general_purpose};
 use futures::{StreamExt, future::BoxFuture, stream::FuturesUnordered};
 use prost::Message;
+use sha2::{Digest, Sha256};
 use tempfile::TempDir;
 use tokio::{sync::mpsc, task::JoinHandle};
 use tracing::{Instrument, info, warn};
@@ -21,7 +22,6 @@ use crate::{
         fixtures,
     },
     db::{CompletionRecord, Database},
-    instances,
     messages::{
         MessageError,
         proto::{self, WorkflowRegistration},
@@ -66,7 +66,6 @@ pub struct WorkflowBenchmarkHarness {
 
 impl WorkflowBenchmarkHarness {
     pub async fn new(
-        database_url: &str,
         database: Database,
         worker_count: usize,
         mut worker_config: PythonWorkerConfig,
@@ -100,9 +99,28 @@ impl WorkflowBenchmarkHarness {
         let registration_payload = build_registration_payload(&python_paths, &user_module)?;
         let registration = WorkflowRegistration::decode(registration_payload.as_slice())
             .context("decode workflow registration")?;
-        let (version_id, _) = instances::run_instance_payload(database_url, &registration_payload)
-            .await
-            .context("register workflow version")?;
+        let dag = registration
+            .dag
+            .as_ref()
+            .context("workflow registration missing dag definition")?;
+        let dag_bytes = dag.encode_to_vec();
+        let provided_hash = registration.dag_hash.clone();
+        let computed_hash = format!("{:x}", Sha256::digest(&dag_bytes));
+        if !provided_hash.is_empty() && provided_hash != computed_hash {
+            warn!(
+                provided = provided_hash,
+                computed = computed_hash,
+                "workflow hash mismatch - using computed value"
+            );
+        }
+        let version_id = database
+            .upsert_workflow_version(
+                &registration.workflow_name,
+                &computed_hash,
+                &dag_bytes,
+                dag.concurrent,
+            )
+            .await?;
         worker_config.user_module = user_module.clone();
         worker_config.extra_python_paths = vec![temp_dir.path().to_path_buf()];
         let worker_server = WorkerBridgeServer::start(None).await?;
@@ -263,13 +281,20 @@ import base64
 import importlib
 
 module = importlib.import_module('{module}')
-workflow_cls = getattr(module, 'BenchmarkInstancesWorkflow')
-payload = workflow_cls._build_registration_payload()
+payload = module.BenchmarkInstancesWorkflow._build_registration_payload()
 print(base64.b64encode(payload.SerializeToString()).decode(), end='')
 "#
     );
-    let python_exec = std::env::var("PYTHON_BIN").unwrap_or_else(|_| "python3".to_string());
-    let mut command = Command::new(python_exec);
+    let python_exec = std::env::var("PYTHON_BIN").unwrap_or_else(|_| "uv".to_string());
+    let mut command = Command::new(&python_exec);
+    let uses_uv = PathBuf::from(&python_exec)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| name == "uv")
+        .unwrap_or(false);
+    if uses_uv {
+        command.arg("run").arg("python");
+    }
     command.arg("-c").arg(script);
     command.env(
         "PYTHONPATH",
@@ -279,6 +304,8 @@ print(base64.b64encode(payload.SerializeToString()).decode(), end='')
             .collect::<Vec<_>>()
             .join(":"),
     );
+    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    command.current_dir(repo_root.join("python"));
     let output = command
         .output()
         .context("run python registration builder")?;

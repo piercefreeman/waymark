@@ -30,15 +30,18 @@ use uuid::Uuid;
 #[derive(Clone, Debug)]
 pub struct PythonWorkerConfig {
     pub script_path: PathBuf,
+    pub script_args: Vec<String>,
     pub user_module: String,
     pub extra_python_paths: Vec<PathBuf>,
 }
 
 impl Default for PythonWorkerConfig {
     fn default() -> Self {
+        let (script_path, script_args) = default_runner();
         Self {
-            script_path: PathBuf::from("rappel-worker"),
-            user_module: "fixtures.benchmark_actions".to_string(),
+            script_path,
+            script_args,
+            user_module: "benchmark.fixtures.benchmark_actions".to_string(),
             extra_python_paths: vec![PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src")],
         }
     }
@@ -73,6 +76,39 @@ impl SharedState {
     }
 }
 
+fn default_runner() -> (PathBuf, Vec<String>) {
+    if let Some(path) = find_executable("rappel-worker") {
+        return (path, Vec::new());
+    }
+    (
+        PathBuf::from("uv"),
+        vec![
+            "run".to_string(),
+            "python".to_string(),
+            "-m".to_string(),
+            "rappel.worker".to_string(),
+        ],
+    )
+}
+
+fn find_executable(bin: &str) -> Option<PathBuf> {
+    let path_var = env::var_os("PATH")?;
+    for dir in env::split_paths(&path_var) {
+        let candidate = dir.join(bin);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+        #[cfg(windows)]
+        {
+            let exe_candidate = dir.join(format!("{bin}.exe"));
+            if exe_candidate.is_file() {
+                return Some(exe_candidate);
+            }
+        }
+    }
+    None
+}
+
 #[derive(Debug, Clone)]
 pub struct ActionDispatchPayload {
     pub action_id: LedgerActionId,
@@ -97,14 +133,19 @@ impl PythonWorker {
     async fn spawn(config: PythonWorkerConfig, bridge: Arc<WorkerBridgeServer>) -> AnyResult<Self> {
         let (worker_id, connection_rx) = bridge.reserve_worker().await;
         let package_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("python");
+        let working_dir = if package_root.is_dir() {
+            Some(package_root.clone())
+        } else {
+            None
+        };
         let mut module_paths = Vec::new();
-        if package_root.exists() {
-            module_paths.push(package_root.clone());
-            let src_dir = package_root.join("src");
+        if let Some(root) = working_dir.as_ref() {
+            module_paths.push(root.clone());
+            let src_dir = root.join("src");
             if src_dir.exists() {
                 module_paths.push(src_dir);
             }
-            let proto_dir = package_root.join("proto");
+            let proto_dir = root.join("proto");
             if proto_dir.exists() {
                 module_paths.push(proto_dir);
             }
@@ -122,6 +163,7 @@ impl PythonWorker {
         info!(python_path = %python_path, "configured python path for worker");
 
         let mut command = Command::new(&config.script_path);
+        command.args(&config.script_args);
         command
             .arg("--bridge")
             .arg(bridge.addr().to_string())
@@ -131,6 +173,18 @@ impl PythonWorker {
             .arg(&config.user_module)
             .stderr(Stdio::inherit())
             .env("PYTHONPATH", python_path);
+
+        if let Some(dir) = working_dir {
+            info!(?dir, "using package root for worker process");
+            command.current_dir(dir);
+        } else {
+            let cwd = env::current_dir().context("failed to resolve current directory")?;
+            info!(
+                ?cwd,
+                "package root missing, using current directory for worker process"
+            );
+            command.current_dir(cwd);
+        }
 
         let mut child = match command.spawn().context("failed to launch python worker") {
             Ok(child) => child,

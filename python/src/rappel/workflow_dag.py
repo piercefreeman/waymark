@@ -338,11 +338,25 @@ class WorkflowDagBuilder(ast.NodeVisitor):
             self._return_variable = RETURN_VARIABLE
             self._append_python_block(f"{RETURN_VARIABLE} = None", [RETURN_VARIABLE])
             return
+        action_call = self._extract_action_call(node.value)
+        if action_call is not None:
+            self._return_variable = RETURN_VARIABLE
+            dag_node = self._build_node(action_call, RETURN_VARIABLE)
+            self._var_to_node[RETURN_VARIABLE] = dag_node.id
+            self._collections.pop(RETURN_VARIABLE, None)
+            self._append_node(dag_node)
+            return
+        gather = self._match_gather_call(node.value)
+        if gather is not None:
+            self._return_variable = RETURN_VARIABLE
+            target = ast.Name(id=RETURN_VARIABLE, ctx=ast.Store())
+            self._handle_gather([target], gather)
+            return
         if isinstance(node.value, ast.Await):
             line = getattr(node, "lineno", "?")
             raise ValueError(
-                f"return statements cannot directly await values (line {line}); "
-                "assign to a variable first"
+                f"return await is only supported for action calls (line {line}); "
+                "assign the awaited value to a variable or return a plain expression"
             )
         if isinstance(node.value, ast.Name) and node.value.id in self._var_to_node:
             self._return_variable = node.value.id

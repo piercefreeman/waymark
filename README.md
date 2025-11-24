@@ -9,10 +9,11 @@ rappel is a library to let you build durable background tasks that withstand dev
 An example is worth a thousand words. Here's how you define your workflow:
 
 ```python
-from rappel import Workflow, action
+from rappel import Workflow, action, workflow
 from myapp.models import User, GreetingSummary
 from myapp.db import my_db
 
+@workflow
 class GreetingWorkflow(Workflow):
     async def run(self, user_id: str):
         user = await fetch_user(user_id)      # first action
@@ -248,6 +249,17 @@ $ cargo run --bin bench -- \
   --workers 4 \
   --log-interval 15 \
   uv run python/tools/parse_bench_logs.py
+
+The `bench` binary seeds raw actions to measure dequeue/execute/ack throughput. Use `bench_instances` for an end-to-end workflow run (queueing and executing full workflow instances via the scheduler) without installing a separate `rappel-worker` binary—the harness shells out to `uv run python -m rappel.worker` automatically:
+
+```bash
+$ cargo run --bin bench_instances -- \
+  --instances 200 \
+  --batch-size 4 \
+  --payload-size 1024 \
+  --concurrency 64 \
+  --workers 4
+```
 ```
 
 Add `--json` to the parser if you prefer JSON output.

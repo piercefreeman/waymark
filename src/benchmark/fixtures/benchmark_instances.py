@@ -93,4 +93,3 @@ def run_benchmark_instances(
         elapsed=elapsed,
         responses=responses,
     )
-

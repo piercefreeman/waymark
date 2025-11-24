@@ -1,4 +1,5 @@
 import asyncio
+import math
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import List
@@ -255,6 +256,25 @@ def test_list_comprehension_of_actions_expands_nodes_per_item() -> None:
     assert summarize_node.depends_on == [doubled_collection.id]
 
 
+class ReturnGatherWorkflow(Workflow):
+    async def run(self) -> tuple[int, int]:
+        return await asyncio.gather(fetch_number(idx=1), fetch_number(idx=2))
+
+
+def test_return_statement_can_await_gather_actions() -> None:
+    dag = build_workflow_dag(ReturnGatherWorkflow)
+    assert dag.return_variable == RETURN_VARIABLE
+    actions = [node.action for node in dag.nodes]
+    assert actions == ["fetch_number", "fetch_number", "python_block"]
+    collection = dag.nodes[-1]
+    assert collection.produces == [RETURN_VARIABLE]
+    assert (
+        collection.kwargs["code"]
+        == f"{RETURN_VARIABLE} = [{RETURN_VARIABLE}__item0, {RETURN_VARIABLE}__item1]"
+    )
+    assert collection.depends_on == [dag.nodes[0].id, dag.nodes[1].id]
+
+
 class ForLoopActionWorkflow(Workflow):
     async def run(self) -> None:
         numbers = await asyncio.gather(fetch_number(idx=1), fetch_number(idx=2))
@@ -292,6 +312,18 @@ def test_for_loop_builds_loop_controller_node() -> None:
     assert summarize_node.depends_on == [controller.id]
 
 
+class WorkflowArgsWorkflow(Workflow):
+    async def run(self, user_id: str, count: int = 2) -> None:
+        await positional_action(prefix=user_id, count=count)
+
+
+def test_workflow_args_propagate_to_action_kwargs() -> None:
+    dag = build_workflow_dag(WorkflowArgsWorkflow)
+    node = dag.nodes[0]
+    assert node.kwargs == {"prefix": "user_id", "count": "count"}
+    assert node.depends_on == []
+
+
 class PositionalArgsWorkflow(Workflow):
     async def run(self) -> None:
         await positional_action("greeting", 3)
@@ -316,6 +348,32 @@ def test_return_variable_tracks_existing_assignment() -> None:
     assert dag.nodes[-1].action == "summarize"
 
 
+class ReturnAwaitActionWorkflow(Workflow):
+    async def run(self) -> float:
+        return await summarize(values=[1.0])
+
+
+def test_return_statement_can_await_action() -> None:
+    dag = build_workflow_dag(ReturnAwaitActionWorkflow)
+    assert dag.return_variable == RETURN_VARIABLE
+    last = dag.nodes[-1]
+    assert last.action == "summarize"
+    assert last.produces == [RETURN_VARIABLE]
+
+
+class NoReturnWorkflow(Workflow):
+    async def run(self) -> None:
+        await fetch_number(idx=1)
+
+
+def test_missing_return_defaults_to_none() -> None:
+    dag = build_workflow_dag(NoReturnWorkflow)
+    assert dag.return_variable == RETURN_VARIABLE
+    assert dag.nodes[-1].action == "python_block"
+    assert dag.nodes[-1].produces == [RETURN_VARIABLE]
+    assert dag.nodes[-1].kwargs["code"] == f"{RETURN_VARIABLE} = None"
+
+
 class TryExceptWorkflow(Workflow):
     async def run(self) -> None:
         try:
@@ -337,13 +395,36 @@ def test_try_except_builds_exception_edges() -> None:
     assert handler.guard is not None and "__workflow_exceptions" in handler.guard
 
 
+class TypedTryExceptWorkflow(Workflow):
+    async def run(self) -> None:
+        try:
+            await fetch_number(idx=1)
+        except ValueError:
+            await summarize(values=[1.0])
+        except KeyError:
+            await persist_summary(total=0.0)
+
+
+def test_exception_edges_capture_types() -> None:
+    dag = build_workflow_dag(TypedTryExceptWorkflow)
+    handlers = [n for n in dag.nodes if n.action in {"summarize", "persist_summary"}]
+    assert len(handlers) == 2
+    for handler in handlers:
+        assert handler.exception_edges
+    types = {
+        (edge.exception_type, edge.exception_module) for h in handlers for edge in h.exception_edges
+    }
+    assert ("ValueError", None) in types
+    assert ("KeyError", None) in types
+
+
 class InvalidReturnWorkflow(Workflow):
-    async def run(self) -> float:
-        return await summarize(values=[1.0])
+    async def run(self) -> None:
+        return await asyncio.sleep(0)
 
 
 def test_return_statement_cannot_await() -> None:
-    with pytest.raises(ValueError, match="cannot directly await"):
+    with pytest.raises(ValueError, match="only supported for action calls"):
         build_workflow_dag(InvalidReturnWorkflow)
 
 
@@ -373,3 +454,16 @@ def test_run_action_limited_retry_metadata() -> None:
     node = next(n for n in dag.nodes if n.action == "fetch_number")
     assert node.max_retries == 2
     assert node.timeout_seconds is None
+
+
+class ImportBlockWorkflow(Workflow):
+    async def run(self) -> None:
+        result = math.sqrt(4)
+        await persist_summary(total=result)
+
+
+def test_python_block_captures_imports() -> None:
+    dag = build_workflow_dag(ImportBlockWorkflow)
+    block = next(node for node in dag.nodes if node.action == "python_block")
+    assert "import math" in block.kwargs["imports"]
+    assert "math.sqrt(4)" in block.kwargs["code"]

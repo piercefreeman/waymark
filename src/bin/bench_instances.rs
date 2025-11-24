@@ -97,13 +97,8 @@ async fn main() -> Result<()> {
     info!(?options, "starting workflow benchmark");
     let database = Database::connect(&app_config.database_url).await?;
     let worker_config = PythonWorkerConfig::default();
-    let harness = WorkflowBenchmarkHarness::new(
-        &app_config.database_url,
-        database,
-        options.worker_count,
-        worker_config,
-    )
-    .await?;
+    let harness =
+        WorkflowBenchmarkHarness::new(database, options.worker_count, worker_config).await?;
 
     let config = WorkflowBenchmarkConfig {
         instance_count: options.instance_count,
@@ -116,9 +111,10 @@ async fn main() -> Result<()> {
     let summary = harness.run(&config).await?;
     summary.log();
     let actions = options.instance_count * harness.actions_per_instance();
+    let workflow_rate = options.instance_count as f64 / summary.elapsed.as_secs_f64().max(1e-9);
     println!(
-        "Processed {} workflows ({} actions) in {:.2?} - {:.0} actions/s",
-        options.instance_count, actions, summary.elapsed, summary.throughput_per_sec,
+        "Processed {} workflows ({} actions) in {:.2?} - {:.0} actions/s ({:.2} workflows/s)",
+        options.instance_count, actions, summary.elapsed, summary.throughput_per_sec, workflow_rate,
     );
 
     harness.shutdown().await?;
