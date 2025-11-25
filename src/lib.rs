@@ -7,6 +7,7 @@ pub mod db;
 pub mod instances;
 pub mod messages;
 pub mod polling;
+pub mod retry;
 pub mod server_client;
 pub mod server_web;
 pub mod server_worker;

@@ -22,6 +22,7 @@ use crate::{
         self, WorkflowArguments, WorkflowDagDefinition, WorkflowDagNode, WorkflowNodeContext,
         WorkflowNodeDispatch,
     },
+    retry::{BackoffConfig, DEFAULT_EXPONENTIAL_MULTIPLIER},
 };
 
 const DEFAULT_ACTION_TIMEOUT_SECS: i32 = 300;
@@ -450,6 +451,7 @@ fn build_action_dispatch(
     let timeout_retry_limit = node
         .timeout_retry_limit
         .unwrap_or(DEFAULT_TIMEOUT_RETRY_LIMIT as u32) as i32;
+    let backoff = BackoffConfig::from_proto(node.backoff.as_ref());
 
     Ok(QueuedWorkflowNode {
         module,
@@ -458,6 +460,7 @@ fn build_action_dispatch(
         timeout_seconds,
         max_retries,
         timeout_retry_limit,
+        backoff,
     })
 }
 
@@ -533,6 +536,7 @@ async fn insert_synthetic_completion_tx(
     } else {
         node.action.clone()
     };
+    let backoff = BackoffConfig::from_proto(node.backoff.as_ref());
     sqlx::query(
         r#"
         INSERT INTO daemon_action_ledger (
@@ -554,7 +558,10 @@ async fn insert_synthetic_completion_tx(
             acked_at,
             result_payload,
             success,
-            retry_kind
+            retry_kind,
+            backoff_kind,
+            backoff_base_delay_ms,
+            backoff_multiplier
         ) VALUES (
             $1, $2, $3,
             'completed',
@@ -563,7 +570,8 @@ async fn insert_synthetic_completion_tx(
             0,
             NOW(), NOW(), NOW(), NOW(),
             $11, $12,
-            'failure'
+            'failure',
+            $13, $14, $15
         )
         "#,
     )
@@ -588,6 +596,9 @@ async fn insert_synthetic_completion_tx(
     )
     .bind(payload_bytes)
     .bind(success)
+    .bind(backoff.kind_str())
+    .bind(backoff.base_delay_ms())
+    .bind(backoff.multiplier())
     .execute(tx.as_mut())
     .await?;
     Ok(())
@@ -799,6 +810,7 @@ struct QueuedWorkflowNode {
     timeout_seconds: i32,
     max_retries: i32,
     timeout_retry_limit: i32,
+    backoff: BackoffConfig,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -1428,6 +1440,12 @@ impl Database {
         if action_ids.is_empty() {
             return Ok(0);
         }
+        // Calculate backoff delay based on backoff_kind:
+        // - 'none': no delay (immediate retry)
+        // - 'linear': delay = base_delay_ms * (attempt_number + 1)
+        // - 'exponential': delay = base_delay_ms * multiplier^attempt_number
+        // Note: attempt_number is the current attempt (0-indexed), so after increment
+        // it becomes the next attempt number which we use for backoff calculation.
         let result = sqlx::query(
             r#"
             UPDATE daemon_action_ledger
@@ -1437,7 +1455,16 @@ impl Database {
                 acked_at = NULL,
                 deadline_at = NULL,
                 delivery_id = NULL,
-                scheduled_at = NOW(),
+                scheduled_at = NOW() + (
+                    CASE backoff_kind
+                        WHEN 'linear' THEN
+                            make_interval(secs => (backoff_base_delay_ms * (attempt_number + 1))::double precision / 1000.0)
+                        WHEN 'exponential' THEN
+                            make_interval(secs => (backoff_base_delay_ms * power(backoff_multiplier, LEAST(attempt_number, 30)))::double precision / 1000.0)
+                        ELSE
+                            interval '0 seconds'
+                    END
+                ),
                 result_payload = NULL,
                 success = NULL,
                 delivery_token = NULL,
@@ -1461,6 +1488,7 @@ impl Database {
         if action_ids.is_empty() {
             return Ok(0);
         }
+        // Calculate backoff delay based on backoff_kind (same as failure retries)
         let result = sqlx::query(
             r#"
             UPDATE daemon_action_ledger
@@ -1470,7 +1498,16 @@ impl Database {
                 acked_at = NULL,
                 deadline_at = NULL,
                 delivery_id = NULL,
-                scheduled_at = NOW(),
+                scheduled_at = NOW() + (
+                    CASE backoff_kind
+                        WHEN 'linear' THEN
+                            make_interval(secs => (backoff_base_delay_ms * (attempt_number + 1))::double precision / 1000.0)
+                        WHEN 'exponential' THEN
+                            make_interval(secs => (backoff_base_delay_ms * power(backoff_multiplier, LEAST(attempt_number, 30)))::double precision / 1000.0)
+                        ELSE
+                            interval '0 seconds'
+                    END
+                ),
                 result_payload = NULL,
                 success = NULL,
                 delivery_token = NULL,
@@ -1525,7 +1562,10 @@ impl Database {
                     timeout_retry_limit,
                     attempt_number,
                     scheduled_at,
-                    retry_kind
+                    retry_kind,
+                    backoff_kind,
+                    backoff_base_delay_ms,
+                    backoff_multiplier
                 ) VALUES (
                     $1,
                     $2,
@@ -1539,7 +1579,10 @@ impl Database {
                     $9,
                     0,
                     NOW(),
-                    'failure'
+                    'failure',
+                    $10,
+                    $11,
+                    $12
                 )
                 "#,
             )
@@ -1552,6 +1595,9 @@ impl Database {
             .bind(DEFAULT_ACTION_TIMEOUT_SECS)
             .bind(DEFAULT_ACTION_MAX_RETRIES)
             .bind(DEFAULT_TIMEOUT_RETRY_LIMIT)
+            .bind(BackoffConfig::None.kind_str())
+            .bind(0i32) // no backoff delay
+            .bind(DEFAULT_EXPONENTIAL_MULTIPLIER) // default multiplier
             .execute(&mut *tx)
             .await?;
         }
@@ -2140,7 +2186,10 @@ impl Database {
                                 timeout_retry_limit,
                                 attempt_number,
                                 scheduled_at,
-                                retry_kind
+                                retry_kind,
+                                backoff_kind,
+                                backoff_base_delay_ms,
+                                backoff_multiplier
                             ) VALUES (
                                 $1,
                                 $2,
@@ -2155,7 +2204,10 @@ impl Database {
                                 $10,
                                 0,
                                 $11,
-                                'failure'
+                                'failure',
+                                $12,
+                                $13,
+                                $14
                             )
                             RETURNING id
                             "#,
@@ -2171,6 +2223,9 @@ impl Database {
                         .bind(queued.max_retries)
                         .bind(queued.timeout_retry_limit)
                         .bind(scheduled_at)
+                        .bind(queued.backoff.kind_str())
+                        .bind(queued.backoff.base_delay_ms())
+                        .bind(queued.backoff.multiplier())
                         .fetch_one(tx.as_mut())
                         .await?;
                         dag_state.record_known(node_id.clone());
@@ -2224,7 +2279,10 @@ impl Database {
                         timeout_retry_limit,
                         attempt_number,
                         scheduled_at,
-                        retry_kind
+                        retry_kind,
+                        backoff_kind,
+                        backoff_base_delay_ms,
+                        backoff_multiplier
                     ) VALUES (
                         $1,
                         $2,
@@ -2239,7 +2297,10 @@ impl Database {
                         $10,
                         0,
                         $11,
-                        'failure'
+                        'failure',
+                        $12,
+                        $13,
+                        $14
                     )
                     RETURNING id
                     "#,
@@ -2255,6 +2316,9 @@ impl Database {
                 .bind(queued.max_retries)
                 .bind(queued.timeout_retry_limit)
                 .bind(scheduled_at)
+                .bind(queued.backoff.kind_str())
+                .bind(queued.backoff.base_delay_ms())
+                .bind(queued.backoff.multiplier())
                 .fetch_one(tx.as_mut())
                 .await?;
                 dag_state.record_known(node_id);

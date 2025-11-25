@@ -51,6 +51,24 @@ message WorkerHello {
   uint64 worker_id = 1;
 }
 
+message BackoffPolicy {
+  oneof policy {
+    LinearBackoff linear = 1;
+    ExponentialBackoff exponential = 2;
+  }
+}
+
+// Linear backoff: delay = base_delay_ms * attempt_number
+message LinearBackoff {
+  uint32 base_delay_ms = 1;  // Base delay in milliseconds
+}
+
+// Exponential backoff: delay = base_delay_ms * multiplier^(attempt_number - 1)
+message ExponentialBackoff {
+  uint32 base_delay_ms = 1;  // Base delay in milliseconds
+  double multiplier = 2;     // Exponential multiplier (default 2.0 if not set)
+}
+
 message WorkflowDagNode {
   string id = 1;
   string action = 2;
@@ -66,6 +84,7 @@ message WorkflowDagNode {
   optional uint32 timeout_retry_limit = 12;
   optional WorkflowLoopSpec loop = 13;
   optional WorkflowNodeAst ast = 14;
+  optional BackoffPolicy backoff = 15;
 }
 
 message WorkflowDagDefinition {

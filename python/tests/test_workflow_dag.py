@@ -7,7 +7,7 @@ from typing import List
 import pytest
 
 from rappel.actions import action
-from rappel.workflow import RetryPolicy, Workflow
+from rappel.workflow import ExponentialBackoff, LinearBackoff, RetryPolicy, Workflow
 from rappel.workflow_dag import (
     RETURN_VARIABLE,
     UNLIMITED_RETRIES,
@@ -583,3 +583,73 @@ def test_sleep_with_arithmetic_expression() -> None:
     dag = build_workflow_dag(SleepWithArithmeticWorkflow)
     sleep_node = next(n for n in dag.nodes if n.action == "sleep")
     assert sleep_node.sleep_duration_expr == "hours * 60 * 60"
+
+
+# --- Backoff Policy Tests ---
+
+
+class LinearBackoffWorkflow(Workflow):
+    async def run(self) -> None:
+        await self.run_action(
+            fetch_number(idx=1),
+            retry=RetryPolicy(attempts=3),
+            backoff=LinearBackoff(base_delay_ms=500),
+        )
+
+
+def test_linear_backoff_parses_static_literal() -> None:
+    """LinearBackoff with static int literal should parse correctly."""
+    dag = build_workflow_dag(LinearBackoffWorkflow)
+    node = next(n for n in dag.nodes if n.action == "fetch_number")
+    assert node.backoff is not None
+    assert isinstance(node.backoff, LinearBackoff)
+    assert node.backoff.base_delay_ms == 500
+
+
+class ExponentialBackoffWorkflow(Workflow):
+    async def run(self) -> None:
+        await self.run_action(
+            fetch_number(idx=1),
+            retry=RetryPolicy(attempts=5),
+            backoff=ExponentialBackoff(base_delay_ms=1000, multiplier=3.0),
+        )
+
+
+def test_exponential_backoff_parses_static_literals() -> None:
+    """ExponentialBackoff with static literals should parse correctly."""
+    dag = build_workflow_dag(ExponentialBackoffWorkflow)
+    node = next(n for n in dag.nodes if n.action == "fetch_number")
+    assert node.backoff is not None
+    assert isinstance(node.backoff, ExponentialBackoff)
+    assert node.backoff.base_delay_ms == 1000
+    assert node.backoff.multiplier == 3.0
+
+
+class LinearBackoffVariableWorkflow(Workflow):
+    async def run(self, delay: int) -> None:
+        await self.run_action(
+            fetch_number(idx=1),
+            retry=RetryPolicy(attempts=3),
+            backoff=LinearBackoff(base_delay_ms=delay),
+        )
+
+
+def test_linear_backoff_rejects_variable_reference() -> None:
+    """LinearBackoff with variable reference should raise ValueError."""
+    with pytest.raises(ValueError, match="must be a numeric literal"):
+        build_workflow_dag(LinearBackoffVariableWorkflow)
+
+
+class ExponentialBackoffVariableWorkflow(Workflow):
+    async def run(self, mult: float) -> None:
+        await self.run_action(
+            fetch_number(idx=1),
+            retry=RetryPolicy(attempts=3),
+            backoff=ExponentialBackoff(base_delay_ms=1000, multiplier=mult),
+        )
+
+
+def test_exponential_backoff_rejects_variable_reference() -> None:
+    """ExponentialBackoff with variable reference should raise ValueError."""
+    with pytest.raises(ValueError, match="must be a numeric literal"):
+        build_workflow_dag(ExponentialBackoffVariableWorkflow)

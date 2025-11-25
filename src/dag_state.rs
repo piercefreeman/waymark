@@ -106,6 +106,7 @@ mod tests {
             timeout_retry_limit: None,
             r#loop: None,
             r#ast: None,
+            backoff: None,
         }
     }
 
@@ -222,6 +223,7 @@ mod tests {
             timeout_retry_limit: None,
             r#loop: None,
             r#ast: None,
+            backoff: None,
         };
         let dag = WorkflowDagDefinition {
             concurrent: false,

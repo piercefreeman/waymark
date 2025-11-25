@@ -408,6 +408,83 @@ class WorkerHello(google.protobuf.message.Message):
 Global___WorkerHello: typing_extensions.TypeAlias = WorkerHello
 
 @typing.final
+class BackoffPolicy(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    LINEAR_FIELD_NUMBER: builtins.int
+    EXPONENTIAL_FIELD_NUMBER: builtins.int
+    @property
+    def linear(self) -> Global___LinearBackoff: ...
+    @property
+    def exponential(self) -> Global___ExponentialBackoff: ...
+    def __init__(
+        self,
+        *,
+        linear: Global___LinearBackoff | None = ...,
+        exponential: Global___ExponentialBackoff | None = ...,
+    ) -> None: ...
+    def HasField(
+        self,
+        field_name: typing.Literal[
+            "exponential", b"exponential", "linear", b"linear", "policy", b"policy"
+        ],
+    ) -> builtins.bool: ...
+    def ClearField(
+        self,
+        field_name: typing.Literal[
+            "exponential", b"exponential", "linear", b"linear", "policy", b"policy"
+        ],
+    ) -> None: ...
+    def WhichOneof(
+        self, oneof_group: typing.Literal["policy", b"policy"]
+    ) -> typing.Literal["linear", "exponential"] | None: ...
+
+Global___BackoffPolicy: typing_extensions.TypeAlias = BackoffPolicy
+
+@typing.final
+class LinearBackoff(google.protobuf.message.Message):
+    """Linear backoff: delay = base_delay_ms * attempt_number"""
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    BASE_DELAY_MS_FIELD_NUMBER: builtins.int
+    base_delay_ms: builtins.int
+    """Base delay in milliseconds"""
+    def __init__(
+        self,
+        *,
+        base_delay_ms: builtins.int = ...,
+    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["base_delay_ms", b"base_delay_ms"]) -> None: ...
+
+Global___LinearBackoff: typing_extensions.TypeAlias = LinearBackoff
+
+@typing.final
+class ExponentialBackoff(google.protobuf.message.Message):
+    """Exponential backoff: delay = base_delay_ms * multiplier^(attempt_number - 1)"""
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    BASE_DELAY_MS_FIELD_NUMBER: builtins.int
+    MULTIPLIER_FIELD_NUMBER: builtins.int
+    base_delay_ms: builtins.int
+    """Base delay in milliseconds"""
+    multiplier: builtins.float
+    """Exponential multiplier (default 2.0 if not set)"""
+    def __init__(
+        self,
+        *,
+        base_delay_ms: builtins.int = ...,
+        multiplier: builtins.float = ...,
+    ) -> None: ...
+    def ClearField(
+        self,
+        field_name: typing.Literal["base_delay_ms", b"base_delay_ms", "multiplier", b"multiplier"],
+    ) -> None: ...
+
+Global___ExponentialBackoff: typing_extensions.TypeAlias = ExponentialBackoff
+
+@typing.final
 class WorkflowDagNode(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
@@ -443,6 +520,7 @@ class WorkflowDagNode(google.protobuf.message.Message):
     TIMEOUT_RETRY_LIMIT_FIELD_NUMBER: builtins.int
     LOOP_FIELD_NUMBER: builtins.int
     AST_FIELD_NUMBER: builtins.int
+    BACKOFF_FIELD_NUMBER: builtins.int
     id: builtins.str
     action: builtins.str
     module: builtins.str
@@ -476,6 +554,8 @@ class WorkflowDagNode(google.protobuf.message.Message):
     def loop(self) -> Global___WorkflowLoopSpec: ...
     @property
     def ast(self) -> Global___WorkflowNodeAst: ...
+    @property
+    def backoff(self) -> Global___BackoffPolicy: ...
     def __init__(
         self,
         *,
@@ -493,12 +573,15 @@ class WorkflowDagNode(google.protobuf.message.Message):
         timeout_retry_limit: builtins.int | None = ...,
         loop: Global___WorkflowLoopSpec | None = ...,
         ast: Global___WorkflowNodeAst | None = ...,
+        backoff: Global___BackoffPolicy | None = ...,
     ) -> None: ...
     def HasField(
         self,
         field_name: typing.Literal[
             "_ast",
             b"_ast",
+            "_backoff",
+            b"_backoff",
             "_loop",
             b"_loop",
             "_max_retries",
@@ -509,6 +592,8 @@ class WorkflowDagNode(google.protobuf.message.Message):
             b"_timeout_seconds",
             "ast",
             b"ast",
+            "backoff",
+            b"backoff",
             "loop",
             b"loop",
             "max_retries",
@@ -524,6 +609,8 @@ class WorkflowDagNode(google.protobuf.message.Message):
         field_name: typing.Literal[
             "_ast",
             b"_ast",
+            "_backoff",
+            b"_backoff",
             "_loop",
             b"_loop",
             "_max_retries",
@@ -536,6 +623,8 @@ class WorkflowDagNode(google.protobuf.message.Message):
             b"action",
             "ast",
             b"ast",
+            "backoff",
+            b"backoff",
             "depends_on",
             b"depends_on",
             "exception_edges",
@@ -566,6 +655,10 @@ class WorkflowDagNode(google.protobuf.message.Message):
     def WhichOneof(
         self, oneof_group: typing.Literal["_ast", b"_ast"]
     ) -> typing.Literal["ast"] | None: ...
+    @typing.overload
+    def WhichOneof(
+        self, oneof_group: typing.Literal["_backoff", b"_backoff"]
+    ) -> typing.Literal["backoff"] | None: ...
     @typing.overload
     def WhichOneof(
         self, oneof_group: typing.Literal["_loop", b"_loop"]

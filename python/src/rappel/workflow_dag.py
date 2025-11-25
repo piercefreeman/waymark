@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Set, Tuple, cast
 
 if TYPE_CHECKING:  # pragma: no cover
-    from .workflow import Workflow
+    from .workflow import BackoffPolicy, ExponentialBackoff, LinearBackoff, Workflow
 
 
 @dataclass
@@ -25,6 +25,7 @@ class DagNode:
     timeout_retry_limit: Optional[int] = None
     loop: Optional["LoopSpec"] = None
     sleep_duration_expr: Optional[str] = None  # Expression evaluated at scheduling time
+    backoff: Optional["BackoffPolicy"] = None
 
 
 RETURN_VARIABLE = "__workflow_return"
@@ -49,6 +50,7 @@ class RunActionConfig:
     timeout_seconds: Optional[int] = None
     max_retries: Optional[int] = None
     timeout_retry_limit: Optional[int] = None
+    backoff: Optional["BackoffPolicy"] = None
 
 
 @dataclass
@@ -1075,9 +1077,12 @@ class WorkflowDagBuilder(ast.NodeVisitor):
         return substituter.visit(copy.deepcopy(call))
 
     def _parse_run_action_metadata(self, keywords: List[ast.keyword]) -> Optional[RunActionConfig]:
+        from .workflow import BackoffPolicy
+
         timeout_seconds: Optional[int] = None
         retry_limit: Optional[int] = None
         timeout_retry_limit: Optional[int] = None
+        backoff: Optional[BackoffPolicy] = None
         for kw in keywords:
             name = kw.arg
             if name is None:
@@ -1089,15 +1094,21 @@ class WorkflowDagBuilder(ast.NodeVisitor):
                 retry_limit = retry_value
                 timeout_retry_limit = retry_value
             elif name == "backoff":
-                self._validate_backoff_literal(kw.value)
+                backoff = self._evaluate_backoff_literal(kw.value)
             else:
                 raise ValueError(f"unsupported run_action keyword argument '{name}'")
-        if timeout_seconds is None and retry_limit is None and timeout_retry_limit is None:
+        if (
+            timeout_seconds is None
+            and retry_limit is None
+            and timeout_retry_limit is None
+            and backoff is None
+        ):
             return None
         return RunActionConfig(
             timeout_seconds=timeout_seconds,
             max_retries=retry_limit,
             timeout_retry_limit=timeout_retry_limit,
+            backoff=backoff,
         )
 
     def _evaluate_timeout_literal(self, expr: ast.AST) -> Optional[int]:
@@ -1198,19 +1209,77 @@ class WorkflowDagBuilder(ast.NodeVisitor):
             return func.attr == "RetryPolicy"
         return False
 
-    def _validate_backoff_literal(self, expr: ast.AST) -> None:
+    def _evaluate_backoff_literal(self, expr: ast.AST) -> Optional["BackoffPolicy"]:
         if isinstance(expr, ast.Constant) and expr.value is None:
-            return
-        if isinstance(expr, ast.Call) and self._is_backoff_policy_constructor(expr.func):
-            return
-        raise ValueError("backoff must be BackoffPolicy(...) or None")
+            return None
+        if isinstance(expr, ast.Call):
+            func_name = self._get_backoff_constructor_name(expr.func)
+            if func_name == "LinearBackoff":
+                return self._parse_linear_backoff(expr)
+            elif func_name == "ExponentialBackoff":
+                return self._parse_exponential_backoff(expr)
+            elif func_name == "BackoffPolicy":
+                raise ValueError(
+                    "BackoffPolicy is abstract; use LinearBackoff or ExponentialBackoff"
+                )
+        raise ValueError("backoff must be LinearBackoff(...), ExponentialBackoff(...), or None")
 
-    def _is_backoff_policy_constructor(self, func: ast.AST) -> bool:
+    def _get_backoff_constructor_name(self, func: ast.AST) -> Optional[str]:
         if isinstance(func, ast.Name):
-            return func.id == "BackoffPolicy"
+            return func.id
         if isinstance(func, ast.Attribute):
-            return func.attr == "BackoffPolicy"
-        return False
+            return func.attr
+        return None
+
+    def _parse_linear_backoff(self, call: ast.Call) -> "LinearBackoff":
+        from .workflow import LinearBackoff
+
+        base_delay_ms = 1000  # default
+        for kw in call.keywords:
+            if kw.arg == "base_delay_ms":
+                value = self._literal_number(kw.value)
+                if value is None:
+                    raise ValueError("LinearBackoff base_delay_ms must be a numeric literal")
+                base_delay_ms = int(value)
+            else:
+                raise ValueError(f"LinearBackoff received unsupported argument '{kw.arg}'")
+        if call.args:
+            value = self._literal_number(call.args[0])
+            if value is None:
+                raise ValueError("LinearBackoff base_delay_ms must be a numeric literal")
+            base_delay_ms = int(value)
+        return LinearBackoff(base_delay_ms=base_delay_ms)
+
+    def _parse_exponential_backoff(self, call: ast.Call) -> "ExponentialBackoff":
+        from .workflow import ExponentialBackoff
+
+        base_delay_ms = 1000  # default
+        multiplier = 2.0  # default
+        for kw in call.keywords:
+            if kw.arg == "base_delay_ms":
+                value = self._literal_number(kw.value)
+                if value is None:
+                    raise ValueError("ExponentialBackoff base_delay_ms must be a numeric literal")
+                base_delay_ms = int(value)
+            elif kw.arg == "multiplier":
+                value = self._literal_number(kw.value)
+                if value is None:
+                    raise ValueError("ExponentialBackoff multiplier must be a numeric literal")
+                multiplier = float(value)
+            else:
+                raise ValueError(f"ExponentialBackoff received unsupported argument '{kw.arg}'")
+        # Handle positional args: first is base_delay_ms, second is multiplier
+        if len(call.args) >= 1:
+            value = self._literal_number(call.args[0])
+            if value is None:
+                raise ValueError("ExponentialBackoff base_delay_ms must be a numeric literal")
+            base_delay_ms = int(value)
+        if len(call.args) >= 2:
+            value = self._literal_number(call.args[1])
+            if value is None:
+                raise ValueError("ExponentialBackoff multiplier must be a numeric literal")
+            multiplier = float(value)
+        return ExponentialBackoff(base_delay_ms=base_delay_ms, multiplier=multiplier)
 
     def _literal_number(self, expr: ast.AST) -> Optional[float]:
         if isinstance(expr, ast.Constant) and isinstance(expr.value, (int, float)):
@@ -1222,8 +1291,11 @@ class WorkflowDagBuilder(ast.NodeVisitor):
         return None
 
     def _parse_run_action_metadata(self, keywords: List[ast.keyword]) -> Optional[RunActionConfig]:
+        from .workflow import BackoffPolicy
+
         timeout_seconds: Optional[int] = None
         max_retries: Optional[int] = None
+        backoff: Optional[BackoffPolicy] = None
         for kw in keywords:
             name = kw.arg
             if name == "timeout":
@@ -1231,12 +1303,14 @@ class WorkflowDagBuilder(ast.NodeVisitor):
             elif name == "retry":
                 max_retries = self._evaluate_retry_literal(kw.value)
             elif name == "backoff":
-                self._validate_backoff_literal(kw.value)
+                backoff = self._evaluate_backoff_literal(kw.value)
             else:
                 raise ValueError(f"unsupported run_action keyword argument '{name}'")
-        if timeout_seconds is None and max_retries is None:
+        if timeout_seconds is None and max_retries is None and backoff is None:
             return None
-        return RunActionConfig(timeout_seconds=timeout_seconds, max_retries=max_retries)
+        return RunActionConfig(
+            timeout_seconds=timeout_seconds, max_retries=max_retries, backoff=backoff
+        )
 
     def _evaluate_timeout_literal(self, expr: ast.AST) -> Optional[int]:
         if isinstance(expr, ast.Constant):
@@ -1334,19 +1408,77 @@ class WorkflowDagBuilder(ast.NodeVisitor):
             return func.attr == "RetryPolicy"
         return False
 
-    def _validate_backoff_literal(self, expr: ast.AST) -> None:
+    def _evaluate_backoff_literal(self, expr: ast.AST) -> Optional["BackoffPolicy"]:
         if isinstance(expr, ast.Constant) and expr.value is None:
-            return
-        if isinstance(expr, ast.Call) and self._is_backoff_policy_constructor(expr.func):
-            return
-        raise ValueError("backoff must be BackoffPolicy(...) or None")
+            return None
+        if isinstance(expr, ast.Call):
+            func_name = self._get_backoff_constructor_name(expr.func)
+            if func_name == "LinearBackoff":
+                return self._parse_linear_backoff(expr)
+            elif func_name == "ExponentialBackoff":
+                return self._parse_exponential_backoff(expr)
+            elif func_name == "BackoffPolicy":
+                raise ValueError(
+                    "BackoffPolicy is abstract; use LinearBackoff or ExponentialBackoff"
+                )
+        raise ValueError("backoff must be LinearBackoff(...), ExponentialBackoff(...), or None")
 
-    def _is_backoff_policy_constructor(self, func: ast.AST) -> bool:
+    def _get_backoff_constructor_name(self, func: ast.AST) -> Optional[str]:
         if isinstance(func, ast.Name):
-            return func.id == "BackoffPolicy"
+            return func.id
         if isinstance(func, ast.Attribute):
-            return func.attr == "BackoffPolicy"
-        return False
+            return func.attr
+        return None
+
+    def _parse_linear_backoff(self, call: ast.Call) -> "LinearBackoff":
+        from .workflow import LinearBackoff
+
+        base_delay_ms = 1000  # default
+        for kw in call.keywords:
+            if kw.arg == "base_delay_ms":
+                value = self._literal_number(kw.value)
+                if value is None:
+                    raise ValueError("LinearBackoff base_delay_ms must be a numeric literal")
+                base_delay_ms = int(value)
+            else:
+                raise ValueError(f"LinearBackoff received unsupported argument '{kw.arg}'")
+        if call.args:
+            value = self._literal_number(call.args[0])
+            if value is None:
+                raise ValueError("LinearBackoff base_delay_ms must be a numeric literal")
+            base_delay_ms = int(value)
+        return LinearBackoff(base_delay_ms=base_delay_ms)
+
+    def _parse_exponential_backoff(self, call: ast.Call) -> "ExponentialBackoff":
+        from .workflow import ExponentialBackoff
+
+        base_delay_ms = 1000  # default
+        multiplier = 2.0  # default
+        for kw in call.keywords:
+            if kw.arg == "base_delay_ms":
+                value = self._literal_number(kw.value)
+                if value is None:
+                    raise ValueError("ExponentialBackoff base_delay_ms must be a numeric literal")
+                base_delay_ms = int(value)
+            elif kw.arg == "multiplier":
+                value = self._literal_number(kw.value)
+                if value is None:
+                    raise ValueError("ExponentialBackoff multiplier must be a numeric literal")
+                multiplier = float(value)
+            else:
+                raise ValueError(f"ExponentialBackoff received unsupported argument '{kw.arg}'")
+        # Handle positional args: first is base_delay_ms, second is multiplier
+        if len(call.args) >= 1:
+            value = self._literal_number(call.args[0])
+            if value is None:
+                raise ValueError("ExponentialBackoff base_delay_ms must be a numeric literal")
+            base_delay_ms = int(value)
+        if len(call.args) >= 2:
+            value = self._literal_number(call.args[1])
+            if value is None:
+                raise ValueError("ExponentialBackoff multiplier must be a numeric literal")
+            multiplier = float(value)
+        return ExponentialBackoff(base_delay_ms=base_delay_ms, multiplier=multiplier)
 
     def _literal_number(self, expr: ast.AST) -> Optional[float]:
         if isinstance(expr, ast.Constant) and isinstance(expr.value, (int, float)):
@@ -1411,6 +1543,8 @@ class WorkflowDagBuilder(ast.NodeVisitor):
                 dag_node.max_retries = parsed_call.config.max_retries
             if parsed_call.config.timeout_retry_limit is not None:
                 dag_node.timeout_retry_limit = parsed_call.config.timeout_retry_limit
+            if parsed_call.config.backoff is not None:
+                dag_node.backoff = parsed_call.config.backoff
         return dag_node
 
     def _map_positional_args(

@@ -30,11 +30,36 @@ class RetryPolicy:
     attempts: Optional[int] = None
 
 
-@dataclass(frozen=True)
 class BackoffPolicy:
-    base_delay: float = 0.0
+    """Base class for backoff policies. Use LinearBackoff or ExponentialBackoff."""
+
+    def to_proto(self) -> pb2.BackoffPolicy:
+        raise NotImplementedError("Subclasses must implement to_proto")
+
+
+@dataclass(frozen=True)
+class LinearBackoff(BackoffPolicy):
+    """Linear backoff: delay = base_delay_ms * attempt_number"""
+
+    base_delay_ms: int = 1000
+
+    def to_proto(self) -> pb2.BackoffPolicy:
+        return pb2.BackoffPolicy(linear=pb2.LinearBackoff(base_delay_ms=self.base_delay_ms))
+
+
+@dataclass(frozen=True)
+class ExponentialBackoff(BackoffPolicy):
+    """Exponential backoff: delay = base_delay_ms * multiplier^(attempt_number - 1)"""
+
+    base_delay_ms: int = 1000
     multiplier: float = 2.0
-    max_delay: Optional[float] = None
+
+    def to_proto(self) -> pb2.BackoffPolicy:
+        return pb2.BackoffPolicy(
+            exponential=pb2.ExponentialBackoff(
+                base_delay_ms=self.base_delay_ms, multiplier=self.multiplier
+            )
+        )
 
 
 class Workflow:
@@ -119,6 +144,8 @@ class Workflow:
                 proto_node.timeout_seconds = node.timeout_seconds
             if node.max_retries is not None:
                 proto_node.max_retries = node.max_retries
+            if node.backoff is not None:
+                proto_node.backoff.CopyFrom(node.backoff.to_proto())
             for edge in node.exception_edges:
                 proto_edge = proto_node.exception_edges.add()
                 proto_edge.source_node_id = edge.source_node_id
