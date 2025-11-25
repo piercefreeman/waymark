@@ -51,7 +51,6 @@ message WorkerHello {
   uint64 worker_id = 1;
 }
 
-// Backoff policy for retry delays - uses oneof for subclass-style polymorphism
 message BackoffPolicy {
   oneof policy {
     LinearBackoff linear = 1;
@@ -64,9 +63,10 @@ message LinearBackoff {
   uint32 base_delay_ms = 1;  // Base delay in milliseconds
 }
 
-// Exponential backoff: delay = base_delay_ms * 2^(attempt_number - 1)
+// Exponential backoff: delay = base_delay_ms * multiplier^(attempt_number - 1)
 message ExponentialBackoff {
   uint32 base_delay_ms = 1;  // Base delay in milliseconds
+  double multiplier = 2;     // Exponential multiplier (default 2.0 if not set)
 }
 
 message WorkflowDagNode {
@@ -84,7 +84,7 @@ message WorkflowDagNode {
   optional uint32 timeout_retry_limit = 12;
   optional WorkflowLoopSpec loop = 13;
   optional WorkflowNodeAst ast = 14;
-  optional BackoffPolicy backoff = 15;  // Backoff policy for retries
+  optional BackoffPolicy backoff = 15;
 }
 
 message WorkflowDagDefinition {
