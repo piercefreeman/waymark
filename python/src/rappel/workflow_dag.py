@@ -211,6 +211,7 @@ class ModuleIndex:
         self._source = module_source
         self._imports: Dict[str, str] = {}
         self._definitions: Dict[str, str] = {}
+        self._definition_deps: Dict[str, Set[str]] = {}  # Track dependencies of each definition
         tree = ast.parse(module_source)
         for node in tree.body:
             snippet = ast.get_source_segment(module_source, node)
@@ -219,23 +220,53 @@ class ModuleIndex:
             text = textwrap.dedent(snippet)
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                 self._definitions[node.name] = text
+                # Extract dependencies from the definition (base classes, type hints, etc.)
+                self._definition_deps[node.name] = self._extract_definition_dependencies(node)
             elif isinstance(node, (ast.Import, ast.ImportFrom)):
                 for alias in node.names:
                     exposed = alias.asname or alias.name.split(".")[0]
                     self._imports[exposed] = text
+
+    def _extract_definition_dependencies(self, node: ast.AST) -> Set[str]:
+        """Extract names referenced in a class/function definition."""
+        deps: Set[str] = set()
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.Name) and isinstance(sub.ctx, ast.Load):
+                deps.add(sub.id)
+        return deps
 
     @property
     def symbols(self) -> Set[str]:
         return set(self._imports) | set(self._definitions)
 
     def resolve(self, names: Iterable[str]) -> Tuple[List[str], List[str]]:
+        """Resolve names to their import and definition blocks.
+
+        This method transitively resolves dependencies - if a class definition
+        references other imports or definitions (like base classes), those are
+        included as well.
+        """
         import_blocks: List[str] = []
         definition_blocks: List[str] = []
-        for name in names:
+        resolved: Set[str] = set()
+        to_resolve = list(names)
+
+        while to_resolve:
+            name = to_resolve.pop()
+            if name in resolved:
+                continue
+            resolved.add(name)
+
             if name in self._imports:
                 import_blocks.append(self._imports[name])
             elif name in self._definitions:
                 definition_blocks.append(self._definitions[name])
+                # Add transitive dependencies from this definition
+                deps = self._definition_deps.get(name, set())
+                for dep in deps:
+                    if dep not in resolved and dep in self.symbols:
+                        to_resolve.append(dep)
+
         return sorted(set(import_blocks)), sorted(set(definition_blocks))
 
 

@@ -685,6 +685,36 @@ def test_return_statement_resolves_user_defined_class() -> None:
     assert "__init__" in return_block.kwargs["definitions"]
 
 
+class BaseClass:
+    """Base class for testing transitive dependency resolution."""
+
+    base_field: str = "default"
+
+
+class DerivedClass(BaseClass):
+    """Derived class that inherits from BaseClass."""
+
+    def __init__(self, value: float) -> None:
+        self.value = value
+
+
+class ReturnDerivedClassWorkflow(Workflow):
+    async def run(self) -> DerivedClass:
+        total = await summarize(values=[1.0])
+        return DerivedClass(value=total)
+
+
+def test_return_statement_resolves_base_class_dependencies() -> None:
+    """Return statements using derived classes should include base class definitions."""
+    dag = build_workflow_dag(ReturnDerivedClassWorkflow)
+    return_block = dag.nodes[-1]
+    assert return_block.action == "python_block"
+    # The definitions should include both DerivedClass and its base class
+    definitions = return_block.kwargs["definitions"]
+    assert "class DerivedClass" in definitions
+    assert "class BaseClass" in definitions
+
+
 class ReturnExpressionWithImportWorkflow(Workflow):
     async def run(self) -> float:
         total = await summarize(values=[1.0, 2.0])
