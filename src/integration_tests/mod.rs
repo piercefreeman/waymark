@@ -4,14 +4,19 @@ use std::{
     time::Duration,
 };
 
+use std::path::PathBuf;
+use std::sync::Arc;
+
 use crate::{
-    Database, PythonWorkerPool,
+    Database, PythonWorkerConfig, PythonWorkerPool,
     db::CompletionRecord,
     messages::proto,
     server_client::{self, ServerConfig},
+    server_worker::WorkerBridgeServer,
     worker::{ActionDispatchPayload, RoundTripMetrics},
 };
 use anyhow::{Context, Result, anyhow};
+use chrono::{DateTime, Utc};
 use prost::Message;
 use reqwest::Client;
 use serial_test::serial;
@@ -28,6 +33,9 @@ const INTEGRATION_LOOP_ACCUM_MODULE: &str = "integration_loop_accum";
 const INTEGRATION_LOOP_ACCUM_MODULE_SOURCE: &str =
     include_str!("fixtures/integration_loop_accum.py");
 const INTEGRATION_EXCEPTION_MODULE: &str = include_str!("fixtures/integration_exception.py");
+const INTEGRATION_CRASH_RECOVERY_MODULE: &str = "integration_crash_recovery";
+const INTEGRATION_CRASH_RECOVERY_MODULE_SOURCE: &str =
+    include_str!("fixtures/integration_crash_recovery.py");
 
 const REGISTER_SCRIPT: &str = r#"
 import asyncio
@@ -79,6 +87,17 @@ from integration_exception import ExceptionWorkflow
 
 async def main():
     wf = ExceptionWorkflow()
+    await wf.run()
+
+asyncio.run(main())
+"#;
+
+const REGISTER_CRASH_RECOVERY_SCRIPT: &str = r#"
+import asyncio
+from integration_crash_recovery import CrashRecoveryWorkflow
+
+async def main():
+    wf = CrashRecoveryWorkflow()
     await wf.run()
 
 asyncio.run(main())
@@ -213,6 +232,51 @@ fn to_completion_record(metrics: RoundTripMetrics) -> CompletionRecord {
         dispatch_token: metrics.dispatch_token,
         control: metrics.control,
     }
+}
+
+/// Dispatch actions up to a limit, then stop. Returns the completed actions and any
+/// actions that were dispatched but not completed (simulating in-flight work when crash happens).
+/// This is used to simulate partial workflow execution before a "crash".
+async fn dispatch_n_actions(
+    database: &Database,
+    pool: &PythonWorkerPool,
+    complete_limit: usize,
+) -> Result<Vec<RoundTripMetrics>> {
+    let mut completed = Vec::new();
+    let mut max_iterations = complete_limit.saturating_mul(20).max(50);
+    while completed.len() < complete_limit && max_iterations > 0 {
+        max_iterations -= 1;
+        let actions = database.dispatch_actions(1).await?;
+        if actions.is_empty() {
+            sleep(Duration::from_millis(50)).await;
+            continue;
+        }
+        for action in actions {
+            if completed.len() >= complete_limit {
+                // Don't process this action - it will remain in 'dispatched' state
+                // simulating an action that was dispatched right before crash
+                break;
+            }
+            let dispatch = proto::WorkflowNodeDispatch::decode(action.dispatch_payload.as_slice())
+                .context("failed to decode workflow dispatch")?;
+            let payload = ActionDispatchPayload {
+                action_id: action.id,
+                instance_id: action.instance_id,
+                sequence: action.action_seq,
+                dispatch,
+                timeout_seconds: action.timeout_seconds,
+                max_retries: action.max_retries,
+                attempt_number: action.attempt_number,
+                dispatch_token: action.delivery_token,
+            };
+            let worker = pool.next_worker();
+            let metrics = worker.send_action(payload).await?;
+            let record = to_completion_record(metrics.clone());
+            database.mark_actions_batch(&[record]).await?;
+            completed.push(metrics);
+        }
+    }
+    Ok(completed)
 }
 
 fn encode_workflow_input(pairs: &[(&str, &str)]) -> Vec<u8> {
@@ -633,5 +697,204 @@ async fn stale_worker_completion_is_ignored() -> Result<()> {
             .await?;
     assert_eq!(status, "completed");
     assert!(payload.is_some());
+    Ok(())
+}
+
+/// Test that simulates a cluster crash mid-workflow and verifies recovery via timeout.
+///
+/// Scenario:
+/// 1. Start a 4-action sequential workflow (step1 -> step2 -> step3 -> step4)
+///    Each action has a 2-second timeout configured in the workflow definition.
+/// 2. Complete the first 2 actions successfully
+/// 3. Dispatch action 3 but simulate crash before completion (action stays in 'dispatched')
+/// 4. Shut down workers (simulating cluster death)
+/// 5. Wait for the action's deadline to pass (2+ seconds)
+/// 6. Run timeout checker to detect and requeue the stale action
+/// 7. Spin up new workers
+/// 8. Complete remaining actions
+/// 9. Verify final workflow result is correct
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[serial]
+async fn workflow_recovers_after_crash() -> Result<()> {
+    let _ = tracing_subscriber::fmt::try_init();
+    let _ = dotenvy::dotenv();
+
+    let database_url = match env::var("DATABASE_URL") {
+        Ok(url) => url,
+        Err(_) => {
+            eprintln!("skipping integration test: DATABASE_URL not set");
+            return Ok(());
+        }
+    };
+    let database = Database::connect(&database_url).await?;
+    cleanup_database(&database).await?;
+
+    // Start test server
+    let server = TestServer::spawn(database_url.clone()).await?;
+    wait_for_health(server.http_addr).await?;
+
+    // Register workflow via Python
+    let env_pairs = vec![
+        ("CARABINER_GRPC_ADDR", server.grpc_addr.to_string()),
+        ("CARABINER_SERVER_PORT", server.http_addr.port().to_string()),
+        ("CARABINER_SERVER_HOST", server.http_addr.ip().to_string()),
+        ("CARABINER_SKIP_WAIT_FOR_INSTANCE", "1".to_string()),
+    ];
+    let python_env = common::run_in_env(
+        &[
+            (
+                "integration_crash_recovery.py",
+                INTEGRATION_CRASH_RECOVERY_MODULE_SOURCE,
+            ),
+            ("register_crash_recovery.py", REGISTER_CRASH_RECOVERY_SCRIPT),
+        ],
+        &[],
+        &env_pairs,
+        "register_crash_recovery.py",
+    )
+    .await?;
+    purge_empty_input_instances(&database).await?;
+
+    // Find the registered workflow version
+    let versions = database.list_workflow_versions().await?;
+    let version = versions
+        .iter()
+        .find(|v| v.workflow_name == "crashrecoveryworkflow")
+        .context("crashrecoveryworkflow missing")?;
+    let version_detail = database
+        .load_workflow_version(version.id)
+        .await?
+        .context("missing workflow version detail")?;
+    let total_actions = version_detail.dag.nodes.len();
+    assert_eq!(
+        total_actions, 4,
+        "expected 4 actions in crash recovery workflow"
+    );
+
+    // Create workflow instance (no input needed - workflow uses hardcoded "start")
+    let instance_id = database
+        .create_workflow_instance(&version.workflow_name, version.id, None)
+        .await?;
+
+    // === PHASE 1: Start workers and complete first 2 actions ===
+    let worker_server_1: Arc<WorkerBridgeServer> = WorkerBridgeServer::start(None).await?;
+    let worker_script = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("python")
+        .join(".venv")
+        .join("bin")
+        .join("rappel-worker");
+    let worker_config_1 = PythonWorkerConfig {
+        script_path: worker_script.clone(),
+        script_args: Vec::new(),
+        user_module: INTEGRATION_CRASH_RECOVERY_MODULE.to_string(),
+        extra_python_paths: vec![python_env.path().to_path_buf()],
+    };
+    let pool_1 = PythonWorkerPool::new(worker_config_1, 1, Arc::clone(&worker_server_1)).await?;
+
+    // Complete 2 actions, then dispatch one more but don't complete it
+    let completed_before_crash = dispatch_n_actions(&database, &pool_1, 2).await?;
+    assert_eq!(
+        completed_before_crash.len(),
+        2,
+        "should have completed 2 actions before simulated crash"
+    );
+
+    // Dispatch the 3rd action but simulate crash (don't complete it)
+    let in_flight_actions = database.dispatch_actions(1).await?;
+    assert_eq!(
+        in_flight_actions.len(),
+        1,
+        "should have 1 action dispatched but not completed"
+    );
+    let in_flight_action = &in_flight_actions[0];
+
+    // Verify action is in 'dispatched' state with a deadline set
+    let (dispatched_status, deadline): (String, Option<DateTime<Utc>>) =
+        sqlx::query_as("SELECT status, deadline_at FROM daemon_action_ledger WHERE id = $1")
+            .bind(in_flight_action.id)
+            .fetch_one(database.pool())
+            .await?;
+    assert_eq!(
+        dispatched_status, "dispatched",
+        "action should be in dispatched state"
+    );
+    assert!(
+        deadline.is_some(),
+        "dispatched action should have a deadline set"
+    );
+
+    // === PHASE 2: Simulate crash ===
+    // Shut down the worker pool (workers die without completing their work)
+    pool_1.shutdown().await?;
+    worker_server_1.shutdown().await;
+
+    // Wait for the action's deadline to pass (timeout is 2 seconds, wait a bit longer)
+    // The workflow configures 2-second timeouts, so we wait 3 seconds to be safe
+    eprintln!("waiting for action deadline to pass (3 seconds)...");
+    sleep(Duration::from_secs(3)).await;
+
+    // Run timeout checker to requeue the stale action - this simulates what the
+    // polling dispatcher does in production when it detects stale actions
+    let timed_out = database.mark_timed_out_actions(100).await?;
+    assert_eq!(timed_out, 1, "should have found 1 timed out action");
+
+    // Verify action is now back in 'queued' state with incremented attempt_number
+    let (status, attempt): (String, i32) =
+        sqlx::query_as("SELECT status, attempt_number FROM daemon_action_ledger WHERE id = $1")
+            .bind(in_flight_action.id)
+            .fetch_one(database.pool())
+            .await?;
+    assert_eq!(status, "queued", "action should be requeued after timeout");
+    assert_eq!(
+        attempt, 1,
+        "attempt_number should be incremented after timeout retry"
+    );
+
+    // === PHASE 3: Start fresh workers and complete remaining actions ===
+    let worker_server_2: Arc<WorkerBridgeServer> = WorkerBridgeServer::start(None).await?;
+    let worker_config_2 = PythonWorkerConfig {
+        script_path: worker_script,
+        script_args: Vec::new(),
+        user_module: INTEGRATION_CRASH_RECOVERY_MODULE.to_string(),
+        extra_python_paths: vec![python_env.path().to_path_buf()],
+    };
+    let pool_2 = PythonWorkerPool::new(worker_config_2, 1, Arc::clone(&worker_server_2)).await?;
+
+    // Complete remaining actions (should be 2: the retried action + the final action)
+    let completed_after_recovery = dispatch_all_actions(&database, &pool_2, 2).await?;
+    assert!(
+        completed_after_recovery.len() >= 2,
+        "should have completed at least 2 more actions after recovery, got {}",
+        completed_after_recovery.len()
+    );
+
+    // === PHASE 4: Verify final result ===
+    let stored_payload: Option<Vec<u8>> =
+        sqlx::query_scalar("SELECT result_payload FROM workflow_instances WHERE id = $1")
+            .bind(instance_id)
+            .fetch_one(database.pool())
+            .await?;
+    let payload = stored_payload.context("missing workflow result payload")?;
+    let result = parse_result(&payload)?.context("expected primitive result")?;
+    assert_eq!(
+        result, "step4(step3(step2(step1(start))))",
+        "workflow should complete with correct final result after crash recovery"
+    );
+
+    // Verify all actions show completed
+    let completed_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM daemon_action_ledger WHERE instance_id = $1 AND status = 'completed'",
+    )
+    .bind(instance_id)
+    .fetch_one(database.pool())
+    .await?;
+    assert_eq!(completed_count, 4, "all 4 actions should be completed");
+
+    // Cleanup
+    pool_2.shutdown().await?;
+    worker_server_2.shutdown().await;
+    server.shutdown().await;
+    drop(python_env);
+
     Ok(())
 }
