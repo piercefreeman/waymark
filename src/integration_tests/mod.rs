@@ -33,6 +33,10 @@ const INTEGRATION_LOOP_ACCUM_MODULE: &str = "integration_loop_accum";
 const INTEGRATION_LOOP_ACCUM_MODULE_SOURCE: &str =
     include_str!("fixtures/integration_loop_accum.py");
 const INTEGRATION_EXCEPTION_MODULE: &str = include_str!("fixtures/integration_exception.py");
+const INTEGRATION_EXCEPTION_CUSTOM_MODULE: &str =
+    include_str!("fixtures/integration_exception_custom.py");
+const INTEGRATION_EXCEPTION_WITH_SUCCESS_MODULE: &str =
+    include_str!("fixtures/integration_exception_with_success.py");
 const INTEGRATION_CRASH_RECOVERY_MODULE: &str = "integration_crash_recovery";
 const INTEGRATION_CRASH_RECOVERY_MODULE_SOURCE: &str =
     include_str!("fixtures/integration_crash_recovery.py");
@@ -88,6 +92,28 @@ from integration_exception import ExceptionWorkflow
 async def main():
     wf = ExceptionWorkflow()
     await wf.run()
+
+asyncio.run(main())
+"#;
+
+const REGISTER_EXCEPTION_CUSTOM_SCRIPT: &str = r#"
+import asyncio
+from integration_exception_custom import ExceptionCustomWorkflow
+
+async def main():
+    wf = ExceptionCustomWorkflow()
+    await wf.run()
+
+asyncio.run(main())
+"#;
+
+const REGISTER_EXCEPTION_WITH_SUCCESS_SCRIPT: &str = r#"
+import asyncio
+from integration_exception_with_success import ExceptionWithSuccessWorkflow
+
+async def main():
+    wf = ExceptionWithSuccessWorkflow()
+    await wf.run(should_fail=True)
 
 asyncio.run(main())
 "#;
@@ -279,6 +305,13 @@ async fn dispatch_n_actions(
     Ok(completed)
 }
 
+/// Input value variants for workflow tests
+#[derive(Clone)]
+pub enum TestInputValue {
+    String(&'static str),
+    Bool(bool),
+}
+
 fn encode_workflow_input(pairs: &[(&str, &str)]) -> Vec<u8> {
     let mut arguments = proto::WorkflowArguments {
         arguments: Vec::new(),
@@ -292,6 +325,31 @@ fn encode_workflow_input(pairs: &[(&str, &str)]) -> Vec<u8> {
                         kind: Some(proto::primitive_workflow_argument::Kind::StringValue(
                             (*value).to_string(),
                         )),
+                    },
+                )),
+            }),
+        });
+    }
+    arguments.encode_to_vec()
+}
+
+fn encode_workflow_input_typed(pairs: &[(&str, TestInputValue)]) -> Vec<u8> {
+    let mut arguments = proto::WorkflowArguments {
+        arguments: Vec::new(),
+    };
+    for (key, value) in pairs {
+        let primitive_kind = match value {
+            TestInputValue::String(s) => {
+                proto::primitive_workflow_argument::Kind::StringValue(s.to_string())
+            }
+            TestInputValue::Bool(b) => proto::primitive_workflow_argument::Kind::BoolValue(*b),
+        };
+        arguments.arguments.push(proto::WorkflowArgument {
+            key: (*key).to_string(),
+            value: Some(proto::WorkflowArgumentValue {
+                kind: Some(proto::workflow_argument_value::Kind::Primitive(
+                    proto::PrimitiveWorkflowArgument {
+                        kind: Some(primitive_kind),
                     },
                 )),
             }),
@@ -604,6 +662,253 @@ async fn workflow_handles_exception_flow() -> Result<()> {
     let cleanup_payload = cleanup_result.context("cleanup result payload missing")?;
     assert!(!cleanup_payload.is_empty(), "cleanup payload missing bytes");
 
+    let stored_payload = harness
+        .stored_result()
+        .await?
+        .context("missing workflow result payload")?;
+    assert!(
+        !stored_payload.is_empty(),
+        "workflow result payload missing bytes"
+    );
+
+    harness.shutdown().await?;
+    Ok(())
+}
+
+/// Test that workflows can catch custom exception types (not just built-in exceptions).
+/// This reproduces the issue where `except CustomError:` fails with "dependency node_1 failed"
+/// because the exception module from the actual exception doesn't match what the DAG expected.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[serial]
+async fn workflow_handles_custom_exception_type() -> Result<()> {
+    let _ = tracing_subscriber::fmt::try_init();
+    let _ = dotenvy::dotenv();
+    let Some(harness) = WorkflowHarness::new(WorkflowHarnessConfig {
+        files: &[
+            (
+                "integration_exception_custom.py",
+                INTEGRATION_EXCEPTION_CUSTOM_MODULE,
+            ),
+            (
+                "register_exception_custom.py",
+                REGISTER_EXCEPTION_CUSTOM_SCRIPT,
+            ),
+        ],
+        entrypoint: "register_exception_custom.py",
+        workflow_name: "exceptioncustomworkflow",
+        user_module: "integration_exception_custom",
+        inputs: &[("mode", "exception")],
+    })
+    .await?
+    else {
+        return Ok(());
+    };
+
+    let completed = harness.dispatch_all().await?;
+    assert_eq!(
+        completed.len(),
+        harness.expected_actions(),
+        "expected {} completions, saw {}",
+        harness.expected_actions(),
+        completed.len()
+    );
+
+    // Verify the cleanup action ran successfully (proof that exception was caught)
+    let cleanup_node = harness
+        .version_detail()
+        .dag
+        .nodes
+        .iter()
+        .find(|node| node.action == "cleanup")
+        .context("cleanup node missing")?;
+    let (cleanup_status, cleanup_success, cleanup_result): (String, bool, Option<Vec<u8>>) =
+        sqlx::query_as(
+            "SELECT status, success, result_payload FROM daemon_action_ledger WHERE instance_id = $1 AND workflow_node_id = $2",
+        )
+        .bind(harness.instance_id())
+        .bind(&cleanup_node.id)
+        .fetch_one(harness.database().pool())
+        .await?;
+    assert_eq!(cleanup_status, "completed");
+    assert!(
+        cleanup_success,
+        "cleanup action did not succeed - custom exception was not caught properly"
+    );
+    let cleanup_payload = cleanup_result.context("cleanup result payload missing")?;
+    assert!(!cleanup_payload.is_empty(), "cleanup payload missing bytes");
+
+    // Verify final workflow result
+    let stored_payload = harness
+        .stored_result()
+        .await?
+        .context("missing workflow result payload")?;
+    assert!(
+        !stored_payload.is_empty(),
+        "workflow result payload missing bytes"
+    );
+
+    harness.shutdown().await?;
+    Ok(())
+}
+
+/// Test workflow with both success and failure paths (mirroring example app's ErrorHandlingWorkflow).
+/// This tests the case where the workflow has conditional branches after catching an exception.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[serial]
+async fn workflow_handles_exception_with_success_branch() -> Result<()> {
+    let _ = tracing_subscriber::fmt::try_init();
+    let _ = dotenvy::dotenv();
+    let Some(harness) = WorkflowHarness::new(WorkflowHarnessConfig {
+        files: &[
+            (
+                "integration_exception_with_success.py",
+                INTEGRATION_EXCEPTION_WITH_SUCCESS_MODULE,
+            ),
+            (
+                "register_exception_with_success.py",
+                REGISTER_EXCEPTION_WITH_SUCCESS_SCRIPT,
+            ),
+        ],
+        entrypoint: "register_exception_with_success.py",
+        workflow_name: "exceptionwithsuccessworkflow",
+        user_module: "integration_exception_with_success",
+        inputs: &[("should_fail", "true")],
+    })
+    .await?
+    else {
+        return Ok(());
+    };
+
+    let completed = harness.dispatch_all().await?;
+    // We expect:
+    // - node_0: recovered = False (python_block)
+    // - node_1: message = "" (python_block)
+    // - node_2: risky_action (fails)
+    // - node_3: recovery_action (runs due to exception)
+    // - node_4: recovered_msg variable assignment
+    // - node_5: recovered = True
+    // - node_6: message = recovered_msg
+    // - node_7: return
+    // Note: success_action should NOT run because risky_action failed
+    eprintln!(
+        "completed {} actions (expected {})",
+        completed.len(),
+        harness.expected_actions()
+    );
+
+    // Verify the recovery action ran successfully
+    let recovery_node = harness
+        .version_detail()
+        .dag
+        .nodes
+        .iter()
+        .find(|node| node.action == "recovery_action")
+        .context("recovery_action node missing")?;
+    let (recovery_status, recovery_success, recovery_result): (String, bool, Option<Vec<u8>>) =
+        sqlx::query_as(
+            "SELECT status, success, result_payload FROM daemon_action_ledger WHERE instance_id = $1 AND workflow_node_id = $2",
+        )
+        .bind(harness.instance_id())
+        .bind(&recovery_node.id)
+        .fetch_one(harness.database().pool())
+        .await?;
+    assert_eq!(recovery_status, "completed");
+    assert!(
+        recovery_success,
+        "recovery_action did not succeed - custom exception was not caught properly"
+    );
+    let recovery_payload = recovery_result.context("recovery result payload missing")?;
+    assert!(
+        !recovery_payload.is_empty(),
+        "recovery payload missing bytes"
+    );
+
+    // Verify final workflow result
+    let stored_payload = harness
+        .stored_result()
+        .await?
+        .context("missing workflow result payload")?;
+    assert!(
+        !stored_payload.is_empty(),
+        "workflow result payload missing bytes"
+    );
+
+    harness.shutdown().await?;
+    Ok(())
+}
+
+/// Test workflow success path - when should_fail=false, exception path should not run.
+/// This is the inverse of workflow_handles_exception_with_success_branch.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[serial]
+async fn workflow_success_path_skips_exception_handler() -> Result<()> {
+    let _ = tracing_subscriber::fmt::try_init();
+    let _ = dotenvy::dotenv();
+    let Some(harness) = WorkflowHarness::new_typed(harness::WorkflowHarnessConfigTyped {
+        files: &[
+            (
+                "integration_exception_with_success.py",
+                INTEGRATION_EXCEPTION_WITH_SUCCESS_MODULE,
+            ),
+            (
+                "register_exception_with_success.py",
+                REGISTER_EXCEPTION_WITH_SUCCESS_SCRIPT,
+            ),
+        ],
+        entrypoint: "register_exception_with_success.py",
+        workflow_name: "exceptionwithsuccessworkflow",
+        user_module: "integration_exception_with_success",
+        inputs: &[("should_fail", TestInputValue::Bool(false))],  // Success path!
+    })
+    .await?
+    else {
+        return Ok(());
+    };
+
+    let completed = harness.dispatch_all().await?;
+    // We expect:
+    // - node_0: recovered = False (python_block)
+    // - node_1: message = "" (python_block)
+    // - node_2: risky_action (succeeds)
+    // - node_3: success_action (runs because risky_action succeeded)
+    // - node_4: recovery_action (skipped - guard evaluates false)
+    // - node_5: recovered = True (skipped - guard evaluates false)
+    // - node_6: message = recovered_msg (skipped - guard evaluates false)
+    // - node_7: return
+    eprintln!(
+        "completed {} actions (expected {})",
+        completed.len(),
+        harness.expected_actions()
+    );
+
+    // Verify the success_action ran (not the recovery path)
+    let success_node = harness
+        .version_detail()
+        .dag
+        .nodes
+        .iter()
+        .find(|node| node.action == "success_action")
+        .context("success_action node missing")?;
+    let (success_status, success_ok, success_result): (String, bool, Option<Vec<u8>>) =
+        sqlx::query_as(
+            "SELECT status, success, result_payload FROM daemon_action_ledger WHERE instance_id = $1 AND workflow_node_id = $2",
+        )
+        .bind(harness.instance_id())
+        .bind(&success_node.id)
+        .fetch_one(harness.database().pool())
+        .await?;
+    assert_eq!(success_status, "completed");
+    assert!(
+        success_ok,
+        "success_action did not succeed - it should run in success path"
+    );
+    let success_payload = success_result.context("success result payload missing")?;
+    assert!(
+        !success_payload.is_empty(),
+        "success payload missing bytes"
+    );
+
+    // Verify final workflow result
     let stored_payload = harness
         .stored_result()
         .await?

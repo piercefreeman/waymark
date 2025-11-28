@@ -278,7 +278,10 @@ class WorkflowDagBuilder(ast.NodeVisitor):
         source: str,
     ) -> None:
         self.nodes: List[DagNode] = []
+        # Track the latest producer of each variable for dependency lookup
         self._var_to_node: Dict[str, str] = {}
+        # Track ALL producers of each variable (for convergent branches like try/except, if/else)
+        self._var_all_producers: Dict[str, List[str]] = {}
         self._counter = 0
         self._action_defs = action_defs
         self._module_index = module_index
@@ -296,7 +299,7 @@ class WorkflowDagBuilder(ast.NodeVisitor):
             target = self._extract_target(node.targets)
             dag_node = self._build_node(action_call, target)
             if target:
-                self._var_to_node[target] = dag_node.id
+                self._record_variable_producer(target, dag_node.id)
                 self._collections.pop(target, None)
             self._append_node(dag_node)
             return
@@ -389,7 +392,7 @@ class WorkflowDagBuilder(ast.NodeVisitor):
         if action_call is not None:
             self._return_variable = RETURN_VARIABLE
             dag_node = self._build_node(action_call, RETURN_VARIABLE)
-            self._var_to_node[RETURN_VARIABLE] = dag_node.id
+            self._record_variable_producer(RETURN_VARIABLE, dag_node.id)
             self._collections.pop(RETURN_VARIABLE, None)
             self._append_node(dag_node)
             return
@@ -505,12 +508,12 @@ class WorkflowDagBuilder(ast.NodeVisitor):
                 branch_node_ids,
             )
             if action_target:
-                self._var_to_node[action_target] = merge_node.id
+                self._record_variable_producer(action_target, merge_node.id)
                 self._collections.pop(action_target, None)
             # Also track any variables produced by postambles
             for name in merge_node.produces:
                 if name != action_target:
-                    self._var_to_node[name] = merge_node.id
+                    self._record_variable_producer(name, merge_node.id)
             self._append_node(merge_node)
 
         return True
@@ -672,7 +675,7 @@ class WorkflowDagBuilder(ast.NodeVisitor):
         )
 
         for name in all_produces:
-            self._var_to_node[name] = block_id
+            self._record_variable_producer(name, block_id)
 
         self._append_node(block_node)
         return block_id
@@ -777,7 +780,7 @@ class WorkflowDagBuilder(ast.NodeVisitor):
             module="rappel.workflow_runtime",
             loop=loop_spec,
         )
-        self._var_to_node[accumulator] = dag_node.id
+        self._record_variable_producer(accumulator, dag_node.id)
         self._collections.pop(accumulator, None)
         self._append_node(dag_node)
         return True
@@ -886,7 +889,7 @@ class WorkflowDagBuilder(ast.NodeVisitor):
                 self._visit_loop_body_statement(substituted)
         last_source = sources[-1]
         if last_source in self._var_to_node:
-            self._var_to_node[loop_var] = self._var_to_node[last_source]
+            self._record_variable_producer(loop_var, self._var_to_node[last_source])
         return True
 
     def _visit_loop_body_statement(self, stmt: ast.stmt) -> None:
@@ -1040,7 +1043,7 @@ class WorkflowDagBuilder(ast.NodeVisitor):
                     continue
                 item_var = self._collection_item_name(target_name, idx)
                 dag_node = self._build_node(action_call, item_var)
-                self._var_to_node[item_var] = dag_node.id
+                self._record_variable_producer(item_var, dag_node.id)
                 item_vars.append(item_var)
                 self._append_node(dag_node)
             self._collections[target_name] = list(item_vars)
@@ -1053,7 +1056,7 @@ class WorkflowDagBuilder(ast.NodeVisitor):
             target_name = flat_targets[idx] if idx < len(flat_targets) else None
             dag_node = self._build_node(action_call, target_name)
             if target_name:
-                self._var_to_node[target_name] = dag_node.id
+                self._record_variable_producer(target_name, dag_node.id)
                 self._collections.pop(target_name, None)
             self._append_node(dag_node)
 
@@ -1103,7 +1106,7 @@ class WorkflowDagBuilder(ast.NodeVisitor):
             produces=sorted(self._collect_mutated_names(node)),
         )
         for name in block_node.produces:
-            self._var_to_node[name] = block_id
+            self._record_variable_producer(name, block_id)
             self._collections.pop(name, None)
         self._append_node(block_node)
 
@@ -1142,7 +1145,7 @@ class WorkflowDagBuilder(ast.NodeVisitor):
             produces=list(produces),
         )
         for name in produces:
-            self._var_to_node[name] = block_id
+            self._record_variable_producer(name, block_id)
         self._append_node(block_node)
         return block_id
 
@@ -1331,7 +1334,7 @@ class WorkflowDagBuilder(ast.NodeVisitor):
             parsed = ParsedActionCall(call=substituted_call, config=action_call.config)
             item_var = self._collection_item_name(target, idx)
             dag_node = self._build_node(parsed, item_var)
-            self._var_to_node[item_var] = dag_node.id
+            self._record_variable_producer(item_var, dag_node.id)
             produced.append(item_var)
             self._append_node(dag_node)
         self._collections[target] = list(produced)
@@ -1897,12 +1900,32 @@ class WorkflowDagBuilder(ast.NodeVisitor):
         return deps
 
     def _dependencies_from_node(self, node: ast.AST) -> List[str]:
+        """Return node IDs that produce variables referenced in `node`.
+
+        When a variable has multiple producers (e.g., from different branches of
+        try/except or if/else), all producers are included as dependencies to
+        ensure proper ordering regardless of which branch executed.
+        """
         deps: List[str] = []
         for sub in ast.walk(node):
             if isinstance(sub, ast.Name) and isinstance(sub.ctx, ast.Load):
-                if sub.id in self._var_to_node:
-                    deps.append(self._var_to_node[sub.id])
+                var_name = sub.id
+                # Include ALL producers of this variable, not just the latest
+                if var_name in self._var_all_producers:
+                    deps.extend(self._var_all_producers[var_name])
+                elif var_name in self._var_to_node:
+                    deps.append(self._var_to_node[var_name])
         return deps
+
+    def _record_variable_producer(self, var_name: str, node_id: str) -> None:
+        """Record that `node_id` produces variable `var_name`.
+
+        This tracks all producers to handle convergent branches properly.
+        """
+        self._var_to_node[var_name] = node_id
+        if var_name not in self._var_all_producers:
+            self._var_all_producers[var_name] = []
+        self._var_all_producers[var_name].append(node_id)
 
     def _collect_mutated_names(self, node: ast.AST) -> Set[str]:
         produced: Set[str] = set()

@@ -10,7 +10,7 @@ use crate::{
 
 use super::{
     TestServer, cleanup_database, common::run_in_env, dispatch_all_actions, encode_workflow_input,
-    purge_empty_input_instances,
+    encode_workflow_input_typed, purge_empty_input_instances,
 };
 
 pub struct WorkflowHarnessConfig<'a> {
@@ -19,6 +19,14 @@ pub struct WorkflowHarnessConfig<'a> {
     pub workflow_name: &'static str,
     pub user_module: &'static str,
     pub inputs: &'a [(&'static str, &'static str)],
+}
+
+pub struct WorkflowHarnessConfigTyped<'a> {
+    pub files: &'a [(&'static str, &'static str)],
+    pub entrypoint: &'static str,
+    pub workflow_name: &'static str,
+    pub user_module: &'static str,
+    pub inputs: &'a [(&'static str, super::TestInputValue)],
 }
 
 pub struct WorkflowHarness {
@@ -68,6 +76,72 @@ impl WorkflowHarness {
         let expected_actions = version_detail.dag.nodes.len();
 
         let workflow_input = encode_workflow_input(config.inputs);
+        let instance_id = database
+            .create_workflow_instance(&version.workflow_name, version.id, Some(&workflow_input))
+            .await?;
+
+        let worker_server: Arc<crate::server_worker::WorkerBridgeServer> =
+            crate::server_worker::WorkerBridgeServer::start(None).await?;
+        let worker_script = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("python")
+            .join(".venv")
+            .join("bin")
+            .join("rappel-worker");
+        let worker_config = PythonWorkerConfig {
+            script_path: worker_script,
+            script_args: Vec::new(),
+            user_module: config.user_module.to_string(),
+            extra_python_paths: vec![python_env.path().to_path_buf()],
+        };
+        let pool = PythonWorkerPool::new(worker_config, 1, Arc::clone(&worker_server)).await?;
+
+        Ok(Some(Self {
+            database,
+            server,
+            worker_server,
+            pool,
+            python_env,
+            version_detail,
+            expected_actions,
+            instance_id,
+        }))
+    }
+
+    pub async fn new_typed(config: WorkflowHarnessConfigTyped<'_>) -> Result<Option<Self>> {
+        let database_url = match env::var("DATABASE_URL") {
+            Ok(url) => url,
+            Err(_) => {
+                eprintln!("skipping integration test: DATABASE_URL not set");
+                return Ok(None);
+            }
+        };
+        let database = Database::connect(&database_url).await?;
+        cleanup_database(&database).await?;
+
+        let server = TestServer::spawn(database_url.clone()).await?;
+        super::wait_for_health(server.http_addr).await?;
+
+        let env_pairs = vec![
+            ("CARABINER_GRPC_ADDR", server.grpc_addr.to_string()),
+            ("CARABINER_SERVER_PORT", server.http_addr.port().to_string()),
+            ("CARABINER_SERVER_HOST", server.http_addr.ip().to_string()),
+            ("CARABINER_SKIP_WAIT_FOR_INSTANCE", "1".to_string()),
+        ];
+        let python_env = run_in_env(config.files, &[], &env_pairs, config.entrypoint).await?;
+        purge_empty_input_instances(&database).await?;
+
+        let versions = database.list_workflow_versions().await?;
+        let version = versions
+            .iter()
+            .find(|v| v.workflow_name == config.workflow_name)
+            .with_context(|| format!("{} missing", config.workflow_name))?;
+        let version_detail = database
+            .load_workflow_version(version.id)
+            .await?
+            .context("missing workflow version detail")?;
+        let expected_actions = version_detail.dag.nodes.len();
+
+        let workflow_input = encode_workflow_input_typed(config.inputs);
         let instance_id = database
             .create_workflow_instance(&version.workflow_name, version.id, Some(&workflow_input))
             .await?;
