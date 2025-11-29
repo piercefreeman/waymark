@@ -6,19 +6,57 @@
     <style>
       body {
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        max-width: 720px;
+        max-width: 900px;
         margin: 2rem auto;
         padding: 0 1rem;
+        line-height: 1.6;
+      }
+      h1 {
+        border-bottom: 2px solid #0f172a;
+        padding-bottom: 0.5rem;
+      }
+      h2 {
+        color: #334155;
+        margin-top: 2rem;
+      }
+      .workflow-section {
+        border: 1px solid #e2e8f0;
+        border-radius: 0.75rem;
+        padding: 1.5rem;
+        margin-bottom: 1.5rem;
+        background: #fafafa;
+      }
+      .workflow-section h3 {
+        margin-top: 0;
+        color: #0f172a;
+      }
+      .workflow-section p {
+        color: #64748b;
+        margin-bottom: 1rem;
       }
       form {
         display: flex;
         gap: 0.75rem;
         align-items: center;
-        margin-bottom: 1.5rem;
+        flex-wrap: wrap;
+        margin-bottom: 1rem;
       }
-      input {
+      input[type="number"],
+      input[type="text"] {
+        padding: 0.5rem;
+        border: 1px solid #cbd5e1;
+        border-radius: 0.375rem;
+        font-size: 0.9rem;
+      }
+      input[type="number"] {
         width: 5rem;
-        padding: 0.4rem;
+      }
+      input[type="text"] {
+        width: 12rem;
+      }
+      input[type="checkbox"] {
+        width: 1.2rem;
+        height: 1.2rem;
       }
       button {
         padding: 0.5rem 1rem;
@@ -27,74 +65,312 @@
         background: #0f172a;
         color: white;
         cursor: pointer;
+        font-size: 0.9rem;
       }
-      #result {
-        border: 1px solid #cbd5f5;
-        border-radius: 0.75rem;
-        padding: 1rem;
-        background: #f8fafc;
+      button:hover {
+        background: #1e293b;
       }
-      .error {
+      button:disabled {
+        background: #94a3b8;
+        cursor: not-allowed;
+      }
+      button.danger {
+        background: #b91c1c;
+      }
+      button.danger:hover {
+        background: #991b1b;
+      }
+      .admin-section {
+        margin-top: 2rem;
+        padding-top: 1rem;
+        border-top: 1px dashed #cbd5e1;
+      }
+      .admin-section h3 {
+        color: #64748b;
+        font-size: 0.9rem;
+        margin-bottom: 0.5rem;
+      }
+      .status {
+        font-size: 0.9rem;
+        color: #64748b;
+        min-height: 1.4rem;
+      }
+      .status.error {
         color: #b91c1c;
+      }
+      .status.success {
+        color: #15803d;
+      }
+      .result {
+        border: 1px solid #cbd5e1;
+        border-radius: 0.5rem;
+        padding: 1rem;
+        background: white;
+        margin-top: 1rem;
+        font-family: ui-monospace, monospace;
+        font-size: 0.85rem;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      label {
+        font-weight: 500;
+        color: #334155;
+      }
+      .hint {
+        font-size: 0.8rem;
+        color: #94a3b8;
       }
     </style>
   </head>
   <body>
-    <h1>Workflow Playground</h1>
+    <h1>Rappel Workflow Playground</h1>
     <p>
-      Submit a number between 1 and 10. The request blocks until the rappel
-      workflow finishes on the daemon container.
+      Explore different workflow patterns supported by Rappel. Each section demonstrates
+      a specific pattern - parallel execution, sequential chaining, conditionals, loops,
+      error handling, and durable sleep.
     </p>
-    <form id="task-form">
-      <label for="number">Number:</label>
-      <input type="number" id="number" name="number" min="1" max="10" value="{{ default_number }}" />
-      <button type="submit">Run Workflow</button>
-    </form>
-    <p id="status"></p>
-    <section id="result" hidden>
-      <h2>Results</h2>
-      <p><strong>Factorial</strong>: <span id="factorial"></span></p>
-      <p><strong>Fibonacci</strong>: <span id="fibonacci"></span></p>
-      <p><strong>Summary</strong>: <span id="summary"></span></p>
-    </section>
-    <script>
-      const form = document.getElementById("task-form");
-      const status = document.getElementById("status");
-      const resultBlock = document.getElementById("result");
-      const factorial = document.getElementById("factorial");
-      const fibonacci = document.getElementById("fibonacci");
-      const summary = document.getElementById("summary");
 
-      form.addEventListener("submit", async (event) => {
-        event.preventDefault();
-        const number = Number(new FormData(form).get("number"));
-        if (!Number.isFinite(number)) {
+    <!-- Parallel Execution -->
+    <section class="workflow-section">
+      <h3>1. Parallel Execution (asyncio.gather)</h3>
+      <p>
+        Compute factorial and fibonacci in parallel, then combine results.
+        Demonstrates fan-out/fan-in patterns.
+      </p>
+      <form id="parallel-form">
+        <label for="parallel-number">Number (1-10):</label>
+        <input type="number" id="parallel-number" name="number" min="1" max="10" value="7" />
+        <button type="submit">Run Parallel</button>
+      </form>
+      <div class="status" id="parallel-status"></div>
+      <div class="result" id="parallel-result" hidden></div>
+    </section>
+
+    <!-- Sequential Chain -->
+    <section class="workflow-section">
+      <h3>2. Sequential Chain</h3>
+      <p>
+        Transform text through a pipeline: uppercase -> reverse -> add stars.
+        Each step depends on the previous output.
+      </p>
+      <form id="chain-form">
+        <label for="chain-text">Text:</label>
+        <input type="text" id="chain-text" name="text" value="hello world" maxlength="100" />
+        <button type="submit">Run Chain</button>
+      </form>
+      <div class="status" id="chain-status"></div>
+      <div class="result" id="chain-result" hidden></div>
+    </section>
+
+    <!-- Conditional Branching -->
+    <section class="workflow-section">
+      <h3>3. Conditional Branching (if/else)</h3>
+      <p>
+        Route to different actions based on input value.
+        High (>=75), Medium (25-74), or Low (<25).
+      </p>
+      <form id="branch-form">
+        <label for="branch-value">Value:</label>
+        <input type="number" id="branch-value" name="value" value="50" />
+        <button type="submit">Run Branch</button>
+      </form>
+      <div class="status" id="branch-status"></div>
+      <div class="result" id="branch-result" hidden></div>
+    </section>
+
+    <!-- Loop Processing -->
+    <section class="workflow-section">
+      <h3>4. Loop Processing</h3>
+      <p>
+        Process each item in a list sequentially. Enter comma-separated items (max 5).
+      </p>
+      <form id="loop-form">
+        <label for="loop-items">Items:</label>
+        <input type="text" id="loop-items" name="items" value="apple, banana, cherry" />
+        <button type="submit">Run Loop</button>
+      </form>
+      <div class="status" id="loop-status"></div>
+      <div class="result" id="loop-result" hidden></div>
+    </section>
+
+    <!-- Error Handling -->
+    <section class="workflow-section">
+      <h3>5. Error Handling (try/except)</h3>
+      <p>
+        Demonstrate exception handling in workflows. Toggle failure to see recovery in action.
+      </p>
+      <form id="error-form">
+        <label for="error-fail">
+          <input type="checkbox" id="error-fail" name="should_fail" />
+          Force failure
+        </label>
+        <button type="submit">Run Error Test</button>
+      </form>
+      <div class="status" id="error-status"></div>
+      <div class="result" id="error-result" hidden></div>
+    </section>
+
+    <!-- Durable Sleep -->
+    <section class="workflow-section">
+      <h3>6. Durable Sleep</h3>
+      <p>
+        Pause workflow execution. Unlike regular sleep, this survives worker restarts.
+      </p>
+      <form id="sleep-form">
+        <label for="sleep-seconds">Seconds (1-10):</label>
+        <input type="number" id="sleep-seconds" name="seconds" min="1" max="10" value="2" />
+        <button type="submit">Run Sleep</button>
+      </form>
+      <div class="status" id="sleep-status"></div>
+      <div class="result" id="sleep-result" hidden></div>
+    </section>
+
+    <!-- Admin Section -->
+    <section class="admin-section">
+      <h3>Development Tools</h3>
+      <button id="reset-btn" class="danger">Reset Database</button>
+      <span id="reset-status" class="status"></span>
+    </section>
+
+    <script>
+      // Generic workflow runner
+      async function runWorkflow(formId, endpoint, getPayload, formatResult) {
+        const form = document.getElementById(formId);
+        const status = document.getElementById(formId.replace("-form", "-status"));
+        const result = document.getElementById(formId.replace("-form", "-result"));
+        const button = form.querySelector("button");
+
+        form.addEventListener("submit", async (event) => {
+          event.preventDefault();
+          const payload = getPayload(form);
+          if (payload === null) return;
+
+          status.textContent = "Dispatching workflow...";
+          status.className = "status";
+          result.hidden = true;
+          button.disabled = true;
+
+          try {
+            const response = await fetch(endpoint, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload),
+            });
+            if (!response.ok) {
+              const data = await response.json().catch(() => ({}));
+              throw new Error(data.detail ?? response.statusText);
+            }
+            const data = await response.json();
+            result.textContent = formatResult(data);
+            result.hidden = false;
+            status.textContent = "Workflow completed";
+            status.className = "status success";
+          } catch (error) {
+            status.textContent = `Failed: ${error.message}`;
+            status.className = "status error";
+          } finally {
+            button.disabled = false;
+          }
+        });
+      }
+
+      // 1. Parallel
+      runWorkflow(
+        "parallel-form",
+        "/api/parallel",
+        (form) => {
+          const number = Number(form.querySelector("#parallel-number").value);
+          return Number.isFinite(number) ? { number } : null;
+        },
+        (data) => JSON.stringify(data, null, 2)
+      );
+
+      // 2. Chain
+      runWorkflow(
+        "chain-form",
+        "/api/chain",
+        (form) => {
+          const text = form.querySelector("#chain-text").value.trim();
+          return text ? { text } : null;
+        },
+        (data) => JSON.stringify(data, null, 2)
+      );
+
+      // 3. Branch
+      runWorkflow(
+        "branch-form",
+        "/api/branch",
+        (form) => {
+          const value = Number(form.querySelector("#branch-value").value);
+          return Number.isFinite(value) ? { value } : null;
+        },
+        (data) => JSON.stringify(data, null, 2)
+      );
+
+      // 4. Loop
+      runWorkflow(
+        "loop-form",
+        "/api/loop",
+        (form) => {
+          const raw = form.querySelector("#loop-items").value;
+          const items = raw.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 5);
+          return items.length > 0 ? { items } : null;
+        },
+        (data) => JSON.stringify(data, null, 2)
+      );
+
+      // 5. Error
+      runWorkflow(
+        "error-form",
+        "/api/error",
+        (form) => {
+          const should_fail = form.querySelector("#error-fail").checked;
+          return { should_fail };
+        },
+        (data) => JSON.stringify(data, null, 2)
+      );
+
+      // 6. Sleep
+      runWorkflow(
+        "sleep-form",
+        "/api/sleep",
+        (form) => {
+          const seconds = Number(form.querySelector("#sleep-seconds").value);
+          return Number.isFinite(seconds) && seconds >= 1 && seconds <= 10
+            ? { seconds }
+            : null;
+        },
+        (data) => JSON.stringify(data, null, 2)
+      );
+
+      // Reset database button
+      document.getElementById("reset-btn").addEventListener("click", async () => {
+        const btn = document.getElementById("reset-btn");
+        const status = document.getElementById("reset-status");
+
+        if (!confirm("This will delete all workflow data. Continue?")) {
           return;
         }
-        status.textContent = "Dispatching workflow...";
-        status.classList.remove("error");
-        resultBlock.hidden = true;
+
+        btn.disabled = true;
+        status.textContent = "Resetting...";
+        status.className = "status";
 
         try {
-          const response = await fetch("/api/tasks", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ number }),
-          });
-          if (!response.ok) {
-            const payload = await response.json().catch(() => ({}));
-            const detail = payload.detail ?? response.statusText;
-            throw new Error(detail);
+          const response = await fetch("/api/reset", { method: "POST" });
+          const data = await response.json();
+          if (data.success) {
+            status.textContent = data.message;
+            status.className = "status success";
+          } else {
+            status.textContent = data.message;
+            status.className = "status error";
           }
-          const payload = await response.json();
-          factorial.textContent = payload.factorial;
-          fibonacci.textContent = payload.fibonacci;
-          summary.textContent = payload.summary;
-          resultBlock.hidden = false;
-          status.textContent = "Workflow completed";
         } catch (error) {
-          status.textContent = `Failed: ${error.message}`;
-          status.classList.add("error");
+          status.textContent = `Error: ${error.message}`;
+          status.className = "status error";
+        } finally {
+          btn.disabled = false;
         }
       });
     </script>

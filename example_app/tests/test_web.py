@@ -12,7 +12,7 @@ def test_run_task_endpoint_executes_workflow(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
 
     client = TestClient(app)
-    response = client.post("/api/tasks", json={"number": 5})
+    response = client.post("/api/parallel", json={"number": 5})
     assert response.status_code == 200
     payload = response.json()
 

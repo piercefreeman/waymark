@@ -195,6 +195,14 @@ fn validate_exception_context(
     if exceptions.is_empty() {
         return Ok(());
     }
+    // Collect all direct dependencies of this node
+    let dependencies: HashSet<&str> = node
+        .depends_on
+        .iter()
+        .chain(node.wait_for_sync.iter())
+        .map(|s| s.as_str())
+        .collect();
+    // Build set of matched exceptions from exception_edges
     let mut matched: HashSet<String> = HashSet::new();
     for edge in &node.exception_edges {
         if let Some(error) = exceptions.get(&edge.source_node_id)
@@ -203,8 +211,14 @@ fn validate_exception_context(
             matched.insert(edge.source_node_id.clone());
         }
     }
+    // Only check exceptions from direct dependencies, not all exceptions in workflow.
+    // Exceptions from nodes that are not direct dependencies have either been:
+    // 1. Handled by intermediate nodes with exception_edges
+    // 2. Caused intermediate nodes to be skipped (via guards)
+    // Either way, they should not cause this node to fail if this node doesn't
+    // directly depend on the failed node.
     for key in exceptions.keys() {
-        if !matched.contains(key) {
+        if dependencies.contains(key.as_str()) && !matched.contains(key) {
             return Err(anyhow!("dependency {key} failed"));
         }
     }
@@ -638,13 +652,23 @@ fn eval_context_from_dispatch(dispatch: &WorkflowNodeDispatch) -> Result<EvalCon
             continue;
         }
         if let Some(value) = decoded.result {
-            if let Some(mapped) =
+            let final_value = if let Some(mapped) =
                 variable_map_from_value(&value).and_then(|map| map.get(&entry.variable).cloned())
             {
-                ctx.insert(entry.variable.clone(), mapped);
+                mapped
             } else {
-                ctx.insert(entry.variable.clone(), value);
+                value
+            };
+            // Don't overwrite existing non-null values with null - this handles convergent
+            // branches (try/except, if/else) where skipped nodes produce null values that
+            // shouldn't replace real values from the branch that actually executed.
+            if final_value.is_null()
+                && let Some(existing) = ctx.get(&entry.variable)
+                && !existing.is_null()
+            {
+                continue;
             }
+            ctx.insert(entry.variable.clone(), final_value);
         }
     }
     ctx.insert(

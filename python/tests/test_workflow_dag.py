@@ -170,7 +170,7 @@ def test_conditional_action_branch_creates_merge_node() -> None:
     true_branch = dag.nodes[1]
     false_branch = dag.nodes[2]
     assert true_branch.guard == "(len(records) > 1)"
-    assert false_branch.guard == "not ((len(records) > 1))"
+    assert false_branch.guard == "not (len(records) > 1)"
     merge_node = dag.nodes[3]
     assert merge_node.action == "python_block"
     assert merge_node.produces == ["total"]
@@ -202,8 +202,9 @@ class MultiStatementConditionalWorkflow(Workflow):
             await summarize(values=[record.amount for record in records])
 
 
-def test_conditional_action_rejects_multiple_statements() -> None:
-    with pytest.raises(ValueError, match="single action call"):
+def test_conditional_action_rejects_multiple_actions_per_branch() -> None:
+    """Branches with multiple action calls should be rejected."""
+    with pytest.raises(ValueError, match="exactly one action call per branch"):
         build_workflow_dag(MultiStatementConditionalWorkflow)
 
 
@@ -653,3 +654,193 @@ def test_exponential_backoff_rejects_variable_reference() -> None:
     """ExponentialBackoff with variable reference should raise ValueError."""
     with pytest.raises(ValueError, match="must be a numeric literal"):
         build_workflow_dag(ExponentialBackoffVariableWorkflow)
+
+
+# --- Module Reference Tests for Return Statements ---
+
+
+class ResultContainer:
+    """A user-defined class to test module reference resolution in return statements."""
+
+    def __init__(self, value: float, label: str) -> None:
+        self.value = value
+        self.label = label
+
+
+class ReturnUserDefinedClassWorkflow(Workflow):
+    async def run(self) -> ResultContainer:
+        total = await summarize(values=[1.0, 2.0, 3.0])
+        return ResultContainer(value=total, label="computed")
+
+
+def test_return_statement_resolves_user_defined_class() -> None:
+    """Return statements using user-defined classes should include definitions."""
+    dag = build_workflow_dag(ReturnUserDefinedClassWorkflow)
+    return_block = dag.nodes[-1]
+    assert return_block.action == "python_block"
+    assert RETURN_VARIABLE in return_block.produces
+    # The definitions should include the ResultContainer class
+    assert "class ResultContainer" in return_block.kwargs["definitions"]
+    # Verify the class definition can be executed
+    assert "__init__" in return_block.kwargs["definitions"]
+
+
+class BaseClass:
+    """Base class for testing transitive dependency resolution."""
+
+    base_field: str = "default"
+
+
+class DerivedClass(BaseClass):
+    """Derived class that inherits from BaseClass."""
+
+    def __init__(self, value: float) -> None:
+        self.value = value
+
+
+class ReturnDerivedClassWorkflow(Workflow):
+    async def run(self) -> DerivedClass:
+        total = await summarize(values=[1.0])
+        return DerivedClass(value=total)
+
+
+def test_return_statement_resolves_base_class_dependencies() -> None:
+    """Return statements using derived classes should include base class definitions."""
+    dag = build_workflow_dag(ReturnDerivedClassWorkflow)
+    return_block = dag.nodes[-1]
+    assert return_block.action == "python_block"
+    # The definitions should include both DerivedClass and its base class
+    definitions = return_block.kwargs["definitions"]
+    assert "class DerivedClass" in definitions
+    assert "class BaseClass" in definitions
+
+
+class ReturnExpressionWithImportWorkflow(Workflow):
+    async def run(self) -> float:
+        total = await summarize(values=[1.0, 2.0])
+        return math.sqrt(total)
+
+
+def test_return_expression_resolves_imports() -> None:
+    """Return expressions using imported modules should include imports."""
+    dag = build_workflow_dag(ReturnExpressionWithImportWorkflow)
+    return_block = dag.nodes[-1]
+    assert return_block.action == "python_block"
+    assert "import math" in return_block.kwargs["imports"]
+
+
+# --- Multi-Statement Conditional Tests ---
+
+
+class MultiStatementConditionalWithPostambleWorkflow(Workflow):
+    async def run(self) -> float:
+        records = await fetch_records()
+        if len(records) > 5:
+            result = await summarize(values=[r.amount for r in records])
+            multiplier = 2.0
+        else:
+            result = await summarize(values=[r.amount for r in records[:5]])
+            multiplier = 1.0
+        return result * multiplier
+
+
+def test_multi_statement_conditional_with_postamble() -> None:
+    """Conditional branches with statements after the action should work."""
+    dag = build_workflow_dag(MultiStatementConditionalWithPostambleWorkflow)
+    actions = [node.action for node in dag.nodes]
+    # Should have: fetch_records, 2x summarize (guarded), merge (python_block), return (python_block)
+    assert "fetch_records" in actions
+    assert actions.count("summarize") == 2
+    # Find merge node - should produce both 'result' and 'multiplier'
+    merge_candidates = [
+        n for n in dag.nodes if n.action == "python_block" and "result" in n.produces
+    ]
+    assert len(merge_candidates) >= 1
+    merge_node = merge_candidates[0]
+    assert "multiplier" in merge_node.produces
+
+
+class MultiStatementConditionalWithPreambleWorkflow(Workflow):
+    async def run(self) -> float:
+        records = await fetch_records()
+        if len(records) > 5:
+            adjusted = [r.amount * 2 for r in records]
+            result = await summarize(values=adjusted)
+        else:
+            adjusted = [r.amount for r in records]
+            result = await summarize(values=adjusted)
+        return result
+
+
+def test_multi_statement_conditional_with_preamble() -> None:
+    """Conditional branches with statements before the action should work."""
+    dag = build_workflow_dag(MultiStatementConditionalWithPreambleWorkflow)
+    actions = [node.action for node in dag.nodes]
+    assert "fetch_records" in actions
+    assert actions.count("summarize") == 2
+    # Should have preamble python blocks with guards
+    preamble_blocks = [
+        n
+        for n in dag.nodes
+        if n.action == "python_block" and "adjusted" in n.produces and n.guard is not None
+    ]
+    assert len(preamble_blocks) == 2
+
+
+class ElifChainWorkflow(Workflow):
+    async def run(self) -> float:
+        value = await fetch_number(idx=1)
+        if value >= 100:
+            result = await summarize(values=[float(value)])
+            _tier = "high"  # noqa: F841
+        elif value >= 50:
+            result = await summarize(values=[float(value) / 2])
+            _tier = "medium"  # noqa: F841
+        else:
+            result = await summarize(values=[float(value) / 4])
+            _tier = "low"  # noqa: F841
+        return result
+
+
+def test_elif_chain_creates_multiple_guarded_branches() -> None:
+    """elif chains should create properly guarded action nodes."""
+    dag = build_workflow_dag(ElifChainWorkflow)
+    actions = [node.action for node in dag.nodes]
+    assert "fetch_number" in actions
+    # Should have 3 summarize nodes, one for each branch
+    assert actions.count("summarize") == 3
+    summarize_nodes = [n for n in dag.nodes if n.action == "summarize"]
+    # Each should have a guard
+    guards: list[str] = [n.guard for n in summarize_nodes if n.guard is not None]
+    assert len(guards) == 3
+    # The guards should be mutually exclusive
+    assert any("value >= 100" in g for g in guards)
+    assert any("value >= 50" in g for g in guards)
+
+
+class InterleavedStatementsWorkflow(Workflow):
+    async def run(self) -> list[float]:
+        results = []
+        value1 = await summarize(values=[1.0])
+        results.append(value1)
+        value2 = await summarize(values=[2.0])
+        results.append(value2)
+        return results
+
+
+def test_interleaved_statements_are_captured() -> None:
+    """Statements between actions (like list.append) should be captured."""
+    dag = build_workflow_dag(InterleavedStatementsWorkflow)
+    actions = [node.action for node in dag.nodes]
+    # Should have: init block, action, append block, action, append block, return block
+    assert actions.count("summarize") == 2
+    assert actions.count("python_block") >= 3  # init + 2 appends + return
+    # Find the append blocks
+    append_blocks = [
+        n for n in dag.nodes if n.action == "python_block" and "append" in n.kwargs.get("code", "")
+    ]
+    assert len(append_blocks) == 2
+    # Each append should depend on a summarize node
+    summarize_ids = {n.id for n in dag.nodes if n.action == "summarize"}
+    for block in append_blocks:
+        assert any(dep in summarize_ids for dep in block.depends_on)

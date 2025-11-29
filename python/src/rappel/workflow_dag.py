@@ -142,8 +142,13 @@ class _ActionReferenceValidator(ast.NodeVisitor):
 
 @dataclass
 class _ConditionalBranch:
-    call: ParsedActionCall
-    target: Optional[str]
+    """Represents one branch of an if/elif/else with an action call."""
+
+    guard: str  # The guard expression for this branch
+    preamble: List[ast.stmt]  # Statements before the action call
+    action_call: ParsedActionCall  # The action call
+    action_target: Optional[str]  # Variable assigned by the action
+    postamble: List[ast.stmt]  # Statements after the action call
 
 
 @dataclass
@@ -206,6 +211,7 @@ class ModuleIndex:
         self._source = module_source
         self._imports: Dict[str, str] = {}
         self._definitions: Dict[str, str] = {}
+        self._definition_deps: Dict[str, Set[str]] = {}  # Track dependencies of each definition
         tree = ast.parse(module_source)
         for node in tree.body:
             snippet = ast.get_source_segment(module_source, node)
@@ -214,23 +220,53 @@ class ModuleIndex:
             text = textwrap.dedent(snippet)
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                 self._definitions[node.name] = text
+                # Extract dependencies from the definition (base classes, type hints, etc.)
+                self._definition_deps[node.name] = self._extract_definition_dependencies(node)
             elif isinstance(node, (ast.Import, ast.ImportFrom)):
                 for alias in node.names:
                     exposed = alias.asname or alias.name.split(".")[0]
                     self._imports[exposed] = text
+
+    def _extract_definition_dependencies(self, node: ast.AST) -> Set[str]:
+        """Extract names referenced in a class/function definition."""
+        deps: Set[str] = set()
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.Name) and isinstance(sub.ctx, ast.Load):
+                deps.add(sub.id)
+        return deps
 
     @property
     def symbols(self) -> Set[str]:
         return set(self._imports) | set(self._definitions)
 
     def resolve(self, names: Iterable[str]) -> Tuple[List[str], List[str]]:
+        """Resolve names to their import and definition blocks.
+
+        This method transitively resolves dependencies - if a class definition
+        references other imports or definitions (like base classes), those are
+        included as well.
+        """
         import_blocks: List[str] = []
         definition_blocks: List[str] = []
-        for name in names:
+        resolved: Set[str] = set()
+        to_resolve = list(names)
+
+        while to_resolve:
+            name = to_resolve.pop()
+            if name in resolved:
+                continue
+            resolved.add(name)
+
             if name in self._imports:
                 import_blocks.append(self._imports[name])
             elif name in self._definitions:
                 definition_blocks.append(self._definitions[name])
+                # Add transitive dependencies from this definition
+                deps = self._definition_deps.get(name, set())
+                for dep in deps:
+                    if dep not in resolved and dep in self.symbols:
+                        to_resolve.append(dep)
+
         return sorted(set(import_blocks)), sorted(set(definition_blocks))
 
 
@@ -242,7 +278,10 @@ class WorkflowDagBuilder(ast.NodeVisitor):
         source: str,
     ) -> None:
         self.nodes: List[DagNode] = []
+        # Track the latest producer of each variable for dependency lookup
         self._var_to_node: Dict[str, str] = {}
+        # Track ALL producers of each variable (for convergent branches like try/except, if/else)
+        self._var_all_producers: Dict[str, List[str]] = {}
         self._counter = 0
         self._action_defs = action_defs
         self._module_index = module_index
@@ -260,7 +299,7 @@ class WorkflowDagBuilder(ast.NodeVisitor):
             target = self._extract_target(node.targets)
             dag_node = self._build_node(action_call, target)
             if target:
-                self._var_to_node[target] = dag_node.id
+                self._record_variable_producer(target, dag_node.id)
                 self._collections.pop(target, None)
             self._append_node(dag_node)
             return
@@ -290,6 +329,10 @@ class WorkflowDagBuilder(ast.NodeVisitor):
             return
         if self._is_complex_block(node.value):
             self._capture_block(node.value)
+            return
+        # Capture expression statements that have side effects (e.g., method calls like append)
+        if self._is_side_effect_expr(node.value):
+            self._capture_block(node)
             return
         self.generic_visit(node)
 
@@ -349,7 +392,7 @@ class WorkflowDagBuilder(ast.NodeVisitor):
         if action_call is not None:
             self._return_variable = RETURN_VARIABLE
             dag_node = self._build_node(action_call, RETURN_VARIABLE)
-            self._var_to_node[RETURN_VARIABLE] = dag_node.id
+            self._record_variable_producer(RETURN_VARIABLE, dag_node.id)
             self._collections.pop(RETURN_VARIABLE, None)
             self._append_node(dag_node)
             return
@@ -373,71 +416,335 @@ class WorkflowDagBuilder(ast.NodeVisitor):
         self._append_python_block(snippet, [RETURN_VARIABLE])
 
     def _handle_conditional_actions(self, node: ast.If) -> bool:
+        """Handle if/elif/else statements containing action calls.
+
+        This method supports multi-statement branches where each branch can have:
+        - Preamble: statements before the action call
+        - Action: exactly one action call per branch
+        - Postamble: statements after the action call
+
+        For elif chains, each condition builds up to exclude previous conditions.
+        """
         if not node.orelse:
             if self._branch_contains_action(node.body):
                 line = getattr(node, "lineno", "?")
                 raise ValueError(f"conditional action at line {line} requires an else branch")
             return False
-        if len(node.body) != 1 or len(node.orelse) != 1:
-            if self._branch_contains_action(node.body) or self._branch_contains_action(node.orelse):
-                line = getattr(node, "lineno", "?")
-                raise ValueError(
-                    f"conditional actions must contain a single action call per branch (line {line})"
-                )
+
+        # Check if any branch contains an action
+        if not self._conditional_contains_action(node):
             return False
-        true_branch = self._extract_branch_statement(node.body[0])
-        false_branch = self._extract_branch_statement(node.orelse[0])
-        if true_branch is None or false_branch is None:
-            if self._branch_contains_action(node.body) or self._branch_contains_action(node.orelse):
-                line = getattr(node, "lineno", "?")
-                raise ValueError(
-                    f"unsupported conditional action structure near line {line}; "
-                    "only direct action calls are allowed in each branch"
-                )
-            return False
-        if bool(true_branch.target) != bool(false_branch.target):
+
+        # Extract all branches from the if/elif/else chain
+        branches = self._extract_all_branches(node, parent_guard=None)
+        if branches is None:
             line = getattr(node, "lineno", "?")
             raise ValueError(
-                f"conditional branches must both assign to the same target or neither (line {line})"
+                f"conditional with actions must have exactly one action call per branch (line {line})"
             )
-        if true_branch.target and false_branch.target and true_branch.target != false_branch.target:
+
+        # Validate that all branches have consistent targets
+        action_targets = {b.action_target for b in branches}
+        if len(action_targets) > 1 and None in action_targets:
             line = getattr(node, "lineno", "?")
             raise ValueError(
-                f"conditional branches assign to different targets near line {line}; "
-                "use a shared variable name"
+                f"conditional branches must all assign to a target or none should (line {line})"
             )
-        condition_expr = f"({ast.unparse(node.test).strip()})"
-        condition_deps = sorted(set(self._dependencies_from_expr(node.test)))
-        true_guard = condition_expr
-        false_guard = f"not ({condition_expr})"
-        true_node = self._build_node(
-            true_branch.call,
-            target=None,
-            guard=true_guard,
-            extra_dependencies=condition_deps,
-        )
-        false_node = self._build_node(
-            false_branch.call,
-            target=None,
-            guard=false_guard,
-            extra_dependencies=condition_deps,
-        )
-        temp_true = temp_false = None
-        if true_branch.target:
-            temp_true = f"__branch_{true_branch.target}_{true_node.id}"
-            temp_false = f"__branch_{false_branch.target}_{false_node.id}"
-            true_node.produces = [temp_true]
-            false_node.produces = [temp_false]
-        self._append_node(true_node)
-        self._append_node(false_node)
-        if temp_true and temp_false and true_branch.target:
-            merge_node = self._build_branch_merge_node(
-                true_branch.target, temp_true, temp_false, [true_node.id, false_node.id]
+        non_none_targets = {t for t in action_targets if t is not None}
+        if len(non_none_targets) > 1:
+            line = getattr(node, "lineno", "?")
+            raise ValueError(f"conditional branches must assign to the same target (line {line})")
+
+        # Get the common action target (if any)
+        action_target = next(iter(non_none_targets), None)
+
+        # Track all generated nodes for the merge
+        branch_node_ids: List[str] = []
+        branch_temp_vars: List[str] = []
+        branch_postambles: List[Tuple[str, List[ast.stmt]]] = []
+
+        for branch in branches:
+            guard_deps = self._dependencies_from_guard_expr(branch.guard)
+
+            # Create preamble node if needed
+            preamble_node_id: Optional[str] = None
+            if branch.preamble:
+                preamble_node_id = self._create_guarded_preamble(
+                    branch.preamble, branch.guard, guard_deps
+                )
+
+            # Create the guarded action node
+            action_deps = list(guard_deps)
+            if preamble_node_id:
+                action_deps.append(preamble_node_id)
+
+            action_node = self._build_node(
+                branch.action_call,
+                target=None,
+                guard=branch.guard,
+                extra_dependencies=action_deps,
             )
-            self._var_to_node[true_branch.target] = merge_node.id
-            self._collections.pop(true_branch.target, None)
+
+            # If the action has a target, use a temp variable
+            temp_var: Optional[str] = None
+            if action_target:
+                temp_var = f"__branch_{action_target}_{action_node.id}"
+                action_node.produces = [temp_var]
+                branch_temp_vars.append(temp_var)
+
+            self._append_node(action_node)
+            branch_node_ids.append(action_node.id)
+
+            # Track postamble for the merge node
+            if branch.postamble:
+                branch_postambles.append((temp_var or action_node.id, branch.postamble))
+
+        # Create the merge node that handles result assignment and postambles
+        if action_target or branch_postambles:
+            merge_node = self._build_multi_branch_merge_node(
+                action_target,
+                branch_temp_vars,
+                branch_postambles,
+                branch_node_ids,
+            )
+            if action_target:
+                self._record_variable_producer(action_target, merge_node.id)
+                self._collections.pop(action_target, None)
+            # Also track any variables produced by postambles
+            for name in merge_node.produces:
+                if name != action_target:
+                    self._record_variable_producer(name, merge_node.id)
             self._append_node(merge_node)
+
         return True
+
+    def _conditional_contains_action(self, node: ast.If) -> bool:
+        """Check if an if/elif/else chain contains any action calls."""
+        if self._branch_contains_action(node.body):
+            return True
+        for stmt in node.orelse:
+            if isinstance(stmt, ast.If):
+                if self._conditional_contains_action(stmt):
+                    return True
+            elif self._branch_contains_action([stmt]):
+                return True
+        return self._branch_contains_action(node.orelse)
+
+    def _extract_all_branches(
+        self, node: ast.If, parent_guard: Optional[str]
+    ) -> Optional[List[_ConditionalBranch]]:
+        """Extract all branches from an if/elif/else chain.
+
+        Returns None if any branch has invalid structure (not exactly one action).
+        """
+        branches: List[_ConditionalBranch] = []
+
+        # Build the guard for this branch
+        condition_expr = f"({ast.unparse(node.test).strip()})"
+        if parent_guard:
+            true_guard = f"({parent_guard}) and {condition_expr}"
+        else:
+            true_guard = condition_expr
+
+        # Extract the true branch
+        true_branch = self._parse_branch_body(node.body, true_guard)
+        if true_branch is None:
+            return None
+        branches.append(true_branch)
+
+        # Handle else/elif
+        if len(node.orelse) == 1 and isinstance(node.orelse[0], ast.If):
+            # This is an elif - recurse with negated guard
+            elif_node = node.orelse[0]
+            negated_guard = (
+                f"not {condition_expr}"
+                if not parent_guard
+                else f"({parent_guard}) and not {condition_expr}"
+            )
+            sub_branches = self._extract_all_branches(elif_node, negated_guard)
+            if sub_branches is None:
+                return None
+            branches.extend(sub_branches)
+        elif node.orelse:
+            # This is an else branch
+            if parent_guard:
+                false_guard = f"({parent_guard}) and not {condition_expr}"
+            else:
+                false_guard = f"not {condition_expr}"
+            false_branch = self._parse_branch_body(node.orelse, false_guard)
+            if false_branch is None:
+                return None
+            branches.append(false_branch)
+
+        return branches
+
+    def _parse_branch_body(self, body: List[ast.stmt], guard: str) -> Optional[_ConditionalBranch]:
+        """Parse a branch body to extract preamble, action, and postamble.
+
+        Returns None if the branch doesn't have exactly one action call.
+        """
+        preamble: List[ast.stmt] = []
+        action_call: Optional[ParsedActionCall] = None
+        action_target: Optional[str] = None
+        postamble: List[ast.stmt] = []
+
+        found_action = False
+        for stmt in body:
+            stmt_action = self._extract_statement_action(stmt)
+            if stmt_action is not None:
+                if found_action:
+                    # Multiple actions in one branch - not supported
+                    return None
+                found_action = True
+                action_call, action_target = stmt_action
+            elif found_action:
+                postamble.append(stmt)
+            else:
+                preamble.append(stmt)
+
+        if action_call is None:
+            return None
+
+        return _ConditionalBranch(
+            guard=guard,
+            preamble=preamble,
+            action_call=action_call,
+            action_target=action_target,
+            postamble=postamble,
+        )
+
+    def _extract_statement_action(
+        self, stmt: ast.stmt
+    ) -> Optional[Tuple[ParsedActionCall, Optional[str]]]:
+        """Extract action call and target from a statement."""
+        if isinstance(stmt, ast.Assign):
+            call = self._extract_action_call(stmt.value)
+            if call is not None:
+                target = self._extract_target(stmt.targets)
+                return (call, target)
+        elif isinstance(stmt, ast.Expr):
+            call = self._extract_action_call(stmt.value)
+            if call is not None:
+                return (call, None)
+        return None
+
+    def _dependencies_from_guard_expr(self, guard: str) -> List[str]:
+        """Extract dependencies from a guard expression string."""
+        try:
+            parsed = ast.parse(guard, mode="eval")
+            return self._dependencies_from_expr(parsed.body)
+        except SyntaxError:
+            return []
+
+    def _create_guarded_preamble(
+        self, preamble: List[ast.stmt], guard: str, guard_deps: List[str]
+    ) -> str:
+        """Create a guarded python block for preamble statements."""
+        snippets: List[str] = []
+        all_deps: List[str] = list(guard_deps)
+        all_produces: Set[str] = set()
+
+        for stmt in preamble:
+            snippet = ast.get_source_segment(self._source, stmt) or ast.unparse(stmt)
+            normalized = self._normalize_block_snippet(snippet, stmt)
+            if normalized:
+                snippets.append(normalized)
+            all_deps.extend(self._dependencies_from_node(stmt))
+            all_produces.update(self._collect_mutated_names(stmt))
+
+        code = "\n".join(snippets)
+        references = set()
+        for stmt in preamble:
+            references.update(self._resolve_module_references(stmt))
+        imports, definitions = self._module_index.resolve(references)
+
+        block_id = self._new_node_id()
+        block_node = DagNode(
+            id=block_id,
+            action="python_block",
+            kwargs={
+                "code": code,
+                "imports": "\n".join(imports),
+                "definitions": "\n".join(definitions),
+            },
+            depends_on=sorted(set(all_deps)),
+            produces=sorted(all_produces),
+            guard=guard,
+        )
+
+        for name in all_produces:
+            self._record_variable_producer(name, block_id)
+
+        self._append_node(block_node)
+        return block_id
+
+    def _build_multi_branch_merge_node(
+        self,
+        action_target: Optional[str],
+        temp_vars: List[str],
+        postambles: List[Tuple[str, List[ast.stmt]]],
+        dependencies: List[str],
+    ) -> DagNode:
+        """Build a merge node that handles multiple branches with postambles."""
+        code_lines: List[str] = []
+        all_produces: Set[str] = set()
+        all_references: Set[str] = set()
+
+        if action_target:
+            all_produces.add(action_target)
+
+        # Collect all variables produced by postambles
+        for _, stmts in postambles:
+            for stmt in stmts:
+                all_produces.update(self._collect_mutated_names(stmt))
+                all_references.update(self._resolve_module_references(stmt))
+
+        # Generate merge code
+        for i, temp_var in enumerate(temp_vars):
+            # Check that the variable exists AND is not None
+            # (skipped guarded nodes may pass None for their temp variables)
+            condition = f'locals().get("{temp_var}") is not None'
+            if i == 0:
+                code_lines.append(f"if {condition}:")
+            else:
+                code_lines.append(f"elif {condition}:")
+
+            if action_target:
+                code_lines.append(f"    {action_target} = {temp_var}")
+
+            # Add postamble for this branch if it exists
+            for branch_id, stmts in postambles:
+                if branch_id == temp_var:
+                    for stmt in stmts:
+                        snippet = ast.get_source_segment(self._source, stmt) or ast.unparse(stmt)
+                        for line in snippet.split("\n"):
+                            code_lines.append(f"    {line}")
+                    break
+
+        # Add else clause for error handling if we have temp vars
+        if temp_vars:
+            code_lines.append("else:")
+            if action_target:
+                code_lines.append(
+                    f'    raise RuntimeError("conditional branch produced no value for {action_target}")'
+                )
+            else:
+                code_lines.append('    raise RuntimeError("no conditional branch executed")')
+
+        merge_code = "\n".join(code_lines)
+        imports, definitions = self._module_index.resolve(all_references)
+
+        return DagNode(
+            id=self._new_node_id(),
+            action="python_block",
+            kwargs={
+                "code": merge_code,
+                "imports": "\n".join(imports),
+                "definitions": "\n".join(definitions),
+            },
+            depends_on=sorted(set(dependencies)),
+            produces=sorted(all_produces),
+        )
 
     def _handle_loop_controller(self, node: ast.For) -> bool:
         if node.orelse or not isinstance(node.target, ast.Name):
@@ -471,7 +778,7 @@ class WorkflowDagBuilder(ast.NodeVisitor):
             module="rappel.workflow_runtime",
             loop=loop_spec,
         )
-        self._var_to_node[accumulator] = dag_node.id
+        self._record_variable_producer(accumulator, dag_node.id)
         self._collections.pop(accumulator, None)
         self._append_node(dag_node)
         return True
@@ -580,7 +887,7 @@ class WorkflowDagBuilder(ast.NodeVisitor):
                 self._visit_loop_body_statement(substituted)
         last_source = sources[-1]
         if last_source in self._var_to_node:
-            self._var_to_node[loop_var] = self._var_to_node[last_source]
+            self._record_variable_producer(loop_var, self._var_to_node[last_source])
         return True
 
     def _visit_loop_body_statement(self, stmt: ast.stmt) -> None:
@@ -600,49 +907,12 @@ class WorkflowDagBuilder(ast.NodeVisitor):
             return
         self.visit(stmt)
 
-    def _extract_branch_statement(self, stmt: ast.stmt) -> Optional[_ConditionalBranch]:
-        if isinstance(stmt, ast.Assign):
-            call = self._extract_action_call(stmt.value)
-            if call is None:
-                return None
-            target = self._extract_target(stmt.targets)
-            if target is None:
-                return None
-            return _ConditionalBranch(call=call, target=target)
-        if isinstance(stmt, ast.Expr):
-            call = self._extract_action_call(stmt.value)
-            if call is None:
-                return None
-            return _ConditionalBranch(call=call, target=None)
-        return None
-
     def _branch_contains_action(self, statements: List[ast.stmt]) -> bool:
         for stmt in statements:
             for sub in ast.walk(stmt):
                 if self._extract_action_call(sub) is not None:
                     return True
         return False
-
-    def _build_branch_merge_node(
-        self, target_name: str, true_var: str, false_var: str, dependencies: List[str]
-    ) -> DagNode:
-        merge_code = textwrap.dedent(
-            f"""
-            if "{true_var}" in locals():
-                {target_name} = {true_var}
-            elif "{false_var}" in locals():
-                {target_name} = {false_var}
-            else:
-                raise RuntimeError("conditional branch produced no value for {target_name}")
-            """
-        ).strip()
-        return DagNode(
-            id=self._new_node_id(),
-            action="python_block",
-            kwargs={"code": merge_code, "imports": "", "definitions": ""},
-            depends_on=sorted(set(dependencies)),
-            produces=[target_name],
-        )
 
     def _extract_action_call(self, expr: ast.AST) -> Optional[ParsedActionCall]:
         if isinstance(expr, ast.Await):
@@ -771,7 +1041,7 @@ class WorkflowDagBuilder(ast.NodeVisitor):
                     continue
                 item_var = self._collection_item_name(target_name, idx)
                 dag_node = self._build_node(action_call, item_var)
-                self._var_to_node[item_var] = dag_node.id
+                self._record_variable_producer(item_var, dag_node.id)
                 item_vars.append(item_var)
                 self._append_node(dag_node)
             self._collections[target_name] = list(item_vars)
@@ -784,7 +1054,7 @@ class WorkflowDagBuilder(ast.NodeVisitor):
             target_name = flat_targets[idx] if idx < len(flat_targets) else None
             dag_node = self._build_node(action_call, target_name)
             if target_name:
-                self._var_to_node[target_name] = dag_node.id
+                self._record_variable_producer(target_name, dag_node.id)
                 self._collections.pop(target_name, None)
             self._append_node(dag_node)
 
@@ -794,6 +1064,17 @@ class WorkflowDagBuilder(ast.NodeVisitor):
             and isinstance(expr.func, ast.Name)
             and expr.func.id in {"list", "dict"}
         )
+
+    def _is_side_effect_expr(self, expr: ast.AST) -> bool:
+        """Check if an expression has side effects that need to be captured.
+
+        This includes method calls on objects (like list.append, dict.update, etc.)
+        that modify state but don't return a meaningful value.
+        """
+        if isinstance(expr, ast.Call) and isinstance(expr.func, ast.Attribute):
+            # Method call like obj.method() - these often have side effects
+            return True
+        return False
 
     def _capture_block(self, node: ast.AST) -> None:
         override_snippet = vars(node).get("_rappel_snippet_override")
@@ -823,7 +1104,7 @@ class WorkflowDagBuilder(ast.NodeVisitor):
             produces=sorted(self._collect_mutated_names(node)),
         )
         for name in block_node.produces:
-            self._var_to_node[name] = block_id
+            self._record_variable_producer(name, block_id)
             self._collections.pop(name, None)
         self._append_node(block_node)
 
@@ -849,15 +1130,20 @@ class WorkflowDagBuilder(ast.NodeVisitor):
         parsed = ast.parse(snippet)
         for stmt in parsed.body:
             deps.extend(self._dependencies_from_node(stmt))
+        # Resolve module references for imports and definitions
+        references = self._resolve_module_references(parsed)
+        imports, definitions = self._module_index.resolve(references)
+        imports_text = "\n".join(imports)
+        definitions_text = "\n".join(definitions)
         block_node = DagNode(
             id=block_id,
             action="python_block",
-            kwargs={"code": snippet, "imports": "", "definitions": ""},
+            kwargs={"code": snippet, "imports": imports_text, "definitions": definitions_text},
             depends_on=sorted(set(deps)),
             produces=list(produces),
         )
         for name in produces:
-            self._var_to_node[name] = block_id
+            self._record_variable_producer(name, block_id)
         self._append_node(block_node)
         return block_id
 
@@ -1046,7 +1332,7 @@ class WorkflowDagBuilder(ast.NodeVisitor):
             parsed = ParsedActionCall(call=substituted_call, config=action_call.config)
             item_var = self._collection_item_name(target, idx)
             dag_node = self._build_node(parsed, item_var)
-            self._var_to_node[item_var] = dag_node.id
+            self._record_variable_producer(item_var, dag_node.id)
             produced.append(item_var)
             self._append_node(dag_node)
         self._collections[target] = list(produced)
@@ -1612,12 +1898,32 @@ class WorkflowDagBuilder(ast.NodeVisitor):
         return deps
 
     def _dependencies_from_node(self, node: ast.AST) -> List[str]:
+        """Return node IDs that produce variables referenced in `node`.
+
+        When a variable has multiple producers (e.g., from different branches of
+        try/except or if/else), all producers are included as dependencies to
+        ensure proper ordering regardless of which branch executed.
+        """
         deps: List[str] = []
         for sub in ast.walk(node):
             if isinstance(sub, ast.Name) and isinstance(sub.ctx, ast.Load):
-                if sub.id in self._var_to_node:
-                    deps.append(self._var_to_node[sub.id])
+                var_name = sub.id
+                # Include ALL producers of this variable, not just the latest
+                if var_name in self._var_all_producers:
+                    deps.extend(self._var_all_producers[var_name])
+                elif var_name in self._var_to_node:
+                    deps.append(self._var_to_node[var_name])
         return deps
+
+    def _record_variable_producer(self, var_name: str, node_id: str) -> None:
+        """Record that `node_id` produces variable `var_name`.
+
+        This tracks all producers to handle convergent branches properly.
+        """
+        self._var_to_node[var_name] = node_id
+        if var_name not in self._var_all_producers:
+            self._var_all_producers[var_name] = []
+        self._var_all_producers[var_name].append(node_id)
 
     def _collect_mutated_names(self, node: ast.AST) -> Set[str]:
         produced: Set[str] = set()

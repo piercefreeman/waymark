@@ -162,3 +162,65 @@ def test_workflow_visualize_placeholders_dim() -> None:
     VisualizationWorkflow.visualize(stream=buffer)
     output = buffer.getvalue()
     assert "\u001b[2m    guard       : -\u001b[0m" in output
+
+
+def test_workflow_result_uses_dag_return_variable(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that workflow results are extracted using the DAG's return_variable.
+
+    This is a regression test for a bug where the code hardcoded "result" as the
+    key to look up in WorkflowNodeResult.variables, but the DAG actually uses
+    the variable name from the return statement (e.g., "transformed" for `return transformed`)
+    or __workflow_return for expression returns (e.g., `return ChainResult(...)`).
+
+    The workflow decorator must use dag.return_variable when extracting the result.
+    """
+    from pydantic import BaseModel
+
+    from rappel.workflow_runtime import WorkflowNodeResult
+
+    os.environ.pop("PYTEST_CURRENT_TEST", None)
+
+    class TestResult(BaseModel):
+        value: str
+
+    expected_result = TestResult(value="test_value")
+
+    # Get the DAG's return variable - this is what the fix should use
+    dag = VisualizationWorkflow.workflow_dag()
+    return_var = dag.return_variable
+    assert return_var is not None, "DAG should have a return_variable"
+
+    async def fake_run_instance(payload: bytes) -> bridge.RunInstanceResult:
+        return bridge.RunInstanceResult(
+            workflow_version_id="00000000-0000-0000-0000-000000000100",
+            workflow_instance_id="00000000-0000-0000-0000-000000000200",
+        )
+
+    async def fake_wait_for_instance(*, instance_id: str, poll_interval_secs: float = 1.0) -> bytes:
+        # Return a WorkflowNodeResult with the key being dag.return_variable
+        # Before the fix, the code looked for "result" key which would fail
+        node_result = WorkflowNodeResult(variables={return_var: expected_result})
+        payload = serialize_result_payload(node_result)
+        return payload.SerializeToString()
+
+    monkeypatch.setattr(bridge, "run_instance", fake_run_instance)
+    monkeypatch.setattr(bridge, "wait_for_instance", fake_wait_for_instance)
+
+    instance = VisualizationWorkflow()
+    result = asyncio.run(instance.run())
+
+    # The result should be the TestResult (or its dict representation), not None
+    # Before the fix, this would return None because it looked for "result" key
+    # instead of using dag.return_variable (which is "transformed" in this case)
+    assert result is not None, (
+        "Result should not be None - workflow results must use dag.return_variable "
+        f"(which is {return_var!r}), not a hardcoded 'result' key"
+    )
+    # The result may come back as a dict (after serialization round-trip)
+    if isinstance(result, dict):
+        assert result["value"] == "test_value"
+    else:
+        assert isinstance(result, TestResult)
+        assert result.value == "test_value"
+
+    os.environ["PYTEST_CURRENT_TEST"] = "true"

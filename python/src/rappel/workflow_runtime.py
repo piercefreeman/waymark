@@ -48,11 +48,30 @@ def _build_context(
         result = decoded.result
         if not variable:
             continue
+        # Extract the value to assign
+        value_to_assign = None
+        has_value = False
         if isinstance(result, WorkflowNodeResult):
             if variable in result.variables:
-                context[variable] = result.variables[variable]
+                value_to_assign = result.variables[variable]
+                has_value = True
+        elif isinstance(result, dict) and variable in result:
+            # Unwrap dict results that contain the variable name as a key
+            # This handles the case where the Go scheduler sends {temp_var: value}
+            value_to_assign = result[variable]
+            has_value = True
         else:
-            context[variable] = result
+            value_to_assign = result
+            has_value = True
+
+        # Don't overwrite existing non-None values with None - this handles convergent
+        # branches (try/except, if/else) where skipped nodes produce None values that
+        # shouldn't replace real values from the branch that actually executed.
+        if value_to_assign is None and variable in context and context[variable] is not None:
+            continue
+
+        if has_value:
+            context[variable] = value_to_assign
     context["__workflow_exceptions"] = exceptions
     return context, exceptions
 

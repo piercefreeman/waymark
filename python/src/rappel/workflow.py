@@ -454,9 +454,10 @@ def workflow(cls: type[TWorkflow]) -> type[TWorkflow]:
         if isinstance(result.result, WorkflowNodeResult):
             # Extract the actual result from the variables dict
             variables = result.result.variables
-            if "result" in variables:
-                return variables["result"]
-            # If no 'result' key, this might be an empty workflow
+            dag = cls.workflow_dag()
+            if dag.return_variable and dag.return_variable in variables:
+                return variables[dag.return_variable]
+            # If no return variable or key missing, this might be an empty workflow
             return None
 
         return result.result
@@ -468,15 +469,15 @@ def workflow(cls: type[TWorkflow]) -> type[TWorkflow]:
 
 
 def _populate_node_ast(proto_node: pb2.WorkflowDagNode, node: DagNode) -> None:
-    # Python block kwargs contain full statements; skip AST emission for those nodes.
-    if node.action == "python_block":
-        return
     ast_payload = pb2.WorkflowNodeAst()
-    for key, expr_text in node.kwargs.items():
-        expr_proto = _parse_expr(expr_text)
-        if expr_proto is None:
-            continue
-        ast_payload.kwargs[key].CopyFrom(expr_proto)
+    # Python block kwargs contain full statements; skip kwargs AST emission for those nodes.
+    # However, we still need to emit guards and other control-flow AST fields.
+    if node.action != "python_block":
+        for key, expr_text in node.kwargs.items():
+            expr_proto = _parse_expr(expr_text)
+            if expr_proto is None:
+                continue
+            ast_payload.kwargs[key].CopyFrom(expr_proto)
     if node.guard:
         guard_expr = _parse_expr(node.guard)
         if guard_expr is not None:

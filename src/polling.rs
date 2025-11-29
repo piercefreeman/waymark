@@ -189,6 +189,43 @@ impl DispatcherTask {
         action: LedgerAction,
         _permit: OwnedSemaphorePermit,
     ) -> Result<()> {
+        // Sleep actions are auto-completed by the scheduler - they were queued with a future
+        // scheduled_at time and are picked up once that time has passed
+        if action.function_name == "sleep" {
+            debug!(
+                action_id = %action.id,
+                instance_id = %action.instance_id,
+                "auto-completing sleep action"
+            );
+            // Create a proper result payload with a null value for the "result" key
+            let result_payload = proto::WorkflowArguments {
+                arguments: vec![proto::WorkflowArgument {
+                    key: "result".to_string(),
+                    value: Some(proto::WorkflowArgumentValue {
+                        kind: Some(proto::workflow_argument_value::Kind::Primitive(
+                            proto::PrimitiveWorkflowArgument {
+                                kind: Some(proto::primitive_workflow_argument::Kind::NullValue(
+                                    prost_types::NullValue::NullValue as i32,
+                                )),
+                            },
+                        )),
+                    }),
+                }],
+            };
+            let record = CompletionRecord {
+                action_id: action.id,
+                success: true,
+                delivery_id: 0,
+                result_payload: result_payload.encode_to_vec(),
+                dispatch_token: Some(action.delivery_token),
+                control: None,
+            };
+            if let Err(err) = completion_tx.send(record).await {
+                warn!(?err, "completion channel closed, dropping sleep completion");
+            }
+            return Ok(());
+        }
+
         let dispatch = match proto::WorkflowNodeDispatch::decode(action.dispatch_payload.as_slice())
         {
             Ok(dispatch) => dispatch,
