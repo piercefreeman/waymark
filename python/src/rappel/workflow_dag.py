@@ -24,6 +24,7 @@ class DagNode:
     max_retries: Optional[int] = None
     timeout_retry_limit: Optional[int] = None
     loop: Optional["LoopSpec"] = None
+    multi_action_loop: Optional["MultiActionLoopSpec"] = None  # New: multi-action loops
     sleep_duration_expr: Optional[str] = None  # Expression evaluated at scheduling time
     backoff: Optional["BackoffPolicy"] = None
 
@@ -75,6 +76,39 @@ class LoopSpec:
     body_kwargs: Dict[str, str]
     preamble: Optional[str] = None
     body_module: Optional[str] = None
+
+
+@dataclass
+class LoopBodyNode:
+    """A node within a loop body sub-DAG."""
+
+    id: str  # e.g., "phase_0"
+    action: str  # Action name
+    module: Optional[str]  # Module containing the action
+    kwargs: Dict[str, str]  # Kwargs as expression strings
+    depends_on: List[str]  # Dependencies within body graph (phase IDs)
+    output_var: str  # Variable to capture result
+    timeout_seconds: Optional[int] = None
+    max_retries: Optional[int] = None
+
+
+@dataclass
+class LoopBodyGraph:
+    """A sub-DAG executed per loop iteration, supporting multiple actions."""
+
+    nodes: List[LoopBodyNode]
+    result_variable: str  # Variable from final node to append to accumulator
+
+
+@dataclass
+class MultiActionLoopSpec:
+    """Loop specification supporting multiple actions per iteration."""
+
+    iterable_expr: str
+    loop_var: str
+    accumulator: str
+    body_graph: LoopBodyGraph
+    preamble: Optional[str] = None  # Python code before first action
 
 
 def _extract_action_name(expr: ast.AST) -> Optional[str]:
@@ -337,6 +371,10 @@ class WorkflowDagBuilder(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_For(self, node: ast.For) -> Any:
+        # Try multi-action loop first (more general)
+        if self._handle_multi_action_loop(node):
+            return
+        # Fall back to single-action loop (legacy)
         if self._handle_loop_controller(node):
             return
         if self._handle_action_for_loop(node):
@@ -782,6 +820,201 @@ class WorkflowDagBuilder(ast.NodeVisitor):
         self._collections.pop(accumulator, None)
         self._append_node(dag_node)
         return True
+
+    def _handle_multi_action_loop(self, node: ast.For) -> bool:
+        """Handle loops with multiple action calls in the body.
+
+        Pattern:
+            results = []
+            for item in items:
+                # optional preamble (pure Python)
+                a = await action_one(x=item)
+                b = await action_two(y=a)
+                # ... more actions
+                results.append(final_var)
+        """
+        if node.orelse or not isinstance(node.target, ast.Name):
+            return False
+
+        parsed = self._parse_multi_action_loop_body(node.body)
+        if parsed is None:
+            return False
+
+        preamble_stmts, action_stmts, accumulator, result_var = parsed
+
+        # Need at least 2 actions to use multi-action loop
+        # (single action handled by legacy _handle_loop_controller)
+        if len(action_stmts) < 2:
+            return False
+
+        loop_var = node.target.id
+        iterable_expr = ast.unparse(node.iter)
+
+        # Build dependencies from iterable
+        dependencies = self._dependencies_from_expr(node.iter)
+
+        # Build the body graph nodes
+        body_nodes: List[LoopBodyNode] = []
+        phase_var_to_id: Dict[str, str] = {}  # Maps output_var -> phase_id
+
+        for idx, (target_var, action_call) in enumerate(action_stmts):
+            phase_id = f"phase_{idx}"
+            call = action_call.call
+
+            # Get action metadata
+            action_name = self._format_call_name(call.func)
+            action_def = self._action_defs.get(action_name)
+
+            # Build kwargs
+            kwargs: Dict[str, str] = {}
+            phase_deps: List[str] = []
+
+            for kw in call.keywords:
+                if kw.arg is None:
+                    continue
+                expr_str = ast.unparse(kw.value)
+                kwargs[kw.arg] = expr_str
+
+                # Check if this kwarg references another phase's output
+                for ref_var, ref_phase_id in phase_var_to_id.items():
+                    if ref_var in expr_str:
+                        phase_deps.append(ref_phase_id)
+
+            # Handle positional arguments
+            if call.args:
+                if action_def is None:
+                    line = call.lineno if hasattr(call, "lineno") else "?"
+                    raise ValueError(
+                        f"action '{action_name}' uses positional arguments "
+                        f"but metadata is unavailable (line {line})"
+                    )
+                used_keys = set(kwargs)
+                arg_mappings = self._map_positional_args(call, action_def, used_keys)
+                for key, expr in arg_mappings:
+                    kwargs[key] = expr
+                    for ref_var, ref_phase_id in phase_var_to_id.items():
+                        if ref_var in expr:
+                            phase_deps.append(ref_phase_id)
+
+            # Determine module
+            if action_def:
+                module_name = action_def.module_name
+                resolved_action_name = action_def.action_name
+            else:
+                module_name = None
+                resolved_action_name = action_name
+
+            # Get timeout/retry config if present
+            config = action_call.config
+
+            body_node = LoopBodyNode(
+                id=phase_id,
+                action=resolved_action_name,
+                module=module_name,
+                kwargs=kwargs,
+                depends_on=sorted(set(phase_deps)),
+                output_var=target_var,
+                timeout_seconds=config.timeout_seconds if config else None,
+                max_retries=config.max_retries if config else None,
+            )
+            body_nodes.append(body_node)
+            phase_var_to_id[target_var] = phase_id
+
+        # Build the body graph
+        body_graph = LoopBodyGraph(
+            nodes=body_nodes,
+            result_variable=result_var,
+        )
+
+        # Build the loop spec
+        loop_spec = MultiActionLoopSpec(
+            iterable_expr=iterable_expr,
+            loop_var=loop_var,
+            accumulator=accumulator,
+            body_graph=body_graph,
+            preamble=self._format_preamble_snippet(preamble_stmts) if preamble_stmts else None,
+        )
+
+        # Create the DAG node
+        dag_node = DagNode(
+            id=self._new_node_id(),
+            action="multi_action_loop",
+            kwargs={},
+            depends_on=sorted(set(dependencies)),
+            produces=[accumulator],
+            module="rappel.workflow_runtime",
+            multi_action_loop=loop_spec,
+        )
+
+        self._record_variable_producer(accumulator, dag_node.id)
+        self._collections.pop(accumulator, None)
+        self._append_node(dag_node)
+        return True
+
+    def _parse_multi_action_loop_body(
+        self, body: List[ast.stmt]
+    ) -> Optional[Tuple[List[ast.stmt], List[Tuple[str, ParsedActionCall]], str, str]]:
+        """Parse a loop body with potentially multiple action calls.
+
+        Returns:
+            Tuple of (preamble_stmts, action_stmts, accumulator, result_var) or None
+            - preamble_stmts: statements before any action
+            - action_stmts: list of (target_var, ParsedActionCall) tuples
+            - accumulator: name of the accumulator list
+            - result_var: variable being appended to accumulator
+        """
+        if len(body) < 2:
+            return None
+
+        # Last statement must be accumulator.append(var)
+        append_target = self._extract_append_target(body[-1])
+        if append_target is None:
+            return None
+        accumulator, appended_value = append_target
+        if not isinstance(appended_value, ast.Name):
+            return None
+        result_var = appended_value.id
+
+        # Scan body (excluding append) for action calls
+        action_stmts: List[Tuple[str, ParsedActionCall]] = []
+        preamble_stmts: List[ast.stmt] = []
+        found_first_action = False
+
+        for stmt in body[:-1]:  # Exclude the append statement
+            if isinstance(stmt, ast.Assign):
+                if len(stmt.targets) == 1 and isinstance(stmt.targets[0], ast.Name):
+                    action_call = self._extract_action_call(stmt.value)
+                    if action_call is not None:
+                        found_first_action = True
+                        target_var = stmt.targets[0].id
+                        action_stmts.append((target_var, action_call))
+                        continue
+
+            # If we haven't found first action yet, this is preamble
+            if not found_first_action:
+                # Preamble cannot contain action calls
+                if self._branch_contains_action([stmt]):
+                    return None
+                preamble_stmts.append(stmt)
+            else:
+                # After first action, we don't support interleaved pure Python
+                # (for now - could add support later)
+                if self._branch_contains_action([stmt]):
+                    # It's an action but not in expected format
+                    return None
+                # Non-action statement after first action - not supported
+                return None
+
+        # Must have at least one action
+        if not action_stmts:
+            return None
+
+        # The result_var must match the output of the last action
+        last_action_var = action_stmts[-1][0]
+        if result_var != last_action_var:
+            return None
+
+        return preamble_stmts, action_stmts, accumulator, result_var
 
     def _parse_loop_controller_body(
         self, body: List[ast.stmt]

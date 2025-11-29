@@ -844,3 +844,135 @@ def test_interleaved_statements_are_captured() -> None:
     summarize_ids = {n.id for n in dag.nodes if n.action == "summarize"}
     for block in append_blocks:
         assert any(dep in summarize_ids for dep in block.depends_on)
+
+
+# =====================
+# Multi-Action Loop Tests
+# =====================
+
+
+@action
+async def validate_order(order: dict) -> dict:
+    raise NotImplementedError
+
+
+@action
+async def process_payment(validated: dict) -> dict:
+    raise NotImplementedError
+
+
+@action
+async def send_confirmation(payment: dict) -> dict:
+    raise NotImplementedError
+
+
+class MultiActionLoopWorkflow(Workflow):
+    """Workflow with multiple actions per loop iteration."""
+
+    async def run(self, orders: list) -> list:
+        results = []
+        for order in orders:
+            validated = await validate_order(order=order)
+            payment = await process_payment(validated=validated)
+            confirmation = await send_confirmation(payment=payment)
+            results.append(confirmation)
+        return results
+
+
+def test_multi_action_loop_builds_body_graph() -> None:
+    """Multi-action loops should create a LoopBodyGraph with multiple nodes."""
+    dag = build_workflow_dag(MultiActionLoopWorkflow)
+    actions = [node.action for node in dag.nodes]
+
+    # Should have a multi_action_loop node
+    assert "multi_action_loop" in actions
+
+    controller = next(node for node in dag.nodes if node.action == "multi_action_loop")
+    assert controller.produces == ["results"]
+    assert controller.multi_action_loop is not None
+
+    loop_spec = controller.multi_action_loop
+    assert loop_spec.iterable_expr == "orders"
+    assert loop_spec.loop_var == "order"
+    assert loop_spec.accumulator == "results"
+
+    # Check body graph
+    body_graph = loop_spec.body_graph
+    assert body_graph is not None
+    assert len(body_graph.nodes) == 3
+    assert body_graph.result_variable == "confirmation"
+
+    # Check phase nodes
+    phase_ids = [node.id for node in body_graph.nodes]
+    assert phase_ids == ["phase_0", "phase_1", "phase_2"]
+
+    # Check actions
+    phase_actions = [node.action for node in body_graph.nodes]
+    assert phase_actions == ["validate_order", "process_payment", "send_confirmation"]
+
+    # Check dependencies
+    phase_0 = body_graph.nodes[0]
+    assert phase_0.depends_on == []
+    assert phase_0.output_var == "validated"
+
+    phase_1 = body_graph.nodes[1]
+    assert phase_1.depends_on == ["phase_0"]
+    assert phase_1.output_var == "payment"
+
+    phase_2 = body_graph.nodes[2]
+    assert phase_2.depends_on == ["phase_1"]
+    assert phase_2.output_var == "confirmation"
+
+
+class MultiActionLoopWithPreambleWorkflow(Workflow):
+    """Workflow with preamble before first action in loop."""
+
+    async def run(self, orders: list) -> list:
+        results = []
+        for order in orders:
+            order_id = order["id"]
+            validated = await validate_order(order=order)
+            payment = await process_payment(validated=validated)
+            results.append(payment)
+        return results
+
+
+def test_multi_action_loop_with_preamble() -> None:
+    """Multi-action loops should support preamble statements."""
+    dag = build_workflow_dag(MultiActionLoopWithPreambleWorkflow)
+
+    controller = next(node for node in dag.nodes if node.action == "multi_action_loop")
+    assert controller.multi_action_loop is not None
+
+    loop_spec = controller.multi_action_loop
+    # Preamble should contain the order_id assignment
+    assert loop_spec.preamble is not None
+    assert "order_id" in loop_spec.preamble
+
+    # Body graph should have 2 nodes
+    assert len(loop_spec.body_graph.nodes) == 2
+
+
+class SingleActionLoopWorkflow(Workflow):
+    """Single action loop should still use legacy LoopSpec."""
+
+    async def run(self, numbers: list) -> list:
+        results = []
+        for number in numbers:
+            doubled = await double_number(value=number)
+            results.append(doubled)
+        return results
+
+
+def test_single_action_loop_uses_legacy_loop_spec() -> None:
+    """Single action loops should use legacy LoopSpec, not multi-action."""
+    dag = build_workflow_dag(SingleActionLoopWorkflow)
+    actions = [node.action for node in dag.nodes]
+
+    # Should use "loop", not "multi_action_loop"
+    assert "loop" in actions
+    assert "multi_action_loop" not in actions
+
+    controller = next(node for node in dag.nodes if node.action == "loop")
+    assert controller.loop is not None
+    assert controller.multi_action_loop is None

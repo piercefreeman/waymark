@@ -115,6 +115,11 @@ message WorkflowLoopControl {
   bool has_next = 3;
   string accumulator = 4;
   WorkflowArgumentValue accumulator_value = 5;
+  // For multi-phase loops: track completed phases and their results
+  repeated string completed_phases = 6;
+  map<string, WorkflowArgumentValue> phase_results = 7;
+  // The current phase being executed (empty if starting new iteration)
+  string current_phase = 8;
 }
 
 message WorkflowNodeControl {
@@ -136,7 +141,29 @@ message LoopAst {
   string loop_var = 2;
   string accumulator = 3;
   repeated Stmt preamble = 4;
+  // DEPRECATED: Use body_graph for multi-action loops
   ActionAst body_action = 5;
+  // New: Full sub-DAG for loop body (supports multiple actions)
+  optional LoopBodyGraph body_graph = 6;
+}
+
+// Represents a sub-DAG executed per loop iteration
+message LoopBodyGraph {
+  repeated LoopBodyNode nodes = 1;
+  // The variable from the final node to append to accumulator
+  string result_variable = 2;
+}
+
+// A node within the loop body sub-DAG
+message LoopBodyNode {
+  string id = 1;                      // e.g., "phase_0", "phase_1"
+  string action = 2;                  // Action name, e.g., "validate_order"
+  string module = 3;                  // Module containing the action
+  repeated Keyword kwargs = 4;        // Kwargs as expressions
+  repeated string depends_on = 5;     // Dependencies within body graph
+  string output_var = 6;              // Variable to capture result
+  optional uint32 timeout_seconds = 7;
+  optional uint32 max_retries = 8;
 }
 
 message ActionAst {
