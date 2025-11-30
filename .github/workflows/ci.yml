@@ -104,9 +104,53 @@ jobs:
           name: rust-coverage-html
           path: target/rust-htmlcov
 
+  main-coverage:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt, llvm-tools-preview
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Install nightly toolchain for branch coverage
+        run: rustup toolchain install nightly --component llvm-tools-preview
+
+      - name: Python tests with coverage
+        run: make python-coverage
+
+      - name: Rust tests with coverage
+        run: make rust-coverage
+
+      - name: Upload main Python coverage XML
+        uses: actions/upload-artifact@v4
+        with:
+          name: main-python-coverage
+          path: python/coverage.xml
+
+      - name: Upload main Rust coverage LCOV
+        uses: actions/upload-artifact@v4
+        with:
+          name: main-rust-coverage
+          path: target/rust-coverage.lcov
+
   coverage-report:
     runs-on: ubuntu-latest
-    needs: [python-tests, rust-tests]
+    needs: [python-tests, rust-tests, main-coverage]
     if: github.event_name == 'pull_request'
     permissions:
       pull-requests: write
@@ -121,25 +165,25 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: python-coverage
-          path: coverage/python
+          path: coverage/pr/python
 
       - name: Download Rust coverage LCOV
         uses: actions/download-artifact@v4
         with:
           name: rust-coverage
-          path: coverage/rust
+          path: coverage/pr/rust
 
-      - name: Parse coverage
-        id: coverage
-        run: |
-          COVERAGE_JSON=$(uv run scripts/coverage_report.py \
-            --python-xml coverage/python/coverage.xml \
-            --rust-lcov coverage/rust/rust-coverage.lcov)
+      - name: Download main Python coverage XML
+        uses: actions/download-artifact@v4
+        with:
+          name: main-python-coverage
+          path: coverage/main/python
 
-          echo "python_line=$(echo $COVERAGE_JSON | python3 -c "import sys, json; print(json.load(sys.stdin)['python']['line'])")" >> $GITHUB_OUTPUT
-          echo "python_branch=$(echo $COVERAGE_JSON | python3 -c "import sys, json; print(json.load(sys.stdin)['python']['branch'])")" >> $GITHUB_OUTPUT
-          echo "rust_line=$(echo $COVERAGE_JSON | python3 -c "import sys, json; print(json.load(sys.stdin)['rust']['line'])")" >> $GITHUB_OUTPUT
-          echo "rust_branch=$(echo $COVERAGE_JSON | python3 -c "import sys, json; d=json.load(sys.stdin)['rust']; print(d['branch'] if d['branch'] is not None else 'N/A')")" >> $GITHUB_OUTPUT
+      - name: Download main Rust coverage LCOV
+        uses: actions/download-artifact@v4
+        with:
+          name: main-rust-coverage
+          path: coverage/main/rust
 
       - name: Get artifact URLs
         id: artifacts
@@ -160,41 +204,23 @@ jobs:
             core.setOutput('python_html_url', pythonHtml ? `${baseUrl}/${pythonHtml.id}` : '');
             core.setOutput('rust_html_url', rustHtml ? `${baseUrl}/${rustHtml.id}` : '');
 
+      - name: Generate coverage comment
+        run: |
+          uv run scripts/coverage_report.py \
+            --python-xml coverage/pr/python/coverage.xml \
+            --rust-lcov coverage/pr/rust/rust-coverage.lcov \
+            --main-python-xml coverage/main/python/coverage.xml \
+            --main-rust-lcov coverage/main/rust/rust-coverage.lcov \
+            --python-html-url "${{ steps.artifacts.outputs.python_html_url }}" \
+            --rust-html-url "${{ steps.artifacts.outputs.rust_html_url }}" \
+            --format comment \
+            --output coverage-comment.md
+
       - name: Post coverage comment
         uses: marocchino/sticky-pull-request-comment@v2
         with:
           header: coverage-report
-          message: |
-            ## Coverage Report
-
-            <table>
-            <tr>
-            <td>
-
-            ### 🐍 Python Coverage
-
-            | Metric | Coverage |
-            |--------|----------|
-            | Lines | **${{ steps.coverage.outputs.python_line }}%** |
-            | Branches | **${{ steps.coverage.outputs.python_branch }}%** |
-
-            📄 [Download HTML Report](${{ steps.artifacts.outputs.python_html_url }})
-
-            </td>
-            <td>
-
-            ### 🦀 Rust Coverage
-
-            | Metric | Coverage |
-            |--------|----------|
-            | Lines | **${{ steps.coverage.outputs.rust_line }}%** |
-            | Branches | **${{ steps.coverage.outputs.rust_branch }}%** |
-
-            📄 [Download HTML Report](${{ steps.artifacts.outputs.rust_html_url }})
-
-            </td>
-            </tr>
-            </table>
+          path: coverage-comment.md
 
   integration:
     runs-on: ubuntu-latest
