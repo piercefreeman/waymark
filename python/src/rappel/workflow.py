@@ -640,6 +640,49 @@ def _stmt_to_proto(stmt: ast.stmt) -> Optional[pb2.Stmt]:
         wrapper = pb2.Stmt()
         wrapper.expr.CopyFrom(expr_proto)
         return wrapper
+    if isinstance(stmt, ast.For):
+        # Handle for loops in preamble
+        if not isinstance(stmt.target, ast.Name):
+            return None  # Only support simple loop variables
+        target_expr = _expr_to_proto(stmt.target)
+        iter_expr = _expr_to_proto(stmt.iter)
+        if target_expr is None or iter_expr is None:
+            return None
+        body_stmts = []
+        for body_stmt in stmt.body:
+            body_proto = _stmt_to_proto(body_stmt)
+            if body_proto is not None:
+                body_stmts.append(body_proto)
+        for_proto = pb2.For()
+        for_proto.target.CopyFrom(target_expr)
+        for_proto.iter.CopyFrom(iter_expr)
+        for_proto.body.extend(body_stmts)
+        wrapper = pb2.Stmt()
+        wrapper.for_stmt.CopyFrom(for_proto)
+        return wrapper
+    if isinstance(stmt, ast.AugAssign):
+        # Handle augmented assignment (e.g., x += 1)
+        target_expr = _expr_to_proto(stmt.target)
+        value_expr = _expr_to_proto(stmt.value)
+        if target_expr is None or value_expr is None:
+            return None
+        op_map = {
+            ast.Add: pb2.BinOpKind.BIN_OP_KIND_ADD,
+            ast.Sub: pb2.BinOpKind.BIN_OP_KIND_SUB,
+            ast.Mult: pb2.BinOpKind.BIN_OP_KIND_MULT,
+            ast.Div: pb2.BinOpKind.BIN_OP_KIND_DIV,
+            ast.Mod: pb2.BinOpKind.BIN_OP_KIND_MOD,
+            ast.FloorDiv: pb2.BinOpKind.BIN_OP_KIND_FLOORDIV,
+            ast.Pow: pb2.BinOpKind.BIN_OP_KIND_POW,
+        }
+        op = op_map.get(type(stmt.op), pb2.BinOpKind.BIN_OP_KIND_UNSPECIFIED)
+        aug_proto = pb2.AugAssign()
+        aug_proto.target.CopyFrom(target_expr)
+        aug_proto.op = op
+        aug_proto.value.CopyFrom(value_expr)
+        wrapper = pb2.Stmt()
+        wrapper.aug_assign.CopyFrom(aug_proto)
+        return wrapper
     return None
 
 

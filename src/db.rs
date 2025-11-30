@@ -33,6 +33,7 @@ const EXHAUSTED_EXCEPTION_MODULE: &str = "rappel.exceptions";
 const LOOP_INDEX_VAR: &str = "__loop_index";
 const LOOP_PHASE_VAR: &str = "__loop_phase";
 const LOOP_PHASE_RESULTS_VAR: &str = "__loop_phase_results";
+const LOOP_PREAMBLE_RESULTS_VAR: &str = "__loop_preamble_results";
 
 #[derive(Clone)]
 pub struct Database {
@@ -368,6 +369,8 @@ struct MultiActionPhaseEvaluation {
     module: String,
     kwargs: HashMap<String, Value>,
     output_var: String,
+    /// Variables created by preamble execution (only set for first phase)
+    preamble_results: Option<HashMap<String, Value>>,
 }
 
 /// State for tracking progress within a multi-action loop iteration
@@ -377,6 +380,7 @@ struct MultiActionLoopState {
     accumulator: Vec<Value>,
     completed_phases: HashSet<String>,
     phase_results: HashMap<String, Value>,
+    preamble_results: HashMap<String, Value>,
 }
 
 fn extract_loop_index(ctx: &EvalContext) -> usize {
@@ -499,10 +503,38 @@ fn find_next_ready_phase(
         local_ctx.insert(var_name.clone(), value.clone());
     }
 
-    // Execute preamble if this is the first phase
+    // Track variables before preamble execution to capture new ones
+    let pre_preamble_keys: HashSet<String> = local_ctx.keys().cloned().collect();
+    let mut preamble_results: Option<HashMap<String, Value>> = None;
+
+    // Execute preamble if this is the first phase, otherwise load saved preamble results
     if state.completed_phases.is_empty() {
+        // Debug: log context keys and processed_list length
+        if let Some(pl) = local_ctx.get("processed_list") {
+            if let Value::Array(arr) = pl {
+                tracing::debug!("preamble: processed_list has {} items", arr.len());
+            } else {
+                tracing::debug!("preamble: processed_list is not array: {:?}", pl);
+            }
+        } else {
+            tracing::debug!("preamble: processed_list NOT in context. Keys: {:?}", pre_preamble_keys);
+        }
         for stmt in &loop_ast.preamble {
             eval_stmt(stmt, &mut local_ctx)?;
+        }
+        // Capture variables created by preamble
+        let new_vars: HashMap<String, Value> = local_ctx
+            .iter()
+            .filter(|(k, _)| !pre_preamble_keys.contains(*k))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        if !new_vars.is_empty() {
+            preamble_results = Some(new_vars);
+        }
+    } else {
+        // Load preamble results from previous phase
+        for (var_name, value) in &state.preamble_results {
+            local_ctx.insert(var_name.clone(), value.clone());
         }
     }
 
@@ -541,6 +573,7 @@ fn find_next_ready_phase(
             module: phase_node.module.clone(),
             kwargs,
             output_var: phase_node.output_var.clone(),
+            preamble_results,
         }));
     }
 
@@ -615,11 +648,20 @@ fn extract_multi_action_loop_state(
         })
         .unwrap_or_default();
 
+    let preamble_results = ctx
+        .get(LOOP_PREAMBLE_RESULTS_VAR)
+        .and_then(|v| match v {
+            Value::Object(obj) => Some(obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect()),
+            _ => None,
+        })
+        .unwrap_or_default();
+
     MultiActionLoopState {
         current_index,
         accumulator,
         completed_phases,
         phase_results,
+        preamble_results,
     }
 }
 
@@ -1477,9 +1519,29 @@ impl Database {
             new_dispatch.context.retain(|ctx| {
                 ctx.variable != LOOP_PHASE_VAR
                     && ctx.variable != LOOP_PHASE_RESULTS_VAR
+                    && ctx.variable != LOOP_PREAMBLE_RESULTS_VAR
                     && ctx.variable != "__current_phase_id"
                     && ctx.variable != "__current_phase_output_var"
             });
+
+            // Get preamble results - either from the phase evaluation (first phase) or state (subsequent)
+            let preamble_results_value = if let Some(preamble_vars) = &next_phase.preamble_results {
+                Value::Object(
+                    preamble_vars
+                        .iter()
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect(),
+                )
+            } else {
+                Value::Object(
+                    state
+                        .preamble_results
+                        .iter()
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect(),
+                )
+            };
+            let preamble_results_payload = encode_value_result(&preamble_results_value)?;
 
             // Add updated phase context
             new_dispatch.context.push(WorkflowNodeContext {
@@ -1490,6 +1552,11 @@ impl Database {
             new_dispatch.context.push(WorkflowNodeContext {
                 variable: LOOP_PHASE_RESULTS_VAR.to_string(),
                 payload: Some(results_payload),
+                workflow_node_id: node_id.clone(),
+            });
+            new_dispatch.context.push(WorkflowNodeContext {
+                variable: LOOP_PREAMBLE_RESULTS_VAR.to_string(),
+                payload: Some(preamble_results_payload),
                 workflow_node_id: node_id.clone(),
             });
             new_dispatch.context.push(WorkflowNodeContext {
@@ -1580,6 +1647,7 @@ impl Database {
                 accumulator: state.accumulator.clone(),
                 completed_phases: HashSet::new(),
                 phase_results: HashMap::new(),
+                preamble_results: HashMap::new(),
             };
 
             let mut next_ctx = ctx.clone();
@@ -1593,6 +1661,7 @@ impl Database {
             );
             next_ctx.remove(LOOP_PHASE_VAR);
             next_ctx.remove(LOOP_PHASE_RESULTS_VAR);
+            next_ctx.remove(LOOP_PREAMBLE_RESULTS_VAR);
 
             let next_phase = find_next_ready_phase(node, &next_ctx, &next_state)?;
             if let Some(next_phase) = next_phase {
@@ -1616,9 +1685,23 @@ impl Database {
                         && ctx.variable != LOOP_INDEX_VAR
                         && ctx.variable != LOOP_PHASE_VAR
                         && ctx.variable != LOOP_PHASE_RESULTS_VAR
+                        && ctx.variable != LOOP_PREAMBLE_RESULTS_VAR
                         && ctx.variable != "__current_phase_id"
                         && ctx.variable != "__current_phase_output_var"
                 });
+
+                // Get preamble results from the new iteration's first phase
+                let preamble_results_value = if let Some(preamble_vars) = &next_phase.preamble_results {
+                    Value::Object(
+                        preamble_vars
+                            .iter()
+                            .map(|(k, v)| (k.clone(), v.clone()))
+                            .collect(),
+                    )
+                } else {
+                    Value::Object(serde_json::Map::new())
+                };
+                let preamble_results_payload = encode_value_result(&preamble_results_value)?;
 
                 new_dispatch.context.push(WorkflowNodeContext {
                     variable: loop_ast.accumulator.clone(),
@@ -1638,6 +1721,11 @@ impl Database {
                 new_dispatch.context.push(WorkflowNodeContext {
                     variable: LOOP_PHASE_RESULTS_VAR.to_string(),
                     payload: Some(results_payload),
+                    workflow_node_id: node_id.clone(),
+                });
+                new_dispatch.context.push(WorkflowNodeContext {
+                    variable: LOOP_PREAMBLE_RESULTS_VAR.to_string(),
+                    payload: Some(preamble_results_payload),
                     workflow_node_id: node_id.clone(),
                 });
                 new_dispatch.context.push(WorkflowNodeContext {
@@ -2721,6 +2809,30 @@ impl Database {
                             contexts.push(WorkflowNodeContext {
                                 variable: LOOP_PHASE_RESULTS_VAR.to_string(),
                                 payload: Some(results_payload),
+                                workflow_node_id: node_id.clone(),
+                            });
+
+                            // Add preamble results to context (from first phase evaluation)
+                            let preamble_results_value = if let Some(preamble_vars) = &phase_eval.preamble_results {
+                                Value::Object(
+                                    preamble_vars
+                                        .iter()
+                                        .map(|(k, v)| (k.clone(), v.clone()))
+                                        .collect(),
+                                )
+                            } else {
+                                Value::Object(
+                                    state
+                                        .preamble_results
+                                        .iter()
+                                        .map(|(k, v)| (k.clone(), v.clone()))
+                                        .collect(),
+                                )
+                            };
+                            let preamble_results_payload = encode_value_result(&preamble_results_value)?;
+                            contexts.push(WorkflowNodeContext {
+                                variable: LOOP_PREAMBLE_RESULTS_VAR.to_string(),
+                                payload: Some(preamble_results_payload),
                                 workflow_node_id: node_id.clone(),
                             });
 

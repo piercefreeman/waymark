@@ -181,7 +181,21 @@ message Stmt {
   oneof kind {
     Assign assign = 1;
     Expr expr = 2;
+    For for_stmt = 3;
+    AugAssign aug_assign = 4;
   }
+}
+
+message For {
+  Expr target = 1;
+  Expr iter = 2;
+  repeated Stmt body = 3;
+}
+
+message AugAssign {
+  Expr target = 1;
+  BinOpKind op = 2;
+  Expr value = 3;
 }
 
 message Assign {

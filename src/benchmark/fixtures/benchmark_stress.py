@@ -365,11 +365,11 @@ class StressBenchmarkWorkflow(Workflow):
         # =================================================================
         # Phase 2: Fan-out - Process items in parallel
         # =================================================================
-        # Create gather calls for parallel execution
-        processed_items = await asyncio.gather(
-            *[process_item(item) for item in work_items]
-        )
-        processed_list = list(processed_items)
+        # Process each work item (runs in parallel when concurrent=True)
+        processed_list: list[ProcessedItem] = []
+        for item in work_items:
+            result = await process_item(item)
+            processed_list.append(result)
 
         # =================================================================
         # Phase 3: Loop - Multi-action body over chunks

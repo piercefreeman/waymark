@@ -98,7 +98,43 @@ pub fn eval_stmt(stmt: &proto::Stmt, ctx: &mut EvalContext) -> Result<()> {
             Ok(())
         }
         proto::stmt::Kind::Expr(expr) => {
+            // Handle list.append() specially since it mutates the list
+            if let Some(proto::expr::Kind::Call(call)) = &expr.kind {
+                if let Some(func) = &call.func {
+                    if let Some(proto::expr::Kind::Attribute(attr)) = &func.kind {
+                        if attr.attr == "append" {
+                            return eval_list_append(attr, &call.args, ctx);
+                        }
+                    }
+                }
+            }
             let _ = eval_expr(expr, ctx)?;
+            Ok(())
+        }
+        proto::stmt::Kind::ForStmt(for_stmt) => {
+            let iter_value = eval_expr(
+                for_stmt.iter.as_ref().context("for missing iter")?,
+                ctx,
+            )?;
+            let Value::Array(items) = iter_value else {
+                return Err(anyhow!("for loop requires iterable"));
+            };
+            let target = for_stmt.target.as_ref().context("for missing target")?;
+            for item in items {
+                assign_target(target, item, ctx)?;
+                for body_stmt in &for_stmt.body {
+                    eval_stmt(body_stmt, ctx)?;
+                }
+            }
+            Ok(())
+        }
+        proto::stmt::Kind::AugAssign(aug) => {
+            let target = aug.target.as_ref().context("aug_assign missing target")?;
+            let current = eval_expr(target, ctx)?;
+            let operand = eval_expr(aug.value.as_ref().context("aug_assign missing value")?, ctx)?;
+            let op = proto::BinOpKind::try_from(aug.op).unwrap_or(proto::BinOpKind::Unspecified);
+            let result = eval_bin_op(&current, &operand, op)?;
+            assign_target(target, result, ctx)?;
             Ok(())
         }
     }
@@ -179,6 +215,35 @@ fn base_name(expr: &proto::Expr) -> Result<String> {
         proto::expr::Kind::Name(name) => Ok(name.id.clone()),
         _ => Err(anyhow!("nested assignment targets not supported")),
     }
+}
+
+fn eval_list_append(
+    attr: &proto::Attribute,
+    args: &[proto::Expr],
+    ctx: &mut EvalContext,
+) -> Result<()> {
+    if args.len() != 1 {
+        return Err(anyhow!("list.append expects 1 argument"));
+    }
+    let base_expr = attr.value.as_ref().context("append missing base")?;
+    let var_name = base_name(base_expr)?;
+
+    // Get the list from context
+    let base = ctx
+        .get(&var_name)
+        .cloned()
+        .with_context(|| format!("name '{}' not found", var_name))?;
+    let Value::Array(mut arr) = base else {
+        return Err(anyhow!("append requires list"));
+    };
+
+    // Evaluate the argument
+    let value = eval_expr(&args[0], ctx)?;
+
+    // Append and update context
+    arr.push(value);
+    ctx.insert(var_name, Value::Array(arr));
+    Ok(())
 }
 
 fn constant_to_value(c: &proto::Constant) -> Value {
@@ -279,6 +344,16 @@ fn numeric_op<F>(left: &Value, right: &Value, f: F) -> Result<Value>
 where
     F: Fn(f64, f64) -> f64,
 {
+    // Try integer arithmetic first for better precision and compatibility with subscript indexing
+    if let (Value::Number(ln), Value::Number(rn)) = (left, right) {
+        if let (Some(li), Some(ri)) = (ln.as_i64(), rn.as_i64()) {
+            let res = f(li as f64, ri as f64);
+            // If result is a whole number and fits in i64, return as integer
+            if res.fract() == 0.0 && res >= i64::MIN as f64 && res <= i64::MAX as f64 {
+                return Ok(Value::Number(Number::from(res as i64)));
+            }
+        }
+    }
     let a = to_f64(left)?;
     let b = to_f64(right)?;
     let res = f(a, b);
@@ -857,5 +932,65 @@ mod tests {
         let ctx = EvalContext::new();
         let result = eval_expr(&call("abs", vec![int(-42)]), &ctx).unwrap();
         assert_eq!(result, Value::Number(Number::from(42)));
+    }
+
+    #[test]
+    fn supports_list_append() {
+        let mut ctx = EvalContext::new();
+        ctx.insert("items".to_string(), Value::Array(vec![Value::Number(Number::from(1))]));
+
+        // Create: items.append(2)
+        let append_call = proto::Expr {
+            kind: Some(proto::expr::Kind::Call(Box::new(proto::Call {
+                func: Some(Box::new(proto::Expr {
+                    kind: Some(proto::expr::Kind::Attribute(Box::new(proto::Attribute {
+                        value: Some(Box::new(name("items"))),
+                        attr: "append".to_string(),
+                    }))),
+                })),
+                args: vec![int(2)],
+                keywords: Vec::new(),
+            }))),
+        };
+        let stmt = proto::Stmt {
+            kind: Some(proto::stmt::Kind::Expr(append_call)),
+        };
+        eval_stmt(&stmt, &mut ctx).unwrap();
+        assert_eq!(
+            ctx.get("items"),
+            Some(&Value::Array(vec![
+                Value::Number(Number::from(1)),
+                Value::Number(Number::from(2)),
+            ]))
+        );
+    }
+
+    #[test]
+    fn supports_modulo_preserves_int() {
+        // Test that (a + b) % c returns an integer when inputs are integers
+        let mut ctx = EvalContext::new();
+        ctx.insert("a".to_string(), Value::Number(Number::from(5)));
+        ctx.insert("b".to_string(), Value::Number(Number::from(3)));
+        ctx.insert("c".to_string(), Value::Number(Number::from(4)));
+
+        // (a + b) % c = (5 + 3) % 4 = 8 % 4 = 0
+        let expr = proto::Expr {
+            kind: Some(proto::expr::Kind::BinOp(Box::new(proto::BinOp {
+                left: Some(Box::new(proto::Expr {
+                    kind: Some(proto::expr::Kind::BinOp(Box::new(proto::BinOp {
+                        left: Some(Box::new(name("a"))),
+                        right: Some(Box::new(name("b"))),
+                        op: proto::BinOpKind::Add as i32,
+                    }))),
+                })),
+                right: Some(Box::new(name("c"))),
+                op: proto::BinOpKind::Mod as i32,
+            }))),
+        };
+        let result = eval_expr(&expr, &ctx).unwrap();
+        // Should be an integer 0, not a float 0.0
+        assert_eq!(result, Value::Number(Number::from(0i64)));
+        // Verify it's usable as an array index
+        assert!(result.as_i64().is_some());
     }
 }

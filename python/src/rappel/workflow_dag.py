@@ -339,8 +339,9 @@ class WorkflowDagBuilder(ast.NodeVisitor):
             return
         gather = self._match_gather_call(node.value)
         if gather is not None:
-            self._handle_gather(node.targets, gather)
-            return
+            if self._handle_gather(node.targets, gather):
+                return
+            # Gather couldn't be unrolled - fall through to capture_block
         if self._handle_action_list_comprehension(node.targets, node.value):
             return
         if self._is_complex_block(node.value):
@@ -355,8 +356,9 @@ class WorkflowDagBuilder(ast.NodeVisitor):
             return
         gather = self._match_gather_call(node.value)
         if gather is not None:
-            self._handle_gather([], gather)
-            return
+            if self._handle_gather([], gather):
+                return
+            # Gather couldn't be unrolled - fall through
         sleep_seconds = self._match_sleep_call(node.value)
         if sleep_seconds is not None:
             self._append_sleep_node(sleep_seconds)
@@ -438,8 +440,9 @@ class WorkflowDagBuilder(ast.NodeVisitor):
         if gather is not None:
             self._return_variable = RETURN_VARIABLE
             target = ast.Name(id=RETURN_VARIABLE, ctx=ast.Store())
-            self._handle_gather([target], gather)
-            return
+            if self._handle_gather([target], gather):
+                return
+            # Gather couldn't be unrolled - fall through
         if isinstance(node.value, ast.Await):
             line = getattr(node, "lineno", "?")
             raise ValueError(
@@ -853,6 +856,19 @@ class WorkflowDagBuilder(ast.NodeVisitor):
         # Build dependencies from iterable
         dependencies = self._dependencies_from_expr(node.iter)
 
+        # Extract dependencies from preamble statements
+        for stmt in preamble_stmts:
+            dependencies.extend(self._dependencies_from_node(stmt))
+
+        # Extract dependencies from action kwargs
+        for _, action_call in action_stmts:
+            call = action_call.call
+            for kw in call.keywords:
+                if kw.arg is not None:
+                    dependencies.extend(self._dependencies_from_node(kw.value))
+            for arg in call.args:
+                dependencies.extend(self._dependencies_from_node(arg))
+
         # Build the body graph nodes
         body_nodes: List[LoopBodyNode] = []
         phase_var_to_id: Dict[str, str] = {}  # Maps output_var -> phase_id
@@ -1131,8 +1147,9 @@ class WorkflowDagBuilder(ast.NodeVisitor):
                 return
             gather = self._match_gather_call(stmt.value)
             if gather is not None:
-                self._handle_gather([], gather)
-                return
+                if self._handle_gather([], gather):
+                    return
+                # Gather couldn't be unrolled - fall through to capture_block
             if self._is_complex_block(stmt.value):
                 self._capture_block(stmt)
                 return
@@ -1263,8 +1280,22 @@ class WorkflowDagBuilder(ast.NodeVisitor):
         )
         self._append_node(sleep_node)
 
-    def _handle_gather(self, targets: List[ast.expr], call: ast.Call) -> None:
+    def _handle_gather(self, targets: List[ast.expr], call: ast.Call) -> bool:
+        """Handle asyncio.gather() call. Returns True if handled, False if caller should fallback."""
         flat_targets = self._flatten_targets(targets)
+
+        # Handle starred list comprehension pattern: asyncio.gather(*[action(x) for x in items])
+        if (len(call.args) == 1
+            and isinstance(call.args[0], ast.Starred)
+            and isinstance(call.args[0].value, ast.ListComp)):
+            listcomp = call.args[0].value
+            if len(flat_targets) == 1 and flat_targets[0]:
+                target_name = flat_targets[0]
+                if self._handle_gather_starred_listcomp(target_name, listcomp):
+                    return True
+            # If we can't unroll the starred gather, return False to fall through to python_block
+            return False
+
         if len(flat_targets) == 1 and flat_targets[0]:
             target_name = flat_targets[0]
             item_vars: List[str] = []
@@ -1277,9 +1308,15 @@ class WorkflowDagBuilder(ast.NodeVisitor):
                 self._record_variable_producer(item_var, dag_node.id)
                 item_vars.append(item_var)
                 self._append_node(dag_node)
-            self._collections[target_name] = list(item_vars)
-            self._append_collection_node(target_name, item_vars)
-            return
+            # Only create collection node if we successfully extracted at least one action
+            # Otherwise, this gather pattern isn't supported for DAG unrolling
+            if item_vars:
+                self._collections[target_name] = list(item_vars)
+                self._append_collection_node(target_name, item_vars)
+                return True
+            # Fall through - gather will be handled as python_block by caller
+            return False
+        handled = False
         for idx, arg in enumerate(call.args):
             action_call = self._extract_action_call(arg)
             if action_call is None:
@@ -1290,6 +1327,38 @@ class WorkflowDagBuilder(ast.NodeVisitor):
                 self._record_variable_producer(target_name, dag_node.id)
                 self._collections.pop(target_name, None)
             self._append_node(dag_node)
+            handled = True
+        return handled
+
+    def _handle_gather_starred_listcomp(self, target: str, listcomp: ast.ListComp) -> bool:
+        """Handle asyncio.gather(*[action(x) for x in items]) pattern."""
+        if len(listcomp.generators) != 1:
+            return False
+        generator = listcomp.generators[0]
+        if generator.ifs or generator.is_async or not isinstance(generator.target, ast.Name):
+            return False
+        iter_name = self._resolve_collection_name(generator.iter)
+        if iter_name is None:
+            return False
+        sources = self._collections.get(iter_name)
+        if not sources:
+            return False
+        action_call = self._extract_action_call(listcomp.elt)
+        if action_call is None:
+            return False
+        loop_var = generator.target.id
+        produced: List[str] = []
+        for idx, source in enumerate(sources):
+            substituted_call = self._substitute_call(action_call.call, {loop_var: source})
+            parsed = ParsedActionCall(call=substituted_call, config=action_call.config)
+            item_var = self._collection_item_name(target, idx)
+            dag_node = self._build_node(parsed, item_var)
+            self._record_variable_producer(item_var, dag_node.id)
+            produced.append(item_var)
+            self._append_node(dag_node)
+        self._collections[target] = list(produced)
+        self._append_collection_node(target, produced)
+        return True
 
     def _is_complex_block(self, expr: ast.AST) -> bool:
         return (

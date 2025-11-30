@@ -1281,27 +1281,118 @@ class Stmt(google.protobuf.message.Message):
 
     ASSIGN_FIELD_NUMBER: builtins.int
     EXPR_FIELD_NUMBER: builtins.int
+    FOR_STMT_FIELD_NUMBER: builtins.int
+    AUG_ASSIGN_FIELD_NUMBER: builtins.int
     @property
     def assign(self) -> Global___Assign: ...
     @property
     def expr(self) -> Global___Expr: ...
+    @property
+    def for_stmt(self) -> Global___For: ...
+    @property
+    def aug_assign(self) -> Global___AugAssign: ...
     def __init__(
         self,
         *,
         assign: Global___Assign | None = ...,
         expr: Global___Expr | None = ...,
+        for_stmt: Global___For | None = ...,
+        aug_assign: Global___AugAssign | None = ...,
     ) -> None: ...
     def HasField(
-        self, field_name: typing.Literal["assign", b"assign", "expr", b"expr", "kind", b"kind"]
+        self,
+        field_name: typing.Literal[
+            "assign",
+            b"assign",
+            "aug_assign",
+            b"aug_assign",
+            "expr",
+            b"expr",
+            "for_stmt",
+            b"for_stmt",
+            "kind",
+            b"kind",
+        ],
     ) -> builtins.bool: ...
     def ClearField(
-        self, field_name: typing.Literal["assign", b"assign", "expr", b"expr", "kind", b"kind"]
+        self,
+        field_name: typing.Literal[
+            "assign",
+            b"assign",
+            "aug_assign",
+            b"aug_assign",
+            "expr",
+            b"expr",
+            "for_stmt",
+            b"for_stmt",
+            "kind",
+            b"kind",
+        ],
     ) -> None: ...
     def WhichOneof(
         self, oneof_group: typing.Literal["kind", b"kind"]
-    ) -> typing.Literal["assign", "expr"] | None: ...
+    ) -> typing.Literal["assign", "expr", "for_stmt", "aug_assign"] | None: ...
 
 Global___Stmt: typing_extensions.TypeAlias = Stmt
+
+@typing.final
+class For(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    TARGET_FIELD_NUMBER: builtins.int
+    ITER_FIELD_NUMBER: builtins.int
+    BODY_FIELD_NUMBER: builtins.int
+    @property
+    def target(self) -> Global___Expr: ...
+    @property
+    def iter(self) -> Global___Expr: ...
+    @property
+    def body(
+        self,
+    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[Global___Stmt]: ...
+    def __init__(
+        self,
+        *,
+        target: Global___Expr | None = ...,
+        iter: Global___Expr | None = ...,
+        body: collections.abc.Iterable[Global___Stmt] | None = ...,
+    ) -> None: ...
+    def HasField(
+        self, field_name: typing.Literal["iter", b"iter", "target", b"target"]
+    ) -> builtins.bool: ...
+    def ClearField(
+        self, field_name: typing.Literal["body", b"body", "iter", b"iter", "target", b"target"]
+    ) -> None: ...
+
+Global___For: typing_extensions.TypeAlias = For
+
+@typing.final
+class AugAssign(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    TARGET_FIELD_NUMBER: builtins.int
+    OP_FIELD_NUMBER: builtins.int
+    VALUE_FIELD_NUMBER: builtins.int
+    op: Global___BinOpKind.ValueType
+    @property
+    def target(self) -> Global___Expr: ...
+    @property
+    def value(self) -> Global___Expr: ...
+    def __init__(
+        self,
+        *,
+        target: Global___Expr | None = ...,
+        op: Global___BinOpKind.ValueType = ...,
+        value: Global___Expr | None = ...,
+    ) -> None: ...
+    def HasField(
+        self, field_name: typing.Literal["target", b"target", "value", b"value"]
+    ) -> builtins.bool: ...
+    def ClearField(
+        self, field_name: typing.Literal["op", b"op", "target", b"target", "value", b"value"]
+    ) -> None: ...
+
+Global___AugAssign: typing_extensions.TypeAlias = AugAssign
 
 @typing.final
 class Assign(google.protobuf.message.Message):
