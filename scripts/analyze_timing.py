@@ -163,6 +163,33 @@ def print_optimization_suggestions(stats: dict[str, FunctionStats]) -> None:
 
     suggestions = []
 
+    # Check process_loop_completion_tx
+    if "process_loop_completion_tx" in stats:
+        loop = stats["process_loop_completion_tx"]
+        query_time = loop.breakdown.get("query_ms")
+        multi_time = loop.breakdown.get("multi_action_ms")
+        total_time = loop.breakdown.get("total_ms")
+
+        if query_time and total_time and total_time.count > 0:
+            query_pct = query_time.total / total_time.total * 100
+            if query_pct > 20:
+                suggestions.append({
+                    "priority": "HIGH",
+                    "area": "process_loop_completion_tx -> query_ms",
+                    "observation": f"Initial query takes {query_pct:.1f}% of loop processing time ({query_time.mean:.2f}ms avg)",
+                    "suggestion": "Batch the initial SELECT+JOIN query across multiple records using UNNEST"
+                })
+
+        if multi_time and total_time and total_time.count > 0:
+            multi_pct = multi_time.total / total_time.total * 100
+            if multi_pct > 50:
+                suggestions.append({
+                    "priority": "HIGH",
+                    "area": "process_loop_completion_tx -> multi_action_ms",
+                    "observation": f"Multi-action processing takes {multi_pct:.1f}% ({multi_time.mean:.2f}ms avg)",
+                    "suggestion": "Investigate process_multi_action_loop_completion_tx for batching opportunities"
+                })
+
     # Check mark_actions_batch
     if "mark_actions_batch" in stats:
         batch = stats["mark_actions_batch"]

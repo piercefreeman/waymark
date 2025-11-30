@@ -1144,6 +1144,15 @@ struct LoopActionRow {
 }
 
 #[derive(Debug, Clone, FromRow)]
+struct BatchedLoopActionRow {
+    action_id: LedgerActionId,
+    instance_id: WorkflowInstanceId,
+    dispatch_payload: Vec<u8>,
+    next_action_seq: i32,
+    workflow_node_id: Option<String>,
+}
+
+#[derive(Debug, Clone, FromRow)]
 pub struct LedgerAction {
     pub id: LedgerActionId,
     pub instance_id: WorkflowInstanceId,
@@ -1233,59 +1242,80 @@ pub struct WorkflowInstanceActionDetail {
 }
 
 impl Database {
-    async fn process_loop_completion_tx(
+    /// Batch fetch loop action data for multiple records.
+    /// Uses UNNEST to query all action_ids at once, reducing N queries to 1.
+    async fn batch_fetch_loop_action_data(
+        tx: &mut Transaction<'_, Postgres>,
+        records: &[&CompletionRecord],
+    ) -> Result<HashMap<LedgerActionId, BatchedLoopActionRow>> {
+        if records.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let action_ids: Vec<LedgerActionId> = records.iter().map(|r| r.action_id).collect();
+        let dispatch_tokens: Vec<Option<Uuid>> = records.iter().map(|r| r.dispatch_token).collect();
+
+        let rows = sqlx::query_as::<_, BatchedLoopActionRow>(
+            r#"
+            WITH inputs AS (
+                SELECT * FROM UNNEST($1::UUID[], $2::UUID[]) AS t(action_id, dispatch_token)
+            )
+            SELECT dal.id AS action_id,
+                   dal.instance_id,
+                   dal.dispatch_payload,
+                   wi.next_action_seq,
+                   dal.workflow_node_id
+            FROM inputs
+            JOIN daemon_action_ledger AS dal ON dal.id = inputs.action_id
+            JOIN workflow_instances wi ON wi.id = dal.instance_id
+            WHERE dal.status = 'dispatched'
+              AND (inputs.dispatch_token IS NULL OR dal.delivery_token = inputs.dispatch_token)
+            FOR UPDATE OF dal, wi
+            "#,
+        )
+        .bind(&action_ids)
+        .bind(&dispatch_tokens)
+        .fetch_all(tx.as_mut())
+        .await?;
+
+        let map: HashMap<LedgerActionId, BatchedLoopActionRow> =
+            rows.into_iter().map(|row| (row.action_id, row)).collect();
+
+        Ok(map)
+    }
+
+    /// Process loop completion using pre-fetched row data.
+    /// This version skips the initial query since data was already fetched in batch.
+    async fn process_loop_completion_with_row_tx(
         &self,
         tx: &mut Transaction<'_, Postgres>,
         record: &CompletionRecord,
+        batched_row: &BatchedLoopActionRow,
     ) -> Result<Option<CompletionRecord>> {
-        if !record.success {
-            return Ok(Some(record.clone()));
-        }
-        let row = if let Some(dispatch_token) = record.dispatch_token {
-            sqlx::query_as::<_, LoopActionRow>(
-                r#"
-                SELECT dal.instance_id,
-                       dal.dispatch_payload,
-                       wi.next_action_seq,
-                       dal.workflow_node_id
-                FROM daemon_action_ledger AS dal
-                JOIN workflow_instances wi ON wi.id = dal.instance_id
-                WHERE dal.id = $1
-                  AND dal.delivery_token = $2
-                  AND dal.status = 'dispatched'
-                FOR UPDATE OF dal, wi
-                "#,
-            )
-            .bind(record.action_id)
-            .bind(dispatch_token)
-            .fetch_optional(tx.as_mut())
-            .await?
-        } else {
-            sqlx::query_as::<_, LoopActionRow>(
-                r#"
-                SELECT dal.instance_id,
-                       dal.dispatch_payload,
-                       wi.next_action_seq,
-                       dal.workflow_node_id
-                FROM daemon_action_ledger AS dal
-                JOIN workflow_instances wi ON wi.id = dal.instance_id
-                WHERE dal.id = $1
-                  AND dal.status = 'dispatched'
-                FOR UPDATE OF dal, wi
-                "#,
-            )
-            .bind(record.action_id)
-            .fetch_optional(tx.as_mut())
-            .await?
+        let fn_start = Instant::now();
+
+        // Convert BatchedLoopActionRow to LoopActionRow for existing processing
+        let row = LoopActionRow {
+            instance_id: batched_row.instance_id,
+            dispatch_payload: batched_row.dispatch_payload.clone(),
+            next_action_seq: batched_row.next_action_seq,
+            workflow_node_id: batched_row.workflow_node_id.clone(),
         };
-        let Some(row) = row else {
-            return Ok(Some(record.clone()));
-        };
+
+        let decode_start = Instant::now();
         let mut dispatch = proto::WorkflowNodeDispatch::decode(row.dispatch_payload.as_slice())
             .context("failed to decode stored loop dispatch")?;
+        let decode_ms = decode_start.elapsed().as_secs_f64() * 1000.0;
         let node = match dispatch.node.as_ref().cloned() {
             Some(node) => node,
-            None => return Ok(Some(record.clone())),
+            None => {
+                debug!(
+                    target: "db_timing",
+                    r#"{{"fn":"process_loop_completion_with_row_tx","total_ms":{:.3},"decode_ms":{:.3},"outcome":"no_node"}}"#,
+                    fn_start.elapsed().as_secs_f64() * 1000.0, decode_ms
+                );
+                return Ok(Some(record.clone()));
+            }
         };
         let node_id = node.id.clone();
         if let Some(row_node_id) = row.workflow_node_id.as_ref()
@@ -1299,23 +1329,53 @@ impl Database {
             .and_then(|ast| ast.r#loop.as_ref())
             .cloned()
         else {
+            debug!(
+                target: "db_timing",
+                r#"{{"fn":"process_loop_completion_with_row_tx","total_ms":{:.3},"decode_ms":{:.3},"outcome":"no_loop"}}"#,
+                fn_start.elapsed().as_secs_f64() * 1000.0, decode_ms
+            );
             return Ok(Some(record.clone()));
         };
 
         // Handle multi-action loop completion
         if has_multi_action_body_graph(&node) {
-            return self
+            let multi_start = Instant::now();
+            let result = self
                 .process_multi_action_loop_completion_tx(
                     tx, record, &node, &loop_ast, &dispatch, &row,
                 )
                 .await;
+            let multi_ms = multi_start.elapsed().as_secs_f64() * 1000.0;
+            debug!(
+                target: "db_timing",
+                r#"{{"fn":"process_loop_completion_with_row_tx","total_ms":{:.3},"decode_ms":{:.3},"multi_action_ms":{:.3},"outcome":"multi_action"}}"#,
+                fn_start.elapsed().as_secs_f64() * 1000.0, decode_ms, multi_ms
+            );
+            return result;
         }
 
+        // For simple loops, delegate to existing processing
+        // (copy the rest of the simple loop logic here or call existing method)
+        self.process_simple_loop_completion_tx(tx, record, &node, &loop_ast, &mut dispatch, &row)
+            .await
+    }
+
+    /// Process simple (non-multi-action) loop completion
+    async fn process_simple_loop_completion_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        record: &CompletionRecord,
+        node: &WorkflowDagNode,
+        loop_ast: &proto::LoopAst,
+        dispatch: &mut proto::WorkflowNodeDispatch,
+        row: &LoopActionRow,
+    ) -> Result<Option<CompletionRecord>> {
+        let node_id = node.id.clone();
         let control = match record.control.as_ref().and_then(|ctrl| ctrl.kind.as_ref()) {
             Some(proto::workflow_node_control::Kind::Loop(ctrl)) => Some(ctrl),
             _ => None,
         };
-        let ctx = eval_context_from_dispatch(&dispatch)?;
+        let ctx = eval_context_from_dispatch(dispatch)?;
         let mut accumulator = extract_accumulator(&ctx, &loop_ast.accumulator);
         let mut next_ctx = ctx.clone();
         if let Some(ctrl) = control {
@@ -1341,7 +1401,7 @@ impl Database {
                 loop_ast.accumulator.clone(),
                 Value::Array(accumulator.clone()),
             );
-            let next_eval = evaluate_loop_iteration(&node, &next_ctx)?;
+            let next_eval = evaluate_loop_iteration(node, &next_ctx)?;
             if ctrl.has_next
                 && let Some(next_eval) = next_eval
             {
@@ -1427,7 +1487,7 @@ impl Database {
             loop_ast.accumulator.clone(),
             Value::Array(accumulator.clone()),
         );
-        let next_eval = evaluate_loop_iteration(&node, &next_ctx)?;
+        let next_eval = evaluate_loop_iteration(node, &next_ctx)?;
         if let Some(next_eval) = next_eval {
             let accumulator_payload = encode_value_result(&Value::Array(accumulator))?;
             let index_payload = encode_value_result(&Value::Number(serde_json::Number::from(
@@ -2541,17 +2601,45 @@ impl Database {
         let tx_acquire_ms = tx_start.elapsed().as_secs_f64() * 1000.0;
 
         let loop_start = Instant::now();
+
+        // Collect success records for batch processing
+        let success_records: Vec<&CompletionRecord> =
+            records.iter().filter(|r| r.success).collect();
+
+        // Batch fetch loop action data for all success records at once
+        let batch_fetch_start = Instant::now();
+        let loop_data = Self::batch_fetch_loop_action_data(&mut tx, &success_records).await?;
+        let batch_fetch_ms = batch_fetch_start.elapsed().as_secs_f64() * 1000.0;
+
+        // Process each record using pre-fetched data
+        let process_start = Instant::now();
         let mut processed: Vec<CompletionRecord> = Vec::new();
         for record in records {
             if record.success {
-                if let Some(updated) = self.process_loop_completion_tx(&mut tx, record).await? {
-                    processed.push(updated);
+                // Use pre-fetched data if available
+                if let Some(batched_row) = loop_data.get(&record.action_id) {
+                    if let Some(updated) = self
+                        .process_loop_completion_with_row_tx(&mut tx, record, batched_row)
+                        .await?
+                    {
+                        processed.push(updated);
+                    }
+                } else {
+                    // No row found in batch - record likely already processed or token mismatch
+                    processed.push(record.clone());
                 }
             } else {
                 processed.push(record.clone());
             }
         }
+        let process_ms = process_start.elapsed().as_secs_f64() * 1000.0;
         let loop_processing_ms = loop_start.elapsed().as_secs_f64() * 1000.0;
+
+        debug!(
+            target: "db_timing",
+            r#"{{"fn":"mark_actions_batch_loop","batch_fetch_ms":{:.3},"process_ms":{:.3},"success_count":{},"fetched_count":{}}}"#,
+            batch_fetch_ms, process_ms, success_records.len(), loop_data.len()
+        );
         let mut workflow_instances: HashSet<WorkflowInstanceId> = HashSet::new();
         let mut successes_with_tokens: Vec<(&CompletionRecord, Uuid)> = Vec::new();
         let mut failures_with_tokens: Vec<(&CompletionRecord, Uuid)> = Vec::new();
@@ -3411,7 +3499,10 @@ mod tests {
             return Ok(());
         };
         reset_tables(&pool).await?;
-        let database = Database { pool: pool.clone() };
+        let database = Database {
+            pool: pool.clone(),
+            version_cache: Arc::new(RwLock::new(WorkflowVersionCache::new(64))),
+        };
         let dispatch = proto::WorkflowNodeDispatch {
             node: None,
             workflow_input: None,
@@ -3448,7 +3539,10 @@ mod tests {
             return Ok(());
         };
         reset_tables(&pool).await?;
-        let database = Database { pool: pool.clone() };
+        let database = Database {
+            pool: pool.clone(),
+            version_cache: Arc::new(RwLock::new(WorkflowVersionCache::new(64))),
+        };
         let dispatch = proto::WorkflowNodeDispatch {
             node: None,
             workflow_input: None,
