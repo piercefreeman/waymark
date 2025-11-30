@@ -39,6 +39,42 @@ const LOOP_PHASE_VAR: &str = "__loop_phase";
 const LOOP_PHASE_RESULTS_VAR: &str = "__loop_phase_results";
 const LOOP_PREAMBLE_RESULTS_VAR: &str = "__loop_preamble_results";
 
+/// Compute the number of dependencies a node requires based on DAG structure.
+/// Counts data dependencies (depends_on) and exception edge sources.
+/// Sync dependencies (wait_for_sync) are handled through guard evaluation.
+fn compute_deps_required(node: &WorkflowDagNode, _concurrent: bool) -> i16 {
+    // Count unique exception edge sources (a node might have multiple exception types from same source)
+    let exception_sources: std::collections::HashSet<&str> = node
+        .exception_edges
+        .iter()
+        .map(|e| e.source_node_id.as_str())
+        .collect();
+    (node.depends_on.len() + exception_sources.len()) as i16
+}
+
+/// Get all downstream node IDs that depend on a given node.
+/// Returns nodes that have this node in their `depends_on` list (data dependencies)
+/// or have an exception_edge referencing this node (exception handlers).
+/// Sync dependencies (wait_for_sync) are handled separately through guard evaluation.
+fn get_downstream_nodes<'a>(
+    node_id: &str,
+    dag: &'a WorkflowDagDefinition,
+    _concurrent: bool,
+) -> Vec<&'a str> {
+    dag.nodes
+        .iter()
+        .filter(|n| {
+            // Check if this node depends on the completed node
+            n.depends_on.iter().any(|d| d == node_id)
+                // Or if this node has an exception edge from the completed node
+                || n.exception_edges
+                    .iter()
+                    .any(|e| e.source_node_id == node_id)
+        })
+        .map(|n| n.id.as_str())
+        .collect()
+}
+
 /// Cached workflow version data - avoids repeated DB lookups for the same version
 #[derive(Debug, Clone)]
 struct CachedWorkflowVersion {
@@ -933,6 +969,104 @@ async fn insert_synthetic_completion_tx(
     Ok(())
 }
 
+/// Insert a synthetic completion record directly using primitive values.
+/// This is a simpler variant of insert_synthetic_completion_tx for the push-based scheduler.
+async fn insert_synthetic_completion_simple_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    instance_id: WorkflowInstanceId,
+    partition_id: i32,
+    node: &WorkflowDagNode,
+    workflow_input: &WorkflowArguments,
+    action_seq: i32,
+    payload: Option<WorkflowArguments>,
+    success: bool,
+) -> Result<()> {
+    let dispatch = WorkflowNodeDispatch {
+        node: Some(node.clone()),
+        workflow_input: Some(workflow_input.clone()),
+        context: Vec::new(),
+        resolved_kwargs: None,
+    };
+    let dispatch_bytes = dispatch.encode_to_vec();
+    let payload_bytes = payload.as_ref().map(|p| p.encode_to_vec());
+    let module = if node.module.is_empty() {
+        "workflow".to_string()
+    } else {
+        node.module.clone()
+    };
+    let function_name = if node.action.is_empty() {
+        "action".to_string()
+    } else {
+        node.action.clone()
+    };
+    let backoff = BackoffConfig::from_proto(node.backoff.as_ref());
+    sqlx::query(
+        r#"
+        INSERT INTO daemon_action_ledger (
+            instance_id,
+            partition_id,
+            action_seq,
+            status,
+            module,
+            function_name,
+            dispatch_payload,
+            workflow_node_id,
+            timeout_seconds,
+            max_retries,
+            timeout_retry_limit,
+            attempt_number,
+            scheduled_at,
+            dispatched_at,
+            completed_at,
+            acked_at,
+            result_payload,
+            success,
+            retry_kind,
+            backoff_kind,
+            backoff_base_delay_ms,
+            backoff_multiplier
+        ) VALUES (
+            $1, $2, $3,
+            'completed',
+            $4, $5, $6, $7,
+            $8, $9, $10,
+            0,
+            NOW(), NOW(), NOW(), NOW(),
+            $11, $12,
+            'failure',
+            $13, $14, $15
+        )
+        "#,
+    )
+    .bind(instance_id)
+    .bind(partition_id)
+    .bind(action_seq)
+    .bind(module)
+    .bind(function_name)
+    .bind(&dispatch_bytes)
+    .bind(&node.id)
+    .bind(
+        node.timeout_seconds
+            .unwrap_or(DEFAULT_ACTION_TIMEOUT_SECS as u32) as i32,
+    )
+    .bind(
+        node.max_retries
+            .unwrap_or(DEFAULT_ACTION_MAX_RETRIES as u32) as i32,
+    )
+    .bind(
+        node.timeout_retry_limit
+            .unwrap_or(DEFAULT_TIMEOUT_RETRY_LIMIT as u32) as i32,
+    )
+    .bind(payload_bytes)
+    .bind(success)
+    .bind(backoff.kind_str())
+    .bind(backoff.base_delay_ms())
+    .bind(backoff.multiplier())
+    .execute(tx.as_mut())
+    .await?;
+    Ok(())
+}
+
 fn build_null_payload(node: &WorkflowDagNode) -> Result<Option<WorkflowArguments>> {
     if node.produces.is_empty() {
         return Ok(None);
@@ -1242,6 +1376,13 @@ pub struct WorkflowInstanceActionDetail {
     pub function_name: String,
     pub dispatch_payload: Vec<u8>,
     pub result_payload: Option<Vec<u8>>,
+}
+
+/// Pending completion to process in the work queue for O(1) push-based scheduling.
+struct PendingCompletion {
+    node_id: String,
+    payload: Option<WorkflowArguments>,
+    success: bool,
 }
 
 impl Database {
@@ -2401,6 +2542,7 @@ impl Database {
         input_payload: Option<&[u8]>,
     ) -> Result<WorkflowInstanceId> {
         let mut tx = self.pool.begin().await?;
+        let partition_id = 0i32;
         let instance_id = sqlx::query_scalar::<_, WorkflowInstanceId>(
             r#"
             INSERT INTO workflow_instances (
@@ -2413,14 +2555,27 @@ impl Database {
             RETURNING id
             "#,
         )
-        .bind(0i32)
+        .bind(partition_id)
         .bind(workflow_name)
         .bind(workflow_version_id)
         .bind(input_payload)
         .fetch_one(&mut *tx)
         .await?;
-        self.schedule_workflow_instance_tx(&mut tx, instance_id)
-            .await?;
+
+        // Parse workflow input for scheduling
+        let workflow_input_bytes = input_payload.map(|b| b.to_vec()).unwrap_or_default();
+        let workflow_input = decode_arguments(&workflow_input_bytes, "workflow input")?;
+
+        // Use push-based scheduling initialization
+        self.initialize_push_scheduling_tx(
+            &mut tx,
+            instance_id,
+            partition_id,
+            workflow_version_id,
+            &workflow_input,
+        )
+        .await?;
+
         tx.commit().await?;
         Ok(instance_id)
     }
@@ -2435,6 +2590,1270 @@ impl Database {
             .await?;
         tx.commit().await?;
         Ok(count)
+    }
+
+    /// Initialize push-based scheduling state for a new workflow instance.
+    /// This populates node_ready_state with dependency counts and queues root nodes.
+    /// O(n) at creation time where n = number of DAG nodes, but O(1) per completion.
+    async fn initialize_push_scheduling_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        instance_id: WorkflowInstanceId,
+        partition_id: i32,
+        version_id: WorkflowVersionId,
+        workflow_input: &WorkflowArguments,
+    ) -> Result<usize> {
+        // Get cached workflow version
+        let cached_version = self.get_cached_version(version_id, tx).await?;
+        let dag = &cached_version.dag;
+        let concurrent = cached_version.concurrent;
+
+        // Initialize instance_eval_context with workflow input
+        let input_json = arguments_to_json(workflow_input)?;
+        let mut initial_context = input_json.clone();
+        initial_context.insert(
+            "__workflow_exceptions".to_string(),
+            Value::Object(serde_json::Map::new()),
+        );
+        sqlx::query(
+            r#"
+            INSERT INTO instance_eval_context (instance_id, context_json, exceptions_json)
+            VALUES ($1, $2, '{}')
+            "#,
+        )
+        .bind(instance_id)
+        .bind(serde_json::to_value(&initial_context)?)
+        .execute(tx.as_mut())
+        .await?;
+
+        // Initialize node_ready_state for all nodes
+        let mut node_ids: Vec<String> = Vec::with_capacity(dag.nodes.len());
+        let mut deps_required_list: Vec<i16> = Vec::with_capacity(dag.nodes.len());
+        for node in &dag.nodes {
+            node_ids.push(node.id.clone());
+            deps_required_list.push(compute_deps_required(node, concurrent));
+        }
+
+        // Batch insert all node ready states
+        sqlx::query(
+            r#"
+            INSERT INTO node_ready_state (instance_id, node_id, deps_required, deps_satisfied, is_queued, is_completed)
+            SELECT $1, node_id, deps_required, 0, FALSE, FALSE
+            FROM UNNEST($2::TEXT[], $3::SMALLINT[]) AS t(node_id, deps_required)
+            "#,
+        )
+        .bind(instance_id)
+        .bind(&node_ids)
+        .bind(&deps_required_list)
+        .execute(tx.as_mut())
+        .await?;
+
+        // Find and queue root nodes (nodes with deps_required = 0)
+        let root_nodes: Vec<&WorkflowDagNode> = dag
+            .nodes
+            .iter()
+            .filter(|n| compute_deps_required(n, concurrent) == 0)
+            .collect();
+
+        let mut queued_count = 0;
+        let mut next_seq = 0i32;
+
+        for node in root_nodes {
+            // Build dispatch for root node - use initial_context which includes __workflow_exceptions
+            let eval_ctx = initial_context.clone();
+
+            // Check guard (root nodes have no dependencies to fail)
+            let guard_passes = guard_allows(node, &eval_ctx)?;
+            if !guard_passes {
+                // Insert synthetic completion into action ledger
+                let payload = build_null_payload(node)?;
+                insert_synthetic_completion_simple_tx(
+                    tx,
+                    instance_id,
+                    partition_id,
+                    node,
+                    workflow_input,
+                    next_seq,
+                    payload.clone(),
+                    true,
+                )
+                .await?;
+
+                // Mark as queued in node_ready_state
+                sqlx::query(
+                    "UPDATE node_ready_state SET is_queued = TRUE WHERE instance_id = $1 AND node_id = $2",
+                )
+                .bind(instance_id)
+                .bind(&node.id)
+                .execute(tx.as_mut())
+                .await?;
+
+                // Process downstream nodes via complete_node_push_tx
+                self.complete_node_push_tx(
+                    tx,
+                    instance_id,
+                    partition_id,
+                    &node.id,
+                    next_seq,
+                    payload,
+                    true,
+                    dag,
+                    concurrent,
+                    workflow_input,
+                )
+                .await?;
+                next_seq += 1;
+                continue;
+            }
+
+            // Check if this is a loop node (but not a multi-action loop - those are handled by legacy scheduler)
+            let loop_ast = node.ast.as_ref().and_then(|ast| ast.r#loop.as_ref());
+
+            if let Some(loop_ast) = loop_ast {
+                // Handle multi-action loops
+                if has_multi_action_body_graph(node) {
+                    // Multi-action loop - dispatch first phase
+                    let state = extract_multi_action_loop_state(&eval_ctx, &loop_ast.accumulator);
+                    let phase_eval = find_next_ready_phase(node, &eval_ctx, &state)?;
+
+                    if let Some(phase_eval) = phase_eval {
+                        // Build contexts for the phase
+                        let mut contexts = Vec::new();
+
+                        // Add accumulator to context
+                        let accumulator_value = Value::Array(state.accumulator.clone());
+                        let accumulator_payload = encode_value_result(&accumulator_value)?;
+                        contexts.push(WorkflowNodeContext {
+                            variable: loop_ast.accumulator.clone(),
+                            payload: Some(accumulator_payload),
+                            workflow_node_id: node.id.clone(),
+                        });
+
+                        // Add loop index to context
+                        let index_value =
+                            Value::Number(serde_json::Number::from(state.current_index as u64));
+                        let index_payload = encode_value_result(&index_value)?;
+                        contexts.push(WorkflowNodeContext {
+                            variable: LOOP_INDEX_VAR.to_string(),
+                            payload: Some(index_payload),
+                            workflow_node_id: node.id.clone(),
+                        });
+
+                        // Add completed phases to context
+                        let phases_value = Value::Array(
+                            state
+                                .completed_phases
+                                .iter()
+                                .map(|s| Value::String(s.clone()))
+                                .collect(),
+                        );
+                        let phases_payload = encode_value_result(&phases_value)?;
+                        contexts.push(WorkflowNodeContext {
+                            variable: LOOP_PHASE_VAR.to_string(),
+                            payload: Some(phases_payload),
+                            workflow_node_id: node.id.clone(),
+                        });
+
+                        // Add phase results to context
+                        let results_value = Value::Object(
+                            state
+                                .phase_results
+                                .iter()
+                                .map(|(k, v)| (k.clone(), v.clone()))
+                                .collect(),
+                        );
+                        let results_payload = encode_value_result(&results_value)?;
+                        contexts.push(WorkflowNodeContext {
+                            variable: LOOP_PHASE_RESULTS_VAR.to_string(),
+                            payload: Some(results_payload),
+                            workflow_node_id: node.id.clone(),
+                        });
+
+                        // Add preamble results to context
+                        let preamble_results_value =
+                            if let Some(preamble_vars) = &phase_eval.preamble_results {
+                                Value::Object(
+                                    preamble_vars
+                                        .iter()
+                                        .map(|(k, v)| (k.clone(), v.clone()))
+                                        .collect(),
+                                )
+                            } else {
+                                Value::Object(
+                                    state
+                                        .preamble_results
+                                        .iter()
+                                        .map(|(k, v)| (k.clone(), v.clone()))
+                                        .collect(),
+                                )
+                            };
+                        let preamble_results_payload =
+                            encode_value_result(&preamble_results_value)?;
+                        contexts.push(WorkflowNodeContext {
+                            variable: LOOP_PREAMBLE_RESULTS_VAR.to_string(),
+                            payload: Some(preamble_results_payload),
+                            workflow_node_id: node.id.clone(),
+                        });
+
+                        // Add current phase info
+                        let phase_id_payload =
+                            encode_value_result(&Value::String(phase_eval.phase_id.clone()))?;
+                        contexts.push(WorkflowNodeContext {
+                            variable: "__current_phase_id".to_string(),
+                            payload: Some(phase_id_payload),
+                            workflow_node_id: node.id.clone(),
+                        });
+                        let output_var_payload =
+                            encode_value_result(&Value::String(phase_eval.output_var.clone()))?;
+                        contexts.push(WorkflowNodeContext {
+                            variable: "__current_phase_output_var".to_string(),
+                            payload: Some(output_var_payload),
+                            workflow_node_id: node.id.clone(),
+                        });
+
+                        // Create dispatch node with phase action
+                        let mut dispatch_node = node.clone();
+                        dispatch_node.action = phase_eval.action.clone();
+                        if !phase_eval.module.is_empty() {
+                            dispatch_node.module = phase_eval.module.clone();
+                        }
+
+                        let queued = build_action_dispatch(
+                            dispatch_node,
+                            workflow_input,
+                            contexts,
+                            phase_eval.kwargs,
+                        )?;
+                        let dispatch_bytes = queued.dispatch.encode_to_vec();
+                        let scheduled_at = compute_scheduled_at(node, &eval_ctx)?;
+
+                        sqlx::query(
+                            r#"
+                            INSERT INTO daemon_action_ledger (
+                                instance_id, partition_id, action_seq, status,
+                                module, function_name, dispatch_payload, workflow_node_id,
+                                timeout_seconds, max_retries, timeout_retry_limit,
+                                attempt_number, scheduled_at, retry_kind,
+                                backoff_kind, backoff_base_delay_ms, backoff_multiplier
+                            ) VALUES (
+                                $1, $2, $3, 'queued',
+                                $4, $5, $6, $7,
+                                $8, $9, $10,
+                                0, $11, 'failure',
+                                $12, $13, $14
+                            )
+                            "#,
+                        )
+                        .bind(instance_id)
+                        .bind(partition_id)
+                        .bind(next_seq)
+                        .bind(&queued.module)
+                        .bind(&queued.function_name)
+                        .bind(&dispatch_bytes)
+                        .bind(&node.id)
+                        .bind(queued.timeout_seconds)
+                        .bind(queued.max_retries)
+                        .bind(queued.timeout_retry_limit)
+                        .bind(scheduled_at)
+                        .bind(queued.backoff.kind_str())
+                        .bind(queued.backoff.base_delay_ms())
+                        .bind(queued.backoff.multiplier())
+                        .execute(tx.as_mut())
+                        .await?;
+
+                        // Mark as queued (but NOT completed - loop may have more iterations)
+                        sqlx::query(
+                            "UPDATE node_ready_state SET is_queued = TRUE WHERE instance_id = $1 AND node_id = $2",
+                        )
+                        .bind(instance_id)
+                        .bind(&node.id)
+                        .execute(tx.as_mut())
+                        .await?;
+
+                        queued_count += 1;
+                        next_seq += 1;
+                    } else {
+                        // Multi-action loop has no iterations (empty iterable) - insert synthetic completion
+                        let accumulator_value =
+                            Value::Array(extract_accumulator(&eval_ctx, &loop_ast.accumulator));
+                        let payload = encode_value_result(&accumulator_value)?;
+
+                        insert_synthetic_completion_simple_tx(
+                            tx,
+                            instance_id,
+                            partition_id,
+                            node,
+                            workflow_input,
+                            next_seq,
+                            Some(payload.clone()),
+                            true,
+                        )
+                        .await?;
+
+                        // Mark as queued and process downstream
+                        sqlx::query(
+                            "UPDATE node_ready_state SET is_queued = TRUE WHERE instance_id = $1 AND node_id = $2",
+                        )
+                        .bind(instance_id)
+                        .bind(&node.id)
+                        .execute(tx.as_mut())
+                        .await?;
+
+                        // Process downstream nodes via complete_node_push_tx
+                        self.complete_node_push_tx(
+                            tx,
+                            instance_id,
+                            partition_id,
+                            &node.id,
+                            next_seq,
+                            Some(payload),
+                            true,
+                            dag,
+                            concurrent,
+                            workflow_input,
+                        )
+                        .await?;
+                        next_seq += 1;
+                    }
+                    continue;
+                }
+
+                // Handle simple loop node - dispatch body action, not the loop itself
+                let loop_eval = evaluate_loop_iteration(node, &eval_ctx)?;
+
+                if let Some(loop_eval) = loop_eval {
+                    // There's an iteration - dispatch the body action
+                    let mut contexts = Vec::new();
+                    let accumulator_value = Value::Array(loop_eval.accumulator.clone());
+                    let accumulator_payload = encode_value_result(&accumulator_value)?;
+                    contexts.push(WorkflowNodeContext {
+                        variable: loop_ast.accumulator.clone(),
+                        payload: Some(accumulator_payload),
+                        workflow_node_id: node.id.clone(),
+                    });
+
+                    let index_value =
+                        Value::Number(serde_json::Number::from(loop_eval.current_index as u64));
+                    let index_payload = encode_value_result(&index_value)?;
+                    contexts.push(WorkflowNodeContext {
+                        variable: LOOP_INDEX_VAR.to_string(),
+                        payload: Some(index_payload),
+                        workflow_node_id: node.id.clone(),
+                    });
+
+                    // Create dispatch node with body action
+                    let mut dispatch_node = node.clone();
+                    if let Some(body_action) = loop_ast.body_action.as_ref() {
+                        if !body_action.action_name.is_empty() {
+                            dispatch_node.action = body_action.action_name.clone();
+                        }
+                        if !body_action.module_name.is_empty() {
+                            dispatch_node.module = body_action.module_name.clone();
+                        }
+                    }
+
+                    let queued = build_action_dispatch(
+                        dispatch_node,
+                        workflow_input,
+                        contexts,
+                        loop_eval.kwargs,
+                    )?;
+                    let dispatch_bytes = queued.dispatch.encode_to_vec();
+                    let scheduled_at = compute_scheduled_at(node, &eval_ctx)?;
+
+                    sqlx::query(
+                        r#"
+                        INSERT INTO daemon_action_ledger (
+                            instance_id, partition_id, action_seq, status,
+                            module, function_name, dispatch_payload, workflow_node_id,
+                            timeout_seconds, max_retries, timeout_retry_limit,
+                            attempt_number, scheduled_at, retry_kind,
+                            backoff_kind, backoff_base_delay_ms, backoff_multiplier
+                        ) VALUES (
+                            $1, $2, $3, 'queued',
+                            $4, $5, $6, $7,
+                            $8, $9, $10,
+                            0, $11, 'failure',
+                            $12, $13, $14
+                        )
+                        "#,
+                    )
+                    .bind(instance_id)
+                    .bind(partition_id)
+                    .bind(next_seq)
+                    .bind(&queued.module)
+                    .bind(&queued.function_name)
+                    .bind(&dispatch_bytes)
+                    .bind(&node.id)
+                    .bind(queued.timeout_seconds)
+                    .bind(queued.max_retries)
+                    .bind(queued.timeout_retry_limit)
+                    .bind(scheduled_at)
+                    .bind(queued.backoff.kind_str())
+                    .bind(queued.backoff.base_delay_ms())
+                    .bind(queued.backoff.multiplier())
+                    .execute(tx.as_mut())
+                    .await?;
+
+                    // Mark as queued (but NOT completed - loop may have more iterations)
+                    sqlx::query(
+                        "UPDATE node_ready_state SET is_queued = TRUE WHERE instance_id = $1 AND node_id = $2",
+                    )
+                    .bind(instance_id)
+                    .bind(&node.id)
+                    .execute(tx.as_mut())
+                    .await?;
+
+                    queued_count += 1;
+                    next_seq += 1;
+                } else {
+                    // Loop has no iterations (empty iterable) - insert synthetic completion
+                    let accumulator_value =
+                        Value::Array(extract_accumulator(&eval_ctx, &loop_ast.accumulator));
+                    let payload = encode_value_result(&accumulator_value)?;
+
+                    insert_synthetic_completion_simple_tx(
+                        tx,
+                        instance_id,
+                        partition_id,
+                        node,
+                        workflow_input,
+                        next_seq,
+                        Some(payload.clone()),
+                        true,
+                    )
+                    .await?;
+
+                    // Mark as queued and process downstream
+                    sqlx::query(
+                        "UPDATE node_ready_state SET is_queued = TRUE WHERE instance_id = $1 AND node_id = $2",
+                    )
+                    .bind(instance_id)
+                    .bind(&node.id)
+                    .execute(tx.as_mut())
+                    .await?;
+
+                    // Process downstream nodes via complete_node_push_tx
+                    self.complete_node_push_tx(
+                        tx,
+                        instance_id,
+                        partition_id,
+                        &node.id,
+                        next_seq,
+                        Some(payload),
+                        true,
+                        dag,
+                        concurrent,
+                        workflow_input,
+                    )
+                    .await?;
+                    next_seq += 1;
+                }
+                continue;
+            }
+
+            // Queue the root node action (non-loop nodes)
+            let contexts = Vec::new(); // Root nodes have no dependencies
+            let resolved_kwargs = evaluate_kwargs(node, &eval_ctx)?;
+            let queued =
+                build_action_dispatch(node.clone(), workflow_input, contexts, resolved_kwargs)?;
+            let dispatch_bytes = queued.dispatch.encode_to_vec();
+            let scheduled_at = compute_scheduled_at(node, &eval_ctx)?;
+
+            sqlx::query(
+                r#"
+                INSERT INTO daemon_action_ledger (
+                    instance_id, partition_id, action_seq, status,
+                    module, function_name, dispatch_payload, workflow_node_id,
+                    timeout_seconds, max_retries, timeout_retry_limit,
+                    attempt_number, scheduled_at, retry_kind,
+                    backoff_kind, backoff_base_delay_ms, backoff_multiplier
+                ) VALUES (
+                    $1, $2, $3, 'queued',
+                    $4, $5, $6, $7,
+                    $8, $9, $10,
+                    0, $11, 'failure',
+                    $12, $13, $14
+                )
+                "#,
+            )
+            .bind(instance_id)
+            .bind(partition_id)
+            .bind(next_seq)
+            .bind(&queued.module)
+            .bind(&queued.function_name)
+            .bind(&dispatch_bytes)
+            .bind(&node.id)
+            .bind(queued.timeout_seconds)
+            .bind(queued.max_retries)
+            .bind(queued.timeout_retry_limit)
+            .bind(scheduled_at)
+            .bind(queued.backoff.kind_str())
+            .bind(queued.backoff.base_delay_ms())
+            .bind(queued.backoff.multiplier())
+            .execute(tx.as_mut())
+            .await?;
+
+            // Mark as queued in node_ready_state
+            sqlx::query(
+                "UPDATE node_ready_state SET is_queued = TRUE WHERE instance_id = $1 AND node_id = $2",
+            )
+            .bind(instance_id)
+            .bind(&node.id)
+            .execute(tx.as_mut())
+            .await?;
+
+            queued_count += 1;
+            next_seq += 1;
+        }
+
+        // Update next_action_seq
+        if next_seq > 0 {
+            sqlx::query("UPDATE workflow_instances SET next_action_seq = $2 WHERE id = $1")
+                .bind(instance_id)
+                .bind(next_seq)
+                .execute(tx.as_mut())
+                .await?;
+        }
+
+        debug!(
+            instance_id = %instance_id,
+            total_nodes = dag.nodes.len(),
+            root_nodes_queued = queued_count,
+            "initialized push-based scheduling"
+        );
+
+        Ok(queued_count)
+    }
+
+    /// Complete a node and propagate to downstream nodes using O(1) push logic.
+    /// Uses a work queue to avoid recursion when synthetic completions trigger more completions.
+    async fn complete_node_push_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        instance_id: WorkflowInstanceId,
+        partition_id: i32,
+        initial_node_id: &str,
+        _action_seq: i32,
+        initial_payload: Option<WorkflowArguments>,
+        initial_success: bool,
+        dag: &WorkflowDagDefinition,
+        concurrent: bool,
+        workflow_input: &WorkflowArguments,
+    ) -> Result<usize> {
+        // Work queue to avoid recursion
+        let mut work_queue: Vec<PendingCompletion> = vec![PendingCompletion {
+            node_id: initial_node_id.to_string(),
+            payload: initial_payload,
+            success: initial_success,
+        }];
+
+        let mut total_queued = 0;
+
+        // Get current next_action_seq
+        let mut next_seq: i32 = sqlx::query_scalar(
+            "SELECT next_action_seq FROM workflow_instances WHERE id = $1 FOR UPDATE",
+        )
+        .bind(instance_id)
+        .fetch_one(tx.as_mut())
+        .await?;
+
+        while let Some(completion) = work_queue.pop() {
+            let node = dag
+                .nodes
+                .iter()
+                .find(|n| n.id == completion.node_id)
+                .context("node not found in dag")?;
+
+            // Mark node as completed in node_ready_state
+            sqlx::query(
+                "UPDATE node_ready_state SET is_completed = TRUE WHERE instance_id = $1 AND node_id = $2",
+            )
+            .bind(instance_id)
+            .bind(&completion.node_id)
+            .execute(tx.as_mut())
+            .await?;
+
+            // Update instance_eval_context with results
+            if let Some(ref arguments) = completion.payload {
+                let decoded = decode_payload(arguments)?;
+                if completion.success {
+                    let vars = extract_variables_from_result(node, &decoded);
+                    if !vars.is_empty() {
+                        // Update context_json with new variables
+                        let vars_json = serde_json::to_value(&vars)?;
+                        sqlx::query(
+                            r#"
+                            UPDATE instance_eval_context
+                            SET context_json = context_json || $2
+                            WHERE instance_id = $1
+                            "#,
+                        )
+                        .bind(instance_id)
+                        .bind(vars_json)
+                        .execute(tx.as_mut())
+                        .await?;
+                    }
+                } else if let Some(error) = decoded.error.as_ref() {
+                    // Update exceptions_json
+                    let exception_update = serde_json::json!({ &completion.node_id: error });
+                    sqlx::query(
+                        r#"
+                        UPDATE instance_eval_context
+                        SET exceptions_json = exceptions_json || $2,
+                            context_json = jsonb_set(context_json, '{__workflow_exceptions}', COALESCE(context_json->'__workflow_exceptions', '{}'::jsonb) || $2)
+                        WHERE instance_id = $1
+                        "#,
+                    )
+                    .bind(instance_id)
+                    .bind(exception_update)
+                    .execute(tx.as_mut())
+                    .await?;
+                }
+            }
+
+            // Push context to downstream nodes
+            let payload_bytes = completion.payload.as_ref().map(|p| p.encode_to_vec());
+            let downstream = get_downstream_nodes(&completion.node_id, dag, concurrent);
+
+            for downstream_node_id in &downstream {
+                // Insert context for this dependency
+                let produced_vars = if node.produces.is_empty() {
+                    vec![String::new()]
+                } else {
+                    node.produces.clone()
+                };
+
+                for variable in &produced_vars {
+                    sqlx::query(
+                        r#"
+                        INSERT INTO node_pending_context (instance_id, node_id, source_node_id, variable, payload)
+                        VALUES ($1, $2, $3, $4, $5)
+                        ON CONFLICT (instance_id, node_id, source_node_id, variable) DO UPDATE SET payload = $5
+                        "#,
+                    )
+                    .bind(instance_id)
+                    .bind(*downstream_node_id)
+                    .bind(&completion.node_id)
+                    .bind(variable)
+                    .bind(&payload_bytes)
+                    .execute(tx.as_mut())
+                    .await?;
+                }
+            }
+
+            // Increment deps_satisfied for all downstream nodes
+            if !downstream.is_empty() {
+                let downstream_ids: Vec<&str> = downstream.iter().copied().collect();
+                sqlx::query(
+                    r#"
+                    UPDATE node_ready_state
+                    SET deps_satisfied = deps_satisfied + 1
+                    WHERE instance_id = $1 AND node_id = ANY($2)
+                    "#,
+                )
+                .bind(instance_id)
+                .bind(&downstream_ids)
+                .execute(tx.as_mut())
+                .await?;
+            }
+
+            // Find newly ready nodes (deps_satisfied >= deps_required, not yet queued/completed)
+            let ready_nodes: Vec<String> = sqlx::query_scalar(
+                r#"
+                SELECT node_id
+                FROM node_ready_state
+                WHERE instance_id = $1
+                  AND deps_satisfied >= deps_required
+                  AND is_queued = FALSE
+                  AND is_completed = FALSE
+                "#,
+            )
+            .bind(instance_id)
+            .fetch_all(tx.as_mut())
+            .await?;
+
+            // Process ready nodes - queue real actions, add synthetic completions to work queue
+            if !ready_nodes.is_empty() {
+                // Load current eval context
+                let (context_json, exceptions_json): (Value, Value) = sqlx::query_as(
+                    r#"
+                    SELECT context_json, exceptions_json
+                    FROM instance_eval_context
+                    WHERE instance_id = $1
+                    "#,
+                )
+                .bind(instance_id)
+                .fetch_one(tx.as_mut())
+                .await?;
+
+                let eval_ctx: EvalContext = serde_json::from_value(context_json)?;
+                let exceptions: HashMap<String, Value> = serde_json::from_value(exceptions_json)?;
+
+                for ready_node_id in ready_nodes {
+                    let ready_node = match dag.nodes.iter().find(|n| n.id == ready_node_id) {
+                        Some(n) => n,
+                        None => continue,
+                    };
+
+                    // Check guard
+                    let guard_passes = guard_allows(ready_node, &eval_ctx)?;
+                    if !guard_passes {
+                        // Insert synthetic completion into action ledger
+                        let payload = build_null_payload(ready_node)?;
+                        insert_synthetic_completion_simple_tx(
+                            tx,
+                            instance_id,
+                            partition_id,
+                            ready_node,
+                            workflow_input,
+                            next_seq,
+                            payload.clone(),
+                            true,
+                        )
+                        .await?;
+
+                        // Mark as queued (will be marked completed when work queue processes it)
+                        sqlx::query(
+                            "UPDATE node_ready_state SET is_queued = TRUE WHERE instance_id = $1 AND node_id = $2",
+                        )
+                        .bind(instance_id)
+                        .bind(&ready_node_id)
+                        .execute(tx.as_mut())
+                        .await?;
+
+                        // Add synthetic completion to work queue
+                        work_queue.push(PendingCompletion {
+                            node_id: ready_node_id,
+                            payload,
+                            success: true,
+                        });
+                        next_seq += 1;
+                        continue;
+                    }
+
+                    // Check for unhandled exceptions from dependencies
+                    if let Err(err) = validate_exception_context(ready_node, &exceptions) {
+                        let payload_bytes = encode_exception_payload(
+                            "RuntimeError",
+                            "rappel.workflow",
+                            &err.to_string(),
+                        );
+                        let arguments = decode_arguments(&payload_bytes, "exception payload")?;
+
+                        // Insert synthetic completion into action ledger
+                        insert_synthetic_completion_simple_tx(
+                            tx,
+                            instance_id,
+                            partition_id,
+                            ready_node,
+                            workflow_input,
+                            next_seq,
+                            Some(arguments.clone()),
+                            false,
+                        )
+                        .await?;
+
+                        // Mark as queued
+                        sqlx::query(
+                            "UPDATE node_ready_state SET is_queued = TRUE WHERE instance_id = $1 AND node_id = $2",
+                        )
+                        .bind(instance_id)
+                        .bind(&ready_node_id)
+                        .execute(tx.as_mut())
+                        .await?;
+
+                        work_queue.push(PendingCompletion {
+                            node_id: ready_node_id,
+                            payload: Some(arguments),
+                            success: false,
+                        });
+                        next_seq += 1;
+                        continue;
+                    }
+
+                    // Load pending context for this node
+                    let pending_contexts: Vec<(String, String, Option<Vec<u8>>)> = sqlx::query_as(
+                        r#"
+                        SELECT source_node_id, variable, payload
+                        FROM node_pending_context
+                        WHERE instance_id = $1 AND node_id = $2
+                        "#,
+                    )
+                    .bind(instance_id)
+                    .bind(&ready_node_id)
+                    .fetch_all(tx.as_mut())
+                    .await?;
+
+                    // Build dependency contexts
+                    let mut contexts: Vec<WorkflowNodeContext> = Vec::new();
+                    for (source_node_id, variable, payload_opt) in pending_contexts {
+                        if let Some(payload_bytes) = payload_opt {
+                            let arguments = decode_arguments(&payload_bytes, "pending context")?;
+                            contexts.push(WorkflowNodeContext {
+                                variable,
+                                payload: Some(arguments),
+                                workflow_node_id: source_node_id,
+                            });
+                        }
+                    }
+
+                    // Check if this is a loop node (but not a multi-action loop - those are handled by legacy scheduler)
+                    let loop_ast = ready_node.ast.as_ref().and_then(|ast| ast.r#loop.as_ref());
+
+                    if let Some(loop_ast) = loop_ast {
+                        // Handle multi-action loops
+                        if has_multi_action_body_graph(ready_node) {
+                            // Multi-action loop - dispatch first phase
+                            let state =
+                                extract_multi_action_loop_state(&eval_ctx, &loop_ast.accumulator);
+                            let phase_eval = find_next_ready_phase(ready_node, &eval_ctx, &state)?;
+
+                            if let Some(phase_eval) = phase_eval {
+                                // Add accumulator to context
+                                let accumulator_value = Value::Array(state.accumulator.clone());
+                                let accumulator_payload = encode_value_result(&accumulator_value)?;
+                                contexts.push(WorkflowNodeContext {
+                                    variable: loop_ast.accumulator.clone(),
+                                    payload: Some(accumulator_payload),
+                                    workflow_node_id: ready_node_id.clone(),
+                                });
+
+                                // Add loop index to context
+                                let index_value = Value::Number(serde_json::Number::from(
+                                    state.current_index as u64,
+                                ));
+                                let index_payload = encode_value_result(&index_value)?;
+                                contexts.push(WorkflowNodeContext {
+                                    variable: LOOP_INDEX_VAR.to_string(),
+                                    payload: Some(index_payload),
+                                    workflow_node_id: ready_node_id.clone(),
+                                });
+
+                                // Add completed phases to context
+                                let phases_value = Value::Array(
+                                    state
+                                        .completed_phases
+                                        .iter()
+                                        .map(|s| Value::String(s.clone()))
+                                        .collect(),
+                                );
+                                let phases_payload = encode_value_result(&phases_value)?;
+                                contexts.push(WorkflowNodeContext {
+                                    variable: LOOP_PHASE_VAR.to_string(),
+                                    payload: Some(phases_payload),
+                                    workflow_node_id: ready_node_id.clone(),
+                                });
+
+                                // Add phase results to context
+                                let results_value = Value::Object(
+                                    state
+                                        .phase_results
+                                        .iter()
+                                        .map(|(k, v)| (k.clone(), v.clone()))
+                                        .collect(),
+                                );
+                                let results_payload = encode_value_result(&results_value)?;
+                                contexts.push(WorkflowNodeContext {
+                                    variable: LOOP_PHASE_RESULTS_VAR.to_string(),
+                                    payload: Some(results_payload),
+                                    workflow_node_id: ready_node_id.clone(),
+                                });
+
+                                // Add preamble results to context
+                                let preamble_results_value =
+                                    if let Some(preamble_vars) = &phase_eval.preamble_results {
+                                        Value::Object(
+                                            preamble_vars
+                                                .iter()
+                                                .map(|(k, v)| (k.clone(), v.clone()))
+                                                .collect(),
+                                        )
+                                    } else {
+                                        Value::Object(
+                                            state
+                                                .preamble_results
+                                                .iter()
+                                                .map(|(k, v)| (k.clone(), v.clone()))
+                                                .collect(),
+                                        )
+                                    };
+                                let preamble_results_payload =
+                                    encode_value_result(&preamble_results_value)?;
+                                contexts.push(WorkflowNodeContext {
+                                    variable: LOOP_PREAMBLE_RESULTS_VAR.to_string(),
+                                    payload: Some(preamble_results_payload),
+                                    workflow_node_id: ready_node_id.clone(),
+                                });
+
+                                // Add current phase info
+                                let phase_id_payload = encode_value_result(&Value::String(
+                                    phase_eval.phase_id.clone(),
+                                ))?;
+                                contexts.push(WorkflowNodeContext {
+                                    variable: "__current_phase_id".to_string(),
+                                    payload: Some(phase_id_payload),
+                                    workflow_node_id: ready_node_id.clone(),
+                                });
+                                let output_var_payload = encode_value_result(&Value::String(
+                                    phase_eval.output_var.clone(),
+                                ))?;
+                                contexts.push(WorkflowNodeContext {
+                                    variable: "__current_phase_output_var".to_string(),
+                                    payload: Some(output_var_payload),
+                                    workflow_node_id: ready_node_id.clone(),
+                                });
+
+                                // Create dispatch node with phase action
+                                let mut dispatch_node = ready_node.clone();
+                                dispatch_node.action = phase_eval.action.clone();
+                                if !phase_eval.module.is_empty() {
+                                    dispatch_node.module = phase_eval.module.clone();
+                                }
+
+                                let queued = build_action_dispatch(
+                                    dispatch_node,
+                                    workflow_input,
+                                    contexts,
+                                    phase_eval.kwargs,
+                                )?;
+                                let dispatch_bytes = queued.dispatch.encode_to_vec();
+                                let scheduled_at = compute_scheduled_at(ready_node, &eval_ctx)?;
+
+                                sqlx::query(
+                                    r#"
+                                    INSERT INTO daemon_action_ledger (
+                                        instance_id, partition_id, action_seq, status,
+                                        module, function_name, dispatch_payload, workflow_node_id,
+                                        timeout_seconds, max_retries, timeout_retry_limit,
+                                        attempt_number, scheduled_at, retry_kind,
+                                        backoff_kind, backoff_base_delay_ms, backoff_multiplier
+                                    ) VALUES (
+                                        $1, $2, $3, 'queued',
+                                        $4, $5, $6, $7,
+                                        $8, $9, $10,
+                                        0, $11, 'failure',
+                                        $12, $13, $14
+                                    )
+                                    "#,
+                                )
+                                .bind(instance_id)
+                                .bind(partition_id)
+                                .bind(next_seq)
+                                .bind(&queued.module)
+                                .bind(&queued.function_name)
+                                .bind(&dispatch_bytes)
+                                .bind(&ready_node_id)
+                                .bind(queued.timeout_seconds)
+                                .bind(queued.max_retries)
+                                .bind(queued.timeout_retry_limit)
+                                .bind(scheduled_at)
+                                .bind(queued.backoff.kind_str())
+                                .bind(queued.backoff.base_delay_ms())
+                                .bind(queued.backoff.multiplier())
+                                .execute(tx.as_mut())
+                                .await?;
+
+                                // Mark as queued (but NOT completed - loop may have more iterations)
+                                sqlx::query(
+                                    "UPDATE node_ready_state SET is_queued = TRUE WHERE instance_id = $1 AND node_id = $2",
+                                )
+                                .bind(instance_id)
+                                .bind(&ready_node_id)
+                                .execute(tx.as_mut())
+                                .await?;
+
+                                total_queued += 1;
+                                next_seq += 1;
+                            } else {
+                                // Multi-action loop finished - insert synthetic completion with final accumulator
+                                let accumulator_value = Value::Array(extract_accumulator(
+                                    &eval_ctx,
+                                    &loop_ast.accumulator,
+                                ));
+                                let payload = encode_value_result(&accumulator_value)?;
+
+                                insert_synthetic_completion_simple_tx(
+                                    tx,
+                                    instance_id,
+                                    partition_id,
+                                    ready_node,
+                                    workflow_input,
+                                    next_seq,
+                                    Some(payload.clone()),
+                                    true,
+                                )
+                                .await?;
+
+                                // Mark as queued
+                                sqlx::query(
+                                    "UPDATE node_ready_state SET is_queued = TRUE WHERE instance_id = $1 AND node_id = $2",
+                                )
+                                .bind(instance_id)
+                                .bind(&ready_node_id)
+                                .execute(tx.as_mut())
+                                .await?;
+
+                                // Add to work queue so downstream nodes are scheduled
+                                work_queue.push(PendingCompletion {
+                                    node_id: ready_node_id,
+                                    payload: Some(payload),
+                                    success: true,
+                                });
+                                next_seq += 1;
+                            }
+                            continue;
+                        }
+
+                        // Handle simple loop node - don't dispatch the loop itself, dispatch the body action
+                        let loop_eval = evaluate_loop_iteration(ready_node, &eval_ctx)?;
+
+                        if let Some(loop_eval) = loop_eval {
+                            // There's another iteration - dispatch the body action
+                            let accumulator_value = Value::Array(loop_eval.accumulator.clone());
+                            let accumulator_payload = encode_value_result(&accumulator_value)?;
+                            contexts.push(WorkflowNodeContext {
+                                variable: loop_ast.accumulator.clone(),
+                                payload: Some(accumulator_payload),
+                                workflow_node_id: ready_node_id.clone(),
+                            });
+
+                            let index_value = Value::Number(serde_json::Number::from(
+                                loop_eval.current_index as u64,
+                            ));
+                            let index_payload = encode_value_result(&index_value)?;
+                            contexts.push(WorkflowNodeContext {
+                                variable: LOOP_INDEX_VAR.to_string(),
+                                payload: Some(index_payload),
+                                workflow_node_id: ready_node_id.clone(),
+                            });
+
+                            // Create dispatch node with body action
+                            let mut dispatch_node = ready_node.clone();
+                            if let Some(body_action) = loop_ast.body_action.as_ref() {
+                                if !body_action.action_name.is_empty() {
+                                    dispatch_node.action = body_action.action_name.clone();
+                                }
+                                if !body_action.module_name.is_empty() {
+                                    dispatch_node.module = body_action.module_name.clone();
+                                }
+                            }
+
+                            let queued = build_action_dispatch(
+                                dispatch_node,
+                                workflow_input,
+                                contexts,
+                                loop_eval.kwargs,
+                            )?;
+                            let dispatch_bytes = queued.dispatch.encode_to_vec();
+                            let scheduled_at = compute_scheduled_at(ready_node, &eval_ctx)?;
+
+                            sqlx::query(
+                                r#"
+                                INSERT INTO daemon_action_ledger (
+                                    instance_id, partition_id, action_seq, status,
+                                    module, function_name, dispatch_payload, workflow_node_id,
+                                    timeout_seconds, max_retries, timeout_retry_limit,
+                                    attempt_number, scheduled_at, retry_kind,
+                                    backoff_kind, backoff_base_delay_ms, backoff_multiplier
+                                ) VALUES (
+                                    $1, $2, $3, 'queued',
+                                    $4, $5, $6, $7,
+                                    $8, $9, $10,
+                                    0, $11, 'failure',
+                                    $12, $13, $14
+                                )
+                                "#,
+                            )
+                            .bind(instance_id)
+                            .bind(partition_id)
+                            .bind(next_seq)
+                            .bind(&queued.module)
+                            .bind(&queued.function_name)
+                            .bind(&dispatch_bytes)
+                            .bind(&ready_node_id)
+                            .bind(queued.timeout_seconds)
+                            .bind(queued.max_retries)
+                            .bind(queued.timeout_retry_limit)
+                            .bind(scheduled_at)
+                            .bind(queued.backoff.kind_str())
+                            .bind(queued.backoff.base_delay_ms())
+                            .bind(queued.backoff.multiplier())
+                            .execute(tx.as_mut())
+                            .await?;
+
+                            // Mark as queued (but NOT completed - loop may have more iterations)
+                            sqlx::query(
+                                "UPDATE node_ready_state SET is_queued = TRUE WHERE instance_id = $1 AND node_id = $2",
+                            )
+                            .bind(instance_id)
+                            .bind(&ready_node_id)
+                            .execute(tx.as_mut())
+                            .await?;
+
+                            total_queued += 1;
+                            next_seq += 1;
+                        } else {
+                            // Loop finished - insert synthetic completion with final accumulator
+                            let accumulator_value =
+                                Value::Array(extract_accumulator(&eval_ctx, &loop_ast.accumulator));
+                            let payload = encode_value_result(&accumulator_value)?;
+
+                            insert_synthetic_completion_simple_tx(
+                                tx,
+                                instance_id,
+                                partition_id,
+                                ready_node,
+                                workflow_input,
+                                next_seq,
+                                Some(payload.clone()),
+                                true,
+                            )
+                            .await?;
+
+                            // Mark as queued
+                            sqlx::query(
+                                "UPDATE node_ready_state SET is_queued = TRUE WHERE instance_id = $1 AND node_id = $2",
+                            )
+                            .bind(instance_id)
+                            .bind(&ready_node_id)
+                            .execute(tx.as_mut())
+                            .await?;
+
+                            // Add to work queue so downstream nodes are scheduled
+                            work_queue.push(PendingCompletion {
+                                node_id: ready_node_id,
+                                payload: Some(payload),
+                                success: true,
+                            });
+                            next_seq += 1;
+                        }
+                        continue;
+                    }
+
+                    // Queue real action (non-loop nodes)
+                    let resolved_kwargs = evaluate_kwargs(ready_node, &eval_ctx)?;
+                    let queued = build_action_dispatch(
+                        ready_node.clone(),
+                        workflow_input,
+                        contexts,
+                        resolved_kwargs,
+                    )?;
+                    let dispatch_bytes = queued.dispatch.encode_to_vec();
+                    let scheduled_at = compute_scheduled_at(ready_node, &eval_ctx)?;
+
+                    sqlx::query(
+                        r#"
+                        INSERT INTO daemon_action_ledger (
+                            instance_id, partition_id, action_seq, status,
+                            module, function_name, dispatch_payload, workflow_node_id,
+                            timeout_seconds, max_retries, timeout_retry_limit,
+                            attempt_number, scheduled_at, retry_kind,
+                            backoff_kind, backoff_base_delay_ms, backoff_multiplier
+                        ) VALUES (
+                            $1, $2, $3, 'queued',
+                            $4, $5, $6, $7,
+                            $8, $9, $10,
+                            0, $11, 'failure',
+                            $12, $13, $14
+                        )
+                        "#,
+                    )
+                    .bind(instance_id)
+                    .bind(partition_id)
+                    .bind(next_seq)
+                    .bind(&queued.module)
+                    .bind(&queued.function_name)
+                    .bind(&dispatch_bytes)
+                    .bind(&ready_node_id)
+                    .bind(queued.timeout_seconds)
+                    .bind(queued.max_retries)
+                    .bind(queued.timeout_retry_limit)
+                    .bind(scheduled_at)
+                    .bind(queued.backoff.kind_str())
+                    .bind(queued.backoff.base_delay_ms())
+                    .bind(queued.backoff.multiplier())
+                    .execute(tx.as_mut())
+                    .await?;
+
+                    // Mark as queued
+                    sqlx::query(
+                        "UPDATE node_ready_state SET is_queued = TRUE WHERE instance_id = $1 AND node_id = $2",
+                    )
+                    .bind(instance_id)
+                    .bind(&ready_node_id)
+                    .execute(tx.as_mut())
+                    .await?;
+
+                    total_queued += 1;
+                    next_seq += 1;
+                }
+            }
+        }
+
+        // Update next_action_seq
+        sqlx::query("UPDATE workflow_instances SET next_action_seq = $2 WHERE id = $1")
+            .bind(instance_id)
+            .bind(next_seq)
+            .execute(tx.as_mut())
+            .await?;
+
+        // Check if all nodes are completed and store workflow result if so
+        let (completed_count, total_count): (i64, i64) = sqlx::query_as(
+            r#"
+            SELECT
+                COUNT(*) FILTER (WHERE is_completed = TRUE),
+                COUNT(*)
+            FROM node_ready_state
+            WHERE instance_id = $1
+            "#,
+        )
+        .bind(instance_id)
+        .fetch_one(tx.as_mut())
+        .await?;
+
+        if completed_count == total_count && total_count > 0 {
+            // All nodes completed - store the workflow result
+            let return_variable = &dag.return_variable;
+            if !return_variable.is_empty() {
+                // Find the node that produces the return variable and get its result payload
+                // from the action ledger
+                let result_payload: Option<Vec<u8>> = sqlx::query_scalar(
+                    r#"
+                    SELECT dal.result_payload
+                    FROM daemon_action_ledger dal
+                    JOIN node_ready_state nrs ON nrs.instance_id = dal.instance_id
+                        AND nrs.node_id = dal.workflow_node_id
+                    WHERE dal.instance_id = $1
+                      AND dal.workflow_node_id = ANY($2)
+                      AND dal.success = TRUE
+                    ORDER BY dal.completed_at DESC
+                    LIMIT 1
+                    "#,
+                )
+                .bind(instance_id)
+                .bind(
+                    &dag.nodes
+                        .iter()
+                        .filter(|n| n.produces.contains(return_variable))
+                        .map(|n| n.id.as_str())
+                        .collect::<Vec<_>>(),
+                )
+                .fetch_optional(tx.as_mut())
+                .await?
+                .flatten();
+
+                if let Some(payload) = result_payload {
+                    sqlx::query("UPDATE workflow_instances SET result_payload = $2 WHERE id = $1")
+                        .bind(instance_id)
+                        .bind(&payload)
+                        .execute(tx.as_mut())
+                        .await?;
+                }
+            }
+        }
+
+        Ok(total_queued)
     }
 
     pub async fn dispatch_actions(&self, limit: i64) -> Result<Vec<LedgerAction>> {
@@ -2805,22 +4224,109 @@ impl Database {
         }
         let failure_update_ms = failure_update_start.elapsed().as_secs_f64() * 1000.0;
 
+        // O(1) push-based scheduling: call complete_node_push_tx for each completed action
         let schedule_start = Instant::now();
         let instance_count = workflow_instances.len();
         let mut total_scheduled = 0usize;
-        for instance_id in workflow_instances {
-            let inserted = self
-                .schedule_workflow_instance_tx(&mut tx, instance_id)
-                .await?;
-            total_scheduled += inserted;
-            if inserted > 0 {
-                tracing::debug!(
-                    instance_id = %instance_id,
-                    inserted,
-                    "workflow actions unlocked after completion"
-                );
-            }
+
+        // Build a map of action_id -> (instance_id, node_id, partition_id, action_seq, result_payload, success)
+        // We already have the updated rows, we just need more data
+        #[derive(Debug)]
+        struct CompletionData {
+            instance_id: WorkflowInstanceId,
+            partition_id: i32,
+            node_id: String,
+            action_seq: i32,
+            workflow_version_id: WorkflowVersionId,
+            input_payload: Vec<u8>,
+            result_payload: Vec<u8>,
+            success: bool,
         }
+
+        // Fetch all needed data for completions in a single batch query
+        let all_action_ids: Vec<LedgerActionId> = records.iter().map(|r| r.action_id).collect();
+        let completion_data: Vec<CompletionData> = sqlx::query_as::<
+            _,
+            (
+                LedgerActionId,
+                WorkflowInstanceId,
+                i32,
+                Option<String>,
+                i32,
+                Option<WorkflowVersionId>,
+                Option<Vec<u8>>,
+                Option<Vec<u8>>,
+                Option<bool>,
+            ),
+        >(
+            r#"
+            SELECT
+                dal.id,
+                dal.instance_id,
+                dal.partition_id,
+                dal.workflow_node_id,
+                dal.action_seq,
+                wi.workflow_version_id,
+                wi.input_payload,
+                dal.result_payload,
+                dal.success
+            FROM daemon_action_ledger dal
+            JOIN workflow_instances wi ON wi.id = dal.instance_id
+            WHERE dal.id = ANY($1)
+              AND dal.status = 'completed'
+              AND dal.workflow_node_id IS NOT NULL
+            "#,
+        )
+        .bind(&all_action_ids)
+        .fetch_all(&mut *tx)
+        .await?
+        .into_iter()
+        .filter_map(|row| {
+            let node_id = row.3?;
+            let version_id = row.5?;
+            Some(CompletionData {
+                instance_id: row.1,
+                partition_id: row.2,
+                node_id,
+                action_seq: row.4,
+                workflow_version_id: version_id,
+                input_payload: row.6.unwrap_or_default(),
+                result_payload: row.7.unwrap_or_default(),
+                success: row.8.unwrap_or(true),
+            })
+        })
+        .collect();
+
+        // Process completions using O(1) push logic
+        for data in completion_data {
+            let workflow_input = decode_arguments(&data.input_payload, "workflow input")?;
+            let result_payload = if data.result_payload.is_empty() {
+                None
+            } else {
+                Some(decode_arguments(&data.result_payload, "result payload")?)
+            };
+
+            let cached_version = self
+                .get_cached_version(data.workflow_version_id, &mut tx)
+                .await?;
+
+            let scheduled = self
+                .complete_node_push_tx(
+                    &mut tx,
+                    data.instance_id,
+                    data.partition_id,
+                    &data.node_id,
+                    data.action_seq,
+                    result_payload,
+                    data.success,
+                    &cached_version.dag,
+                    cached_version.concurrent,
+                    &workflow_input,
+                )
+                .await?;
+            total_scheduled += scheduled;
+        }
+
         let schedule_ms = schedule_start.elapsed().as_secs_f64() * 1000.0;
 
         let commit_start = Instant::now();
