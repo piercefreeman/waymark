@@ -31,6 +31,8 @@ const DEFAULT_TIMEOUT_RETRY_LIMIT: i32 = i32::MAX;
 const EXHAUSTED_EXCEPTION_TYPE: &str = "ExhaustedRetries";
 const EXHAUSTED_EXCEPTION_MODULE: &str = "rappel.exceptions";
 const LOOP_INDEX_VAR: &str = "__loop_index";
+const LOOP_PHASE_VAR: &str = "__loop_phase";
+const LOOP_PHASE_RESULTS_VAR: &str = "__loop_phase_results";
 
 #[derive(Clone)]
 pub struct Database {
@@ -358,6 +360,25 @@ struct LoopEvaluation {
     current_index: usize,
 }
 
+/// Evaluation result for a single phase within a multi-action loop iteration
+#[derive(Debug, Clone)]
+struct MultiActionPhaseEvaluation {
+    phase_id: String,
+    action: String,
+    module: String,
+    kwargs: HashMap<String, Value>,
+    output_var: String,
+}
+
+/// State for tracking progress within a multi-action loop iteration
+#[derive(Debug, Clone)]
+struct MultiActionLoopState {
+    current_index: usize,
+    accumulator: Vec<Value>,
+    completed_phases: HashSet<String>,
+    phase_results: HashMap<String, Value>,
+}
+
 fn extract_loop_index(ctx: &EvalContext) -> usize {
     let Some(value) = ctx.get(LOOP_INDEX_VAR) else {
         return 0;
@@ -431,6 +452,175 @@ fn evaluate_loop_iteration(
         accumulator,
         current_index: loop_index,
     }))
+}
+
+/// Find the next ready phase in a multi-action loop body graph
+fn find_next_ready_phase(
+    node: &WorkflowDagNode,
+    ctx: &EvalContext,
+    state: &MultiActionLoopState,
+) -> Result<Option<MultiActionPhaseEvaluation>> {
+    let Some(ast) = node.ast.as_ref() else {
+        return Ok(None);
+    };
+    let Some(loop_ast) = ast.r#loop.as_ref() else {
+        return Ok(None);
+    };
+    let Some(body_graph) = loop_ast.body_graph.as_ref() else {
+        return Ok(None);
+    };
+
+    // Build local context with loop variable and phase results
+    let iterable = loop_ast
+        .iterable
+        .as_ref()
+        .context("loop missing iterable expression")?;
+    let iterable_value = eval_expr(iterable, ctx)?;
+    let Value::Array(items) = iterable_value else {
+        return Err(anyhow!("loop iterable must resolve to a list"));
+    };
+
+    if state.current_index >= items.len() {
+        return Ok(None);
+    }
+
+    let mut local_ctx = ctx.clone();
+    local_ctx.insert(
+        loop_ast.loop_var.clone(),
+        items[state.current_index].clone(),
+    );
+    local_ctx.insert(
+        loop_ast.accumulator.clone(),
+        Value::Array(state.accumulator.clone()),
+    );
+
+    // Add phase results to context
+    for (var_name, value) in &state.phase_results {
+        local_ctx.insert(var_name.clone(), value.clone());
+    }
+
+    // Execute preamble if this is the first phase
+    if state.completed_phases.is_empty() {
+        for stmt in &loop_ast.preamble {
+            eval_stmt(stmt, &mut local_ctx)?;
+        }
+    }
+
+    // Find a phase that is ready (all dependencies completed)
+    for phase_node in &body_graph.nodes {
+        if state.completed_phases.contains(&phase_node.id) {
+            continue;
+        }
+
+        // Check if all dependencies are completed
+        let deps_satisfied = phase_node
+            .depends_on
+            .iter()
+            .all(|dep| state.completed_phases.contains(dep));
+
+        if !deps_satisfied {
+            continue;
+        }
+
+        // This phase is ready - evaluate its kwargs
+        let mut kwargs: HashMap<String, Value> = HashMap::new();
+        for keyword in &phase_node.kwargs {
+            let value = eval_expr(
+                keyword
+                    .value
+                    .as_ref()
+                    .context("phase keyword missing value expression")?,
+                &local_ctx,
+            )?;
+            kwargs.insert(keyword.arg.clone(), value);
+        }
+
+        return Ok(Some(MultiActionPhaseEvaluation {
+            phase_id: phase_node.id.clone(),
+            action: phase_node.action.clone(),
+            module: phase_node.module.clone(),
+            kwargs,
+            output_var: phase_node.output_var.clone(),
+        }));
+    }
+
+    Ok(None)
+}
+
+/// Check if all phases in the body graph are completed
+fn is_iteration_complete(node: &WorkflowDagNode, state: &MultiActionLoopState) -> bool {
+    let Some(ast) = node.ast.as_ref() else {
+        return true;
+    };
+    let Some(loop_ast) = ast.r#loop.as_ref() else {
+        return true;
+    };
+    let Some(body_graph) = loop_ast.body_graph.as_ref() else {
+        return true;
+    };
+
+    body_graph
+        .nodes
+        .iter()
+        .all(|phase| state.completed_phases.contains(&phase.id))
+}
+
+/// Extract the result variable from the completed iteration
+fn extract_iteration_result(node: &WorkflowDagNode, state: &MultiActionLoopState) -> Option<Value> {
+    let ast = node.ast.as_ref()?;
+    let loop_ast = ast.r#loop.as_ref()?;
+    let body_graph = loop_ast.body_graph.as_ref()?;
+
+    state
+        .phase_results
+        .get(&body_graph.result_variable)
+        .cloned()
+}
+
+/// Check if this node has a multi-action loop body graph
+fn has_multi_action_body_graph(node: &WorkflowDagNode) -> bool {
+    node.ast
+        .as_ref()
+        .and_then(|ast| ast.r#loop.as_ref())
+        .and_then(|loop_ast| loop_ast.body_graph.as_ref())
+        .map(|bg| !bg.nodes.is_empty())
+        .unwrap_or(false)
+}
+
+/// Extract multi-action loop state from context
+fn extract_multi_action_loop_state(
+    ctx: &EvalContext,
+    accumulator_name: &str,
+) -> MultiActionLoopState {
+    let current_index = extract_loop_index(ctx);
+    let accumulator = extract_accumulator(ctx, accumulator_name);
+
+    let completed_phases = ctx
+        .get(LOOP_PHASE_VAR)
+        .and_then(|v| match v {
+            Value::Array(arr) => Some(
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect(),
+            ),
+            _ => None,
+        })
+        .unwrap_or_default();
+
+    let phase_results = ctx
+        .get(LOOP_PHASE_RESULTS_VAR)
+        .and_then(|v| match v {
+            Value::Object(obj) => Some(obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect()),
+            _ => None,
+        })
+        .unwrap_or_default();
+
+    MultiActionLoopState {
+        current_index,
+        accumulator,
+        completed_phases,
+        phase_results,
+    }
 }
 
 fn build_action_dispatch(
@@ -1017,6 +1207,16 @@ impl Database {
         else {
             return Ok(Some(record.clone()));
         };
+
+        // Handle multi-action loop completion
+        if has_multi_action_body_graph(&node) {
+            return self
+                .process_multi_action_loop_completion_tx(
+                    tx, record, &node, &loop_ast, &dispatch, &row,
+                )
+                .await;
+        }
+
         let control = match record.control.as_ref().and_then(|ctrl| ctrl.kind.as_ref()) {
             Some(proto::workflow_node_control::Kind::Loop(ctrl)) => Some(ctrl),
             _ => None,
@@ -1199,6 +1399,309 @@ impl Database {
             return Ok(None);
         }
         let final_payload = encode_value_result(&Value::Array(accumulator))?;
+        let mut updated = record.clone();
+        updated.result_payload = final_payload.encode_to_vec();
+        Ok(Some(updated))
+    }
+
+    /// Handle completion of a phase within a multi-action loop iteration
+    async fn process_multi_action_loop_completion_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        record: &CompletionRecord,
+        node: &WorkflowDagNode,
+        loop_ast: &proto::LoopAst,
+        dispatch: &proto::WorkflowNodeDispatch,
+        row: &LoopActionRow,
+    ) -> Result<Option<CompletionRecord>> {
+        let node_id = node.id.clone();
+        let ctx = eval_context_from_dispatch(dispatch)?;
+
+        // Get current multi-action loop state
+        let mut state = extract_multi_action_loop_state(&ctx, &loop_ast.accumulator);
+
+        // Extract current phase info from context
+        let current_phase_id = ctx
+            .get("__current_phase_id")
+            .and_then(|v| v.as_str())
+            .map(String::from)
+            .unwrap_or_default();
+        let current_output_var = ctx
+            .get("__current_phase_output_var")
+            .and_then(|v| v.as_str())
+            .map(String::from)
+            .unwrap_or_default();
+
+        // Record phase completion and extract result
+        let iteration_args = decode_arguments(&record.result_payload, "phase result")?;
+        let decoded = decode_payload(&iteration_args)?;
+        if let Some(result_value) = decoded.result {
+            state
+                .phase_results
+                .insert(current_output_var.clone(), result_value);
+        }
+        state.completed_phases.insert(current_phase_id.clone());
+
+        // Check if there's another phase ready
+        let next_phase = find_next_ready_phase(node, &ctx, &state)?;
+
+        if let Some(next_phase) = next_phase {
+            // Dispatch next phase
+            let mut new_dispatch = dispatch.clone();
+
+            // Update phase tracking in context
+            let phases_value = Value::Array(
+                state
+                    .completed_phases
+                    .iter()
+                    .map(|s| Value::String(s.clone()))
+                    .collect(),
+            );
+            let phases_payload = encode_value_result(&phases_value)?;
+
+            let results_value = Value::Object(
+                state
+                    .phase_results
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect(),
+            );
+            let results_payload = encode_value_result(&results_value)?;
+
+            let phase_id_payload =
+                encode_value_result(&Value::String(next_phase.phase_id.clone()))?;
+            let output_var_payload =
+                encode_value_result(&Value::String(next_phase.output_var.clone()))?;
+
+            // Remove old phase context entries
+            new_dispatch.context.retain(|ctx| {
+                ctx.variable != LOOP_PHASE_VAR
+                    && ctx.variable != LOOP_PHASE_RESULTS_VAR
+                    && ctx.variable != "__current_phase_id"
+                    && ctx.variable != "__current_phase_output_var"
+            });
+
+            // Add updated phase context
+            new_dispatch.context.push(WorkflowNodeContext {
+                variable: LOOP_PHASE_VAR.to_string(),
+                payload: Some(phases_payload),
+                workflow_node_id: node_id.clone(),
+            });
+            new_dispatch.context.push(WorkflowNodeContext {
+                variable: LOOP_PHASE_RESULTS_VAR.to_string(),
+                payload: Some(results_payload),
+                workflow_node_id: node_id.clone(),
+            });
+            new_dispatch.context.push(WorkflowNodeContext {
+                variable: "__current_phase_id".to_string(),
+                payload: Some(phase_id_payload),
+                workflow_node_id: node_id.clone(),
+            });
+            new_dispatch.context.push(WorkflowNodeContext {
+                variable: "__current_phase_output_var".to_string(),
+                payload: Some(output_var_payload),
+                workflow_node_id: node_id.clone(),
+            });
+
+            // Update action/module for next phase
+            if let Some(node_mut) = new_dispatch.node.as_mut() {
+                node_mut.action = next_phase.action.clone();
+                if !next_phase.module.is_empty() {
+                    node_mut.module = next_phase.module.clone();
+                }
+            }
+
+            // Update resolved kwargs
+            new_dispatch.resolved_kwargs = Some(values_to_arguments(&next_phase.kwargs)?);
+
+            let dispatch_bytes = new_dispatch.encode_to_vec();
+            let next_seq = row.next_action_seq;
+
+            sqlx::query(
+                "UPDATE workflow_instances SET next_action_seq = $2 WHERE id = $1 AND next_action_seq <= $2",
+            )
+            .bind(row.instance_id)
+            .bind(next_seq + 1)
+            .execute(tx.as_mut())
+            .await?;
+
+            sqlx::query(
+                r#"
+                UPDATE daemon_action_ledger
+                SET status = 'queued',
+                    scheduled_at = NOW(),
+                    dispatched_at = NULL,
+                    acked_at = COALESCE(acked_at, NOW()),
+                    deadline_at = NULL,
+                    delivery_id = NULL,
+                    delivery_token = NULL,
+                    action_seq = $2,
+                    dispatch_payload = $3,
+                    result_payload = $4,
+                    success = NULL,
+                    retry_kind = 'failure'
+                WHERE id = $1
+                "#,
+            )
+            .bind(record.action_id)
+            .bind(next_seq)
+            .bind(&dispatch_bytes)
+            .bind(&record.result_payload)
+            .execute(tx.as_mut())
+            .await?;
+
+            return Ok(None);
+        }
+
+        // No more phases - iteration is complete
+        // Extract result and add to accumulator
+        let body_graph = loop_ast.body_graph.as_ref().context("missing body graph")?;
+        let result_value = state
+            .phase_results
+            .get(&body_graph.result_variable)
+            .cloned();
+        if let Some(val) = result_value {
+            state.accumulator.push(val);
+        }
+
+        // Check if there are more iterations
+        let iterable = loop_ast.iterable.as_ref().context("missing iterable")?;
+        let iterable_value = eval_expr(iterable, &ctx)?;
+        let items_len = match iterable_value {
+            Value::Array(arr) => arr.len(),
+            _ => 0,
+        };
+
+        if state.current_index + 1 < items_len {
+            // More iterations - reset phase state and dispatch first phase of next iteration
+            let next_index = state.current_index + 1;
+            let next_state = MultiActionLoopState {
+                current_index: next_index,
+                accumulator: state.accumulator.clone(),
+                completed_phases: HashSet::new(),
+                phase_results: HashMap::new(),
+            };
+
+            let mut next_ctx = ctx.clone();
+            next_ctx.insert(
+                LOOP_INDEX_VAR.to_string(),
+                Value::Number(serde_json::Number::from(next_index as u64)),
+            );
+            next_ctx.insert(
+                loop_ast.accumulator.clone(),
+                Value::Array(state.accumulator.clone()),
+            );
+            next_ctx.remove(LOOP_PHASE_VAR);
+            next_ctx.remove(LOOP_PHASE_RESULTS_VAR);
+
+            let next_phase = find_next_ready_phase(node, &next_ctx, &next_state)?;
+            if let Some(next_phase) = next_phase {
+                let mut new_dispatch = dispatch.clone();
+
+                // Update all context entries for new iteration
+                let accumulator_payload =
+                    encode_value_result(&Value::Array(state.accumulator.clone()))?;
+                let index_payload = encode_value_result(&Value::Number(serde_json::Number::from(
+                    next_index as u64,
+                )))?;
+                let phases_payload = encode_value_result(&Value::Array(vec![]))?;
+                let results_payload = encode_value_result(&Value::Object(serde_json::Map::new()))?;
+                let phase_id_payload =
+                    encode_value_result(&Value::String(next_phase.phase_id.clone()))?;
+                let output_var_payload =
+                    encode_value_result(&Value::String(next_phase.output_var.clone()))?;
+
+                new_dispatch.context.retain(|ctx| {
+                    ctx.variable != loop_ast.accumulator
+                        && ctx.variable != LOOP_INDEX_VAR
+                        && ctx.variable != LOOP_PHASE_VAR
+                        && ctx.variable != LOOP_PHASE_RESULTS_VAR
+                        && ctx.variable != "__current_phase_id"
+                        && ctx.variable != "__current_phase_output_var"
+                });
+
+                new_dispatch.context.push(WorkflowNodeContext {
+                    variable: loop_ast.accumulator.clone(),
+                    payload: Some(accumulator_payload),
+                    workflow_node_id: node_id.clone(),
+                });
+                new_dispatch.context.push(WorkflowNodeContext {
+                    variable: LOOP_INDEX_VAR.to_string(),
+                    payload: Some(index_payload),
+                    workflow_node_id: node_id.clone(),
+                });
+                new_dispatch.context.push(WorkflowNodeContext {
+                    variable: LOOP_PHASE_VAR.to_string(),
+                    payload: Some(phases_payload),
+                    workflow_node_id: node_id.clone(),
+                });
+                new_dispatch.context.push(WorkflowNodeContext {
+                    variable: LOOP_PHASE_RESULTS_VAR.to_string(),
+                    payload: Some(results_payload),
+                    workflow_node_id: node_id.clone(),
+                });
+                new_dispatch.context.push(WorkflowNodeContext {
+                    variable: "__current_phase_id".to_string(),
+                    payload: Some(phase_id_payload),
+                    workflow_node_id: node_id.clone(),
+                });
+                new_dispatch.context.push(WorkflowNodeContext {
+                    variable: "__current_phase_output_var".to_string(),
+                    payload: Some(output_var_payload),
+                    workflow_node_id: node_id.clone(),
+                });
+
+                if let Some(node_mut) = new_dispatch.node.as_mut() {
+                    node_mut.action = next_phase.action.clone();
+                    if !next_phase.module.is_empty() {
+                        node_mut.module = next_phase.module.clone();
+                    }
+                }
+
+                new_dispatch.resolved_kwargs = Some(values_to_arguments(&next_phase.kwargs)?);
+
+                let dispatch_bytes = new_dispatch.encode_to_vec();
+                let next_seq = row.next_action_seq;
+
+                sqlx::query(
+                    "UPDATE workflow_instances SET next_action_seq = $2 WHERE id = $1 AND next_action_seq <= $2",
+                )
+                .bind(row.instance_id)
+                .bind(next_seq + 1)
+                .execute(tx.as_mut())
+                .await?;
+
+                sqlx::query(
+                    r#"
+                    UPDATE daemon_action_ledger
+                    SET status = 'queued',
+                        scheduled_at = NOW(),
+                        dispatched_at = NULL,
+                        acked_at = COALESCE(acked_at, NOW()),
+                        deadline_at = NULL,
+                        delivery_id = NULL,
+                        delivery_token = NULL,
+                        action_seq = $2,
+                        dispatch_payload = $3,
+                        result_payload = $4,
+                        success = NULL,
+                        retry_kind = 'failure'
+                    WHERE id = $1
+                    "#,
+                )
+                .bind(record.action_id)
+                .bind(next_seq)
+                .bind(&dispatch_bytes)
+                .bind(&record.result_payload)
+                .execute(tx.as_mut())
+                .await?;
+
+                return Ok(None);
+            }
+        }
+
+        // All iterations done - return final result
+        let final_payload = encode_value_result(&Value::Array(state.accumulator))?;
         let mut updated = record.clone();
         updated.result_payload = final_payload.encode_to_vec();
         Ok(Some(updated))
@@ -2158,6 +2661,216 @@ impl Database {
                     continue;
                 }
                 if let Some(loop_ast) = loop_ast {
+                    // Check if this is a multi-action loop
+                    if has_multi_action_body_graph(&node) {
+                        let state = extract_multi_action_loop_state(
+                            &scheduling_ctx.eval_ctx,
+                            &loop_ast.accumulator,
+                        );
+                        let phase_eval =
+                            find_next_ready_phase(&node, &scheduling_ctx.eval_ctx, &state)?;
+
+                        if let Some(phase_eval) = phase_eval {
+                            // Dispatch the next ready phase
+                            let mut contexts =
+                                build_dependency_contexts(&node, &scheduling_ctx.payloads);
+
+                            // Add accumulator to context
+                            let accumulator_value = Value::Array(state.accumulator.clone());
+                            let accumulator_payload = encode_value_result(&accumulator_value)?;
+                            contexts.push(WorkflowNodeContext {
+                                variable: loop_ast.accumulator.clone(),
+                                payload: Some(accumulator_payload),
+                                workflow_node_id: node_id.clone(),
+                            });
+
+                            // Add loop index to context
+                            let index_value =
+                                Value::Number(serde_json::Number::from(state.current_index as u64));
+                            let index_payload = encode_value_result(&index_value)?;
+                            contexts.push(WorkflowNodeContext {
+                                variable: LOOP_INDEX_VAR.to_string(),
+                                payload: Some(index_payload),
+                                workflow_node_id: node_id.clone(),
+                            });
+
+                            // Add completed phases to context
+                            let phases_value = Value::Array(
+                                state
+                                    .completed_phases
+                                    .iter()
+                                    .map(|s| Value::String(s.clone()))
+                                    .collect(),
+                            );
+                            let phases_payload = encode_value_result(&phases_value)?;
+                            contexts.push(WorkflowNodeContext {
+                                variable: LOOP_PHASE_VAR.to_string(),
+                                payload: Some(phases_payload),
+                                workflow_node_id: node_id.clone(),
+                            });
+
+                            // Add phase results to context
+                            let results_value = Value::Object(
+                                state
+                                    .phase_results
+                                    .iter()
+                                    .map(|(k, v)| (k.clone(), v.clone()))
+                                    .collect(),
+                            );
+                            let results_payload = encode_value_result(&results_value)?;
+                            contexts.push(WorkflowNodeContext {
+                                variable: LOOP_PHASE_RESULTS_VAR.to_string(),
+                                payload: Some(results_payload),
+                                workflow_node_id: node_id.clone(),
+                            });
+
+                            // Add current phase info
+                            let phase_id_payload =
+                                encode_value_result(&Value::String(phase_eval.phase_id.clone()))?;
+                            contexts.push(WorkflowNodeContext {
+                                variable: "__current_phase_id".to_string(),
+                                payload: Some(phase_id_payload),
+                                workflow_node_id: node_id.clone(),
+                            });
+                            let output_var_payload =
+                                encode_value_result(&Value::String(phase_eval.output_var.clone()))?;
+                            contexts.push(WorkflowNodeContext {
+                                variable: "__current_phase_output_var".to_string(),
+                                payload: Some(output_var_payload),
+                                workflow_node_id: node_id.clone(),
+                            });
+
+                            // Create dispatch node with phase action
+                            let mut dispatch_node = node.clone();
+                            dispatch_node.action = phase_eval.action.clone();
+                            if !phase_eval.module.is_empty() {
+                                dispatch_node.module = phase_eval.module.clone();
+                            }
+
+                            let queued = build_action_dispatch(
+                                dispatch_node,
+                                &workflow_input,
+                                contexts,
+                                phase_eval.kwargs,
+                            )?;
+                            let dispatch_bytes = queued.dispatch.encode_to_vec();
+                            let scheduled_at =
+                                compute_scheduled_at(&node, &scheduling_ctx.eval_ctx)?;
+                            sqlx::query_scalar::<_, LedgerActionId>(
+                                r#"
+                                INSERT INTO daemon_action_ledger (
+                                    instance_id,
+                                    partition_id,
+                                    action_seq,
+                                    status,
+                                    module,
+                                    function_name,
+                                    dispatch_payload,
+                                    workflow_node_id,
+                                    timeout_seconds,
+                                    max_retries,
+                                    timeout_retry_limit,
+                                    attempt_number,
+                                    scheduled_at,
+                                    retry_kind,
+                                    backoff_kind,
+                                    backoff_base_delay_ms,
+                                    backoff_multiplier
+                                ) VALUES (
+                                    $1, $2, $3, 'queued', $4, $5, $6, $7, $8, $9, $10, 0, $11, 'failure', $12, $13, $14
+                                )
+                                RETURNING id
+                                "#,
+                            )
+                            .bind(instance.id)
+                            .bind(instance.partition_id)
+                            .bind(next_sequence)
+                            .bind(&queued.module)
+                            .bind(&queued.function_name)
+                            .bind(&dispatch_bytes)
+                            .bind(node_id.clone())
+                            .bind(queued.timeout_seconds)
+                            .bind(queued.max_retries)
+                            .bind(queued.timeout_retry_limit)
+                            .bind(scheduled_at)
+                            .bind(queued.backoff.kind_str())
+                            .bind(queued.backoff.base_delay_ms())
+                            .bind(queued.backoff.multiplier())
+                            .fetch_one(tx.as_mut())
+                            .await?;
+                            dag_state.record_known(node_id.clone());
+                            inserted += 1;
+                            next_sequence += 1;
+                            progressed = true;
+                            continue;
+                        } else {
+                            // No more phases - check if iteration complete
+                            if is_iteration_complete(&node, &state) {
+                                // Extract result and add to accumulator
+                                let result = extract_iteration_result(&node, &state);
+                                let mut new_accumulator = state.accumulator.clone();
+                                if let Some(result_value) = result {
+                                    new_accumulator.push(result_value);
+                                }
+
+                                // Check if there are more iterations
+                                let iterable =
+                                    loop_ast.iterable.as_ref().context("missing iterable")?;
+                                let iterable_value = eval_expr(iterable, &scheduling_ctx.eval_ctx)?;
+                                let items_len = match iterable_value {
+                                    Value::Array(arr) => arr.len(),
+                                    _ => 0,
+                                };
+
+                                if state.current_index + 1 < items_len {
+                                    // More iterations - update context and re-schedule
+                                    scheduling_ctx.eval_ctx.insert(
+                                        loop_ast.accumulator.clone(),
+                                        Value::Array(new_accumulator),
+                                    );
+                                    scheduling_ctx.eval_ctx.insert(
+                                        LOOP_INDEX_VAR.to_string(),
+                                        Value::Number(serde_json::Number::from(
+                                            (state.current_index + 1) as u64,
+                                        )),
+                                    );
+                                    // Clear phase tracking for new iteration
+                                    scheduling_ctx.eval_ctx.remove(LOOP_PHASE_VAR);
+                                    scheduling_ctx.eval_ctx.remove(LOOP_PHASE_RESULTS_VAR);
+                                    // Don't mark as complete - will re-enter this branch on next iteration
+                                    progressed = true;
+                                    continue;
+                                } else {
+                                    // All iterations done - mark node complete
+                                    let payload =
+                                        encode_value_result(&Value::Array(new_accumulator))?;
+                                    insert_synthetic_completion_tx(
+                                        tx,
+                                        &instance,
+                                        &node,
+                                        &workflow_input,
+                                        next_sequence,
+                                        Some(payload.clone()),
+                                        true,
+                                    )
+                                    .await?;
+                                    update_scheduling_context(
+                                        &node,
+                                        Some(payload),
+                                        true,
+                                        &mut scheduling_ctx,
+                                    )?;
+                                    dag_state.record_completion(node_id.clone());
+                                    completed_count += 1;
+                                    progressed = true;
+                                    next_sequence += 1;
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+
+                    // Fall through to legacy single-action loop handling
                     let loop_eval = evaluate_loop_iteration(&node, &scheduling_ctx.eval_ctx)?;
                     if let Some(loop_eval) = loop_eval {
                         let mut contexts =

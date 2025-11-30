@@ -57,6 +57,9 @@ const INTEGRATION_DATA_PIPELINE_MODULE_SOURCE: &str =
 const INTEGRATION_STRING_PROCESSING_MODULE: &str = "integration_string_processing";
 const INTEGRATION_STRING_PROCESSING_MODULE_SOURCE: &str =
     include_str!("fixtures/integration_string_processing.py");
+const INTEGRATION_MULTI_ACTION_LOOP_MODULE: &str = "integration_multi_action_loop";
+const INTEGRATION_MULTI_ACTION_LOOP_MODULE_SOURCE: &str =
+    include_str!("fixtures/integration_multi_action_loop.py");
 
 const REGISTER_SCRIPT: &str = r#"
 import asyncio
@@ -97,6 +100,17 @@ from integration_loop_accum import LoopAccumWorkflow
 
 async def main():
     wf = LoopAccumWorkflow()
+    await wf.run()
+
+asyncio.run(main())
+"#;
+
+const REGISTER_MULTI_ACTION_LOOP_SCRIPT: &str = r#"
+import asyncio
+from integration_multi_action_loop import MultiActionLoopWorkflow
+
+async def main():
+    wf = MultiActionLoopWorkflow()
     await wf.run()
 
 asyncio.run(main())
@@ -731,6 +745,58 @@ async fn workflow_accumulates_loop_outputs() -> Result<()> {
         parsed_result,
         "alpha-local-0-decorated,beta-local-1-decorated"
     );
+
+    harness.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[serial]
+async fn workflow_executes_multi_action_loop() -> Result<()> {
+    let _ = tracing_subscriber::fmt::try_init();
+    let _ = dotenvy::dotenv();
+    let Some(harness) = WorkflowHarness::new(WorkflowHarnessConfig {
+        files: &[
+            (
+                "integration_multi_action_loop.py",
+                INTEGRATION_MULTI_ACTION_LOOP_MODULE_SOURCE,
+            ),
+            (
+                "register_multi_action_loop.py",
+                REGISTER_MULTI_ACTION_LOOP_SCRIPT,
+            ),
+        ],
+        entrypoint: "register_multi_action_loop.py",
+        workflow_name: "multiactionloopworkflow",
+        user_module: INTEGRATION_MULTI_ACTION_LOOP_MODULE,
+        inputs: &[("input", "unused")],
+    })
+    .await?
+    else {
+        return Ok(());
+    };
+
+    // This workflow has:
+    // - 3 load_order actions (parallel via gather)
+    // - 3 iterations x 3 actions each = 9 multi-action loop actions
+    // - 1 summarize_confirmations action
+    // Total: 3 + 9 + 1 = 13 actions
+    let completed = harness.dispatch_all().await?;
+    assert!(
+        completed.len() >= harness.expected_actions(),
+        "expected at least {} completions, saw {}",
+        harness.expected_actions(),
+        completed.len()
+    );
+
+    let stored_payload = harness
+        .stored_result()
+        .await?
+        .context("missing workflow result payload")?;
+    let parsed_result =
+        parse_result(&stored_payload)?.context("expected primitive workflow result")?;
+    // Expected: "CONF_A_PAY_A|CONF_B_PAY_B|CONF_C_PAY_C"
+    assert_eq!(parsed_result, "CONF_A_PAY_A|CONF_B_PAY_B|CONF_C_PAY_C");
 
     harness.shutdown().await?;
     Ok(())

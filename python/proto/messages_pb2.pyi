@@ -816,17 +816,54 @@ Global___WorkflowLoopSpec: typing_extensions.TypeAlias = WorkflowLoopSpec
 class WorkflowLoopControl(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
+    @typing.final
+    class PhaseResultsEntry(google.protobuf.message.Message):
+        DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+        KEY_FIELD_NUMBER: builtins.int
+        VALUE_FIELD_NUMBER: builtins.int
+        key: builtins.str
+        @property
+        def value(self) -> Global___WorkflowArgumentValue: ...
+        def __init__(
+            self,
+            *,
+            key: builtins.str = ...,
+            value: Global___WorkflowArgumentValue | None = ...,
+        ) -> None: ...
+        def HasField(self, field_name: typing.Literal["value", b"value"]) -> builtins.bool: ...
+        def ClearField(
+            self, field_name: typing.Literal["key", b"key", "value", b"value"]
+        ) -> None: ...
+
     NODE_ID_FIELD_NUMBER: builtins.int
     NEXT_INDEX_FIELD_NUMBER: builtins.int
     HAS_NEXT_FIELD_NUMBER: builtins.int
     ACCUMULATOR_FIELD_NUMBER: builtins.int
     ACCUMULATOR_VALUE_FIELD_NUMBER: builtins.int
+    COMPLETED_PHASES_FIELD_NUMBER: builtins.int
+    PHASE_RESULTS_FIELD_NUMBER: builtins.int
+    CURRENT_PHASE_FIELD_NUMBER: builtins.int
     node_id: builtins.str
     next_index: builtins.int
     has_next: builtins.bool
     accumulator: builtins.str
+    current_phase: builtins.str
+    """The current phase being executed (empty if starting new iteration)"""
     @property
     def accumulator_value(self) -> Global___WorkflowArgumentValue: ...
+    @property
+    def completed_phases(
+        self,
+    ) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[builtins.str]:
+        """For multi-phase loops: track completed phases and their results"""
+
+    @property
+    def phase_results(
+        self,
+    ) -> google.protobuf.internal.containers.MessageMap[
+        builtins.str, Global___WorkflowArgumentValue
+    ]: ...
     def __init__(
         self,
         *,
@@ -835,6 +872,10 @@ class WorkflowLoopControl(google.protobuf.message.Message):
         has_next: builtins.bool = ...,
         accumulator: builtins.str = ...,
         accumulator_value: Global___WorkflowArgumentValue | None = ...,
+        completed_phases: collections.abc.Iterable[builtins.str] | None = ...,
+        phase_results: collections.abc.Mapping[builtins.str, Global___WorkflowArgumentValue]
+        | None = ...,
+        current_phase: builtins.str = ...,
     ) -> None: ...
     def HasField(
         self, field_name: typing.Literal["accumulator_value", b"accumulator_value"]
@@ -846,12 +887,18 @@ class WorkflowLoopControl(google.protobuf.message.Message):
             b"accumulator",
             "accumulator_value",
             b"accumulator_value",
+            "completed_phases",
+            b"completed_phases",
+            "current_phase",
+            b"current_phase",
             "has_next",
             b"has_next",
             "next_index",
             b"next_index",
             "node_id",
             b"node_id",
+            "phase_results",
+            b"phase_results",
         ],
     ) -> None: ...
 
@@ -989,6 +1036,7 @@ class LoopAst(google.protobuf.message.Message):
     ACCUMULATOR_FIELD_NUMBER: builtins.int
     PREAMBLE_FIELD_NUMBER: builtins.int
     BODY_ACTION_FIELD_NUMBER: builtins.int
+    BODY_GRAPH_FIELD_NUMBER: builtins.int
     loop_var: builtins.str
     accumulator: builtins.str
     @property
@@ -998,7 +1046,13 @@ class LoopAst(google.protobuf.message.Message):
         self,
     ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[Global___Stmt]: ...
     @property
-    def body_action(self) -> Global___ActionAst: ...
+    def body_action(self) -> Global___ActionAst:
+        """DEPRECATED: Use body_graph for multi-action loops"""
+
+    @property
+    def body_graph(self) -> Global___LoopBodyGraph:
+        """New: Full sub-DAG for loop body (supports multiple actions)"""
+
     def __init__(
         self,
         *,
@@ -1007,17 +1061,32 @@ class LoopAst(google.protobuf.message.Message):
         accumulator: builtins.str = ...,
         preamble: collections.abc.Iterable[Global___Stmt] | None = ...,
         body_action: Global___ActionAst | None = ...,
+        body_graph: Global___LoopBodyGraph | None = ...,
     ) -> None: ...
     def HasField(
-        self, field_name: typing.Literal["body_action", b"body_action", "iterable", b"iterable"]
+        self,
+        field_name: typing.Literal[
+            "_body_graph",
+            b"_body_graph",
+            "body_action",
+            b"body_action",
+            "body_graph",
+            b"body_graph",
+            "iterable",
+            b"iterable",
+        ],
     ) -> builtins.bool: ...
     def ClearField(
         self,
         field_name: typing.Literal[
+            "_body_graph",
+            b"_body_graph",
             "accumulator",
             b"accumulator",
             "body_action",
             b"body_action",
+            "body_graph",
+            b"body_graph",
             "iterable",
             b"iterable",
             "loop_var",
@@ -1026,8 +1095,136 @@ class LoopAst(google.protobuf.message.Message):
             b"preamble",
         ],
     ) -> None: ...
+    def WhichOneof(
+        self, oneof_group: typing.Literal["_body_graph", b"_body_graph"]
+    ) -> typing.Literal["body_graph"] | None: ...
 
 Global___LoopAst: typing_extensions.TypeAlias = LoopAst
+
+@typing.final
+class LoopBodyGraph(google.protobuf.message.Message):
+    """Represents a sub-DAG executed per loop iteration"""
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    NODES_FIELD_NUMBER: builtins.int
+    RESULT_VARIABLE_FIELD_NUMBER: builtins.int
+    result_variable: builtins.str
+    """The variable from the final node to append to accumulator"""
+    @property
+    def nodes(
+        self,
+    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
+        Global___LoopBodyNode
+    ]: ...
+    def __init__(
+        self,
+        *,
+        nodes: collections.abc.Iterable[Global___LoopBodyNode] | None = ...,
+        result_variable: builtins.str = ...,
+    ) -> None: ...
+    def ClearField(
+        self, field_name: typing.Literal["nodes", b"nodes", "result_variable", b"result_variable"]
+    ) -> None: ...
+
+Global___LoopBodyGraph: typing_extensions.TypeAlias = LoopBodyGraph
+
+@typing.final
+class LoopBodyNode(google.protobuf.message.Message):
+    """A node within the loop body sub-DAG"""
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    ID_FIELD_NUMBER: builtins.int
+    ACTION_FIELD_NUMBER: builtins.int
+    MODULE_FIELD_NUMBER: builtins.int
+    KWARGS_FIELD_NUMBER: builtins.int
+    DEPENDS_ON_FIELD_NUMBER: builtins.int
+    OUTPUT_VAR_FIELD_NUMBER: builtins.int
+    TIMEOUT_SECONDS_FIELD_NUMBER: builtins.int
+    MAX_RETRIES_FIELD_NUMBER: builtins.int
+    id: builtins.str
+    """e.g., "phase_0", "phase_1" """
+    action: builtins.str
+    """Action name, e.g., "validate_order" """
+    module: builtins.str
+    """Module containing the action"""
+    output_var: builtins.str
+    """Variable to capture result"""
+    timeout_seconds: builtins.int
+    max_retries: builtins.int
+    @property
+    def kwargs(
+        self,
+    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[Global___Keyword]:
+        """Kwargs as expressions"""
+
+    @property
+    def depends_on(
+        self,
+    ) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[builtins.str]:
+        """Dependencies within body graph"""
+
+    def __init__(
+        self,
+        *,
+        id: builtins.str = ...,
+        action: builtins.str = ...,
+        module: builtins.str = ...,
+        kwargs: collections.abc.Iterable[Global___Keyword] | None = ...,
+        depends_on: collections.abc.Iterable[builtins.str] | None = ...,
+        output_var: builtins.str = ...,
+        timeout_seconds: builtins.int | None = ...,
+        max_retries: builtins.int | None = ...,
+    ) -> None: ...
+    def HasField(
+        self,
+        field_name: typing.Literal[
+            "_max_retries",
+            b"_max_retries",
+            "_timeout_seconds",
+            b"_timeout_seconds",
+            "max_retries",
+            b"max_retries",
+            "timeout_seconds",
+            b"timeout_seconds",
+        ],
+    ) -> builtins.bool: ...
+    def ClearField(
+        self,
+        field_name: typing.Literal[
+            "_max_retries",
+            b"_max_retries",
+            "_timeout_seconds",
+            b"_timeout_seconds",
+            "action",
+            b"action",
+            "depends_on",
+            b"depends_on",
+            "id",
+            b"id",
+            "kwargs",
+            b"kwargs",
+            "max_retries",
+            b"max_retries",
+            "module",
+            b"module",
+            "output_var",
+            b"output_var",
+            "timeout_seconds",
+            b"timeout_seconds",
+        ],
+    ) -> None: ...
+    @typing.overload
+    def WhichOneof(
+        self, oneof_group: typing.Literal["_max_retries", b"_max_retries"]
+    ) -> typing.Literal["max_retries"] | None: ...
+    @typing.overload
+    def WhichOneof(
+        self, oneof_group: typing.Literal["_timeout_seconds", b"_timeout_seconds"]
+    ) -> typing.Literal["timeout_seconds"] | None: ...
+
+Global___LoopBodyNode: typing_extensions.TypeAlias = LoopBodyNode
 
 @typing.final
 class ActionAst(google.protobuf.message.Message):

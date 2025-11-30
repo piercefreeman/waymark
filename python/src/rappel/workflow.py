@@ -16,7 +16,13 @@ from .actions import deserialize_result_payload
 from .formatter import Formatter, supports_color
 from .logger import configure as configure_logger
 from .serialization import build_arguments_from_kwargs
-from .workflow_dag import DagNode, LoopSpec, WorkflowDag, build_workflow_dag
+from .workflow_dag import (
+    DagNode,
+    LoopSpec,
+    MultiActionLoopSpec,
+    WorkflowDag,
+    build_workflow_dag,
+)
 from .workflow_runtime import WorkflowNodeResult
 
 logger = configure_logger("rappel.workflow")
@@ -497,6 +503,9 @@ def _populate_node_ast(proto_node: pb2.WorkflowDagNode, node: DagNode) -> None:
         if action_ast is not None:
             loop_ast.body_action.CopyFrom(action_ast)
         ast_payload.loop.CopyFrom(loop_ast)
+    if node.multi_action_loop:
+        loop_ast = _build_multi_action_loop_ast(node.multi_action_loop)
+        ast_payload.loop.CopyFrom(loop_ast)
     if node.sleep_duration_expr:
         sleep_expr = _parse_expr(node.sleep_duration_expr)
         if sleep_expr is not None:
@@ -525,6 +534,61 @@ def _build_action_ast(loop_spec: "LoopSpec") -> Optional[pb2.ActionAst]:
         keyword.arg = key
         keyword.value.CopyFrom(expr_proto)
     return action_ast
+
+
+def _build_multi_action_loop_ast(loop_spec: "MultiActionLoopSpec") -> pb2.LoopAst:
+    """Build a LoopAst proto from a MultiActionLoopSpec with body_graph."""
+    loop_ast = pb2.LoopAst(
+        loop_var=loop_spec.loop_var,
+        accumulator=loop_spec.accumulator,
+    )
+
+    # Parse iterable expression
+    iterable_expr = _parse_expr(loop_spec.iterable_expr)
+    if iterable_expr is not None:
+        loop_ast.iterable.CopyFrom(iterable_expr)
+
+    # Parse preamble if present
+    if loop_spec.preamble:
+        for stmt in _parse_preamble(loop_spec.preamble):
+            loop_ast.preamble.append(stmt)
+
+    # Build body graph
+    body_graph = pb2.LoopBodyGraph(
+        result_variable=loop_spec.body_graph.result_variable,
+    )
+
+    for body_node in loop_spec.body_graph.nodes:
+        proto_node = pb2.LoopBodyNode(
+            id=body_node.id,
+            action=body_node.action,
+            module=body_node.module or "",
+            output_var=body_node.output_var,
+        )
+
+        # Add dependencies
+        for dep in body_node.depends_on:
+            proto_node.depends_on.append(dep)
+
+        # Add kwargs as Keyword protos
+        for key, expr_text in body_node.kwargs.items():
+            expr_proto = _parse_expr(expr_text)
+            if expr_proto is None:
+                continue
+            keyword = proto_node.kwargs.add()
+            keyword.arg = key
+            keyword.value.CopyFrom(expr_proto)
+
+        # Add timeout/retry config if present
+        if body_node.timeout_seconds is not None:
+            proto_node.timeout_seconds = body_node.timeout_seconds
+        if body_node.max_retries is not None:
+            proto_node.max_retries = body_node.max_retries
+
+        body_graph.nodes.append(proto_node)
+
+    loop_ast.body_graph.CopyFrom(body_graph)
+    return loop_ast
 
 
 def _parse_preamble(snippet: str) -> list[pb2.Stmt]:
