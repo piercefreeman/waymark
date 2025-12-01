@@ -1,0 +1,207 @@
+syntax = "proto3";
+
+package rappel.ir;
+
+// =============================================================================
+// Rappel Intermediate Representation (IR)
+//
+// The IR captures the subset of Python that can be translated into a durable
+// execution DAG. It is produced by parsing Python AST and provides:
+// - Clear validation (if it parses to IR, it's valid)
+// - Better error messages with source locations
+// - A debuggable intermediate form
+// - Language-agnostic target for future JS/Go frontends
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// Source Location Tracking
+// -----------------------------------------------------------------------------
+
+message SourceLocation {
+  uint32 lineno = 1;
+  uint32 col_offset = 2;
+  optional uint32 end_lineno = 3;
+  optional uint32 end_col_offset = 4;
+}
+
+// -----------------------------------------------------------------------------
+// Execution Policies
+// -----------------------------------------------------------------------------
+
+message BackoffConfig {
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    KIND_LINEAR = 1;
+    KIND_EXPONENTIAL = 2;
+  }
+  Kind kind = 1;
+  uint32 base_delay_ms = 2;
+  optional double multiplier = 3;  // Only for exponential
+}
+
+message RunActionConfig {
+  optional uint32 timeout_seconds = 1;
+  optional uint32 max_retries = 2;
+  optional BackoffConfig backoff = 3;
+}
+
+// -----------------------------------------------------------------------------
+// Core IR Nodes
+// -----------------------------------------------------------------------------
+
+// A single action invocation - the fundamental unit of durable execution
+message ActionCall {
+  string action = 1;              // Action name
+  optional string module = 2;     // Module where action is defined
+  map<string, string> kwargs = 3; // Argument expressions as strings
+  optional string target = 4;     // Variable to assign result to
+  optional RunActionConfig config = 5;
+  optional SourceLocation location = 6;
+}
+
+// Parallel execution of multiple actions
+message Gather {
+  repeated ActionCall calls = 1;
+  optional string target = 2;     // Variable to assign tuple result to
+  optional SourceLocation location = 3;
+}
+
+// Arbitrary Python code that doesn't contain actions (escape hatch)
+message PythonBlock {
+  string code = 1;
+  repeated string imports = 2;     // Import statements needed
+  repeated string definitions = 3; // Function/class definitions needed
+  repeated string inputs = 4;      // Variables read
+  repeated string outputs = 5;     // Variables written
+  optional SourceLocation location = 6;
+}
+
+// A for loop with action(s) in the body
+message Loop {
+  string iterator_expr = 1;        // Expression producing the iterable
+  string loop_var = 2;             // Loop variable name
+  repeated string accumulators = 3; // Variables initialized as [] before loop
+  repeated PythonBlock preamble = 4; // Pure Python before first action
+  repeated ActionCall body = 5;    // Action calls in sequence
+  repeated YieldExpr yields = 6;   // What gets collected each iteration
+  optional SourceLocation location = 7;
+}
+
+message YieldExpr {
+  string source_expr = 1;          // Expression to evaluate
+  string accumulator = 2;          // Accumulator to append to
+}
+
+// One branch of a conditional
+message Branch {
+  string guard = 1;                // Guard expression (Python boolean expr)
+  repeated PythonBlock preamble = 2;  // Statements before first action
+  repeated ActionCall actions = 3;    // One or more actions (chained in DAG)
+  repeated PythonBlock postamble = 4; // Statements after last action
+  optional SourceLocation location = 5;
+}
+
+// If/elif/else with actions in each branch
+message Conditional {
+  repeated Branch branches = 1;    // Must cover all cases (else required)
+  optional string target = 2;      // Common target variable if branches assign
+  optional SourceLocation location = 3;
+}
+
+// An except handler
+message ExceptHandler {
+  repeated ExceptionType exception_types = 1;
+  repeated ActionCall body = 2;
+  optional SourceLocation location = 3;
+}
+
+message ExceptionType {
+  optional string module = 1;      // e.g., "mymodule" for mymodule.MyError
+  optional string name = 2;        // e.g., "ValueError" (None for bare except)
+}
+
+// Try/except block with actions
+message TryExcept {
+  repeated ActionCall try_body = 1;
+  repeated ExceptHandler handlers = 2;
+  optional SourceLocation location = 3;
+}
+
+// Durable sleep
+message Sleep {
+  string duration_expr = 1;        // Duration in seconds (as expression string)
+  optional SourceLocation location = 2;
+}
+
+// Return statement
+message Return {
+  oneof value {
+    string expr = 1;               // Return a variable or expression
+    ActionCall action = 2;         // Return result of action call
+    Gather gather = 3;             // Return result of gather
+  }
+  optional SourceLocation location = 4;
+}
+
+// Compile-time expansion of action over collection
+// Pattern: [await action(x=item) for item in collection]
+message Spread {
+  ActionCall action = 1;           // Template action (kwargs reference loop_var)
+  string loop_var = 2;
+  string iterable = 3;             // Variable name of collection
+  optional string target = 4;
+  optional SourceLocation location = 5;
+}
+
+// -----------------------------------------------------------------------------
+// Statement Union
+// -----------------------------------------------------------------------------
+
+message Statement {
+  oneof kind {
+    ActionCall action_call = 1;
+    Gather gather = 2;
+    PythonBlock python_block = 3;
+    Loop loop = 4;
+    Conditional conditional = 5;
+    TryExcept try_except = 6;
+    Sleep sleep = 7;
+    Return return_stmt = 8;
+    Spread spread = 9;
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Workflow Definition
+// -----------------------------------------------------------------------------
+
+message WorkflowParam {
+  string name = 1;
+  optional string type_annotation = 2;
+}
+
+message Workflow {
+  string name = 1;
+  repeated WorkflowParam params = 2;
+  repeated Statement body = 3;
+  optional string return_type = 4;
+}
+
+// -----------------------------------------------------------------------------
+// Action Definition (for module resolution and signature mapping)
+// -----------------------------------------------------------------------------
+
+message ActionDefinition {
+  string name = 1;                 // Action name as registered
+  optional string module = 2;      // Module where action is defined
+  repeated string param_names = 3; // Ordered parameter names for positional mapping
+}
+
+// -----------------------------------------------------------------------------
+// Parse Error
+// -----------------------------------------------------------------------------
+
+message ParseError {
+  string message = 1;
+  optional SourceLocation location = 2;
+}

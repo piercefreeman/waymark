@@ -2045,5 +2045,222 @@ def main():
             print()
 
 
+def test_error_cases():
+    """Test that we get helpful errors for invalid workflows."""
+
+    error_cases = [
+        # Missing else branch
+        (
+            "MissingElse",
+            '''
+class MissingElseWorkflow(Workflow):
+    async def run(self, x: int) -> int:
+        if x > 0:
+            result = await fetch_left()
+        return result
+''',
+            "requires an else branch"
+        ),
+
+        # For loop without accumulator
+        (
+            "NoAccumulator",
+            '''
+class NoAccumulatorWorkflow(Workflow):
+    async def run(self, items: list) -> None:
+        for item in items:
+            await double(value=item)
+''',
+            "must append to an accumulator"
+        ),
+
+        # For loop without action
+        (
+            "NoActionInLoop",
+            '''
+class NoActionInLoopWorkflow(Workflow):
+    async def run(self, items: list) -> list:
+        results = []
+        for item in items:
+            results.append(item * 2)
+        return results
+''',
+            "must contain at least one action"
+        ),
+
+        # Action after postamble in branch
+        (
+            "ActionAfterPostamble",
+            '''
+class ActionAfterPostambleWorkflow(Workflow):
+    async def run(self, x: int) -> int:
+        if x > 0:
+            a = await fetch_left()
+            label = "positive"
+            b = await fetch_right()  # Action after non-action
+        else:
+            a = await fetch_right()
+        return a
+''',
+            "cannot appear after non-action"
+        ),
+
+        # For/else not supported
+        (
+            "ForElse",
+            '''
+class ForElseWorkflow(Workflow):
+    async def run(self, items: list) -> list:
+        results = []
+        for item in items:
+            r = await double(value=item)
+            results.append(r)
+        else:
+            pass
+        return results
+''',
+            "for/else is not supported"
+        ),
+
+        # Try with finally
+        (
+            "TryFinally",
+            '''
+class TryFinallyWorkflow(Workflow):
+    async def run(self) -> int:
+        try:
+            result = await risky_action()
+        except ValueError:
+            result = await fallback_action()
+        finally:
+            pass
+        return result
+''',
+            "finally blocks are not supported"
+        ),
+
+        # Empty branch (no action)
+        (
+            "EmptyBranch",
+            '''
+class EmptyBranchWorkflow(Workflow):
+    async def run(self, x: int) -> int:
+        if x > 0:
+            result = await fetch_left()
+        else:
+            result = 42  # No action in else branch
+        return result
+''',
+            "must have at least one action"
+        ),
+
+        # Tuple unpacking in for loop
+        (
+            "TupleUnpack",
+            '''
+class TupleUnpackWorkflow(Workflow):
+    async def run(self, items: list) -> list:
+        results = []
+        for a, b in items:
+            r = await double(value=a)
+            results.append(r)
+        return results
+''',
+            "must be a simple variable"
+        ),
+
+        # Unknown action in run_action
+        (
+            "UnknownAction",
+            '''
+class UnknownActionWorkflow(Workflow):
+    async def run(self) -> int:
+        result = await self.run_action(unknown_action())
+        return result
+''',
+            "Unknown action"
+        ),
+    ]
+
+    # Build action definitions
+    tree = ast.parse(EXAMPLE_WORKFLOWS)
+    action_defs: dict[str, ActionDefinition] = {}
+    for node in tree.body:
+        if isinstance(node, ast.AsyncFunctionDef):
+            param_names = [arg.arg for arg in node.args.args if arg.arg != "self"]
+            action_defs[node.name] = ActionDefinition(
+                name=node.name,
+                module="example_module",
+                signature=None,
+                param_names=param_names,
+            )
+
+    print("=" * 70)
+    print("ERROR CASE TESTING")
+    print("=" * 70)
+
+    passed = 0
+    failed = 0
+
+    for name, code, expected_error in error_cases:
+        # Parse the test code
+        full_code = EXAMPLE_WORKFLOWS + code
+        test_tree = ast.parse(full_code)
+
+        # Find the test workflow class
+        workflow_class = None
+        for node in test_tree.body:
+            if isinstance(node, ast.ClassDef) and node.name == f"{name}Workflow":
+                workflow_class = node
+                break
+
+        if workflow_class is None:
+            print(f"\n[SKIP] {name}: Could not find workflow class")
+            continue
+
+        # Find run method
+        run_method = None
+        for item in workflow_class.body:
+            if isinstance(item, ast.AsyncFunctionDef) and item.name == "run":
+                run_method = item
+                break
+
+        if run_method is None:
+            print(f"\n[SKIP] {name}: No run method")
+            continue
+
+        # Try to parse
+        parser = RappelParser(action_defs=action_defs)
+
+        try:
+            workflow = parser.parse_workflow(run_method)
+            print(f"\n[FAIL] {name}")
+            print(f"  Expected error containing: '{expected_error}'")
+            print(f"  But parsing succeeded!")
+            failed += 1
+        except RappelParseError as e:
+            error_msg = str(e)
+            if expected_error.lower() in error_msg.lower():
+                print(f"\n[PASS] {name}")
+                print(f"  Error: {error_msg}")
+                passed += 1
+            else:
+                print(f"\n[FAIL] {name}")
+                print(f"  Expected error containing: '{expected_error}'")
+                print(f"  Got: {error_msg}")
+                failed += 1
+        except Exception as e:
+            print(f"\n[FAIL] {name}")
+            print(f"  Expected RappelParseError containing: '{expected_error}'")
+            print(f"  Got {type(e).__name__}: {e}")
+            failed += 1
+
+    print("\n" + "=" * 70)
+    print(f"Results: {passed} passed, {failed} failed")
+    print("=" * 70)
+
+
 if __name__ == "__main__":
     main()
+    print("\n\n")
+    test_error_cases()
