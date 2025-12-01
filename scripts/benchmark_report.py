@@ -46,7 +46,7 @@ def generate_markdown_report(
 ) -> str:
     """Generate a markdown comparison report."""
     lines = [
-        "## :bar_chart: Benchmark Comparison",
+        "## Benchmark Comparison",
         "",
         f"Comparing `{pr_sha[:8]}` (PR) vs `{main_sha[:8]}` (main)",
         "",
@@ -137,11 +137,11 @@ def generate_markdown_report(
             continue
 
         pr_tp = pr_bench.get("throughput", 0)
-        pr_p95 = pr_bench.get("p95_ms", 0)
+        pr_p95 = pr_bench.get("p95_round_trip_ms", 0)
 
         if main_available and main_benchmarks:
             main_tp = main_bench.get("throughput", 0)
-            main_p95 = main_bench.get("p95_ms", 0)
+            main_p95 = main_bench.get("p95_round_trip_ms", 0)
 
             # Throughput row
             change_tp = (

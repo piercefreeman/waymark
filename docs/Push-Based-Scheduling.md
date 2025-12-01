@@ -1,10 +1,10 @@
 # Push-Based Scheduling Architecture
 
-This document explains Carabiner's push-based scheduling system, which enables O(1) node completion regardless of workflow size.
+This document explains Rappel's push-based scheduling system, which enables O(1) node queuing.
 
 ## Overview
 
-Carabiner uses a **push-based event-driven scheduler** rather than a pull-based polling approach. When a node completes, it immediately pushes its results to downstream nodes and increments their dependency counters. This eliminates the need to re-scan completed actions on every scheduling cycle.
+Rappel uses a **push-based event-driven scheduler** rather than a pull-based polling approach. When a node completes, it immediately pushes its results to downstream nodes and increments their dependency counters. This eliminates the need to re-scan completed actions on every scheduling cycle to build up variable dependencies within the workflow `run()` implementation.
 
 ## Complex Workflow Example
 
@@ -284,19 +284,6 @@ Per node completion:
 
 **Total: O(1) amortized per completion**
 
-### Pull-Based (Old Approach)
-
-Per scheduling cycle:
-
-| Operation | Complexity | Notes |
-|-----------|------------|-------|
-| Query completed actions | O(n) | n = all completed actions |
-| Decode payloads | O(n) | Decompression for each |
-| Traverse DAG | O(n × m) | m = avg dependencies |
-| Build context | O(n) | Re-extract from all actions |
-
-**Total: O(n²) in pathological cases**
-
 ### Scaling Comparison
 
 | Workflow Nodes | Pull-Based | Push-Based | Speedup |
@@ -318,79 +305,3 @@ For a loop with `i` iterations and `a` actions per iteration:
 **Example**: 32 iterations × 3 actions = 96 actions
 - Pull: ~4,600 operations (quadratic)
 - Push: ~96 operations (linear)
-
-## Database Schema
-
-### node_ready_state
-
-Tracks node readiness, replacing repeated DAG traversal:
-
-```sql
-CREATE TABLE node_ready_state (
-    instance_id UUID NOT NULL,
-    node_id TEXT NOT NULL,
-    deps_required SMALLINT NOT NULL,   -- Computed once at instance start
-    deps_satisfied SMALLINT NOT NULL,  -- Incremented as deps complete
-    is_queued BOOLEAN NOT NULL,        -- Set when dispatched
-    is_completed BOOLEAN NOT NULL,     -- Set when result received
-    PRIMARY KEY (instance_id, node_id)
-);
-
-CREATE INDEX idx_node_ready_state_ready
-    ON node_ready_state (instance_id, is_queued, is_completed)
-    WHERE is_queued = FALSE AND is_completed = FALSE;
-```
-
-### node_pending_context
-
-Pre-built context for dispatch, replacing re-extraction:
-
-```sql
-CREATE TABLE node_pending_context (
-    instance_id UUID NOT NULL,
-    node_id TEXT NOT NULL,
-    source_node_id TEXT NOT NULL,  -- Which upstream provided this
-    variable TEXT NOT NULL,
-    payload BYTEA,
-    PRIMARY KEY (instance_id, node_id, source_node_id, variable)
-);
-```
-
-### instance_eval_context
-
-Materialized evaluation context, replacing rebuild from history:
-
-```sql
-CREATE TABLE instance_eval_context (
-    instance_id UUID NOT NULL,
-    context_json JSONB NOT NULL DEFAULT '{}',
-    exceptions_json JSONB NOT NULL DEFAULT '{}',
-    PRIMARY KEY (instance_id)
-);
-```
-
-### loop_iteration_state
-
-Loop state tracking, replacing stateless re-computation:
-
-```sql
-CREATE TABLE loop_iteration_state (
-    instance_id UUID NOT NULL,
-    node_id TEXT NOT NULL,
-    current_index INT NOT NULL DEFAULT 0,
-    accumulators BYTEA,  -- Collected values per accumulator
-    PRIMARY KEY (instance_id, node_id)
-);
-```
-
-## Performance Summary
-
-| Operation | Before | After |
-|-----------|--------|-------|
-| Find ready nodes | O(n) scan | O(1) index lookup |
-| Build dispatch context | O(n) extraction | O(1) lookup |
-| Update eval context | O(n) rebuild | O(1) append |
-| Loop head decision | Worker round-trip | Scheduler-local |
-| Accumulator update | Re-scan iterations | O(1) append |
-
-The push-based architecture achieves **O(1) per node completion** regardless of workflow size, making it practical to run workflows with hundreds or thousands of nodes.

@@ -1,6 +1,6 @@
 #!/usr/bin/env -S uv run --script
 # /// script
-# dependencies = ["click"]
+# dependencies = ["click", "pydantic"]
 # ///
 """Run benchmarks and output results as JSON."""
 
@@ -12,6 +12,26 @@ import sys
 from pathlib import Path
 
 import click
+from pydantic import BaseModel
+
+
+class BenchmarkResult(BaseModel):
+    """Successful benchmark result matching the Rust BenchmarkOutput struct."""
+
+    total: int
+    elapsed_s: float
+    throughput: float
+    avg_round_trip_ms: float
+    p95_round_trip_ms: float
+
+
+class BenchmarkError(BaseModel):
+    """Error result when benchmark fails."""
+
+    error: str
+    exit_code: int | None = None
+    stderr: str | None = None
+    stdout: str | None = None
 
 
 def reset_database():
@@ -21,7 +41,6 @@ def reset_database():
     )
 
     # Parse connection string
-    import re
 
     match = re.match(r"postgresql://([^:]+):([^@]+)@([^:]+):(\d+)/(.+)", db_url)
     if not match:
@@ -81,9 +100,11 @@ def check_benchmark_available() -> bool:
         return False
 
 
-def run_benchmark(benchmark_type: str, args: list[str], timeout: int = 300) -> dict:
-    """Run a benchmark and parse the results."""
-    cmd = ["./target/release/benchmark", benchmark_type] + args
+def run_benchmark(
+    benchmark_type: str, args: list[str], timeout: int = 300
+) -> BenchmarkResult | BenchmarkError:
+    """Run a benchmark with --json flag and parse the JSON output."""
+    cmd = ["./target/release/benchmark", "--json", benchmark_type] + args
 
     print(f"Running: {' '.join(cmd)}", file=sys.stderr)
 
@@ -91,50 +112,46 @@ def run_benchmark(benchmark_type: str, args: list[str], timeout: int = 300) -> d
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     except FileNotFoundError:
         print("Benchmark binary not found", file=sys.stderr)
-        return {"error": "binary_not_found"}
+        return BenchmarkError(error="binary_not_found")
     except subprocess.TimeoutExpired:
         print(f"Benchmark {benchmark_type} timed out after {timeout}s", file=sys.stderr)
-        return {"error": "timeout"}
+        return BenchmarkError(error="timeout")
 
-    output = result.stdout + result.stderr
+    # Check for non-zero exit code
+    if result.returncode != 0:
+        print(
+            f"Benchmark {benchmark_type} failed with exit code {result.returncode}", file=sys.stderr
+        )
+        print(f"stderr: {result.stderr[-2000:]}", file=sys.stderr)
+        return BenchmarkError(
+            error="benchmark_failed",
+            exit_code=result.returncode,
+            stderr=result.stderr[-2000:] if result.stderr else None,
+        )
 
-    # Parse the summary line
-    metrics = {}
+    # Parse JSON from stdout - the JSON is on the last line, preceded by tracing logs
+    try:
+        # Find the JSON line (starts with '{' and ends with '}')
+        json_line = None
+        for line in reversed(result.stdout.strip().split("\n")):
+            line = line.strip()
+            if line.startswith("{") and line.endswith("}"):
+                json_line = line
+                break
 
-    # Extract throughput
-    throughput_match = re.search(
-        r"throughput[=\s\"]+(\d+(?:\.\d+)?)\s*(?:msg/s|actions/s)?", output
-    )
-    if throughput_match:
-        metrics["throughput"] = float(throughput_match.group(1))
+        if not json_line:
+            raise ValueError("No JSON line found in output")
 
-    # Extract P95 round-trip
-    p95_match = re.search(r"p95_round_trip_ms[=\s\"]+(\d+(?:\.\d+)?)", output)
-    if p95_match:
-        metrics["p95_ms"] = float(p95_match.group(1))
-
-    # Extract total messages/actions
-    total_match = re.search(r"total[=\s\"]+(\d+)", output)
-    if total_match:
-        metrics["total"] = int(total_match.group(1))
-
-    # Extract elapsed time
-    elapsed_match = re.search(r"elapsed[=\s\"]+(\d+(?:\.\d+)?)s", output)
-    if elapsed_match:
-        metrics["elapsed_s"] = float(elapsed_match.group(1))
-
-    # Extract avg round trip
-    avg_rt_match = re.search(r"avg_round_trip_ms[=\s\"]+(\d+(?:\.\d+)?)", output)
-    if avg_rt_match:
-        metrics["avg_rt_ms"] = float(avg_rt_match.group(1))
-
-    if not metrics:
-        print(f"Warning: Could not parse output for {benchmark_type}:", file=sys.stderr)
-        print(output[:500], file=sys.stderr)
-        metrics["error"] = "parse_failed"
-        metrics["raw_output"] = output[:1000]
-
-    return metrics
+        return BenchmarkResult.model_validate_json(json_line)
+    except Exception as e:
+        print(f"Failed to parse JSON output for {benchmark_type}: {e}", file=sys.stderr)
+        print(f"stdout: {result.stdout[-1500:]}", file=sys.stderr)
+        print(f"stderr: {result.stderr[-1500:]}", file=sys.stderr)
+        return BenchmarkError(
+            error="json_parse_failed",
+            stdout=result.stdout[-2000:] if result.stdout else None,
+            stderr=result.stderr[-2000:] if result.stderr else None,
+        )
 
 
 @click.command()
@@ -143,7 +160,7 @@ def run_benchmark(benchmark_type: str, args: list[str], timeout: int = 300) -> d
 @click.option("--skip-instances", is_flag=True, help="Skip instances benchmark")
 def main(output: str, skip_actions: bool, skip_instances: bool):
     """Run all benchmarks and output results as JSON."""
-    results = {}
+    results: dict[str, dict] = {}
 
     # Check if benchmark binary is available
     if not check_benchmark_available():
@@ -176,7 +193,7 @@ def main(output: str, skip_actions: bool, skip_instances: bool):
                 "--log-interval",
                 "0",
             ],
-        )
+        ).model_dump()
 
     # Instances benchmark - workflow parsing with loops
     if not skip_instances:
@@ -196,7 +213,7 @@ def main(output: str, skip_actions: bool, skip_instances: bool):
                 "--log-interval",
                 "0",
             ],
-        )
+        ).model_dump()
 
     # Write results
     Path(output).write_text(json.dumps(results, indent=2))

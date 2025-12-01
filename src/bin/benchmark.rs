@@ -3,18 +3,50 @@ use std::time::Duration;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use rappel::{
-    AppConfig, BenchmarkHarness, Database, FanoutBenchmarkConfig, FanoutBenchmarkHarness,
-    HarnessConfig, PythonWorkerConfig, StressBenchmarkConfig, StressBenchmarkHarness,
-    WorkflowBenchmarkConfig, WorkflowBenchmarkHarness,
+    AppConfig, BenchmarkHarness, BenchmarkSummary, Database, FanoutBenchmarkConfig,
+    FanoutBenchmarkHarness, HarnessConfig, PythonWorkerConfig, StressBenchmarkConfig,
+    StressBenchmarkHarness, WorkflowBenchmarkConfig, WorkflowBenchmarkHarness,
 };
+use serde::Serialize;
 use tracing::info;
 
 #[derive(Parser)]
 #[command(name = "benchmark")]
 #[command(about = "Rappel benchmark suite for testing throughput and performance")]
 struct Cli {
+    /// Output results as JSON to stdout
+    #[arg(long, global = true)]
+    json: bool,
+
     #[command(subcommand)]
     command: Commands,
+}
+
+/// JSON output format for benchmark results
+#[derive(Serialize)]
+struct BenchmarkOutput {
+    /// Total number of messages/actions processed
+    total: usize,
+    /// Elapsed time in seconds
+    elapsed_s: f64,
+    /// Throughput in messages/actions per second
+    throughput: f64,
+    /// Average round-trip latency in milliseconds
+    avg_round_trip_ms: f64,
+    /// P95 round-trip latency in milliseconds
+    p95_round_trip_ms: f64,
+}
+
+impl From<&BenchmarkSummary> for BenchmarkOutput {
+    fn from(summary: &BenchmarkSummary) -> Self {
+        Self {
+            total: summary.total_messages,
+            elapsed_s: summary.elapsed.as_secs_f64(),
+            throughput: summary.throughput_per_sec,
+            avg_round_trip_ms: summary.avg_round_trip_ms,
+            p95_round_trip_ms: summary.p95_round_trip_ms,
+        }
+    }
 }
 
 #[derive(Subcommand)]
@@ -159,6 +191,8 @@ async fn main() -> Result<()> {
     let pool_size = (10 + worker_count * 5).min(100) as u32;
     let database = Database::connect_with_pool_size(&app_config.database_url, pool_size).await?;
 
+    let json_output = cli.json;
+
     match cli.command {
         Commands::Actions {
             messages,
@@ -176,6 +210,7 @@ async fn main() -> Result<()> {
                 workers,
                 log_interval,
                 user_module,
+                json_output,
             )
             .await
         }
@@ -195,6 +230,7 @@ async fn main() -> Result<()> {
                 concurrency,
                 workers,
                 log_interval,
+                json_output,
             )
             .await
         }
@@ -218,6 +254,7 @@ async fn main() -> Result<()> {
                 concurrency,
                 workers,
                 log_interval,
+                json_output,
             )
             .await
         }
@@ -239,12 +276,14 @@ async fn main() -> Result<()> {
                 concurrency,
                 workers,
                 log_interval,
+                json_output,
             )
             .await
         }
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_actions_benchmark(
     database: Database,
     messages: usize,
@@ -253,6 +292,7 @@ async fn run_actions_benchmark(
     workers: usize,
     log_interval: u64,
     user_module: Option<String>,
+    json_output: bool,
 ) -> Result<()> {
     info!(
         messages,
@@ -277,30 +317,36 @@ async fn run_actions_benchmark(
     };
 
     let summary = harness.run(&config).await?;
-    summary.log();
 
-    println!(
-        "\n=== Actions Benchmark Results ===\n\
-         Total messages:        {}\n\
-         Payload size:          {} bytes\n\
-         Workers:               {}\n\
-         Concurrency/worker:    {}\n\
-         \n\
-         Elapsed time:          {:.2?}\n\
-         Throughput:            {:.0} msg/s\n\
-         P95 round-trip:        {:.2}ms\n",
-        summary.total_messages,
-        payload,
-        workers,
-        concurrency,
-        summary.elapsed,
-        summary.throughput_per_sec,
-        summary.p95_round_trip_ms,
-    );
+    if json_output {
+        let output = BenchmarkOutput::from(&summary);
+        println!("{}", serde_json::to_string(&output)?);
+    } else {
+        summary.log();
+        println!(
+            "\n=== Actions Benchmark Results ===\n\
+             Total messages:        {}\n\
+             Payload size:          {} bytes\n\
+             Workers:               {}\n\
+             Concurrency/worker:    {}\n\
+             \n\
+             Elapsed time:          {:.2?}\n\
+             Throughput:            {:.0} msg/s\n\
+             P95 round-trip:        {:.2}ms\n",
+            summary.total_messages,
+            payload,
+            workers,
+            concurrency,
+            summary.elapsed,
+            summary.throughput_per_sec,
+            summary.p95_round_trip_ms,
+        );
+    }
 
     harness.shutdown().await
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_instances_benchmark(
     database: Database,
     instances: usize,
@@ -309,6 +355,7 @@ async fn run_instances_benchmark(
     concurrency: usize,
     workers: usize,
     log_interval: u64,
+    json_output: bool,
 ) -> Result<()> {
     info!(
         instances,
@@ -331,33 +378,38 @@ async fn run_instances_benchmark(
     };
 
     let summary = harness.run(&config).await?;
-    summary.log();
 
-    let actions = instances * harness.actions_per_instance();
-    let workflow_rate = instances as f64 / summary.elapsed.as_secs_f64().max(1e-9);
+    if json_output {
+        let output = BenchmarkOutput::from(&summary);
+        println!("{}", serde_json::to_string(&output)?);
+    } else {
+        summary.log();
+        let actions = instances * harness.actions_per_instance();
+        let workflow_rate = instances as f64 / summary.elapsed.as_secs_f64().max(1e-9);
 
-    println!(
-        "\n=== Instances Benchmark Results ===\n\
-         Workflow instances:    {}\n\
-         Actions per instance:  {}\n\
-         Total actions:         {}\n\
-         Workers:               {}\n\
-         Concurrency/worker:    {}\n\
-         \n\
-         Elapsed time:          {:.2?}\n\
-         Throughput:            {:.0} actions/s\n\
-         Workflow rate:         {:.2} workflows/s\n\
-         P95 round-trip:        {:.2}ms\n",
-        instances,
-        harness.actions_per_instance(),
-        actions,
-        workers,
-        concurrency,
-        summary.elapsed,
-        summary.throughput_per_sec,
-        workflow_rate,
-        summary.p95_round_trip_ms,
-    );
+        println!(
+            "\n=== Instances Benchmark Results ===\n\
+             Workflow instances:    {}\n\
+             Actions per instance:  {}\n\
+             Total actions:         {}\n\
+             Workers:               {}\n\
+             Concurrency/worker:    {}\n\
+             \n\
+             Elapsed time:          {:.2?}\n\
+             Throughput:            {:.0} actions/s\n\
+             Workflow rate:         {:.2} workflows/s\n\
+             P95 round-trip:        {:.2}ms\n",
+            instances,
+            harness.actions_per_instance(),
+            actions,
+            workers,
+            concurrency,
+            summary.elapsed,
+            summary.throughput_per_sec,
+            workflow_rate,
+            summary.p95_round_trip_ms,
+        );
+    }
 
     harness.shutdown().await
 }
@@ -373,6 +425,7 @@ async fn run_stress_benchmark(
     concurrency: usize,
     workers: usize,
     log_interval: u64,
+    json_output: bool,
 ) -> Result<()> {
     let actions_per_instance = 1 + fan_out + (loop_iterations * 3) + 1 + 1;
     let total_actions = instances * actions_per_instance;
@@ -407,38 +460,43 @@ async fn run_stress_benchmark(
     };
 
     let summary = harness.run(&config).await?;
-    summary.log();
 
-    let workflow_rate = instances as f64 / summary.elapsed.as_secs_f64().max(1e-9);
+    if json_output {
+        let output = BenchmarkOutput::from(&summary);
+        println!("{}", serde_json::to_string(&output)?);
+    } else {
+        summary.log();
+        let workflow_rate = instances as f64 / summary.elapsed.as_secs_f64().max(1e-9);
 
-    println!(
-        "\n=== Stress Benchmark Results ===\n\
-         Workflow instances:    {}\n\
-         Actions per instance:  {}\n\
-         Total actions:         {}\n\
-         Fan-out factor:        {}\n\
-         Loop iterations:       {}\n\
-         Work intensity:        {}\n\
-         Workers:               {}\n\
-         Concurrency/worker:    {}\n\
-         \n\
-         Elapsed time:          {:.2?}\n\
-         Throughput:            {:.0} actions/s\n\
-         Workflow rate:         {:.2} workflows/s\n\
-         P95 round-trip:        {:.2}ms\n",
-        instances,
-        actions_per_instance,
-        total_actions,
-        fan_out,
-        loop_iterations,
-        work_intensity,
-        workers,
-        concurrency,
-        summary.elapsed,
-        summary.throughput_per_sec,
-        workflow_rate,
-        summary.p95_round_trip_ms,
-    );
+        println!(
+            "\n=== Stress Benchmark Results ===\n\
+             Workflow instances:    {}\n\
+             Actions per instance:  {}\n\
+             Total actions:         {}\n\
+             Fan-out factor:        {}\n\
+             Loop iterations:       {}\n\
+             Work intensity:        {}\n\
+             Workers:               {}\n\
+             Concurrency/worker:    {}\n\
+             \n\
+             Elapsed time:          {:.2?}\n\
+             Throughput:            {:.0} actions/s\n\
+             Workflow rate:         {:.2} workflows/s\n\
+             P95 round-trip:        {:.2}ms\n",
+            instances,
+            actions_per_instance,
+            total_actions,
+            fan_out,
+            loop_iterations,
+            work_intensity,
+            workers,
+            concurrency,
+            summary.elapsed,
+            summary.throughput_per_sec,
+            workflow_rate,
+            summary.p95_round_trip_ms,
+        );
+    }
 
     harness.shutdown().await
 }
@@ -453,6 +511,7 @@ async fn run_fanout_benchmark(
     concurrency: usize,
     workers: usize,
     log_interval: u64,
+    json_output: bool,
 ) -> Result<()> {
     // Actions per instance: 1 (setup) + fan_out (parallel) + 1 (finalize)
     let actions_per_instance = 1 + fan_out + 1;
@@ -486,36 +545,41 @@ async fn run_fanout_benchmark(
     };
 
     let summary = harness.run(&config).await?;
-    summary.log();
 
-    let workflow_rate = instances as f64 / summary.elapsed.as_secs_f64().max(1e-9);
+    if json_output {
+        let output = BenchmarkOutput::from(&summary);
+        println!("{}", serde_json::to_string(&output)?);
+    } else {
+        summary.log();
+        let workflow_rate = instances as f64 / summary.elapsed.as_secs_f64().max(1e-9);
 
-    println!(
-        "\n=== Fanout Benchmark Results ===\n\
-         Workflow instances:    {}\n\
-         Actions per instance:  {}\n\
-         Total actions:         {}\n\
-         Fan-out factor:        {}\n\
-         Work intensity:        {}\n\
-         Workers:               {}\n\
-         Concurrency/worker:    {}\n\
-         \n\
-         Elapsed time:          {:.2?}\n\
-         Throughput:            {:.0} actions/s\n\
-         Workflow rate:         {:.2} workflows/s\n\
-         P95 round-trip:        {:.2}ms\n",
-        instances,
-        actions_per_instance,
-        total_actions,
-        fan_out,
-        work_intensity,
-        workers,
-        concurrency,
-        summary.elapsed,
-        summary.throughput_per_sec,
-        workflow_rate,
-        summary.p95_round_trip_ms,
-    );
+        println!(
+            "\n=== Fanout Benchmark Results ===\n\
+             Workflow instances:    {}\n\
+             Actions per instance:  {}\n\
+             Total actions:         {}\n\
+             Fan-out factor:        {}\n\
+             Work intensity:        {}\n\
+             Workers:               {}\n\
+             Concurrency/worker:    {}\n\
+             \n\
+             Elapsed time:          {:.2?}\n\
+             Throughput:            {:.0} actions/s\n\
+             Workflow rate:         {:.2} workflows/s\n\
+             P95 round-trip:        {:.2}ms\n",
+            instances,
+            actions_per_instance,
+            total_actions,
+            fan_out,
+            work_intensity,
+            workers,
+            concurrency,
+            summary.elapsed,
+            summary.throughput_per_sec,
+            workflow_rate,
+            summary.p95_round_trip_ms,
+        );
+    }
 
     harness.shutdown().await
 }
