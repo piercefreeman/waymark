@@ -59,9 +59,26 @@ message ActionCall {
   optional SourceLocation location = 6;
 }
 
-// Parallel execution of multiple actions
+// Invocation of a sub-graph (another method on the workflow class)
+// Pattern: self.method_name(arg1=val1, arg2=val2)
+message SubgraphCall {
+  string method_name = 1;         // Name of the method to invoke
+  map<string, string> kwargs = 2; // Argument expressions as strings
+  optional string target = 3;     // Variable to assign result to
+  optional SourceLocation location = 4;
+}
+
+// A callable unit in gather - either an action or a subgraph
+message GatherCall {
+  oneof kind {
+    ActionCall action = 1;
+    SubgraphCall subgraph = 2;
+  }
+}
+
+// Parallel execution of multiple actions or subgraphs
 message Gather {
-  repeated ActionCall calls = 1;
+  repeated GatherCall calls = 1;
   optional string target = 2;     // Variable to assign tuple result to
   optional SourceLocation location = 3;
 }

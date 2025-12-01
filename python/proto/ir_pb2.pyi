@@ -341,8 +341,129 @@ class ActionCall(google.protobuf.message.Message):
 Global___ActionCall: typing_extensions.TypeAlias = ActionCall
 
 @typing.final
+class SubgraphCall(google.protobuf.message.Message):
+    """Invocation of a sub-graph (another method on the workflow class)
+    Pattern: self.method_name(arg1=val1, arg2=val2)
+    """
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    @typing.final
+    class KwargsEntry(google.protobuf.message.Message):
+        DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+        KEY_FIELD_NUMBER: builtins.int
+        VALUE_FIELD_NUMBER: builtins.int
+        key: builtins.str
+        value: builtins.str
+        def __init__(
+            self,
+            *,
+            key: builtins.str = ...,
+            value: builtins.str = ...,
+        ) -> None: ...
+        def ClearField(
+            self, field_name: typing.Literal["key", b"key", "value", b"value"]
+        ) -> None: ...
+
+    METHOD_NAME_FIELD_NUMBER: builtins.int
+    KWARGS_FIELD_NUMBER: builtins.int
+    TARGET_FIELD_NUMBER: builtins.int
+    LOCATION_FIELD_NUMBER: builtins.int
+    method_name: builtins.str
+    """Name of the method to invoke"""
+    target: builtins.str
+    """Variable to assign result to"""
+    @property
+    def kwargs(self) -> google.protobuf.internal.containers.ScalarMap[builtins.str, builtins.str]:
+        """Argument expressions as strings"""
+
+    @property
+    def location(self) -> Global___SourceLocation: ...
+    def __init__(
+        self,
+        *,
+        method_name: builtins.str = ...,
+        kwargs: collections.abc.Mapping[builtins.str, builtins.str] | None = ...,
+        target: builtins.str | None = ...,
+        location: Global___SourceLocation | None = ...,
+    ) -> None: ...
+    def HasField(
+        self,
+        field_name: typing.Literal[
+            "_location",
+            b"_location",
+            "_target",
+            b"_target",
+            "location",
+            b"location",
+            "target",
+            b"target",
+        ],
+    ) -> builtins.bool: ...
+    def ClearField(
+        self,
+        field_name: typing.Literal[
+            "_location",
+            b"_location",
+            "_target",
+            b"_target",
+            "kwargs",
+            b"kwargs",
+            "location",
+            b"location",
+            "method_name",
+            b"method_name",
+            "target",
+            b"target",
+        ],
+    ) -> None: ...
+    @typing.overload
+    def WhichOneof(
+        self, oneof_group: typing.Literal["_location", b"_location"]
+    ) -> typing.Literal["location"] | None: ...
+    @typing.overload
+    def WhichOneof(
+        self, oneof_group: typing.Literal["_target", b"_target"]
+    ) -> typing.Literal["target"] | None: ...
+
+Global___SubgraphCall: typing_extensions.TypeAlias = SubgraphCall
+
+@typing.final
+class GatherCall(google.protobuf.message.Message):
+    """A callable unit in gather - either an action or a subgraph"""
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    ACTION_FIELD_NUMBER: builtins.int
+    SUBGRAPH_FIELD_NUMBER: builtins.int
+    @property
+    def action(self) -> Global___ActionCall: ...
+    @property
+    def subgraph(self) -> Global___SubgraphCall: ...
+    def __init__(
+        self,
+        *,
+        action: Global___ActionCall | None = ...,
+        subgraph: Global___SubgraphCall | None = ...,
+    ) -> None: ...
+    def HasField(
+        self,
+        field_name: typing.Literal["action", b"action", "kind", b"kind", "subgraph", b"subgraph"],
+    ) -> builtins.bool: ...
+    def ClearField(
+        self,
+        field_name: typing.Literal["action", b"action", "kind", b"kind", "subgraph", b"subgraph"],
+    ) -> None: ...
+    def WhichOneof(
+        self, oneof_group: typing.Literal["kind", b"kind"]
+    ) -> typing.Literal["action", "subgraph"] | None: ...
+
+Global___GatherCall: typing_extensions.TypeAlias = GatherCall
+
+@typing.final
 class Gather(google.protobuf.message.Message):
-    """Parallel execution of multiple actions"""
+    """Parallel execution of multiple actions or subgraphs"""
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
@@ -355,14 +476,14 @@ class Gather(google.protobuf.message.Message):
     def calls(
         self,
     ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
-        Global___ActionCall
+        Global___GatherCall
     ]: ...
     @property
     def location(self) -> Global___SourceLocation: ...
     def __init__(
         self,
         *,
-        calls: collections.abc.Iterable[Global___ActionCall] | None = ...,
+        calls: collections.abc.Iterable[Global___GatherCall] | None = ...,
         target: builtins.str | None = ...,
         location: Global___SourceLocation | None = ...,
     ) -> None: ...

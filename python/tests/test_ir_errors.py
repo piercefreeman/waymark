@@ -372,7 +372,7 @@ class GatherNonActionWorkflow(Workflow):
         with pytest.raises(IRParseError) as exc_info:
             parse_workflow(code, action_defs)
 
-        assert "gather argument must be an action call" in str(exc_info.value).lower()
+        assert "gather argument must be an action or subgraph call" in str(exc_info.value).lower()
 
 
 # =============================================================================

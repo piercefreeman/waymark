@@ -1011,22 +1011,76 @@ class IRParser:
         ):
             return None
 
-        calls: list[ir_pb2.ActionCall] = []
+        calls: list[ir_pb2.GatherCall] = []
         for arg in expr.args:
-            action = self._extract_action_call(arg)
-            if action is None:
+            gather_call = self._extract_gather_call(arg)
+            if gather_call is None:
                 raise IRParseError(
-                    f"gather argument must be an action call: {ast.unparse(arg)}",
+                    f"gather argument must be an action or subgraph call: {ast.unparse(arg)}",
                     arg,
                     _source_location_from_node(arg),
                 )
-            calls.append(action)
+            calls.append(gather_call)
 
         gather = ir_pb2.Gather()
         gather.calls.extend(calls)
         gather.location.CopyFrom(_source_location_from_node(expr))
 
         return gather
+
+    def _extract_gather_call(self, arg: ast.expr) -> ir_pb2.GatherCall | None:
+        """Extract a single gather call - either an action or a subgraph call."""
+        # First try to extract as an action call
+        action = self._extract_action_call(arg)
+        if action is not None:
+            return ir_pb2.GatherCall(action=action)
+
+        # Then try to extract as a subgraph call (self.method())
+        subgraph = self._extract_subgraph_call(arg)
+        if subgraph is not None:
+            return ir_pb2.GatherCall(subgraph=subgraph)
+
+        return None
+
+    def _extract_subgraph_call(self, expr: ast.expr) -> ir_pb2.SubgraphCall | None:
+        """Extract a self.method() call as a subgraph invocation."""
+        if isinstance(expr, ast.Await):
+            expr = expr.value
+
+        if not isinstance(expr, ast.Call):
+            return None
+
+        func = expr.func
+        # Check for self.method pattern
+        if not (
+            isinstance(func, ast.Attribute)
+            and isinstance(func.value, ast.Name)
+            and func.value.id == "self"
+        ):
+            return None
+
+        method_name = func.attr
+
+        # Skip run_action - that's handled elsewhere
+        if method_name == "run_action":
+            return None
+
+        # Extract kwargs
+        kwargs: dict[str, str] = {}
+        for kw in expr.keywords:
+            if kw.arg is not None:
+                kwargs[kw.arg] = ast.unparse(kw.value)
+
+        # Handle positional args as __argN
+        for i, arg in enumerate(expr.args):
+            kwargs[f"__arg{i}"] = ast.unparse(arg)
+
+        subgraph = ir_pb2.SubgraphCall(method_name=method_name)
+        for k, v in kwargs.items():
+            subgraph.kwargs[k] = v
+        subgraph.location.CopyFrom(_source_location_from_node(expr))
+
+        return subgraph
 
     def _extract_sleep(self, expr: ast.expr) -> ir_pb2.Sleep | None:
         """Extract an asyncio.sleep call."""
@@ -1277,15 +1331,29 @@ class IRSerializer:
 
     def _serialize_gather(self, gather: ir_pb2.Gather) -> list[str]:
         calls = []
-        for call in gather.calls:
-            kwargs_str = ", ".join(f"{k}={v}" for k, v in call.kwargs.items())
-            module_prefix = f"{call.module}." if call.HasField("module") else ""
-            calls.append(f"@{module_prefix}{call.action}({kwargs_str})")
+        for gather_call in gather.calls:
+            call_str = self._serialize_gather_call(gather_call)
+            calls.append(call_str)
 
         loc = self._loc_comment(gather.location if gather.HasField("location") else None)
         if gather.HasField("target"):
             return [f"{gather.target} = parallel({', '.join(calls)}){loc}"]
         return [f"parallel({', '.join(calls)}){loc}"]
+
+    def _serialize_gather_call(self, gather_call: ir_pb2.GatherCall) -> str:
+        """Serialize a single gather call (action or subgraph)."""
+        kind = gather_call.WhichOneof("kind")
+        if kind == "action":
+            call = gather_call.action
+            kwargs_str = ", ".join(f"{k}={v}" for k, v in call.kwargs.items())
+            module_prefix = f"{call.module}." if call.HasField("module") else ""
+            return f"@{module_prefix}{call.action}({kwargs_str})"
+        elif kind == "subgraph":
+            call = gather_call.subgraph
+            kwargs_str = ", ".join(f"{k}={v}" for k, v in call.kwargs.items())
+            return f"self.{call.method_name}({kwargs_str})"
+        else:
+            return f"# UNKNOWN gather call: {kind}"
 
     def _serialize_python_block(self, block: ir_pb2.PythonBlock) -> list[str]:
         lines = []

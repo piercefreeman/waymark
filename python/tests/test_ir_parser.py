@@ -195,8 +195,8 @@ class SimpleGatherWorkflow(Workflow):
         gather = workflow.body[0].gather
         assert gather.target == "results"
         assert len(gather.calls) == 2
-        assert gather.calls[0].action == "fetch_left"
-        assert gather.calls[1].action == "fetch_right"
+        assert gather.calls[0].action.action == "fetch_left"
+        assert gather.calls[1].action.action == "fetch_right"
 
     def test_return_gather(self, action_defs: dict[str, ActionDefinition]):
         """Test returning gather result directly."""
@@ -228,9 +228,9 @@ class GatherWithParamsWorkflow(Workflow):
 
         gather = workflow.body[0].gather
         assert len(gather.calls) == 3
-        assert gather.calls[0].kwargs["idx"] == "1"
-        assert gather.calls[1].kwargs["idx"] == "2"
-        assert gather.calls[2].kwargs["idx"] == "3"
+        assert gather.calls[0].action.kwargs["idx"] == "1"
+        assert gather.calls[1].action.kwargs["idx"] == "2"
+        assert gather.calls[2].action.kwargs["idx"] == "3"
 
 
 class TestLoops:
@@ -2166,5 +2166,153 @@ class UnregisteredGatherWorkflow(Workflow):
         with pytest.raises(IRParseError) as exc_info:
             parser.parse_workflow(run_method)
 
-        assert "gather argument must be an action call" in str(exc_info.value)
+        assert "gather argument must be an action or subgraph call" in str(exc_info.value)
         assert "unregistered_func" in str(exc_info.value)
+
+
+class TestSubgraphCallsInGather:
+    """Test gather with self.method() subgraph calls."""
+
+    def test_gather_with_subgraph_calls(
+        self, action_defs: dict[str, ActionDefinition], module_index: ModuleIndex
+    ):
+        """Test gather with self.method() calls (subgraphs)."""
+        code = """
+class SubgraphGatherWorkflow(Workflow):
+    async def run(self) -> tuple:
+        results = await asyncio.gather(self.process_a(), self.process_b())
+        return results
+
+    async def process_a(self) -> int:
+        return await double(value=1)
+
+    async def process_b(self) -> int:
+        return await double(value=2)
+"""
+        workflow = parse_workflow_class(code, action_defs, module_index)
+
+        gather = workflow.body[0].gather
+        assert gather.target == "results"
+        assert len(gather.calls) == 2
+
+        # Both should be subgraph calls
+        assert gather.calls[0].WhichOneof("kind") == "subgraph"
+        assert gather.calls[0].subgraph.method_name == "process_a"
+        assert gather.calls[1].WhichOneof("kind") == "subgraph"
+        assert gather.calls[1].subgraph.method_name == "process_b"
+
+    def test_gather_mixed_actions_and_subgraphs(
+        self, action_defs: dict[str, ActionDefinition], module_index: ModuleIndex
+    ):
+        """Test gather with both actions and self.method() calls."""
+        code = """
+class MixedGatherWorkflow(Workflow):
+    async def run(self) -> tuple:
+        results = await asyncio.gather(
+            fetch_left(),
+            self.custom_process(),
+            fetch_right()
+        )
+        return results
+
+    async def custom_process(self) -> int:
+        x = await double(value=10)
+        return await double(value=x)
+"""
+        workflow = parse_workflow_class(code, action_defs, module_index)
+
+        gather = workflow.body[0].gather
+        assert len(gather.calls) == 3
+
+        # First is action
+        assert gather.calls[0].WhichOneof("kind") == "action"
+        assert gather.calls[0].action.action == "fetch_left"
+
+        # Second is subgraph
+        assert gather.calls[1].WhichOneof("kind") == "subgraph"
+        assert gather.calls[1].subgraph.method_name == "custom_process"
+
+        # Third is action
+        assert gather.calls[2].WhichOneof("kind") == "action"
+        assert gather.calls[2].action.action == "fetch_right"
+
+    def test_subgraph_with_kwargs(
+        self, action_defs: dict[str, ActionDefinition], module_index: ModuleIndex
+    ):
+        """Test subgraph call with keyword arguments."""
+        code = """
+class SubgraphKwargsWorkflow(Workflow):
+    async def run(self, x: int, y: int) -> tuple:
+        results = await asyncio.gather(
+            self.process_value(value=x, multiplier=2),
+            self.process_value(value=y, multiplier=3)
+        )
+        return results
+
+    async def process_value(self, value: int, multiplier: int) -> int:
+        return await double(value=value * multiplier)
+"""
+        workflow = parse_workflow_class(code, action_defs, module_index)
+
+        gather = workflow.body[0].gather
+        assert len(gather.calls) == 2
+
+        call1 = gather.calls[0].subgraph
+        assert call1.method_name == "process_value"
+        assert call1.kwargs["value"] == "x"
+        assert call1.kwargs["multiplier"] == "2"
+
+        call2 = gather.calls[1].subgraph
+        assert call2.method_name == "process_value"
+        assert call2.kwargs["value"] == "y"
+        assert call2.kwargs["multiplier"] == "3"
+
+    def test_subgraph_with_positional_args(
+        self, action_defs: dict[str, ActionDefinition], module_index: ModuleIndex
+    ):
+        """Test subgraph call with positional arguments."""
+        code = """
+class SubgraphPositionalWorkflow(Workflow):
+    async def run(self) -> tuple:
+        results = await asyncio.gather(
+            self.helper(1, 2),
+            self.helper(3, 4)
+        )
+        return results
+
+    async def helper(self, a: int, b: int) -> int:
+        return await double(value=a + b)
+"""
+        workflow = parse_workflow_class(code, action_defs, module_index)
+
+        gather = workflow.body[0].gather
+        call1 = gather.calls[0].subgraph
+        assert call1.method_name == "helper"
+        assert call1.kwargs["__arg0"] == "1"
+        assert call1.kwargs["__arg1"] == "2"
+
+    def test_serialize_subgraph_in_gather(
+        self, action_defs: dict[str, ActionDefinition], module_index: ModuleIndex
+    ):
+        """Test serialization of gather with subgraph calls."""
+        code = """
+class SerializeSubgraphWorkflow(Workflow):
+    async def run(self) -> tuple:
+        results = await asyncio.gather(
+            fetch_left(),
+            self.my_subgraph(x=10)
+        )
+        return results
+
+    async def my_subgraph(self, x: int) -> int:
+        return await double(value=x)
+"""
+        workflow = parse_workflow_class(code, action_defs, module_index)
+
+        serializer = IRSerializer()
+        text = serializer.serialize(workflow)
+
+        # Should show both action and subgraph in parallel
+        assert "parallel(" in text
+        assert "@example_module.fetch_left()" in text
+        assert "self.my_subgraph(x=10)" in text
