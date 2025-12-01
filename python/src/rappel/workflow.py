@@ -9,12 +9,15 @@ from functools import wraps
 from threading import RLock
 from typing import Any, Awaitable, ClassVar, Dict, Optional, Sequence, TextIO, TypeVar
 
+from proto import ir_pb2
 from proto import messages_pb2 as pb2
 
 from . import bridge
 from .actions import deserialize_result_payload
 from .formatter import Formatter, supports_color
+from .ir import ActionDefinition, IRParser, ModuleIndex
 from .logger import configure as configure_logger
+from .registry import registry
 from .serialization import build_arguments_from_kwargs
 from .workflow_dag import (
     DagNode,
@@ -122,70 +125,56 @@ class Workflow:
         return cls._workflow_dag
 
     @classmethod
+    def _build_ir(cls) -> ir_pb2.Workflow:
+        """Parse the workflow's run() method into IR."""
+        # Get the source code of the run method
+        run_method = cls.__workflow_run_impl__ if hasattr(cls, "__workflow_run_impl__") else cls.run
+        source = inspect.getsource(run_method)
+        source = _dedent_source(source)
+
+        # Parse the AST
+        tree = ast.parse(source)
+        func_def = tree.body[0]
+        if not isinstance(func_def, ast.AsyncFunctionDef):
+            raise TypeError("run() method must be async")
+
+        # Build action definitions from registry
+        action_defs = _build_action_definitions()
+
+        # Get module source for resolving imports/definitions
+        module = inspect.getmodule(cls)
+        module_index = None
+        if module and hasattr(module, "__file__") and module.__file__:
+            try:
+                module_source = inspect.getsource(module)
+                module_index = ModuleIndex(module_source)
+            except (OSError, TypeError):
+                pass
+
+        # Parse to IR
+        parser = IRParser(action_defs, module_index=module_index, source=source)
+        workflow_ir = parser.parse_workflow(func_def)
+
+        return workflow_ir
+
+    @classmethod
     def _build_registration_payload(
         cls, initial_context: Optional[pb2.WorkflowArguments] = None
     ) -> pb2.WorkflowRegistration:
-        dag = cls.workflow_dag()
-        dag_definition = pb2.WorkflowDagDefinition(concurrent=cls.concurrent)
-        for node in dag.nodes:
-            proto_node = pb2.WorkflowDagNode(
-                id=node.id,
-                action=node.action,
-                module=node.module or "",
-                depends_on=list(node.depends_on),
-                wait_for_sync=list(node.wait_for_sync),
-                produces=list(node.produces),
-            )
-            proto_node.kwargs.update(node.kwargs)
-            if node.loop:
-                proto_node.loop.iterable_expr = node.loop.iterable_expr
-                proto_node.loop.loop_var = node.loop.loop_var
-                proto_node.loop.accumulator = node.loop.accumulator
-                proto_node.loop.preamble = node.loop.preamble or ""
-                proto_node.loop.body_action = node.loop.body_action
-                if node.loop.body_module:
-                    proto_node.loop.body_module = node.loop.body_module
-                proto_node.loop.body_kwargs.update(node.loop.body_kwargs)
-            if node.guard:
-                proto_node.guard = node.guard
-            _populate_node_ast(proto_node, node)
-            if node.timeout_seconds is not None:
-                proto_node.timeout_seconds = node.timeout_seconds
-            if node.max_retries is not None:
-                proto_node.max_retries = node.max_retries
-            if node.backoff is not None:
-                proto_node.backoff.CopyFrom(node.backoff.to_proto())
-            for edge in node.exception_edges:
-                proto_edge = proto_node.exception_edges.add()
-                proto_edge.source_node_id = edge.source_node_id
-                if edge.exception_type:
-                    proto_edge.exception_type = edge.exception_type
-                if edge.exception_module:
-                    proto_edge.exception_module = edge.exception_module
-            # Cycle-based loop support
-            proto_node.node_type = _node_type_to_proto(node.node_type)
-            if node.loop_head_meta:
-                proto_node.loop_head_meta.CopyFrom(_loop_head_meta_to_proto(node.loop_head_meta))
-            if node.loop_id:
-                proto_node.loop_id = node.loop_id
-            dag_definition.nodes.append(proto_node)
-        # Add explicit edges
-        for edge in dag.edges:
-            proto_edge = pb2.DagEdge(
-                from_node=edge.from_node,
-                to_node=edge.to_node,
-                edge_type=_edge_type_to_proto(edge.edge_type),
-            )
-            dag_definition.edges.append(proto_edge)
-        if dag.return_variable:
-            dag_definition.return_variable = dag.return_variable
-        dag_bytes = dag_definition.SerializeToString()
-        dag_hash = hashlib.sha256(dag_bytes).hexdigest()
+        # Build the IR
+        workflow_ir = cls._build_ir()
+
+        # Hash the IR for versioning
+        ir_bytes = workflow_ir.SerializeToString()
+        ir_hash = hashlib.sha256(ir_bytes).hexdigest()
+
         message = pb2.WorkflowRegistration(
             workflow_name=cls.short_name(),
-            dag=dag_definition,
-            dag_hash=dag_hash,
+            dag_hash=ir_hash,
+            concurrent=cls.concurrent,
         )
+        message.ir.CopyFrom(workflow_ir)
+
         if initial_context:
             message.initial_context.CopyFrom(initial_context)
         return message
@@ -891,6 +880,39 @@ _UNARY_OP_KIND: dict[type[ast.AST], pb2.UnaryOpKind] = {
 
 def _running_under_pytest() -> bool:
     return bool(os.environ.get("PYTEST_CURRENT_TEST"))
+
+
+def _dedent_source(source: str) -> str:
+    """Dedent source code while preserving relative indentation."""
+    import textwrap
+
+    return textwrap.dedent(source)
+
+
+def _build_action_definitions() -> dict[str, ActionDefinition]:
+    """Build ActionDefinition dict from the registry for the IR parser."""
+    action_defs: dict[str, ActionDefinition] = {}
+
+    for name in registry.names():
+        func = registry.get(name)
+        if func is None:
+            continue
+
+        # Get param names from signature
+        sig = inspect.signature(func)
+        param_names = [p for p in sig.parameters.keys()]
+
+        # Get module from function attribute
+        module = getattr(func, "__rappel_action_module__", func.__module__)
+
+        action_defs[name] = ActionDefinition(
+            name=name,
+            module=module,
+            signature=sig,
+            param_names=param_names,
+        )
+
+    return action_defs
 
 
 def _skip_wait_for_instance() -> bool:

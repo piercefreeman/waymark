@@ -3,6 +3,7 @@ syntax = "proto3";
 package rappel.messages;
 
 import "google/protobuf/struct.proto";
+import "ir.proto";
 
 // Basic transport messages for Rust <-> Python worker communication.
 enum MessageKind {
@@ -396,9 +397,14 @@ message Dict {
 
 message WorkflowRegistration {
   string workflow_name = 1;
+  // DEPRECATED: Use ir field instead. DAG is now computed on Rust side from IR.
   WorkflowDagDefinition dag = 2;
   string dag_hash = 3;
   WorkflowArguments initial_context = 4;
+  // The workflow IR - this is parsed by Rust into a DAG
+  rappel.ir.Workflow ir = 5;
+  // Concurrent execution mode
+  bool concurrent = 6;
 }
 
 message WorkflowNodeContext {

@@ -7,6 +7,7 @@ use tokio::{runtime::Runtime, time::sleep};
 
 use crate::{
     WorkflowInstanceId, WorkflowVersionId, db::Database, messages::proto::WorkflowRegistration,
+    ir_to_dag::convert_workflow,
 };
 
 pub async fn run_instance_payload(
@@ -15,24 +16,45 @@ pub async fn run_instance_payload(
 ) -> Result<(WorkflowVersionId, WorkflowInstanceId)> {
     let registration = WorkflowRegistration::decode(payload)
         .context("failed to decode workflow registration payload")?;
-    let dag_def = registration
-        .dag
-        .context("workflow registration missing dag definition")?;
+
+    // Get the DAG - either from IR (preferred) or legacy dag field
+    let (dag_def, from_ir) = if let Some(ref ir) = registration.ir {
+        // Convert IR to DAG
+        let dag = convert_workflow(ir, registration.concurrent)
+            .map_err(|e| anyhow::anyhow!("failed to convert IR to DAG: {}", e))?;
+        (dag, true)
+    } else if let Some(dag) = registration.dag.clone() {
+        // Legacy path: use provided DAG directly
+        (dag, false)
+    } else {
+        anyhow::bail!("workflow registration missing both ir and dag");
+    };
+
     let dag_bytes = dag_def.encode_to_vec();
-    let provided_hash = registration.dag_hash;
+    let provided_hash = &registration.dag_hash;
     let computed_hash = format!("{:x}", Sha256::digest(&dag_bytes));
-    if !provided_hash.is_empty() && provided_hash != computed_hash {
-        tracing::warn!(
-            provided = provided_hash,
-            computed = computed_hash,
-            "workflow hash mismatch - using computed value"
-        );
-    }
+
+    // For IR-based registrations, the hash is of the IR not the DAG,
+    // so we just use the computed DAG hash
+    let hash_to_use = if from_ir {
+        computed_hash.clone()
+    } else {
+        // Legacy path: warn if hashes don't match
+        if !provided_hash.is_empty() && provided_hash != &computed_hash {
+            tracing::warn!(
+                provided = provided_hash,
+                computed = computed_hash,
+                "workflow hash mismatch - using computed value"
+            );
+        }
+        computed_hash
+    };
+
     let db = Database::connect(database_url).await?;
     let version_id = db
         .upsert_workflow_version(
             &registration.workflow_name,
-            &computed_hash,
+            &hash_to_use,
             &dag_bytes,
             dag_def.concurrent,
         )
