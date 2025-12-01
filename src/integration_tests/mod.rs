@@ -314,8 +314,9 @@ async fn purge_empty_input_instances(db: &Database) -> Result<()> {
     Ok(())
 }
 
-/// Create a synthetic completion record for sleep actions (handled by scheduler, not workers).
-fn create_sleep_completion_record(action: &crate::LedgerAction) -> CompletionRecord {
+/// Create a synthetic completion record for synthetic actions (handled by scheduler, not workers).
+/// This includes sleep actions and control-flow nodes like __gather_sync and __conditional_join.
+fn create_synthetic_completion_record(action: &crate::LedgerAction) -> CompletionRecord {
     // Create a proper result payload with a null value for the "result" key
     let result_payload = proto::WorkflowArguments {
         arguments: vec![proto::WorkflowArgument {
@@ -364,10 +365,14 @@ async fn dispatch_all_actions(
         let mut batch_records = Vec::new();
         let mut batch_metrics = Vec::new();
         for action in actions {
-            // Sleep actions are auto-completed by the scheduler - they were queued with
-            // a future scheduled_at time and are picked up once that time has passed
-            if action.function_name == "sleep" {
-                let record = create_sleep_completion_record(&action);
+            // Synthetic actions are auto-completed by the scheduler, not dispatched to workers.
+            // This includes sleep, __gather_sync, __conditional_join, __loop_head, etc.
+            if action.function_name == "sleep"
+                || action.function_name == "__gather_sync"
+                || action.function_name == "__conditional_join"
+                || action.function_name == "__loop_head"
+            {
+                let record = create_synthetic_completion_record(&action);
                 batch_records.push(record);
                 continue;
             }

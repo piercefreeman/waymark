@@ -1023,3 +1023,163 @@ mod tests {
         assert!(result.as_i64().is_some());
     }
 }
+
+/// Evaluate a simple string expression like "value >= 75" or "x and y"
+/// This is used for guard expressions from the IR-to-DAG converter
+pub fn eval_string_expr(expr: &str, ctx: &EvalContext) -> Result<Value> {
+    let expr = expr.trim();
+
+    // Handle boolean operators (lowest precedence)
+    if let Some(pos) = find_keyword_operator(expr, " and ") {
+        let left = eval_string_expr(&expr[..pos], ctx)?;
+        if !is_truthy(&left) {
+            return Ok(left);
+        }
+        return eval_string_expr(&expr[pos + 5..], ctx);
+    }
+    if let Some(pos) = find_keyword_operator(expr, " or ") {
+        let left = eval_string_expr(&expr[..pos], ctx)?;
+        if is_truthy(&left) {
+            return Ok(left);
+        }
+        return eval_string_expr(&expr[pos + 4..], ctx);
+    }
+
+    // Handle "not" prefix
+    if expr.starts_with("not ") {
+        let inner = eval_string_expr(&expr[4..], ctx)?;
+        return Ok(Value::Bool(!is_truthy(&inner)));
+    }
+
+    // Handle parentheses
+    if expr.starts_with('(') && expr.ends_with(')') {
+        // Find matching closing paren
+        let mut depth = 0;
+        let mut found_close = false;
+        for (i, c) in expr.chars().enumerate() {
+            match c {
+                '(' => depth += 1,
+                ')' => {
+                    depth -= 1;
+                    if depth == 0 && i == expr.len() - 1 {
+                        found_close = true;
+                    }
+                }
+                _ => {}
+            }
+        }
+        if found_close {
+            return eval_string_expr(&expr[1..expr.len() - 1], ctx);
+        }
+    }
+
+    // Handle comparison operators
+    for (op_str, cmp_kind) in &[
+        (">=", proto::CmpOpKind::GtE),
+        ("<=", proto::CmpOpKind::LtE),
+        ("==", proto::CmpOpKind::Eq),
+        ("!=", proto::CmpOpKind::NotEq),
+        (">", proto::CmpOpKind::Gt),
+        ("<", proto::CmpOpKind::Lt),
+    ] {
+        if let Some(pos) = expr.find(op_str) {
+            let left = eval_string_expr(&expr[..pos], ctx)?;
+            let right = eval_string_expr(&expr[pos + op_str.len()..], ctx)?;
+            let result = match cmp_kind {
+                proto::CmpOpKind::Eq => left == right,
+                proto::CmpOpKind::NotEq => left != right,
+                proto::CmpOpKind::Lt => to_f64(&left)? < to_f64(&right)?,
+                proto::CmpOpKind::LtE => to_f64(&left)? <= to_f64(&right)?,
+                proto::CmpOpKind::Gt => to_f64(&left)? > to_f64(&right)?,
+                proto::CmpOpKind::GtE => to_f64(&left)? >= to_f64(&right)?,
+                _ => return Err(anyhow!("unsupported compare op in string expr")),
+            };
+            return Ok(Value::Bool(result));
+        }
+    }
+
+    // Handle arithmetic operators
+    for (op_str, op_kind) in &[
+        ("+", proto::BinOpKind::Add),
+        ("-", proto::BinOpKind::Sub),
+        ("*", proto::BinOpKind::Mult),
+        ("/", proto::BinOpKind::Div),
+        ("%", proto::BinOpKind::Mod),
+    ] {
+        if let Some(pos) = expr.rfind(op_str) {
+            if pos > 0 {
+                let left = eval_string_expr(&expr[..pos], ctx)?;
+                let right = eval_string_expr(&expr[pos + op_str.len()..], ctx)?;
+                return eval_bin_op(&left, &right, *op_kind);
+            }
+        }
+    }
+
+    // Handle literals and variables
+    let expr = expr.trim();
+
+    // Integer literal
+    if let Ok(n) = expr.parse::<i64>() {
+        return Ok(Value::Number(Number::from(n)));
+    }
+    // Float literal
+    if let Ok(n) = expr.parse::<f64>() {
+        if let Some(num) = Number::from_f64(n) {
+            return Ok(Value::Number(num));
+        }
+    }
+    // Boolean literals
+    if expr == "True" || expr == "true" {
+        return Ok(Value::Bool(true));
+    }
+    if expr == "False" || expr == "false" {
+        return Ok(Value::Bool(false));
+    }
+    // None
+    if expr == "None" || expr == "null" {
+        return Ok(Value::Null);
+    }
+    // String literal
+    if (expr.starts_with('"') && expr.ends_with('"'))
+        || (expr.starts_with('\'') && expr.ends_with('\''))
+    {
+        return Ok(Value::String(expr[1..expr.len() - 1].to_string()));
+    }
+    // Variable lookup
+    ctx.get(expr)
+        .cloned()
+        .with_context(|| format!("variable '{}' not found in context", expr))
+}
+
+/// Find a keyword operator, avoiding matches inside parentheses or strings
+fn find_keyword_operator(expr: &str, op: &str) -> Option<usize> {
+    let mut paren_depth = 0;
+    let mut in_string = false;
+    let mut string_char = ' ';
+
+    for (i, c) in expr.chars().enumerate() {
+        if in_string {
+            if c == string_char {
+                in_string = false;
+            }
+            continue;
+        }
+        if c == '"' || c == '\'' {
+            in_string = true;
+            string_char = c;
+            continue;
+        }
+        if c == '(' {
+            paren_depth += 1;
+            continue;
+        }
+        if c == ')' {
+            paren_depth -= 1;
+            continue;
+        }
+        if paren_depth == 0 && expr[i..].starts_with(op) {
+            return Some(i);
+        }
+    }
+    None
+}

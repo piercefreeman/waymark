@@ -16,7 +16,7 @@ use uuid::Uuid;
 
 use crate::{
     LedgerActionId, WorkflowInstanceId, WorkflowVersionId,
-    ast_eval::{EvalContext, eval_expr, eval_stmt},
+    ast_eval::{EvalContext, eval_expr, eval_stmt, eval_string_expr},
     context::{
         DecodedPayload, argument_value_to_json, arguments_to_json, decode_payload,
         values_to_arguments,
@@ -49,6 +49,10 @@ fn compute_deps_required(node: &WorkflowDagNode, _concurrent: bool) -> i16 {
         .iter()
         .map(|e| e.source_node_id.as_str())
         .collect();
+
+    // __conditional_join needs ALL branches to complete (even skipped ones)
+    // so it can properly merge non-null values from the executed branch
+
     (node.depends_on.len() + exception_sources.len()) as i16
 }
 
@@ -296,6 +300,12 @@ fn extract_variables_from_result(
 }
 
 fn guard_allows(node: &WorkflowDagNode, ctx: &EvalContext) -> Result<bool> {
+    // Check string guard field first (used by IR-to-DAG converter)
+    if !node.guard.is_empty() {
+        let value = eval_string_expr(&node.guard, ctx)?;
+        return Ok(is_truthy_value(&value));
+    }
+    // Fallback to legacy AST guard
     let Some(ast) = node.ast.as_ref() else {
         return Ok(true);
     };
@@ -3381,6 +3391,110 @@ impl Database {
                 }
             }
 
+            // Handle __conditional_join nodes: forward ALL values from the branch that executed
+            // The join depends on all branch ends but only one executes. We need to forward
+            // all variables from whichever branch completed (stored in pending_context).
+            // This includes both the target variable (like `result`) and any other variables
+            // set in the branch postamble (like `branch`).
+            if node.action == "__conditional_join" {
+                // Get the pending context for this join node - it should have all variables from the executed branch
+                let pending_ctx: Vec<(String, Option<Vec<u8>>)> = sqlx::query_as(
+                    "SELECT variable, payload FROM node_pending_context WHERE instance_id = $1 AND node_id = $2",
+                )
+                .bind(instance_id)
+                .bind(&completion.node_id)
+                .fetch_all(tx.as_mut())
+                .await?;
+
+                // Process ALL variables in the pending context
+                for (variable, payload_opt) in pending_ctx {
+                    if variable.is_empty() {
+                        continue;
+                    }
+                    if let Some(payload_bytes) = payload_opt {
+                        if let Ok(arguments) = decode_arguments(&payload_bytes, "conditional join context") {
+                            if let Ok(decoded) = decode_payload(&arguments) {
+                                // Extract the actual value from the branch result
+                                if let Some(result) = decoded.result.as_ref() {
+                                    let value = match variable_map_from_value(result) {
+                                        Some(VariableMapSource::WorkflowNodeResult(map)) => {
+                                            map.get(&variable).cloned()
+                                        }
+                                        _ => Some(result.clone())
+                                    };
+                                    if let Some(v) = value {
+                                        let update_json = serde_json::json!({ &variable: v });
+                                        sqlx::query(
+                                            r#"
+                                            UPDATE instance_eval_context
+                                            SET context_json = context_json || $2
+                                            WHERE instance_id = $1
+                                            "#,
+                                        )
+                                        .bind(instance_id)
+                                        .bind(update_json)
+                                        .execute(tx.as_mut())
+                                        .await?;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Handle __gather_sync nodes: collect all item* variables and combine into array
+            if node.action == "__gather_sync" && !node.produces.is_empty() {
+                let target_var = &node.produces[0];
+                // Get current context to find all {target}__item* variables
+                let ctx_json: Option<Value> = sqlx::query_scalar(
+                    "SELECT context_json FROM instance_eval_context WHERE instance_id = $1",
+                )
+                .bind(instance_id)
+                .fetch_optional(tx.as_mut())
+                .await?;
+
+                if let Some(ctx) = ctx_json {
+                    if let Some(ctx_obj) = ctx.as_object() {
+                        // Find all {target}__item* variables and collect them in order
+                        let prefix = format!("{}__item", target_var);
+                        let mut items: Vec<(usize, &Value)> = ctx_obj
+                            .iter()
+                            .filter_map(|(k, v)| {
+                                if k.starts_with(&prefix) {
+                                    // Extract the index from {target}__item{index}
+                                    k[prefix.len()..].parse::<usize>().ok().map(|idx| (idx, v))
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect();
+
+                        // Sort by index to maintain order
+                        items.sort_by_key(|(idx, _)| *idx);
+
+                        // Create array from values
+                        let array: Vec<Value> = items.into_iter().map(|(_, v)| v.clone()).collect();
+
+                        if !array.is_empty() {
+                            // Store the combined array in eval_context
+                            let update_json = serde_json::json!({ target_var: array });
+                            sqlx::query(
+                                r#"
+                                UPDATE instance_eval_context
+                                SET context_json = context_json || $2
+                                WHERE instance_id = $1
+                                "#,
+                            )
+                            .bind(instance_id)
+                            .bind(update_json)
+                            .execute(tx.as_mut())
+                            .await?;
+                        }
+                    }
+                }
+            }
+
             // Handle back edges: if this node is a back edge source (loop body tail),
             // we need to update loop state and re-enable the loop_head for next iteration
             if let Some(loop_head_id) = get_back_edge_target(&completion.node_id, dag)
@@ -3854,8 +3968,10 @@ impl Database {
                             // Encode each variable separately to avoid extraction issues
                             let loop_var_payload = encode_value_result(&current_item)?;
 
-                            // Push context to body entry nodes
-                            for body_entry in &body_entries {
+                            // Push context to ALL body nodes (not just body_entries)
+                            // This ensures that chained preamble nodes all have access to the loop variable and accumulator
+                            let all_body_nodes = &loop_meta.body_nodes;
+                            for body_node in all_body_nodes {
                                 // Push loop variable
                                 sqlx::query(
                                         r#"
@@ -3865,7 +3981,7 @@ impl Database {
                                         "#,
                                     )
                                     .bind(instance_id)
-                                    .bind(*body_entry)
+                                    .bind(body_node)
                                     .bind(&ready_node_id)
                                     .bind(&loop_meta.loop_var)
                                     .bind(Some(loop_var_payload.encode_to_vec()))
@@ -3886,7 +4002,7 @@ impl Database {
                                             "#,
                                         )
                                         .bind(instance_id)
-                                        .bind(*body_entry)
+                                        .bind(body_node)
                                         .bind(&ready_node_id)
                                         .bind(&acc.var)
                                         .bind(Some(acc_payload.encode_to_vec()))
@@ -3895,7 +4011,7 @@ impl Database {
                                 }
                             }
                         } else {
-                            // Break edge: loop finished, unlock exit_target
+                            // Loop finished: unlock downstream nodes via Break edges OR regular depends_on
                             let break_targets = get_downstream_nodes_by_edge_type(
                                 &ready_node_id,
                                 dag,
@@ -3911,6 +4027,28 @@ impl Database {
                                 )
                                 .bind(instance_id)
                                 .bind(&break_targets)
+                                .execute(tx.as_mut())
+                                .await?;
+                            }
+
+                            // Also unlock nodes that depend on loop_head via regular depends_on
+                            // (IR-based loops use depends_on rather than Break edges for downstream nodes)
+                            let downstream_nodes: Vec<&str> = dag
+                                .nodes
+                                .iter()
+                                .filter(|n| n.depends_on.contains(&ready_node_id))
+                                .map(|n| n.id.as_str())
+                                .collect();
+                            if !downstream_nodes.is_empty() {
+                                sqlx::query(
+                                    r#"
+                                        UPDATE node_ready_state
+                                        SET deps_satisfied = deps_satisfied + 1
+                                        WHERE instance_id = $1 AND node_id = ANY($2)
+                                        "#,
+                                )
+                                .bind(instance_id)
+                                .bind(&downstream_nodes)
                                 .execute(tx.as_mut())
                                 .await?;
                             }
@@ -3982,7 +4120,7 @@ impl Database {
                             )
                             .await?;
 
-                            // Push each accumulator to exit targets
+                            // Push each accumulator to exit targets (Break edges)
                             for exit_target in &break_targets {
                                 for acc in &loop_meta.accumulators {
                                     let acc_values =
@@ -3999,6 +4137,31 @@ impl Database {
                                         )
                                         .bind(instance_id)
                                         .bind(*exit_target)
+                                        .bind(&ready_node_id)
+                                        .bind(&acc.var)
+                                        .bind(&payload_bytes)
+                                        .execute(tx.as_mut())
+                                        .await?;
+                                }
+                            }
+
+                            // Push accumulators to downstream nodes (depends_on edges)
+                            for downstream_node in &downstream_nodes {
+                                for acc in &loop_meta.accumulators {
+                                    let acc_values =
+                                        accumulators.get(&acc.var).cloned().unwrap_or_default();
+                                    let acc_payload =
+                                        encode_value_result(&Value::Array(acc_values))?;
+                                    let payload_bytes = Some(acc_payload.encode_to_vec());
+                                    sqlx::query(
+                                            r#"
+                                            INSERT INTO node_pending_context (instance_id, node_id, source_node_id, variable, payload)
+                                            VALUES ($1, $2, $3, $4, $5)
+                                            ON CONFLICT (instance_id, node_id, source_node_id, variable) DO UPDATE SET payload = $5
+                                            "#,
+                                        )
+                                        .bind(instance_id)
+                                        .bind(*downstream_node)
                                         .bind(&ready_node_id)
                                         .bind(&acc.var)
                                         .bind(&payload_bytes)
@@ -4377,10 +4540,35 @@ impl Database {
 
                     // Queue real action (non-loop nodes)
                     let resolved_kwargs = evaluate_kwargs(ready_node, &eval_ctx)?;
+
+                    // For python_block nodes, include the full eval_context so they can access
+                    // all variables set by previous nodes (not just their direct dependencies)
+                    let mut dispatch_contexts = contexts;
+                    if ready_node.action == "python_block" {
+                        // Add all variables from eval_context that aren't already in contexts
+                        for (key, value) in &eval_ctx {
+                            // Skip internal variables and ones already in context
+                            if key.starts_with("__") {
+                                continue;
+                            }
+                            if dispatch_contexts.iter().any(|c| c.variable == *key) {
+                                continue;
+                            }
+                            // Encode the value and add to contexts
+                            if let Ok(payload) = encode_value_result(value) {
+                                dispatch_contexts.push(WorkflowNodeContext {
+                                    variable: key.clone(),
+                                    payload: Some(payload),
+                                    workflow_node_id: String::new(),
+                                });
+                            }
+                        }
+                    }
+
                     let queued = build_action_dispatch(
                         ready_node.clone(),
                         workflow_input,
-                        contexts,
+                        dispatch_contexts,
                         resolved_kwargs,
                     )?;
                     let dispatch_bytes = queued.dispatch.encode_to_vec();
