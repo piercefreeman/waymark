@@ -137,16 +137,26 @@ async def _handle_incoming_stream(
     worker_id: int,
     outgoing: "asyncio.Queue[pb2.Envelope]",
 ) -> None:
+    """Process incoming messages, running action dispatches concurrently."""
+    pending_tasks: set[asyncio.Task[None]] = set()
+
     async for envelope in stub.Attach(_outgoing_stream(outgoing, worker_id)):
         kind = envelope.kind
         if kind == pb2.MessageKind.MESSAGE_KIND_ACTION_DISPATCH:
-            await _handle_dispatch(envelope, outgoing)
+            # Spawn task to handle dispatch concurrently
+            task = asyncio.create_task(_handle_dispatch(envelope, outgoing))
+            pending_tasks.add(task)
+            task.add_done_callback(pending_tasks.discard)
         elif kind == pb2.MessageKind.MESSAGE_KIND_HEARTBEAT:
             LOGGER.debug("Received heartbeat delivery=%s", envelope.delivery_id)
             await _send_ack(outgoing, envelope)
         else:
             LOGGER.warning("Unhandled message kind: %s", kind)
             await _send_ack(outgoing, envelope)
+
+    # Wait for any remaining tasks on stream close
+    if pending_tasks:
+        await asyncio.gather(*pending_tasks, return_exceptions=True)
 
 
 async def _run_worker(args: argparse.Namespace) -> None:

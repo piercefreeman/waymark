@@ -69,6 +69,70 @@ message ExponentialBackoff {
   double multiplier = 2;     // Exponential multiplier (default 2.0 if not set)
 }
 
+// Node types for distinguishing action nodes from synthetic control nodes
+enum NodeType {
+  NODE_TYPE_UNSPECIFIED = 0;
+  NODE_TYPE_ACTION = 1;       // Regular action node executed by workers
+  NODE_TYPE_LOOP_HEAD = 2;    // Synthetic loop control node (evaluated by scheduler)
+}
+
+// Edge types for DAG traversal
+enum EdgeType {
+  EDGE_TYPE_UNSPECIFIED = 0;
+  EDGE_TYPE_FORWARD = 1;      // Normal dependency edge
+  EDGE_TYPE_CONTINUE = 2;     // Loop head -> body (more iterations)
+  EDGE_TYPE_BREAK = 3;        // Loop head -> exit (iterator exhausted)
+  EDGE_TYPE_BACK = 4;         // Loop body tail -> loop head (iteration complete)
+}
+
+// Represents an edge in the DAG with its type
+message DagEdge {
+  string from_node = 1;
+  string to_node = 2;
+  EdgeType edge_type = 3;
+}
+
+// Metadata for loop_head synthetic nodes
+message LoopHeadMeta {
+  string iterator_source = 1;          // Node ID that produces the iterator
+  string loop_var = 2;                 // Variable name for current item (e.g., "seed")
+  repeated string body_entry = 3;      // Entry node(s) for loop body (parallel if multiple)
+  string body_tail = 4;                // Last node before back edge
+  string exit_target = 5;              // Node to execute after loop completes
+  repeated AccumulatorSpec accumulators = 6;  // Variables to collect across iterations
+  repeated PreambleOp preamble = 7;    // Pure computations before each iteration
+  repeated string body_nodes = 8;      // All nodes in loop body (for reset on back edge)
+}
+
+// Specifies how to collect values into an accumulator across iterations
+message AccumulatorSpec {
+  string var = 1;                      // Python variable name (e.g., "results")
+  optional string source_node = 2;     // Node whose result to append (if from action result)
+  optional string source_expr = 3;     // Expression to evaluate (if from iterator/computed)
+}
+
+// Pure computation operations evaluated by scheduler (no worker round-trip)
+message PreambleOp {
+  oneof op {
+    SetIteratorIndex set_iterator_index = 1;   // var = current iteration index
+    SetIteratorValue set_iterator_value = 2;   // var = iterator[index]
+    SetAccumulatorLen set_accumulator_len = 3; // var = len(accumulator)
+  }
+}
+
+message SetIteratorIndex {
+  string var = 1;
+}
+
+message SetIteratorValue {
+  string var = 1;
+}
+
+message SetAccumulatorLen {
+  string var = 1;
+  string accumulator = 2;  // Which accumulator to get length from
+}
+
 message WorkflowDagNode {
   string id = 1;
   string action = 2;
@@ -85,12 +149,19 @@ message WorkflowDagNode {
   optional WorkflowLoopSpec loop = 13;
   optional WorkflowNodeAst ast = 14;
   optional BackoffPolicy backoff = 15;
+  // New fields for cycle-based loops
+  NodeType node_type = 16;
+  optional LoopHeadMeta loop_head_meta = 17;  // Present when node_type == LOOP_HEAD
+  optional string loop_id = 18;               // For body nodes: which loop they belong to
 }
 
 message WorkflowDagDefinition {
   bool concurrent = 1;
   repeated WorkflowDagNode nodes = 2;
   string return_variable = 3;
+  // Explicit edges with types (for cycle-based loops)
+  // If empty, edges are inferred from depends_on/wait_for_sync (backward compat)
+  repeated DagEdge edges = 4;
 }
 
 message WorkflowExceptionEdge {
@@ -181,7 +252,21 @@ message Stmt {
   oneof kind {
     Assign assign = 1;
     Expr expr = 2;
+    For for_stmt = 3;
+    AugAssign aug_assign = 4;
   }
+}
+
+message For {
+  Expr target = 1;
+  Expr iter = 2;
+  repeated Stmt body = 3;
+}
+
+message AugAssign {
+  Expr target = 1;
+  BinOpKind op = 2;
+  Expr value = 3;
 }
 
 message Assign {

@@ -55,9 +55,24 @@ def _build_context(
             if variable in result.variables:
                 value_to_assign = result.variables[variable]
                 has_value = True
-        elif isinstance(result, dict) and variable in result:
+        elif (
+            isinstance(result, dict)
+            and "data" in result
+            and isinstance(result.get("data"), dict)
+            and "variables" in result["data"]
+        ):
+            # Handle dict format of WorkflowNodeResult from Rust scheduler
+            # Format: {"data": {"variables": {"var_name": value}}}
+            variables = result["data"]["variables"]
+            if variable in variables:
+                value_to_assign = variables[variable]
+                has_value = True
+        elif isinstance(result, dict) and variable.startswith("__") and variable in result:
             # Unwrap dict results that contain the variable name as a key
-            # This handles the case where the Go scheduler sends {temp_var: value}
+            # This only applies to internal temp variables (like __branch_*) where
+            # the scheduler wraps results as {temp_var: value}. For user-defined
+            # variables, we want to assign the entire dict even if it happens to
+            # contain a key matching the variable name.
             value_to_assign = result[variable]
             has_value = True
         else:

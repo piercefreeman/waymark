@@ -14,17 +14,17 @@ use crate::{
     worker::ActionDispatchPayload,
 };
 
-const COMPLETION_BUFFER_TARGET: usize = 64;
-const COMPLETION_FLUSH_INTERVAL_MS: u64 = 50;
+const COMPLETION_BUFFER_TARGET: usize = 48;
+const COMPLETION_FLUSH_INTERVAL_MS: u64 = 2;
 
 #[derive(Clone, Debug)]
-pub struct PollingConfig {
+pub struct DispatcherConfig {
     pub poll_interval: Duration,
     pub batch_size: i64,
     pub max_concurrent: usize,
 }
 
-impl Default for PollingConfig {
+impl Default for DispatcherConfig {
     fn default() -> Self {
         Self {
             poll_interval: Duration::from_millis(100),
@@ -34,14 +34,14 @@ impl Default for PollingConfig {
     }
 }
 
-pub struct PollingDispatcher {
+pub struct Dispatcher {
     shutdown_tx: watch::Sender<bool>,
     handle: JoinHandle<Result<()>>,
 }
 
-impl PollingDispatcher {
+impl Dispatcher {
     pub fn start(
-        config: PollingConfig,
+        config: DispatcherConfig,
         database: Arc<Database>,
         worker_pool: Arc<PythonWorkerPool>,
     ) -> Self {
@@ -54,7 +54,7 @@ impl PollingDispatcher {
                 shutdown_rx,
             };
             if let Err(err) = task.run().await {
-                error!(?err, "polling dispatcher terminated with error");
+                error!(?err, "dispatcher terminated with error");
                 Err(err)
             } else {
                 Ok(())
@@ -74,13 +74,13 @@ impl PollingDispatcher {
         self.trigger_shutdown();
         match self.handle.await {
             Ok(result) => result,
-            Err(err) => Err(anyhow!("polling dispatcher task panicked: {err}")),
+            Err(err) => Err(anyhow!("dispatcher task panicked: {err}")),
         }
     }
 }
 
 struct DispatcherTask {
-    config: PollingConfig,
+    config: DispatcherConfig,
     database: Arc<Database>,
     worker_pool: Arc<PythonWorkerPool>,
     shutdown_rx: watch::Receiver<bool>,
@@ -92,7 +92,7 @@ impl DispatcherTask {
             poll_interval_ms = self.config.poll_interval.as_millis(),
             batch_size = self.config.batch_size,
             max_concurrent = self.config.max_concurrent,
-            "starting polling dispatcher",
+            "starting dispatcher",
         );
 
         let mut ticker = interval(self.config.poll_interval);
@@ -113,7 +113,7 @@ impl DispatcherTask {
                 _ = ticker.tick() => {
                     if let Err(err) = self.poll_and_dispatch(&semaphore, &completion_tx).await {
                         metrics::counter!("rappel_dispatch_errors_total").increment(1);
-                        error!(?err, "polling cycle failed");
+                        error!(?err, "dispatch cycle failed");
                     }
                 }
                 _ = timeout_ticker.tick() => {
@@ -124,7 +124,7 @@ impl DispatcherTask {
                 }
                 changed = self.shutdown_rx.changed() => {
                     if changed.is_ok() && *self.shutdown_rx.borrow() {
-                        info!("polling dispatcher shutting down");
+                        info!("dispatcher shutting down");
                         break;
                     }
                 }
@@ -339,11 +339,11 @@ impl DispatcherTask {
 
 #[cfg(test)]
 mod tests {
-    use super::PollingConfig;
+    use super::DispatcherConfig;
 
     #[test]
     fn default_config_values() {
-        let config = PollingConfig::default();
+        let config = DispatcherConfig::default();
         assert_eq!(config.poll_interval, std::time::Duration::from_millis(100));
         assert_eq!(config.batch_size, 100);
         assert_eq!(config.max_concurrent, num_cpus::get().max(1) * 2);

@@ -140,15 +140,16 @@ If you have a particular workflow that you think should be working but isn't yet
 
 The main rappel configuration is done through env vars, which is what you'll typically use in production when using a docker deployment pipeline. If we can't find an environment parameter we will fallback to looking for an .env that specifies it within your local filesystem.
 
-| Environment Variable | Description | Example |
-|---------------------|-------------|---------|
-| `DATABASE_URL` | PostgreSQL connection string for the rappel server | `postgresql://mountaineer:mountaineer@localhost:5433/mountaineer_daemons` |
-| `CARABINER_HTTP_ADDR` | Optional HTTP bind address for `rappel-server` | `0.0.0.0:24117` |
-| `CARABINER_GRPC_ADDR` | Optional gRPC bind address for `rappel-server` | `0.0.0.0:24118` |
-| `CARABINER_WORKER_COUNT` | Override number of Python workers spawned by `start_workers` | `8` |
-| `CARABINER_USER_MODULE` | Python module preloaded into each worker process | `my_app.actions` |
-| `CARABINER_POLL_INTERVAL_MS` | Poll interval for the dispatch loop (ms) | `100` |
-| `CARABINER_BATCH_SIZE` | Max actions fetched per poll | `100` |
+| Environment Variable | Description | Default | Example |
+|---------------------|-------------|---------|---------|
+| `DATABASE_URL` | PostgreSQL connection string for the rappel server | (required) | `postgresql://user:pass@localhost:5433/rappel` |
+| `CARABINER_HTTP_ADDR` | HTTP bind address for `rappel-server` | `127.0.0.1:24117` | `0.0.0.0:24117` |
+| `CARABINER_GRPC_ADDR` | gRPC bind address for `rappel-server` | HTTP port + 1 | `0.0.0.0:24118` |
+| `CARABINER_WORKER_COUNT` | Number of Python worker processes | `num_cpus` | `8` |
+| `CARABINER_MAX_CONCURRENT` | Max concurrent actions across all workers | `32` | `64` |
+| `CARABINER_USER_MODULE` | Python module preloaded into each worker | none | `my_app.actions` |
+| `CARABINER_POLL_INTERVAL_MS` | Poll interval for the dispatch loop (ms) | `100` | `50` |
+| `CARABINER_BATCH_SIZE` | Max actions fetched per poll | `100` | `200` |
 
 ## Philosophy
 

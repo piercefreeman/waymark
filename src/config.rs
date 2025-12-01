@@ -13,6 +13,7 @@ const DOTENV_FILENAME: &str = ".env";
 const HTTP_ADDR_ENV: &str = "CARABINER_HTTP_ADDR";
 const GRPC_ADDR_ENV: &str = "CARABINER_GRPC_ADDR";
 const WORKER_COUNT_ENV: &str = "CARABINER_WORKER_COUNT";
+const WORKER_MAX_CONCURRENT_ENV: &str = "CARABINER_MAX_CONCURRENT";
 const WORKER_USER_MODULE_ENV: &str = "CARABINER_USER_MODULE";
 const WORKER_POLL_INTERVAL_ENV: &str = "CARABINER_POLL_INTERVAL_MS";
 const WORKER_BATCH_SIZE_ENV: &str = "CARABINER_BATCH_SIZE";
@@ -28,6 +29,7 @@ pub struct AppConfig {
 #[derive(Debug, Clone)]
 pub struct WorkerRuntimeConfig {
     pub worker_count: usize,
+    pub max_concurrent: usize,
     pub user_module: Option<String>,
     pub poll_interval: Duration,
     pub batch_size: i64,
@@ -109,6 +111,20 @@ impl WorkerRuntimeConfig {
             }
             Err(_) => num_cpus::get().max(1),
         };
+        let max_concurrent = match env::var(WORKER_MAX_CONCURRENT_ENV) {
+            Ok(raw) => {
+                let parsed = raw.parse::<usize>().with_context(|| {
+                    format!("{WORKER_MAX_CONCURRENT_ENV} must be a positive integer")
+                })?;
+                if parsed == 0 {
+                    return Err(anyhow!(
+                        "{WORKER_MAX_CONCURRENT_ENV} must be greater than zero when provided"
+                    ));
+                }
+                parsed
+            }
+            Err(_) => 32,
+        };
         let poll_interval_ms = match env::var(WORKER_POLL_INTERVAL_ENV) {
             Ok(raw) => {
                 let parsed = raw.parse::<u64>().with_context(|| {
@@ -139,6 +155,7 @@ impl WorkerRuntimeConfig {
         };
         Ok(Self {
             worker_count,
+            max_concurrent,
             user_module: env::var(WORKER_USER_MODULE_ENV).ok(),
             poll_interval: Duration::from_millis(poll_interval_ms),
             batch_size,

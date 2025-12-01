@@ -48,6 +48,62 @@ MESSAGE_KIND_HEARTBEAT: MessageKind.ValueType  # 4
 MESSAGE_KIND_WORKER_HELLO: MessageKind.ValueType  # 5
 Global___MessageKind: typing_extensions.TypeAlias = MessageKind
 
+class _NodeType:
+    ValueType = typing.NewType("ValueType", builtins.int)
+    V: typing_extensions.TypeAlias = ValueType
+
+class _NodeTypeEnumTypeWrapper(
+    google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[_NodeType.ValueType], builtins.type
+):
+    DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor
+    NODE_TYPE_UNSPECIFIED: _NodeType.ValueType  # 0
+    NODE_TYPE_ACTION: _NodeType.ValueType  # 1
+    """Regular action node executed by workers"""
+    NODE_TYPE_LOOP_HEAD: _NodeType.ValueType  # 2
+    """Synthetic loop control node (evaluated by scheduler)"""
+
+class NodeType(_NodeType, metaclass=_NodeTypeEnumTypeWrapper):
+    """Node types for distinguishing action nodes from synthetic control nodes"""
+
+NODE_TYPE_UNSPECIFIED: NodeType.ValueType  # 0
+NODE_TYPE_ACTION: NodeType.ValueType  # 1
+"""Regular action node executed by workers"""
+NODE_TYPE_LOOP_HEAD: NodeType.ValueType  # 2
+"""Synthetic loop control node (evaluated by scheduler)"""
+Global___NodeType: typing_extensions.TypeAlias = NodeType
+
+class _EdgeType:
+    ValueType = typing.NewType("ValueType", builtins.int)
+    V: typing_extensions.TypeAlias = ValueType
+
+class _EdgeTypeEnumTypeWrapper(
+    google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[_EdgeType.ValueType], builtins.type
+):
+    DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor
+    EDGE_TYPE_UNSPECIFIED: _EdgeType.ValueType  # 0
+    EDGE_TYPE_FORWARD: _EdgeType.ValueType  # 1
+    """Normal dependency edge"""
+    EDGE_TYPE_CONTINUE: _EdgeType.ValueType  # 2
+    """Loop head -> body (more iterations)"""
+    EDGE_TYPE_BREAK: _EdgeType.ValueType  # 3
+    """Loop head -> exit (iterator exhausted)"""
+    EDGE_TYPE_BACK: _EdgeType.ValueType  # 4
+    """Loop body tail -> loop head (iteration complete)"""
+
+class EdgeType(_EdgeType, metaclass=_EdgeTypeEnumTypeWrapper):
+    """Edge types for DAG traversal"""
+
+EDGE_TYPE_UNSPECIFIED: EdgeType.ValueType  # 0
+EDGE_TYPE_FORWARD: EdgeType.ValueType  # 1
+"""Normal dependency edge"""
+EDGE_TYPE_CONTINUE: EdgeType.ValueType  # 2
+"""Loop head -> body (more iterations)"""
+EDGE_TYPE_BREAK: EdgeType.ValueType  # 3
+"""Loop head -> exit (iterator exhausted)"""
+EDGE_TYPE_BACK: EdgeType.ValueType  # 4
+"""Loop body tail -> loop head (iteration complete)"""
+Global___EdgeType: typing_extensions.TypeAlias = EdgeType
+
 class _BinOpKind:
     ValueType = typing.NewType("ValueType", builtins.int)
     V: typing_extensions.TypeAlias = ValueType
@@ -485,6 +541,292 @@ class ExponentialBackoff(google.protobuf.message.Message):
 Global___ExponentialBackoff: typing_extensions.TypeAlias = ExponentialBackoff
 
 @typing.final
+class DagEdge(google.protobuf.message.Message):
+    """Represents an edge in the DAG with its type"""
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    FROM_NODE_FIELD_NUMBER: builtins.int
+    TO_NODE_FIELD_NUMBER: builtins.int
+    EDGE_TYPE_FIELD_NUMBER: builtins.int
+    from_node: builtins.str
+    to_node: builtins.str
+    edge_type: Global___EdgeType.ValueType
+    def __init__(
+        self,
+        *,
+        from_node: builtins.str = ...,
+        to_node: builtins.str = ...,
+        edge_type: Global___EdgeType.ValueType = ...,
+    ) -> None: ...
+    def ClearField(
+        self,
+        field_name: typing.Literal[
+            "edge_type", b"edge_type", "from_node", b"from_node", "to_node", b"to_node"
+        ],
+    ) -> None: ...
+
+Global___DagEdge: typing_extensions.TypeAlias = DagEdge
+
+@typing.final
+class LoopHeadMeta(google.protobuf.message.Message):
+    """Metadata for loop_head synthetic nodes"""
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    ITERATOR_SOURCE_FIELD_NUMBER: builtins.int
+    LOOP_VAR_FIELD_NUMBER: builtins.int
+    BODY_ENTRY_FIELD_NUMBER: builtins.int
+    BODY_TAIL_FIELD_NUMBER: builtins.int
+    EXIT_TARGET_FIELD_NUMBER: builtins.int
+    ACCUMULATORS_FIELD_NUMBER: builtins.int
+    PREAMBLE_FIELD_NUMBER: builtins.int
+    BODY_NODES_FIELD_NUMBER: builtins.int
+    iterator_source: builtins.str
+    """Node ID that produces the iterator"""
+    loop_var: builtins.str
+    """Variable name for current item (e.g., "seed")"""
+    body_tail: builtins.str
+    """Last node before back edge"""
+    exit_target: builtins.str
+    """Node to execute after loop completes"""
+    @property
+    def body_entry(
+        self,
+    ) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[builtins.str]:
+        """Entry node(s) for loop body (parallel if multiple)"""
+
+    @property
+    def accumulators(
+        self,
+    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
+        Global___AccumulatorSpec
+    ]:
+        """Variables to collect across iterations"""
+
+    @property
+    def preamble(
+        self,
+    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[Global___PreambleOp]:
+        """Pure computations before each iteration"""
+
+    @property
+    def body_nodes(
+        self,
+    ) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[builtins.str]:
+        """All nodes in loop body (for reset on back edge)"""
+
+    def __init__(
+        self,
+        *,
+        iterator_source: builtins.str = ...,
+        loop_var: builtins.str = ...,
+        body_entry: collections.abc.Iterable[builtins.str] | None = ...,
+        body_tail: builtins.str = ...,
+        exit_target: builtins.str = ...,
+        accumulators: collections.abc.Iterable[Global___AccumulatorSpec] | None = ...,
+        preamble: collections.abc.Iterable[Global___PreambleOp] | None = ...,
+        body_nodes: collections.abc.Iterable[builtins.str] | None = ...,
+    ) -> None: ...
+    def ClearField(
+        self,
+        field_name: typing.Literal[
+            "accumulators",
+            b"accumulators",
+            "body_entry",
+            b"body_entry",
+            "body_nodes",
+            b"body_nodes",
+            "body_tail",
+            b"body_tail",
+            "exit_target",
+            b"exit_target",
+            "iterator_source",
+            b"iterator_source",
+            "loop_var",
+            b"loop_var",
+            "preamble",
+            b"preamble",
+        ],
+    ) -> None: ...
+
+Global___LoopHeadMeta: typing_extensions.TypeAlias = LoopHeadMeta
+
+@typing.final
+class AccumulatorSpec(google.protobuf.message.Message):
+    """Specifies how to collect values into an accumulator across iterations"""
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    VAR_FIELD_NUMBER: builtins.int
+    SOURCE_NODE_FIELD_NUMBER: builtins.int
+    SOURCE_EXPR_FIELD_NUMBER: builtins.int
+    var: builtins.str
+    """Python variable name (e.g., "results")"""
+    source_node: builtins.str
+    """Node whose result to append (if from action result)"""
+    source_expr: builtins.str
+    """Expression to evaluate (if from iterator/computed)"""
+    def __init__(
+        self,
+        *,
+        var: builtins.str = ...,
+        source_node: builtins.str | None = ...,
+        source_expr: builtins.str | None = ...,
+    ) -> None: ...
+    def HasField(
+        self,
+        field_name: typing.Literal[
+            "_source_expr",
+            b"_source_expr",
+            "_source_node",
+            b"_source_node",
+            "source_expr",
+            b"source_expr",
+            "source_node",
+            b"source_node",
+        ],
+    ) -> builtins.bool: ...
+    def ClearField(
+        self,
+        field_name: typing.Literal[
+            "_source_expr",
+            b"_source_expr",
+            "_source_node",
+            b"_source_node",
+            "source_expr",
+            b"source_expr",
+            "source_node",
+            b"source_node",
+            "var",
+            b"var",
+        ],
+    ) -> None: ...
+    @typing.overload
+    def WhichOneof(
+        self, oneof_group: typing.Literal["_source_expr", b"_source_expr"]
+    ) -> typing.Literal["source_expr"] | None: ...
+    @typing.overload
+    def WhichOneof(
+        self, oneof_group: typing.Literal["_source_node", b"_source_node"]
+    ) -> typing.Literal["source_node"] | None: ...
+
+Global___AccumulatorSpec: typing_extensions.TypeAlias = AccumulatorSpec
+
+@typing.final
+class PreambleOp(google.protobuf.message.Message):
+    """Pure computation operations evaluated by scheduler (no worker round-trip)"""
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    SET_ITERATOR_INDEX_FIELD_NUMBER: builtins.int
+    SET_ITERATOR_VALUE_FIELD_NUMBER: builtins.int
+    SET_ACCUMULATOR_LEN_FIELD_NUMBER: builtins.int
+    @property
+    def set_iterator_index(self) -> Global___SetIteratorIndex:
+        """var = current iteration index"""
+
+    @property
+    def set_iterator_value(self) -> Global___SetIteratorValue:
+        """var = iterator[index]"""
+
+    @property
+    def set_accumulator_len(self) -> Global___SetAccumulatorLen:
+        """var = len(accumulator)"""
+
+    def __init__(
+        self,
+        *,
+        set_iterator_index: Global___SetIteratorIndex | None = ...,
+        set_iterator_value: Global___SetIteratorValue | None = ...,
+        set_accumulator_len: Global___SetAccumulatorLen | None = ...,
+    ) -> None: ...
+    def HasField(
+        self,
+        field_name: typing.Literal[
+            "op",
+            b"op",
+            "set_accumulator_len",
+            b"set_accumulator_len",
+            "set_iterator_index",
+            b"set_iterator_index",
+            "set_iterator_value",
+            b"set_iterator_value",
+        ],
+    ) -> builtins.bool: ...
+    def ClearField(
+        self,
+        field_name: typing.Literal[
+            "op",
+            b"op",
+            "set_accumulator_len",
+            b"set_accumulator_len",
+            "set_iterator_index",
+            b"set_iterator_index",
+            "set_iterator_value",
+            b"set_iterator_value",
+        ],
+    ) -> None: ...
+    def WhichOneof(
+        self, oneof_group: typing.Literal["op", b"op"]
+    ) -> (
+        typing.Literal["set_iterator_index", "set_iterator_value", "set_accumulator_len"] | None
+    ): ...
+
+Global___PreambleOp: typing_extensions.TypeAlias = PreambleOp
+
+@typing.final
+class SetIteratorIndex(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    VAR_FIELD_NUMBER: builtins.int
+    var: builtins.str
+    def __init__(
+        self,
+        *,
+        var: builtins.str = ...,
+    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["var", b"var"]) -> None: ...
+
+Global___SetIteratorIndex: typing_extensions.TypeAlias = SetIteratorIndex
+
+@typing.final
+class SetIteratorValue(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    VAR_FIELD_NUMBER: builtins.int
+    var: builtins.str
+    def __init__(
+        self,
+        *,
+        var: builtins.str = ...,
+    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["var", b"var"]) -> None: ...
+
+Global___SetIteratorValue: typing_extensions.TypeAlias = SetIteratorValue
+
+@typing.final
+class SetAccumulatorLen(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    VAR_FIELD_NUMBER: builtins.int
+    ACCUMULATOR_FIELD_NUMBER: builtins.int
+    var: builtins.str
+    accumulator: builtins.str
+    """Which accumulator to get length from"""
+    def __init__(
+        self,
+        *,
+        var: builtins.str = ...,
+        accumulator: builtins.str = ...,
+    ) -> None: ...
+    def ClearField(
+        self, field_name: typing.Literal["accumulator", b"accumulator", "var", b"var"]
+    ) -> None: ...
+
+Global___SetAccumulatorLen: typing_extensions.TypeAlias = SetAccumulatorLen
+
+@typing.final
 class WorkflowDagNode(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
@@ -521,6 +863,9 @@ class WorkflowDagNode(google.protobuf.message.Message):
     LOOP_FIELD_NUMBER: builtins.int
     AST_FIELD_NUMBER: builtins.int
     BACKOFF_FIELD_NUMBER: builtins.int
+    NODE_TYPE_FIELD_NUMBER: builtins.int
+    LOOP_HEAD_META_FIELD_NUMBER: builtins.int
+    LOOP_ID_FIELD_NUMBER: builtins.int
     id: builtins.str
     action: builtins.str
     module: builtins.str
@@ -528,6 +873,10 @@ class WorkflowDagNode(google.protobuf.message.Message):
     timeout_seconds: builtins.int
     max_retries: builtins.int
     timeout_retry_limit: builtins.int
+    node_type: Global___NodeType.ValueType
+    """New fields for cycle-based loops"""
+    loop_id: builtins.str
+    """For body nodes: which loop they belong to"""
     @property
     def kwargs(
         self,
@@ -556,6 +905,10 @@ class WorkflowDagNode(google.protobuf.message.Message):
     def ast(self) -> Global___WorkflowNodeAst: ...
     @property
     def backoff(self) -> Global___BackoffPolicy: ...
+    @property
+    def loop_head_meta(self) -> Global___LoopHeadMeta:
+        """Present when node_type == LOOP_HEAD"""
+
     def __init__(
         self,
         *,
@@ -574,6 +927,9 @@ class WorkflowDagNode(google.protobuf.message.Message):
         loop: Global___WorkflowLoopSpec | None = ...,
         ast: Global___WorkflowNodeAst | None = ...,
         backoff: Global___BackoffPolicy | None = ...,
+        node_type: Global___NodeType.ValueType = ...,
+        loop_head_meta: Global___LoopHeadMeta | None = ...,
+        loop_id: builtins.str | None = ...,
     ) -> None: ...
     def HasField(
         self,
@@ -584,6 +940,10 @@ class WorkflowDagNode(google.protobuf.message.Message):
             b"_backoff",
             "_loop",
             b"_loop",
+            "_loop_head_meta",
+            b"_loop_head_meta",
+            "_loop_id",
+            b"_loop_id",
             "_max_retries",
             b"_max_retries",
             "_timeout_retry_limit",
@@ -596,6 +956,10 @@ class WorkflowDagNode(google.protobuf.message.Message):
             b"backoff",
             "loop",
             b"loop",
+            "loop_head_meta",
+            b"loop_head_meta",
+            "loop_id",
+            b"loop_id",
             "max_retries",
             b"max_retries",
             "timeout_retry_limit",
@@ -613,6 +977,10 @@ class WorkflowDagNode(google.protobuf.message.Message):
             b"_backoff",
             "_loop",
             b"_loop",
+            "_loop_head_meta",
+            b"_loop_head_meta",
+            "_loop_id",
+            b"_loop_id",
             "_max_retries",
             b"_max_retries",
             "_timeout_retry_limit",
@@ -637,10 +1005,16 @@ class WorkflowDagNode(google.protobuf.message.Message):
             b"kwargs",
             "loop",
             b"loop",
+            "loop_head_meta",
+            b"loop_head_meta",
+            "loop_id",
+            b"loop_id",
             "max_retries",
             b"max_retries",
             "module",
             b"module",
+            "node_type",
+            b"node_type",
             "produces",
             b"produces",
             "timeout_retry_limit",
@@ -665,6 +1039,14 @@ class WorkflowDagNode(google.protobuf.message.Message):
     ) -> typing.Literal["loop"] | None: ...
     @typing.overload
     def WhichOneof(
+        self, oneof_group: typing.Literal["_loop_head_meta", b"_loop_head_meta"]
+    ) -> typing.Literal["loop_head_meta"] | None: ...
+    @typing.overload
+    def WhichOneof(
+        self, oneof_group: typing.Literal["_loop_id", b"_loop_id"]
+    ) -> typing.Literal["loop_id"] | None: ...
+    @typing.overload
+    def WhichOneof(
         self, oneof_group: typing.Literal["_max_retries", b"_max_retries"]
     ) -> typing.Literal["max_retries"] | None: ...
     @typing.overload
@@ -685,6 +1067,7 @@ class WorkflowDagDefinition(google.protobuf.message.Message):
     CONCURRENT_FIELD_NUMBER: builtins.int
     NODES_FIELD_NUMBER: builtins.int
     RETURN_VARIABLE_FIELD_NUMBER: builtins.int
+    EDGES_FIELD_NUMBER: builtins.int
     concurrent: builtins.bool
     return_variable: builtins.str
     @property
@@ -693,17 +1076,33 @@ class WorkflowDagDefinition(google.protobuf.message.Message):
     ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
         Global___WorkflowDagNode
     ]: ...
+    @property
+    def edges(
+        self,
+    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[Global___DagEdge]:
+        """Explicit edges with types (for cycle-based loops)
+        If empty, edges are inferred from depends_on/wait_for_sync (backward compat)
+        """
+
     def __init__(
         self,
         *,
         concurrent: builtins.bool = ...,
         nodes: collections.abc.Iterable[Global___WorkflowDagNode] | None = ...,
         return_variable: builtins.str = ...,
+        edges: collections.abc.Iterable[Global___DagEdge] | None = ...,
     ) -> None: ...
     def ClearField(
         self,
         field_name: typing.Literal[
-            "concurrent", b"concurrent", "nodes", b"nodes", "return_variable", b"return_variable"
+            "concurrent",
+            b"concurrent",
+            "edges",
+            b"edges",
+            "nodes",
+            b"nodes",
+            "return_variable",
+            b"return_variable",
         ],
     ) -> None: ...
 
@@ -1281,27 +1680,118 @@ class Stmt(google.protobuf.message.Message):
 
     ASSIGN_FIELD_NUMBER: builtins.int
     EXPR_FIELD_NUMBER: builtins.int
+    FOR_STMT_FIELD_NUMBER: builtins.int
+    AUG_ASSIGN_FIELD_NUMBER: builtins.int
     @property
     def assign(self) -> Global___Assign: ...
     @property
     def expr(self) -> Global___Expr: ...
+    @property
+    def for_stmt(self) -> Global___For: ...
+    @property
+    def aug_assign(self) -> Global___AugAssign: ...
     def __init__(
         self,
         *,
         assign: Global___Assign | None = ...,
         expr: Global___Expr | None = ...,
+        for_stmt: Global___For | None = ...,
+        aug_assign: Global___AugAssign | None = ...,
     ) -> None: ...
     def HasField(
-        self, field_name: typing.Literal["assign", b"assign", "expr", b"expr", "kind", b"kind"]
+        self,
+        field_name: typing.Literal[
+            "assign",
+            b"assign",
+            "aug_assign",
+            b"aug_assign",
+            "expr",
+            b"expr",
+            "for_stmt",
+            b"for_stmt",
+            "kind",
+            b"kind",
+        ],
     ) -> builtins.bool: ...
     def ClearField(
-        self, field_name: typing.Literal["assign", b"assign", "expr", b"expr", "kind", b"kind"]
+        self,
+        field_name: typing.Literal[
+            "assign",
+            b"assign",
+            "aug_assign",
+            b"aug_assign",
+            "expr",
+            b"expr",
+            "for_stmt",
+            b"for_stmt",
+            "kind",
+            b"kind",
+        ],
     ) -> None: ...
     def WhichOneof(
         self, oneof_group: typing.Literal["kind", b"kind"]
-    ) -> typing.Literal["assign", "expr"] | None: ...
+    ) -> typing.Literal["assign", "expr", "for_stmt", "aug_assign"] | None: ...
 
 Global___Stmt: typing_extensions.TypeAlias = Stmt
+
+@typing.final
+class For(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    TARGET_FIELD_NUMBER: builtins.int
+    ITER_FIELD_NUMBER: builtins.int
+    BODY_FIELD_NUMBER: builtins.int
+    @property
+    def target(self) -> Global___Expr: ...
+    @property
+    def iter(self) -> Global___Expr: ...
+    @property
+    def body(
+        self,
+    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[Global___Stmt]: ...
+    def __init__(
+        self,
+        *,
+        target: Global___Expr | None = ...,
+        iter: Global___Expr | None = ...,
+        body: collections.abc.Iterable[Global___Stmt] | None = ...,
+    ) -> None: ...
+    def HasField(
+        self, field_name: typing.Literal["iter", b"iter", "target", b"target"]
+    ) -> builtins.bool: ...
+    def ClearField(
+        self, field_name: typing.Literal["body", b"body", "iter", b"iter", "target", b"target"]
+    ) -> None: ...
+
+Global___For: typing_extensions.TypeAlias = For
+
+@typing.final
+class AugAssign(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    TARGET_FIELD_NUMBER: builtins.int
+    OP_FIELD_NUMBER: builtins.int
+    VALUE_FIELD_NUMBER: builtins.int
+    op: Global___BinOpKind.ValueType
+    @property
+    def target(self) -> Global___Expr: ...
+    @property
+    def value(self) -> Global___Expr: ...
+    def __init__(
+        self,
+        *,
+        target: Global___Expr | None = ...,
+        op: Global___BinOpKind.ValueType = ...,
+        value: Global___Expr | None = ...,
+    ) -> None: ...
+    def HasField(
+        self, field_name: typing.Literal["target", b"target", "value", b"value"]
+    ) -> builtins.bool: ...
+    def ClearField(
+        self, field_name: typing.Literal["op", b"op", "target", b"target", "value", b"value"]
+    ) -> None: ...
+
+Global___AugAssign: typing_extensions.TypeAlias = AugAssign
 
 @typing.final
 class Assign(google.protobuf.message.Message):

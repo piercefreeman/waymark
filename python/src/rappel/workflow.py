@@ -18,8 +18,11 @@ from .logger import configure as configure_logger
 from .serialization import build_arguments_from_kwargs
 from .workflow_dag import (
     DagNode,
+    EdgeType,
+    LoopHeadMeta,
     LoopSpec,
     MultiActionLoopSpec,
+    NodeType,
     WorkflowDag,
     build_workflow_dag,
 )
@@ -159,7 +162,21 @@ class Workflow:
                     proto_edge.exception_type = edge.exception_type
                 if edge.exception_module:
                     proto_edge.exception_module = edge.exception_module
+            # Cycle-based loop support
+            proto_node.node_type = _node_type_to_proto(node.node_type)
+            if node.loop_head_meta:
+                proto_node.loop_head_meta.CopyFrom(_loop_head_meta_to_proto(node.loop_head_meta))
+            if node.loop_id:
+                proto_node.loop_id = node.loop_id
             dag_definition.nodes.append(proto_node)
+        # Add explicit edges
+        for edge in dag.edges:
+            proto_edge = pb2.DagEdge(
+                from_node=edge.from_node,
+                to_node=edge.to_node,
+                edge_type=_edge_type_to_proto(edge.edge_type),
+            )
+            dag_definition.edges.append(proto_edge)
         if dag.return_variable:
             dag_definition.return_variable = dag.return_variable
         dag_bytes = dag_definition.SerializeToString()
@@ -640,6 +657,49 @@ def _stmt_to_proto(stmt: ast.stmt) -> Optional[pb2.Stmt]:
         wrapper = pb2.Stmt()
         wrapper.expr.CopyFrom(expr_proto)
         return wrapper
+    if isinstance(stmt, ast.For):
+        # Handle for loops in preamble
+        if not isinstance(stmt.target, ast.Name):
+            return None  # Only support simple loop variables
+        target_expr = _expr_to_proto(stmt.target)
+        iter_expr = _expr_to_proto(stmt.iter)
+        if target_expr is None or iter_expr is None:
+            return None
+        body_stmts = []
+        for body_stmt in stmt.body:
+            body_proto = _stmt_to_proto(body_stmt)
+            if body_proto is not None:
+                body_stmts.append(body_proto)
+        for_proto = pb2.For()
+        for_proto.target.CopyFrom(target_expr)
+        for_proto.iter.CopyFrom(iter_expr)
+        for_proto.body.extend(body_stmts)
+        wrapper = pb2.Stmt()
+        wrapper.for_stmt.CopyFrom(for_proto)
+        return wrapper
+    if isinstance(stmt, ast.AugAssign):
+        # Handle augmented assignment (e.g., x += 1)
+        target_expr = _expr_to_proto(stmt.target)
+        value_expr = _expr_to_proto(stmt.value)
+        if target_expr is None or value_expr is None:
+            return None
+        op_map = {
+            ast.Add: pb2.BinOpKind.BIN_OP_KIND_ADD,
+            ast.Sub: pb2.BinOpKind.BIN_OP_KIND_SUB,
+            ast.Mult: pb2.BinOpKind.BIN_OP_KIND_MULT,
+            ast.Div: pb2.BinOpKind.BIN_OP_KIND_DIV,
+            ast.Mod: pb2.BinOpKind.BIN_OP_KIND_MOD,
+            ast.FloorDiv: pb2.BinOpKind.BIN_OP_KIND_FLOORDIV,
+            ast.Pow: pb2.BinOpKind.BIN_OP_KIND_POW,
+        }
+        op = op_map.get(type(stmt.op), pb2.BinOpKind.BIN_OP_KIND_UNSPECIFIED)
+        aug_proto = pb2.AugAssign()
+        aug_proto.target.CopyFrom(target_expr)
+        aug_proto.op = op
+        aug_proto.value.CopyFrom(value_expr)
+        wrapper = pb2.Stmt()
+        wrapper.aug_assign.CopyFrom(aug_proto)
+        return wrapper
     return None
 
 
@@ -838,3 +898,54 @@ def _skip_wait_for_instance() -> bool:
     if not value:
         return False
     return value.strip().lower() not in {"0", "false", "no"}
+
+
+def _node_type_to_proto(node_type: str) -> pb2.NodeType:
+    """Convert NodeType string to proto enum."""
+    if node_type == NodeType.LOOP_HEAD:
+        return pb2.NodeType.NODE_TYPE_LOOP_HEAD
+    return pb2.NodeType.NODE_TYPE_ACTION
+
+
+def _edge_type_to_proto(edge_type: str) -> pb2.EdgeType:
+    """Convert EdgeType string to proto enum."""
+    mapping = {
+        EdgeType.FORWARD: pb2.EdgeType.EDGE_TYPE_FORWARD,
+        EdgeType.CONTINUE: pb2.EdgeType.EDGE_TYPE_CONTINUE,
+        EdgeType.BREAK: pb2.EdgeType.EDGE_TYPE_BREAK,
+        EdgeType.BACK: pb2.EdgeType.EDGE_TYPE_BACK,
+    }
+    return mapping.get(edge_type, pb2.EdgeType.EDGE_TYPE_FORWARD)
+
+
+def _loop_head_meta_to_proto(meta: LoopHeadMeta) -> pb2.LoopHeadMeta:
+    """Convert LoopHeadMeta to proto message."""
+    proto_meta = pb2.LoopHeadMeta(
+        iterator_source=meta.iterator_source,
+        loop_var=meta.loop_var,
+        body_entry=list(meta.body_entry),
+        body_tail=meta.body_tail,
+        exit_target=meta.exit_target,
+        body_nodes=list(meta.body_nodes),
+    )
+    # Add accumulators
+    for acc in meta.accumulators:
+        proto_acc = pb2.AccumulatorSpec(var=acc.var)
+        if acc.source_node:
+            proto_acc.source_node = acc.source_node
+        if acc.source_expr:
+            proto_acc.source_expr = acc.source_expr
+        proto_meta.accumulators.append(proto_acc)
+    # Add preamble operations
+    for op in meta.preamble:
+        proto_op = pb2.PreambleOp()
+        if op.op_type == "set_iterator_index":
+            proto_op.set_iterator_index.CopyFrom(pb2.SetIteratorIndex(var=op.var))
+        elif op.op_type == "set_iterator_value":
+            proto_op.set_iterator_value.CopyFrom(pb2.SetIteratorValue(var=op.var))
+        elif op.op_type == "set_accumulator_len":
+            proto_op.set_accumulator_len.CopyFrom(
+                pb2.SetAccumulatorLen(var=op.var, accumulator=op.accumulator or "")
+            )
+        proto_meta.preamble.append(proto_op)
+    return proto_meta

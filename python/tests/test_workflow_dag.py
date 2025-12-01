@@ -289,30 +289,69 @@ class ForLoopActionWorkflow(Workflow):
         await summarize(values=results)
 
 
-def test_for_loop_builds_loop_controller_node() -> None:
+def test_for_loop_builds_cycle_based_loop() -> None:
+    """Test that for loops emit cycle-based loop structure."""
     dag = build_workflow_dag(ForLoopActionWorkflow)
-    actions = [node.action for node in dag.nodes]
-    assert actions == [
-        "fetch_number",
-        "fetch_number",
-        "python_block",
-        "python_block",
-        "loop",
-        "summarize",
-        "python_block",
-    ]
-    controller = next(node for node in dag.nodes if node.action == "loop")
-    assert controller.produces == ["results"]
-    assert controller.loop is not None
-    assert controller.loop.iterable_expr == "numbers"
-    assert controller.loop.loop_var == "number"
-    assert controller.loop.body_kwargs == {"value": "expanded"}
-    assert controller.loop.accumulator == "results"
-    assert "expanded = number + 1" in (controller.loop.preamble or "")
-    numbers_node = next(node for node in dag.nodes if node.produces == ["numbers"])
-    assert controller.depends_on == [numbers_node.id]
+
+    # Find the key loop nodes
+    loop_head = next(node for node in dag.nodes if node.action == "loop_head")
+    body_action = next(
+        node for node in dag.nodes if node.action == "double_number" and node.loop_id
+    )
+    iter_source = next(
+        node
+        for node in dag.nodes
+        if node.action == "python_block" and "__iter_" in (node.kwargs.get("code", "") or "")
+    )
+    exit_node = next(
+        node
+        for node in dag.nodes
+        if node.action == "python_block" and "# Loop" in (node.kwargs.get("code", "") or "")
+    )
+    # This workflow has a preamble (expanded = number + 1), so there's a preamble node
+    preamble_node = next(
+        node
+        for node in dag.nodes
+        if node.action == "python_block"
+        and "expanded" in (node.kwargs.get("code", "") or "")
+        and node.loop_id
+    )
+
+    # Verify loop_head structure
+    assert loop_head.node_type == "loop_head"
+    assert loop_head.loop_head_meta is not None
+    assert loop_head.loop_head_meta.iterator_source == iter_source.id
+    assert loop_head.loop_head_meta.loop_var == "number"
+    # body_entry is the preamble node (first node after continue edge)
+    assert loop_head.loop_head_meta.body_entry == [preamble_node.id]
+    # body_tail is the body action (last node before back edge)
+    assert loop_head.loop_head_meta.body_tail == body_action.id
+    assert loop_head.loop_head_meta.exit_target == exit_node.id
+    assert len(loop_head.loop_head_meta.accumulators) == 1
+    assert loop_head.loop_head_meta.accumulators[0].var == "results"
+
+    # Verify preamble node has loop_id and depends on loop_head
+    assert preamble_node.loop_id is not None
+    assert preamble_node.depends_on == [loop_head.id]
+
+    # Verify body action has loop_id and depends on preamble
+    assert body_action.loop_id is not None
+    assert body_action.depends_on == [preamble_node.id]
+
+    # Verify edges
+    edge_types = {(e.from_node, e.to_node): e.edge_type for e in dag.edges}
+    assert edge_types.get((iter_source.id, loop_head.id)) == "forward"
+    # Continue edge goes to preamble
+    assert edge_types.get((loop_head.id, preamble_node.id)) == "continue"
+    # Forward edge from preamble to body action
+    assert edge_types.get((preamble_node.id, body_action.id)) == "forward"
+    # Back edge from body action to loop_head
+    assert edge_types.get((body_action.id, loop_head.id)) == "back"
+    assert edge_types.get((loop_head.id, exit_node.id)) == "break"
+
+    # Verify downstream dependency - summarize depends on exit node
     summarize_node = next(node for node in dag.nodes if node.action == "summarize")
-    assert summarize_node.depends_on == [controller.id]
+    assert exit_node.id in summarize_node.depends_on
 
 
 class WorkflowArgsWorkflow(Workflow):
@@ -881,49 +920,52 @@ class MultiActionLoopWorkflow(Workflow):
         return results
 
 
-def test_multi_action_loop_builds_body_graph() -> None:
-    """Multi-action loops should create a LoopBodyGraph with multiple nodes."""
+def test_multi_action_loop_builds_cycle_based_loop() -> None:
+    """Multi-action loops should create cycle-based loop structure with multiple body nodes."""
     dag = build_workflow_dag(MultiActionLoopWorkflow)
-    actions = [node.action for node in dag.nodes]
 
-    # Should have a multi_action_loop node
-    assert "multi_action_loop" in actions
+    # Find the key loop nodes
+    loop_head = next(node for node in dag.nodes if node.action == "loop_head")
+    body_nodes = [node for node in dag.nodes if node.loop_id and node.action != "loop_head"]
+    iter_source = next(
+        node
+        for node in dag.nodes
+        if node.action == "python_block" and "__iter_" in (node.kwargs.get("code", "") or "")
+    )
+    exit_node = next(
+        node
+        for node in dag.nodes
+        if node.action == "python_block" and "# Loop" in (node.kwargs.get("code", "") or "")
+    )
 
-    controller = next(node for node in dag.nodes if node.action == "multi_action_loop")
-    assert controller.produces == ["results"]
-    assert controller.multi_action_loop is not None
+    # Verify loop_head structure
+    assert loop_head.node_type == "loop_head"
+    assert loop_head.loop_head_meta is not None
+    assert loop_head.loop_head_meta.iterator_source == iter_source.id
+    assert loop_head.loop_head_meta.loop_var == "order"
+    assert loop_head.loop_head_meta.exit_target == exit_node.id
+    assert len(loop_head.loop_head_meta.accumulators) == 1
+    assert loop_head.loop_head_meta.accumulators[0].var == "results"
 
-    loop_spec = controller.multi_action_loop
-    assert loop_spec.iterable_expr == "orders"
-    assert loop_spec.loop_var == "order"
-    assert loop_spec.accumulator == "results"
+    # Should have 3 body action nodes
+    assert len(body_nodes) == 3
+    body_actions = [node.action for node in body_nodes]
+    assert "validate_order" in body_actions
+    assert "process_payment" in body_actions
+    assert "send_confirmation" in body_actions
 
-    # Check body graph
-    body_graph = loop_spec.body_graph
-    assert body_graph is not None
-    assert len(body_graph.nodes) == 3
-    assert body_graph.result_variable == "confirmation"
+    # First body node depends on loop_head
+    first_body = next(node for node in body_nodes if node.action == "validate_order")
+    assert loop_head.id in first_body.depends_on
 
-    # Check phase nodes
-    phase_ids = [node.id for node in body_graph.nodes]
-    assert phase_ids == ["phase_0", "phase_1", "phase_2"]
-
-    # Check actions
-    phase_actions = [node.action for node in body_graph.nodes]
-    assert phase_actions == ["validate_order", "process_payment", "send_confirmation"]
-
-    # Check dependencies
-    phase_0 = body_graph.nodes[0]
-    assert phase_0.depends_on == []
-    assert phase_0.output_var == "validated"
-
-    phase_1 = body_graph.nodes[1]
-    assert phase_1.depends_on == ["phase_0"]
-    assert phase_1.output_var == "payment"
-
-    phase_2 = body_graph.nodes[2]
-    assert phase_2.depends_on == ["phase_1"]
-    assert phase_2.output_var == "confirmation"
+    # Verify edges exist
+    edge_types = {(e.from_node, e.to_node): e.edge_type for e in dag.edges}
+    assert edge_types.get((iter_source.id, loop_head.id)) == "forward"
+    assert edge_types.get((loop_head.id, first_body.id)) == "continue"
+    # Back edge from last body node to loop head
+    last_body = next(node for node in body_nodes if node.action == "send_confirmation")
+    assert edge_types.get((last_body.id, loop_head.id)) == "back"
+    assert edge_types.get((loop_head.id, exit_node.id)) == "break"
 
 
 class MultiActionLoopWithPreambleWorkflow(Workflow):
@@ -940,19 +982,17 @@ class MultiActionLoopWithPreambleWorkflow(Workflow):
 
 
 def test_multi_action_loop_with_preamble() -> None:
-    """Multi-action loops should support preamble statements."""
+    """Multi-action loops should emit cycle-based loop structure."""
     dag = build_workflow_dag(MultiActionLoopWithPreambleWorkflow)
 
-    controller = next(node for node in dag.nodes if node.action == "multi_action_loop")
-    assert controller.multi_action_loop is not None
+    # Find loop_head node
+    loop_head = next(node for node in dag.nodes if node.action == "loop_head")
+    assert loop_head.loop_head_meta is not None
+    assert loop_head.loop_head_meta.loop_var == "order"
 
-    loop_spec = controller.multi_action_loop
-    # Preamble should contain the order_id assignment
-    assert loop_spec.preamble is not None
-    assert "order_id" in loop_spec.preamble
-
-    # Body graph should have 2 nodes
-    assert len(loop_spec.body_graph.nodes) == 2
+    # Should have 2 body action nodes
+    body_nodes = [node for node in dag.nodes if node.loop_id and node.action != "loop_head"]
+    assert len(body_nodes) == 2
 
 
 class SingleActionLoopWorkflow(Workflow):
@@ -966,18 +1006,22 @@ class SingleActionLoopWorkflow(Workflow):
         return results
 
 
-def test_single_action_loop_uses_legacy_loop_spec() -> None:
-    """Single action loops should use legacy LoopSpec, not multi-action."""
+def test_single_action_loop_uses_cycle_based_loop() -> None:
+    """Single action loops should use cycle-based loop structure."""
     dag = build_workflow_dag(SingleActionLoopWorkflow)
     actions = [node.action for node in dag.nodes]
 
-    # Should use "loop", not "multi_action_loop"
-    assert "loop" in actions
-    assert "multi_action_loop" not in actions
+    # Should have loop_head node
+    assert "loop_head" in actions
 
-    controller = next(node for node in dag.nodes if node.action == "loop")
-    assert controller.loop is not None
-    assert controller.multi_action_loop is None
+    loop_head = next(node for node in dag.nodes if node.action == "loop_head")
+    assert loop_head.loop_head_meta is not None
+    assert loop_head.loop_head_meta.loop_var == "number"
+
+    # Should have one body action node
+    body_nodes = [node for node in dag.nodes if node.loop_id and node.action != "loop_head"]
+    assert len(body_nodes) == 1
+    assert body_nodes[0].action == "double_number"
 
 
 # =============================================================================
