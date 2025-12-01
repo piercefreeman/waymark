@@ -507,3 +507,218 @@ class DeepNestedWorkflow(Workflow):
             parse_workflow(code, action_defs)
 
         assert "else branch" in str(exc_info.value).lower()
+
+
+class TestRunActionEdgeCases:
+    """Test edge cases for run_action."""
+
+    def test_run_action_non_call_argument(self, action_defs: dict[str, ActionDefinition]):
+        """run_action with non-call argument should error."""
+        code = """
+class NonCallRunActionWorkflow(Workflow):
+    async def run(self) -> int:
+        result = await self.run_action(42)  # Not a call
+        return result
+"""
+        with pytest.raises(IRParseError) as exc_info:
+            parse_workflow(code, action_defs)
+
+        assert "must be an action call" in str(exc_info.value).lower()
+
+
+class TestBackoffErrors:
+    """Test backoff configuration errors."""
+
+    def test_unknown_backoff_type(self, action_defs: dict[str, ActionDefinition]):
+        """Unknown backoff type should error."""
+        code = """
+class UnknownBackoffWorkflow(Workflow):
+    async def run(self) -> int:
+        result = await self.run_action(
+            risky_action(),
+            backoff=SomeRandomBackoff(base_delay_ms=100)
+        )
+        return result
+"""
+        with pytest.raises(IRParseError) as exc_info:
+            parse_workflow(code, action_defs)
+
+        assert "unknown backoff type" in str(exc_info.value).lower()
+
+
+class TestTimeoutErrors:
+    """Test timeout configuration errors."""
+
+    def test_invalid_timeout_expression(self, action_defs: dict[str, ActionDefinition]):
+        """Invalid timeout expression should error."""
+        code = """
+class InvalidTimeoutWorkflow(Workflow):
+    async def run(self) -> int:
+        result = await self.run_action(
+            risky_action(),
+            timeout=some_function()
+        )
+        return result
+"""
+        with pytest.raises(IRParseError) as exc_info:
+            parse_workflow(code, action_defs)
+
+        assert "cannot evaluate timeout" in str(exc_info.value).lower()
+
+
+class TestRetryErrors:
+    """Test retry configuration errors."""
+
+    def test_invalid_retry_expression(self, action_defs: dict[str, ActionDefinition]):
+        """Invalid retry expression should error."""
+        code = """
+class InvalidRetryWorkflow(Workflow):
+    async def run(self) -> int:
+        result = await self.run_action(
+            risky_action(),
+            retry=some_function()
+        )
+        return result
+"""
+        with pytest.raises(IRParseError) as exc_info:
+            parse_workflow(code, action_defs)
+
+        assert "cannot evaluate retry" in str(exc_info.value).lower()
+
+
+class TestGuardValidationMore:
+    """Additional guard validation tests."""
+
+    def test_await_in_guard_not_allowed(self, action_defs: dict[str, ActionDefinition]):
+        """Await in guard expression should error."""
+        code = """
+class AwaitGuardWorkflow(Workflow):
+    async def run(self) -> str:
+        if await fetch_left():
+            result = await fetch_left()
+        else:
+            result = await fetch_right()
+        return result
+"""
+        with pytest.raises(IRParseError) as exc_info:
+            parse_workflow(code, action_defs)
+
+        assert "await" in str(exc_info.value).lower()
+
+    def test_yield_in_guard_not_allowed(self, action_defs: dict[str, ActionDefinition]):
+        """Yield in guard expression should error."""
+        code = """
+class YieldGuardWorkflow(Workflow):
+    async def run(self) -> str:
+        if (yield 10):
+            result = await fetch_left()
+        else:
+            result = await fetch_right()
+        return result
+"""
+        with pytest.raises(IRParseError) as exc_info:
+            parse_workflow(code, action_defs)
+
+        assert "yield" in str(exc_info.value).lower()
+
+
+class TestBackoffNoneValue:
+    """Test backoff with None value (no backoff)."""
+
+    def test_backoff_none(self, action_defs: dict[str, ActionDefinition]):
+        """Test backoff=None doesn't add backoff config."""
+        code = """
+class BackoffNoneWorkflow(Workflow):
+    async def run(self) -> int:
+        result = await self.run_action(risky_action(), backoff=None)
+        return result
+"""
+        workflow = parse_workflow(code, action_defs)
+
+        action = workflow.body[0].action_call
+        # Should have config but no backoff
+        assert not action.config.HasField("backoff")
+
+
+class TestGuardSyntaxErrors:
+    """Test guard expression syntax error handling."""
+
+    def test_yield_from_in_guard(self, action_defs: dict[str, ActionDefinition]):
+        """YieldFrom in guard expression should error."""
+        code = """
+class YieldFromGuardWorkflow(Workflow):
+    async def run(self) -> str:
+        if (yield from [1, 2, 3]):
+            result = await fetch_left()
+        else:
+            result = await fetch_right()
+        return result
+"""
+        with pytest.raises(IRParseError) as exc_info:
+            parse_workflow(code, action_defs)
+
+        assert "yield" in str(exc_info.value).lower()
+
+
+class TestUnsupportedExceptionType:
+    """Test unsupported exception type errors."""
+
+    def test_complex_exception_expression(self, action_defs: dict[str, ActionDefinition]):
+        """Complex exception expression should error."""
+        code = """
+class ComplexExceptionWorkflow(Workflow):
+    async def run(self) -> int:
+        try:
+            result = await risky_action()
+        except get_error_class():
+            result = await fallback_action()
+        return result
+"""
+        with pytest.raises(IRParseError) as exc_info:
+            parse_workflow(code, action_defs)
+
+        assert "unsupported exception type" in str(exc_info.value).lower()
+
+
+class TestTryExceptEdgeCases:
+    """Test try/except edge cases."""
+
+    def test_try_no_handlers(self, action_defs: dict[str, ActionDefinition]):
+        """Try without handlers should error (this can't really happen with valid Python)."""
+        # This error path exists for defensive programming but can't be triggered
+        # through normal Python parsing since Python syntax requires at least one handler
+        pass  # This is untestable via normal workflow parsing
+
+    def test_try_empty_actions(self, action_defs: dict[str, ActionDefinition]):
+        """Try block with no action results in empty actions list."""
+        code = """
+class EmptyTryBodyWorkflow(Workflow):
+    async def run(self) -> int:
+        try:
+            pass
+        except ValueError:
+            result = await fallback_action()
+        return result
+"""
+        with pytest.raises(IRParseError) as exc_info:
+            parse_workflow(code, action_defs)
+
+        # Should error about needing action
+        error_msg = str(exc_info.value).lower()
+        assert "action" in error_msg
+
+
+class TestLoopAppendEdgeCases:
+    """Test loop append pattern edge cases."""
+
+    # Note: The append extraction edge cases (lines 1085, 1088, 1091) in
+    # _extract_append are difficult to trigger via workflow parsing because:
+    # - func.attr != "append" is tested first (1085)
+    # - func.value not being Name (1088) means it's attribute access like self.x
+    # - len(call.args) != 1 (1091) would be append() with wrong args
+    # All of these cases just return None and fall through to other parsing logic,
+    # but they can't easily appear in valid loop patterns since any non-matching
+    # statement after the first action causes an error.
+    # The code is defensive and handles edge cases that may arise from future
+    # changes to the loop parsing logic.
+    pass

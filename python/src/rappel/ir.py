@@ -12,6 +12,7 @@ execution DAG. It is produced by parsing Python AST and provides:
 - Better error messages with source locations
 - A debuggable intermediate form
 - Language-agnostic target for future JS/Go frontends
+
 """
 
 from __future__ import annotations
@@ -89,6 +90,9 @@ class ModuleIndex:
         for node in tree.body:
             snippet = ast.get_source_segment(module_source, node)
             if snippet is None:
+                # Defensive: ast.get_source_segment can return None for AST nodes
+                # without source positions. This is rare but possible with synthetic
+                # or malformed AST nodes.
                 continue
             text = textwrap.dedent(snippet)
 
@@ -122,6 +126,8 @@ class ModuleIndex:
         while to_resolve:
             name = to_resolve.pop()
             if name in resolved:
+                # Skip already-processed names to avoid duplicates when
+                # multiple symbols depend on the same definition.
                 continue
             resolved.add(name)
 
@@ -173,11 +179,18 @@ class VariableAnalyzer(ast.NodeVisitor):
         self.visit(node.value)
 
     def visit_For(self, node: ast.For) -> None:
+        """Analyze for loops within Python blocks for variable flow.
+
+        Note: This is called when analyzing Python blocks that contain for loops
+        (e.g., within conditionals without actions). Top-level for loops with
+        actions are handled by _parse_for_loop instead.
+        """
         self.visit(node.iter)
         self.visit(node.target)
         for stmt in node.body:
             self.visit(stmt)
         for stmt in node.orelse:
+            # Handle for-else constructs
             self.visit(stmt)
 
     def visit_comprehension(self, node: ast.comprehension) -> None:
@@ -222,6 +235,9 @@ class GuardValidator(ast.NodeVisitor):
             tree = ast.parse(guard_expr, mode="eval")
             self.visit(tree.body)
         except SyntaxError as e:
+            # Guard expressions come from unparsed AST nodes, so syntax errors
+            # should be very rare. This handles edge cases where ast.unparse
+            # produces invalid Python syntax.
             loc_str = f" at {_format_location(location)}" if location else ""
             self.errors.append(f"Invalid guard syntax{loc_str}: {e}")
 
@@ -398,6 +414,8 @@ class IRParser:
             sleep.location.CopyFrom(location)
             return ir_pb2.Statement(sleep=sleep)
 
+        # Fallback: expression statements that aren't action calls, gathers, or
+        # sleeps become Python blocks. This handles arbitrary expressions.
         return ir_pb2.Statement(python_block=self._make_python_block([stmt], location))
 
     def _parse_assignment(
@@ -1081,12 +1099,16 @@ class IRParser:
 
         func = call.func
         if not isinstance(func, ast.Attribute) or func.attr != "append":
+            # Not an append call (e.g., extend, other method calls)
             return None
 
         if not isinstance(func.value, ast.Name):
+            # Append on attribute access (e.g., self.results.append) not supported
+            # for loop accumulator pattern
             return None
 
         if len(call.args) != 1:
+            # Malformed append call - standard list.append takes exactly 1 arg
             return None
 
         accumulator = func.value.id
@@ -1102,7 +1124,12 @@ class IRParser:
         return None
 
     def _get_simple_name(self, node: ast.expr) -> str | None:
-        """Get simple variable name from expression."""
+        """Get simple variable name from expression.
+
+        Returns None for complex expressions like attribute access or
+        subscript operations. This is used for spread pattern matching
+        where we need a simple iterable variable name.
+        """
         if isinstance(node, ast.Name):
             return node.id
         return None
@@ -1219,6 +1246,8 @@ class IRSerializer:
             return self._serialize_return(stmt.return_stmt)
         if kind == "spread":
             return self._serialize_spread(stmt.spread)
+        # Defensive: handle unknown statement kinds for forward compatibility
+        # with new IR statement types.
         return [f"# UNKNOWN: {kind}"]
 
     def _serialize_action(self, action: ir_pb2.ActionCall) -> list[str]:
@@ -1406,6 +1435,7 @@ class IRSerializer:
         if value_kind == "gather":
             gather_lines = self._serialize_gather(ret.gather)
             return [f"return {gather_lines[0]}"]
+        # Defensive: handle unknown return value kinds for forward compatibility.
         return [f"return{loc}"]
 
     def _serialize_spread(self, spread: ir_pb2.Spread) -> list[str]:
@@ -1418,4 +1448,6 @@ class IRSerializer:
             return [
                 f"{spread.target} = spread {call_str} over {spread.iterable} as {spread.loop_var}{loc}"
             ]
+        # Spread without target - parallel action over collection without collecting results.
+        # This is a valid pattern when the actions have side effects but results aren't needed.
         return [f"spread {call_str} over {spread.iterable} as {spread.loop_var}{loc}"]
