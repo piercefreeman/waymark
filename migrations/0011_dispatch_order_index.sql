@@ -15,6 +15,6 @@
 DROP INDEX IF EXISTS idx_action_scheduled;
 
 -- Create composite index matching ORDER BY (scheduled_at, action_seq)
-CREATE INDEX idx_action_dispatch_order
+CREATE INDEX IF NOT EXISTS idx_action_dispatch_order
 ON daemon_action_ledger (scheduled_at, action_seq)
 WHERE status = 'queued';

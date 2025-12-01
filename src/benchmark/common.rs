@@ -90,9 +90,9 @@ pub fn spawn_completion_worker(
 ) -> (mpsc::Sender<CompletionRecord>, JoinHandle<()>) {
     let (tx, mut rx) = mpsc::channel(1024);
     let handle = tokio::spawn(async move {
-        const BATCH_SIZE: usize = 128;
+        const BATCH_SIZE: usize = 48;
         let mut buffer = Vec::with_capacity(BATCH_SIZE);
-        let mut ticker = time::interval(Duration::from_millis(5));
+        let mut ticker = time::interval(Duration::from_millis(2));
         ticker.set_missed_tick_behavior(time::MissedTickBehavior::Delay);
         loop {
             tokio::select! {

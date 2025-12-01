@@ -14,8 +14,8 @@ use crate::{
     worker::ActionDispatchPayload,
 };
 
-const COMPLETION_BUFFER_TARGET: usize = 64;
-const COMPLETION_FLUSH_INTERVAL_MS: u64 = 50;
+const COMPLETION_BUFFER_TARGET: usize = 48;
+const COMPLETION_FLUSH_INTERVAL_MS: u64 = 2;
 
 #[derive(Clone, Debug)]
 pub struct DispatcherConfig {

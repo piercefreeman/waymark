@@ -618,12 +618,9 @@ fn evaluate_source_expr(expr: &str, ctx: &EvalContext) -> Option<Value> {
 
         // Parse the key from ['key'] or ["key"]
         // rest looks like "['key']" or "[\"key\"]"
-        if rest.starts_with("['") && rest.ends_with("']") {
-            let key = &rest[2..rest.len() - 2];
-            if let Value::Object(obj) = var_value {
-                return obj.get(key).cloned();
-            }
-        } else if rest.starts_with("[\"") && rest.ends_with("\"]") {
+        if (rest.starts_with("['") && rest.ends_with("']"))
+            || (rest.starts_with("[\"") && rest.ends_with("\"]"))
+        {
             let key = &rest[2..rest.len() - 2];
             if let Value::Object(obj) = var_value {
                 return obj.get(key).cloned();
