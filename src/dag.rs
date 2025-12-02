@@ -152,6 +152,10 @@ pub struct Node {
 
     // For sleep nodes: duration expression
     pub sleep_duration_expr: Option<String>,
+
+    // True if this node is an exception handler entry (should not be made ready at init)
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub is_exception_handler_entry: bool,
 }
 
 impl Node {
@@ -173,6 +177,7 @@ impl Node {
             try_except_meta: None,
             loop_id: None,
             sleep_duration_expr: None,
+            is_exception_handler_entry: false,
         }
     }
 
@@ -194,6 +199,7 @@ impl Node {
             try_except_meta: None,
             loop_id: None,
             sleep_duration_expr: None,
+            is_exception_handler_entry: false,
         }
     }
 
@@ -215,6 +221,7 @@ impl Node {
             try_except_meta: None,
             loop_id: None,
             sleep_duration_expr: None,
+            is_exception_handler_entry: false,
         }
     }
 
@@ -236,6 +243,7 @@ impl Node {
             try_except_meta: None,
             loop_id: None,
             sleep_duration_expr: None,
+            is_exception_handler_entry: false,
         }
     }
 
@@ -257,6 +265,7 @@ impl Node {
             try_except_meta: None,
             loop_id: None,
             sleep_duration_expr: None,
+            is_exception_handler_entry: false,
         }
     }
 
@@ -278,6 +287,7 @@ impl Node {
             try_except_meta: None,
             loop_id: None,
             sleep_duration_expr: Some(duration_expr.into()),
+            is_exception_handler_entry: false,
         }
     }
 
@@ -299,6 +309,7 @@ impl Node {
             try_except_meta: None,
             loop_id: None,
             sleep_duration_expr: None,
+            is_exception_handler_entry: false,
         }
     }
 

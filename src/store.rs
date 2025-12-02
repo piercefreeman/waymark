@@ -72,6 +72,10 @@ pub struct ActionCompletion {
     pub instance_id: Uuid,
     pub success: bool,
     pub result: Option<Value>,
+    /// Exception type name (e.g. "ValueError") for exception matching
+    pub exception_type: Option<String>,
+    /// Exception module (e.g. "builtins") for exception matching
+    pub exception_module: Option<String>,
 }
 
 /// The workflow store - handles all persistence operations
@@ -460,6 +464,8 @@ impl Store {
             &completion.node_id,
             completion.result,
             completion.success,
+            completion.exception_type,
+            completion.exception_module,
         )?;
 
         debug!(

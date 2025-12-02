@@ -73,9 +73,15 @@ impl InstanceState {
         }
 
         // Mark entry nodes as ready (nodes with 0 required deps)
+        // EXCEPT for exception handler entries which should only become ready on exception
         for (node_id, &required) in &deps_required {
             if required == 0 {
-                node_states.insert(node_id.clone(), NodeState::Ready);
+                let is_exception_handler = dag.get_node(node_id)
+                    .map(|n| n.is_exception_handler_entry)
+                    .unwrap_or(false);
+                if !is_exception_handler {
+                    node_states.insert(node_id.clone(), NodeState::Ready);
+                }
             }
         }
 
@@ -288,6 +294,8 @@ impl<'a> Scheduler<'a> {
         node_id: &str,
         result: Option<Value>,
         success: bool,
+        exception_type: Option<String>,
+        exception_module: Option<String>,
     ) -> Result<SchedulerAction> {
         let node = self.dag.get_node(node_id)
             .ok_or_else(|| anyhow!("Node {} not found", node_id))?;
@@ -302,8 +310,8 @@ impl<'a> Scheduler<'a> {
         );
 
         if !success {
-            debug!(node_id = %node_id, "Node failed - checking exception handlers");
-            return self.handle_failure(state, node, result);
+            debug!(node_id = %node_id, exception_type = ?exception_type, "Node failed - checking exception handlers");
+            return self.handle_failure(state, node, result, exception_type, exception_module);
         }
 
         // Store result in eval_context
@@ -625,17 +633,102 @@ impl<'a> Scheduler<'a> {
     }
 
     /// Handle node failure - check for exception handlers
+    #[allow(unused_variables)]
     fn handle_failure(
         &self,
         state: &mut InstanceState,
         node: &Node,
         _error: Option<Value>,
+        exception_type: Option<String>,
+        exception_module: Option<String>,
     ) -> Result<SchedulerAction> {
         state.node_states.insert(node.id.clone(), NodeState::Failed);
 
-        // Look for exception edges pointing to handlers
-        // For now, just propagate failure
-        // TODO: Implement proper exception handling
+        // Look for exception edges on this node pointing to handlers
+        let matching_handler = node.edges.iter()
+            .filter(|e| e.kind == EdgeKind::Exception)
+            .find(|e| {
+                // Check if this handler matches the exception type
+                // Match if: (1) handler catches all (None), or (2) types match
+                let type_matches = match (&e.exception_type, &exception_type) {
+                    (None, _) => true, // Bare except catches all
+                    (Some(handler_type), Some(exc_type)) => handler_type == exc_type,
+                    _ => false,
+                };
+
+                // For now, we don't strictly check module (most builtins work without it)
+                // A more strict implementation would also match on module
+                type_matches
+            });
+
+        if let Some(handler_edge) = matching_handler {
+            debug!(
+                node_id = %node.id,
+                handler_entry = %handler_edge.target,
+                exception_type = ?exception_type,
+                "Found matching exception handler, activating"
+            );
+
+            // First, unlock the failed node's downstream Data edges (to the merge node)
+            // This is critical because the failed node won't complete normally
+            for edge in &node.edges {
+                if edge.kind == EdgeKind::Data {
+                    debug!(
+                        node_id = %node.id,
+                        target = %edge.target,
+                        "Unlocking failed node's downstream edge"
+                    );
+                    self.try_unlock_node(state, &edge.target);
+                }
+            }
+
+            // Find all try-block nodes (nodes that have exception edges to this handler)
+            // and mark them as skipped, unlocking their downstream Data edges
+            let try_nodes: Vec<String> = self.dag.nodes.values()
+                .filter(|n| n.edges.iter().any(|e| {
+                    e.kind == EdgeKind::Exception && e.target == handler_edge.target
+                }))
+                .map(|n| n.id.clone())
+                .collect();
+
+            for try_node_id in &try_nodes {
+                let current_state = state.node_states.get(try_node_id).cloned();
+                // Skip nodes that haven't completed (Pending, Ready, Running)
+                if matches!(current_state, Some(NodeState::Pending) | Some(NodeState::Ready) | Some(NodeState::Running)) {
+                    state.node_states.insert(try_node_id.clone(), NodeState::Skipped);
+                    debug!(try_node_id = %try_node_id, "Marking try-block node as skipped due to exception");
+
+                    // Unlock downstream Data edges from skipped nodes
+                    // This ensures merge nodes get their deps satisfied
+                    if let Some(skipped_node) = self.dag.get_node(try_node_id) {
+                        for edge in &skipped_node.edges {
+                            if edge.kind == EdgeKind::Data {
+                                self.try_unlock_node(state, &edge.target);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Mark the handler entry as ready
+            state.node_states.insert(handler_edge.target.clone(), NodeState::Ready);
+
+            // The handler doesn't depend on normal data flow, so set deps_satisfied = deps_required
+            if let Some(required) = state.deps_required.get(&handler_edge.target) {
+                state.deps_satisfied.insert(handler_edge.target.clone(), *required);
+            }
+
+            return Ok(SchedulerAction::NodesReady {
+                node_ids: vec![handler_edge.target.clone()],
+            });
+        }
+
+        // No handler found - workflow fails
+        debug!(
+            node_id = %node.id,
+            exception_type = ?exception_type,
+            "No exception handler found, workflow failed"
+        );
 
         Ok(SchedulerAction::NodesReady { node_ids: vec![] })
     }
@@ -673,11 +766,15 @@ impl<'a> Scheduler<'a> {
         Ok(SchedulerAction::NodesReady { node_ids: newly_ready })
     }
 
-    /// Check if all nodes in the workflow are completed (or skipped)
+    /// Check if all nodes in the workflow are completed (or skipped/failed with handled exception)
     fn is_workflow_complete(&self, state: &InstanceState) -> bool {
-        // All nodes must be in Completed or Skipped state
+        // All nodes must be in a terminal state (Completed, Skipped, or Failed)
+        // Failed nodes are ok if they had an exception handler that ran
         self.dag.nodes.keys().all(|node_id| {
-            matches!(state.node_states.get(node_id), Some(NodeState::Completed) | Some(NodeState::Skipped))
+            matches!(
+                state.node_states.get(node_id),
+                Some(NodeState::Completed) | Some(NodeState::Skipped) | Some(NodeState::Failed)
+            )
         })
     }
 
@@ -1124,6 +1221,8 @@ mod tests {
             "a",
             Some(Value::String("hello".to_string())),
             true,
+            None,
+            None,
         ).unwrap();
 
         // B should now be ready

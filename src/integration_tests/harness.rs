@@ -182,6 +182,8 @@ impl WorkflowHarness {
                         instance_id: action.instance_id,
                         success: true,
                         result: None,
+                        exception_type: None,
+                        exception_module: None,
                     };
                     self.store.complete_action(completion).await?;
                     continue;
@@ -202,13 +204,15 @@ impl WorkflowHarness {
                 let metrics = worker.send_action(payload).await?;
 
                 // Process completion
-                let result = decode_result(&metrics.response_payload);
+                let decoded = decode_result(&metrics.response_payload);
                 let completion = ActionCompletion {
                     action_id: metrics.action_id,
                     node_id: action.node_id,
                     instance_id: action.instance_id,
                     success: metrics.success,
-                    result,
+                    result: decoded.result,
+                    exception_type: decoded.exception_type,
+                    exception_module: decoded.exception_module,
                 };
                 self.store.complete_action(completion).await?;
 
@@ -370,17 +374,57 @@ fn encode_workflow_input(inputs: &[(&str, &str)]) -> Vec<u8> {
     args.encode_to_vec()
 }
 
+/// Result of decoding a worker response payload
+struct DecodedResult {
+    result: Option<serde_json::Value>,
+    exception_type: Option<String>,
+    exception_module: Option<String>,
+}
+
 /// Decode result payload from worker response
-fn decode_result(payload: &[u8]) -> Option<serde_json::Value> {
+fn decode_result(payload: &[u8]) -> DecodedResult {
     if payload.is_empty() {
-        return None;
+        return DecodedResult {
+            result: None,
+            exception_type: None,
+            exception_module: None,
+        };
     }
 
-    let args = proto::WorkflowArguments::decode(payload).ok()?;
-    let result_arg = args.arguments.iter().find(|a| a.key == "result")?;
-    let value = result_arg.value.as_ref()?;
+    let args = match proto::WorkflowArguments::decode(payload) {
+        Ok(a) => a,
+        Err(_) => return DecodedResult {
+            result: None,
+            exception_type: None,
+            exception_module: None,
+        },
+    };
 
-    Some(proto_value_to_json(value))
+    // Extract result (for success case)
+    let result = args.arguments.iter()
+        .find(|a| a.key == "result")
+        .and_then(|arg| arg.value.as_ref())
+        .map(proto_value_to_json);
+
+    // Extract exception info (for failure case)
+    let (exception_type, exception_module) = args.arguments.iter()
+        .find(|a| a.key == "error")
+        .and_then(|arg| arg.value.as_ref())
+        .and_then(|v| {
+            use proto::workflow_argument_value::Kind;
+            if let Some(Kind::Exception(e)) = &v.kind {
+                Some((Some(e.r#type.clone()), Some(e.module.clone())))
+            } else {
+                None
+            }
+        })
+        .unwrap_or((None, None));
+
+    DecodedResult {
+        result,
+        exception_type,
+        exception_module,
+    }
 }
 
 /// Convert proto value to JSON

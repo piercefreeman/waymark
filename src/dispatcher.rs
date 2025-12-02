@@ -283,21 +283,38 @@ impl DispatcherTask {
         std::mem::swap(buffer, &mut pending);
 
         for record in pending {
-            // Decode the result payload to get the value
-            let result = if !record.result_payload.is_empty() {
+            // Decode the result payload to get the value and/or error info
+            let (result, exception_type, exception_module) = if !record.result_payload.is_empty() {
                 match proto::WorkflowArguments::decode(record.result_payload.as_slice()) {
                     Ok(args) => {
-                        // Extract the "result" key from arguments
-                        args.arguments
+                        // Extract the "result" key from arguments (for success case)
+                        let result = args.arguments
                             .iter()
                             .find(|arg| arg.key == "result")
                             .and_then(|arg| arg.value.as_ref())
-                            .map(|v| decode_arg_value(v))
+                            .map(|v| decode_arg_value(v));
+
+                        // Extract exception info from "error" key (for failure case)
+                        let (exc_type, exc_module) = args.arguments
+                            .iter()
+                            .find(|arg| arg.key == "error")
+                            .and_then(|arg| arg.value.as_ref())
+                            .and_then(|v| {
+                                use proto::workflow_argument_value::Kind;
+                                if let Some(Kind::Exception(e)) = &v.kind {
+                                    Some((Some(e.r#type.clone()), Some(e.module.clone())))
+                                } else {
+                                    None
+                                }
+                            })
+                            .unwrap_or((None, None));
+
+                        (result, exc_type, exc_module)
                     }
-                    Err(_) => None,
+                    Err(_) => (None, None, None),
                 }
             } else {
-                None
+                (None, None, None)
             };
 
             let completion = ActionCompletion {
@@ -306,6 +323,8 @@ impl DispatcherTask {
                 instance_id: record.instance_id,
                 success: record.success,
                 result,
+                exception_type,
+                exception_module,
             };
 
             if let Err(err) = store.complete_action(completion).await {

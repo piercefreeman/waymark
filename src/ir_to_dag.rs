@@ -551,27 +551,33 @@ fn convert_try_except(state: &mut ConversionState, te: &ir::TryExcept) -> Result
             .cloned()
             .unwrap_or_default();
 
-        // Add exception edges from try nodes to handler nodes
-        for handler_node_id in &handler_nodes {
-            if let Some(handler_node) = state.dag.get_node_mut(handler_node_id) {
-                for try_node_id in &try_nodes {
-                    let exc_types: Vec<_> = handler.exception_types.iter()
-                        .map(|et| (et.module.clone(), et.name.clone()))
-                        .collect();
+        // Add exception edges FROM try nodes TO handler entry
+        // This allows the scheduler to find the handler when a try node fails
+        let exc_types: Vec<_> = handler.exception_types.iter()
+            .map(|et| (et.module.clone(), et.name.clone()))
+            .collect();
 
+        for try_node_id in &try_nodes {
+            if let Some(try_node) = state.dag.get_node_mut(try_node_id) {
+                if exc_types.is_empty() {
+                    // Bare except: catches all
+                    try_node.add_exception_edge(entry.clone(), None, None);
+                } else {
                     for (module, name) in &exc_types {
-                        handler_node.add_exception_edge(
-                            try_node_id.clone(),
+                        try_node.add_exception_edge(
+                            entry.clone(),
                             name.clone(),
                             module.clone(),
                         );
                     }
-
-                    if exc_types.is_empty() {
-                        // Bare except: catches all
-                        handler_node.add_exception_edge(try_node_id.clone(), None, None);
-                    }
                 }
+            }
+        }
+
+        // Mark the handler entry as an exception handler entry (won't be made ready at init)
+        if !entry.is_empty() {
+            if let Some(entry_node) = state.dag.get_node_mut(&entry) {
+                entry_node.is_exception_handler_entry = true;
             }
         }
 
