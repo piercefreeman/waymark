@@ -5,7 +5,10 @@ package rappel.messages;
 import "google/protobuf/struct.proto";
 import "ir.proto";
 
-// Basic transport messages for Rust <-> Python worker communication.
+// =============================================================================
+// Transport Layer - Rust <-> Python Worker Communication
+// =============================================================================
+
 enum MessageKind {
   MESSAGE_KIND_UNSPECIFIED = 0;
   MESSAGE_KIND_ACTION_DISPATCH = 1;
@@ -17,7 +20,6 @@ enum MessageKind {
 
 message Envelope {
   uint64 delivery_id = 1;
-  // Optional identifier that allows grouping by logical partition.
   uint32 partition_id = 2;
   MessageKind kind = 3;
   bytes payload = 4;
@@ -27,7 +29,7 @@ message ActionDispatch {
   string action_id = 1;
   string instance_id = 2;
   uint32 sequence = 3;
-  WorkflowNodeDispatch dispatch = 4;
+  NodeDispatch dispatch = 4;
   optional uint32 timeout_seconds = 5;
   optional uint32 max_retries = 6;
   optional uint32 attempt_number = 7;
@@ -41,7 +43,12 @@ message ActionResult {
   uint64 worker_start_ns = 4;
   uint64 worker_end_ns = 5;
   optional string dispatch_token = 6;
-  optional WorkflowNodeControl control = 7;
+  WorkflowNodeControl control = 7;
+}
+
+// Control signals from worker (pause, etc.)
+message WorkflowNodeControl {
+  bool pause = 1;
 }
 
 message Ack {
@@ -52,197 +59,131 @@ message WorkerHello {
   uint64 worker_id = 1;
 }
 
-message BackoffPolicy {
-  oneof policy {
-    LinearBackoff linear = 1;
-    ExponentialBackoff exponential = 2;
-  }
+// =============================================================================
+// Node Dispatch - Minimal info needed by Python workers
+// =============================================================================
+
+// Information needed by a worker to execute a node
+message NodeDispatch {
+  NodeInfo node = 1;
+  WorkflowArguments workflow_input = 2;
+  repeated NodeContext context = 3;
+  WorkflowArguments resolved_kwargs = 4;
 }
 
-// Linear backoff: delay = base_delay_ms * attempt_number
-message LinearBackoff {
-  uint32 base_delay_ms = 1;  // Base delay in milliseconds
-}
-
-// Exponential backoff: delay = base_delay_ms * multiplier^(attempt_number - 1)
-message ExponentialBackoff {
-  uint32 base_delay_ms = 1;  // Base delay in milliseconds
-  double multiplier = 2;     // Exponential multiplier (default 2.0 if not set)
-}
-
-// Node types for distinguishing action nodes from synthetic control nodes
-enum NodeType {
-  NODE_TYPE_UNSPECIFIED = 0;
-  NODE_TYPE_ACTION = 1;       // Regular action node executed by workers
-  NODE_TYPE_LOOP_HEAD = 2;    // Synthetic loop control node (evaluated by scheduler)
-}
-
-// Edge types for DAG traversal
-enum EdgeType {
-  EDGE_TYPE_UNSPECIFIED = 0;
-  EDGE_TYPE_FORWARD = 1;      // Normal dependency edge
-  EDGE_TYPE_CONTINUE = 2;     // Loop head -> body (more iterations)
-  EDGE_TYPE_BREAK = 3;        // Loop head -> exit (iterator exhausted)
-  EDGE_TYPE_BACK = 4;         // Loop body tail -> loop head (iteration complete)
-}
-
-// Represents an edge in the DAG with its type
-message DagEdge {
-  string from_node = 1;
-  string to_node = 2;
-  EdgeType edge_type = 3;
-}
-
-// Metadata for loop_head synthetic nodes
-message LoopHeadMeta {
-  string iterator_source = 1;          // Node ID that produces the iterator
-  string loop_var = 2;                 // Variable name for current item (e.g., "seed")
-  repeated string body_entry = 3;      // Entry node(s) for loop body (parallel if multiple)
-  string body_tail = 4;                // Last node before back edge
-  string exit_target = 5;              // Node to execute after loop completes
-  repeated AccumulatorSpec accumulators = 6;  // Variables to collect across iterations
-  repeated PreambleOp preamble = 7;    // Pure computations before each iteration
-  repeated string body_nodes = 8;      // All nodes in loop body (for reset on back edge)
-}
-
-// Specifies how to collect values into an accumulator across iterations
-message AccumulatorSpec {
-  string var = 1;                      // Python variable name (e.g., "results")
-  optional string source_node = 2;     // Node whose result to append (if from action result)
-  optional string source_expr = 3;     // Expression to evaluate (if from iterator/computed)
-}
-
-// Pure computation operations evaluated by scheduler (no worker round-trip)
-message PreambleOp {
-  oneof op {
-    SetIteratorIndex set_iterator_index = 1;   // var = current iteration index
-    SetIteratorValue set_iterator_value = 2;   // var = iterator[index]
-    SetAccumulatorLen set_accumulator_len = 3; // var = len(accumulator)
-  }
-}
-
-message SetIteratorIndex {
-  string var = 1;
-}
-
-message SetIteratorValue {
-  string var = 1;
-}
-
-message SetAccumulatorLen {
-  string var = 1;
-  string accumulator = 2;  // Which accumulator to get length from
-}
-
-message WorkflowDagNode {
+// Minimal node information for worker execution
+message NodeInfo {
   string id = 1;
   string action = 2;
-  map<string, string> kwargs = 3;
-  repeated string depends_on = 4;
-  repeated string wait_for_sync = 5;
-  repeated string produces = 6;
-  string module = 7;
-  string guard = 8;
-  repeated WorkflowExceptionEdge exception_edges = 9;
-  optional uint32 timeout_seconds = 10;
-  optional uint32 max_retries = 11;
-  optional uint32 timeout_retry_limit = 12;
-  optional WorkflowLoopSpec loop = 13;
-  optional WorkflowNodeAst ast = 14;
-  optional BackoffPolicy backoff = 15;
-  // New fields for cycle-based loops
-  NodeType node_type = 16;
-  optional LoopHeadMeta loop_head_meta = 17;  // Present when node_type == LOOP_HEAD
-  optional string loop_id = 18;               // For body nodes: which loop they belong to
+  string module = 3;
+  map<string, string> kwargs = 4;
+  repeated string produces = 5;
+  repeated ExceptionEdge exception_edges = 6;
 }
 
-message WorkflowDagDefinition {
-  bool concurrent = 1;
-  repeated WorkflowDagNode nodes = 2;
-  string return_variable = 3;
-  // Explicit edges with types (for cycle-based loops)
-  // If empty, edges are inferred from depends_on/wait_for_sync (backward compat)
-  repeated DagEdge edges = 4;
-}
-
-message WorkflowExceptionEdge {
+message ExceptionEdge {
   string source_node_id = 1;
   string exception_type = 2;
   string exception_module = 3;
 }
 
-message WorkflowLoopSpec {
-  string iterable_expr = 1;
-  string loop_var = 2;
-  string accumulator = 3;
-  string preamble = 4;
-  string body_action = 5;
-  string body_module = 6;
-  map<string, string> body_kwargs = 7;
+message NodeContext {
+  string variable = 1;
+  WorkflowArguments payload = 2;
+  string source_node_id = 3;
 }
 
-message WorkflowLoopControl {
-  string node_id = 1;
-  uint32 next_index = 2;
-  bool has_next = 3;
-  string accumulator = 4;
-  WorkflowArgumentValue accumulator_value = 5;
-  // For multi-phase loops: track completed phases and their results
-  repeated string completed_phases = 6;
-  map<string, WorkflowArgumentValue> phase_results = 7;
-  // The current phase being executed (empty if starting new iteration)
-  string current_phase = 8;
+// =============================================================================
+// Workflow Registration
+// =============================================================================
+
+message WorkflowRegistration {
+  string workflow_name = 1;
+  WorkflowArguments initial_context = 2;
+  rappel.ir.Workflow ir = 3;
+  bool concurrent = 4;
 }
 
-message WorkflowNodeControl {
+message RegisterWorkflowRequest {
+  WorkflowRegistration registration = 1;
+}
+
+message RegisterWorkflowResponse {
+  string workflow_version_id = 1;
+  string workflow_instance_id = 2;
+}
+
+message WaitForInstanceRequest {
+  string instance_id = 1;
+  double poll_interval_secs = 2;
+}
+
+message WaitForInstanceResponse {
+  bytes payload = 1;
+}
+
+// =============================================================================
+// Workflow Argument Serialization
+// =============================================================================
+
+message WorkflowArgumentValue {
   oneof kind {
-    WorkflowLoopControl loop = 1;
+    PrimitiveWorkflowArgument primitive = 1;
+    BaseModelWorkflowArgument basemodel = 2;
+    WorkflowErrorValue exception = 3;
+    WorkflowListArgument list_value = 4;
+    WorkflowTupleArgument tuple_value = 5;
+    WorkflowDictArgument dict_value = 6;
   }
 }
 
-// Serialized Python AST for control flow/evaluation
-message WorkflowNodeAst {
-  map<string, Expr> kwargs = 1;
-  optional Expr guard = 2;
-  optional LoopAst loop = 3;
-  optional Expr sleep_duration = 4;  // Sleep duration expression in seconds
+message WorkflowArgument {
+  string key = 1;
+  WorkflowArgumentValue value = 2;
 }
 
-message LoopAst {
-  Expr iterable = 1;
-  string loop_var = 2;
-  string accumulator = 3;
-  repeated Stmt preamble = 4;
-  // DEPRECATED: Use body_graph for multi-action loops
-  ActionAst body_action = 5;
-  // New: Full sub-DAG for loop body (supports multiple actions)
-  optional LoopBodyGraph body_graph = 6;
+message WorkflowArguments {
+  repeated WorkflowArgument arguments = 1;
 }
 
-// Represents a sub-DAG executed per loop iteration
-message LoopBodyGraph {
-  repeated LoopBodyNode nodes = 1;
-  // The variable from the final node to append to accumulator
-  string result_variable = 2;
+message PrimitiveWorkflowArgument {
+  oneof kind {
+    string string_value = 1;
+    double double_value = 2;
+    sint64 int_value = 3;
+    bool bool_value = 4;
+    google.protobuf.NullValue null_value = 5;
+  }
 }
 
-// A node within the loop body sub-DAG
-message LoopBodyNode {
-  string id = 1;                      // e.g., "phase_0", "phase_1"
-  string action = 2;                  // Action name, e.g., "validate_order"
-  string module = 3;                  // Module containing the action
-  repeated Keyword kwargs = 4;        // Kwargs as expressions
-  repeated string depends_on = 5;     // Dependencies within body graph
-  string output_var = 6;              // Variable to capture result
-  optional uint32 timeout_seconds = 7;
-  optional uint32 max_retries = 8;
+message BaseModelWorkflowArgument {
+  string module = 1;
+  string name = 2;
+  WorkflowDictArgument data = 3;
 }
 
-message ActionAst {
-  string action_name = 1;
-  string module_name = 2;
-  repeated Keyword keywords = 3;
+message WorkflowErrorValue {
+  string type = 1;
+  string module = 2;
+  string message = 3;
+  string traceback = 4;
 }
+
+message WorkflowListArgument {
+  repeated WorkflowArgumentValue items = 1;
+}
+
+message WorkflowTupleArgument {
+  repeated WorkflowArgumentValue items = 1;
+}
+
+message WorkflowDictArgument {
+  repeated WorkflowArgument entries = 1;
+}
+
+// =============================================================================
+// AST Types for Expression Evaluation (used by Rust scheduler)
+// =============================================================================
 
 message Keyword {
   string arg = 1;
@@ -302,7 +243,7 @@ message Constant {
     double float_value = 2;
     sint64 int_value = 3;
     bool bool_value = 4;
-    bool is_none = 5; // true if None
+    bool is_none = 5;
   }
 }
 
@@ -395,105 +336,29 @@ message Dict {
   repeated Expr values = 2;
 }
 
-message WorkflowRegistration {
-  string workflow_name = 1;
-  // DEPRECATED: Use ir field instead. DAG is now computed on Rust side from IR.
-  WorkflowDagDefinition dag = 2;
-  string dag_hash = 3;
-  WorkflowArguments initial_context = 4;
-  // The workflow IR - this is parsed by Rust into a DAG
-  rappel.ir.Workflow ir = 5;
-  // Concurrent execution mode
-  bool concurrent = 6;
-}
+// =============================================================================
+// Retry/Backoff Configuration
+// =============================================================================
 
-message WorkflowNodeContext {
-  string variable = 1;
-  WorkflowArguments payload = 2;
-  string workflow_node_id = 3;
-}
-
-// Workflow Argument Types
-message WorkflowArgumentValue {
-  oneof kind {
-    PrimitiveWorkflowArgument primitive = 1;
-    BaseModelWorkflowArgument basemodel = 2;
-    WorkflowErrorValue exception = 3;
-    WorkflowListArgument list_value = 4;
-    WorkflowTupleArgument tuple_value = 5;
-    WorkflowDictArgument dict_value = 6;
+message BackoffPolicy {
+  oneof policy {
+    LinearBackoff linear = 1;
+    ExponentialBackoff exponential = 2;
   }
 }
 
-message WorkflowArgument {
-  string key = 1;
-  WorkflowArgumentValue value = 2;
+message LinearBackoff {
+  uint32 base_delay_ms = 1;
 }
 
-message WorkflowArguments {
-  repeated WorkflowArgument arguments = 1;
+message ExponentialBackoff {
+  uint32 base_delay_ms = 1;
+  double multiplier = 2;
 }
 
-message PrimitiveWorkflowArgument {
-  oneof kind {
-    string string_value = 1;
-    double double_value = 2;
-    sint64 int_value = 3;
-    bool bool_value = 4;
-    google.protobuf.NullValue null_value = 5;
-  }
-}
-
-message BaseModelWorkflowArgument {
-  string module = 1;
-  string name = 2;
-  WorkflowDictArgument data = 3;
-}
-
-message WorkflowErrorValue {
-  string type = 1;
-  string module = 2;
-  string message = 3;
-  string traceback = 4;
-}
-
-message WorkflowListArgument {
-  repeated WorkflowArgumentValue items = 1;
-}
-
-message WorkflowTupleArgument {
-  repeated WorkflowArgumentValue items = 1;
-}
-
-message WorkflowDictArgument {
-  repeated WorkflowArgument entries = 1;
-}
-
-message WorkflowNodeDispatch {
-  WorkflowDagNode node = 1;
-  WorkflowArguments workflow_input = 2;
-  repeated WorkflowNodeContext context = 3;
-  WorkflowArguments resolved_kwargs = 4;
-}
-
-message RegisterWorkflowRequest {
-  reserved 1;
-  WorkflowRegistration registration = 2;
-}
-
-message RegisterWorkflowResponse {
-  string workflow_version_id = 1;
-  string workflow_instance_id = 2;
-}
-
-message WaitForInstanceRequest {
-  string instance_id = 1;
-  double poll_interval_secs = 2;
-}
-
-message WaitForInstanceResponse {
-  bytes payload = 1;
-}
+// =============================================================================
+// Services
+// =============================================================================
 
 service WorkflowService {
   rpc RegisterWorkflow(RegisterWorkflowRequest) returns (RegisterWorkflowResponse);

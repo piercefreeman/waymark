@@ -1,17 +1,19 @@
+//! Client-facing API servers (HTTP + gRPC).
+
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use anyhow::{Context, Result};
-use tera::Tera;
+use sqlx::postgres::PgPoolOptions;
 use tokio::net::TcpListener;
 use tokio_stream::wrappers::TcpListenerStream;
 use tonic::{Request, Response as GrpcResponse, Status, async_trait, transport::Server};
 use tracing::info;
 
 use crate::{
-    db::Database,
     instances,
     messages::proto::{self, workflow_service_server::WorkflowServiceServer},
     server_web,
+    store::Store,
 };
 use prost::Message;
 
@@ -39,18 +41,21 @@ pub async fn run_servers(config: ServerConfig) -> Result<()> {
         database_url,
     } = config;
     let database_url = Arc::new(database_url);
-    let database = Database::connect(database_url.as_ref())
+
+    // Create connection pool and store
+    let pool = PgPoolOptions::new()
+        .max_connections(10)
+        .connect(database_url.as_ref())
         .await
         .with_context(|| {
             format!(
-                "failed to connect to dashboard database at {}",
+                "failed to connect to database at {}",
                 database_url.as_ref()
             )
         })?;
-    let mut templates = Tera::new("templates/**/*.html")
-        .context("failed to initialize templates from templates/ directory")?;
-    templates.autoescape_on(vec![".html", ".tera"]);
-    let templates = Arc::new(templates);
+
+    let store = Arc::new(Store::new(pool));
+    store.init_schema().await?;
 
     let http_listener = TcpListener::bind(http_addr)
         .await
@@ -66,8 +71,7 @@ pub async fn run_servers(config: ServerConfig) -> Result<()> {
         http_addr,
         grpc_addr,
         Arc::clone(&database_url),
-        database,
-        templates,
+        Arc::clone(&store),
     );
 
     let http_task = tokio::spawn(server_web::run_http_server(http_listener, http_state));
@@ -80,6 +84,7 @@ pub async fn run_servers(config: ServerConfig) -> Result<()> {
 
     Ok(())
 }
+
 #[derive(Clone)]
 struct WorkflowGrpcService {
     database_url: Arc<String>,

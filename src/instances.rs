@@ -1,15 +1,21 @@
+//! Instance management utilities.
+//!
+//! This module provides helpers for running workflow instances.
+
 use std::time::Duration;
 
 use anyhow::{Context, Result};
 use prost::Message;
-use sha2::{Digest, Sha256};
+use sqlx::postgres::PgPoolOptions;
 use tokio::{runtime::Runtime, time::sleep};
 
 use crate::{
-    WorkflowInstanceId, WorkflowVersionId, db::Database, messages::proto::WorkflowRegistration,
-    ir_to_dag::convert_workflow,
+    WorkflowInstanceId, WorkflowVersionId,
+    messages::proto::WorkflowRegistration,
+    store::Store,
 };
 
+/// Run a workflow instance from a serialized registration payload
 pub async fn run_instance_payload(
     database_url: &str,
     payload: &[u8],
@@ -17,80 +23,54 @@ pub async fn run_instance_payload(
     let registration = WorkflowRegistration::decode(payload)
         .context("failed to decode workflow registration payload")?;
 
-    // Get the DAG - either from IR (preferred) or legacy dag field
-    let (dag_def, from_ir) = if let Some(ref ir) = registration.ir {
-        // Convert IR to DAG
-        let dag = convert_workflow(ir, registration.concurrent)
-            .map_err(|e| anyhow::anyhow!("failed to convert IR to DAG: {}", e))?;
-        (dag, true)
-    } else if let Some(dag) = registration.dag.clone() {
-        // Legacy path: use provided DAG directly
-        (dag, false)
-    } else {
-        anyhow::bail!("workflow registration missing both ir and dag");
-    };
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(database_url)
+        .await
+        .context("failed to connect to database")?;
 
-    let dag_bytes = dag_def.encode_to_vec();
-    let provided_hash = &registration.dag_hash;
-    let computed_hash = format!("{:x}", Sha256::digest(&dag_bytes));
+    let store = Store::new(pool);
+    store.init_schema().await?;
 
-    // For IR-based registrations, the hash is of the IR not the DAG,
-    // so we just use the computed DAG hash
-    let hash_to_use = if from_ir {
-        computed_hash.clone()
-    } else {
-        // Legacy path: warn if hashes don't match
-        if !provided_hash.is_empty() && provided_hash != &computed_hash {
-            tracing::warn!(
-                provided = provided_hash,
-                computed = computed_hash,
-                "workflow hash mismatch - using computed value"
-            );
-        }
-        computed_hash
-    };
+    let (version_id, instance_id) = store.register_workflow(&registration).await?;
 
-    let db = Database::connect(database_url).await?;
-    let version_id = db
-        .upsert_workflow_version(
-            &registration.workflow_name,
-            &hash_to_use,
-            &dag_bytes,
-            dag_def.concurrent,
-        )
-        .await?;
-    // Serialize initial_context if provided
-    let input_payload = registration.initial_context.map(|ctx| ctx.encode_to_vec());
-    let instance_id = db
-        .create_workflow_instance(
-            &registration.workflow_name,
-            version_id,
-            input_payload.as_deref(),
-        )
-        .await?;
     Ok((version_id, instance_id))
 }
 
+/// Poll for instance completion
 pub async fn wait_for_instance_poll(
     database_url: &str,
     instance_id: WorkflowInstanceId,
     poll_interval: Duration,
 ) -> Result<Option<Vec<u8>>> {
-    let db = Database::connect(database_url).await?;
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(database_url)
+        .await
+        .context("failed to connect to database")?;
+
+    let store = Store::new(pool);
+
     loop {
-        let payload: Option<Option<Vec<u8>>> =
-            sqlx::query_scalar("SELECT result_payload FROM workflow_instances WHERE id = $1")
-                .bind(instance_id)
-                .fetch_optional(db.pool())
-                .await?;
-        match payload {
-            Some(Some(bytes)) => return Ok(Some(bytes)),
-            Some(None) => sleep(poll_interval).await,
-            None => return Ok(None),
+        match store.get_instance(instance_id).await? {
+            Some((status, result)) if status == "completed" => {
+                return Ok(result.map(|v| serde_json::to_vec(&v).unwrap_or_default()));
+            }
+            Some((status, _)) if status == "failed" => {
+                return Ok(None);
+            }
+            Some(_) => {
+                // Still running
+                sleep(poll_interval).await;
+            }
+            None => {
+                return Ok(None);
+            }
         }
     }
 }
 
+/// Blocking version of run_instance_payload
 pub fn run_instance_blocking(
     database_url: &str,
     payload: Vec<u8>,
@@ -99,6 +79,7 @@ pub fn run_instance_blocking(
     rt.block_on(run_instance_payload(database_url, &payload))
 }
 
+/// Blocking version of wait_for_instance_poll
 pub fn wait_for_instance_blocking(
     database_url: &str,
     instance_id: WorkflowInstanceId,

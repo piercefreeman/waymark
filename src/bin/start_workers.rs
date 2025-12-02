@@ -2,9 +2,10 @@ use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
 use rappel::{
-    AppConfig, Database, Dispatcher, DispatcherConfig, PythonWorkerConfig, PythonWorkerPool,
+    AppConfig, Store, Dispatcher, DispatcherConfig, PythonWorkerConfig, PythonWorkerPool,
     server_worker::WorkerBridgeServer,
 };
+use sqlx::postgres::PgPoolOptions;
 use tokio::{select, signal};
 use tracing::info;
 
@@ -14,7 +15,14 @@ async fn main() -> Result<()> {
     let app_config = AppConfig::load()?;
     let worker_settings = app_config.worker.clone();
     let worker_count = worker_settings.worker_count.max(1);
-    let database = Arc::new(Database::connect(&app_config.database_url).await?);
+
+    let pool = PgPoolOptions::new()
+        .max_connections(20)
+        .connect(&app_config.database_url)
+        .await?;
+
+    let store = Arc::new(Store::new(pool));
+    store.init_schema().await?;
 
     let mut config = PythonWorkerConfig {
         ..PythonWorkerConfig::default()
@@ -32,7 +40,7 @@ async fn main() -> Result<()> {
         batch_size: worker_settings.batch_size,
         max_concurrent: worker_settings.max_concurrent,
     };
-    let dispatcher = Dispatcher::start(dispatcher_config, Arc::clone(&database), Arc::clone(&pool));
+    let dispatcher = Dispatcher::start(dispatcher_config, store, Arc::clone(&pool));
     info!(
         worker_count,
         max_concurrent = worker_settings.max_concurrent,

@@ -1,8 +1,10 @@
+//! Common benchmark types and utilities.
+//!
+//! NOTE: Stubbed out pending migration to new store/scheduler model.
+
 use std::time::Duration;
 
-use crate::db::{CompletionRecord, Database};
-use tokio::{sync::mpsc, task::JoinHandle, time};
-use tracing::{info, warn};
+use tracing::info;
 
 #[derive(Debug, Clone)]
 pub struct BenchmarkResult {
@@ -82,55 +84,5 @@ impl BenchmarkSummary {
             p95_round_trip_ms = %format!("{:.3} ms", self.p95_round_trip_ms),
             "benchmark summary",
         );
-    }
-}
-
-pub fn spawn_completion_worker(
-    database: Database,
-) -> (mpsc::Sender<CompletionRecord>, JoinHandle<()>) {
-    let (tx, mut rx) = mpsc::channel(1024);
-    let handle = tokio::spawn(async move {
-        const BATCH_SIZE: usize = 48;
-        let mut buffer = Vec::with_capacity(BATCH_SIZE);
-        let mut ticker = time::interval(Duration::from_millis(2));
-        ticker.set_missed_tick_behavior(time::MissedTickBehavior::Delay);
-        loop {
-            tokio::select! {
-                msg = rx.recv() => {
-                    match msg {
-                        Some(record) => {
-                            buffer.push(record);
-                            if buffer.len() >= BATCH_SIZE {
-                                flush_batch(&database, &mut buffer).await;
-                                buffer.clear();
-                            }
-                        }
-                        None => break,
-                    }
-                }
-                _ = ticker.tick() => {
-                    if buffer.is_empty() {
-                        if rx.is_closed() {
-                            break;
-                        }
-                        continue;
-                    }
-                    flush_batch(&database, &mut buffer).await;
-                    buffer.clear();
-                }
-            }
-        }
-        if !buffer.is_empty() {
-            flush_batch(&database, &mut buffer).await;
-        }
-    });
-    (tx, handle)
-}
-
-async fn flush_batch(database: &Database, buffer: &mut Vec<CompletionRecord>) {
-    let mut pending = Vec::new();
-    std::mem::swap(buffer, &mut pending);
-    if let Err(err) = database.mark_actions_batch(&pending).await {
-        warn!(?err, "failed to flush completion batch");
     }
 }

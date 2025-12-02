@@ -114,7 +114,7 @@ pub struct ActionDispatchPayload {
     pub action_id: LedgerActionId,
     pub instance_id: WorkflowInstanceId,
     pub sequence: i32,
-    pub dispatch: proto::WorkflowNodeDispatch,
+    pub dispatch: proto::NodeDispatch,
     pub timeout_seconds: i32,
     pub max_retries: i32,
     pub attempt_number: i32,
