@@ -11,6 +11,7 @@
 //! - Push-based scheduling via ready queue
 
 use crate::dag::Dag;
+use crate::ir_dsl::format_workflow;
 use crate::ir_to_dag::convert_workflow;
 use crate::messages::proto::{
     NodeDispatch, WorkflowArguments, WorkflowRegistration,
@@ -178,6 +179,10 @@ impl Store {
     ) -> Result<(Uuid, Uuid)> {
         let ir = registration.ir.as_ref()
             .ok_or_else(|| anyhow!("Registration missing IR"))?;
+
+        // Print IR DSL for debugging
+        let dsl = format_workflow(ir);
+        eprintln!("\n=== Registered Workflow IR ===\n{}\n==============================\n", dsl);
 
         // Convert IR to DAG
         let dag = convert_workflow(ir, registration.concurrent)
