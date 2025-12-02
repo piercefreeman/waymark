@@ -100,9 +100,7 @@ def _ast_to_expression(node: ast.expr) -> ir_pb2.Expression:
 
     if isinstance(node, ast.List):
         return ir_pb2.Expression(
-            array=ir_pb2.ArrayExpr(
-                elements=[_ast_to_expression(e) for e in node.elts]
-            )
+            array=ir_pb2.ArrayExpr(elements=[_ast_to_expression(e) for e in node.elts])
         )
 
     if isinstance(node, ast.Dict):
@@ -233,9 +231,7 @@ def _ast_to_expression(node: ast.expr) -> ir_pb2.Expression:
         if isinstance(node.func, ast.Name):
             func_name = node.func.id
             args = [_ast_to_expression(arg) for arg in node.args]
-            return ir_pb2.Expression(
-                call=ir_pb2.CallExpr(function=func_name, args=args)
-            )
+            return ir_pb2.Expression(call=ir_pb2.CallExpr(function=func_name, args=args))
         raise IRParseError(
             f"Complex function call not supported in expressions: {ast.unparse(node)}",
             node,
@@ -1195,10 +1191,12 @@ class IRParser:
         # First process keyword arguments
         for kw in call.keywords:
             if kw.arg is not None:
-                args.append(ir_pb2.KwArg(
-                    name=kw.arg,
-                    value=_ast_to_expression(kw.value),
-                ))
+                args.append(
+                    ir_pb2.KwArg(
+                        name=kw.arg,
+                        value=_ast_to_expression(kw.value),
+                    )
+                )
                 seen_names.add(kw.arg)
 
         # Then process positional arguments
@@ -1209,22 +1207,28 @@ class IRParser:
                     if i < len(param_names):
                         param_name = param_names[i]
                         if param_name not in seen_names:
-                            args.append(ir_pb2.KwArg(
-                                name=param_name,
-                                value=_ast_to_expression(arg),
-                            ))
+                            args.append(
+                                ir_pb2.KwArg(
+                                    name=param_name,
+                                    value=_ast_to_expression(arg),
+                                )
+                            )
                             seen_names.add(param_name)
                     else:
-                        args.append(ir_pb2.KwArg(
-                            name=f"__arg{i}",
-                            value=_ast_to_expression(arg),
-                        ))
+                        args.append(
+                            ir_pb2.KwArg(
+                                name=f"__arg{i}",
+                                value=_ast_to_expression(arg),
+                            )
+                        )
             else:
                 for i, arg in enumerate(call.args):
-                    args.append(ir_pb2.KwArg(
-                        name=f"__arg{i}",
-                        value=_ast_to_expression(arg),
-                    ))
+                    args.append(
+                        ir_pb2.KwArg(
+                            name=f"__arg{i}",
+                            value=_ast_to_expression(arg),
+                        )
+                    )
 
         return args
 
@@ -1479,17 +1483,21 @@ class IRParser:
         args: list[ir_pb2.KwArg] = []
         for kw in expr.keywords:
             if kw.arg is not None:
-                args.append(ir_pb2.KwArg(
-                    name=kw.arg,
-                    value=_ast_to_expression(kw.value),
-                ))
+                args.append(
+                    ir_pb2.KwArg(
+                        name=kw.arg,
+                        value=_ast_to_expression(kw.value),
+                    )
+                )
 
         # Handle positional args as __argN
         for i, arg in enumerate(expr.args):
-            args.append(ir_pb2.KwArg(
-                name=f"__arg{i}",
-                value=_ast_to_expression(arg),
-            ))
+            args.append(
+                ir_pb2.KwArg(
+                    name=f"__arg{i}",
+                    value=_ast_to_expression(arg),
+                )
+            )
 
         subgraph = ir_pb2.SubgraphCall(method_name=method_name)
         subgraph.args.extend(args)
@@ -2058,7 +2066,9 @@ class IRSerializer:
         module_prefix = f"{action.module}." if action.HasField("module") else ""
         call_str = f"@{module_prefix}{action.action}({args_str})"
         loc = self._loc_comment(spread.location if spread.HasField("location") else None)
-        iterable_str = _expression_to_string(spread.iterable) if spread.HasField("iterable") else "?"
+        iterable_str = (
+            _expression_to_string(spread.iterable) if spread.HasField("iterable") else "?"
+        )
         if spread.HasField("target"):
             return [
                 f"{spread.target} = spread {call_str} over {iterable_str} as {spread.loop_var}{loc}"

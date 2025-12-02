@@ -139,6 +139,7 @@ impl Store {
                 attempt INTEGER NOT NULL DEFAULT 0,
                 status TEXT NOT NULL DEFAULT 'pending',
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                scheduled_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 started_at TIMESTAMPTZ,
                 completed_at TIMESTAMPTZ
             )
@@ -152,7 +153,7 @@ impl Store {
         sqlx::query(
             r#"
             CREATE INDEX IF NOT EXISTS idx_action_queue_pending
-                ON action_queue(status, created_at)
+                ON action_queue(status, scheduled_at, created_at)
                 WHERE status = 'pending'
             "#,
         )
@@ -284,6 +285,10 @@ impl Store {
                 SchedulerAction::WorkflowComplete { result } => {
                     self.complete_instance(instance_id, result).await?;
                 }
+                SchedulerAction::Sleep { node_id: sleep_node_id, duration_seconds } => {
+                    // Enqueue sleep as a no-op action scheduled to be picked up after duration
+                    self.enqueue_sleep_action(instance_id, &sleep_node_id, duration_seconds).await?;
+                }
                 SchedulerAction::Idle => {}
             }
         }
@@ -325,6 +330,60 @@ impl Store {
         Ok(action_id)
     }
 
+    /// Enqueue a sleep action (no-op that becomes ready after duration)
+    async fn enqueue_sleep_action(
+        &self,
+        instance_id: Uuid,
+        node_id: &str,
+        duration_seconds: f64,
+    ) -> Result<Uuid> {
+        let action_id = Uuid::new_v4();
+
+        // Create a minimal dispatch for the sleep (it's a no-op when dequeued)
+        let dispatch = NodeDispatch {
+            node: Some(crate::messages::proto::NodeInfo {
+                id: node_id.to_string(),
+                action: "__sleep__".to_string(),
+                module: String::new(),
+                kwargs: std::collections::HashMap::new(),
+                produces: Vec::new(),
+                exception_edges: Vec::new(),
+            }),
+            workflow_input: None,
+            context: Vec::new(),
+            resolved_kwargs: None,
+        };
+        let dispatch_json = serde_json::to_string(&dispatch)
+            .context("Failed to serialize sleep dispatch")?;
+
+        // Calculate scheduled_at as NOW() + duration
+        let duration_interval = format!("{} seconds", duration_seconds);
+
+        sqlx::query(
+            r#"
+            INSERT INTO action_queue (id, instance_id, node_id, dispatch_json, timeout_seconds, max_retries, scheduled_at)
+            VALUES ($1, $2, $3, $4::jsonb, 0, 0, NOW() + $5::interval)
+            "#,
+        )
+        .bind(action_id)
+        .bind(instance_id)
+        .bind(node_id)
+        .bind(&dispatch_json)
+        .bind(&duration_interval)
+        .execute(&self.pool)
+        .await
+        .context("Failed to enqueue sleep action")?;
+
+        tracing::debug!(
+            action_id = %action_id,
+            node_id = %node_id,
+            duration_seconds = duration_seconds,
+            "Enqueued sleep action"
+        );
+
+        Ok(action_id)
+    }
+
     /// Dequeue an action for a worker
     pub async fn dequeue_action(&self) -> Result<Option<QueuedAction>> {
         let row = sqlx::query(
@@ -333,8 +392,8 @@ impl Store {
             SET status = 'running', started_at = NOW(), attempt = attempt + 1
             WHERE id = (
                 SELECT id FROM action_queue
-                WHERE status = 'pending'
-                ORDER BY created_at
+                WHERE status = 'pending' AND scheduled_at <= NOW()
+                ORDER BY scheduled_at, created_at
                 LIMIT 1
                 FOR UPDATE SKIP LOCKED
             )
@@ -441,6 +500,15 @@ impl Store {
                     self.enqueue_action(completion.instance_id, &node_id, &dispatch, node).await?;
                 }
             }
+            SchedulerAction::Sleep { node_id: sleep_node_id, duration_seconds } => {
+                debug!(
+                    instance_id = %completion.instance_id,
+                    sleep_node = %sleep_node_id,
+                    duration = duration_seconds,
+                    "Scheduling sleep from completion"
+                );
+                self.enqueue_sleep_action(completion.instance_id, &sleep_node_id, duration_seconds).await?;
+            }
             SchedulerAction::Idle => {}
         }
 
@@ -478,6 +546,9 @@ impl Store {
                     if let Some(dispatch_node) = dag.get_node(&dispatch_node_id) {
                         self.enqueue_action(instance_id, &dispatch_node_id, &dispatch, dispatch_node).await?;
                     }
+                }
+                SchedulerAction::Sleep { node_id: sleep_node_id, duration_seconds } => {
+                    self.enqueue_sleep_action(instance_id, &sleep_node_id, duration_seconds).await?;
                 }
                 SchedulerAction::Idle => {}
             }

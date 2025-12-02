@@ -169,6 +169,24 @@ impl WorkflowHarness {
                 let dispatch: NodeDispatch = serde_json::from_str(&action.dispatch_json)
                     .context("Failed to decode dispatch")?;
 
+                // Check if this is a sleep action (no-op)
+                let is_sleep = dispatch.node.as_ref()
+                    .map(|n| n.action == "__sleep__")
+                    .unwrap_or(false);
+
+                if is_sleep {
+                    // Sleep actions complete immediately (the delay was in the queue)
+                    let completion = ActionCompletion {
+                        action_id: action.id,
+                        node_id: action.node_id,
+                        instance_id: action.instance_id,
+                        success: true,
+                        result: None,
+                    };
+                    self.store.complete_action(completion).await?;
+                    continue;
+                }
+
                 let payload = ActionDispatchPayload {
                     action_id: action.id,
                     instance_id: action.instance_id,

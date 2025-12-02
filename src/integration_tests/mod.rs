@@ -14,6 +14,9 @@ const INTEGRATION_LOOP: &str = include_str!("fixtures/integration_loop.py");
 const INTEGRATION_LOOP_ACCUM: &str = include_str!("fixtures/integration_loop_accum.py");
 const INTEGRATION_CONDITIONAL: &str = include_str!("fixtures/integration_conditional.py");
 const INTEGRATION_EXCEPTION: &str = include_str!("fixtures/integration_exception.py");
+const INTEGRATION_NESTED_CONDITIONALS: &str = include_str!("fixtures/integration_nested_conditionals.py");
+const INTEGRATION_MULTI_ACTION_LOOP: &str = include_str!("fixtures/integration_multi_action_loop.py");
+const INTEGRATION_SLEEP: &str = include_str!("fixtures/integration_sleep.py");
 
 const INTEGRATION_MODULE_ENTRYPOINT: &str = r#"
 import sys
@@ -398,6 +401,193 @@ async fn test_integration_exception() {
         result_value,
         serde_json::json!("handled:fallback"),
         "Expected 'handled:fallback', got {:?}",
+        result_value
+    );
+
+    harness.shutdown().await.expect("shutdown failed");
+}
+
+const INTEGRATION_NESTED_CONDITIONALS_ENTRYPOINT: &str = r#"
+import sys
+import os
+import asyncio
+
+sys.path.insert(0, os.path.dirname(__file__))
+
+from integration_nested_conditionals import NestedConditionalsWorkflow
+
+if __name__ == "__main__":
+    asyncio.run(NestedConditionalsWorkflow().run(user_id="user_c"))
+"#;
+
+/// Test: Nested conditionals workflow (conditionals inside action functions)
+/// user_c: score=95, level=5
+/// badge_type = determine_badge(95, 5) -> "elite" (score >= 90 and level >= 5)
+/// notification_msg = determine_notification(95) -> "high_achiever" (score >= 90)
+/// badge = award_badge("elite", "user_c") -> "user_c:elite"
+/// notification = send_notification("high_achiever") -> "notified:high_achiever"
+/// return "user_c:elite|notified:high_achiever"
+#[tokio::test]
+#[serial]
+async fn test_integration_nested_conditionals() {
+    let config = WorkflowHarnessConfig {
+        files: &[("integration_nested_conditionals.py", INTEGRATION_NESTED_CONDITIONALS)],
+        entrypoint: INTEGRATION_NESTED_CONDITIONALS_ENTRYPOINT,
+        workflow_name: "nestedconditionalsworkflow",
+        user_module: "integration_nested_conditionals",
+        inputs: &[],
+    };
+
+    let harness = match WorkflowHarness::new(config).await {
+        Ok(Some(h)) => h,
+        Ok(None) => {
+            eprintln!("Skipping test: database not available");
+            return;
+        }
+        Err(e) => panic!("Failed to create harness: {}", e),
+    };
+
+    // Dispatch all actions
+    let metrics = harness.dispatch_all().await.expect("dispatch_all failed");
+
+    // All should succeed
+    for m in &metrics {
+        assert!(m.success, "Action {} failed", m.action_id);
+    }
+
+    // Check final result
+    let result = harness.stored_result().await.expect("get result failed");
+    assert!(result.is_some(), "Expected workflow to have result");
+
+    let result_value = result.unwrap();
+    assert_eq!(
+        result_value,
+        serde_json::json!("user_c:elite|notified:high_achiever"),
+        "Expected 'user_c:elite|notified:high_achiever', got {:?}",
+        result_value
+    );
+
+    harness.shutdown().await.expect("shutdown failed");
+}
+
+const INTEGRATION_MULTI_ACTION_LOOP_ENTRYPOINT: &str = r#"
+import sys
+import os
+import asyncio
+
+sys.path.insert(0, os.path.dirname(__file__))
+
+from integration_multi_action_loop import MultiActionLoopWorkflow
+
+if __name__ == "__main__":
+    asyncio.run(MultiActionLoopWorkflow().run())
+"#;
+
+/// Test: Multi-action loop workflow
+/// - Parallel load of 3 orders
+/// - For each order: validate -> process_payment -> send_confirmation
+/// - Summarize all confirmations
+/// Expected: "CONF_A_PAY_A|CONF_B_PAY_B|CONF_C_PAY_C"
+#[tokio::test]
+#[serial]
+async fn test_integration_multi_action_loop() {
+    let config = WorkflowHarnessConfig {
+        files: &[("integration_multi_action_loop.py", INTEGRATION_MULTI_ACTION_LOOP)],
+        entrypoint: INTEGRATION_MULTI_ACTION_LOOP_ENTRYPOINT,
+        workflow_name: "multiactionloopworkflow",
+        user_module: "integration_multi_action_loop",
+        inputs: &[],
+    };
+
+    let harness = match WorkflowHarness::new(config).await {
+        Ok(Some(h)) => h,
+        Ok(None) => {
+            eprintln!("Skipping test: database not available");
+            return;
+        }
+        Err(e) => panic!("Failed to create harness: {}", e),
+    };
+
+    // Dispatch all actions
+    let metrics = harness.dispatch_all().await.expect("dispatch_all failed");
+
+    // All should succeed
+    for m in &metrics {
+        assert!(m.success, "Action {} failed", m.action_id);
+    }
+
+    // Check final result
+    let result = harness.stored_result().await.expect("get result failed");
+    assert!(result.is_some(), "Expected workflow to have result");
+
+    let result_value = result.unwrap();
+    assert_eq!(
+        result_value,
+        serde_json::json!("CONF_A_PAY_A|CONF_B_PAY_B|CONF_C_PAY_C"),
+        "Expected 'CONF_A_PAY_A|CONF_B_PAY_B|CONF_C_PAY_C', got {:?}",
+        result_value
+    );
+
+    harness.shutdown().await.expect("shutdown failed");
+}
+
+const INTEGRATION_SLEEP_ENTRYPOINT: &str = r#"
+import sys
+import os
+import asyncio
+
+sys.path.insert(0, os.path.dirname(__file__))
+
+from integration_sleep import SleepWorkflow
+
+if __name__ == "__main__":
+    asyncio.run(SleepWorkflow().run())
+"#;
+
+/// Test: Sleep workflow with durable sleep
+/// - get_timestamp() -> started
+/// - asyncio.sleep(1) -> durable sleep node
+/// - get_timestamp() -> resumed
+/// - format_sleep_result(started, resumed) -> "slept:X.Xs"
+/// Expected: Result should indicate ~1 second sleep duration
+#[tokio::test]
+#[serial]
+async fn test_integration_sleep() {
+    let config = WorkflowHarnessConfig {
+        files: &[("integration_sleep.py", INTEGRATION_SLEEP)],
+        entrypoint: INTEGRATION_SLEEP_ENTRYPOINT,
+        workflow_name: "sleepworkflow",
+        user_module: "integration_sleep",
+        inputs: &[],
+    };
+
+    let harness = match WorkflowHarness::new(config).await {
+        Ok(Some(h)) => h,
+        Ok(None) => {
+            eprintln!("Skipping test: database not available");
+            return;
+        }
+        Err(e) => panic!("Failed to create harness: {}", e),
+    };
+
+    // Dispatch all actions
+    let metrics = harness.dispatch_all().await.expect("dispatch_all failed");
+
+    // All should succeed
+    for m in &metrics {
+        assert!(m.success, "Action {} failed", m.action_id);
+    }
+
+    // Check final result
+    let result = harness.stored_result().await.expect("get result failed");
+    assert!(result.is_some(), "Expected workflow to have result");
+
+    let result_value = result.unwrap();
+    // Result should be like "slept:1.0s" (roughly 1 second)
+    let result_str = result_value.as_str().expect("Expected string result");
+    assert!(
+        result_str.starts_with("slept:"),
+        "Expected result starting with 'slept:', got {:?}",
         result_value
     );
 

@@ -190,6 +190,11 @@ pub enum SchedulerAction {
     WorkflowComplete {
         result: Option<Value>,
     },
+    /// Sleep for a duration (durable sleep)
+    Sleep {
+        node_id: String,
+        duration_seconds: f64,
+    },
     /// Nothing to do right now
     Idle,
 }
@@ -236,7 +241,7 @@ impl<'a> Scheduler<'a> {
                 debug!(node_id = %node_id, "Evaluating gather join locally");
                 self.evaluate_gather_join(state, node)
             }
-            NodeKind::Action | NodeKind::Computed | NodeKind::Sleep => {
+            NodeKind::Action | NodeKind::Computed => {
                 debug!(
                     node_id = %node_id,
                     kwargs = ?node.kwargs,
@@ -253,6 +258,10 @@ impl<'a> Scheduler<'a> {
                     node_id: node_id.to_string(),
                     dispatch,
                 })
+            }
+            NodeKind::Sleep => {
+                debug!(node_id = %node_id, "Evaluating sleep node");
+                self.evaluate_sleep(state, node)
             }
             NodeKind::TryHead => {
                 debug!(node_id = %node_id, "Try head - passing through");
@@ -588,6 +597,31 @@ impl<'a> Scheduler<'a> {
             }
         }
         self.mark_complete_and_unlock(state, node, None)
+    }
+
+    /// Evaluate a sleep node - returns Sleep action for executor to handle
+    fn evaluate_sleep(
+        &self,
+        state: &mut InstanceState,
+        node: &Node,
+    ) -> Result<SchedulerAction> {
+        // Parse duration from the expression
+        let duration_str = node.sleep_duration_expr.as_deref().unwrap_or("0");
+        let duration_seconds: f64 = duration_str.parse().unwrap_or(0.0);
+
+        debug!(
+            node_id = %node.id,
+            duration_seconds = duration_seconds,
+            "Sleep node - returning sleep action"
+        );
+
+        // Mark as running while sleeping
+        state.mark_running(&node.id);
+
+        Ok(SchedulerAction::Sleep {
+            node_id: node.id.clone(),
+            duration_seconds,
+        })
     }
 
     /// Handle node failure - check for exception handlers
