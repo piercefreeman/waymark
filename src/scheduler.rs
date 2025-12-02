@@ -714,6 +714,12 @@ impl<'a> Scheduler<'a> {
         list.push(value);
         state.set_var(target.clone(), Value::Array(list));
 
+        // Check for back edge (loop iteration complete) - same as handle_completion
+        if let Some(loop_head_id) = self.get_back_edge_target(node) {
+            debug!(node_id = %node.id, loop_head = %loop_head_id, "Found back edge to loop head from list_append");
+            return self.handle_back_edge(state, node, &loop_head_id);
+        }
+
         self.mark_complete_and_unlock(state, node, None)
     }
 
@@ -766,6 +772,12 @@ impl<'a> Scheduler<'a> {
 
         dict.insert(key, value);
         state.set_var(target.clone(), Value::Object(dict));
+
+        // Check for back edge (loop iteration complete) - same as handle_completion
+        if let Some(loop_head_id) = self.get_back_edge_target(node) {
+            debug!(node_id = %node.id, loop_head = %loop_head_id, "Found back edge to loop head from dict_set");
+            return self.handle_back_edge(state, node, &loop_head_id);
+        }
 
         self.mark_complete_and_unlock(state, node, None)
     }

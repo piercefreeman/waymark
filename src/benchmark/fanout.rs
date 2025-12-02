@@ -297,17 +297,14 @@ async fn setup_python_env(grpc_port: u16) -> Result<TempDir> {
         fixtures::BENCHMARK_FANOUT,
     )?;
 
-    // Write entrypoint script that registers the workflow
+    // Write entrypoint script that registers the workflow by calling run()
     let entrypoint = r#"
 import asyncio
 from benchmark_fanout import FanoutBenchmarkWorkflow
 
-async def main():
-    workflow = FanoutBenchmarkWorkflow()
-    await workflow.register()
-
 if __name__ == "__main__":
-    asyncio.run(main())
+    # Running the workflow triggers registration with the gRPC server
+    asyncio.run(FanoutBenchmarkWorkflow().run())
 "#;
     let entrypoint_path = temp_dir.path().join("__entrypoint__.py");
     fs::write(&entrypoint_path, entrypoint)?;

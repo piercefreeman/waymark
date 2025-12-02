@@ -22,8 +22,11 @@ _runtime_version.ValidateProtobufRuntimeVersion(
 
 from google.protobuf import struct_pb2 as google_dot_protobuf_dot_struct__pb2
 
+from proto import ir_pb2 as ir__pb2
+
 _sym_db = _symbol_database.Default()
 _sym_db.RegisterFileDescriptor(google_dot_protobuf_dot_struct__pb2.DESCRIPTOR)
+_sym_db.RegisterFileDescriptor(ir__pb2.DESCRIPTOR)
 
 
 

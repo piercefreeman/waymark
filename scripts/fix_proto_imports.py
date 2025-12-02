@@ -25,7 +25,12 @@ def _rewrite_messages_pb2_grpc() -> None:
 
 
 STRUCT_IMPORT_LINE = "from google.protobuf import struct_pb2 as google_dot_protobuf_dot_struct__pb2"
-REGISTER_LINE = "_sym_db.RegisterFileDescriptor(google_dot_protobuf_dot_struct__pb2.DESCRIPTOR)"
+IR_IMPORT_LINE = "from proto import ir_pb2 as ir__pb2"
+PROTOC_IR_IMPORT_LINE = "import ir_pb2 as ir__pb2"
+STRUCT_REGISTER_LINE = (
+    "_sym_db.RegisterFileDescriptor(google_dot_protobuf_dot_struct__pb2.DESCRIPTOR)"
+)
+IR_REGISTER_LINE = "_sym_db.RegisterFileDescriptor(ir__pb2.DESCRIPTOR)"
 
 
 def _ensure_struct_import(pb2_text: str) -> str:
@@ -37,14 +42,43 @@ def _ensure_struct_import(pb2_text: str) -> str:
     return without_existing.replace(marker, replacement, 1)
 
 
+def _ensure_ir_import(pb2_text: str) -> str:
+    """Ensure ir_pb2 is imported after struct_pb2."""
+    without_existing = pb2_text.replace(f"\n{IR_IMPORT_LINE}\n", "\n")
+    # Insert after struct import
+    struct_line_with_newlines = f"{STRUCT_IMPORT_LINE}\n\n"
+    replacement = f"{STRUCT_IMPORT_LINE}\n{IR_IMPORT_LINE}\n\n"
+    if struct_line_with_newlines not in without_existing:
+        return without_existing
+    return without_existing.replace(struct_line_with_newlines, replacement, 1)
+
+
 def _ensure_struct_registration(pb2_text: str) -> str:
-    needle = f"\n{REGISTER_LINE}\n"
+    needle = f"\n{STRUCT_REGISTER_LINE}\n"
     without_existing = pb2_text.replace(needle, "\n")
     sym_decl = "_sym_db = _symbol_database.Default()\n"
     if sym_decl not in without_existing:
         return without_existing
-    replacement = f"{sym_decl}{REGISTER_LINE}\n"
+    replacement = f"{sym_decl}{STRUCT_REGISTER_LINE}\n"
     return without_existing.replace(sym_decl, replacement, 1)
+
+
+def _ensure_ir_registration(pb2_text: str) -> str:
+    """Ensure ir_pb2.DESCRIPTOR is registered after struct_pb2."""
+    needle = f"\n{IR_REGISTER_LINE}\n"
+    without_existing = pb2_text.replace(needle, "\n")
+    # Insert after struct registration
+    struct_register_with_newline = f"{STRUCT_REGISTER_LINE}\n"
+    replacement = f"{STRUCT_REGISTER_LINE}\n{IR_REGISTER_LINE}\n"
+    if struct_register_with_newline not in without_existing:
+        return without_existing
+    return without_existing.replace(struct_register_with_newline, replacement, 1)
+
+
+def _remove_protoc_ir_import(pb2_text: str) -> str:
+    """Remove the protoc-generated 'import ir_pb2' line since we add our own correct import."""
+    # Remove the line with proper newline handling
+    return pb2_text.replace(f"\n{PROTOC_IR_IMPORT_LINE}\n", "\n")
 
 
 def _rewrite_messages_pb2() -> None:
@@ -53,12 +87,10 @@ def _rewrite_messages_pb2() -> None:
         return
     text = target.read_text()
     text = _ensure_struct_import(text)
+    text = _ensure_ir_import(text)
     text = _ensure_struct_registration(text)
-    # Fix ir_pb2 import
-    ir_needle = "import ir_pb2 as ir__pb2"
-    ir_replacement = "from proto import ir_pb2 as ir__pb2"
-    if ir_needle in text and ir_replacement not in text:
-        text = text.replace(ir_needle, ir_replacement)
+    text = _ensure_ir_registration(text)
+    text = _remove_protoc_ir_import(text)
     target.write_text(text)
 
 
