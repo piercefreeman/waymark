@@ -20,6 +20,7 @@
 //! - [`config`]: Environment-based configuration
 
 pub mod config;
+pub mod dag;
 pub mod db;
 pub mod lexer;
 pub mod messages;
@@ -47,3 +48,6 @@ pub use worker::{
 // IR language
 pub use lexer::{lex, Lexer, LexerError, Span, SpannedToken, Token};
 pub use parser::{ast, parse, ParseError, Parser};
+
+// DAG
+pub use dag::{convert_to_dag, DAG, DAGConverter, DAGEdge, DAGNode, EdgeType};
