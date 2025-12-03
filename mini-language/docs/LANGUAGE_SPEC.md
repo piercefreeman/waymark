@@ -27,6 +27,7 @@ FLOAT       = [0-9]+ "." [0-9]+
 STRING      = '"' [^"]* '"'
 BOOL        = "True" | "False"
 COMMENT     = "#" [^\n]*
+DURATION    = [0-9]+ ("s" | "m" | "h")   # e.g., 30s, 2m, 1h
 ```
 
 ---
@@ -52,8 +53,10 @@ body            = INDENT statement+ DEDENT ;
 statement       = assignment
                 | action_call
                 | spread_action
+                | parallel_block
                 | for_loop
                 | conditional
+                | try_except
                 | return_stmt
                 | expr_stmt ;
 
@@ -74,25 +77,48 @@ return_stmt     = "return" expr? ;
 
 ```ebnf
 (* Action call - the fundamental unit of durable execution *)
-action_call     = "@" IDENT "(" kwargs? ")" ;
+action_call     = "@" IDENT "(" kwargs? ")" policy_bracket* ;
 kwargs          = kwarg ("," kwarg)* ;
 kwarg           = IDENT "=" expr ;
 
+(* Policy brackets - retry policies and/or timeout *)
+policy_bracket  = retry_policy | timeout_policy ;
+
+(* Retry policy - error handling for actions *)
+retry_policy    = "[" (exception_spec "->")? retry_params "]" ;
+exception_spec  = IDENT | "(" IDENT ("," IDENT)* ")" ;
+retry_params    = retry_param ("," retry_param)* ;
+retry_param     = "retry" ":" INT
+                | "backoff" ":" (INT | DURATION) ;
+
+(* Timeout policy - separate from retry *)
+timeout_policy  = "[" "timeout" ":" (INT | DURATION) "]" ;
+
 (* Spread action - parallel execution over a collection *)
 spread_action   = "spread" expr ":" IDENT "->" action_call ;
+
+(* Parallel block - concurrent execution of multiple calls *)
+parallel_block  = IDENT "=" "parallel" ":" INDENT call_list DEDENT
+                | "parallel" ":" INDENT call_list DEDENT ;
+call_list       = (action_call | function_call)+ ;
 ```
 
 ### Control Flow
 
 ```ebnf
-(* For loop - iteration over collection *)
-for_loop        = "for" IDENT "in" expr ":" body ;
+(* For loop - iteration over collection with optional unpacking *)
+for_loop        = "for" loop_vars "in" expr ":" body ;
+loop_vars       = IDENT ("," IDENT)* ;
 
 (* Conditional branching *)
 conditional     = if_branch elif_branch* else_branch? ;
 if_branch       = "if" expr ":" body ;
 elif_branch     = "elif" expr ":" body ;
 else_branch     = "else:" body ;
+
+(* Exception handling for actions *)
+try_except      = "try" ":" body except_handler+ ;
+except_handler  = "except" exception_types? ":" body ;
 ```
 
 ### Expressions
@@ -136,6 +162,20 @@ function_call   = IDENT "(" kwargs? ")" ;
 
 ---
 
+## Built-in Functions
+
+Rappel provides several built-in functions for common operations:
+
+| Function | Description | Example |
+|----------|-------------|---------|
+| `range(n)` | Generate list from 0 to n-1 | `range(5)` → `[0, 1, 2, 3, 4]` |
+| `range(start, stop)` | Generate list from start to stop-1 | `range(2, 5)` → `[2, 3, 4]` |
+| `range(start, stop, step)` | Generate list with step | `range(0, 10, 2)` → `[0, 2, 4, 6, 8]` |
+| `enumerate(list)` | List of `[index, item]` pairs | `enumerate(["a", "b"])` → `[[0, "a"], [1, "b"]]` |
+| `len(collection)` | Length of list, dict, or string | `len([1, 2, 3])` → `3` |
+
+---
+
 ## Semantic Constraints
 
 ### Functions
@@ -158,12 +198,67 @@ function_call   = IDENT "(" kwargs? ")" ;
 - Action arguments must be serializable expressions
 - Actions may have a target to capture the return value: `result = @action(...)`
 
+### Built-in Actions
+
+| Action | Description | Example |
+|--------|-------------|---------|
+| `@sleep(duration=n)` | Durable sleep for n seconds | `@sleep(duration=60)` |
+
+### Retry Policies
+
+Actions can have retry policies for automatic error recovery. Timeout is specified in a separate bracket since it's independent of exception types:
+
+```rappel
+# Catch all exceptions, retry up to 3 times with 60s backoff
+result = @risky_action() [retry: 3, backoff: 60]
+
+# Catch specific exception using -> syntax
+result = @network_call() [NetworkError -> retry: 5, backoff: 2m]
+
+# Multiple exception types in a tuple
+result = @api_call() [(ValueError, KeyError) -> retry: 3, backoff: 30s]
+
+# Multiple policies for different exception types
+result = @api_call() [RateLimitError -> retry: 10, backoff: 1m] [NetworkError -> retry: 3, backoff: 30s]
+
+# Timeout is a separate bracket (not tied to exception type)
+result = @slow_action() [retry: 3, backoff: 60] [timeout: 2m]
+```
+
+Retry parameters (in retry policy brackets):
+- `retry: N` - Maximum number of retry attempts
+- `backoff: DURATION` - Base backoff duration (exponential: backoff * 2^attempt)
+
+Timeout (in separate bracket):
+- `[timeout: DURATION]` - Action timeout before considering it failed
+
+Duration formats: bare numbers are seconds, or use `30s`, `2m`, `1h`.
+
 ### Spread Actions
 
 - `spread collection:item -> @action(...)` executes the action for each item in parallel
 - The loop variable (`item`) is scoped to the action call
 - Results are collected into a list in original order
 - All spread iterations are independent (no dependencies between them)
+
+### Parallel Blocks
+
+- `parallel:` executes multiple action/function calls concurrently
+- Results are collected into a list in declaration order
+- All calls in a parallel block must be independent
+
+```rappel
+# Concurrent execution with result collection
+results = parallel:
+    @fetch_user(id=1)
+    @fetch_user(id=2)
+    @fetch_user(id=3)
+
+# Without result assignment
+parallel:
+    @send_notification(user=1)
+    @send_notification(user=2)
+```
 
 ### Conditionals
 
@@ -174,15 +269,24 @@ function_call   = IDENT "(" kwargs? ")" ;
 ### For Loops
 
 - Loop variable is scoped to the loop body
+- Multiple loop variables supported for unpacking: `for i, item in enumerate(items)`
 - Loop body can contain any statements including nested loops
 - Cannot break or continue (full iteration required for DAG)
 
-### Python Blocks
+### Try/Except Blocks
 
-- Must declare all variables read (`reads:`) and written (`writes:`)
-- Cannot contain action calls
-- Executed inline (not durably persisted)
-- Used for local computation that doesn't need durability
+- Try blocks wrap action calls for error handling
+- Except handlers can catch specific exception types or all exceptions
+- Each branch (try and except) contains action calls that are durably executed
+
+```rappel
+try:
+    result = @risky_action()
+except NetworkError:
+    result = @fallback_action()
+except:
+    result = @default_handler()
+```
 
 ---
 
@@ -196,20 +300,20 @@ The IR maps to DAG nodes as follows:
 | `x = expr` | Assignment node (inline computation) |
 | `@action(...)` | Action node (delegated to worker) |
 | `spread c:i -> @a(...)` | Spread node → N action nodes → Aggregator node |
+| `parallel: ...` | Parallel node → N call nodes → Aggregator node |
 | `if/elif/else` | Condition node → Branch nodes → Merge node |
 | `for x in c:` | Iterator → Loop body subgraph → Collector |
-| `python {...}` | Inline computation node |
+| `try/except` | Try node → [Success: next] or [Exception: handler] |
 | `return expr` | Output node (function boundary) |
 
 ### Edge Types
 
 | Edge Type | Description |
 |-----------|-------------|
-| `DATA` | Value flows from source to target |
-| `CONTROL` | Execution order dependency |
+| `STATE_MACHINE` | Execution order / control flow |
+| `DATA_FLOW` | Value flows from source to target |
 | `SPREAD` | Fan-out from spread source to iterations |
 | `AGGREGATE` | Fan-in from iterations to result collector |
-| `CONDITION` | Guarded edge (only taken if condition is true) |
 
 ---
 
@@ -223,16 +327,14 @@ fn process_orders(input: [orders, config], output: [summary]):
     # Step 1: Fetch additional data via action
     inventory = @fetch_inventory(warehouse=config["warehouse"])
 
-    # Step 2: Local computation via Python block
-    python(reads: orders, inventory; writes: valid_orders, rejected) {
-        valid_orders = []
-        rejected = []
-        for order in orders:
-            if order["sku"] in inventory and inventory[order["sku"]] >= order["qty"]:
-                valid_orders.append(order)
-            else:
-                rejected.append({"order": order, "reason": "out_of_stock"})
-    }
+    # Step 2: Filter orders using for loop
+    valid_orders = []
+    rejected = []
+    for order in orders:
+        if order["sku"] in inventory and inventory[order["sku"]] >= order["qty"]:
+            valid_orders = valid_orders + [order]
+        else:
+            rejected = rejected + [{"order": order, "reason": "out_of_stock"}]
 
     # Step 3: Conditional handling based on validation results
     if len(valid_orders) > 0:
@@ -250,25 +352,24 @@ fn process_orders(input: [orders, config], output: [summary]):
             weight=order["weight"]
         )
 
-        # Step 6: Combine results with local computation
-        python(reads: payments, shipping, valid_orders; writes: confirmations) {
-            confirmations = []
-            for i, order in enumerate(valid_orders):
-                confirmations.append({
-                    "order_id": order["id"],
-                    "payment": payments[i],
-                    "shipping": shipping[i],
-                    "status": "confirmed" if payments[i]["success"] else "failed"
-                })
-        }
+        # Step 6: Combine results using for loop with unpacking
+        confirmations = []
+        for i, order in enumerate(valid_orders):
+            confirmation = {
+                "order_id": order["id"],
+                "payment": payments[i],
+                "shipping": shipping[i],
+                "status": "confirmed"
+            }
+            confirmations = confirmations + [confirmation]
     else:
         confirmations = []
 
-    # Step 7: Send notifications via action
+    # Step 7: Send notifications via action with retry policy
     notification_result = @send_notifications(
         confirmations=confirmations,
         rejected=rejected
-    )
+    ) [NetworkError -> retry: 3, backoff: 30s] [timeout: 60s]
 
     # Step 8: Build final summary
     summary = {
@@ -297,8 +398,8 @@ The above program translates to the following DAG structure:
                              │
                              ▼
                     ┌─────────────────┐
-                    │  python block   │
-                    │ (validate)      │
+                    │   FOR LOOP      │
+                    │ (filter orders) │
                     └────────┬────────┘
                              │
                              ▼
@@ -349,7 +450,7 @@ The above program translates to the following DAG structure:
              │                             │
              ▼                             │
      ┌───────────────┐                     │
-     │ python block  │                     │
+     │   FOR LOOP    │                     │
      │ (combine)     │                     │
      └───────┬───────┘                     │
              │                             │
@@ -364,12 +465,12 @@ The above program translates to the following DAG structure:
                         ▼
                ┌─────────────────┐
                │ @send_notifs    │
+               │ [retry policy]  │
                └────────┬────────┘
                         │
                         ▼
                ┌─────────────────┐
-               │  python block   │
-               │  (summary)      │
+               │  BUILD SUMMARY  │
                └────────┬────────┘
                         │
                         ▼
@@ -394,6 +495,13 @@ The above program translates to the following DAG structure:
 2. Independent actions (e.g., spread iterations) execute in parallel
 3. Database serves as the central coordinator
 4. Results are persisted for fault tolerance
+
+### Retry and Timeout Handling
+
+1. Actions with retry policies store retry metadata in the queue
+2. On failure, matching retry policy decrements retry count and schedules with exponential backoff
+3. Timed-out actions are detected via `timeout_at < NOW()` and re-queued
+4. Workers claim actions with a `lock_uuid` for ownership tracking
 
 ### Inbox Pattern
 
@@ -430,13 +538,12 @@ All action inputs and outputs must be one of these types (or nested compositions
 - Undefined variable reference
 - Duplicate variable assignment (immutability violation)
 - Missing required function inputs/outputs
-- Action call inside Python block
 - Positional arguments in function/action calls
 
 ### Runtime Errors
 
 - Action handler not registered
-- Action execution failure
+- Action execution failure (may trigger retry if policy defined)
 - Type mismatch in operations
 - Index out of bounds
 - Key not found in dict
@@ -447,9 +554,7 @@ All action inputs and outputs must be one of these types (or nested compositions
 
 Potential additions to the language:
 
-1. **Exception Handling**: `try/except` blocks around action calls
-2. **Durable Sleep**: `@sleep(duration)` for time-based delays
-3. **Retry Policies**: `@action(...) [retry: 3, backoff: exp(100ms, 2x)]`
-4. **Timeouts**: `@action(...) [timeout: 30s]`
-5. **Parallel Blocks**: `parallel { @a(), @b(), @c() }` for explicit concurrent execution
-6. **Type Annotations**: Optional type hints for better validation
+1. **Type Annotations**: Optional type hints for better validation
+2. **Map/Filter/Reduce**: Functional operations on collections
+3. **Async Actions**: Actions that return futures for deferred results
+4. **Checkpointing**: Explicit state snapshots for long-running workflows

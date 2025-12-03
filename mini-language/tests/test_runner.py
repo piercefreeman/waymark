@@ -1279,9 +1279,9 @@ class TestDAGRunnerRetryPolicies:
     """Tests for retry policies on action calls."""
 
     def test_parser_retry_policy_basic(self):
-        """Test parsing a basic retry policy."""
+        """Test parsing a basic retry policy with separate timeout bracket."""
         source = """fn test_retry(input: [], output: [result]):
-    result = @might_fail() [retry: 3, backoff: 60, timeout: 30]
+    result = @might_fail() [retry: 3, backoff: 60] [timeout: 30]
     return result"""
 
         from rappel import RappelActionCall
@@ -1296,13 +1296,14 @@ class TestDAGRunnerRetryPolicies:
         policy = action_call.retry_policies[0]
         assert policy.max_retries == 3
         assert policy.backoff_seconds == 60.0
-        assert policy.timeout_seconds == 30.0
         assert policy.exception_types == ()  # catch all
+        # Timeout is now on the action call, not the policy
+        assert action_call.timeout_seconds == 30.0
 
     def test_parser_retry_policy_with_exception_type(self):
-        """Test parsing retry policy with specific exception type."""
+        """Test parsing retry policy with specific exception type using -> syntax."""
         source = """fn test_retry(input: [], output: [result]):
-    result = @might_fail() [ValueError: retry: 3, backoff: 120]
+    result = @might_fail() [ValueError -> retry: 3, backoff: 120]
     return result"""
 
         from rappel import RappelActionCall
@@ -1322,7 +1323,7 @@ class TestDAGRunnerRetryPolicies:
     def test_parser_retry_policy_duration_strings(self):
         """Test parsing retry policy with duration strings."""
         source = """fn test_retry(input: [], output: [result]):
-    result = @might_fail() [retry: 5, backoff: "2m", timeout: "30s"]
+    result = @might_fail() [retry: 5, backoff: "2m"] [timeout: "30s"]
     return result"""
 
         from rappel import RappelActionCall
@@ -1335,7 +1336,8 @@ class TestDAGRunnerRetryPolicies:
         policy = action_call.retry_policies[0]
         assert policy.max_retries == 5
         assert policy.backoff_seconds == 120.0  # 2 minutes
-        assert policy.timeout_seconds == 30.0
+        # Timeout is now on the action call
+        assert action_call.timeout_seconds == 30.0
 
     def test_retry_on_failure_schedules_retry(self):
         """Test that a failed action with retry policy schedules a retry."""
@@ -1384,7 +1386,7 @@ class TestDAGRunnerRetryPolicies:
     def test_retry_policy_specific_exception_match(self):
         """Test that retry only happens for matching exception types."""
         source = """fn test_retry(input: [], output: [result]):
-    result = @might_fail() [ValueError: retry: 3, backoff: 0]
+    result = @might_fail() [ValueError -> retry: 3, backoff: 0]
     return result"""
 
         program = parse(source)
@@ -1398,6 +1400,57 @@ class TestDAGRunnerRetryPolicies:
         # TypeError doesn't match ValueError policy, so should fail immediately
         with pytest.raises(RuntimeError):
             runner.run("test_retry", {})
+
+    def test_parser_tuple_exception_types(self):
+        """Test parsing retry policy with tuple of exception types."""
+        source = """fn test_retry(input: [], output: [result]):
+    result = @might_fail() [(ValueError, KeyError) -> retry: 3, backoff: 30]
+    return result"""
+
+        from rappel import RappelActionCall
+
+        program = parse(source)
+        fn = program.statements[0]
+        assignment = fn.body[0]
+        action_call = assignment.value
+
+        assert isinstance(action_call, RappelActionCall)
+        assert len(action_call.retry_policies) == 1
+        policy = action_call.retry_policies[0]
+        assert policy.exception_types == ("ValueError", "KeyError")
+        assert policy.max_retries == 3
+        assert policy.backoff_seconds == 30.0
+
+    def test_parser_multiple_policies(self):
+        """Test parsing multiple retry policies for different exception types."""
+        source = """fn test_retry(input: [], output: [result]):
+    result = @might_fail() [ValueError -> retry: 3, backoff: 10] [KeyError -> retry: 5, backoff: 20] [timeout: 60]
+    return result"""
+
+        from rappel import RappelActionCall
+
+        program = parse(source)
+        fn = program.statements[0]
+        assignment = fn.body[0]
+        action_call = assignment.value
+
+        assert isinstance(action_call, RappelActionCall)
+        assert len(action_call.retry_policies) == 2
+
+        # First policy: ValueError
+        policy1 = action_call.retry_policies[0]
+        assert policy1.exception_types == ("ValueError",)
+        assert policy1.max_retries == 3
+        assert policy1.backoff_seconds == 10.0
+
+        # Second policy: KeyError
+        policy2 = action_call.retry_policies[1]
+        assert policy2.exception_types == ("KeyError",)
+        assert policy2.max_retries == 5
+        assert policy2.backoff_seconds == 20.0
+
+        # Timeout on the action call
+        assert action_call.timeout_seconds == 60.0
 
     def test_action_queue_claim_and_release(self):
         """Test claiming and releasing actions in the queue."""

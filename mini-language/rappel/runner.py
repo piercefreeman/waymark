@@ -501,31 +501,33 @@ class DAGRunner:
         Extract retry policy info from a node's IR.
 
         Returns (max_retries, backoff_seconds, timeout_seconds) tuple.
-        Uses the first matching policy's settings, or defaults if none.
+        Uses the first matching policy's settings for retry/backoff,
+        and the action call's timeout_seconds field for timeout.
         """
         ir_node = node.ir_node
 
-        # Check if this is an action call with retry policies
-        if isinstance(ir_node, RappelActionCall) and ir_node.retry_policies:
-            # Use the first policy's settings as defaults
-            # (In practice, the runner will match exception types at runtime)
-            policy = ir_node.retry_policies[0]
-            return (policy.max_retries, policy.backoff_seconds, policy.timeout_seconds)
+        # Extract the action call from various node types
+        action_call: RappelActionCall | None = None
+        if isinstance(ir_node, RappelActionCall):
+            action_call = ir_node
+        elif isinstance(ir_node, RappelAssignment) and isinstance(ir_node.value, RappelActionCall):
+            action_call = ir_node.value
+        elif isinstance(ir_node, RappelExprStatement) and isinstance(ir_node.expr, RappelActionCall):
+            action_call = ir_node.expr
 
-        # Check if it's an assignment with an action call on the RHS
-        if isinstance(ir_node, RappelAssignment):
-            if isinstance(ir_node.value, RappelActionCall) and ir_node.value.retry_policies:
-                policy = ir_node.value.retry_policies[0]
-                return (policy.max_retries, policy.backoff_seconds, policy.timeout_seconds)
+        if action_call is None:
+            return (0, 60.0, None)
 
-        # Check expression statement
-        if isinstance(ir_node, RappelExprStatement):
-            if isinstance(ir_node.expr, RappelActionCall) and ir_node.expr.retry_policies:
-                policy = ir_node.expr.retry_policies[0]
-                return (policy.max_retries, policy.backoff_seconds, policy.timeout_seconds)
+        # Get timeout from action call (separate from retry policies)
+        timeout_seconds = action_call.timeout_seconds
 
-        # Default: no retries
-        return (0, 60.0, None)
+        # Get retry/backoff from first policy (if any)
+        if action_call.retry_policies:
+            policy = action_call.retry_policies[0]
+            return (policy.max_retries, policy.backoff_seconds, timeout_seconds)
+
+        # Default: no retries, but keep any timeout
+        return (0, 60.0, timeout_seconds)
 
     def _find_matching_retry_policy(
         self, node: DAGNode, exception: Exception

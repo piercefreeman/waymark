@@ -718,13 +718,14 @@ class RappelParser:
             kwargs = self._parse_kwargs_only()
             self._consume(TokenType.RPAREN, "Expected ')'")
 
-            # Check for retry policies: [Exception: retry: 3, ...]
-            retry_policies = self._parse_retry_policies()
+            # Check for retry policies and timeout: [ValueError -> retry: 3] [timeout: 2m]
+            retry_policies, timeout_seconds = self._parse_retry_policies()
 
             return RappelActionCall(
                 action_name=action_name,
                 kwargs=tuple(kwargs),
                 retry_policies=tuple(retry_policies),
+                timeout_seconds=timeout_seconds,
                 location=loc,
             )
 
@@ -832,84 +833,77 @@ class RappelParser:
 
         return kwargs
 
-    def _parse_retry_policies(self) -> list[RappelRetryPolicy]:
+    def _parse_retry_policies(self) -> tuple[list[RappelRetryPolicy], float | None]:
         """
-        Parse retry policies after action call.
+        Parse retry policies and timeout after action call.
 
         Syntax:
-            [ValueError: retry: 3, backoff: 2m, timeout: 30s]
-            [retry: 3, backoff: 60]  # catch all exceptions
-            [ValueError, TypeError: retry: 3]  # multiple exception types
+            [ValueError -> retry: 3, backoff: 2m]
+            [(ValueError, KeyError) -> retry: 3, backoff: 2s]
+            [retry: 3, backoff: 2m]  # catch all exceptions
+            [timeout: 2m]  # timeout only (separate from retry)
 
-        Multiple policies can be specified:
-            [ValueError: retry: 3] [TypeError: retry: 5]
+        Multiple brackets can be chained:
+            [ValueError -> retry: 3] [KeyError -> retry: 5] [timeout: 2m]
+
+        Returns:
+            Tuple of (list of retry policies, timeout in seconds or None)
         """
         policies = []
+        timeout_seconds = None
 
         while self._check(TokenType.LBRACKET):
             self._advance()  # consume '['
 
-            # Parse exception types (if any) before the colon
-            exception_types = []
+            # Determine what kind of bracket this is:
+            # 1. [timeout: 2m] - timeout only
+            # 2. [retry: 3, backoff: 2m] - catch-all retry
+            # 3. [ValueError -> retry: 3] - exception-specific retry
+            # 4. [(ValueError, KeyError) -> retry: 3] - tuple of exceptions
 
-            # Check if we have exception types or jump straight to params
-            # Exception types are identifiers followed by comma or colon
-            # Params are identifiers followed by colon then a value
+            exception_types: list[str] = []
 
-            # Peek ahead to see if this is "ExceptionType:" or "param: value"
-            if self._check(TokenType.IDENTIFIER):
-                # Could be exception type(s) or a param
-                # Look for pattern: IDENTIFIER COLON (NUMBER|STRING|IDENTIFIER)
-                # vs: IDENTIFIER (COMMA IDENTIFIER)* COLON IDENTIFIER COLON
+            if self._check(TokenType.LPAREN):
+                # Tuple of exception types: (ValueError, KeyError)
+                self._advance()  # consume '('
+                exception_types.append(
+                    self._consume(TokenType.IDENTIFIER, "Expected exception type").value
+                )
+                while self._check(TokenType.COMMA):
+                    self._advance()
+                    exception_types.append(
+                        self._consume(TokenType.IDENTIFIER, "Expected exception type").value
+                    )
+                self._consume(TokenType.RPAREN, "Expected ')'")
+                self._consume(TokenType.ARROW, "Expected '->' after exception types")
 
-                # Save position for backtracking
+            elif self._check(TokenType.IDENTIFIER):
+                # Could be:
+                # - Exception type followed by ->: ValueError ->
+                # - Param name followed by :: retry: or timeout:
                 saved_pos = self.pos
                 first_ident = self._advance().value
 
-                if self._check(TokenType.COMMA):
-                    # Multiple identifiers - these are exception types
+                if self._check(TokenType.ARROW):
+                    # Single exception type: ValueError ->
+                    self._advance()  # consume '->'
                     exception_types.append(first_ident)
-                    while self._check(TokenType.COMMA):
-                        self._advance()
-                        exception_types.append(
-                            self._consume(TokenType.IDENTIFIER, "Expected exception type").value
-                        )
-                    self._consume(TokenType.COLON, "Expected ':' after exception types")
-
                 elif self._check(TokenType.COLON):
-                    # Could be "ExceptionType:" or "param:"
-                    self._advance()  # consume ':'
-
-                    if self._check(TokenType.IDENTIFIER):
-                        # Check if next is another colon (param: value) or not
-                        next_ident = self._peek().value
-                        saved_pos2 = self.pos
-                        self._advance()
-
-                        if self._check(TokenType.COLON):
-                            # This is "ExceptionType: param: value" pattern
-                            exception_types.append(first_ident)
-                            # Backtrack to parse params
-                            self.pos = saved_pos2
-                        else:
-                            # This is "param: value" pattern where value is identifier
-                            # Backtrack to original position and parse as params
-                            self.pos = saved_pos
-                    elif self._check(TokenType.NUMBER):
-                        # This is "param: number" pattern
-                        self.pos = saved_pos
-                    else:
-                        # Assume it's "ExceptionType:" with params following
-                        exception_types.append(first_ident)
+                    # This is a parameter (retry:, backoff:, timeout:)
+                    # Backtrack and let the parameter parsing handle it
+                    self.pos = saved_pos
                 else:
-                    # Just an identifier, assume it's an exception type
-                    exception_types.append(first_ident)
-                    self._consume(TokenType.COLON, "Expected ':' after exception type")
+                    raise RappelSyntaxError(
+                        f"Expected '->' or ':' after '{first_ident}'",
+                        self._peek().line,
+                        self._peek().column
+                    )
 
-            # Now parse the retry policy parameters
+            # Now parse the parameters
             max_retries = 3
             backoff_seconds = 60.0
-            timeout_seconds = None
+            is_timeout_bracket = False
+            has_retry_params = False
 
             while not self._check(TokenType.RBRACKET):
                 param_name = self._consume(TokenType.IDENTIFIER, "Expected parameter name").value
@@ -917,30 +911,25 @@ class RappelParser:
 
                 if param_name == "retry":
                     if not self._check(TokenType.NUMBER):
-                        raise SyntaxError(f"Expected number for 'retry' at line {self._peek().line}")
+                        raise RappelSyntaxError(
+                            f"Expected number for 'retry'",
+                            self._peek().line,
+                            self._peek().column
+                        )
                     max_retries = int(self._advance().value)
+                    has_retry_params = True
                 elif param_name == "backoff":
-                    # Can be a number (seconds) or string with unit (e.g., "2m")
-                    if self._check(TokenType.NUMBER):
-                        backoff_seconds = float(self._advance().value)
-                    elif self._check(TokenType.STRING):
-                        backoff_seconds = _parse_duration(self._advance().value)
-                    elif self._check(TokenType.IDENTIFIER):
-                        # Handle bare identifiers like 2m (lexed as identifier)
-                        backoff_seconds = _parse_duration(self._advance().value)
-                    else:
-                        raise SyntaxError(f"Expected duration for 'backoff' at line {self._peek().line}")
+                    backoff_seconds = self._parse_duration_value()
+                    has_retry_params = True
                 elif param_name == "timeout":
-                    if self._check(TokenType.NUMBER):
-                        timeout_seconds = float(self._advance().value)
-                    elif self._check(TokenType.STRING):
-                        timeout_seconds = _parse_duration(self._advance().value)
-                    elif self._check(TokenType.IDENTIFIER):
-                        timeout_seconds = _parse_duration(self._advance().value)
-                    else:
-                        raise SyntaxError(f"Expected duration for 'timeout' at line {self._peek().line}")
+                    timeout_seconds = self._parse_duration_value()
+                    is_timeout_bracket = True
                 else:
-                    raise SyntaxError(f"Unknown retry policy parameter: '{param_name}' at line {self._peek().line}")
+                    raise RappelSyntaxError(
+                        f"Unknown parameter: '{param_name}'",
+                        self._peek().line,
+                        self._peek().column
+                    )
 
                 # Optional comma between parameters
                 if self._check(TokenType.COMMA):
@@ -948,14 +937,32 @@ class RappelParser:
 
             self._consume(TokenType.RBRACKET, "Expected ']'")
 
-            policies.append(RappelRetryPolicy(
-                exception_types=tuple(exception_types),
-                max_retries=max_retries,
-                backoff_seconds=backoff_seconds,
-                timeout_seconds=timeout_seconds,
-            ))
+            # Only create a retry policy if we have retry/backoff params or exception types
+            # Timeout-only brackets don't create a policy
+            if has_retry_params or exception_types:
+                policies.append(RappelRetryPolicy(
+                    exception_types=tuple(exception_types),
+                    max_retries=max_retries,
+                    backoff_seconds=backoff_seconds,
+                ))
 
-        return policies
+        return policies, timeout_seconds
+
+    def _parse_duration_value(self) -> float:
+        """Parse a duration value (number or duration string like 2m, 30s)."""
+        if self._check(TokenType.NUMBER):
+            return float(self._advance().value)
+        elif self._check(TokenType.STRING):
+            return _parse_duration(self._advance().value)
+        elif self._check(TokenType.IDENTIFIER):
+            # Handle bare identifiers like 2m (lexed as identifier)
+            return _parse_duration(self._advance().value)
+        else:
+            raise RappelSyntaxError(
+                "Expected duration value",
+                self._peek().line,
+                self._peek().column
+            )
 
     def _parse_io_spec(self) -> tuple[list[str], list[str]]:
         """Parse input/output specification."""
