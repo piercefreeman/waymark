@@ -5,17 +5,18 @@ The runner handles two types of execution:
 - Inline: AST evaluation within the runner (assignments, expressions, etc.)
 - Delegated: External @actions that are pushed to workers
 
-This simulates what would happen with a database backend, keeping all state in memory.
+Uses an in-memory database to simulate a real backend, making read/write
+patterns visible through stats tracking.
 """
 
 from __future__ import annotations
 
-from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from enum import Enum, auto
 from typing import Any, Callable
 
 from .dag import DAG, DAGNode, EdgeType
+from .db import InMemoryDB, Table
 from .ir import (
     RappelLiteral,
     RappelVariable,
@@ -89,46 +90,101 @@ class RunnableActionData:
     pending_inputs: int = 0
     collected_results: list[Any] = field(default_factory=list)
 
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dict for DB storage."""
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "RunnableActionData":
+        """Create from dict (DB retrieval)."""
+        return cls(**data)
+
 
 class ActionQueue:
     """
-    In-memory queue of runnable actions.
+    Database-backed action queue.
 
-    Simulates what would be a database-backed job queue.
+    Uses the in-memory DB to store queued actions, making
+    read/write patterns visible through stats. All ordering
+    is maintained at the DB level (simulating SELECT ... FOR UPDATE SKIP LOCKED).
     """
 
-    def __init__(self):
-        self._queue: deque[RunnableAction] = deque()
+    def __init__(self, db: InMemoryDB):
+        self._db = db
+        self._table: Table[dict[str, Any]] = db.create_table("action_queue")
         self._action_counter = 0
 
     def add(self, action: RunnableAction) -> None:
-        """Add an action to the queue."""
-        self._queue.append(action)
+        """
+        Add an action to the queue.
+
+        Simulates: INSERT INTO action_queue (...) VALUES (...)
+        """
+        action_dict = {
+            "id": action.id,
+            "node_id": action.node_id,
+            "function_name": action.function_name,
+            "action_type": action.action_type.value,
+            "input_data": action.input_data,
+            "status": action.status.value,
+            "spread_index": action.spread_index,
+            "spread_item": action.spread_item,
+        }
+        self._table.insert(action.id, action_dict)
 
     def pop(self) -> RunnableAction | None:
-        """Remove and return the next action, or None if empty."""
-        if self._queue:
-            return self._queue.popleft()
-        return None
+        """
+        Remove and return the next action.
+
+        Simulates: SELECT * FROM action_queue ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED
+        followed by: DELETE FROM action_queue WHERE id = ?
+        """
+        result = self._table.pop_first()
+        if result is None:
+            return None
+
+        action_id, action_dict = result
+        self._table.delete(action_id)
+        return self._dict_to_action(action_dict)
 
     def peek(self) -> RunnableAction | None:
-        """Return the next action without removing it."""
-        if self._queue:
-            return self._queue[0]
-        return None
+        """
+        Return the next action without removing.
+
+        Simulates: SELECT * FROM action_queue ORDER BY created_at LIMIT 1
+        """
+        result = self._table.peek_first()
+        if result is None:
+            return None
+
+        _, action_dict = result
+        return self._dict_to_action(action_dict)
 
     def is_empty(self) -> bool:
         """Check if the queue is empty."""
-        return len(self._queue) == 0
+        return self._table.count() == 0
 
     def size(self) -> int:
         """Return the number of actions in the queue."""
-        return len(self._queue)
+        return self._table.count()
 
     def next_id(self) -> str:
         """Generate a unique action ID."""
         self._action_counter += 1
         return f"action_{self._action_counter}"
+
+    def _dict_to_action(self, d: dict[str, Any]) -> RunnableAction:
+        """Convert dict back to RunnableAction."""
+        return RunnableAction(
+            id=d["id"],
+            node_id=d["node_id"],
+            function_name=d["function_name"],
+            action_type=ActionType(d["action_type"]),
+            input_data=d["input_data"],
+            status=ActionStatus(d["status"]),
+            spread_index=d["spread_index"],
+            spread_item=d["spread_item"],
+        )
 
 
 class DAGRunner:
@@ -141,6 +197,8 @@ class DAGRunner:
     3. Executes it (inline or delegated)
     4. Handles results and pushes data to dependent nodes
     5. Queues the next action(s)
+
+    Uses an in-memory DB for storage, making read/write patterns visible.
     """
 
     def __init__(
@@ -148,6 +206,7 @@ class DAGRunner:
         dag: DAG,
         action_handlers: dict[str, Callable[..., Any]] | None = None,
         function_handlers: dict[str, Callable[..., Any]] | None = None,
+        db: InMemoryDB | None = None,
     ):
         """
         Initialize the DAG runner.
@@ -156,22 +215,34 @@ class DAGRunner:
             dag: The DAG to execute
             action_handlers: Dict of action_name -> handler function for @actions
             function_handlers: Dict of function_name -> handler function for fn calls
+            db: Optional database instance (creates new one if not provided)
         """
         self.dag = dag
         self.action_handlers = action_handlers or {}
         self.function_handlers = function_handlers or {}
 
-        self.queue = ActionQueue()
-        # Node metadata storage (simulates DB rows)
+        # Database for persistent storage (tracks read/write stats)
+        self.db = db or InMemoryDB()
+        self.queue = ActionQueue(self.db)
+
+        # Node data - kept in memory as a "cache" during inline execution.
+        # In a real implementation with a DB backend:
+        # - Inline execution uses this cache (no DB writes)
+        # - Delegated actions would persist to DB before queuing
+        # The ActionQueue writes show the real difference.
         self.node_data: dict[str, RunnableActionData] = {}
+
         # Execution results per node
         self.results: dict[str, Any] = {}
         # Track which functions have completed
         self.completed_functions: set[str] = set()
+        # Mapping from node UUID to node ID
+        self._uuid_to_node_id: dict[str, str] = {}
 
         # Initialize node data for all nodes
-        for node_id in self.dag.nodes:
+        for node_id, node in self.dag.nodes.items():
             self.node_data[node_id] = RunnableActionData(node_id=node_id)
+            self._uuid_to_node_id[node.node_uuid] = node_id
 
     def run(self, function_name: str, inputs: dict[str, Any] | None = None) -> dict[str, Any]:
         """
@@ -239,19 +310,23 @@ class DAGRunner:
         """
         Eagerly execute all inline nodes reachable from the starting node.
 
-        This batches together all inline execution until we hit a delegated
-        @action that needs to wait. Only delegated actions get queued.
+        This executes inline nodes one at a time, respecting DAG ordering and
+        dependencies, but does so in-memory without roundtripping to the "DB"
+        to queue each action. Only delegated @actions get queued.
+
+        The key optimization: we use the same handlers and data flow, but
+        avoid writing to the action queue for inline nodes.
 
         Args:
             starting_node_id: The node whose successors we start from
         """
-        # Use a stack for depth-first execution of inline nodes
+        # Get initial ready successors
         to_process = self._get_ready_successors(starting_node_id)
 
         while to_process:
-            node_id = to_process.pop()
-            node = self.dag.nodes.get(node_id)
+            node_id = to_process.pop(0)  # FIFO order
 
+            node = self.dag.nodes.get(node_id)
             if node is None:
                 continue
 
@@ -262,7 +337,15 @@ class DAGRunner:
             action_type = self._get_action_type(node)
 
             if action_type == ActionType.DELEGATED:
-                # Queue delegated actions for later - don't execute inline
+                # --------------------------------------------------------------
+                # IN A REAL IMPLEMENTATION WITH A DATABASE BACKEND:
+                # This is where we write to the action queue table, e.g.:
+                #
+                #   INSERT INTO action_queue (id, node_id, function_name, ...)
+                #   VALUES (...)
+                #
+                # This is the "roundtrip" we're avoiding for inline nodes.
+                # --------------------------------------------------------------
                 action = RunnableAction(
                     id=self.queue.next_id(),
                     node_id=node_id,
@@ -271,8 +354,10 @@ class DAGRunner:
                     input_data=self.node_data[node_id].variable_values.copy(),
                 )
                 self.queue.add(action)
+                # Don't continue past delegated actions - they'll trigger
+                # another inline batch when they complete
             else:
-                # Execute inline immediately
+                # Execute inline node immediately (no queue roundtrip)
                 action = RunnableAction(
                     id=self.queue.next_id(),
                     node_id=node_id,
@@ -282,9 +367,12 @@ class DAGRunner:
                 )
                 self._execute_action(action)
 
-                # Add this node's ready successors to process next
+                # After execution, get the next ready successors and add them
+                # to our processing list (still in-memory, no queue)
                 successors = self._get_ready_successors(node_id)
-                to_process.extend(successors)
+                for succ_id in successors:
+                    if succ_id not in to_process:
+                        to_process.append(succ_id)
 
     def _get_ready_successors(self, node_id: str) -> list[str]:
         """

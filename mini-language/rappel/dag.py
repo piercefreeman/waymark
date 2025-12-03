@@ -12,8 +12,9 @@ from __future__ import annotations
 
 import json
 import tempfile
+import uuid
 import webbrowser
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum, auto
 
 from .ir import (
@@ -49,6 +50,11 @@ class EdgeType(Enum):
     DATA_FLOW = auto()  # Variable data flow edge
 
 
+def _generate_uuid() -> str:
+    """Generate a new UUID for a node."""
+    return str(uuid.uuid4())
+
+
 @dataclass(frozen=True)
 class DAGNode:
     """A node in the execution DAG."""
@@ -57,6 +63,8 @@ class DAGNode:
     node_type: str  # e.g., "assignment", "action_call", "for_loop", "if", "aggregator", "fn_call", "input", "output"
     ir_node: RappelStatement | RappelExpr | None
     label: str  # Human-readable label
+    # Unique identifier for this node instance (used for batch data operations)
+    node_uuid: str = field(default_factory=_generate_uuid)
     function_name: str | None = None  # Which function this node belongs to (None = top-level)
     # For for loops
     is_loop_head: bool = False

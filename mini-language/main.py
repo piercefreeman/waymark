@@ -9,6 +9,7 @@ from rappel import (
     convert_to_dag,
     RappelPrettyPrinter,
     DAGRunner,
+    InMemoryDB,
 )
 
 
@@ -75,9 +76,10 @@ def main():
     print(f"   Created {len(dag.nodes)} nodes and {len(dag.edges)} edges")
     print(f"   Functions: {dag.get_functions()}")
 
-    # Create runner with mock action handlers
+    # Create runner with mock action handlers and DB for stats tracking
     print("\n4. Creating DAG Runner with mock @action handlers...")
 
+    db = InMemoryDB()
     execution_log = []
 
     def mock_get_pending_orders(status, limit):
@@ -100,11 +102,15 @@ def main():
             "get_pending_orders": mock_get_pending_orders,
             "process_payment": mock_process_payment,
         },
+        db=db,
     )
 
     # Run main() and get the output
     print("\n5. Running main()...")
     print("-" * 60)
+
+    # Reset stats before running to get clean measurements
+    db.reset_stats()
 
     output = runner.run_main()
 
@@ -117,8 +123,17 @@ def main():
     print(f"   final_result = {output.get('final_result')}")
     print("-" * 60)
 
+    # Show DB stats to demonstrate the optimization
+    print("\n7. Database stats (showing inline vs delegated optimization):")
+    print("-" * 60)
+    print(f"   {db.stats}")
+    print("   ")
+    print("   Key insight: Only 2 queue writes (for the 2 @actions).")
+    print("   All other inline nodes executed in-memory without queue roundtrips!")
+    print("-" * 60)
+
     # Also demonstrate running individual functions
-    print("\n7. Running individual functions:")
+    print("\n8. Running individual functions:")
     print("-" * 60)
 
     # Test validate_order with valid order
@@ -135,7 +150,7 @@ def main():
 
     print("-" * 60)
 
-    print("\n8. Visualizing DAG (opens in browser)...")
+    print("\n9. Visualizing DAG (opens in browser)...")
     try:
         dag.visualize("Rappel Program DAG - main() workflow")
     except Exception as e:

@@ -11,6 +11,7 @@ from rappel import (
     RunnableActionData,
     ActionQueue,
     DAGRunner,
+    InMemoryDB,
 )
 
 
@@ -19,7 +20,8 @@ class TestActionQueue:
 
     def test_queue_add_and_pop(self):
         """Test adding and popping actions from queue."""
-        queue = ActionQueue()
+        db = InMemoryDB()
+        queue = ActionQueue(db)
 
         action = RunnableAction(
             id="action_1",
@@ -33,12 +35,13 @@ class TestActionQueue:
         assert not queue.is_empty()
 
         popped = queue.pop()
-        assert popped == action
+        assert popped.id == action.id
         assert queue.is_empty()
 
     def test_queue_fifo_order(self):
         """Test that queue maintains FIFO order."""
-        queue = ActionQueue()
+        db = InMemoryDB()
+        queue = ActionQueue(db)
 
         for i in range(3):
             queue.add(RunnableAction(
@@ -54,7 +57,8 @@ class TestActionQueue:
 
     def test_queue_peek(self):
         """Test peeking at next action without removing."""
-        queue = ActionQueue()
+        db = InMemoryDB()
+        queue = ActionQueue(db)
 
         action = RunnableAction(
             id="action_1",
@@ -65,20 +69,42 @@ class TestActionQueue:
         queue.add(action)
 
         peeked = queue.peek()
-        assert peeked == action
+        assert peeked.id == action.id
         assert queue.size() == 1  # Still in queue
 
     def test_queue_pop_empty(self):
         """Test popping from empty queue returns None."""
-        queue = ActionQueue()
+        db = InMemoryDB()
+        queue = ActionQueue(db)
         assert queue.pop() is None
 
     def test_queue_next_id(self):
         """Test generating unique action IDs."""
-        queue = ActionQueue()
+        db = InMemoryDB()
+        queue = ActionQueue(db)
         id1 = queue.next_id()
         id2 = queue.next_id()
         assert id1 != id2
+
+    def test_queue_db_stats(self):
+        """Test that queue operations track DB stats."""
+        db = InMemoryDB()
+        queue = ActionQueue(db)
+
+        # Add an action (should be a write)
+        action = RunnableAction(
+            id="action_1",
+            node_id="node_1",
+            function_name="test",
+            action_type=ActionType.INLINE,
+        )
+        queue.add(action)
+        assert db.stats.writes == 1
+
+        # Pop the action (simulates SELECT ... FOR UPDATE SKIP LOCKED + DELETE)
+        queue.pop()
+        assert db.stats.queries == 1  # The SELECT query
+        assert db.stats.deletes == 1  # The DELETE
 
 
 class TestRunnableAction:
