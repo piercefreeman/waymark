@@ -877,7 +877,10 @@ impl WorkCompletionHandler {
         };
 
         // Get module_name from node metadata (default to "default" for backwards compatibility)
-        let module_name = node.module_name.clone().unwrap_or_else(|| "default".to_string());
+        let module_name = node
+            .module_name
+            .clone()
+            .unwrap_or_else(|| "default".to_string());
 
         // Build dispatch payload from context
         let payload = serde_json::to_vec(&context.variables)?;
@@ -1872,7 +1875,10 @@ impl DAGRunner {
         };
 
         // Get module_name from node metadata (default to "default" for backwards compatibility)
-        let module_name = node.module_name.clone().unwrap_or_else(|| "default".to_string());
+        let module_name = node
+            .module_name
+            .clone()
+            .unwrap_or_else(|| "default".to_string());
 
         let payload = serde_json::to_vec(&context.variables)?;
 

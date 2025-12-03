@@ -149,7 +149,9 @@ def test_workflow_ir_includes_module_name() -> None:
     # Each action call should have a module_name set
     for action_call in action_calls_found:
         assert action_call.action_name, "action_name should be set"
-        assert action_call.module_name, f"module_name should be set for action {action_call.action_name}"
+        assert action_call.module_name, (
+            f"module_name should be set for action {action_call.action_name}"
+        )
         # The module should be this test module
         assert "test_workflow" in action_call.module_name
 
