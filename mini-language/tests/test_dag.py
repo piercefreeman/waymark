@@ -259,3 +259,69 @@ fn main(input: [], output: [result]):
     fn_call_nodes = [n for n in dag.nodes.values() if n.is_fn_call]
     assert len(fn_call_nodes) >= 1
     assert any(n.called_function == "helper" for n in fn_call_nodes)
+
+
+def test_data_flow_cutoff_on_variable_reassignment():
+    """Test that data flow connects to most recent definition when variable is reassigned.
+
+    When a variable is reassigned, downstream uses should get data flow from
+    the reassignment node, not the original definition. This ensures the
+    data flow graph correctly models variable shadowing/updates.
+    """
+    source = """fn test(input: [x], output: [z]):
+    y = x + 1
+    x = 10
+    z = x + 2
+    return z"""
+    program = parse(source)
+    dag = convert_to_dag(program)
+
+    # Get data flow edges for variable 'x'
+    data_flow_edges = dag.get_data_flow_edges()
+    x_data_flow = [e for e in data_flow_edges if e.variable == "x"]
+
+    # Find the nodes by their labels/types
+    input_node = None
+    reassign_node = None  # x = 10
+    z_assign_node = None  # z = x + 2
+
+    for node_id, node in dag.nodes.items():
+        if node.is_input and node.function_name == "test":
+            input_node = node_id
+        elif node.node_type == "assignment" and node.ir_node is not None:
+            from rappel.ir import RappelAssignment, RappelLiteral
+            if isinstance(node.ir_node, RappelAssignment):
+                if node.ir_node.target == "x" and isinstance(node.ir_node.value, RappelLiteral):
+                    reassign_node = node_id
+                elif node.ir_node.target == "z":
+                    z_assign_node = node_id
+
+    assert input_node is not None, "Should have input node"
+    assert reassign_node is not None, "Should have x=10 reassignment node"
+    assert z_assign_node is not None, "Should have z=x+2 assignment node"
+
+    # The key assertion: z's use of x should get data flow from the reassignment (x=10),
+    # NOT from the input node
+    z_x_edges = [e for e in x_data_flow if e.target == z_assign_node]
+    assert len(z_x_edges) == 1, "z should have exactly one data flow edge for x"
+    assert z_x_edges[0].source == reassign_node, (
+        f"z's data flow for x should come from reassignment node ({reassign_node}), "
+        f"not input node ({input_node}). Got source: {z_x_edges[0].source}"
+    )
+
+    # Also verify: the first use of x (y = x + 1) should get data flow from input
+    y_assign_node = None
+    for node_id, node in dag.nodes.items():
+        if node.node_type == "assignment" and node.ir_node is not None:
+            from rappel.ir import RappelAssignment
+            if isinstance(node.ir_node, RappelAssignment) and node.ir_node.target == "y":
+                y_assign_node = node_id
+                break
+
+    assert y_assign_node is not None, "Should have y=x+1 assignment node"
+    y_x_edges = [e for e in x_data_flow if e.target == y_assign_node]
+    assert len(y_x_edges) == 1, "y should have exactly one data flow edge for x"
+    assert y_x_edges[0].source == input_node, (
+        f"y's data flow for x should come from input node ({input_node}), "
+        f"not reassignment node ({reassign_node}). Got source: {y_x_edges[0].source}"
+    )
