@@ -11,12 +11,14 @@ patterns visible through stats tracking.
 
 from __future__ import annotations
 
+import threading
+import time
 from dataclasses import dataclass, field, asdict
 from enum import Enum, auto
 from typing import Any, Callable
 
 from .dag import DAG, DAGNode, EdgeType
-from .db import InMemoryDB, Table
+from .db import InMemoryDB, Table, get_db
 from .ir import (
     RappelLiteral,
     RappelVariable,
@@ -113,6 +115,7 @@ class ActionQueue:
         self._db = db
         self._table: Table[dict[str, Any]] = db.create_table("action_queue")
         self._action_counter = 0
+        self._counter_lock = threading.Lock()
 
     def add(self, action: RunnableAction) -> None:
         """
@@ -134,17 +137,18 @@ class ActionQueue:
 
     def pop(self) -> RunnableAction | None:
         """
-        Remove and return the next action.
+        Remove and return the next action (thread-safe, atomic).
 
         Simulates: SELECT * FROM action_queue ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED
         followed by: DELETE FROM action_queue WHERE id = ?
+
+        Uses atomic pop_first_and_delete to prevent race conditions between workers.
         """
-        result = self._table.pop_first()
+        result = self._table.pop_first_and_delete()
         if result is None:
             return None
 
-        action_id, action_dict = result
-        self._table.delete(action_id)
+        _, action_dict = result
         return self._dict_to_action(action_dict)
 
     def peek(self) -> RunnableAction | None:
@@ -169,9 +173,10 @@ class ActionQueue:
         return self._table.count()
 
     def next_id(self) -> str:
-        """Generate a unique action ID."""
-        self._action_counter += 1
-        return f"action_{self._action_counter}"
+        """Generate a unique action ID (thread-safe)."""
+        with self._counter_lock:
+            self._action_counter += 1
+            return f"action_{self._action_counter}"
 
     def _dict_to_action(self, d: dict[str, Any]) -> RunnableAction:
         """Convert dict back to RunnableAction."""
@@ -225,15 +230,18 @@ class DAGRunner:
         self.db = db or InMemoryDB()
         self.queue = ActionQueue(self.db)
 
-        # Node data table - stores variable_values, completion status, etc.
-        # In a distributed system, workers read/write this to share state.
-        # This is SEPARATE from the action queue optimization:
-        # - Action queue: only delegated @actions get queued (our optimization)
-        # - Node data: ALL nodes persist state here (required for distribution)
+        # Node data table - stores completion status and aggregator state
+        # Simplified: variable_values now come from the inbox pattern
         self._node_data_table: Table[dict[str, Any]] = self.db.create_table("node_data")
 
-        # Execution results per node (could also be in DB for full distribution)
+        # Execution results per node
         self._results_table: Table[dict[str, Any]] = self.db.create_table("results")
+
+        # INBOX PATTERN: Append-only ledger for passing values between nodes
+        # When Node A completes, it INSERTs into this table for each target
+        # When Node B runs, it SELECTs all rows WHERE target_node_id = B
+        # This is O(1) writes (no locks!) and O(n) read when needed
+        self._node_inputs_table: Table[dict[str, Any]] = self.db.create_table("node_inputs")
 
         # Track which functions have completed
         self.completed_functions: set[str] = set()
@@ -273,6 +281,61 @@ class DAGRunner:
     def _set_result(self, node_id: str, value: Any) -> None:
         """Write execution result to DB."""
         self._results_table.upsert(node_id, {"node_id": node_id, "value": value})
+
+    # =========================================================================
+    # INBOX PATTERN: Append-only ledger for node inputs
+    # =========================================================================
+
+    def _append_to_inbox(
+        self,
+        target_node_id: str,
+        variable: str,
+        value: Any,
+        source_node_id: str,
+        spread_index: int | None = None,
+    ) -> None:
+        """
+        Append a value to a node's inbox (O(1) write, no locks).
+
+        Simulates: INSERT INTO node_inputs (target, var, val, source, spread_idx) VALUES (...)
+        """
+        # Generate unique ID for this inbox entry (include target for fan-out cases)
+        entry_id = f"{target_node_id}:{source_node_id}:{variable}:{spread_index or 0}"
+        self._node_inputs_table.insert(entry_id, {
+            "target_node_id": target_node_id,
+            "variable": variable,
+            "value": value,
+            "source_node_id": source_node_id,
+            "spread_index": spread_index,
+        })
+
+    def _read_inbox(self, node_id: str) -> dict[str, Any]:
+        """
+        Read all pending inputs for a node (single query).
+
+        Simulates: SELECT * FROM node_inputs WHERE target_node_id = ?
+        Returns dict of variable_name -> value
+        """
+        # Get all entries and filter by target (simulates WHERE clause)
+        all_entries = self._node_inputs_table.all()
+        scope = {}
+        for entry in all_entries.values():
+            if entry["target_node_id"] == node_id:
+                scope[entry["variable"]] = entry["value"]
+        return scope
+
+    def _read_inbox_for_aggregator(self, node_id: str) -> list[tuple[int, Any]]:
+        """
+        Read spread results for an aggregator node.
+
+        Returns list of (spread_index, value) tuples for ordering.
+        """
+        all_entries = self._node_inputs_table.all()
+        results = []
+        for entry in all_entries.values():
+            if entry["target_node_id"] == node_id and entry["spread_index"] is not None:
+                results.append((entry["spread_index"], entry["value"]))
+        return results
 
     def run(self, function_name: str, inputs: dict[str, Any] | None = None) -> dict[str, Any]:
         """
@@ -320,10 +383,10 @@ class DAGRunner:
             # After delegated action completes, eagerly execute inline successors
             self._execute_inline_batch(action.node_id)
 
-        # Find and return outputs (DB read)
+        # Find and return outputs (read from INBOX)
         output_node = self._find_output_node(function_name)
         if output_node:
-            return self._get_node_data(output_node.id).variable_values
+            return self._read_inbox(output_node.id)
         return {}
 
     def run_main(self, inputs: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -419,7 +482,7 @@ class DAGRunner:
 
         A node is ready if:
         - It hasn't been completed yet
-        - All its dependencies are satisfied
+        - All its dependencies are satisfied (check inbox for aggregators)
 
         Returns nodes in order suitable for processing.
         """
@@ -429,8 +492,9 @@ class DAGRunner:
 
         ready = []
 
-        # Handle conditional branching (DB read for condition)
+        # Handle conditional branching (read condition from node_data)
         if node.ir_node and isinstance(node.ir_node, RappelIfStatement):
+            # Read condition result from node's variable_values (stored there after execution)
             node_data = self._get_node_data(node_id)
             condition_result = node_data.variable_values.get("_condition", True)
 
@@ -448,9 +512,10 @@ class DAGRunner:
                 if target_node:
                     target_data = self._get_node_data(edge.target)
                     if not target_data.completed:
-                        # Check if aggregator is ready
+                        # Check if aggregator is ready (from inbox)
                         if target_node.is_aggregator:
-                            if target_data.pending_inputs > 0 and len(target_data.collected_results) < target_data.pending_inputs:
+                            inbox_results = self._read_inbox_for_aggregator(edge.target)
+                            if target_data.pending_inputs > 0 and len(inbox_results) < target_data.pending_inputs:
                                 continue
                         ready.append(edge.target)
         else:
@@ -467,9 +532,10 @@ class DAGRunner:
                 if target_data.completed:
                     continue
 
-                # Check if aggregator is ready
+                # Check if aggregator is ready (from inbox)
                 if target_node.is_aggregator:
-                    if target_data.pending_inputs > 0 and len(target_data.collected_results) < target_data.pending_inputs:
+                    inbox_results = self._read_inbox_for_aggregator(edge.target)
+                    if target_data.pending_inputs > 0 and len(inbox_results) < target_data.pending_inputs:
                         continue
 
                 ready.append(edge.target)
@@ -484,6 +550,8 @@ class DAGRunner:
             self._set_node_data(node_id, RunnableActionData(node_id=node_id))
             # Clear any cached results
             self._results_table.delete(node_id)
+        # Clear the inbox table (for re-runs)
+        self._node_inputs_table.clear()
 
     def _find_input_node(self, function_name: str) -> DAGNode | None:
         """Find the input boundary node for a function."""
@@ -509,23 +577,36 @@ class DAGRunner:
             return
 
         try:
+            # Read scope from INBOX (single query for all inputs)
+            scope = self._read_inbox(node.id)
+
+            # Execute the action with the scope from inbox
             if action.action_type == ActionType.DELEGATED:
-                result = self._handle_delegated(node, action)
+                result = self._handle_delegated(node, action, scope)
             else:
-                result = self._handle_inline(node, action)
+                result = self._handle_inline(node, action, scope)
 
             action.status = ActionStatus.COMPLETED
 
-            # Store result in DB
-            self._set_result(node.id, result)
+            # Store result in DB (use spread_index for spread items to avoid overwrite)
+            if action.spread_index is not None:
+                result_key = f"{node.id}::{action.spread_index}"
+            else:
+                result_key = node.id
+            self._set_result(result_key, result)
 
-            # Push outputs to dependent nodes (DB writes)
-            self._push_outputs(node.id, result)
+            # Mark node as completed (single write)
+            # Skip for spread items - they don't update the spread node's state
+            if action.spread_index is None:
+                node_data = self._get_node_data(node.id)
+                node_data.completed = True
+                # Store _condition for if statements so _get_ready_successors can read it
+                if isinstance(result, dict) and "_condition" in result:
+                    node_data.variable_values["_condition"] = result["_condition"]
+                self._set_node_data(node.id, node_data)
 
-            # Mark node as completed (DB read + write)
-            node_data = self._get_node_data(node.id)
-            node_data.completed = True
-            self._set_node_data(node.id, node_data)
+            # Push outputs to dependent nodes (DB writes to targets)
+            self._push_outputs_to_targets(node.id, result, action)
 
             # Note: Successor handling is done by _execute_inline_batch, not here
 
@@ -533,18 +614,16 @@ class DAGRunner:
             action.status = ActionStatus.FAILED
             raise RuntimeError(f"Action failed for node {node.id}: {e}") from e
 
-    def _handle_inline(self, node: DAGNode, action: RunnableAction) -> Any:
+    def _handle_inline(self, node: DAGNode, action: RunnableAction, scope: dict[str, Any]) -> Any:
         """
         Handle inline execution (AST evaluation).
 
         This handles assignments, expressions, control flow, etc.
+        Scope is passed in to avoid redundant DB reads.
         """
-        # Get current scope values
-        scope = self._get_scope_for_node(node.id)
-
         # Add spread item if this is a spread iteration
         if action.spread_item is not None and node.loop_var:
-            scope[node.loop_var] = action.spread_item
+            scope = {**scope, node.loop_var: action.spread_item}
 
         ir_node = node.ir_node
 
@@ -584,13 +663,13 @@ class DAGRunner:
 
         return scope
 
-    def _handle_delegated(self, node: DAGNode, action: RunnableAction) -> Any:
+    def _handle_delegated(self, node: DAGNode, action: RunnableAction, scope: dict[str, Any]) -> Any:
         """
         Handle delegated execution (@actions).
 
         These are pushed to external workers.
+        Scope is passed in to avoid redundant DB reads.
         """
-        scope = self._get_scope_for_node(node.id)
         ir_node = node.ir_node
 
         if ir_node is None:
@@ -616,12 +695,14 @@ class DAGRunner:
 
         # Evaluate kwargs
         kwargs = {}
+
+        # For spread actions, inject the spread item as the loop variable
+        if action.spread_item is not None:
+            item_var = action.input_data.get("_item_var")
+            if item_var:
+                scope = {**scope, item_var: action.spread_item}
+
         for name, expr in action_call.kwargs:
-            # For spread actions, the item var comes from the action's input_data
-            if action.spread_item is not None and isinstance(expr, RappelVariable):
-                if expr.name == action.input_data.get("_item_var"):
-                    kwargs[name] = action.spread_item
-                    continue
             kwargs[name] = self._evaluate_expr(expr, scope)
 
         # Call the action handler
@@ -727,16 +808,19 @@ class DAGRunner:
         return {}
 
     def _handle_aggregator(self, node: DAGNode) -> Any:
-        """Handle aggregator node - collect spread results (DB read)."""
+        """Handle aggregator node - collect spread results from INBOX."""
         data = self._get_node_data(node.id)
 
+        # Read spread results from inbox (single query)
+        collected_results = self._read_inbox_for_aggregator(node.id)
+
         # Check if all spread results are in
-        if len(data.collected_results) < data.pending_inputs:
+        if len(collected_results) < data.pending_inputs:
             # Not ready yet
             return {}
 
         # Sort by spread index and extract values
-        sorted_results = sorted(data.collected_results, key=lambda x: x[0])
+        sorted_results = sorted(collected_results, key=lambda x: x[0])
         values = [r[1] for r in sorted_results]
 
         # Get the target variable from the aggregates_from node
@@ -887,53 +971,87 @@ class DAGRunner:
 
     def _push_outputs(self, node_id: str, outputs: Any) -> None:
         """
-        Push output values to dependent nodes (DB reads + writes).
+        Push output values to dependent nodes using INBOX PATTERN.
 
-        Updates the node_data for nodes that depend on this one.
+        Simple version for non-action contexts (e.g., input node initialization).
+        Uses append-only writes - no reads required!
         """
         if not isinstance(outputs, dict):
             return
 
-        # Update this node's data (DB read + write)
-        node_data = self._get_node_data(node_id)
-        node_data.variable_values.update(outputs)
-        self._set_node_data(node_id, node_data)
+        # Push to successors via inbox (append-only, no locks!)
+        for edge in self.dag.get_outgoing_edges(node_id):
+            if edge.edge_type == EdgeType.DATA_FLOW:
+                if edge.variable and edge.variable in outputs:
+                    self._append_to_inbox(
+                        target_node_id=edge.target,
+                        variable=edge.variable,
+                        value=outputs[edge.variable],
+                        source_node_id=node_id,
+                    )
+            elif edge.edge_type == EdgeType.STATE_MACHINE:
+                for var, val in outputs.items():
+                    self._append_to_inbox(
+                        target_node_id=edge.target,
+                        variable=var,
+                        value=val,
+                        source_node_id=node_id,
+                    )
+
+    def _push_outputs_to_targets(self, node_id: str, outputs: Any, action: RunnableAction) -> None:
+        """
+        Push output values to dependent nodes using INBOX PATTERN.
+
+        Instead of read-modify-write on each target, we just append to inbox.
+        O(1) writes per target, no locks needed!
+        """
+        if not isinstance(outputs, dict):
+            return
 
         # Find data flow edges from this node
         for edge in self.dag.get_outgoing_edges(node_id):
-            try:
-                target_data = self._get_node_data(edge.target)
-            except KeyError:
+            target_node = self.dag.nodes.get(edge.target)
+            if target_node is None:
                 continue
 
-            if edge.edge_type == EdgeType.DATA_FLOW:
-                # Push specific variable
-                if edge.variable and edge.variable in outputs:
-                    target_data.variable_values[edge.variable] = outputs[edge.variable]
-            elif edge.edge_type == EdgeType.STATE_MACHINE:
-                # Push all outputs for execution order edges
-                target_data.variable_values.update(outputs)
-
-            # Handle aggregator collection
-            target_node = self.dag.nodes.get(edge.target)
-            if target_node and target_node.is_aggregator:
-                # Check if this is from a spread action
+            # Handle aggregator collection for spread actions
+            if target_node.is_aggregator and action.spread_index is not None:
+                # This is a spread item result - append with spread_index for ordering
                 source_node = self.dag.nodes.get(node_id)
                 if source_node and source_node.ir_node:
                     if isinstance(source_node.ir_node, RappelSpreadAction):
-                        # Collect the result with its index
-                        result = self._get_result(node_id)
-                        if isinstance(result, dict):
-                            for var, val in result.items():
-                                if var.startswith("_"):
-                                    continue
-                                # Find the spread index from recent actions
-                                # For now, just append
-                                idx = len(target_data.collected_results)
-                                target_data.collected_results.append((idx, val))
-
-            # Write back the updated target data (DB write)
-            self._set_node_data(edge.target, target_data)
+                        for var, val in outputs.items():
+                            if var.startswith("_"):
+                                continue
+                            # Append to aggregator's inbox with spread_index
+                            self._append_to_inbox(
+                                target_node_id=edge.target,
+                                variable=f"_spread_{var}",
+                                value=val,
+                                source_node_id=node_id,
+                                spread_index=action.spread_index,
+                            )
+            else:
+                # Normal data flow - append to target's inbox
+                if edge.edge_type == EdgeType.DATA_FLOW:
+                    if edge.variable and edge.variable in outputs:
+                        self._append_to_inbox(
+                            target_node_id=edge.target,
+                            variable=edge.variable,
+                            value=outputs[edge.variable],
+                            source_node_id=node_id,
+                        )
+                elif edge.edge_type == EdgeType.STATE_MACHINE:
+                    # Push all outputs for execution order edges
+                    # Include _condition for conditional branching
+                    for var, val in outputs.items():
+                        if not var.startswith("_") or var == "_condition":
+                            self._append_to_inbox(
+                                target_node_id=edge.target,
+                                variable=var,
+                                value=val,
+                                source_node_id=node_id,
+                            )
 
     def _queue_successors(self, node_id: str) -> None:
         """
@@ -1031,3 +1149,225 @@ class DAGRunner:
 
         # Everything else is inline
         return ActionType.INLINE
+
+
+class ThreadedDAGRunner(DAGRunner):
+    """
+    Multi-threaded DAG runner that simulates distributed execution.
+
+    Uses a pool of worker threads that compete for actions from a shared
+    queue, simulating multiple machines connected to the same database.
+
+    Each worker:
+    1. Polls the action queue (SELECT ... FOR UPDATE SKIP LOCKED)
+    2. Executes the action
+    3. Pushes results and queues successors
+    4. Repeats until shutdown
+
+    Thread safety is handled at the DB level, making this a realistic
+    simulation of a distributed task broker.
+    """
+
+    def __init__(
+        self,
+        dag: DAG,
+        action_handlers: dict[str, Callable[..., Any]] | None = None,
+        function_handlers: dict[str, Callable[..., Any]] | None = None,
+        db: InMemoryDB | None = None,
+        num_workers: int = 4,
+    ):
+        """
+        Initialize the threaded DAG runner.
+
+        Args:
+            dag: The DAG to execute
+            action_handlers: Dict of action_name -> handler function for @actions
+            function_handlers: Dict of function_name -> handler function for fn calls
+            db: Optional database instance (uses global singleton if not provided)
+            num_workers: Number of worker threads (simulates machines in a cluster)
+        """
+        # Use global DB singleton if not provided - simulates shared database
+        if db is None:
+            db = get_db()
+
+        super().__init__(dag, action_handlers, function_handlers, db)
+
+        self.num_workers = num_workers
+        self._workers: list[threading.Thread] = []
+        self._shutdown_event = threading.Event()
+        self._active_workers = 0
+        self._active_lock = threading.Lock()
+        self._completion_event = threading.Event()
+        self._error: Exception | None = None
+        self._error_lock = threading.Lock()
+
+        # Execution log for debugging (thread-safe)
+        self._execution_log: list[tuple[str, str, float]] = []
+        self._log_lock = threading.Lock()
+
+    def _log_execution(self, worker_id: str, message: str) -> None:
+        """Thread-safe logging of execution events."""
+        with self._log_lock:
+            self._execution_log.append((worker_id, message, time.time()))
+
+    def get_execution_log(self) -> list[tuple[str, str, float]]:
+        """Get a copy of the execution log."""
+        with self._log_lock:
+            return list(self._execution_log)
+
+    def run(self, function_name: str, inputs: dict[str, Any] | None = None) -> dict[str, Any]:
+        """
+        Run a function using the worker pool.
+
+        Starts workers, seeds initial work, waits for completion.
+        """
+        inputs = inputs or {}
+
+        # Clear previous state
+        self._execution_log.clear()
+        self._shutdown_event.clear()
+        self._completion_event.clear()
+        self._error = None
+
+        # Reset state for this function's nodes
+        self._reset_function_state(function_name)
+
+        # Find the input node for this function
+        input_node = self._find_input_node(function_name)
+        if not input_node:
+            raise ValueError(f"Function '{function_name}' not found in DAG")
+
+        # Initialize input values (DB write)
+        input_data = self._get_node_data(input_node.id)
+        input_data.variable_values = inputs.copy()
+        input_data.completed = True
+        self._set_node_data(input_node.id, input_data)
+
+        # Push input values to successor nodes
+        self._push_outputs(input_node.id, inputs)
+
+        # Execute initial inline nodes (seeds the delegated action queue)
+        self._execute_inline_batch(input_node.id)
+
+        # Start worker threads
+        self._start_workers()
+
+        # Wait for completion or error
+        self._wait_for_completion()
+
+        # Check for errors
+        if self._error:
+            raise self._error
+
+        # Find and return outputs (read from INBOX)
+        output_node = self._find_output_node(function_name)
+        if output_node:
+            return self._read_inbox(output_node.id)
+        return {}
+
+    def _start_workers(self) -> None:
+        """Start the worker threads."""
+        self._workers.clear()
+        for i in range(self.num_workers):
+            worker = threading.Thread(
+                target=self._worker_loop,
+                args=(f"worker-{i}",),
+                daemon=True,
+            )
+            self._workers.append(worker)
+            worker.start()
+
+    def _worker_loop(self, worker_id: str) -> None:
+        """
+        Main loop for a worker thread.
+
+        Continuously polls for work until shutdown signal.
+        """
+        self._log_execution(worker_id, "started")
+
+        while not self._shutdown_event.is_set():
+            # Try to get an action from the queue
+            action = self.queue.pop()
+
+            if action is None:
+                # No work available - check if we should exit
+                if self._check_completion():
+                    break
+                # Brief sleep to avoid busy-waiting
+                time.sleep(0.001)
+                continue
+
+            # Mark ourselves as active
+            with self._active_lock:
+                self._active_workers += 1
+
+            try:
+                self._log_execution(worker_id, f"executing {action.node_id}")
+
+                # Execute the delegated action
+                self._execute_action(action)
+
+                # After delegated action completes, eagerly execute inline successors
+                # This may add more delegated actions to the queue
+                self._execute_inline_batch(action.node_id)
+
+                self._log_execution(worker_id, f"completed {action.node_id}")
+
+            except Exception as e:
+                with self._error_lock:
+                    if self._error is None:
+                        self._error = e
+                self._shutdown_event.set()
+                self._log_execution(worker_id, f"error: {e}")
+
+            finally:
+                with self._active_lock:
+                    self._active_workers -= 1
+
+        self._log_execution(worker_id, "stopped")
+
+    def _check_completion(self) -> bool:
+        """
+        Check if all work is complete.
+
+        Work is complete when:
+        1. The action queue is empty
+        2. No workers are currently processing actions
+        """
+        with self._active_lock:
+            if self.queue.is_empty() and self._active_workers == 0:
+                self._completion_event.set()
+                self._shutdown_event.set()
+                return True
+        return False
+
+    def _wait_for_completion(self, timeout: float = 30.0) -> None:
+        """Wait for all workers to complete."""
+        start_time = time.time()
+
+        while time.time() - start_time < timeout:
+            if self._completion_event.wait(timeout=0.1):
+                break
+
+            # Check for errors
+            with self._error_lock:
+                if self._error:
+                    self._shutdown_event.set()
+                    break
+
+        # Signal shutdown and wait for workers
+        self._shutdown_event.set()
+        for worker in self._workers:
+            worker.join(timeout=1.0)
+
+    def print_execution_log(self) -> None:
+        """Print the execution log for debugging."""
+        log = self.get_execution_log()
+        if not log:
+            print("No execution log entries")
+            return
+
+        start_time = log[0][2]
+        for worker_id, message, timestamp in log:
+            elapsed = timestamp - start_time
+            print(f"[{elapsed:.4f}s] {worker_id}: {message}")

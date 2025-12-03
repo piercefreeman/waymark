@@ -2,6 +2,8 @@
 
 import pytest
 
+import time
+
 from rappel import (
     parse,
     convert_to_dag,
@@ -11,6 +13,7 @@ from rappel import (
     RunnableActionData,
     ActionQueue,
     DAGRunner,
+    ThreadedDAGRunner,
     InMemoryDB,
 )
 
@@ -412,3 +415,157 @@ class TestActionTypes:
         """Test ActionType enum values."""
         assert ActionType.INLINE.value
         assert ActionType.DELEGATED.value
+
+
+class TestThreadedDAGRunner:
+    """Tests for multi-threaded DAG execution."""
+
+    def test_threaded_simple_function(self):
+        """Test running a simple function with threads."""
+        source = """fn double(input: [x], output: [result]):
+    result = x * 2
+    return result"""
+
+        program = parse(source)
+        dag = convert_to_dag(program)
+        db = InMemoryDB()
+        runner = ThreadedDAGRunner(dag, db=db, num_workers=2)
+
+        outputs = runner.run("double", {"x": 5})
+        assert outputs.get("result") == 10
+
+    def test_threaded_with_action_handler(self):
+        """Test threaded runner with @action."""
+        source = """fn fetch(input: [url], output: [data]):
+    data = @get_data(url=url)
+    return data"""
+
+        program = parse(source)
+        dag = convert_to_dag(program)
+        db = InMemoryDB()
+
+        def mock_get_data(url):
+            return {"fetched": url}
+
+        runner = ThreadedDAGRunner(
+            dag,
+            action_handlers={"get_data": mock_get_data},
+            db=db,
+            num_workers=2,
+        )
+
+        outputs = runner.run("fetch", {"url": "http://example.com"})
+        assert outputs.get("data") == {"fetched": "http://example.com"}
+
+    def test_threaded_parallel_actions(self):
+        """Test that multiple actions run in parallel with threads."""
+        source = """fn process(input: [], output: [results]):
+    items = @get_items()
+    processed = spread items:item -> @process_item(id=item)
+    results = processed
+    return results"""
+
+        program = parse(source)
+        dag = convert_to_dag(program)
+        db = InMemoryDB()
+
+        execution_times = []
+
+        def mock_get_items():
+            return [1, 2, 3, 4]
+
+        def mock_process_item(id):
+            start = time.time()
+            time.sleep(0.02)  # Simulate work
+            execution_times.append((id, time.time() - start))
+            return {"id": id, "processed": True}
+
+        runner = ThreadedDAGRunner(
+            dag,
+            action_handlers={
+                "get_items": mock_get_items,
+                "process_item": mock_process_item,
+            },
+            db=db,
+            num_workers=4,
+        )
+
+        start = time.time()
+        outputs = runner.run("process", {})
+        elapsed = time.time() - start
+
+        # Verify results
+        results = outputs.get("results")
+        assert len(results) == 4
+        assert all(r["processed"] for r in results)
+
+        # With 4 workers and 4 items taking 0.02s each,
+        # parallel execution should be faster than sequential (0.08s)
+        # Allow some overhead, but should be under 0.06s
+        assert elapsed < 0.08, f"Expected parallel execution, got {elapsed:.3f}s"
+
+    def test_threaded_execution_log(self):
+        """Test that execution log tracks worker activity."""
+        source = """fn test(input: [], output: [x]):
+    x = @action1()
+    return x"""
+
+        program = parse(source)
+        dag = convert_to_dag(program)
+        db = InMemoryDB()
+
+        def mock_action1():
+            return 42
+
+        runner = ThreadedDAGRunner(
+            dag,
+            action_handlers={"action1": mock_action1},
+            db=db,
+            num_workers=2,
+        )
+
+        runner.run("test", {})
+
+        log = runner.get_execution_log()
+        assert len(log) > 0
+
+        # Check that log contains worker started/stopped messages
+        messages = [entry[1] for entry in log]
+        assert any("started" in msg for msg in messages)
+        assert any("stopped" in msg for msg in messages)
+
+    def test_threaded_correct_result_ordering(self):
+        """Test that spread results maintain correct order."""
+        source = """fn ordered(input: [], output: [results]):
+    items = @get_sequence()
+    doubled = spread items:x -> @double(n=x)
+    results = doubled
+    return results"""
+
+        program = parse(source)
+        dag = convert_to_dag(program)
+        db = InMemoryDB()
+
+        def mock_get_sequence():
+            return [10, 20, 30, 40, 50]
+
+        def mock_double(n):
+            # Add varying delays to mix up completion order
+            time.sleep(0.01 * (5 - n // 10))
+            return n * 2
+
+        runner = ThreadedDAGRunner(
+            dag,
+            action_handlers={
+                "get_sequence": mock_get_sequence,
+                "double": mock_double,
+            },
+            db=db,
+            num_workers=4,
+        )
+
+        outputs = runner.run("ordered", {})
+        results = outputs.get("results")
+
+        # Results should be in original order despite varying completion times
+        assert results == [20, 40, 60, 80, 100]

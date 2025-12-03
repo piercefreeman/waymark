@@ -83,6 +83,7 @@ from .runner import (
     RunnableActionData,
     ActionQueue,
     DAGRunner,
+    ThreadedDAGRunner,
 )
 from .db import (
     DBStats,
@@ -161,6 +162,7 @@ __all__ = [
     "RunnableActionData",
     "ActionQueue",
     "DAGRunner",
+    "ThreadedDAGRunner",
     # Database
     "DBStats",
     "Table",
