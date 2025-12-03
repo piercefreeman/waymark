@@ -1,22 +1,21 @@
 """
-Simple in-memory database abstraction for the DAG runner.
+SQLite in-memory database for the DAG runner.
 
-This simulates what would be a real database backend, making it easy to
-visualize the difference between inline execution (no DB roundtrip) vs
-delegated execution (queue writes).
+Uses SQLite with :memory: mode for a fresh database on each instantiation.
+This provides real SQL semantics while keeping everything in-memory.
 
 Tracks stats like read/write counts to show optimization benefits.
 
-Thread-safe: Uses locks to simulate database-level locking semantics
-like SELECT ... FOR UPDATE SKIP LOCKED.
+Thread-safe: Uses SQLite's serialized mode with a connection-level lock
+to ensure safe concurrent access from multiple workers.
 """
 
 from __future__ import annotations
 
+import json
+import sqlite3
 import threading
-from dataclasses import dataclass, field
 from typing import Any, Generic, TypeVar
-from copy import deepcopy
 
 T = TypeVar("T")
 
@@ -70,81 +69,93 @@ class DBStats:
 
 class Table(Generic[T]):
     """
-    A simple in-memory table with ORM-like operations.
+    A SQL-backed table with ORM-like operations.
 
-    Each row is stored by a primary key (string ID).
-    Maintains insertion order for queue-like operations.
-    Thread-safe with row-level locking.
+    Each row is stored by a primary key (string ID) with JSON-serialized data.
+    Uses ROWID for insertion order (FIFO queue operations).
+    Thread-safe via the parent database's connection lock.
     """
 
     def __init__(self, name: str, db: InMemoryDB):
         self.name = name
         self._db = db
-        self._rows: dict[str, T] = {}
-        self._insertion_order: list[str] = []  # Track insertion order for FIFO
-        self._lock = threading.RLock()  # Reentrant lock for thread safety
+        # Create the table - use implicit rowid for insertion order
+        self._db._execute(
+            f"""
+            CREATE TABLE IF NOT EXISTS {self.name} (
+                id TEXT PRIMARY KEY,
+                data TEXT NOT NULL
+            )
+            """
+        )
 
     def insert(self, id: str, row: T) -> None:
         """Insert a new row."""
-        with self._lock:
-            self._rows[id] = deepcopy(row)
-            self._insertion_order.append(id)
-            self._db._stats.increment_writes()
+        data_json = json.dumps(row)
+        self._db._execute(
+            f"INSERT INTO {self.name} (id, data) VALUES (?, ?)",
+            (id, data_json),
+        )
+        self._db._stats.increment_writes()
 
     def get(self, id: str) -> T | None:
         """Get a row by ID."""
-        with self._lock:
-            self._db._stats.increment_reads()
-            row = self._rows.get(id)
-            return deepcopy(row) if row else None
+        self._db._stats.increment_reads()
+        result = self._db._execute(
+            f"SELECT data FROM {self.name} WHERE id = ?",
+            (id,),
+        ).fetchone()
+        if result is None:
+            return None
+        return json.loads(result[0])
 
     def update(self, id: str, row: T) -> None:
         """Update an existing row."""
-        with self._lock:
-            if id not in self._rows:
-                raise KeyError(f"Row {id} not found in table {self.name}")
-            self._rows[id] = deepcopy(row)
-            self._db._stats.increment_writes()
+        data_json = json.dumps(row)
+        cursor = self._db._execute(
+            f"UPDATE {self.name} SET data = ? WHERE id = ?",
+            (data_json, id),
+        )
+        if cursor.rowcount == 0:
+            raise KeyError(f"Row {id} not found in table {self.name}")
+        self._db._stats.increment_writes()
 
     def upsert(self, id: str, row: T) -> None:
         """Insert or update a row."""
-        with self._lock:
-            is_new = id not in self._rows
-            self._rows[id] = deepcopy(row)
-            if is_new:
-                self._insertion_order.append(id)
-            self._db._stats.increment_writes()
+        data_json = json.dumps(row)
+        self._db._execute(
+            f"""
+            INSERT INTO {self.name} (id, data) VALUES (?, ?)
+            ON CONFLICT(id) DO UPDATE SET data = excluded.data
+            """,
+            (id, data_json),
+        )
+        self._db._stats.increment_writes()
 
     def delete(self, id: str) -> bool:
         """Delete a row. Returns True if it existed."""
-        with self._lock:
-            if id in self._rows:
-                del self._rows[id]
-                if id in self._insertion_order:
-                    self._insertion_order.remove(id)
-                self._db._stats.increment_deletes()
-                return True
-            return False
+        cursor = self._db._execute(
+            f"DELETE FROM {self.name} WHERE id = ?",
+            (id,),
+        )
+        if cursor.rowcount > 0:
+            self._db._stats.increment_deletes()
+            return True
+        return False
 
     def pop_first(self) -> tuple[str, T] | None:
         """
-        Pop the first row (FIFO order) - simulates SELECT ... LIMIT 1 FOR UPDATE SKIP LOCKED.
+        Get the first row (FIFO order) without deleting.
 
         Returns (id, row) tuple or None if empty.
-        This is a read + delete in one atomic operation.
         """
-        with self._lock:
-            if not self._insertion_order:
-                return None
-
-            self._db._stats.increment_queries()  # The SELECT query
-            id = self._insertion_order[0]
-            row = self._rows.get(id)
-            if row is None:
-                return None
-
-            # Return copy, don't delete yet (caller decides)
-            return (id, deepcopy(row))
+        self._db._stats.increment_queries()
+        result = self._db._execute(
+            f"SELECT id, data FROM {self.name} ORDER BY rowid LIMIT 1"
+        ).fetchone()
+        if result is None:
+            return None
+        return (result[0], json.loads(result[1]))
 
     def pop_first_and_delete(self) -> tuple[str, T] | None:
         """
@@ -153,40 +164,38 @@ class Table(Generic[T]):
         Simulates: SELECT ... FOR UPDATE SKIP LOCKED + DELETE in one transaction.
         This is the key operation for distributed work queues.
         """
-        with self._lock:
-            if not self._insertion_order:
-                return None
+        self._db._stats.increment_queries()
+        # Get the first row
+        result = self._db._execute(
+            f"SELECT id, data FROM {self.name} ORDER BY rowid LIMIT 1"
+        ).fetchone()
+        if result is None:
+            return None
 
-            self._db._stats.increment_queries()
-            id = self._insertion_order[0]
-            row = self._rows.get(id)
-            if row is None:
-                return None
+        row_id, data = result[0], json.loads(result[1])
 
-            # Atomically remove
-            del self._rows[id]
-            self._insertion_order.remove(id)
-            self._db._stats.increment_deletes()
+        # Delete it
+        self._db._execute(
+            f"DELETE FROM {self.name} WHERE id = ?",
+            (row_id,),
+        )
+        self._db._stats.increment_deletes()
 
-            return (id, deepcopy(row))
+        return (row_id, data)
 
     def peek_first(self) -> tuple[str, T] | None:
         """
         Peek at the first row without removing.
 
-        Simulates: SELECT * FROM table ORDER BY created_at LIMIT 1
+        Simulates: SELECT * FROM table ORDER BY rowid LIMIT 1
         """
-        with self._lock:
-            if not self._insertion_order:
-                return None
-
-            self._db._stats.increment_queries()
-            id = self._insertion_order[0]
-            row = self._rows.get(id)
-            if row is None:
-                return None
-
-            return (id, deepcopy(row))
+        self._db._stats.increment_queries()
+        result = self._db._execute(
+            f"SELECT id, data FROM {self.name} ORDER BY rowid LIMIT 1"
+        ).fetchone()
+        if result is None:
+            return None
+        return (result[0], json.loads(result[1]))
 
     def get_many(self, ids: list[str]) -> dict[str, T]:
         """
@@ -195,52 +204,74 @@ class Table(Generic[T]):
         This is a single "query" even though it returns multiple rows.
         Simulates: SELECT * FROM table WHERE id IN (...)
         """
-        with self._lock:
-            self._db._stats.increment_queries()
-            result = {}
-            for id in ids:
-                if id in self._rows:
-                    result[id] = deepcopy(self._rows[id])
-            return result
+        if not ids:
+            return {}
+        self._db._stats.increment_queries()
+        placeholders = ",".join("?" * len(ids))
+        results = self._db._execute(
+            f"SELECT id, data FROM {self.name} WHERE id IN ({placeholders})",
+            tuple(ids),
+        ).fetchall()
+        return {row[0]: json.loads(row[1]) for row in results}
 
     def all(self) -> dict[str, T]:
         """Get all rows."""
-        with self._lock:
-            self._db._stats.increment_queries()
-            return deepcopy(self._rows)
+        self._db._stats.increment_queries()
+        results = self._db._execute(
+            f"SELECT id, data FROM {self.name}"
+        ).fetchall()
+        return {row[0]: json.loads(row[1]) for row in results}
 
     def count(self) -> int:
         """Count rows (doesn't count as a read)."""
-        with self._lock:
-            return len(self._rows)
+        result = self._db._execute(
+            f"SELECT COUNT(*) FROM {self.name}"
+        ).fetchone()
+        return result[0] if result else 0
 
     def clear(self) -> None:
         """Clear all rows."""
-        with self._lock:
-            count = len(self._rows)
-            self._rows.clear()
-            self._insertion_order.clear()
+        # Get count first for stats
+        count = self.count()
+        self._db._execute(f"DELETE FROM {self.name}")
+        if count > 0:
             self._db._stats.increment_deletes(count)
 
     def exists(self, id: str) -> bool:
         """Check if a row exists (counts as a read)."""
-        with self._lock:
-            self._db._stats.increment_reads()
-            return id in self._rows
+        self._db._stats.increment_reads()
+        result = self._db._execute(
+            f"SELECT 1 FROM {self.name} WHERE id = ? LIMIT 1",
+            (id,),
+        ).fetchone()
+        return result is not None
 
 
 class InMemoryDB:
     """
-    Simple in-memory database with multiple tables.
+    SQLite in-memory database with multiple tables.
 
+    Each instance creates a fresh :memory: database.
     Tracks all operations for visibility into read/write patterns.
     Thread-safe for concurrent access from multiple workers.
     """
 
     def __init__(self):
+        # Create in-memory SQLite database
+        # check_same_thread=False allows multi-threaded access
+        self._conn = sqlite3.connect(
+            ":memory:",
+            check_same_thread=False,
+            isolation_level=None,  # Autocommit mode
+        )
         self._tables: dict[str, Table] = {}
         self._stats = DBStats()
         self._lock = threading.RLock()
+
+    def _execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
+        """Execute SQL with thread-safe locking."""
+        with self._lock:
+            return self._conn.execute(sql, params)
 
     def create_table(self, name: str) -> Table:
         """Create a new table (thread-safe)."""
@@ -269,6 +300,7 @@ class InMemoryDB:
         """Drop a table (thread-safe)."""
         with self._lock:
             if name in self._tables:
+                self._execute(f"DROP TABLE IF EXISTS {name}")
                 del self._tables[name]
 
     @property
@@ -284,6 +316,11 @@ class InMemoryDB:
         """Print current stats."""
         prefix = f"[{label}] " if label else ""
         print(f"{prefix}DB Stats: {self._stats}")
+
+    def close(self) -> None:
+        """Close the database connection."""
+        with self._lock:
+            self._conn.close()
 
 
 # Singleton-style global database for easy access

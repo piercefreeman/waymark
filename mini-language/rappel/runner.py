@@ -301,7 +301,7 @@ class DAGRunner:
         """
         # Generate unique ID for this inbox entry (include target for fan-out cases)
         entry_id = f"{target_node_id}:{source_node_id}:{variable}:{spread_index or 0}"
-        self._node_inputs_table.insert(entry_id, {
+        self._node_inputs_table.upsert(entry_id, {
             "target_node_id": target_node_id,
             "variable": variable,
             "value": value,
