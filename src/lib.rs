@@ -19,6 +19,7 @@
 //! - [`db`]: PostgreSQL database layer with distributed queue (SKIP LOCKED)
 //! - [`config`]: Environment-based configuration
 
+pub mod ast_printer;
 pub mod config;
 pub mod dag;
 pub mod db;
@@ -51,3 +52,6 @@ pub use parser::{ast, parse, ParseError, Parser};
 
 // DAG
 pub use dag::{convert_to_dag, DAG, DAGConverter, DAGEdge, DAGNode, EdgeType};
+
+// AST Printer
+pub use ast_printer::{print_expr, print_program, print_statement, AstPrinter};

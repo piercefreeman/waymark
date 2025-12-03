@@ -1142,6 +1142,12 @@ mod tests {
     async fn test_skip_locked_concurrent_dispatch() {
         let db = test_db().await;
 
+        // Clean up any leftover actions from previous tests
+        sqlx::query("DELETE FROM action_queue")
+            .execute(db.pool())
+            .await
+            .expect("failed to clean up actions");
+
         // Setup: create version and instance with multiple actions
         let version_id = db
             .upsert_workflow_version("concurrent_test", "hash_concurrent", b"proto", false)
