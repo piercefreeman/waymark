@@ -51,10 +51,10 @@ fn parse_result(payload: &[u8]) -> Result<Option<String>> {
         .map_err(|err| anyhow::anyhow!("decode workflow arguments: {err}"))?;
 
     for argument in arguments.arguments {
-        if argument.key == "result" {
-            if let Some(value) = argument.value.as_ref() {
-                return extract_string_from_value(value);
-            }
+        if argument.key == "result"
+            && let Some(value) = argument.value.as_ref()
+        {
+            return extract_string_from_value(value);
         }
     }
     Err(anyhow::anyhow!("missing result in payload"))

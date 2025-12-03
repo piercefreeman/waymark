@@ -117,7 +117,7 @@ impl proto::workflow_service_server::WorkflowService for TestWorkflowService {
         })?;
 
         // Simple polling for completion (for testing)
-        let interval = Duration::from_secs_f64(inner.poll_interval_secs.max(0.1).min(30.0));
+        let interval = Duration::from_secs_f64(inner.poll_interval_secs.clamp(0.1, 30.0));
         let timeout_duration = Duration::from_secs(300); // 5 minute timeout
         let start = std::time::Instant::now();
 
@@ -398,10 +398,10 @@ fn count_actions_in_block(block: &rappel::ir_ast::Block) -> usize {
             Some(Kind::ActionCall(_)) => count += 1,
             Some(Kind::Conditional(cond)) => {
                 // Count actions in the if branch
-                if let Some(if_branch) = &cond.if_branch {
-                    if let Some(body) = &if_branch.body {
-                        count += count_actions_in_block(body);
-                    }
+                if let Some(if_branch) = &cond.if_branch
+                    && let Some(body) = &if_branch.body
+                {
+                    count += count_actions_in_block(body);
                 }
                 // Count actions in elif branches
                 for elif in &cond.elif_branches {
@@ -410,10 +410,10 @@ fn count_actions_in_block(block: &rappel::ir_ast::Block) -> usize {
                     }
                 }
                 // Count actions in else branch
-                if let Some(else_branch) = &cond.else_branch {
-                    if let Some(body) = &else_branch.body {
-                        count += count_actions_in_block(body);
-                    }
+                if let Some(else_branch) = &cond.else_branch
+                    && let Some(body) = &else_branch.body
+                {
+                    count += count_actions_in_block(body);
                 }
             }
             Some(Kind::ForLoop(for_loop)) => {
@@ -451,48 +451,48 @@ async fn enqueue_initial_actions(
     use rappel::ir_ast::statement::Kind;
 
     // Find action calls in the first function
-    if let Some(func) = program.functions.first() {
-        if let Some(body) = &func.body {
-            for (idx, stmt) in body.statements.iter().enumerate() {
-                if let Some(Kind::ActionCall(action_call)) = &stmt.kind {
-                    // Build kwargs JSON
-                    let mut kwargs = serde_json::Map::new();
-                    for kwarg in &action_call.kwargs {
-                        if let Some(value) = &kwarg.value {
-                            kwargs.insert(kwarg.name.clone(), expr_to_json(value));
-                        }
+    if let Some(func) = program.functions.first()
+        && let Some(body) = &func.body
+    {
+        for (idx, stmt) in body.statements.iter().enumerate() {
+            if let Some(Kind::ActionCall(action_call)) = &stmt.kind {
+                // Build kwargs JSON
+                let mut kwargs = serde_json::Map::new();
+                for kwarg in &action_call.kwargs {
+                    if let Some(value) = &kwarg.value {
+                        kwargs.insert(kwarg.name.clone(), expr_to_json(value));
                     }
-
-                    let dispatch_payload = serde_json::to_vec(&serde_json::Value::Object(kwargs))?;
-
-                    // Use module_name from action_call if available, otherwise fall back to config
-                    let action_module = if action_call.module_name.is_none()
-                        || action_call
-                            .module_name
-                            .as_ref()
-                            .map(|s| s.is_empty())
-                            .unwrap_or(true)
-                    {
-                        module_name.to_string()
-                    } else {
-                        action_call.module_name.clone().unwrap_or_default()
-                    };
-
-                    let action = NewAction {
-                        instance_id,
-                        module_name: action_module,
-                        action_name: action_call.action_name.clone(),
-                        dispatch_payload,
-                        timeout_seconds: 300,
-                        max_retries: 3,
-                        backoff_kind: BackoffKind::Exponential,
-                        backoff_base_delay_ms: 1000,
-                        node_id: Some(format!("node_{}", idx)),
-                    };
-
-                    db.enqueue_action(action).await?;
-                    info!(action_name = %action_call.action_name, "enqueued initial action");
                 }
+
+                let dispatch_payload = serde_json::to_vec(&serde_json::Value::Object(kwargs))?;
+
+                // Use module_name from action_call if available, otherwise fall back to config
+                let action_module = if action_call.module_name.is_none()
+                    || action_call
+                        .module_name
+                        .as_ref()
+                        .map(|s| s.is_empty())
+                        .unwrap_or(true)
+                {
+                    module_name.to_string()
+                } else {
+                    action_call.module_name.clone().unwrap_or_default()
+                };
+
+                let action = NewAction {
+                    instance_id,
+                    module_name: action_module,
+                    action_name: action_call.action_name.clone(),
+                    dispatch_payload,
+                    timeout_seconds: 300,
+                    max_retries: 3,
+                    backoff_kind: BackoffKind::Exponential,
+                    backoff_base_delay_ms: 1000,
+                    node_id: Some(format!("node_{}", idx)),
+                };
+
+                db.enqueue_action(action).await?;
+                info!(action_name = %action_call.action_name, "enqueued initial action");
             }
         }
     }
