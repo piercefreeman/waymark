@@ -26,7 +26,13 @@ async def handle_error(message: str) -> str:
 
 @workflow
 class ExceptionWorkflow(Workflow):
-    """Workflow with try/except handling."""
+    """Workflow with try/except handling.
+
+    The IR builder will automatically transform this:
+    - Hoist get_initial_value() out of the try block
+    - Keep only risky_operation() in the try block
+    - Move the return after the try/except
+    """
 
     async def run(self) -> str:
         try:

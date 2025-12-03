@@ -3,6 +3,17 @@ IR Builder - Converts Python workflow AST to Rappel IR (ast.proto).
 
 This module parses Python workflow classes and produces the IR representation
 that can be sent to the Rust runtime for execution.
+
+The IR builder performs deep transformations to convert Python patterns into
+valid Rappel IR structures. Each control flow body (try, for, if branches)
+should have at most ONE action/function call. When bodies have multiple
+action calls, they are wrapped into synthetic functions.
+
+Transformations:
+1. **Try body wrapping**: Wraps multi-action try bodies into synthetic functions
+2. **For loop body wrapping**: Wraps multi-action for bodies into synthetic functions
+3. **If branch wrapping**: Wraps multi-action if/elif/else branches into synthetic functions
+4. **Exception handler wrapping**: Wraps multi-action handlers into synthetic functions
 """
 
 import ast
@@ -24,6 +35,25 @@ class ActionDefinition:
     action_name: str
     module_name: Optional[str]
     signature: inspect.Signature
+
+
+@dataclass
+class TransformContext:
+    """Context for IR transformations."""
+
+    # Counter for generating unique function names
+    implicit_fn_counter: int = 0
+    # Implicit functions generated during transformation
+    implicit_functions: List[ir.FunctionDef] = None  # type: ignore
+
+    def __post_init__(self) -> None:
+        if self.implicit_functions is None:
+            self.implicit_functions = []
+
+    def next_implicit_fn_name(self, prefix: str = "implicit") -> str:
+        """Generate a unique implicit function name."""
+        self.implicit_fn_counter += 1
+        return f"__{prefix}_{self.implicit_fn_counter}__"
 
 
 def build_workflow_ir(workflow_cls: type["Workflow"]) -> ir.Program:
@@ -52,12 +82,19 @@ def build_workflow_ir(workflow_cls: type["Workflow"]) -> ir.Program:
     # Discover actions in the module
     action_defs = _discover_action_names(module)
 
-    # Build the IR
-    builder = IRBuilder(action_defs)
+    # Build the IR with transformation context
+    ctx = TransformContext()
+    builder = IRBuilder(action_defs, ctx)
     builder.visit(tree)
 
-    # Create the Program with a single function definition
+    # Create the Program with the main function and any implicit functions
     program = ir.Program()
+
+    # Add implicit functions first (they may be called by the main function)
+    for implicit_fn in ctx.implicit_functions:
+        program.functions.append(implicit_fn)
+
+    # Add the main function
     if builder.function_def:
         program.functions.append(builder.function_def)
 
@@ -82,10 +119,11 @@ def _discover_action_names(module: Any) -> Dict[str, ActionDefinition]:
 
 
 class IRBuilder(ast.NodeVisitor):
-    """Builds IR from Python AST."""
+    """Builds IR from Python AST with deep transformations."""
 
-    def __init__(self, action_defs: Dict[str, ActionDefinition]):
+    def __init__(self, action_defs: Dict[str, ActionDefinition], ctx: TransformContext):
         self._action_defs = action_defs
+        self._ctx = ctx
         self.function_def: Optional[ir.FunctionDef] = None
         self._statements: List[ir.Statement] = []
 
@@ -103,12 +141,11 @@ class IRBuilder(ast.NodeVisitor):
             span=_make_span(node),
         )
 
-        # Visit the body
+        # Visit the body - _visit_statement now returns a list
         self._statements = []
         for stmt in node.body:
-            ir_stmt = self._visit_statement(stmt)
-            if ir_stmt:
-                self._statements.append(ir_stmt)
+            ir_stmts = self._visit_statement(stmt)
+            self._statements.extend(ir_stmts)
 
         # Set the body
         self.function_def.body.CopyFrom(ir.Block(statements=self._statements))
@@ -128,31 +165,38 @@ class IRBuilder(ast.NodeVisitor):
 
         self._statements = []
         for stmt in node.body:
-            ir_stmt = self._visit_statement(stmt)
-            if ir_stmt:
-                self._statements.append(ir_stmt)
+            ir_stmts = self._visit_statement(stmt)
+            self._statements.extend(ir_stmts)
 
         self.function_def.body.CopyFrom(ir.Block(statements=self._statements))
 
-    def _visit_statement(self, node: ast.stmt) -> Optional[ir.Statement]:
-        """Convert a Python statement to IR Statement."""
+    def _visit_statement(self, node: ast.stmt) -> List[ir.Statement]:
+        """Convert a Python statement to IR Statement(s).
+
+        Returns a list because some transformations (like try block hoisting)
+        may expand a single Python statement into multiple IR statements.
+        """
         if isinstance(node, ast.Assign):
-            return self._visit_assign(node)
+            result = self._visit_assign(node)
+            return [result] if result else []
         elif isinstance(node, ast.Expr):
-            return self._visit_expr_stmt(node)
+            result = self._visit_expr_stmt(node)
+            return [result] if result else []
         elif isinstance(node, ast.For):
             return self._visit_for(node)
         elif isinstance(node, ast.If):
-            return self._visit_if(node)
+            result = self._visit_if(node)
+            return [result] if result else []
         elif isinstance(node, ast.Try):
             return self._visit_try(node)
         elif isinstance(node, ast.Return):
-            return self._visit_return(node)
+            result = self._visit_return(node)
+            return [result] if result else []
         elif isinstance(node, ast.AugAssign):
-            # Convert augmented assignment to regular assignment with binary op
-            return self._visit_aug_assign(node)
+            result = self._visit_aug_assign(node)
+            return [result] if result else []
 
-        return None
+        return []
 
     def _visit_assign(self, node: ast.Assign) -> Optional[ir.Statement]:
         """Convert assignment to IR."""
@@ -204,10 +248,26 @@ class IRBuilder(ast.NodeVisitor):
 
         return None
 
-    def _visit_for(self, node: ast.For) -> Optional[ir.Statement]:
-        """Convert for loop to IR."""
-        stmt = ir.Statement(span=_make_span(node))
+    def _visit_for(self, node: ast.For) -> List[ir.Statement]:
+        """Convert for loop to IR with body wrapping transformation.
 
+        If the for loop body has multiple action/function calls, we wrap them
+        into a synthetic function and replace the body with a single call.
+
+        Python:
+            for item in items:
+                a = await step_one(item)
+                b = await step_two(a)
+
+        Becomes IR equivalent of:
+            fn __for_body_1__(item):
+                a = @step_one(item=item)
+                b = @step_two(a=a)
+                return b
+
+            for item in items:
+                __for_body_1__(item=item)
+        """
         # Get loop variables
         loop_vars: List[str] = []
         if isinstance(node.target, ast.Name):
@@ -220,25 +280,55 @@ class IRBuilder(ast.NodeVisitor):
         # Get iterable
         iterable = _expr_to_ir(node.iter)
         if not iterable:
-            return None
+            return []
 
-        # Build body
+        # Build body statements (recursively transforms nested structures)
         body_stmts: List[ir.Statement] = []
         for body_node in node.body:
-            body_stmt = self._visit_statement(body_node)
-            if body_stmt:
-                body_stmts.append(body_stmt)
+            stmts = self._visit_statement(body_node)
+            body_stmts.extend(stmts)
 
+        # Count calls (action calls + function calls)
+        call_count = self._count_calls(body_stmts)
+
+        # Wrap if multiple calls
+        if call_count > 1:
+            body_stmts = self._wrap_body_as_function(body_stmts, "for_body", node, loop_vars)
+
+        # Create the for loop
+        stmt = ir.Statement(span=_make_span(node))
         for_loop = ir.ForLoop(
             loop_vars=loop_vars,
             iterable=iterable,
             body=ir.Block(statements=body_stmts),
         )
         stmt.for_loop.CopyFrom(for_loop)
-        return stmt
+        return [stmt]
 
     def _visit_if(self, node: ast.If) -> Optional[ir.Statement]:
-        """Convert if statement to IR conditional."""
+        """Convert if statement to IR conditional with branch wrapping.
+
+        If any branch has multiple action calls, we wrap it into a synthetic
+        function to ensure each branch has at most one call.
+
+        Python:
+            if condition:
+                a = await action_a()
+                b = await action_b(a)
+            else:
+                c = await action_c()
+
+        Becomes IR equivalent of:
+            fn __if_then_1__():
+                a = @action_a()
+                b = @action_b(a=a)
+                return b
+
+            if condition:
+                __if_then_1__()
+            else:
+                @action_c()
+        """
         stmt = ir.Statement(span=_make_span(node))
 
         # Build if branch
@@ -248,9 +338,12 @@ class IRBuilder(ast.NodeVisitor):
 
         body_stmts: List[ir.Statement] = []
         for body_node in node.body:
-            body_stmt = self._visit_statement(body_node)
-            if body_stmt:
-                body_stmts.append(body_stmt)
+            stmts = self._visit_statement(body_node)
+            body_stmts.extend(stmts)
+
+        # Wrap if branch body if multiple calls
+        if self._count_calls(body_stmts) > 1:
+            body_stmts = self._wrap_body_as_function(body_stmts, "if_then", node)
 
         if_branch = ir.IfBranch(
             condition=condition,
@@ -270,9 +363,13 @@ class IRBuilder(ast.NodeVisitor):
                 if elif_condition:
                     elif_body: List[ir.Statement] = []
                     for body_node in elif_node.body:
-                        body_stmt = self._visit_statement(body_node)
-                        if body_stmt:
-                            elif_body.append(body_stmt)
+                        stmts = self._visit_statement(body_node)
+                        elif_body.extend(stmts)
+
+                    # Wrap elif body if multiple calls
+                    if self._count_calls(elif_body) > 1:
+                        elif_body = self._wrap_body_as_function(elif_body, "if_elif", elif_node)
+
                     elif_branch = ir.ElifBranch(
                         condition=elif_condition,
                         body=ir.Block(statements=elif_body),
@@ -284,9 +381,13 @@ class IRBuilder(ast.NodeVisitor):
                 # else branch
                 else_body: List[ir.Statement] = []
                 for else_node in current.orelse:
-                    else_stmt = self._visit_statement(else_node)
-                    if else_stmt:
-                        else_body.append(else_stmt)
+                    stmts = self._visit_statement(else_node)
+                    else_body.extend(stmts)
+
+                # Wrap else body if multiple calls
+                if self._count_calls(else_body) > 1:
+                    else_body = self._wrap_body_as_function(else_body, "if_else", current.orelse[0])
+
                 else_branch = ir.ElseBranch(
                     body=ir.Block(statements=else_body),
                     span=_make_span(current.orelse[0]) if current.orelse else None,
@@ -297,20 +398,46 @@ class IRBuilder(ast.NodeVisitor):
         stmt.conditional.CopyFrom(conditional)
         return stmt
 
-    def _visit_try(self, node: ast.Try) -> Optional[ir.Statement]:
-        """Convert try/except to IR."""
-        stmt = ir.Statement(span=_make_span(node))
+    def _visit_try(self, node: ast.Try) -> List[ir.Statement]:
+        """Convert try/except to IR with body wrapping transformation.
 
-        # Build try body
+        If the try body has multiple action calls, we wrap the entire body
+        into a synthetic function, preserving exact semantics.
+
+        Python:
+            try:
+                a = await setup_action()
+                b = await risky_action(a)
+                return f"success:{b}"
+            except SomeError:
+                ...
+
+        Becomes IR equivalent of:
+            fn __try_body_1__():
+                a = @setup_action()
+                b = @risky_action(a=a)
+                return f"success:{b}"
+
+            try:
+                __try_body_1__()
+            except SomeError:
+                ...
+        """
+        # Build try body statements (recursively transforms nested structures)
         try_body: List[ir.Statement] = []
         for body_node in node.body:
-            body_stmt = self._visit_statement(body_node)
-            if body_stmt:
-                try_body.append(body_stmt)
+            stmts = self._visit_statement(body_node)
+            try_body.extend(stmts)
 
-        try_except = ir.TryExcept(try_body=ir.Block(statements=try_body))
+        # Count action calls and function calls (synthetic functions count too)
+        call_count = self._count_calls(try_body)
 
-        # Build handlers
+        # If multiple calls, wrap into synthetic function
+        if call_count > 1:
+            try_body = self._wrap_body_as_function(try_body, "try_body", node)
+
+        # Build exception handlers (with wrapping if needed)
+        handlers: List[ir.ExceptHandler] = []
         for handler in node.handlers:
             exception_types: List[str] = []
             if handler.type:
@@ -321,21 +448,86 @@ class IRBuilder(ast.NodeVisitor):
                         if isinstance(elt, ast.Name):
                             exception_types.append(elt.id)
 
+            # Build handler body (recursively transforms nested structures)
             handler_body: List[ir.Statement] = []
             for handler_node in handler.body:
-                handler_stmt = self._visit_statement(handler_node)
-                if handler_stmt:
-                    handler_body.append(handler_stmt)
+                stmts = self._visit_statement(handler_node)
+                handler_body.extend(stmts)
+
+            # Wrap handler if multiple calls
+            handler_call_count = self._count_calls(handler_body)
+            if handler_call_count > 1:
+                handler_body = self._wrap_body_as_function(handler_body, "except_handler", node)
 
             except_handler = ir.ExceptHandler(
                 exception_types=exception_types,
                 body=ir.Block(statements=handler_body),
                 span=_make_span(handler),
             )
-            try_except.handlers.append(except_handler)
+            handlers.append(except_handler)
 
-        stmt.try_except.CopyFrom(try_except)
-        return stmt
+        # Build the try/except statement
+        try_stmt = ir.Statement(span=_make_span(node))
+        try_except = ir.TryExcept(
+            try_body=ir.Block(statements=try_body),
+            handlers=handlers,
+        )
+        try_stmt.try_except.CopyFrom(try_except)
+
+        return [try_stmt]
+
+    def _count_calls(self, stmts: List[ir.Statement]) -> int:
+        """Count action calls and function calls in statements.
+
+        Both action calls and function calls (including synthetic functions)
+        count toward the limit of one call per control flow body.
+        """
+        count = 0
+        for stmt in stmts:
+            if stmt.HasField("action_call"):
+                count += 1
+            elif stmt.HasField("expr_stmt"):
+                # Check if expression is a function call
+                if stmt.expr_stmt.expr.HasField("function_call"):
+                    count += 1
+        return count
+
+    def _wrap_body_as_function(
+        self,
+        body: List[ir.Statement],
+        prefix: str,
+        node: ast.AST,
+        inputs: Optional[List[str]] = None,
+    ) -> List[ir.Statement]:
+        """Wrap a body with multiple calls into a synthetic function.
+
+        Returns a list containing a single function call statement.
+        """
+        fn_name = self._ctx.next_implicit_fn_name(prefix)
+        fn_inputs = inputs or []
+
+        # Create the synthetic function
+        implicit_fn = ir.FunctionDef(
+            name=fn_name,
+            io=ir.IoDecl(inputs=fn_inputs, outputs=[]),
+            body=ir.Block(statements=body),
+            span=_make_span(node),
+        )
+        self._ctx.implicit_functions.append(implicit_fn)
+
+        # Create a function call statement
+        kwargs = [
+            ir.Kwarg(name=var, value=ir.Expr(variable=ir.Variable(name=var)))
+            for var in fn_inputs
+        ]
+        fn_call_expr = ir.Expr(
+            function_call=ir.FunctionCall(name=fn_name, kwargs=kwargs),
+            span=_make_span(node),
+        )
+        call_stmt = ir.Statement(span=_make_span(node))
+        call_stmt.expr_stmt.CopyFrom(ir.ExprStmt(expr=fn_call_expr))
+
+        return [call_stmt]
 
     def _visit_return(self, node: ast.Return) -> Optional[ir.Statement]:
         """Convert return statement to IR."""
