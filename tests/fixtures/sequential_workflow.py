@@ -19,7 +19,7 @@ async def transform_value(value: int) -> int:
 @action
 async def format_result(value: int) -> str:
     """Format the final result."""
-    return f"result:{value}"
+    return "result:" + str(value)
 
 
 @workflow

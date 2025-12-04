@@ -754,6 +754,7 @@ class TestUnsupportedPatternDetection:
             GatherUnsupportedVariableWorkflow.workflow_ir()
 
         error = exc_info.value
+        assert isinstance(error, UnsupportedPatternError)
         assert "tasks" in error.message, "Error should mention the variable name"
         assert "gather" in error.message.lower(), "Error should mention gather"
         assert "list comprehension" in error.recommendation.lower(), (
@@ -781,6 +782,7 @@ class TestUnsupportedPatternDetection:
             FstringWorkflow.workflow_ir()
 
         error = exc_info.value
+        assert isinstance(error, UnsupportedPatternError)
         assert "F-string" in error.message, "Error should mention f-strings"
         assert "@action" in error.recommendation, "Recommendation should suggest using @action"
 
@@ -808,6 +810,7 @@ class TestUnsupportedPatternDetection:
             WhileWorkflow.workflow_ir()
 
         error = exc_info.value
+        assert isinstance(error, UnsupportedPatternError)
         assert "While" in error.message, "Error should mention while loops"
         assert "for loop" in error.recommendation.lower(), "Recommendation should suggest for loop"
 
@@ -828,6 +831,7 @@ class TestUnsupportedPatternDetection:
             WithWorkflow.workflow_ir()
 
         error = exc_info.value
+        assert isinstance(error, UnsupportedPatternError)
         assert "with" in error.message.lower(), "Error should mention with statements"
         assert "@action" in error.recommendation, "Recommendation should suggest using @action"
 
@@ -841,13 +845,14 @@ class TestUnsupportedPatternDetection:
         @workflow
         class LambdaWorkflow(Workflow):
             async def run(self, x: int) -> int:
-                fn = lambda y: y * 2
+                fn = lambda y: y * 2  # noqa: E731
                 return fn(x)
 
         with pytest.raises(UnsupportedPatternError) as exc_info:
             LambdaWorkflow.workflow_ir()
 
         error = exc_info.value
+        assert isinstance(error, UnsupportedPatternError)
         assert "Lambda" in error.message, "Error should mention lambda"
         assert "@action" in error.recommendation, "Recommendation should suggest using @action"
 
@@ -868,6 +873,7 @@ class TestUnsupportedPatternDetection:
             ListCompWorkflow.workflow_ir()
 
         error = exc_info.value
+        assert isinstance(error, UnsupportedPatternError)
         assert "List comprehension" in error.message, "Error should mention list comprehensions"
         assert "asyncio.gather" in error.recommendation, (
             "Recommendation should mention gather context"
@@ -890,6 +896,7 @@ class TestUnsupportedPatternDetection:
             DeleteWorkflow.workflow_ir()
 
         error = exc_info.value
+        assert isinstance(error, UnsupportedPatternError)
         assert "del" in error.message.lower(), "Error should mention del"
         assert "@action" in error.recommendation, "Recommendation should suggest using @action"
 
@@ -906,5 +913,6 @@ class TestUnsupportedPatternDetection:
             GatherUnsupportedVariableWorkflow.workflow_ir()
 
         error = exc_info.value
+        assert isinstance(error, UnsupportedPatternError)
         assert error.line is not None, "Error should include line number"
         assert error.line > 0, "Line number should be positive"

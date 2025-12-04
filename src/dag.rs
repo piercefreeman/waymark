@@ -67,6 +67,8 @@ pub struct DAGNode {
     pub module_name: Option<String>,
     /// Keyword arguments for action calls (name -> literal value or variable reference like "$var")
     pub kwargs: Option<HashMap<String, String>>,
+    /// Target variable name where the action result should be stored (for action_call nodes)
+    pub target: Option<String>,
 }
 
 impl DAGNode {
@@ -90,7 +92,14 @@ impl DAGNode {
             io_vars: None,
             action_name: None,
             module_name: None,
+            target: None,
         }
+    }
+
+    /// Builder method to set target variable
+    pub fn with_target(mut self, target: &str) -> Self {
+        self.target = Some(target.to_string());
+        self
     }
 
     /// Builder method to set function name
@@ -438,7 +447,11 @@ impl DAGConverter {
 
         match kind {
             ast::statement::Kind::Assignment(assign) => self.convert_assignment(assign),
-            ast::statement::Kind::ActionCall(action) => self.convert_action_call(action, None),
+            ast::statement::Kind::ActionCall(action) => {
+                // Use target from protobuf ActionCall message if present
+                let target = action.target.as_deref();
+                self.convert_action_call(action, target)
+            }
             ast::statement::Kind::SpreadAction(spread) => self.convert_spread_action(spread),
             ast::statement::Kind::ParallelBlock(parallel) => self.convert_parallel_block(parallel),
             ast::statement::Kind::ForLoop(for_loop) => self.convert_for_loop(for_loop),
@@ -578,6 +591,12 @@ impl DAGConverter {
         let mut node = DAGNode::new(node_id.clone(), "action_call".to_string(), label)
             .with_action(&action.action_name, action.module_name.as_deref())
             .with_kwargs(kwargs);
+        if let Some(t) = target {
+            tracing::debug!(node_id = %node_id, target = %t, "setting action target");
+            node = node.with_target(t);
+        } else {
+            tracing::debug!(node_id = %node_id, "no target for action");
+        }
         if let Some(ref fn_name) = self.current_function {
             node = node.with_function_name(fn_name);
         }

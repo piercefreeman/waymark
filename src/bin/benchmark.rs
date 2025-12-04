@@ -21,7 +21,7 @@ use tempfile::TempDir;
 use tokio::{net::TcpListener, process::Command, sync::oneshot, task::JoinHandle};
 use tokio_stream::wrappers::TcpListenerStream;
 use tonic::transport::Server;
-use tracing::{Level, info};
+use tracing::{Level, error, info};
 
 use rappel::{
     ActionDispatchPayload, Database, PythonWorkerConfig, PythonWorkerPool, RoundTripMetrics,
@@ -41,13 +41,13 @@ struct Args {
     #[arg(long, default_value = "false")]
     json: bool,
 
-    /// Number of parallel hash chains (fan-out width)
+    /// Number of parallel hash computations (indices 0..count)
     #[arg(long, default_value = "16")]
-    width: u32,
+    count: u32,
 
     /// Hash iterations per action (CPU intensity)
-    #[arg(long, default_value = "1000")]
-    hash_iterations: u32,
+    #[arg(long, default_value = "100")]
+    iterations: u32,
 
     /// Number of Python workers
     #[arg(long, default_value = "4")]
@@ -171,11 +171,7 @@ async fn start_grpc_server(
 // Python Environment
 // ============================================================================
 
-async fn setup_python_env(
-    grpc_addr: SocketAddr,
-    width: u32,
-    hash_iterations: u32,
-) -> Result<TempDir> {
+async fn setup_python_env(grpc_addr: SocketAddr, count: u32, iterations: u32) -> Result<TempDir> {
     let env_dir = TempDir::new().context("create python env dir")?;
 
     // Write workflow module
@@ -185,6 +181,7 @@ async fn setup_python_env(
     )?;
 
     // Write registration script
+    // indices is a list of integers [0, 1, 2, ..., count-1]
     let register_script = format!(
         r#"
 import asyncio
@@ -195,7 +192,8 @@ from benchmark_workflow import BenchmarkFanOutWorkflow
 async def main():
     os.environ.pop("PYTEST_CURRENT_TEST", None)
     wf = BenchmarkFanOutWorkflow()
-    result = await wf.run(width={width}, hash_iterations={hash_iterations})
+    indices = list(range({count}))
+    result = await wf.run(indices=indices, iterations={iterations})
     print(f"Registration result: {{result}}")
 
 asyncio.run(main())
@@ -289,31 +287,59 @@ async fn run_shell_with_env(
 }
 
 // ============================================================================
-// Action Dispatch
+// Action Dispatch with DAG Runner Integration
 // ============================================================================
 
-async fn dispatch_all_actions(
+/// Run the DAG runner and collect metrics from completed actions.
+///
+/// Unlike the simple dispatch loop, this uses the full DAGRunner which:
+/// 1. Fetches actions from the queue
+/// 2. Dispatches to workers
+/// 3. On completion, traverses the DAG to find and enqueue next actions
+async fn run_with_dag_runner(
+    runner: &rappel::DAGRunner,
     database: &Arc<Database>,
     pool: &Arc<PythonWorkerPool>,
+    timeout: Duration,
 ) -> Result<Vec<RoundTripMetrics>> {
     let mut completed = Vec::new();
-    let mut max_iterations = 500;
+    let start = std::time::Instant::now();
+
+    // Run the dispatch loop
     let mut idle_cycles = 0usize;
+    let max_idle_cycles = 20; // Wait longer since DAG progression takes time
 
-    while max_iterations > 0 {
-        max_iterations -= 1;
+    loop {
+        // Check timeout
+        if start.elapsed() > timeout {
+            info!("Benchmark timeout reached");
+            break;
+        }
 
+        // Dispatch actions
         let actions = database.dispatch_actions(64).await?;
+
         if actions.is_empty() {
             idle_cycles = idle_cycles.saturating_add(1);
-            if idle_cycles >= 10 && !completed.is_empty() {
-                break;
+            if idle_cycles >= max_idle_cycles && !completed.is_empty() {
+                // Check if there are any pending actions in the queue
+                let pending: i64 = sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM action_queue WHERE status IN ('pending', 'running')",
+                )
+                .fetch_one(database.pool())
+                .await?;
+
+                if pending == 0 {
+                    info!("No more pending actions, benchmark complete");
+                    break;
+                }
             }
             tokio::time::sleep(Duration::from_millis(50)).await;
             continue;
         }
 
         idle_cycles = 0;
+
         for action in actions {
             let kwargs = if action.dispatch_payload.is_empty() {
                 proto::WorkflowArguments { arguments: vec![] }
@@ -342,14 +368,23 @@ async fn dispatch_all_actions(
                 .await
                 .map_err(|e| anyhow!("worker send failed: {}", e))?;
 
-            let record = rappel::CompletionRecord {
-                action_id: rappel::ActionId(action.id),
-                success: metrics.success,
-                result_payload: metrics.response_payload.clone(),
-                delivery_token: metrics.dispatch_token.unwrap_or(action.delivery_token),
-                error_message: metrics.error_message.clone(),
-            };
-            database.complete_action(record).await?;
+            // Process the completion through the runner to trigger DAG progression
+            let completion_result = runner
+                .process_action_completion(
+                    rappel::ActionId(action.id),
+                    WorkflowInstanceId(action.instance_id),
+                    action.node_id.clone(),
+                    metrics.success,
+                    metrics.response_payload.clone(),
+                    metrics.error_message.clone(),
+                    action.delivery_token,
+                )
+                .await;
+
+            if let Err(e) = completion_result {
+                error!("Failed to process completion: {}", e);
+            }
+
             completed.push(metrics);
         }
     }
@@ -459,7 +494,7 @@ async fn main() -> Result<()> {
     info!(addr = %worker_bridge.addr(), "worker bridge started");
 
     // Set up Python environment and run registration
-    let python_env = setup_python_env(grpc_addr, args.width, args.hash_iterations).await?;
+    let python_env = setup_python_env(grpc_addr, args.count, args.iterations).await?;
     info!("workflow registered");
 
     // Find the workflow version and instance
@@ -527,9 +562,10 @@ async fn main() -> Result<()> {
     runner.start_instance(instance_id, HashMap::new()).await?;
     info!(%instance_id, "workflow instance started");
 
-    // Run the benchmark
+    // Run the benchmark with DAG runner integration
+    let timeout = Duration::from_secs(args.timeout);
     let start = Instant::now();
-    let metrics = dispatch_all_actions(&database, &worker_pool).await?;
+    let metrics = run_with_dag_runner(&runner, &database, &worker_pool, timeout).await?;
     let elapsed = start.elapsed();
 
     // Calculate statistics

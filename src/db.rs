@@ -268,15 +268,6 @@ pub struct NewAction {
     pub node_id: Option<String>,
 }
 
-/// Instance execution context
-#[derive(Debug, Clone, FromRow)]
-pub struct InstanceContext {
-    pub instance_id: Uuid,
-    pub context_json: serde_json::Value,
-    pub exceptions_json: serde_json::Value,
-    pub updated_at: DateTime<Utc>,
-}
-
 /// Loop iteration state
 #[derive(Debug, Clone, FromRow)]
 pub struct LoopState {
@@ -780,51 +771,6 @@ impl Database {
     }
 
     // ========================================================================
-    // Instance Context
-    // ========================================================================
-
-    /// Get the execution context for an instance
-    pub async fn get_instance_context(
-        &self,
-        instance_id: WorkflowInstanceId,
-    ) -> DbResult<InstanceContext> {
-        let ctx = sqlx::query_as::<_, InstanceContext>(
-            r#"
-            SELECT instance_id, context_json, exceptions_json, updated_at
-            FROM instance_context
-            WHERE instance_id = $1
-            "#,
-        )
-        .bind(instance_id.0)
-        .fetch_optional(&self.pool)
-        .await?
-        .ok_or_else(|| DbError::NotFound(format!("context for instance {}", instance_id)))?;
-
-        Ok(ctx)
-    }
-
-    /// Update the execution context for an instance
-    pub async fn update_instance_context(
-        &self,
-        instance_id: WorkflowInstanceId,
-        context_json: serde_json::Value,
-    ) -> DbResult<()> {
-        sqlx::query(
-            r#"
-            UPDATE instance_context
-            SET context_json = $2, updated_at = NOW()
-            WHERE instance_id = $1
-            "#,
-        )
-        .bind(instance_id.0)
-        .bind(context_json)
-        .execute(&self.pool)
-        .await?;
-
-        Ok(())
-    }
-
-    // ========================================================================
     // Loop State
     // ========================================================================
 
@@ -890,6 +836,108 @@ impl Database {
         .bind(instance_id.0)
         .bind(loop_id)
         .bind(accumulators)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    // ========================================================================
+    // Node Inputs (Inbox Pattern)
+    // ========================================================================
+
+    /// Append a value to a node's inbox (O(1) write, no locks).
+    ///
+    /// When Node A completes, it calls this for each downstream node that needs the value.
+    /// This is append-only - no read-modify-write cycle.
+    pub async fn append_to_inbox(
+        &self,
+        instance_id: WorkflowInstanceId,
+        target_node_id: &str,
+        variable_name: &str,
+        value: serde_json::Value,
+        source_node_id: &str,
+        spread_index: Option<i32>,
+    ) -> DbResult<()> {
+        sqlx::query(
+            r#"
+            INSERT INTO node_inputs (instance_id, target_node_id, variable_name, value, source_node_id, spread_index)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            "#,
+        )
+        .bind(instance_id.0)
+        .bind(target_node_id)
+        .bind(variable_name)
+        .bind(value)
+        .bind(source_node_id)
+        .bind(spread_index)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    /// Read all pending inputs for a node (single query).
+    ///
+    /// Returns a map of variable_name -> value.
+    /// For spread results, returns the values as a list ordered by spread_index.
+    pub async fn read_inbox(
+        &self,
+        instance_id: WorkflowInstanceId,
+        target_node_id: &str,
+    ) -> DbResult<std::collections::HashMap<String, serde_json::Value>> {
+        let rows: Vec<(String, serde_json::Value, Option<i32>)> = sqlx::query_as(
+            r#"
+            SELECT variable_name, value, spread_index
+            FROM node_inputs
+            WHERE instance_id = $1 AND target_node_id = $2
+            ORDER BY spread_index NULLS FIRST, created_at
+            "#,
+        )
+        .bind(instance_id.0)
+        .bind(target_node_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut result = std::collections::HashMap::new();
+        for (var_name, value, _spread_index) in rows {
+            result.insert(var_name, value);
+        }
+        Ok(result)
+    }
+
+    /// Read spread/parallel results for an aggregator node.
+    ///
+    /// Returns list of (spread_index, value) tuples for ordering.
+    pub async fn read_inbox_for_aggregator(
+        &self,
+        instance_id: WorkflowInstanceId,
+        target_node_id: &str,
+    ) -> DbResult<Vec<(i32, serde_json::Value)>> {
+        let rows: Vec<(i32, serde_json::Value)> = sqlx::query_as(
+            r#"
+            SELECT spread_index, value
+            FROM node_inputs
+            WHERE instance_id = $1 AND target_node_id = $2 AND spread_index IS NOT NULL
+            ORDER BY spread_index
+            "#,
+        )
+        .bind(instance_id.0)
+        .bind(target_node_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows)
+    }
+
+    /// Clear inbox for an instance (used when resetting/restarting).
+    pub async fn clear_inbox(&self, instance_id: WorkflowInstanceId) -> DbResult<()> {
+        sqlx::query(
+            r#"
+            DELETE FROM node_inputs WHERE instance_id = $1
+            "#,
+        )
+        .bind(instance_id.0)
         .execute(&self.pool)
         .await?;
 
@@ -1252,45 +1300,6 @@ mod tests {
             unique_ids.len(),
             "should have no duplicate dispatches"
         );
-    }
-
-    #[tokio::test]
-    #[serial]
-    async fn test_instance_context() {
-        let db = test_db().await;
-
-        // Setup
-        let version_id = db
-            .upsert_workflow_version("context_test", "hash_context", b"proto", false)
-            .await
-            .unwrap();
-
-        let instance_id = db
-            .create_instance("context_test", version_id, None)
-            .await
-            .unwrap();
-
-        // Get initial context (should be empty)
-        let ctx = db
-            .get_instance_context(instance_id)
-            .await
-            .expect("failed to get context");
-        assert_eq!(ctx.context_json, serde_json::json!({}));
-
-        // Update context
-        let new_context = serde_json::json!({
-            "x": 42,
-            "name": "test",
-            "nested": {"a": 1, "b": 2}
-        });
-
-        db.update_instance_context(instance_id, new_context.clone())
-            .await
-            .expect("failed to update context");
-
-        // Verify update
-        let ctx = db.get_instance_context(instance_id).await.unwrap();
-        assert_eq!(ctx.context_json, new_context);
     }
 
     #[tokio::test]

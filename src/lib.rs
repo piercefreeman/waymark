@@ -65,7 +65,6 @@ pub use dag_state::{DAGHelper, DataFlowTarget, ExecutionMode, SuccessorInfo};
 
 // Runner
 pub use runner::{
-    CompletionBatch, DAGRunner, ExpressionEvaluator, InFlightTracker, InstanceContext,
-    RunnerConfig, RunnerError, RunnerResult, WorkCompletionHandler, WorkQueueHandler,
-    WorkerSlotTracker,
+    CompletionBatch, DAGRunner, ExpressionEvaluator, InFlightTracker, InboxWrite, RunnerConfig,
+    RunnerError, RunnerResult, Scope, WorkCompletionHandler, WorkQueueHandler, WorkerSlotTracker,
 };

@@ -48,7 +48,7 @@ use uuid::Uuid;
 use prost::Message;
 
 use crate::{
-    dag::{DAG, DAGConverter, DAGNode},
+    dag::{DAG, DAGConverter, DAGNode, EdgeType},
     dag_state::{DAGHelper, ExecutionMode},
     db::{
         ActionId, BackoffKind, CompletionRecord, Database, NewAction, QueuedAction,
@@ -58,6 +58,84 @@ use crate::{
     parser::ast,
     worker::{ActionDispatchPayload, PythonWorkerPool, RoundTripMetrics},
 };
+
+// ============================================================================
+// Proto Value Conversion
+// ============================================================================
+
+/// Convert a protobuf WorkflowArgumentValue to a JSON Value.
+fn proto_value_to_json(value: &proto::WorkflowArgumentValue) -> JsonValue {
+    use proto::primitive_workflow_argument::Kind as PrimitiveKind;
+    use proto::workflow_argument_value::Kind;
+
+    match &value.kind {
+        Some(Kind::Primitive(p)) => match &p.kind {
+            Some(PrimitiveKind::IntValue(i)) => JsonValue::Number((*i).into()),
+            Some(PrimitiveKind::DoubleValue(f)) => serde_json::Number::from_f64(*f)
+                .map(JsonValue::Number)
+                .unwrap_or(JsonValue::Null),
+            Some(PrimitiveKind::StringValue(s)) => JsonValue::String(s.clone()),
+            Some(PrimitiveKind::BoolValue(b)) => JsonValue::Bool(*b),
+            Some(PrimitiveKind::NullValue(_)) => JsonValue::Null,
+            None => JsonValue::Null,
+        },
+        Some(Kind::ListValue(list)) => {
+            let items: Vec<JsonValue> = list.items.iter().map(proto_value_to_json).collect();
+            JsonValue::Array(items)
+        }
+        Some(Kind::DictValue(dict)) => {
+            let entries: serde_json::Map<String, JsonValue> = dict
+                .entries
+                .iter()
+                .filter_map(|arg| {
+                    arg.value
+                        .as_ref()
+                        .map(|v| (arg.key.clone(), proto_value_to_json(v)))
+                })
+                .collect();
+            JsonValue::Object(entries)
+        }
+        Some(Kind::TupleValue(tuple)) => {
+            // Convert tuple to JSON array
+            let items: Vec<JsonValue> = tuple.items.iter().map(proto_value_to_json).collect();
+            JsonValue::Array(items)
+        }
+        Some(Kind::Basemodel(model)) => {
+            // Convert basemodel - data contains the model fields
+            let mut obj = serde_json::Map::new();
+            obj.insert(
+                "__class__".to_string(),
+                JsonValue::String(model.name.clone()),
+            );
+            obj.insert(
+                "__module__".to_string(),
+                JsonValue::String(model.module.clone()),
+            );
+            // Convert data dict if present
+            if let Some(data_dict) = &model.data {
+                for entry in &data_dict.entries {
+                    if let Some(v) = &entry.value {
+                        obj.insert(entry.key.clone(), proto_value_to_json(v));
+                    }
+                }
+            }
+            JsonValue::Object(obj)
+        }
+        Some(Kind::Exception(exc)) => {
+            // Convert exception to JSON object
+            let mut obj = serde_json::Map::new();
+            obj.insert("__exception__".to_string(), JsonValue::Bool(true));
+            obj.insert("type".to_string(), JsonValue::String(exc.r#type.clone()));
+            obj.insert("module".to_string(), JsonValue::String(exc.module.clone()));
+            obj.insert(
+                "message".to_string(),
+                JsonValue::String(exc.message.clone()),
+            );
+            JsonValue::Object(obj)
+        }
+        None => JsonValue::Null,
+    }
+}
 
 // ============================================================================
 // Errors
@@ -459,8 +537,8 @@ pub struct CompletionBatch {
     pub completions: Vec<CompletionRecord>,
     /// New actions to enqueue
     pub new_actions: Vec<NewAction>,
-    /// Context updates (instance_id -> variables)
-    pub context_updates: HashMap<Uuid, JsonValue>,
+    /// Inbox writes to commit (data flow between nodes)
+    pub inbox_writes: Vec<InboxWrite>,
 }
 
 impl CompletionBatch {
@@ -469,9 +547,7 @@ impl CompletionBatch {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.completions.is_empty()
-            && self.new_actions.is_empty()
-            && self.context_updates.is_empty()
+        self.completions.is_empty() && self.new_actions.is_empty() && self.inbox_writes.is_empty()
     }
 }
 
@@ -638,267 +714,6 @@ impl WorkCompletionHandler {
         Self { db }
     }
 
-    /// Process a completed action and determine next steps.
-    ///
-    /// This is designed to be called from a tokio task for parallelization.
-    pub async fn process_completion(
-        &self,
-        in_flight: InFlightAction,
-        metrics: RoundTripMetrics,
-        dag: &DAG,
-        instance_context: &mut InstanceContext,
-    ) -> RunnerResult<CompletionBatch> {
-        let mut batch = CompletionBatch::new();
-
-        // Create completion record
-        let completion = CompletionRecord {
-            action_id: ActionId(in_flight.action.id),
-            success: metrics.success,
-            result_payload: metrics.response_payload.clone(),
-            delivery_token: in_flight.action.delivery_token,
-            error_message: metrics.error_message.clone(),
-        };
-        batch.completions.push(completion);
-
-        if !metrics.success {
-            // Handle failure - may need to route to exception handler
-            // For now, just record the failure
-            return Ok(batch);
-        }
-
-        // Parse result payload
-        let result: JsonValue = if metrics.response_payload.is_empty() {
-            JsonValue::Null
-        } else {
-            serde_json::from_slice(&metrics.response_payload)?
-        };
-
-        // Find the node that was executed
-        let node_id = in_flight.action.node_id.as_deref();
-        if node_id.is_none() {
-            // No node tracking - just complete
-            return Ok(batch);
-        }
-        let node_id = node_id.unwrap();
-
-        // Get DAG helper for traversal
-        let helper = DAGHelper::new(dag);
-
-        // Store result in context
-        if let Some(node) = dag.nodes.get(node_id) {
-            // Determine target variable from node type
-            if let Some(target_var) = self.get_target_variable(node) {
-                instance_context
-                    .variables
-                    .insert(target_var, result.clone());
-            }
-        }
-
-        // Find data flow targets and push values
-        let targets = helper.get_data_flow_targets(node_id);
-        for target in targets {
-            if let Some(var) = &target.variable {
-                instance_context
-                    .variables
-                    .insert(var.clone(), result.clone());
-            }
-        }
-
-        // Get successors and determine what can be inlined vs queued
-        let successors = helper.get_ready_successors(node_id, None);
-
-        for successor in successors {
-            let succ_node = match dag.nodes.get(&successor.node_id) {
-                Some(n) => n,
-                None => continue,
-            };
-
-            let exec_mode = helper.get_execution_mode(succ_node);
-            match exec_mode {
-                ExecutionMode::Inline => {
-                    // Execute inline node immediately
-                    let inline_result = self.execute_inline_node(succ_node, instance_context)?;
-
-                    // Recursively process inline successors
-                    // Note: In production, we'd want to limit recursion depth
-                    let inline_batch = self.process_inline_completion(
-                        &successor.node_id,
-                        inline_result,
-                        dag,
-                        instance_context,
-                    )?;
-
-                    // Merge batches
-                    batch.new_actions.extend(inline_batch.new_actions);
-                }
-                ExecutionMode::Delegated => {
-                    // Create new action for delegated execution
-                    if let Some(new_action) = self.create_action_for_node(
-                        succ_node,
-                        WorkflowInstanceId(in_flight.action.instance_id),
-                        instance_context,
-                    )? {
-                        batch.new_actions.push(new_action);
-                    }
-                }
-            }
-        }
-
-        Ok(batch)
-    }
-
-    /// Process completion of an inline node (recursive helper).
-    fn process_inline_completion(
-        &self,
-        node_id: &str,
-        result: JsonValue,
-        dag: &DAG,
-        instance_context: &mut InstanceContext,
-    ) -> RunnerResult<CompletionBatch> {
-        let mut batch = CompletionBatch::new();
-        let helper = DAGHelper::new(dag);
-
-        // Store result
-        if let Some(node) = dag.nodes.get(node_id)
-            && let Some(target_var) = self.get_target_variable(node)
-        {
-            instance_context
-                .variables
-                .insert(target_var, result.clone());
-        }
-
-        // Get successors
-        let successors = helper.get_ready_successors(node_id, None);
-
-        for successor in successors {
-            let succ_node = match dag.nodes.get(&successor.node_id) {
-                Some(n) => n,
-                None => continue,
-            };
-
-            let exec_mode = helper.get_execution_mode(succ_node);
-            match exec_mode {
-                ExecutionMode::Inline => {
-                    let inline_result = self.execute_inline_node(succ_node, instance_context)?;
-                    let inner_batch = self.process_inline_completion(
-                        &successor.node_id,
-                        inline_result,
-                        dag,
-                        instance_context,
-                    )?;
-                    batch.new_actions.extend(inner_batch.new_actions);
-                }
-                ExecutionMode::Delegated => {
-                    if let Some(new_action) = self.create_action_for_node(
-                        succ_node,
-                        instance_context.instance_id,
-                        instance_context,
-                    )? {
-                        batch.new_actions.push(new_action);
-                    }
-                }
-            }
-        }
-
-        Ok(batch)
-    }
-
-    /// Execute an inline node (assignment, expression, etc.).
-    fn execute_inline_node(
-        &self,
-        node: &DAGNode,
-        _context: &mut InstanceContext,
-    ) -> RunnerResult<JsonValue> {
-        // Dispatch based on node type
-        match node.node_type.as_str() {
-            "assignment" => {
-                // We need the AST to evaluate - for now return null
-                // In full implementation, we'd store AST reference in node
-                Ok(JsonValue::Null)
-            }
-            "input" | "output" => {
-                // Boundary nodes just pass through
-                Ok(JsonValue::Null)
-            }
-            "return" => {
-                // Return passes through current scope
-                Ok(JsonValue::Null)
-            }
-            "conditional" => {
-                // Conditional - need to evaluate condition
-                // Return condition result for branching
-                Ok(JsonValue::Bool(true))
-            }
-            "aggregator" => {
-                // Collect spread/parallel results
-                Ok(JsonValue::Array(vec![]))
-            }
-            _ => Ok(JsonValue::Null),
-        }
-    }
-
-    /// Get the target variable name for a node (if it assigns to one).
-    fn get_target_variable(&self, node: &DAGNode) -> Option<String> {
-        // Extract from node label or type
-        // Format is typically "target = ..." for assignments
-        if node.node_type == "assignment" {
-            // Parse from label
-            if let Some(eq_pos) = node.label.find('=') {
-                let target = node.label[..eq_pos].trim();
-                return Some(target.to_string());
-            }
-        }
-        None
-    }
-
-    /// Create a NewAction for a delegated node.
-    fn create_action_for_node(
-        &self,
-        node: &DAGNode,
-        instance_id: WorkflowInstanceId,
-        context: &InstanceContext,
-    ) -> RunnerResult<Option<NewAction>> {
-        // Only create actions for action_call nodes
-        if node.node_type != "action_call" {
-            return Ok(None);
-        }
-
-        // Get action_name from node metadata (preferred) or fallback to parsing label
-        let action_name = match &node.action_name {
-            Some(name) => name.clone(),
-            None => {
-                // Fallback: extract from label (format: "@action_name(...)")
-                if node.label.starts_with('@') {
-                    let end = node.label.find('(').unwrap_or(node.label.len());
-                    node.label[1..end].to_string()
-                } else {
-                    return Ok(None);
-                }
-            }
-        };
-
-        // Get module_name from node metadata (default to "default" for backwards compatibility)
-        let module_name = node
-            .module_name
-            .clone()
-            .unwrap_or_else(|| "default".to_string());
-
-        // Build dispatch payload from context
-        let payload = serde_json::to_vec(&context.variables)?;
-
-        Ok(Some(NewAction {
-            instance_id,
-            module_name,
-            action_name,
-            dispatch_payload: payload,
-            timeout_seconds: 300, // Default 5 minutes
-            max_retries: 3,
-            backoff_kind: BackoffKind::Exponential,
-            backoff_base_delay_ms: 1000,
-            node_id: Some(node.id.clone()),
-        }))
-    }
-
     /// Write a completion batch to the database in a single transaction.
     pub async fn write_batch(&self, batch: CompletionBatch) -> RunnerResult<()> {
         // Complete actions
@@ -906,12 +721,24 @@ impl WorkCompletionHandler {
             self.db.complete_action(completion).await?;
         }
 
+        // Write inbox entries (data flow between nodes)
+        for inbox_write in batch.inbox_writes {
+            self.db
+                .append_to_inbox(
+                    inbox_write.instance_id,
+                    &inbox_write.target_node_id,
+                    &inbox_write.variable_name,
+                    inbox_write.value,
+                    &inbox_write.source_node_id,
+                    inbox_write.spread_index,
+                )
+                .await?;
+        }
+
         // Enqueue new actions
         for new_action in batch.new_actions {
             self.db.enqueue_action(new_action).await?;
         }
-
-        // TODO: Update contexts in DB
 
         Ok(())
     }
@@ -921,32 +748,21 @@ impl WorkCompletionHandler {
 // Instance Context
 // ============================================================================
 
-/// Execution context for a workflow instance.
-///
-/// Tracks variables and state during execution.
+/// Scope for inline expression evaluation.
+/// This is a simple in-memory variable map used during inline node execution.
+/// For durable data passing between actions, use the inbox pattern (node_inputs table).
+pub type Scope = HashMap<String, JsonValue>;
+
+/// A pending write to a node's inbox.
+/// Collected during CPU-bound work and written to DB asynchronously afterward.
 #[derive(Debug, Clone)]
-pub struct InstanceContext {
-    /// Instance ID
+pub struct InboxWrite {
     pub instance_id: WorkflowInstanceId,
-    /// Current variable values
-    pub variables: HashMap<String, JsonValue>,
-    /// Exception info if in error state
-    pub exception: Option<ExceptionInfo>,
-}
-
-impl InstanceContext {
-    pub fn new(instance_id: WorkflowInstanceId) -> Self {
-        Self {
-            instance_id,
-            variables: HashMap::new(),
-            exception: None,
-        }
-    }
-
-    pub fn with_inputs(mut self, inputs: HashMap<String, JsonValue>) -> Self {
-        self.variables = inputs;
-        self
-    }
+    pub target_node_id: String,
+    pub variable_name: String,
+    pub value: JsonValue,
+    pub source_node_id: String,
+    pub spread_index: Option<i32>,
 }
 
 /// Exception information for error handling.
@@ -966,7 +782,7 @@ pub struct ExpressionEvaluator;
 
 impl ExpressionEvaluator {
     /// Evaluate an expression to a runtime value.
-    pub fn evaluate(expr: &ast::Expr, context: &InstanceContext) -> RunnerResult<JsonValue> {
+    pub fn evaluate(expr: &ast::Expr, scope: &Scope) -> RunnerResult<JsonValue> {
         let kind = expr
             .kind
             .as_ref()
@@ -974,14 +790,14 @@ impl ExpressionEvaluator {
 
         match kind {
             ast::expr::Kind::Literal(lit) => Self::eval_literal(lit),
-            ast::expr::Kind::Variable(var) => Self::eval_variable(var, context),
-            ast::expr::Kind::BinaryOp(op) => Self::eval_binary_op(op, context),
-            ast::expr::Kind::UnaryOp(op) => Self::eval_unary_op(op, context),
-            ast::expr::Kind::List(list) => Self::eval_list(list, context),
-            ast::expr::Kind::Dict(dict) => Self::eval_dict(dict, context),
-            ast::expr::Kind::Index(idx) => Self::eval_index(idx, context),
-            ast::expr::Kind::Dot(dot) => Self::eval_dot(dot, context),
-            ast::expr::Kind::FunctionCall(call) => Self::eval_function_call(call, context),
+            ast::expr::Kind::Variable(var) => Self::eval_variable(var, scope),
+            ast::expr::Kind::BinaryOp(op) => Self::eval_binary_op(op, scope),
+            ast::expr::Kind::UnaryOp(op) => Self::eval_unary_op(op, scope),
+            ast::expr::Kind::List(list) => Self::eval_list(list, scope),
+            ast::expr::Kind::Dict(dict) => Self::eval_dict(dict, scope),
+            ast::expr::Kind::Index(idx) => Self::eval_index(idx, scope),
+            ast::expr::Kind::Dot(dot) => Self::eval_dot(dot, scope),
+            ast::expr::Kind::FunctionCall(call) => Self::eval_function_call(call, scope),
             ast::expr::Kind::ActionCall(_) => Err(RunnerError::Evaluation(
                 "Action calls cannot be evaluated inline".to_string(),
             )),
@@ -1006,15 +822,14 @@ impl ExpressionEvaluator {
         })
     }
 
-    fn eval_variable(var: &ast::Variable, context: &InstanceContext) -> RunnerResult<JsonValue> {
-        context
-            .variables
+    fn eval_variable(var: &ast::Variable, scope: &Scope) -> RunnerResult<JsonValue> {
+        scope
             .get(&var.name)
             .cloned()
             .ok_or_else(|| RunnerError::VariableNotFound(var.name.clone()))
     }
 
-    fn eval_binary_op(op: &ast::BinaryOp, context: &InstanceContext) -> RunnerResult<JsonValue> {
+    fn eval_binary_op(op: &ast::BinaryOp, scope: &Scope) -> RunnerResult<JsonValue> {
         let left_expr = op
             .left
             .as_ref()
@@ -1024,8 +839,8 @@ impl ExpressionEvaluator {
             .as_ref()
             .ok_or_else(|| RunnerError::Evaluation("Missing right operand".to_string()))?;
 
-        let left = Self::evaluate(left_expr, context)?;
-        let right = Self::evaluate(right_expr, context)?;
+        let left = Self::evaluate(left_expr, scope)?;
+        let right = Self::evaluate(right_expr, scope)?;
 
         match ast::BinaryOperator::try_from(op.op)
             .unwrap_or(ast::BinaryOperator::BinaryOpUnspecified)
@@ -1053,13 +868,13 @@ impl ExpressionEvaluator {
         }
     }
 
-    fn eval_unary_op(op: &ast::UnaryOp, context: &InstanceContext) -> RunnerResult<JsonValue> {
+    fn eval_unary_op(op: &ast::UnaryOp, scope: &Scope) -> RunnerResult<JsonValue> {
         let operand_expr = op
             .operand
             .as_ref()
             .ok_or_else(|| RunnerError::Evaluation("Missing operand".to_string()))?;
 
-        let operand = Self::evaluate(operand_expr, context)?;
+        let operand = Self::evaluate(operand_expr, scope)?;
 
         match ast::UnaryOperator::try_from(op.op).unwrap_or(ast::UnaryOperator::UnaryOpUnspecified)
         {
@@ -1089,16 +904,16 @@ impl ExpressionEvaluator {
         }
     }
 
-    fn eval_list(list: &ast::ListExpr, context: &InstanceContext) -> RunnerResult<JsonValue> {
+    fn eval_list(list: &ast::ListExpr, scope: &Scope) -> RunnerResult<JsonValue> {
         let elements: Result<Vec<JsonValue>, _> = list
             .elements
             .iter()
-            .map(|e| Self::evaluate(e, context))
+            .map(|e| Self::evaluate(e, scope))
             .collect();
         Ok(JsonValue::Array(elements?))
     }
 
-    fn eval_dict(dict: &ast::DictExpr, context: &InstanceContext) -> RunnerResult<JsonValue> {
+    fn eval_dict(dict: &ast::DictExpr, scope: &Scope) -> RunnerResult<JsonValue> {
         let mut map = serde_json::Map::new();
         for entry in &dict.entries {
             let key_expr = entry
@@ -1110,8 +925,8 @@ impl ExpressionEvaluator {
                 .as_ref()
                 .ok_or_else(|| RunnerError::Evaluation("Missing dict value".to_string()))?;
 
-            let key = Self::evaluate(key_expr, context)?;
-            let val = Self::evaluate(val_expr, context)?;
+            let key = Self::evaluate(key_expr, scope)?;
+            let val = Self::evaluate(val_expr, scope)?;
 
             let key_str = match key {
                 JsonValue::String(s) => s,
@@ -1122,7 +937,7 @@ impl ExpressionEvaluator {
         Ok(JsonValue::Object(map))
     }
 
-    fn eval_index(idx: &ast::IndexAccess, context: &InstanceContext) -> RunnerResult<JsonValue> {
+    fn eval_index(idx: &ast::IndexAccess, scope: &Scope) -> RunnerResult<JsonValue> {
         let obj_expr = idx
             .object
             .as_ref()
@@ -1132,8 +947,8 @@ impl ExpressionEvaluator {
             .as_ref()
             .ok_or_else(|| RunnerError::Evaluation("Missing index".to_string()))?;
 
-        let obj = Self::evaluate(obj_expr, context)?;
-        let index = Self::evaluate(idx_expr, context)?;
+        let obj = Self::evaluate(obj_expr, scope)?;
+        let index = Self::evaluate(idx_expr, scope)?;
 
         match (&obj, &index) {
             (JsonValue::Array(arr), JsonValue::Number(n)) => {
@@ -1159,13 +974,13 @@ impl ExpressionEvaluator {
         }
     }
 
-    fn eval_dot(dot: &ast::DotAccess, context: &InstanceContext) -> RunnerResult<JsonValue> {
+    fn eval_dot(dot: &ast::DotAccess, scope: &Scope) -> RunnerResult<JsonValue> {
         let obj_expr = dot
             .object
             .as_ref()
             .ok_or_else(|| RunnerError::Evaluation("Missing dot object".to_string()))?;
 
-        let obj = Self::evaluate(obj_expr, context)?;
+        let obj = Self::evaluate(obj_expr, scope)?;
 
         match &obj {
             JsonValue::Object(map) => map.get(&dot.attribute).cloned().ok_or_else(|| {
@@ -1177,10 +992,7 @@ impl ExpressionEvaluator {
         }
     }
 
-    fn eval_function_call(
-        call: &ast::FunctionCall,
-        context: &InstanceContext,
-    ) -> RunnerResult<JsonValue> {
+    fn eval_function_call(call: &ast::FunctionCall, scope: &Scope) -> RunnerResult<JsonValue> {
         // Evaluate kwargs
         let mut kwargs = HashMap::new();
         for kwarg in &call.kwargs {
@@ -1188,7 +1000,7 @@ impl ExpressionEvaluator {
                 .value
                 .as_ref()
                 .ok_or_else(|| RunnerError::Evaluation("Missing kwarg value".to_string()))?;
-            let val = Self::evaluate(val_expr, context)?;
+            let val = Self::evaluate(val_expr, scope)?;
             kwargs.insert(kwarg.name.clone(), val);
         }
 
@@ -1506,8 +1318,9 @@ pub struct DAGRunner {
     completion_handler: WorkCompletionHandler,
     /// DAG cache with DB-backed loading
     dag_cache: Arc<DAGCache>,
-    /// Instance contexts by instance ID
-    instance_contexts: Arc<RwLock<HashMap<Uuid, InstanceContext>>>,
+    /// Placeholder for legacy compatibility (no longer used - inbox pattern replaces this)
+    #[allow(dead_code)]
+    instance_contexts: Arc<RwLock<HashMap<Uuid, Scope>>>,
     /// Shutdown signal
     shutdown: Arc<tokio::sync::Notify>,
 }
@@ -1610,83 +1423,22 @@ impl DAGRunner {
         Ok(())
     }
 
-    /// Process a completion in a tokio task.
+    /// Process a completion in a tokio task (fully async with inbox pattern).
     ///
-    /// The CPU-intensive DAG traversal and inline execution is offloaded to
-    /// `spawn_blocking` for true CPU parallelism across threads.
+    /// When an action completes:
+    /// 1. Collect inbox writes for downstream nodes (via DATA_FLOW edges)
+    /// 2. Find ready successor nodes
+    /// 3. For inline nodes: execute immediately, collect their inbox writes too
+    /// 4. For delegated nodes: read inbox, create action, add to batch
+    /// 5. Write everything in one batch at the end
     async fn process_completion_task(
         handler: WorkCompletionHandler,
         dag_cache: Arc<DAGCache>,
-        instance_contexts: Arc<RwLock<HashMap<Uuid, InstanceContext>>>,
+        _instance_contexts: Arc<RwLock<HashMap<Uuid, Scope>>>,
         in_flight: InFlightAction,
         metrics: RoundTripMetrics,
         instance_id: WorkflowInstanceId,
     ) -> RunnerResult<()> {
-        // Step 1: Async I/O - Get or create instance context
-        let context = {
-            let contexts = instance_contexts.read().await;
-            contexts.get(&instance_id.0).cloned()
-        }
-        .unwrap_or_else(|| InstanceContext::new(instance_id));
-
-        // Step 2: Async I/O - Get DAG for this workflow instance (loads from DB if not cached)
-        let dag = dag_cache.get_dag_for_instance(instance_id).await?;
-
-        // Step 3: CPU-bound work - DAG traversal and inline execution
-        // Offload to blocking thread pool for true CPU parallelism
-        let (batch, updated_context) = if let Some(dag) = dag {
-            let dag_clone = dag;
-            let in_flight_clone = in_flight.clone();
-            let metrics_clone = metrics.clone();
-
-            tokio::task::spawn_blocking(move || {
-                // All CPU-intensive work happens here on a blocking thread
-                Self::process_completion_blocking(
-                    in_flight_clone,
-                    metrics_clone,
-                    &dag_clone,
-                    context,
-                )
-            })
-            .await
-            .map_err(|e| RunnerError::Worker(format!("Blocking task failed: {}", e)))??
-        } else {
-            // No DAG - just create completion record
-            let mut batch = CompletionBatch::new();
-            batch.completions.push(CompletionRecord {
-                action_id: ActionId(in_flight.action.id),
-                success: metrics.success,
-                result_payload: metrics.response_payload,
-                delivery_token: in_flight.action.delivery_token,
-                error_message: metrics.error_message,
-            });
-            (batch, context)
-        };
-
-        // Step 4: Async I/O - Write batch to database
-        handler.write_batch(batch).await?;
-
-        // Step 5: Async I/O - Update context cache
-        {
-            let mut contexts = instance_contexts.write().await;
-            contexts.insert(instance_id.0, updated_context);
-        }
-
-        Ok(())
-    }
-
-    /// Synchronous, CPU-bound completion processing.
-    ///
-    /// This runs on a blocking thread and performs:
-    /// - DAG traversal to find successors
-    /// - Expression evaluation for inline nodes
-    /// - Recursive inline execution
-    fn process_completion_blocking(
-        in_flight: InFlightAction,
-        metrics: RoundTripMetrics,
-        dag: &DAG,
-        mut context: InstanceContext,
-    ) -> RunnerResult<(CompletionBatch, InstanceContext)> {
         let mut batch = CompletionBatch::new();
 
         // Create completion record
@@ -1698,97 +1450,138 @@ impl DAGRunner {
             error_message: metrics.error_message.clone(),
         });
 
+        // If failed, just record completion and return
         if !metrics.success {
-            return Ok((batch, context));
+            handler.write_batch(batch).await?;
+            return Ok(());
         }
 
-        // Parse result payload
-        let result: JsonValue = if metrics.response_payload.is_empty() {
-            JsonValue::Null
-        } else {
-            serde_json::from_slice(&metrics.response_payload)?
+        // Get DAG for this workflow instance
+        let dag = match dag_cache.get_dag_for_instance(instance_id).await? {
+            Some(dag) => dag,
+            None => {
+                handler.write_batch(batch).await?;
+                return Ok(());
+            }
         };
 
         // Find the node that was executed
         let node_id = match in_flight.action.node_id.as_deref() {
             Some(id) => id,
-            None => return Ok((batch, context)),
+            None => {
+                handler.write_batch(batch).await?;
+                return Ok(());
+            }
         };
 
-        let helper = DAGHelper::new(dag);
+        // Parse result payload (protobuf WorkflowArguments -> JSON)
+        let result: JsonValue = if metrics.response_payload.is_empty() {
+            JsonValue::Null
+        } else {
+            match proto::WorkflowArguments::decode(&metrics.response_payload[..]) {
+                Ok(args) => args
+                    .arguments
+                    .iter()
+                    .find(|arg| arg.key == "result")
+                    .and_then(|arg| arg.value.as_ref())
+                    .map(proto_value_to_json)
+                    .unwrap_or(JsonValue::Null),
+                Err(_) => {
+                    serde_json::from_slice(&metrics.response_payload).unwrap_or(JsonValue::Null)
+                }
+            }
+        };
 
-        // Store result in context
+        let helper = DAGHelper::new(&dag);
+
+        // INBOX PATTERN: Collect inbox writes for downstream nodes via DATA_FLOW edges
         if let Some(node) = dag.nodes.get(node_id)
-            && let Some(target_var) = Self::get_target_variable_static(node)
+            && let Some(ref target) = node.target
         {
-            context.variables.insert(target_var, result.clone());
+            debug!(
+                node_id = %node_id,
+                target = %target,
+                result = ?result,
+                "collecting inbox writes for downstream nodes"
+            );
+
+            Self::collect_inbox_writes_for_node(
+                node_id,
+                target,
+                &result,
+                &dag,
+                instance_id,
+                &mut batch.inbox_writes,
+            );
         }
 
-        // Find data flow targets and push values
-        let targets = helper.get_data_flow_targets(node_id);
-        for target in targets {
-            if let Some(var) = &target.variable {
-                context.variables.insert(var.clone(), result.clone());
-            }
-        }
+        // Process successors - inline nodes use in-memory scope, delegated read from inbox
+        let mut inline_scope: Scope = HashMap::new();
+        Self::process_successors_async(
+            node_id,
+            &result,
+            &dag,
+            &helper,
+            &mut inline_scope,
+            &mut batch,
+            instance_id,
+            &handler.db,
+        )
+        .await?;
 
-        // Get successors and process inline nodes, queue delegated nodes
-        let successors = helper.get_ready_successors(node_id, None);
+        // Write everything in one batch: completion, inbox writes, new actions
+        handler.write_batch(batch).await?;
 
-        for successor in successors {
-            let succ_node = match dag.nodes.get(&successor.node_id) {
-                Some(n) => n,
-                None => continue,
-            };
-
-            let exec_mode = helper.get_execution_mode(succ_node);
-            match exec_mode {
-                ExecutionMode::Inline => {
-                    // Execute inline node and recursively process successors
-                    let inline_result = Self::execute_inline_node_static(succ_node, &mut context)?;
-                    Self::process_inline_successors(
-                        &successor.node_id,
-                        inline_result,
-                        dag,
-                        &mut context,
-                        &mut batch,
-                        in_flight.action.instance_id,
-                    )?;
-                }
-                ExecutionMode::Delegated => {
-                    if let Some(new_action) = Self::create_action_for_node_static(
-                        succ_node,
-                        WorkflowInstanceId(in_flight.action.instance_id),
-                        &context,
-                    )? {
-                        batch.new_actions.push(new_action);
-                    }
-                }
-            }
-        }
-
-        Ok((batch, context))
+        Ok(())
     }
 
-    /// Recursively process inline successors (CPU-bound helper).
-    fn process_inline_successors(
-        node_id: &str,
-        result: JsonValue,
+    /// Collect inbox writes for a node's result via DATA_FLOW edges.
+    fn collect_inbox_writes_for_node(
+        source_node_id: &str,
+        variable_name: &str,
+        value: &JsonValue,
         dag: &DAG,
-        context: &mut InstanceContext,
-        batch: &mut CompletionBatch,
-        instance_id: Uuid,
-    ) -> RunnerResult<()> {
-        let helper = DAGHelper::new(dag);
+        instance_id: WorkflowInstanceId,
+        inbox_writes: &mut Vec<InboxWrite>,
+    ) {
+        for edge in dag.edges.iter() {
+            if edge.source == source_node_id
+                && edge.edge_type == EdgeType::DataFlow
+                && edge.variable.as_deref() == Some(variable_name)
+            {
+                inbox_writes.push(InboxWrite {
+                    instance_id,
+                    target_node_id: edge.target.clone(),
+                    variable_name: variable_name.to_string(),
+                    value: value.clone(),
+                    source_node_id: source_node_id.to_string(),
+                    spread_index: None,
+                });
+            }
+        }
+    }
 
-        // Store result
+    /// Process successor nodes asynchronously.
+    /// Inline nodes execute immediately and collect inbox writes.
+    /// Delegated nodes read from inbox and queue for execution.
+    #[allow(clippy::too_many_arguments)]
+    async fn process_successors_async(
+        node_id: &str,
+        result: &JsonValue,
+        dag: &DAG,
+        helper: &DAGHelper<'_>,
+        inline_scope: &mut Scope,
+        batch: &mut CompletionBatch,
+        instance_id: WorkflowInstanceId,
+        db: &Database,
+    ) -> RunnerResult<()> {
+        // Store result in inline scope for potential inline successors
         if let Some(node) = dag.nodes.get(node_id)
-            && let Some(target_var) = Self::get_target_variable_static(node)
+            && let Some(ref target) = node.target
         {
-            context.variables.insert(target_var, result.clone());
+            inline_scope.insert(target.clone(), result.clone());
         }
 
-        // Get successors
         let successors = helper.get_ready_successors(node_id, None);
 
         for successor in successors {
@@ -1800,22 +1593,42 @@ impl DAGRunner {
             let exec_mode = helper.get_execution_mode(succ_node);
             match exec_mode {
                 ExecutionMode::Inline => {
-                    let inline_result = Self::execute_inline_node_static(succ_node, context)?;
-                    Self::process_inline_successors(
+                    // Execute inline node with in-memory scope
+                    let inline_result = Self::execute_inline_node(succ_node, inline_scope)?;
+
+                    // Collect inbox writes for inline node's result
+                    if let Some(ref target) = succ_node.target {
+                        Self::collect_inbox_writes_for_node(
+                            &successor.node_id,
+                            target,
+                            &inline_result,
+                            dag,
+                            instance_id,
+                            &mut batch.inbox_writes,
+                        );
+                    }
+
+                    // Recursively process inline successors
+                    Box::pin(Self::process_successors_async(
                         &successor.node_id,
-                        inline_result,
+                        &inline_result,
                         dag,
-                        context,
+                        helper,
+                        inline_scope,
                         batch,
                         instance_id,
-                    )?;
+                        db,
+                    ))
+                    .await?;
                 }
                 ExecutionMode::Delegated => {
-                    if let Some(new_action) = Self::create_action_for_node_static(
-                        succ_node,
-                        WorkflowInstanceId(instance_id),
-                        context,
-                    )? {
+                    // Read inbox for this node from database
+                    // This includes data from ANY upstream node, not just the one that just completed
+                    let inbox = db.read_inbox(instance_id, &successor.node_id).await?;
+
+                    if let Some(new_action) =
+                        Self::create_action_for_node_from_inbox(succ_node, instance_id, &inbox)?
+                    {
                         batch.new_actions.push(new_action);
                     }
                 }
@@ -1825,22 +1638,8 @@ impl DAGRunner {
         Ok(())
     }
 
-    /// Static helper to get target variable (for blocking context).
-    fn get_target_variable_static(node: &DAGNode) -> Option<String> {
-        if node.node_type == "assignment"
-            && let Some(eq_pos) = node.label.find('=')
-        {
-            let target = node.label[..eq_pos].trim();
-            return Some(target.to_string());
-        }
-        None
-    }
-
-    /// Static helper to execute inline node (for blocking context).
-    fn execute_inline_node_static(
-        node: &DAGNode,
-        _context: &mut InstanceContext,
-    ) -> RunnerResult<JsonValue> {
+    /// Execute an inline node with in-memory scope (non-durable).
+    fn execute_inline_node(node: &DAGNode, _scope: &mut Scope) -> RunnerResult<JsonValue> {
         match node.node_type.as_str() {
             "assignment" => Ok(JsonValue::Null),
             "input" | "output" => Ok(JsonValue::Null),
@@ -1848,91 +1647,6 @@ impl DAGRunner {
             "conditional" => Ok(JsonValue::Bool(true)),
             "aggregator" => Ok(JsonValue::Array(vec![])),
             _ => Ok(JsonValue::Null),
-        }
-    }
-
-    /// Static helper to create action for node (for blocking context).
-    fn create_action_for_node_static(
-        node: &DAGNode,
-        instance_id: WorkflowInstanceId,
-        context: &InstanceContext,
-    ) -> RunnerResult<Option<NewAction>> {
-        if node.node_type != "action_call" {
-            return Ok(None);
-        }
-
-        // Get action_name from node metadata (preferred) or fallback to parsing label
-        let action_name = match &node.action_name {
-            Some(name) => name.clone(),
-            None => {
-                // Fallback: extract from label (format: "@action_name(...)")
-                if node.label.starts_with('@') {
-                    let end = node.label.find('(').unwrap_or(node.label.len());
-                    node.label[1..end].to_string()
-                } else {
-                    return Ok(None);
-                }
-            }
-        };
-
-        // Get module_name from node metadata (default to "default" for backwards compatibility)
-        let module_name = node
-            .module_name
-            .clone()
-            .unwrap_or_else(|| "default".to_string());
-
-        // Build kwargs from node metadata, resolving variable references from context
-        let payload = Self::build_action_payload(node, context)?;
-
-        Ok(Some(NewAction {
-            instance_id,
-            module_name,
-            action_name,
-            dispatch_payload: payload,
-            timeout_seconds: 300,
-            max_retries: 3,
-            backoff_kind: BackoffKind::Exponential,
-            backoff_base_delay_ms: 1000,
-            node_id: Some(node.id.clone()),
-        }))
-    }
-
-    /// Build action payload from node kwargs, resolving variable references.
-    fn build_action_payload(node: &DAGNode, context: &InstanceContext) -> RunnerResult<Vec<u8>> {
-        let mut payload_map = serde_json::Map::new();
-
-        if let Some(ref kwargs) = node.kwargs {
-            for (key, value_str) in kwargs {
-                let resolved = Self::resolve_kwarg_value(value_str, context)?;
-                payload_map.insert(key.clone(), resolved);
-            }
-        }
-
-        Ok(serde_json::to_vec(&JsonValue::Object(payload_map))?)
-    }
-
-    /// Resolve a kwarg value string to a JSON value.
-    /// - "$varname" -> look up variable in context
-    /// - Numeric literals -> parse as number
-    /// - "\"string\"" -> parse as string
-    /// - Other -> try to parse as JSON
-    fn resolve_kwarg_value(value_str: &str, context: &InstanceContext) -> RunnerResult<JsonValue> {
-        // Variable reference
-        if let Some(var_name) = value_str.strip_prefix('$') {
-            return Ok(context
-                .variables
-                .get(var_name)
-                .cloned()
-                .unwrap_or(JsonValue::Null));
-        }
-
-        // Try to parse as JSON (handles numbers, booleans, strings, etc.)
-        match serde_json::from_str(value_str) {
-            Ok(v) => Ok(v),
-            Err(_) => {
-                // If not valid JSON, treat as raw string
-                Ok(JsonValue::String(value_str.to_string()))
-            }
         }
     }
 
@@ -1972,13 +1686,13 @@ impl DAGRunner {
             .await?
             .ok_or_else(|| RunnerError::InstanceNotFound(instance_id.0))?;
 
-        // Create initial context
-        let context = InstanceContext::new(instance_id).with_inputs(initial_inputs);
+        // Create initial scope from inputs
+        let scope: Scope = initial_inputs;
 
-        // Store context
+        // Store scope for inline evaluation
         {
             let mut contexts = self.instance_contexts.write().await;
-            contexts.insert(instance_id.0, context.clone());
+            contexts.insert(instance_id.0, scope.clone());
         }
 
         // Find the entry function and its input node
@@ -2021,8 +1735,9 @@ impl DAGRunner {
             match mode {
                 ExecutionMode::Delegated => {
                     // This is an action - enqueue it
+                    // For initial actions, we use the initial scope as the "inbox"
                     if let Some(action) =
-                        Self::create_action_for_node_static(node, instance_id, &context)?
+                        Self::create_action_for_node_from_inbox(node, instance_id, &scope)?
                     {
                         actions_to_enqueue.push(action);
                     }
@@ -2048,6 +1763,261 @@ impl DAGRunner {
 
         info!(instance_id = %instance_id.0, actions = count, "started workflow instance");
         Ok(count)
+    }
+
+    /// Process a completed action and enqueue any successor actions.
+    ///
+    /// This is the external API for handling action completion. It:
+    /// 1. Marks the action as complete in the database
+    /// 2. Uses the DAG to find successor nodes
+    /// 3. Enqueues any new actions that become ready
+    ///
+    /// Returns the number of new actions enqueued.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn process_action_completion(
+        &self,
+        action_id: ActionId,
+        instance_id: WorkflowInstanceId,
+        node_id: Option<String>,
+        success: bool,
+        result_payload: Vec<u8>,
+        error_message: Option<String>,
+        delivery_token: Uuid,
+    ) -> RunnerResult<usize> {
+        // First, complete the action in the database
+        let completion = CompletionRecord {
+            action_id,
+            success,
+            result_payload: result_payload.clone(),
+            delivery_token,
+            error_message: error_message.clone(),
+        };
+        self.completion_handler
+            .db
+            .complete_action(completion)
+            .await?;
+
+        // If the action failed, don't try to progress
+        if !success {
+            return Ok(0);
+        }
+
+        // If there's no node_id, we can't traverse the DAG
+        let node_id = match node_id {
+            Some(id) => id,
+            None => return Ok(0),
+        };
+
+        // Load the DAG
+        let dag = match self.dag_cache.get_dag_for_instance(instance_id).await? {
+            Some(dag) => dag,
+            None => return Ok(0),
+        };
+
+        // Parse result payload (protobuf WorkflowArguments -> JSON)
+        // The Python worker serializes results as WorkflowArguments with a "result" key
+        let result: JsonValue = if result_payload.is_empty() {
+            JsonValue::Null
+        } else {
+            // Result payload is protobuf-encoded WorkflowArguments (not WorkflowArgumentValue)
+            match proto::WorkflowArguments::decode(&result_payload[..]) {
+                Ok(args) => {
+                    // Find the "result" entry in the arguments
+                    args.arguments
+                        .iter()
+                        .find(|arg| arg.key == "result")
+                        .and_then(|arg| arg.value.as_ref())
+                        .map(proto_value_to_json)
+                        .unwrap_or(JsonValue::Null)
+                }
+                Err(_) => {
+                    // Try parsing as raw JSON as fallback
+                    serde_json::from_slice(&result_payload).unwrap_or(JsonValue::Null)
+                }
+            }
+        };
+
+        let helper = DAGHelper::new(&dag);
+        let db = &self.completion_handler.db;
+
+        // INBOX PATTERN: Push result to downstream nodes via DATA_FLOW edges
+        // When this action completes, write its result to the inbox of each target node
+        if let Some(node) = dag.nodes.get(&node_id)
+            && let Some(ref target) = node.target
+        {
+            debug!(
+                node_id = %node_id,
+                target = %target,
+                result = ?result,
+                "pushing result to downstream inboxes"
+            );
+
+            // Find all DATA_FLOW edges from this node that carry this variable
+            for edge in dag.edges.iter() {
+                if edge.source == node_id
+                    && edge.edge_type == EdgeType::DataFlow
+                    && edge.variable.as_deref() == Some(target.as_str())
+                {
+                    debug!(
+                        source = %node_id,
+                        target_node = %edge.target,
+                        variable = %target,
+                        "appending to inbox"
+                    );
+                    db.append_to_inbox(
+                        instance_id,
+                        &edge.target,
+                        target,
+                        result.clone(),
+                        &node_id,
+                        None, // spread_index
+                    )
+                    .await?;
+                }
+            }
+        }
+
+        // Get successors and determine what to enqueue
+        let successors = helper.get_ready_successors(&node_id, None);
+        let mut actions_to_enqueue = Vec::new();
+        let mut visited = std::collections::HashSet::new();
+        let mut queue: std::collections::VecDeque<String> =
+            successors.into_iter().map(|s| s.node_id).collect();
+
+        while let Some(succ_id) = queue.pop_front() {
+            if visited.contains(&succ_id) {
+                continue;
+            }
+            visited.insert(succ_id.clone());
+
+            let succ_node = match helper.get_node(&succ_id) {
+                Some(n) => n,
+                None => continue,
+            };
+
+            let mode = helper.get_execution_mode(succ_node);
+
+            match mode {
+                ExecutionMode::Delegated => {
+                    // Read inbox for this node from the database
+                    let inbox = db.read_inbox(instance_id, &succ_id).await?;
+
+                    // This is an action - enqueue it
+                    if let Some(action) =
+                        Self::create_action_for_node_from_inbox(succ_node, instance_id, &inbox)?
+                    {
+                        actions_to_enqueue.push(action);
+                    }
+                }
+                ExecutionMode::Inline => {
+                    // Skip inline nodes and continue to their successors
+                    for successor in helper.get_ready_successors(&succ_id, None) {
+                        if !visited.contains(&successor.node_id) {
+                            queue.push_back(successor.node_id);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Enqueue new actions
+        let count = actions_to_enqueue.len();
+        for action in actions_to_enqueue {
+            db.enqueue_action(action).await?;
+        }
+
+        debug!(instance_id = %instance_id.0, completed_node = %node_id, new_actions = count, "processed action completion");
+        Ok(count)
+    }
+
+    /// Create a new action for a node using inbox values instead of shared context.
+    fn create_action_for_node_from_inbox(
+        node: &DAGNode,
+        instance_id: WorkflowInstanceId,
+        inbox: &std::collections::HashMap<String, JsonValue>,
+    ) -> RunnerResult<Option<NewAction>> {
+        if node.node_type != "action_call" {
+            return Ok(None);
+        }
+
+        // Get action_name from node metadata (preferred) or fallback to parsing label
+        let action_name = match &node.action_name {
+            Some(name) => name.clone(),
+            None => {
+                // Fallback: extract from label (format: "@action_name(...)")
+                if node.label.starts_with('@') {
+                    let end = node.label.find('(').unwrap_or(node.label.len());
+                    node.label[1..end].to_string()
+                } else {
+                    return Ok(None);
+                }
+            }
+        };
+
+        // Get module_name from node metadata (default to "default" for backwards compatibility)
+        let module_name = node
+            .module_name
+            .clone()
+            .unwrap_or_else(|| "default".to_string());
+
+        // Build kwargs from node metadata, resolving variable references from inbox
+        let payload = Self::build_action_payload_from_inbox(node, inbox)?;
+
+        Ok(Some(NewAction {
+            instance_id,
+            module_name,
+            action_name,
+            dispatch_payload: payload,
+            timeout_seconds: 300,
+            max_retries: 3,
+            backoff_kind: BackoffKind::Exponential,
+            backoff_base_delay_ms: 1000,
+            node_id: Some(node.id.clone()),
+        }))
+    }
+
+    /// Build action payload from node kwargs, resolving variable references from inbox.
+    fn build_action_payload_from_inbox(
+        node: &DAGNode,
+        inbox: &std::collections::HashMap<String, JsonValue>,
+    ) -> RunnerResult<Vec<u8>> {
+        let mut payload_map = serde_json::Map::new();
+
+        if let Some(ref kwargs) = node.kwargs {
+            for (key, value_str) in kwargs {
+                let resolved = Self::resolve_kwarg_value_from_inbox(value_str, inbox)?;
+                payload_map.insert(key.clone(), resolved);
+            }
+        }
+
+        Ok(serde_json::to_vec(&JsonValue::Object(payload_map))?)
+    }
+
+    /// Resolve a kwarg value string to a JSON value using inbox.
+    fn resolve_kwarg_value_from_inbox(
+        value_str: &str,
+        inbox: &std::collections::HashMap<String, JsonValue>,
+    ) -> RunnerResult<JsonValue> {
+        // Variable reference
+        if let Some(var_name) = value_str.strip_prefix('$') {
+            let resolved = inbox.get(var_name).cloned().unwrap_or(JsonValue::Null);
+            debug!(
+                var_name = %var_name,
+                resolved = ?resolved,
+                inbox_vars = ?inbox.keys().collect::<Vec<_>>(),
+                "resolving variable reference from inbox"
+            );
+            return Ok(resolved);
+        }
+
+        // Try to parse as JSON (handles numbers, booleans, strings, etc.)
+        match serde_json::from_str(value_str) {
+            Ok(v) => Ok(v),
+            Err(_) => {
+                // If not valid JSON, treat as raw string
+                Ok(JsonValue::String(value_str.to_string()))
+            }
+        }
     }
 }
 
@@ -2121,7 +2091,7 @@ mod tests {
 
     #[test]
     fn test_expression_evaluator_literal() {
-        let context = InstanceContext::new(WorkflowInstanceId::new());
+        let scope: Scope = HashMap::new();
 
         // Integer
         let expr = ast::Expr {
@@ -2130,7 +2100,7 @@ mod tests {
             })),
             span: None,
         };
-        let result = ExpressionEvaluator::evaluate(&expr, &context).unwrap();
+        let result = ExpressionEvaluator::evaluate(&expr, &scope).unwrap();
         assert_eq!(result, JsonValue::Number(42.into()));
 
         // String
@@ -2140,7 +2110,7 @@ mod tests {
             })),
             span: None,
         };
-        let result = ExpressionEvaluator::evaluate(&expr, &context).unwrap();
+        let result = ExpressionEvaluator::evaluate(&expr, &scope).unwrap();
         assert_eq!(result, JsonValue::String("hello".to_string()));
 
         // Boolean
@@ -2150,16 +2120,14 @@ mod tests {
             })),
             span: None,
         };
-        let result = ExpressionEvaluator::evaluate(&expr, &context).unwrap();
+        let result = ExpressionEvaluator::evaluate(&expr, &scope).unwrap();
         assert_eq!(result, JsonValue::Bool(true));
     }
 
     #[test]
     fn test_expression_evaluator_variable() {
-        let mut context = InstanceContext::new(WorkflowInstanceId::new());
-        context
-            .variables
-            .insert("x".to_string(), JsonValue::Number(10.into()));
+        let mut scope: Scope = HashMap::new();
+        scope.insert("x".to_string(), JsonValue::Number(10.into()));
 
         let expr = ast::Expr {
             kind: Some(ast::expr::Kind::Variable(ast::Variable {
@@ -2167,13 +2135,13 @@ mod tests {
             })),
             span: None,
         };
-        let result = ExpressionEvaluator::evaluate(&expr, &context).unwrap();
+        let result = ExpressionEvaluator::evaluate(&expr, &scope).unwrap();
         assert_eq!(result, JsonValue::Number(10.into()));
     }
 
     #[test]
     fn test_expression_evaluator_binary_add() {
-        let context = InstanceContext::new(WorkflowInstanceId::new());
+        let scope: Scope = HashMap::new();
 
         let expr = ast::Expr {
             kind: Some(ast::expr::Kind::BinaryOp(Box::new(ast::BinaryOp {
@@ -2193,13 +2161,13 @@ mod tests {
             }))),
             span: None,
         };
-        let result = ExpressionEvaluator::evaluate(&expr, &context).unwrap();
+        let result = ExpressionEvaluator::evaluate(&expr, &scope).unwrap();
         assert_eq!(result, JsonValue::Number(10.into()));
     }
 
     #[test]
     fn test_expression_evaluator_comparison() {
-        let context = InstanceContext::new(WorkflowInstanceId::new());
+        let scope: Scope = HashMap::new();
 
         // 5 > 3
         let expr = ast::Expr {
@@ -2220,13 +2188,13 @@ mod tests {
             }))),
             span: None,
         };
-        let result = ExpressionEvaluator::evaluate(&expr, &context).unwrap();
+        let result = ExpressionEvaluator::evaluate(&expr, &scope).unwrap();
         assert_eq!(result, JsonValue::Bool(true));
     }
 
     #[test]
     fn test_expression_evaluator_list() {
-        let context = InstanceContext::new(WorkflowInstanceId::new());
+        let scope: Scope = HashMap::new();
 
         let expr = ast::Expr {
             kind: Some(ast::expr::Kind::List(ast::ListExpr {
@@ -2247,7 +2215,7 @@ mod tests {
             })),
             span: None,
         };
-        let result = ExpressionEvaluator::evaluate(&expr, &context).unwrap();
+        let result = ExpressionEvaluator::evaluate(&expr, &scope).unwrap();
         assert_eq!(
             result,
             JsonValue::Array(vec![
@@ -2259,7 +2227,7 @@ mod tests {
 
     #[test]
     fn test_builtin_range() {
-        let context = InstanceContext::new(WorkflowInstanceId::new());
+        let scope: Scope = HashMap::new();
 
         let expr = ast::Expr {
             kind: Some(ast::expr::Kind::FunctionCall(ast::FunctionCall {
@@ -2277,7 +2245,7 @@ mod tests {
             })),
             span: None,
         };
-        let result = ExpressionEvaluator::evaluate(&expr, &context).unwrap();
+        let result = ExpressionEvaluator::evaluate(&expr, &scope).unwrap();
         assert_eq!(
             result,
             JsonValue::Array(vec![
@@ -2292,7 +2260,7 @@ mod tests {
 
     #[test]
     fn test_builtin_len() {
-        let context = InstanceContext::new(WorkflowInstanceId::new());
+        let scope: Scope = HashMap::new();
 
         let expr = ast::Expr {
             kind: Some(ast::expr::Kind::FunctionCall(ast::FunctionCall {
@@ -2329,7 +2297,7 @@ mod tests {
             })),
             span: None,
         };
-        let result = ExpressionEvaluator::evaluate(&expr, &context).unwrap();
+        let result = ExpressionEvaluator::evaluate(&expr, &scope).unwrap();
         assert_eq!(result, JsonValue::Number(3.into()));
     }
 

@@ -14,14 +14,20 @@ async def get_initial_value() -> int:
 async def risky_operation(value: int) -> int:
     """An operation that might fail."""
     if value > 100:
-        raise ValueError(f"value too large: {value}")
+        raise ValueError("value too large: " + str(value))
     return value * 2
 
 
 @action
 async def handle_error(message: str) -> str:
     """Handle an error."""
-    return f"handled:{message}"
+    return "handled:" + message
+
+
+@action
+async def format_success(result: int) -> str:
+    """Format a success message."""
+    return "success:" + str(result)
 
 
 @workflow
@@ -38,7 +44,7 @@ class ExceptionWorkflow(Workflow):
         try:
             value = await get_initial_value()
             result = await risky_operation(value=value)
-            return f"success:{result}"
+            return await format_success(result=result)
         except ValueError:
             error_result = await handle_error(message="fallback")
             return error_result

@@ -573,9 +573,9 @@ impl IrPrinter {
     /// Format a duration value.
     fn format_duration(&self, duration: &ast::Duration) -> String {
         let seconds = duration.seconds;
-        if seconds >= 3600 && seconds % 3600 == 0 {
+        if seconds >= 3600 && seconds.is_multiple_of(3600) {
             format!("{}h", seconds / 3600)
-        } else if seconds >= 60 && seconds % 60 == 0 {
+        } else if seconds >= 60 && seconds.is_multiple_of(60) {
             format!("{}m", seconds / 60)
         } else {
             format!("{}s", seconds)
@@ -630,11 +630,23 @@ mod tests {
 
         // Basic assertions
         assert!(output.contains("fn run"), "Should contain run function");
-        assert!(output.contains("fn __for_body_1__"), "Should contain implicit for body function");
+        assert!(
+            output.contains("fn __for_body_1__"),
+            "Should contain implicit for body function"
+        );
         assert!(output.contains("spread"), "Should contain spread action");
         assert!(output.contains("if"), "Should contain conditional");
-        assert!(output.contains("@analyze_hash"), "Should contain analyze_hash action");
-        assert!(output.contains("@process_special_hash"), "Should contain process_special_hash action");
-        assert!(output.contains("@process_normal_hash"), "Should contain process_normal_hash action");
+        assert!(
+            output.contains("@analyze_hash"),
+            "Should contain analyze_hash action"
+        );
+        assert!(
+            output.contains("@process_special_hash"),
+            "Should contain process_special_hash action"
+        );
+        assert!(
+            output.contains("@process_normal_hash"),
+            "Should contain process_normal_hash action"
+        );
     }
 }

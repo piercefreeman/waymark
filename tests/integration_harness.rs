@@ -371,11 +371,13 @@ impl IntegrationHarness {
 
     /// Dispatch all queued actions and wait for completion.
     ///
-    /// This uses a simplified dispatch loop for testing. For sequential workflows,
-    /// it only runs the first action (subsequent actions need the full DAGRunner
-    /// completion handling to enqueue them).
+    /// This uses the DAGRunner for completion handling, which triggers DAG
+    /// traversal to enqueue successor actions. This properly handles:
+    /// - Sequential workflows (action chains)
+    /// - Parallel workflows (gather/spread)
+    /// - Loops with multiple iterations
     pub async fn dispatch_all(&self) -> Result<Vec<RoundTripMetrics>> {
-        dispatch_all_actions(&self.database, &self.worker_pool).await
+        dispatch_all_actions_with_runner(&self.database, &self.worker_pool, &self.runner).await
     }
 
     /// Get the stored workflow result.
@@ -570,19 +572,20 @@ async fn run_shell(
     }
 }
 
-/// Dispatch all actions from the queue to workers.
+/// Dispatch all actions from the queue to workers with DAG runner integration.
 ///
-/// This is a simplified dispatch loop for testing that:
+/// This dispatch loop:
 /// 1. Fetches queued actions
 /// 2. Dispatches them to workers
-/// 3. Marks actions as completed
+/// 3. Uses DAGRunner to process completions (which enqueues successor actions)
 /// 4. Repeats until no more work is available
-async fn dispatch_all_actions(
+async fn dispatch_all_actions_with_runner(
     database: &Arc<Database>,
     pool: &Arc<PythonWorkerPool>,
+    runner: &DAGRunner,
 ) -> Result<Vec<RoundTripMetrics>> {
     let mut completed = Vec::new();
-    let mut max_iterations = 200;
+    let mut max_iterations = 500;
     let mut idle_cycles = 0usize;
 
     while max_iterations > 0 {
@@ -591,10 +594,19 @@ async fn dispatch_all_actions(
         let actions = database.dispatch_actions(16).await?;
         if actions.is_empty() {
             idle_cycles = idle_cycles.saturating_add(1);
-            if idle_cycles >= 5 && !completed.is_empty() {
-                break;
+            if idle_cycles >= 10 && !completed.is_empty() {
+                // Check if there are any pending actions in the queue
+                let pending: i64 = sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM action_queue WHERE status IN ('pending', 'running')",
+                )
+                .fetch_one(database.pool())
+                .await?;
+
+                if pending == 0 {
+                    break;
+                }
             }
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            tokio::time::sleep(Duration::from_millis(50)).await;
             continue;
         }
 
@@ -628,15 +640,23 @@ async fn dispatch_all_actions(
                 .await
                 .map_err(|e| anyhow!("worker send failed: {}", e))?;
 
-            // Mark action as completed
-            let record = rappel::CompletionRecord {
-                action_id: rappel::ActionId(action.id),
-                success: metrics.success,
-                result_payload: metrics.response_payload.clone(),
-                delivery_token: metrics.dispatch_token.unwrap_or(action.delivery_token),
-                error_message: metrics.error_message.clone(),
-            };
-            database.complete_action(record).await?;
+            // Process completion through DAGRunner to trigger DAG traversal
+            let completion_result = runner
+                .process_action_completion(
+                    rappel::ActionId(action.id),
+                    WorkflowInstanceId(action.instance_id),
+                    action.node_id.clone(),
+                    metrics.success,
+                    metrics.response_payload.clone(),
+                    metrics.error_message.clone(),
+                    action.delivery_token,
+                )
+                .await;
+
+            if let Err(e) = completion_result {
+                tracing::error!("Failed to process completion: {}", e);
+            }
+
             completed.push(metrics);
         }
     }
