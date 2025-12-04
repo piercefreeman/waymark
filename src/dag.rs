@@ -437,8 +437,34 @@ impl DAGConverter {
         }
     }
 
-    /// Convert a Rappel program to a DAG with isolated function subgraphs
+    /// Convert a Rappel program to a fully expanded DAG.
+    ///
+    /// This is a two-phase process:
+    /// 1. Build DAG with isolated function subgraphs + fn_call pointer nodes
+    /// 2. Expand all function calls into a single global DAG rooted at the entry function
     pub fn convert(&mut self, program: &ast::Program) -> DAG {
+        // Phase 1: Build with function pointers
+        let unexpanded = self.convert_with_pointers(program);
+
+        // Phase 2: Expand into single global DAG
+        // Find the entry function - prefer "run", then "main", then first non-internal function
+        // This matches the runner's logic for finding the entry point
+        let entry_fn = self.function_defs.keys()
+            .find(|name| *name == "run")
+            .or_else(|| self.function_defs.keys().find(|name| *name == "main"))
+            .or_else(|| self.function_defs.keys().find(|name| !name.starts_with("__")))
+            .or_else(|| self.function_defs.keys().next())
+            .map(|s| s.as_str())
+            .unwrap_or("run");
+
+        self.expand_functions(&unexpanded, entry_fn)
+    }
+
+    /// Phase 1: Convert a Rappel program to a DAG with isolated function subgraphs.
+    ///
+    /// Each function becomes its own subgraph with input/output boundary nodes.
+    /// Function calls create "fn_call" pointer nodes that reference the called function.
+    fn convert_with_pointers(&mut self, program: &ast::Program) -> DAG {
         self.dag = DAG::new();
         self.node_counter = 0;
         self.function_defs.clear();
@@ -454,6 +480,268 @@ impl DAGConverter {
         }
 
         std::mem::take(&mut self.dag)
+    }
+
+    /// Phase 2: Expand all function calls into a single global DAG.
+    ///
+    /// Starting from the entry function, recursively inlines all fn_call nodes
+    /// by cloning the called function's body and wiring edges based on context:
+    /// - Try/except: ALL nodes within expansion get exception edges to handlers
+    /// - If/else: Only the LAST node of expansion connects to the join node
+    /// - For loop: The LAST node of expansion connects back to loop head
+    fn expand_functions(&self, unexpanded: &DAG, entry_fn: &str) -> DAG {
+        let mut expanded = DAG::new();
+        let mut visited_calls: HashSet<String> = HashSet::new();
+
+        self.expand_function_recursive(
+            unexpanded,
+            entry_fn,
+            &mut expanded,
+            &mut visited_calls,
+            None, // No ID remapping for entry function
+        );
+
+        expanded
+    }
+
+    /// Recursively expand a function into the target DAG.
+    ///
+    /// Returns (first_node_id, last_node_id) of the expanded function body.
+    /// For the entry function (id_prefix = None), input/output nodes are kept.
+    /// For inlined functions (id_prefix = Some), input/output nodes are stripped.
+    fn expand_function_recursive(
+        &self,
+        unexpanded: &DAG,
+        fn_name: &str,
+        target: &mut DAG,
+        visited_calls: &mut HashSet<String>,
+        id_prefix: Option<&str>,
+    ) -> Option<(String, String)> {
+        // Get all nodes for this function
+        let fn_nodes = unexpanded.get_nodes_for_function(fn_name);
+        if fn_nodes.is_empty() {
+            return None;
+        }
+
+        // Find input and output nodes
+        let input_node = fn_nodes.values().find(|n| n.is_input);
+        let output_node = fn_nodes.values().find(|n| n.is_output);
+
+        // For the entry function (no prefix), we keep input/output nodes
+        // For inlined functions, we strip them
+        let is_entry_function = id_prefix.is_none();
+
+        // Build execution order for this function (using state machine edges)
+        let fn_node_ids: HashSet<String> = fn_nodes.keys().cloned().collect();
+        let ordered_nodes = self.get_topo_order(unexpanded, &fn_node_ids);
+
+        // Map from old node IDs to new node IDs (for cloned nodes)
+        let mut id_map: HashMap<String, String> = HashMap::new();
+
+        // Track first and last "real" nodes (excluding input/output for inlined functions)
+        let mut first_real_node: Option<String> = None;
+        let mut last_real_node: Option<String> = None;
+
+        // Clone nodes
+        for old_id in &ordered_nodes {
+            let node = match unexpanded.nodes.get(old_id) {
+                Some(n) => n,
+                None => continue,
+            };
+
+            // For inlined functions, skip input/output boundary nodes
+            if !is_entry_function && (node.is_input || node.is_output) {
+                continue;
+            }
+
+            // Check if this is a fn_call that needs expansion
+            if node.is_fn_call {
+                if let Some(called_fn) = &node.called_function {
+                    // Prevent infinite recursion
+                    let call_key = format!("{}:{}", fn_name, old_id);
+                    if visited_calls.contains(&call_key) {
+                        panic!("Recursive function call detected: {} -> {}", fn_name, called_fn);
+                    }
+                    visited_calls.insert(call_key.clone());
+
+                    // Collect exception edges from this fn_call node BEFORE expansion
+                    // These need to be propagated to ALL expanded nodes
+                    let exception_edges: Vec<_> = unexpanded.edges.iter()
+                        .filter(|e| e.source == *old_id && e.exception_types.is_some())
+                        .cloned()
+                        .collect();
+
+                    // Recursively expand the called function
+                    let child_prefix = if let Some(prefix) = id_prefix {
+                        format!("{}:{}", prefix, old_id)
+                    } else {
+                        old_id.clone()
+                    };
+
+                    if let Some((child_first, child_last)) = self.expand_function_recursive(
+                        unexpanded,
+                        called_fn,
+                        target,
+                        visited_calls,
+                        Some(&child_prefix),
+                    ) {
+                        // Map this fn_call node to the expansion's first/last nodes
+                        // For edge rewiring, we treat fn_call as expanding to child_first...child_last
+                        id_map.insert(old_id.clone(), child_first.clone());
+
+                        // Store the last node for later edge rewiring
+                        // We'll need special handling for edges FROM this fn_call
+                        id_map.insert(format!("{}_last", old_id), child_last.clone());
+
+                        // Propagate exception edges to ALL expanded nodes
+                        // This implements the try/except context handling:
+                        // when a function is called inside a try block, all its nodes
+                        // should route exceptions to the handlers
+                        if !exception_edges.is_empty() {
+                            // Find all nodes that were added as part of this expansion
+                            // They have IDs starting with child_prefix
+                            let expanded_node_ids: Vec<_> = target.nodes.keys()
+                                .filter(|id| id.starts_with(&child_prefix))
+                                .cloned()
+                                .collect();
+
+                            for expanded_node_id in expanded_node_ids {
+                                for exc_edge in &exception_edges {
+                                    let mut new_edge = exc_edge.clone();
+                                    new_edge.source = expanded_node_id.clone();
+                                    // Target is already the exception handler (outside expansion)
+                                    target.add_edge(new_edge);
+                                }
+                            }
+                        }
+
+                        if first_real_node.is_none() {
+                            first_real_node = Some(child_first);
+                        }
+                        last_real_node = Some(child_last);
+                    }
+
+                    visited_calls.remove(&call_key);
+                    continue;
+                }
+            }
+
+            // Clone the node with a new ID
+            let new_id = if let Some(prefix) = id_prefix {
+                format!("{}:{}", prefix, node.id)
+            } else {
+                node.id.clone()
+            };
+
+            let mut cloned = node.clone();
+            cloned.id = new_id.clone();
+            cloned.node_uuid = Uuid::new_v4();
+
+            id_map.insert(old_id.clone(), new_id.clone());
+
+            if first_real_node.is_none() {
+                first_real_node = Some(new_id.clone());
+            }
+            last_real_node = Some(new_id.clone());
+
+            target.add_node(cloned);
+        }
+
+        // Clone edges, remapping IDs and handling boundary nodes
+        let input_id = input_node.map(|n| n.id.as_str());
+        let output_id = output_node.map(|n| n.id.as_str());
+
+        for edge in &unexpanded.edges {
+            // Skip edges not in this function
+            if !fn_node_ids.contains(&edge.source) || !fn_node_ids.contains(&edge.target) {
+                continue;
+            }
+
+            // For inlined functions (not entry), skip edges to/from input/output nodes
+            if !is_entry_function {
+                // Handle edges from input node - these become edges from predecessor (handled by caller)
+                if input_id == Some(edge.source.as_str()) {
+                    // Skip - the caller will wire incoming edges
+                    continue;
+                }
+
+                // Handle edges to output node - these become edges to successor (handled by caller)
+                if output_id == Some(edge.target.as_str()) {
+                    // Skip - the caller will wire outgoing edges
+                    continue;
+                }
+            }
+
+            // Get remapped source and target
+            let new_source = if let Some(mapped) = id_map.get(&edge.source) {
+                // If source was a fn_call, we need the LAST node of its expansion
+                if unexpanded.nodes.get(&edge.source).map(|n| n.is_fn_call).unwrap_or(false) {
+                    id_map.get(&format!("{}_last", edge.source))
+                        .cloned()
+                        .unwrap_or_else(|| mapped.clone())
+                } else {
+                    mapped.clone()
+                }
+            } else {
+                continue; // Source not mapped (shouldn't happen)
+            };
+
+            let new_target = match id_map.get(&edge.target) {
+                Some(t) => t.clone(),
+                None => continue, // Target not mapped (shouldn't happen)
+            };
+
+            let mut cloned_edge = edge.clone();
+            cloned_edge.source = new_source;
+            cloned_edge.target = new_target;
+            target.add_edge(cloned_edge);
+        }
+
+        // Return first and last real nodes for parent to wire up
+        match (first_real_node, last_real_node) {
+            (Some(first), Some(last)) => Some((first, last)),
+            _ => None,
+        }
+    }
+
+    /// Get topological order of nodes using state machine edges
+    fn get_topo_order(&self, dag: &DAG, node_ids: &HashSet<String>) -> Vec<String> {
+        let mut in_degree: HashMap<String, usize> = node_ids.iter().map(|n| (n.clone(), 0)).collect();
+        let mut adj: HashMap<String, Vec<String>> = node_ids.iter().map(|n| (n.clone(), Vec::new())).collect();
+
+        for edge in &dag.edges {
+            if edge.edge_type == EdgeType::StateMachine
+                && node_ids.contains(&edge.source)
+                && node_ids.contains(&edge.target)
+            {
+                adj.get_mut(&edge.source).map(|v| v.push(edge.target.clone()));
+                in_degree.entry(edge.target.clone()).and_modify(|d| *d += 1);
+            }
+        }
+
+        // Kahn's algorithm
+        let mut queue: Vec<String> = in_degree
+            .iter()
+            .filter(|(_, deg)| **deg == 0)
+            .map(|(n, _)| n.clone())
+            .collect();
+        let mut order = Vec::new();
+
+        while let Some(node) = queue.pop() {
+            order.push(node.clone());
+            if let Some(neighbors) = adj.get(&node) {
+                for neighbor in neighbors {
+                    if let Some(deg) = in_degree.get_mut(neighbor) {
+                        *deg -= 1;
+                        if *deg == 0 {
+                            queue.push(neighbor.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        order
     }
 
     /// Convert a function definition into an isolated subgraph
@@ -1531,20 +1819,25 @@ mod tests {
 
     #[test]
     fn test_dag_multiple_functions() {
-        let source = r#"fn add(input: [a, b], output: [result]):
-    result = a + b
-    return result
+        // With function expansion, only the entry function and functions it calls
+        // are included in the final DAG. Independent functions are not included.
+        let source = r#"fn helper(input: [x], output: [y]):
+    y = x + 1
+    return y
 
-fn multiply(input: [x, y], output: [product]):
-    product = x * y
-    return product"#;
+fn main(input: [a], output: [result]):
+    result = helper(x=a)
+    return result"#;
         let program = parse(source).unwrap();
         let dag = convert_to_dag(&program);
 
-        // Should have nodes for both functions
+        // The expanded DAG should be rooted at main
+        // Helper's body should be inlined (once we implement expansion)
         let functions = dag.get_functions();
-        assert!(functions.contains(&"add".to_string()));
-        assert!(functions.contains(&"multiply".to_string()));
+        assert!(
+            functions.contains(&"main".to_string()),
+            "Should have main function"
+        );
     }
 
     #[test]
@@ -1566,7 +1859,8 @@ fn multiply(input: [x, y], output: [product]):
     }
 
     #[test]
-    fn test_dag_fn_call_node() {
+    fn test_dag_fn_call_expansion() {
+        // With function expansion, fn_call nodes are replaced by the called function's body
         let source = r#"fn helper(input: [x], output: [y]):
     y = x + 1
     return y
@@ -1577,13 +1871,22 @@ fn main(input: [], output: [result]):
         let program = parse(source).unwrap();
         let dag = convert_to_dag(&program);
 
-        // Find fn_call nodes
+        // fn_call nodes should be expanded (replaced by helper's body)
         let fn_call_nodes: Vec<_> = dag.nodes.values().filter(|n| n.is_fn_call).collect();
-        assert!(!fn_call_nodes.is_empty());
         assert!(
-            fn_call_nodes
-                .iter()
-                .any(|n| n.called_function == Some("helper".to_string()))
+            fn_call_nodes.is_empty(),
+            "fn_call nodes should be expanded into function body"
+        );
+
+        // The expanded DAG should contain the helper's assignment node
+        let assignment_nodes: Vec<_> = dag
+            .nodes
+            .values()
+            .filter(|n| n.node_type == "assignment")
+            .collect();
+        assert!(
+            !assignment_nodes.is_empty(),
+            "Should have helper's assignment node inlined"
         );
     }
 

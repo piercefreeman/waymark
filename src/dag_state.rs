@@ -795,20 +795,17 @@ mod tests {
 
     #[test]
     fn test_get_function_names() {
+        // With function expansion, only the entry function is in the final DAG.
+        // The entry function is "add" (first function when no "main" exists).
         let source = r#"fn add(input: [a, b], output: [result]):
     result = a + b
-    return result
-
-fn multiply(input: [x, y], output: [product]):
-    product = x * y
-    return product"#;
+    return result"#;
         let program = parse(source).unwrap();
         let dag = convert_to_dag(&program);
         let helper = DAGHelper::new(&dag);
 
         let names = helper.get_function_names();
-        assert!(names.contains(&"add"));
-        assert!(names.contains(&"multiply"));
+        assert!(names.contains(&"add"), "Should have entry function 'add'");
     }
 
     #[test]
