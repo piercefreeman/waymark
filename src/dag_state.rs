@@ -282,6 +282,10 @@ impl<'a> DAGHelper<'a> {
     ///
     /// Unlike `get_inlinable_successors`, this only returns direct successors
     /// and respects conditional edge labels.
+    ///
+    /// The DAG structure is "flat" for conditionals and try/except:
+    /// - Conditional: "branch" node with guarded edges to each branch action
+    /// - Try/except: try body action with success edge and exception edges to handlers
     pub fn get_ready_successors(
         &self,
         node_id: &str,
@@ -290,17 +294,48 @@ impl<'a> DAGHelper<'a> {
         let mut successors = Vec::new();
 
         for edge in self.get_state_machine_successors(node_id) {
-            // Handle conditional edges
+            // Handle exception edges - these are only followed when an exception occurs
+            // They're identified by having exception_types set
+            if edge.exception_types.is_some() {
+                // Exception handlers are only activated when explicitly requested
+                // During normal traversal, skip them
+                continue;
+            }
+
+            // Handle guarded edges (conditional branches)
+            // These have guard_expr set and should be evaluated by the runner
+            // For now, we include them in successors and let the runner evaluate
+            if edge.guard_expr.is_some() {
+                // Include guarded edges - the runner will evaluate them
+                let target_node = match self.get_node(&edge.target) {
+                    Some(n) => n,
+                    None => continue,
+                };
+                let mode = self.get_execution_mode(target_node);
+                successors.push(SuccessorInfo {
+                    node_id: edge.target.clone(),
+                    execution_mode: mode,
+                    is_aggregator: target_node.is_aggregator,
+                    condition: edge.condition.clone(),
+                    guard_expr: edge.guard_expr.clone(),
+                });
+                continue;
+            }
+
+            // Handle legacy conditional edges (then/else) and other conditions
             if let Some(ref condition) = edge.condition {
-                // Try/except handling: "try" is default path, "except:*" only on failure
+                // Legacy try/except handling for backwards compatibility
                 if condition.starts_with("except:") {
                     // Exception handlers are only activated when explicitly requested
-                    // During normal traversal (condition_result=None), skip them
                     continue;
                 }
 
                 match (condition.as_str(), condition_result) {
-                    // "try" is always followed (default success path)
+                    // "success" is followed after a successful try body
+                    ("success", _) => {
+                        // Edge should be followed
+                    }
+                    // "try" is always followed (legacy - default success path)
                     ("try", _) => {
                         // Edge should be followed
                     }
@@ -312,7 +347,7 @@ impl<'a> DAGHelper<'a> {
                         continue;
                     }
                     _ => {
-                        // Other conditions (parallel, etc.) - include for now
+                        // Other conditions (parallel, guarded, etc.) - include for now
                     }
                 }
             }
@@ -329,6 +364,7 @@ impl<'a> DAGHelper<'a> {
                 execution_mode: mode,
                 is_aggregator: target_node.is_aggregator,
                 condition: edge.condition.clone(),
+                guard_expr: None,
             });
         }
 
@@ -376,10 +412,10 @@ impl<'a> DAGHelper<'a> {
             .unwrap_or(false)
     }
 
-    /// Check if a node is a conditional (if statement).
+    /// Check if a node is a conditional branch decision point.
     pub fn is_conditional(&self, node_id: &str) -> bool {
         self.get_node(node_id)
-            .map(|n| n.node_type == "if")
+            .map(|n| n.node_type == "branch")
             .unwrap_or(false)
     }
 
@@ -608,6 +644,8 @@ pub struct SuccessorInfo {
     pub is_aggregator: bool,
     /// Condition on the edge (if any)
     pub condition: Option<String>,
+    /// Guard expression for conditional edges (needs evaluation at runtime)
+    pub guard_expr: Option<crate::parser::ast::Expr>,
 }
 
 /// Information about an except handler.
@@ -785,32 +823,33 @@ fn multiply(input: [x, y], output: [product]):
         let dag = convert_to_dag(&program);
         let helper = DAGHelper::new(&dag);
 
-        // Find the if node
-        let if_node_id = dag
+        // Find the branch node (replaces old "if" container node)
+        let branch_node_id = dag
             .nodes
             .iter()
-            .find(|(_, n)| n.node_type == "if")
+            .find(|(_, n)| n.node_type == "branch")
             .map(|(id, _)| id.clone());
 
-        assert!(if_node_id.is_some());
+        assert!(branch_node_id.is_some());
 
-        // Test with condition = true (should get "then" branch)
-        let true_successors = helper.get_ready_successors(&if_node_id.clone().unwrap(), Some(true));
-        let true_conditions: Vec<_> = true_successors
-            .iter()
-            .filter_map(|s| s.condition.as_deref())
-            .collect();
-        assert!(true_conditions.contains(&"then"));
-        assert!(!true_conditions.contains(&"else"));
+        // In the new flat DAG structure, the branch node has guarded edges
+        // to each branch's first action. All guarded edges are returned and
+        // the runner evaluates them.
+        let successors = helper.get_ready_successors(&branch_node_id.unwrap(), None);
 
-        // Test with condition = false (should get "else" branch)
-        let false_successors = helper.get_ready_successors(&if_node_id.unwrap(), Some(false));
-        let false_conditions: Vec<_> = false_successors
-            .iter()
-            .filter_map(|s| s.condition.as_deref())
-            .collect();
-        assert!(!false_conditions.contains(&"then"));
-        assert!(false_conditions.contains(&"else"));
+        // Should have 2 successors with guard expressions (one for each branch)
+        assert_eq!(
+            successors.len(),
+            2,
+            "Branch should have 2 guarded successors"
+        );
+
+        // Both should have guard expressions
+        let guarded_count = successors.iter().filter(|s| s.guard_expr.is_some()).count();
+        assert_eq!(
+            guarded_count, 2,
+            "Both successors should have guard expressions"
+        );
     }
 
     #[test]
@@ -877,37 +916,54 @@ fn multiply(input: [x, y], output: [product]):
     try:
         result = @risky_action(x=x)
     except NetworkError:
-        result = "network error"
+        result = @fallback(x=x)
     except:
-        result = "unknown error"
+        result = @error_handler(x=x)
     return result"#;
         let program = parse(source).unwrap();
         let dag = convert_to_dag(&program);
-        let helper = DAGHelper::new(&dag);
 
-        // Find the try node
-        let try_node_id = dag
+        // In the flat DAG structure, there's no "try" container node.
+        // Instead, the try body action (@risky_action) has exception edges
+        // to the handler actions. Find the risky_action node.
+        let try_body_node_id = dag
             .nodes
             .iter()
-            .find(|(_, n)| n.node_type == "try")
+            .find(|(_, n)| n.node_type == "action_call" && n.action_name.as_deref() == Some("risky_action"))
             .map(|(id, _)| id.clone());
 
-        assert!(try_node_id.is_some());
+        assert!(try_body_node_id.is_some(), "Should find try body action node");
 
-        let handlers = helper.get_except_handlers(&try_node_id.unwrap());
-        assert_eq!(handlers.len(), 2);
+        // Look for exception edges from the try body to handlers
+        let exception_edges: Vec<_> = dag
+            .edges
+            .iter()
+            .filter(|e| e.source == try_body_node_id.clone().unwrap() && e.exception_types.is_some())
+            .collect();
+
+        assert_eq!(
+            exception_edges.len(),
+            2,
+            "Should have 2 exception handler edges"
+        );
 
         // Should have specific handler and catch-all
-        let specific = handlers.iter().find(|h| !h.is_catch_all);
-        let catch_all = handlers.iter().find(|h| h.is_catch_all);
+        let specific = exception_edges
+            .iter()
+            .find(|e| e.exception_types.as_ref().map(|t| !t.is_empty()).unwrap_or(false));
+        let catch_all = exception_edges
+            .iter()
+            .find(|e| e.exception_types.as_ref().map(|t| t.is_empty()).unwrap_or(false));
 
-        assert!(specific.is_some());
-        assert!(catch_all.is_some());
+        assert!(specific.is_some(), "Should have specific exception handler");
+        assert!(catch_all.is_some(), "Should have catch-all handler");
         assert!(
             specific
                 .unwrap()
                 .exception_types
-                .contains(&"NetworkError".to_string())
+                .as_ref()
+                .map(|t| t.contains(&"NetworkError".to_string()))
+                .unwrap_or(false)
         );
     }
 
@@ -923,15 +979,15 @@ fn multiply(input: [x, y], output: [product]):
         let dag = convert_to_dag(&program);
         let helper = DAGHelper::new(&dag);
 
-        // Find the if node
-        let if_node_id = dag
+        // Find the branch node (replaces old "if" container node)
+        let branch_node_id = dag
             .nodes
             .iter()
-            .find(|(_, n)| n.node_type == "if")
+            .find(|(_, n)| n.node_type == "branch")
             .map(|(id, _)| id.clone());
 
-        assert!(if_node_id.is_some());
-        assert!(helper.is_conditional(&if_node_id.unwrap()));
+        assert!(branch_node_id.is_some());
+        assert!(helper.is_conditional(&branch_node_id.unwrap()));
     }
 
     #[test]

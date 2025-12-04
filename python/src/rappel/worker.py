@@ -85,9 +85,9 @@ async def _handle_dispatch(
         else:
             execution = await workflow_runtime.execute_action(dispatch)
 
-        if execution.error:
+        if execution.exception:
             success = False
-            response_payload = serialize_error_payload(action_name, Exception(execution.error))
+            response_payload = serialize_error_payload(action_name, execution.exception)
         else:
             response_payload = serialize_result_payload(execution.result)
     except asyncio.TimeoutError:

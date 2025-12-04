@@ -28,7 +28,7 @@ class ActionExecutionResult:
     """Result of an action execution."""
 
     result: Any
-    error: str | None = None
+    exception: BaseException | None = None
 
 
 async def execute_action(dispatch: pb2.ActionDispatch) -> ActionExecutionResult:
@@ -54,7 +54,7 @@ async def execute_action(dispatch: pb2.ActionDispatch) -> ActionExecutionResult:
     if handler is None:
         return ActionExecutionResult(
             result=None,
-            error=f"action '{action_name}' not registered",
+            exception=KeyError(f"action '{action_name}' not registered"),
         )
 
     # Deserialize kwargs
@@ -69,5 +69,5 @@ async def execute_action(dispatch: pb2.ActionDispatch) -> ActionExecutionResult:
     except Exception as e:
         return ActionExecutionResult(
             result=None,
-            error=f"{type(e).__name__}: {e}",
+            exception=e,
         )

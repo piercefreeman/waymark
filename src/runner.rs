@@ -1025,8 +1025,138 @@ impl DAGRunner {
             error_message: metrics.error_message.clone(),
         });
 
-        // If failed, just record completion and return
+        // If failed, check if this is an exception that should be caught
+        // Parse the result payload to see if it contains exception info
         if !metrics.success {
+            let action_id_str = in_flight.action.id.to_string();
+            debug!(
+                action_id = %action_id_str,
+                response_payload_len = metrics.response_payload.len(),
+                "action failed, checking for exception info"
+            );
+
+            // Try to parse exception info from the response payload
+            // Note: Python uses "error" key for exception payloads, not "result"
+            let maybe_exception: Option<JsonValue> = if !metrics.response_payload.is_empty() {
+                match proto::WorkflowArguments::decode(&metrics.response_payload[..]) {
+                    Ok(args) => {
+                        debug!(
+                            action_id = %action_id_str,
+                            arg_count = args.arguments.len(),
+                            arg_keys = ?args.arguments.iter().map(|a| &a.key).collect::<Vec<_>>(),
+                            "parsed WorkflowArguments from response payload"
+                        );
+                        args
+                            .arguments
+                            .iter()
+                            .find(|arg| arg.key == "error")
+                            .and_then(|arg| arg.value.as_ref())
+                            .map(proto_value_to_json)
+                    }
+                    Err(e) => {
+                        debug!(
+                            action_id = %action_id_str,
+                            error = %e,
+                            "failed to decode WorkflowArguments, trying JSON"
+                        );
+                        serde_json::from_slice(&metrics.response_payload).ok()
+                    }
+                }
+            } else {
+                debug!(action_id = %action_id_str, "response payload is empty");
+                None
+            };
+
+            debug!(
+                action_id = %action_id_str,
+                maybe_exception = ?maybe_exception,
+                "parsed exception value"
+            );
+
+            // Check if this exception should be caught
+            if let Some(ref exc_value) = maybe_exception
+                && let Some(exception_type) = Self::is_exception_result(exc_value)
+            {
+                // Get DAG for this workflow instance
+                if let Some(dag) = dag_cache.get_dag_for_instance(instance_id).await? {
+                    let node_id = match in_flight.action.node_id.as_deref() {
+                        Some(id) => id,
+                        None => {
+                            handler.write_batch(batch).await?;
+                            return Ok(());
+                        }
+                    };
+
+                    let helper = DAGHelper::new(&dag);
+                    let (base_node_id, _spread_index) = Self::parse_spread_node_id(node_id);
+
+                    debug!(
+                        node_id = %node_id,
+                        exception_type = %exception_type,
+                        "action failed with exception, looking for handlers"
+                    );
+
+                    // Look for exception handlers on this node
+                    if let Some(handler_id) = Self::get_exception_handlers_from_node(&dag, base_node_id, &exception_type) {
+                        debug!(
+                            node_id = %node_id,
+                            handler_id = %handler_id,
+                            "found exception handler on current node"
+                        );
+                        let mut inline_scope: Scope = HashMap::new();
+                        Self::process_exception_handler(
+                            &handler_id,
+                            exc_value,
+                            &dag,
+                            &helper,
+                            &mut inline_scope,
+                            &mut batch,
+                            instance_id,
+                            &handler.db,
+                        )
+                        .await?;
+                        handler.write_batch(batch).await?;
+                        return Ok(());
+                    }
+
+                    // Check if we're inside a synthetic try body function
+                    if let Some(fn_call_id) = Self::find_enclosing_fn_call(&dag, base_node_id) {
+                        debug!(
+                            node_id = %node_id,
+                            fn_call_id = %fn_call_id,
+                            "node is inside try body function, checking fn_call for handlers"
+                        );
+                        if let Some(handler_id) = Self::get_exception_handlers_from_node(&dag, &fn_call_id, &exception_type) {
+                            debug!(
+                                fn_call_id = %fn_call_id,
+                                handler_id = %handler_id,
+                                "found exception handler on enclosing fn_call"
+                            );
+                            let mut inline_scope: Scope = HashMap::new();
+                            Self::process_exception_handler(
+                                &handler_id,
+                                exc_value,
+                                &dag,
+                                &helper,
+                                &mut inline_scope,
+                                &mut batch,
+                                instance_id,
+                                &handler.db,
+                            )
+                            .await?;
+                            handler.write_batch(batch).await?;
+                            return Ok(());
+                        }
+                    }
+
+                    warn!(
+                        node_id = %node_id,
+                        exception_type = %exception_type,
+                        "no exception handler found for failed action"
+                    );
+                }
+            }
+
             handler.write_batch(batch).await?;
             return Ok(());
         }
@@ -1347,6 +1477,63 @@ impl DAGRunner {
         .await
     }
 
+    /// Check if a result represents an exception.
+    fn is_exception_result(result: &JsonValue) -> Option<String> {
+        if let JsonValue::Object(obj) = result {
+            if obj.get("__exception__").and_then(|v| v.as_bool()) == Some(true) {
+                return obj.get("type").and_then(|v| v.as_str()).map(|s| s.to_string());
+            }
+        }
+        None
+    }
+
+    /// Find the fn_call node that encloses a node within a synthetic try body function.
+    /// Returns the fn_call node ID if found.
+    fn find_enclosing_fn_call(dag: &DAG, node_id: &str) -> Option<String> {
+        // Check if this node is inside a try body function (starts with __try_body_)
+        let node = dag.nodes.get(node_id)?;
+        let fn_name = node.function_name.as_ref()?;
+        if !fn_name.starts_with("__try_body_") {
+            return None;
+        }
+
+        // Find the fn_call node that calls this function
+        for (fn_call_id, fn_call_node) in &dag.nodes {
+            if fn_call_node.is_fn_call
+                && fn_call_node.called_function.as_ref() == Some(fn_name)
+            {
+                return Some(fn_call_id.clone());
+            }
+        }
+        None
+    }
+
+    /// Get exception handlers from a node's outgoing edges.
+    fn get_exception_handlers_from_node(
+        dag: &DAG,
+        node_id: &str,
+        exception_type: &str,
+    ) -> Option<String> {
+        let mut catch_all_handler = None;
+
+        for edge in &dag.edges {
+            if edge.source != node_id {
+                continue;
+            }
+            if let Some(ref exc_types) = edge.exception_types {
+                if exc_types.is_empty() {
+                    // Catch-all handler
+                    catch_all_handler = Some(edge.target.clone());
+                } else if exc_types.iter().any(|t| t == exception_type) {
+                    // Specific handler matches
+                    return Some(edge.target.clone());
+                }
+            }
+        }
+
+        catch_all_handler
+    }
+
     /// Process successor nodes with optional condition result for branching.
     #[allow(clippy::too_many_arguments)]
     async fn process_successors_with_condition(
@@ -1360,6 +1547,77 @@ impl DAGRunner {
         db: &Database,
         condition_result: Option<bool>,
     ) -> RunnerResult<()> {
+        // Check if result is an exception
+        if let Some(exception_type) = Self::is_exception_result(result) {
+            debug!(
+                node_id = %node_id,
+                exception_type = %exception_type,
+                "result is an exception, looking for exception handlers"
+            );
+
+            // Look for exception handlers on this node
+            if let Some(handler_id) = Self::get_exception_handlers_from_node(dag, node_id, &exception_type) {
+                debug!(
+                    node_id = %node_id,
+                    handler_id = %handler_id,
+                    exception_type = %exception_type,
+                    "found exception handler on current node"
+                );
+                // Route to exception handler
+                return Self::process_exception_handler(
+                    &handler_id,
+                    result,
+                    dag,
+                    helper,
+                    inline_scope,
+                    batch,
+                    instance_id,
+                    db,
+                )
+                .await;
+            }
+
+            // Check if we're inside a synthetic try body function
+            if let Some(fn_call_id) = Self::find_enclosing_fn_call(dag, node_id) {
+                debug!(
+                    node_id = %node_id,
+                    fn_call_id = %fn_call_id,
+                    exception_type = %exception_type,
+                    "node is inside try body function, checking fn_call for handlers"
+                );
+                // Look for exception handlers on the enclosing fn_call
+                if let Some(handler_id) = Self::get_exception_handlers_from_node(dag, &fn_call_id, &exception_type) {
+                    debug!(
+                        fn_call_id = %fn_call_id,
+                        handler_id = %handler_id,
+                        exception_type = %exception_type,
+                        "found exception handler on enclosing fn_call"
+                    );
+                    return Self::process_exception_handler(
+                        &handler_id,
+                        result,
+                        dag,
+                        helper,
+                        inline_scope,
+                        batch,
+                        instance_id,
+                        db,
+                    )
+                    .await;
+                }
+            }
+
+            // No handler found - propagate exception (mark workflow as failed)
+            warn!(
+                node_id = %node_id,
+                exception_type = %exception_type,
+                "no exception handler found, exception will propagate"
+            );
+            // For now, just return - the workflow will timeout
+            // TODO: Mark instance as failed
+            return Ok(());
+        }
+
         // Store result in inline scope for potential inline successors
         if let Some(node) = dag.nodes.get(node_id)
             && let Some(ref target) = node.target
@@ -1369,7 +1627,49 @@ impl DAGRunner {
 
         let successors = helper.get_ready_successors(node_id, condition_result);
 
-        for successor in successors {
+        // Filter successors based on guard expressions
+        // If successors have guard_expr, evaluate them and only process matching ones
+        let filtered_successors: Vec<_> = successors
+            .into_iter()
+            .filter(|successor| {
+                if let Some(ref guard_expr) = successor.guard_expr {
+                    // Evaluate the guard expression
+                    match ExpressionEvaluator::evaluate(guard_expr, inline_scope) {
+                        Ok(val) => {
+                            let is_true = match &val {
+                                JsonValue::Bool(b) => *b,
+                                JsonValue::Null => false,
+                                JsonValue::Number(n) => n.as_f64().map(|f| f != 0.0).unwrap_or(false),
+                                JsonValue::String(s) => !s.is_empty(),
+                                JsonValue::Array(a) => !a.is_empty(),
+                                JsonValue::Object(o) => !o.is_empty(),
+                            };
+                            debug!(
+                                successor_id = %successor.node_id,
+                                guard_expr = ?guard_expr,
+                                result = ?val,
+                                is_true = is_true,
+                                "evaluated guard expression on edge"
+                            );
+                            is_true
+                        }
+                        Err(e) => {
+                            warn!(
+                                successor_id = %successor.node_id,
+                                error = %e,
+                                "failed to evaluate guard expression on edge, skipping"
+                            );
+                            false
+                        }
+                    }
+                } else {
+                    // No guard expression - always include
+                    true
+                }
+            })
+            .collect();
+
+        for successor in filtered_successors {
             let succ_node = match dag.nodes.get(&successor.node_id) {
                 Some(n) => n,
                 None => continue,
@@ -1403,43 +1703,10 @@ impl DAGRunner {
                         continue;
                     }
 
-                    // For conditional (if) nodes, evaluate the guard expression
-                    let condition_result = if succ_node.node_type == "if" {
-                        if let Some(ref guard_expr) = succ_node.guard_expr {
-                            match ExpressionEvaluator::evaluate(guard_expr, inline_scope) {
-                                Ok(val) => {
-                                    let is_true = match &val {
-                                        JsonValue::Bool(b) => *b,
-                                        JsonValue::Null => false,
-                                        JsonValue::Number(n) => n.as_f64().map(|f| f != 0.0).unwrap_or(false),
-                                        JsonValue::String(s) => !s.is_empty(),
-                                        JsonValue::Array(a) => !a.is_empty(),
-                                        JsonValue::Object(o) => !o.is_empty(),
-                                    };
-                                    debug!(
-                                        node_id = %successor.node_id,
-                                        guard_expr = ?guard_expr,
-                                        result = ?val,
-                                        is_true = is_true,
-                                        "evaluated conditional guard expression"
-                                    );
-                                    Some(is_true)
-                                }
-                                Err(e) => {
-                                    warn!(
-                                        node_id = %successor.node_id,
-                                        error = %e,
-                                        "failed to evaluate conditional guard expression"
-                                    );
-                                    None
-                                }
-                            }
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    };
+                    // For branch nodes, we don't evaluate guards here.
+                    // The guards are on the edges, and we handle them at successor traversal time.
+                    // For now, just pass through.
+                    let condition_result: Option<bool> = None;
 
                     // Execute inline node with in-memory scope
                     let inline_result = Self::execute_inline_node(succ_node, inline_scope)?;
@@ -1457,10 +1724,10 @@ impl DAGRunner {
                     }
 
                     // Determine what result to pass to successors:
-                    // - Control-flow nodes (join, if, try) pass through the incoming result
+                    // - Control-flow nodes (join, branch) pass through the incoming result
                     // - Value-producing nodes use their own inline_result
                     let passthrough_result = match succ_node.node_type.as_str() {
-                        "join" | "if" | "try" | "except" | "try_join" => result.clone(),
+                        "join" | "branch" => result.clone(),
                         _ => inline_result,
                     };
 
@@ -1508,6 +1775,84 @@ impl DAGRunner {
         }
 
         Ok(())
+    }
+
+    /// Process an exception handler node and its successors.
+    /// This is called when an exception is caught and we need to execute the handler.
+    #[allow(clippy::too_many_arguments)]
+    async fn process_exception_handler(
+        handler_node_id: &str,
+        _exception_result: &JsonValue,
+        dag: &DAG,
+        helper: &DAGHelper<'_>,
+        inline_scope: &mut Scope,
+        batch: &mut CompletionBatch,
+        instance_id: WorkflowInstanceId,
+        db: &Database,
+    ) -> RunnerResult<()> {
+        let handler_node = match dag.nodes.get(handler_node_id) {
+            Some(n) => n,
+            None => {
+                warn!(handler_node_id = %handler_node_id, "exception handler node not found");
+                return Ok(());
+            }
+        };
+
+        debug!(
+            handler_node_id = %handler_node_id,
+            handler_type = %handler_node.node_type,
+            "processing exception handler"
+        );
+
+        let exec_mode = helper.get_execution_mode(handler_node);
+        match exec_mode {
+            ExecutionMode::Inline => {
+                // Execute inline handler and continue to its successors
+                let inline_result = Self::execute_inline_node(handler_node, inline_scope)?;
+                if let Some(ref target) = handler_node.target {
+                    inline_scope.insert(target.clone(), inline_result.clone());
+                }
+                // Continue to handler's successors
+                Box::pin(Self::process_successors_with_condition(
+                    handler_node_id,
+                    &inline_result,
+                    dag,
+                    helper,
+                    inline_scope,
+                    batch,
+                    instance_id,
+                    db,
+                    None,
+                ))
+                .await
+            }
+            ExecutionMode::Delegated => {
+                // Handler is an action call - create action for it
+                // Read inbox for this node from database
+                let mut inbox = db.read_inbox(instance_id, handler_node_id).await?;
+
+                // Merge pending inbox writes
+                for pending_write in &batch.inbox_writes {
+                    if pending_write.target_node_id == handler_node_id {
+                        inbox.insert(
+                            pending_write.variable_name.clone(),
+                            pending_write.value.clone(),
+                        );
+                    }
+                }
+
+                // Merge inline scope variables
+                for (var_name, var_value) in inline_scope.iter() {
+                    inbox.entry(var_name.clone()).or_insert_with(|| var_value.clone());
+                }
+
+                // Create actions for the handler node
+                let result = Self::create_actions_for_node(handler_node, instance_id, &inbox, dag)?;
+                batch.new_actions.extend(result.actions);
+                batch.inbox_writes.extend(result.inbox_writes);
+                Ok(())
+            }
+        }
     }
 
     /// Serialize workflow result (inbox values) as protobuf WorkflowArguments.

@@ -188,7 +188,7 @@ impl DAGNode {
 // ============================================================================
 
 /// An edge in the execution DAG.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DAGEdge {
     /// Source node ID
     pub source: String,
@@ -200,6 +200,13 @@ pub struct DAGEdge {
     pub condition: Option<String>,
     /// Variable name (for data flow edges)
     pub variable: Option<String>,
+    /// Guard expression to evaluate before following this edge.
+    /// If present, the edge is only followed when the guard evaluates to true.
+    /// Used for conditional branches (if/elif/else) and exception handling.
+    pub guard_expr: Option<ast::Expr>,
+    /// Exception types that activate this edge (for except handlers).
+    /// If present, this edge is followed when the source node fails with a matching exception.
+    pub exception_types: Option<Vec<String>>,
 }
 
 impl DAGEdge {
@@ -211,6 +218,8 @@ impl DAGEdge {
             edge_type: EdgeType::StateMachine,
             condition: None,
             variable: None,
+            guard_expr: None,
+            exception_types: None,
         }
     }
 
@@ -222,6 +231,56 @@ impl DAGEdge {
             edge_type: EdgeType::StateMachine,
             condition: Some(condition.to_string()),
             variable: None,
+            guard_expr: None,
+            exception_types: None,
+        }
+    }
+
+    /// Create a state machine edge with guard expression (for conditional branches)
+    pub fn state_machine_with_guard(source: String, target: String, guard: ast::Expr) -> Self {
+        Self {
+            source,
+            target,
+            edge_type: EdgeType::StateMachine,
+            condition: Some("guarded".to_string()),
+            variable: None,
+            guard_expr: Some(guard),
+            exception_types: None,
+        }
+    }
+
+    /// Create a state machine edge for exception handling
+    pub fn state_machine_with_exception(
+        source: String,
+        target: String,
+        exception_types: Vec<String>,
+    ) -> Self {
+        let condition = if exception_types.is_empty() {
+            "except:*".to_string()
+        } else {
+            format!("except:{}", exception_types.join(","))
+        };
+        Self {
+            source,
+            target,
+            edge_type: EdgeType::StateMachine,
+            condition: Some(condition),
+            variable: None,
+            guard_expr: None,
+            exception_types: Some(exception_types),
+        }
+    }
+
+    /// Create a state machine edge for the success path after a try body
+    pub fn state_machine_success(source: String, target: String) -> Self {
+        Self {
+            source,
+            target,
+            edge_type: EdgeType::StateMachine,
+            condition: Some("success".to_string()),
+            variable: None,
+            guard_expr: None,
+            exception_types: None,
         }
     }
 
@@ -233,6 +292,8 @@ impl DAGEdge {
             edge_type: EdgeType::DataFlow,
             condition: None,
             variable: Some(variable.to_string()),
+            guard_expr: None,
+            exception_types: None,
         }
     }
 }
@@ -898,26 +959,42 @@ impl DAGConverter {
     }
 
     /// Convert a conditional (if/elif/else)
+    ///
+    /// The DAG structure is "flat" - there's no explicit "if" container node.
+    /// Instead:
+    /// - The first action/statement of each branch becomes a regular node
+    /// - Edges with guard expressions connect the predecessor to each branch
+    /// - The guard is evaluated at runtime to determine which edge to follow
+    /// - A join node collects the branches back together
+    ///
+    /// Example: if x > 0: result = @pos() else: result = @neg()
+    /// Becomes:
+    ///   predecessor --[guard: x > 0]--> @pos() --> join
+    ///               --[guard: not (x > 0)]--> @neg() --> join
     fn convert_conditional(&mut self, cond: &ast::Conditional) -> Vec<String> {
         let mut result_nodes = Vec::new();
 
-        // Create condition node with guard expression
-        let cond_id = self.next_id("if_cond");
-        let mut cond_node = DAGNode::new(cond_id.clone(), "if".to_string(), "if ...".to_string());
+        // We need a "branch" node that serves as the decision point.
+        // This node doesn't execute anything - it just routes based on guards.
+        let branch_id = self.next_id("branch");
+        let mut branch_node =
+            DAGNode::new(branch_id.clone(), "branch".to_string(), "branch".to_string());
         if let Some(ref fn_name) = self.current_function {
-            cond_node = cond_node.with_function_name(fn_name);
+            branch_node = branch_node.with_function_name(fn_name);
         }
-        // Store the guard expression for runtime evaluation
-        if let Some(if_branch) = &cond.if_branch {
-            if let Some(condition) = &if_branch.condition {
-                cond_node = cond_node.with_guard_expr(condition.clone());
-            }
-        }
-        self.dag.add_node(cond_node);
-        result_nodes.push(cond_id.clone());
+        self.dag.add_node(branch_node);
+        result_nodes.push(branch_id.clone());
 
+        let mut then_first: Option<String> = None;
         let mut then_last: Option<String> = None;
+        let mut else_first: Option<String> = None;
         let mut else_last: Option<String> = None;
+
+        // Get the guard expression for the if branch
+        let guard_expr = cond
+            .if_branch
+            .as_ref()
+            .and_then(|b| b.condition.clone());
 
         // Process then branch (SingleCallBody - exactly one call)
         if let Some(if_branch) = &cond.if_branch
@@ -925,11 +1002,7 @@ impl DAGConverter {
         {
             let node_ids = self.convert_single_call_body(body);
             if !node_ids.is_empty() {
-                self.dag.add_edge(DAGEdge::state_machine_with_condition(
-                    cond_id.clone(),
-                    node_ids[0].clone(),
-                    "then",
-                ));
+                then_first = Some(node_ids[0].clone());
                 then_last = Some(node_ids.last().unwrap().clone());
                 result_nodes.extend(node_ids);
             }
@@ -941,129 +1014,135 @@ impl DAGConverter {
         {
             let node_ids = self.convert_single_call_body(body);
             if !node_ids.is_empty() {
-                self.dag.add_edge(DAGEdge::state_machine_with_condition(
-                    cond_id.clone(),
-                    node_ids[0].clone(),
-                    "else",
-                ));
+                else_first = Some(node_ids[0].clone());
                 else_last = Some(node_ids.last().unwrap().clone());
                 result_nodes.extend(node_ids);
             }
         }
 
-        // Create join node if we have branches
-        if then_last.is_some() || else_last.is_some() {
-            let join_id = self.next_id("if_join");
-            let mut join_node =
-                DAGNode::new(join_id.clone(), "join".to_string(), "join".to_string());
-            if let Some(ref fn_name) = self.current_function {
-                join_node = join_node.with_function_name(fn_name);
-            }
-            self.dag.add_node(join_node);
-            result_nodes.push(join_id.clone());
+        // Create join node
+        let join_id = self.next_id("join");
+        let mut join_node = DAGNode::new(join_id.clone(), "join".to_string(), "join".to_string());
+        if let Some(ref fn_name) = self.current_function {
+            join_node = join_node.with_function_name(fn_name);
+        }
+        self.dag.add_node(join_node);
+        result_nodes.push(join_id.clone());
 
-            if let Some(then) = then_last {
-                self.dag
-                    .add_edge(DAGEdge::state_machine(then, join_id.clone()));
+        // Connect branch node to then branch with guard
+        if let Some(ref then_target) = then_first {
+            if let Some(ref guard) = guard_expr {
+                self.dag.add_edge(DAGEdge::state_machine_with_guard(
+                    branch_id.clone(),
+                    then_target.clone(),
+                    guard.clone(),
+                ));
             } else {
-                // Empty then branch
+                // No guard means unconditional (shouldn't happen for if branches)
                 self.dag.add_edge(DAGEdge::state_machine_with_condition(
-                    cond_id.clone(),
-                    join_id.clone(),
+                    branch_id.clone(),
+                    then_target.clone(),
                     "then",
                 ));
             }
+        }
 
-            if let Some(else_) = else_last {
-                self.dag
-                    .add_edge(DAGEdge::state_machine(else_, join_id.clone()));
-            } else if cond.else_branch.is_some() {
-                // Empty else branch
+        // Connect branch node to else branch with negated guard
+        if let Some(ref else_target) = else_first {
+            if let Some(ref guard) = guard_expr {
+                // Create negated guard: not (original_condition)
+                let negated_guard = ast::Expr {
+                    span: None,
+                    kind: Some(ast::expr::Kind::UnaryOp(Box::new(ast::UnaryOp {
+                        op: ast::UnaryOperator::UnaryOpNot as i32,
+                        operand: Some(Box::new(guard.clone())),
+                    }))),
+                };
+                self.dag.add_edge(DAGEdge::state_machine_with_guard(
+                    branch_id.clone(),
+                    else_target.clone(),
+                    negated_guard,
+                ));
+            } else {
                 self.dag.add_edge(DAGEdge::state_machine_with_condition(
-                    cond_id, join_id, "else",
+                    branch_id.clone(),
+                    else_target.clone(),
+                    "else",
                 ));
             }
+        }
+
+        // Handle missing branches - connect directly to join
+        if then_first.is_none() {
+            if let Some(ref guard) = guard_expr {
+                self.dag.add_edge(DAGEdge::state_machine_with_guard(
+                    branch_id.clone(),
+                    join_id.clone(),
+                    guard.clone(),
+                ));
+            }
+        }
+        if else_first.is_none() && cond.else_branch.is_some() {
+            if let Some(ref guard) = guard_expr {
+                let negated_guard = ast::Expr {
+                    span: None,
+                    kind: Some(ast::expr::Kind::UnaryOp(Box::new(ast::UnaryOp {
+                        op: ast::UnaryOperator::UnaryOpNot as i32,
+                        operand: Some(Box::new(guard.clone())),
+                    }))),
+                };
+                self.dag.add_edge(DAGEdge::state_machine_with_guard(
+                    branch_id.clone(),
+                    join_id.clone(),
+                    negated_guard,
+                ));
+            }
+        }
+
+        // Connect branch ends to join
+        if let Some(then) = then_last {
+            self.dag
+                .add_edge(DAGEdge::state_machine(then, join_id.clone()));
+        }
+        if let Some(else_) = else_last {
+            self.dag.add_edge(DAGEdge::state_machine(else_, join_id));
         }
 
         result_nodes
     }
 
     /// Convert a try/except block
+    ///
+    /// The DAG structure is "flat" - there's no explicit "try" or "except" container nodes.
+    /// Instead:
+    /// - The try body action becomes a regular node
+    /// - The success path goes from try body to join with a "success" condition
+    /// - Each except handler's action connects from the try body with exception_types on the edge
+    /// - A join node collects all paths back together
+    ///
+    /// Example: try: result = @risky() except NetworkError: result = @fallback()
+    /// Becomes:
+    ///   @risky() --[success]--> join
+    ///            --[except:NetworkError]--> @fallback() --> join
     fn convert_try_except(&mut self, try_except: &ast::TryExcept) -> Vec<String> {
         let mut result_nodes = Vec::new();
 
-        // Create try entry node
-        let try_id = self.next_id("try");
-        let mut try_node = DAGNode::new(try_id.clone(), "try".to_string(), "try".to_string());
-        if let Some(ref fn_name) = self.current_function {
-            try_node = try_node.with_function_name(fn_name);
-        }
-        self.dag.add_node(try_node);
-        result_nodes.push(try_id.clone());
-
         // Convert try body (SingleCallBody - exactly one call)
+        // This is the action that might throw an exception
+        let mut try_body_first: Option<String> = None;
         let mut try_body_last: Option<String> = None;
         if let Some(try_body) = &try_except.try_body {
             let node_ids = self.convert_single_call_body(try_body);
             if !node_ids.is_empty() {
-                self.dag.add_edge(DAGEdge::state_machine_with_condition(
-                    try_id.clone(),
-                    node_ids[0].clone(),
-                    "try",
-                ));
+                try_body_first = Some(node_ids[0].clone());
                 try_body_last = Some(node_ids.last().unwrap().clone());
                 result_nodes.extend(node_ids);
             }
         }
 
-        // Convert each except handler
-        let mut handler_lasts = Vec::new();
-        for handler in &try_except.handlers {
-            let exc_types_str = if handler.exception_types.is_empty() {
-                "*".to_string()
-            } else {
-                handler.exception_types.join(", ")
-            };
-
-            let handler_id = self.next_id("except");
-            let label = format!("except {}", exc_types_str);
-            let mut handler_node = DAGNode::new(handler_id.clone(), "except".to_string(), label);
-            if let Some(ref fn_name) = self.current_function {
-                handler_node = handler_node.with_function_name(fn_name);
-            }
-            self.dag.add_node(handler_node);
-            result_nodes.push(handler_id.clone());
-
-            // Edge from try node to handler
-            self.dag.add_edge(DAGEdge::state_machine_with_condition(
-                try_id.clone(),
-                handler_id.clone(),
-                &format!("except:{}", exc_types_str),
-            ));
-
-            // Convert handler body (SingleCallBody - exactly one call)
-            let mut handler_prev = handler_id.clone();
-            if let Some(body) = &handler.body {
-                let node_ids = self.convert_single_call_body(body);
-                if !node_ids.is_empty() {
-                    self.dag.add_edge(DAGEdge::state_machine(
-                        handler_prev.clone(),
-                        node_ids[0].clone(),
-                    ));
-                    handler_prev = node_ids.last().unwrap().clone();
-                    result_nodes.extend(node_ids);
-                }
-            }
-            handler_lasts.push(handler_prev);
-        }
-
         // Create join node
-        let join_id = self.next_id("try_join");
-        let mut join_node = DAGNode::new(
-            join_id.clone(),
-            "try_join".to_string(),
-            "try_join".to_string(),
-        );
+        let join_id = self.next_id("join");
+        let mut join_node = DAGNode::new(join_id.clone(), "join".to_string(), "join".to_string());
         if let Some(ref fn_name) = self.current_function {
             join_node = join_node.with_function_name(fn_name);
         }
@@ -1071,21 +1150,46 @@ impl DAGConverter {
         result_nodes.push(join_id.clone());
 
         // Connect try body success path to join
-        if let Some(try_last) = try_body_last {
-            self.dag.add_edge(DAGEdge::state_machine_with_condition(
-                try_last,
-                join_id.clone(),
-                "success",
-            ));
-        }
-
-        // Connect all handler exits to join
-        for handler_last in handler_lasts {
+        if let Some(ref try_last) = try_body_last {
             self.dag
-                .add_edge(DAGEdge::state_machine(handler_last, join_id.clone()));
+                .add_edge(DAGEdge::state_machine_success(try_last.clone(), join_id.clone()));
         }
 
-        result_nodes
+        // Convert each except handler and connect from try body with exception types
+        for handler in &try_except.handlers {
+            // Convert handler body (SingleCallBody - exactly one call)
+            if let Some(body) = &handler.body {
+                let node_ids = self.convert_single_call_body(body);
+                if !node_ids.is_empty() {
+                    let handler_first = node_ids[0].clone();
+                    let handler_last = node_ids.last().unwrap().clone();
+                    result_nodes.extend(node_ids);
+
+                    // Edge from try body to handler with exception types
+                    if let Some(ref try_last) = try_body_last {
+                        self.dag.add_edge(DAGEdge::state_machine_with_exception(
+                            try_last.clone(),
+                            handler_first,
+                            handler.exception_types.clone(),
+                        ));
+                    }
+
+                    // Connect handler end to join
+                    self.dag
+                        .add_edge(DAGEdge::state_machine(handler_last, join_id.clone()));
+                }
+            }
+        }
+
+        // Return: first node is the try body's first action, last is the join
+        // We need to return the try body first (for connecting from predecessor)
+        // and the join (for connecting to successor)
+        if try_body_first.is_some() {
+            result_nodes
+        } else {
+            // No try body - just return the join
+            vec![join_id]
+        }
     }
 
     /// Convert a return statement
@@ -1362,9 +1466,13 @@ mod tests {
         let program = parse(source).unwrap();
         let dag = convert_to_dag(&program);
 
-        // Check that if node exists
+        // In the flat DAG structure, conditionals use a "branch" node as the decision point
         let node_types: HashSet<_> = dag.nodes.values().map(|n| n.node_type.as_str()).collect();
-        assert!(node_types.contains("if"));
+        assert!(
+            node_types.contains("branch"),
+            "Should have branch decision node"
+        );
+        assert!(node_types.contains("join"), "Should have join node");
     }
 
     #[test]
@@ -1492,11 +1600,40 @@ fn main(input: [], output: [result]):
         let program = parse(source).unwrap();
         let dag = convert_to_dag(&program);
 
-        // Check that try and except nodes exist
+        // In the flat DAG structure, try/except doesn't have container nodes.
+        // Instead, we have:
+        // - The try body action (@risky_action) is a regular action_call node
+        // - Except handlers' actions (@fallback, assignment) are regular nodes
+        // - All paths converge at a join node
+        // - Exception edges connect the try body to handlers with exception_types
         let node_types: HashSet<_> = dag.nodes.values().map(|n| n.node_type.as_str()).collect();
-        assert!(node_types.contains("try"));
-        assert!(node_types.contains("except"));
-        assert!(node_types.contains("try_join"));
+        assert!(
+            node_types.contains("action_call"),
+            "Should have action_call for try body and except handlers"
+        );
+        assert!(node_types.contains("join"), "Should have join node");
+
+        // Check for exception edges
+        let exception_edges: Vec<_> = dag
+            .edges
+            .iter()
+            .filter(|e| e.exception_types.is_some())
+            .collect();
+        assert!(
+            !exception_edges.is_empty(),
+            "Should have edges with exception_types"
+        );
+
+        // Check for success edge from try body to join
+        let success_edges: Vec<_> = dag
+            .edges
+            .iter()
+            .filter(|e| e.condition.as_deref() == Some("success"))
+            .collect();
+        assert!(
+            !success_edges.is_empty(),
+            "Should have success edge from try body"
+        );
     }
 
     #[test]
@@ -1685,26 +1822,61 @@ fn main(input: [], output: [result]):
         let program = parse(source).unwrap();
         let dag = convert_to_dag(&program);
 
-        // Should have if node, join node, and branch nodes
+        // In the flat DAG structure, conditionals have:
+        // - A "branch" node (decision point)
+        // - Edges with guard expressions going to each branch's first action
+        // - A "join" node where branches converge
         let node_types: HashSet<_> = dag.nodes.values().map(|n| n.node_type.as_str()).collect();
-        assert!(node_types.contains("if"));
-        assert!(node_types.contains("join"));
+        assert!(
+            node_types.contains("branch"),
+            "Should have branch decision node"
+        );
+        assert!(node_types.contains("join"), "Should have join node");
 
-        // Check for conditional edges with "then" and "else" conditions
-        let cond_edges: Vec<_> = dag.edges.iter().filter(|e| e.condition.is_some()).collect();
+        // Check for guarded edges (edges with guard_expr)
+        let guarded_edges: Vec<_> = dag.edges.iter().filter(|e| e.guard_expr.is_some()).collect();
+        assert!(
+            !guarded_edges.is_empty(),
+            "Should have edges with guard expressions"
+        );
 
-        let conditions: HashSet<_> = cond_edges
-            .iter()
-            .filter_map(|e| e.condition.as_deref())
+        // There should be at least 2 guarded edges (one for then, one for else)
+        assert!(
+            guarded_edges.len() >= 2,
+            "Should have guarded edges for both branches"
+        );
+    }
+
+    #[test]
+    fn test_dag_conditional_with_action_calls() {
+        // Test that conditionals with action calls work correctly
+        let source = r#"fn classify(input: [x], output: [result]):
+    if x > 0:
+        result = @positive_handler(x=x)
+    else:
+        result = @negative_handler(x=x)
+    return result"#;
+        let program = parse(source).unwrap();
+        let dag = convert_to_dag(&program);
+
+        // Should have action_call nodes for each branch
+        let action_nodes: Vec<_> = dag
+            .nodes
+            .values()
+            .filter(|n| n.node_type == "action_call")
             .collect();
+        assert_eq!(
+            action_nodes.len(),
+            2,
+            "Should have 2 action_call nodes for each branch"
+        );
 
-        assert!(
-            conditions.contains("then"),
-            "Should have 'then' conditional edge"
-        );
-        assert!(
-            conditions.contains("else"),
-            "Should have 'else' conditional edge"
-        );
+        // Each should have the correct action name
+        let action_names: HashSet<_> = action_nodes
+            .iter()
+            .filter_map(|n| n.action_name.as_deref())
+            .collect();
+        assert!(action_names.contains("positive_handler"));
+        assert!(action_names.contains("negative_handler"));
     }
 }
