@@ -72,6 +72,20 @@ jobs:
     runs-on: ubuntu-latest
     needs: [python-tests, rust-lint]
     timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: mountaineer
+          POSTGRES_PASSWORD: mountaineer
+          POSTGRES_DB: mountaineer_daemons
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
 
@@ -90,6 +104,8 @@ jobs:
         run: rustup toolchain install nightly --component llvm-tools-preview
 
       - name: Run tests with coverage
+        env:
+          DATABASE_URL: postgresql://mountaineer:mountaineer@localhost:5432/mountaineer_daemons
         run: make rust-coverage
 
       - name: Upload Rust coverage LCOV
@@ -108,6 +124,20 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
     timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: mountaineer
+          POSTGRES_PASSWORD: mountaineer
+          POSTGRES_DB: mountaineer_daemons
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
         with:
@@ -134,6 +164,8 @@ jobs:
         run: make python-coverage
 
       - name: Rust tests with coverage
+        env:
+          DATABASE_URL: postgresql://mountaineer:mountaineer@localhost:5432/mountaineer_daemons
         run: make rust-coverage
 
       - name: Upload main Python coverage XML
@@ -415,7 +447,7 @@ jobs:
       - name: Run integration tests
         env:
           DATABASE_URL: postgresql://mountaineer:mountaineer@localhost:5432/mountaineer_daemons
-        run: cargo test workflow_executes_complex_flow -- --nocapture
+        run: cargo test --test integration_test -- --nocapture
 
   example-app-tests:
     runs-on: ubuntu-latest

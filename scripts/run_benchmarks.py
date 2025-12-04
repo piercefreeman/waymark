@@ -41,7 +41,6 @@ def reset_database():
     )
 
     # Parse connection string
-
     match = re.match(r"postgresql://([^:]+):([^@]+)@([^:]+):(\d+)/(.+)", db_url)
     if not match:
         print(f"Warning: Could not parse DATABASE_URL: {db_url}", file=sys.stderr)
@@ -53,12 +52,10 @@ def reset_database():
     env["PGPASSWORD"] = password
 
     tables = [
-        "daemon_action_ledger",
+        "action_queue",
+        "instance_context",
+        "loop_state",
         "workflow_instances",
-        "node_ready_state",
-        "node_pending_context",
-        "instance_eval_context",
-        "loop_iteration_state",
         "workflow_versions",
     ]
 
@@ -82,12 +79,12 @@ def reset_database():
 
 
 def check_benchmark_available() -> bool:
-    """Check if the benchmark binary exists and has the expected subcommands."""
+    """Check if the benchmark binary exists."""
     binary_path = Path("./target/release/benchmark")
     if not binary_path.exists():
         return False
 
-    # Check if it has the expected subcommands
+    # Check if it responds to --help
     try:
         result = subprocess.run(
             ["./target/release/benchmark", "--help"],
@@ -95,16 +92,14 @@ def check_benchmark_available() -> bool:
             text=True,
             timeout=10,
         )
-        return "actions" in result.stdout and "instances" in result.stdout
+        return result.returncode == 0
     except Exception:
         return False
 
 
-def run_benchmark(
-    benchmark_type: str, args: list[str], timeout: int = 300
-) -> BenchmarkResult | BenchmarkError:
-    """Run a benchmark with --json flag and parse the JSON output."""
-    cmd = ["./target/release/benchmark", "--json", benchmark_type] + args
+def run_benchmark(args: list[str], timeout: int = 300) -> BenchmarkResult | BenchmarkError:
+    """Run the benchmark binary with --json flag and parse the JSON output."""
+    cmd = ["./target/release/benchmark", "--json"] + args
 
     print(f"Running: {' '.join(cmd)}", file=sys.stderr)
 
@@ -114,14 +109,12 @@ def run_benchmark(
         print("Benchmark binary not found", file=sys.stderr)
         return BenchmarkError(error="binary_not_found")
     except subprocess.TimeoutExpired:
-        print(f"Benchmark {benchmark_type} timed out after {timeout}s", file=sys.stderr)
+        print(f"Benchmark timed out after {timeout}s", file=sys.stderr)
         return BenchmarkError(error="timeout")
 
     # Check for non-zero exit code
     if result.returncode != 0:
-        print(
-            f"Benchmark {benchmark_type} failed with exit code {result.returncode}", file=sys.stderr
-        )
+        print(f"Benchmark failed with exit code {result.returncode}", file=sys.stderr)
         print(f"stderr: {result.stderr[-2000:]}", file=sys.stderr)
         return BenchmarkError(
             error="benchmark_failed",
@@ -144,7 +137,7 @@ def run_benchmark(
 
         return BenchmarkResult.model_validate_json(json_line)
     except Exception as e:
-        print(f"Failed to parse JSON output for {benchmark_type}: {e}", file=sys.stderr)
+        print(f"Failed to parse JSON output: {e}", file=sys.stderr)
         print(f"stdout: {result.stdout[-1500:]}", file=sys.stderr)
         print(f"stderr: {result.stderr[-1500:]}", file=sys.stderr)
         return BenchmarkError(
@@ -156,18 +149,19 @@ def run_benchmark(
 
 @click.command()
 @click.option("--output", "-o", type=click.Path(), required=True, help="Output JSON file path")
-@click.option("--skip-actions", is_flag=True, help="Skip actions benchmark")
-@click.option("--skip-instances", is_flag=True, help="Skip instances benchmark")
-def main(output: str, skip_actions: bool, skip_instances: bool):
-    """Run all benchmarks and output results as JSON."""
+@click.option("--width", default=16, help="Fan-out width (parallel actions)")
+@click.option("--hash-iterations", default=1000, help="Hash iterations per action (CPU intensity)")
+@click.option("--workers", default=4, help="Number of Python workers")
+def main(output: str, width: int, hash_iterations: int, workers: int):
+    """Run fan-out/fan-in benchmark and output results as JSON."""
     results: dict[str, dict] = {}
 
     # Check if benchmark binary is available
     if not check_benchmark_available():
-        print("Benchmark binary not available or missing subcommands", file=sys.stderr)
+        print("Benchmark binary not available", file=sys.stderr)
         results["_meta"] = {
             "benchmark_available": False,
-            "reason": "Benchmark binary not found or missing required subcommands (actions, instances)",
+            "reason": "Benchmark binary not found. Run 'cargo build --release' first.",
         }
         Path(output).write_text(json.dumps(results, indent=2))
         print(json.dumps(results, indent=2))
@@ -175,45 +169,21 @@ def main(output: str, skip_actions: bool, skip_instances: bool):
 
     results["_meta"] = {"benchmark_available": True}
 
-    # Actions benchmark - raw action throughput
-    if not skip_actions:
-        print("=== Running Actions Benchmark ===", file=sys.stderr)
-        reset_database()
-        results["actions"] = run_benchmark(
-            "actions",
-            [
-                "--messages",
-                "10000",
-                "--payload",
-                "256",
-                "--concurrency",
-                "64",
-                "--workers",
-                "4",
-                "--log-interval",
-                "0",
-            ],
-        ).model_dump()
-
-    # Instances benchmark - workflow parsing with loops
-    if not skip_instances:
-        print("=== Running Instances Benchmark ===", file=sys.stderr)
-        reset_database()
-        results["instances"] = run_benchmark(
-            "instances",
-            [
-                "--instances",
-                "30",
-                "--batch-size",
-                "4",
-                "--concurrency",
-                "32",
-                "--workers",
-                "2",
-                "--log-interval",
-                "0",
-            ],
-        ).model_dump()
+    # Run the fan-out/fan-in benchmark
+    print("=== Running Fan-Out/Fan-In Benchmark ===", file=sys.stderr)
+    reset_database()
+    results["fanout"] = run_benchmark(
+        [
+            "--width",
+            str(width),
+            "--hash-iterations",
+            str(hash_iterations),
+            "--workers",
+            str(workers),
+            "--log-interval",
+            "0",
+        ],
+    ).model_dump()
 
     # Write results
     Path(output).write_text(json.dumps(results, indent=2))
