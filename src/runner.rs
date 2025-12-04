@@ -48,6 +48,7 @@ use uuid::Uuid;
 use prost::Message;
 
 use crate::{
+    ast_evaluator::{EvaluationError, ExpressionEvaluator, Scope},
     dag::{DAG, DAGConverter, DAGNode, EdgeType},
     dag_state::{DAGHelper, ExecutionMode},
     db::{
@@ -200,7 +201,7 @@ pub enum RunnerError {
     Worker(String),
 
     #[error("Expression evaluation error: {0}")]
-    Evaluation(String),
+    Evaluation(#[from] EvaluationError),
 
     #[error("DAG error: {0}")]
     Dag(String),
@@ -213,12 +214,6 @@ pub enum RunnerError {
 
     #[error("Node not found: {0}")]
     NodeNotFound(String),
-
-    #[error("Variable not found: {0}")]
-    VariableNotFound(String),
-
-    #[error("Action handler not found: {0}")]
-    HandlerNotFound(String),
 
     #[error("Channel closed")]
     ChannelClosed,
@@ -829,11 +824,6 @@ impl WorkCompletionHandler {
 // Instance Context
 // ============================================================================
 
-/// Scope for inline expression evaluation.
-/// This is a simple in-memory variable map used during inline node execution.
-/// For durable data passing between actions, use the inbox pattern (node_inputs table).
-pub type Scope = HashMap<String, JsonValue>;
-
 /// A pending write to a node's inbox.
 /// Collected during CPU-bound work and written to DB asynchronously afterward.
 #[derive(Debug, Clone)]
@@ -860,510 +850,6 @@ pub struct ExceptionInfo {
     pub exception_type: String,
     pub message: String,
     pub node_id: String,
-}
-
-// ============================================================================
-// Expression Evaluator
-// ============================================================================
-
-/// Evaluates AST expressions in a given context.
-pub struct ExpressionEvaluator;
-
-impl ExpressionEvaluator {
-    /// Evaluate an expression to a runtime value.
-    pub fn evaluate(expr: &ast::Expr, scope: &Scope) -> RunnerResult<JsonValue> {
-        let kind = expr
-            .kind
-            .as_ref()
-            .ok_or_else(|| RunnerError::Evaluation("Empty expression".to_string()))?;
-
-        match kind {
-            ast::expr::Kind::Literal(lit) => Self::eval_literal(lit),
-            ast::expr::Kind::Variable(var) => Self::eval_variable(var, scope),
-            ast::expr::Kind::BinaryOp(op) => Self::eval_binary_op(op, scope),
-            ast::expr::Kind::UnaryOp(op) => Self::eval_unary_op(op, scope),
-            ast::expr::Kind::List(list) => Self::eval_list(list, scope),
-            ast::expr::Kind::Dict(dict) => Self::eval_dict(dict, scope),
-            ast::expr::Kind::Index(idx) => Self::eval_index(idx, scope),
-            ast::expr::Kind::Dot(dot) => Self::eval_dot(dot, scope),
-            ast::expr::Kind::FunctionCall(call) => Self::eval_function_call(call, scope),
-            ast::expr::Kind::ActionCall(_) => Err(RunnerError::Evaluation(
-                "Action calls cannot be evaluated inline".to_string(),
-            )),
-        }
-    }
-
-    fn eval_literal(lit: &ast::Literal) -> RunnerResult<JsonValue> {
-        let value = lit
-            .value
-            .as_ref()
-            .ok_or_else(|| RunnerError::Evaluation("Empty literal".to_string()))?;
-
-        Ok(match value {
-            ast::literal::Value::IntValue(i) => JsonValue::Number((*i).into()),
-            ast::literal::Value::FloatValue(f) => JsonValue::Number(
-                serde_json::Number::from_f64(*f).unwrap_or_else(|| serde_json::Number::from(0)),
-            ),
-            ast::literal::Value::StringValue(s) => JsonValue::String(s.clone()),
-            ast::literal::Value::BoolValue(b) => JsonValue::Bool(*b),
-            ast::literal::Value::IsNone(true) => JsonValue::Null,
-            ast::literal::Value::IsNone(false) => JsonValue::Null,
-        })
-    }
-
-    fn eval_variable(var: &ast::Variable, scope: &Scope) -> RunnerResult<JsonValue> {
-        scope
-            .get(&var.name)
-            .cloned()
-            .ok_or_else(|| RunnerError::VariableNotFound(var.name.clone()))
-    }
-
-    fn eval_binary_op(op: &ast::BinaryOp, scope: &Scope) -> RunnerResult<JsonValue> {
-        let left_expr = op
-            .left
-            .as_ref()
-            .ok_or_else(|| RunnerError::Evaluation("Missing left operand".to_string()))?;
-        let right_expr = op
-            .right
-            .as_ref()
-            .ok_or_else(|| RunnerError::Evaluation("Missing right operand".to_string()))?;
-
-        let left = Self::evaluate(left_expr, scope)?;
-        let right = Self::evaluate(right_expr, scope)?;
-
-        match ast::BinaryOperator::try_from(op.op)
-            .unwrap_or(ast::BinaryOperator::BinaryOpUnspecified)
-        {
-            ast::BinaryOperator::BinaryOpAdd => Self::apply_add(&left, &right),
-            ast::BinaryOperator::BinaryOpSub => Self::apply_sub(&left, &right),
-            ast::BinaryOperator::BinaryOpMul => Self::apply_mul(&left, &right),
-            ast::BinaryOperator::BinaryOpDiv => Self::apply_div(&left, &right),
-            ast::BinaryOperator::BinaryOpEq => Ok(JsonValue::Bool(left == right)),
-            ast::BinaryOperator::BinaryOpNe => Ok(JsonValue::Bool(left != right)),
-            ast::BinaryOperator::BinaryOpLt => Self::apply_lt(&left, &right),
-            ast::BinaryOperator::BinaryOpLe => Self::apply_le(&left, &right),
-            ast::BinaryOperator::BinaryOpGt => Self::apply_gt(&left, &right),
-            ast::BinaryOperator::BinaryOpGe => Self::apply_ge(&left, &right),
-            ast::BinaryOperator::BinaryOpAnd => Self::apply_and(&left, &right),
-            ast::BinaryOperator::BinaryOpOr => Self::apply_or(&left, &right),
-            ast::BinaryOperator::BinaryOpIn => Self::apply_in(&left, &right),
-            ast::BinaryOperator::BinaryOpNotIn => {
-                let result = Self::apply_in(&left, &right)?;
-                Ok(JsonValue::Bool(!result.as_bool().unwrap_or(false)))
-            }
-            _ => Err(RunnerError::Evaluation(
-                "Unknown binary operator".to_string(),
-            )),
-        }
-    }
-
-    fn eval_unary_op(op: &ast::UnaryOp, scope: &Scope) -> RunnerResult<JsonValue> {
-        let operand_expr = op
-            .operand
-            .as_ref()
-            .ok_or_else(|| RunnerError::Evaluation("Missing operand".to_string()))?;
-
-        let operand = Self::evaluate(operand_expr, scope)?;
-
-        match ast::UnaryOperator::try_from(op.op).unwrap_or(ast::UnaryOperator::UnaryOpUnspecified)
-        {
-            ast::UnaryOperator::UnaryOpNeg => match &operand {
-                JsonValue::Number(n) => {
-                    if let Some(i) = n.as_i64() {
-                        Ok(JsonValue::Number((-i).into()))
-                    } else if let Some(f) = n.as_f64() {
-                        Ok(JsonValue::Number(
-                            serde_json::Number::from_f64(-f)
-                                .unwrap_or_else(|| serde_json::Number::from(0)),
-                        ))
-                    } else {
-                        Err(RunnerError::Evaluation(
-                            "Cannot negate non-numeric value".to_string(),
-                        ))
-                    }
-                }
-                _ => Err(RunnerError::Evaluation(
-                    "Cannot negate non-numeric value".to_string(),
-                )),
-            },
-            ast::UnaryOperator::UnaryOpNot => Ok(JsonValue::Bool(!Self::is_truthy(&operand))),
-            _ => Err(RunnerError::Evaluation(
-                "Unknown unary operator".to_string(),
-            )),
-        }
-    }
-
-    fn eval_list(list: &ast::ListExpr, scope: &Scope) -> RunnerResult<JsonValue> {
-        let elements: Result<Vec<JsonValue>, _> = list
-            .elements
-            .iter()
-            .map(|e| Self::evaluate(e, scope))
-            .collect();
-        Ok(JsonValue::Array(elements?))
-    }
-
-    fn eval_dict(dict: &ast::DictExpr, scope: &Scope) -> RunnerResult<JsonValue> {
-        let mut map = serde_json::Map::new();
-        for entry in &dict.entries {
-            let key_expr = entry
-                .key
-                .as_ref()
-                .ok_or_else(|| RunnerError::Evaluation("Missing dict key".to_string()))?;
-            let val_expr = entry
-                .value
-                .as_ref()
-                .ok_or_else(|| RunnerError::Evaluation("Missing dict value".to_string()))?;
-
-            let key = Self::evaluate(key_expr, scope)?;
-            let val = Self::evaluate(val_expr, scope)?;
-
-            let key_str = match key {
-                JsonValue::String(s) => s,
-                other => other.to_string(),
-            };
-            map.insert(key_str, val);
-        }
-        Ok(JsonValue::Object(map))
-    }
-
-    fn eval_index(idx: &ast::IndexAccess, scope: &Scope) -> RunnerResult<JsonValue> {
-        let obj_expr = idx
-            .object
-            .as_ref()
-            .ok_or_else(|| RunnerError::Evaluation("Missing index object".to_string()))?;
-        let idx_expr = idx
-            .index
-            .as_ref()
-            .ok_or_else(|| RunnerError::Evaluation("Missing index".to_string()))?;
-
-        let obj = Self::evaluate(obj_expr, scope)?;
-        let index = Self::evaluate(idx_expr, scope)?;
-
-        match (&obj, &index) {
-            (JsonValue::Array(arr), JsonValue::Number(n)) => {
-                let i = n.as_i64().unwrap_or(0) as usize;
-                arr.get(i)
-                    .cloned()
-                    .ok_or_else(|| RunnerError::Evaluation(format!("Index {} out of bounds", i)))
-            }
-            (JsonValue::Object(map), JsonValue::String(key)) => map
-                .get(key)
-                .cloned()
-                .ok_or_else(|| RunnerError::Evaluation(format!("Key '{}' not found", key))),
-            (JsonValue::String(s), JsonValue::Number(n)) => {
-                let i = n.as_i64().unwrap_or(0) as usize;
-                s.chars()
-                    .nth(i)
-                    .map(|c| JsonValue::String(c.to_string()))
-                    .ok_or_else(|| RunnerError::Evaluation(format!("Index {} out of bounds", i)))
-            }
-            _ => Err(RunnerError::Evaluation(
-                "Invalid index operation".to_string(),
-            )),
-        }
-    }
-
-    fn eval_dot(dot: &ast::DotAccess, scope: &Scope) -> RunnerResult<JsonValue> {
-        let obj_expr = dot
-            .object
-            .as_ref()
-            .ok_or_else(|| RunnerError::Evaluation("Missing dot object".to_string()))?;
-
-        let obj = Self::evaluate(obj_expr, scope)?;
-
-        match &obj {
-            JsonValue::Object(map) => map.get(&dot.attribute).cloned().ok_or_else(|| {
-                RunnerError::Evaluation(format!("Attribute '{}' not found", dot.attribute))
-            }),
-            _ => Err(RunnerError::Evaluation(
-                "Dot access on non-object".to_string(),
-            )),
-        }
-    }
-
-    fn eval_function_call(call: &ast::FunctionCall, scope: &Scope) -> RunnerResult<JsonValue> {
-        // Evaluate kwargs
-        let mut kwargs = HashMap::new();
-        for kwarg in &call.kwargs {
-            let val_expr = kwarg
-                .value
-                .as_ref()
-                .ok_or_else(|| RunnerError::Evaluation("Missing kwarg value".to_string()))?;
-            let val = Self::evaluate(val_expr, scope)?;
-            kwargs.insert(kwarg.name.clone(), val);
-        }
-
-        // Built-in functions
-        match call.name.as_str() {
-            "range" => Self::builtin_range(&kwargs),
-            "len" => Self::builtin_len(&kwargs),
-            "enumerate" => Self::builtin_enumerate(&kwargs),
-            _ => Err(RunnerError::HandlerNotFound(call.name.clone())),
-        }
-    }
-
-    // Helper methods for operators
-    fn apply_add(left: &JsonValue, right: &JsonValue) -> RunnerResult<JsonValue> {
-        match (left, right) {
-            (JsonValue::Number(a), JsonValue::Number(b)) => {
-                if let (Some(ai), Some(bi)) = (a.as_i64(), b.as_i64()) {
-                    Ok(JsonValue::Number((ai + bi).into()))
-                } else if let (Some(af), Some(bf)) = (a.as_f64(), b.as_f64()) {
-                    Ok(JsonValue::Number(
-                        serde_json::Number::from_f64(af + bf)
-                            .unwrap_or_else(|| serde_json::Number::from(0)),
-                    ))
-                } else {
-                    Err(RunnerError::Evaluation(
-                        "Cannot add incompatible numbers".to_string(),
-                    ))
-                }
-            }
-            (JsonValue::String(a), JsonValue::String(b)) => {
-                Ok(JsonValue::String(format!("{}{}", a, b)))
-            }
-            (JsonValue::Array(a), JsonValue::Array(b)) => {
-                let mut result = a.clone();
-                result.extend(b.clone());
-                Ok(JsonValue::Array(result))
-            }
-            _ => Err(RunnerError::Evaluation(
-                "Cannot add incompatible types".to_string(),
-            )),
-        }
-    }
-
-    fn apply_sub(left: &JsonValue, right: &JsonValue) -> RunnerResult<JsonValue> {
-        match (left, right) {
-            (JsonValue::Number(a), JsonValue::Number(b)) => {
-                if let (Some(ai), Some(bi)) = (a.as_i64(), b.as_i64()) {
-                    Ok(JsonValue::Number((ai - bi).into()))
-                } else if let (Some(af), Some(bf)) = (a.as_f64(), b.as_f64()) {
-                    Ok(JsonValue::Number(
-                        serde_json::Number::from_f64(af - bf)
-                            .unwrap_or_else(|| serde_json::Number::from(0)),
-                    ))
-                } else {
-                    Err(RunnerError::Evaluation(
-                        "Cannot subtract incompatible numbers".to_string(),
-                    ))
-                }
-            }
-            _ => Err(RunnerError::Evaluation(
-                "Cannot subtract non-numbers".to_string(),
-            )),
-        }
-    }
-
-    fn apply_mul(left: &JsonValue, right: &JsonValue) -> RunnerResult<JsonValue> {
-        match (left, right) {
-            (JsonValue::Number(a), JsonValue::Number(b)) => {
-                if let (Some(ai), Some(bi)) = (a.as_i64(), b.as_i64()) {
-                    Ok(JsonValue::Number((ai * bi).into()))
-                } else if let (Some(af), Some(bf)) = (a.as_f64(), b.as_f64()) {
-                    Ok(JsonValue::Number(
-                        serde_json::Number::from_f64(af * bf)
-                            .unwrap_or_else(|| serde_json::Number::from(0)),
-                    ))
-                } else {
-                    Err(RunnerError::Evaluation(
-                        "Cannot multiply incompatible numbers".to_string(),
-                    ))
-                }
-            }
-            _ => Err(RunnerError::Evaluation(
-                "Cannot multiply non-numbers".to_string(),
-            )),
-        }
-    }
-
-    fn apply_div(left: &JsonValue, right: &JsonValue) -> RunnerResult<JsonValue> {
-        match (left, right) {
-            (JsonValue::Number(a), JsonValue::Number(b)) => {
-                let af = a.as_f64().unwrap_or(0.0);
-                let bf = b.as_f64().unwrap_or(1.0);
-                if bf == 0.0 {
-                    Err(RunnerError::Evaluation("Division by zero".to_string()))
-                } else {
-                    Ok(JsonValue::Number(
-                        serde_json::Number::from_f64(af / bf)
-                            .unwrap_or_else(|| serde_json::Number::from(0)),
-                    ))
-                }
-            }
-            _ => Err(RunnerError::Evaluation(
-                "Cannot divide non-numbers".to_string(),
-            )),
-        }
-    }
-
-    fn apply_lt(left: &JsonValue, right: &JsonValue) -> RunnerResult<JsonValue> {
-        match (left, right) {
-            (JsonValue::Number(a), JsonValue::Number(b)) => {
-                let af = a.as_f64().unwrap_or(0.0);
-                let bf = b.as_f64().unwrap_or(0.0);
-                Ok(JsonValue::Bool(af < bf))
-            }
-            (JsonValue::String(a), JsonValue::String(b)) => Ok(JsonValue::Bool(a < b)),
-            _ => Err(RunnerError::Evaluation(
-                "Cannot compare incompatible types".to_string(),
-            )),
-        }
-    }
-
-    fn apply_le(left: &JsonValue, right: &JsonValue) -> RunnerResult<JsonValue> {
-        match (left, right) {
-            (JsonValue::Number(a), JsonValue::Number(b)) => {
-                let af = a.as_f64().unwrap_or(0.0);
-                let bf = b.as_f64().unwrap_or(0.0);
-                Ok(JsonValue::Bool(af <= bf))
-            }
-            (JsonValue::String(a), JsonValue::String(b)) => Ok(JsonValue::Bool(a <= b)),
-            _ => Err(RunnerError::Evaluation(
-                "Cannot compare incompatible types".to_string(),
-            )),
-        }
-    }
-
-    fn apply_gt(left: &JsonValue, right: &JsonValue) -> RunnerResult<JsonValue> {
-        match (left, right) {
-            (JsonValue::Number(a), JsonValue::Number(b)) => {
-                let af = a.as_f64().unwrap_or(0.0);
-                let bf = b.as_f64().unwrap_or(0.0);
-                Ok(JsonValue::Bool(af > bf))
-            }
-            (JsonValue::String(a), JsonValue::String(b)) => Ok(JsonValue::Bool(a > b)),
-            _ => Err(RunnerError::Evaluation(
-                "Cannot compare incompatible types".to_string(),
-            )),
-        }
-    }
-
-    fn apply_ge(left: &JsonValue, right: &JsonValue) -> RunnerResult<JsonValue> {
-        match (left, right) {
-            (JsonValue::Number(a), JsonValue::Number(b)) => {
-                let af = a.as_f64().unwrap_or(0.0);
-                let bf = b.as_f64().unwrap_or(0.0);
-                Ok(JsonValue::Bool(af >= bf))
-            }
-            (JsonValue::String(a), JsonValue::String(b)) => Ok(JsonValue::Bool(a >= b)),
-            _ => Err(RunnerError::Evaluation(
-                "Cannot compare incompatible types".to_string(),
-            )),
-        }
-    }
-
-    fn apply_and(left: &JsonValue, right: &JsonValue) -> RunnerResult<JsonValue> {
-        Ok(JsonValue::Bool(
-            Self::is_truthy(left) && Self::is_truthy(right),
-        ))
-    }
-
-    fn apply_or(left: &JsonValue, right: &JsonValue) -> RunnerResult<JsonValue> {
-        Ok(JsonValue::Bool(
-            Self::is_truthy(left) || Self::is_truthy(right),
-        ))
-    }
-
-    fn apply_in(left: &JsonValue, right: &JsonValue) -> RunnerResult<JsonValue> {
-        match right {
-            JsonValue::Array(arr) => Ok(JsonValue::Bool(arr.contains(left))),
-            JsonValue::Object(map) => {
-                let key = match left {
-                    JsonValue::String(s) => s.clone(),
-                    other => other.to_string(),
-                };
-                Ok(JsonValue::Bool(map.contains_key(&key)))
-            }
-            JsonValue::String(s) => {
-                let needle = match left {
-                    JsonValue::String(n) => n.clone(),
-                    other => other.to_string(),
-                };
-                Ok(JsonValue::Bool(s.contains(&needle)))
-            }
-            _ => Err(RunnerError::Evaluation(
-                "'in' requires array, object, or string".to_string(),
-            )),
-        }
-    }
-
-    fn is_truthy(value: &JsonValue) -> bool {
-        match value {
-            JsonValue::Null => false,
-            JsonValue::Bool(b) => *b,
-            JsonValue::Number(n) => n.as_f64().map(|f| f != 0.0).unwrap_or(false),
-            JsonValue::String(s) => !s.is_empty(),
-            JsonValue::Array(a) => !a.is_empty(),
-            JsonValue::Object(o) => !o.is_empty(),
-        }
-    }
-
-    // Built-in functions
-    fn builtin_range(kwargs: &HashMap<String, JsonValue>) -> RunnerResult<JsonValue> {
-        let start = kwargs.get("start").and_then(|v| v.as_i64()).unwrap_or(0);
-        let stop = kwargs.get("stop").and_then(|v| v.as_i64()).ok_or_else(|| {
-            RunnerError::Evaluation("range() requires 'stop' argument".to_string())
-        })?;
-        let step = kwargs.get("step").and_then(|v| v.as_i64()).unwrap_or(1);
-
-        if step == 0 {
-            return Err(RunnerError::Evaluation(
-                "range() step cannot be zero".to_string(),
-            ));
-        }
-
-        let mut result = Vec::new();
-        let mut i = start;
-        while (step > 0 && i < stop) || (step < 0 && i > stop) {
-            result.push(JsonValue::Number(i.into()));
-            i += step;
-        }
-
-        Ok(JsonValue::Array(result))
-    }
-
-    fn builtin_len(kwargs: &HashMap<String, JsonValue>) -> RunnerResult<JsonValue> {
-        let items = kwargs.get("items").ok_or_else(|| {
-            RunnerError::Evaluation("len() requires 'items' argument".to_string())
-        })?;
-
-        let len = match items {
-            JsonValue::Array(a) => a.len(),
-            JsonValue::Object(o) => o.len(),
-            JsonValue::String(s) => s.len(),
-            _ => {
-                return Err(RunnerError::Evaluation(
-                    "len() requires array, object, or string".to_string(),
-                ));
-            }
-        };
-
-        Ok(JsonValue::Number((len as i64).into()))
-    }
-
-    fn builtin_enumerate(kwargs: &HashMap<String, JsonValue>) -> RunnerResult<JsonValue> {
-        let items = kwargs.get("items").ok_or_else(|| {
-            RunnerError::Evaluation("enumerate() requires 'items' argument".to_string())
-        })?;
-
-        let arr = match items {
-            JsonValue::Array(a) => a,
-            _ => {
-                return Err(RunnerError::Evaluation(
-                    "enumerate() requires array".to_string(),
-                ));
-            }
-        };
-
-        let result: Vec<JsonValue> = arr
-            .iter()
-            .enumerate()
-            .map(|(i, v)| JsonValue::Array(vec![JsonValue::Number((i as i64).into()), v.clone()]))
-            .collect();
-
-        Ok(JsonValue::Array(result))
-    }
 }
 
 // ============================================================================
@@ -1847,6 +1333,33 @@ impl DAGRunner {
         instance_id: WorkflowInstanceId,
         db: &Database,
     ) -> RunnerResult<()> {
+        Self::process_successors_with_condition(
+            node_id,
+            result,
+            dag,
+            helper,
+            inline_scope,
+            batch,
+            instance_id,
+            db,
+            None,
+        )
+        .await
+    }
+
+    /// Process successor nodes with optional condition result for branching.
+    #[allow(clippy::too_many_arguments)]
+    async fn process_successors_with_condition(
+        node_id: &str,
+        result: &JsonValue,
+        dag: &DAG,
+        helper: &DAGHelper<'_>,
+        inline_scope: &mut Scope,
+        batch: &mut CompletionBatch,
+        instance_id: WorkflowInstanceId,
+        db: &Database,
+        condition_result: Option<bool>,
+    ) -> RunnerResult<()> {
         // Store result in inline scope for potential inline successors
         if let Some(node) = dag.nodes.get(node_id)
             && let Some(ref target) = node.target
@@ -1854,7 +1367,7 @@ impl DAGRunner {
             inline_scope.insert(target.clone(), result.clone());
         }
 
-        let successors = helper.get_ready_successors(node_id, None);
+        let successors = helper.get_ready_successors(node_id, condition_result);
 
         for successor in successors {
             let succ_node = match dag.nodes.get(&successor.node_id) {
@@ -1890,6 +1403,44 @@ impl DAGRunner {
                         continue;
                     }
 
+                    // For conditional (if) nodes, evaluate the guard expression
+                    let condition_result = if succ_node.node_type == "if" {
+                        if let Some(ref guard_expr) = succ_node.guard_expr {
+                            match ExpressionEvaluator::evaluate(guard_expr, inline_scope) {
+                                Ok(val) => {
+                                    let is_true = match &val {
+                                        JsonValue::Bool(b) => *b,
+                                        JsonValue::Null => false,
+                                        JsonValue::Number(n) => n.as_f64().map(|f| f != 0.0).unwrap_or(false),
+                                        JsonValue::String(s) => !s.is_empty(),
+                                        JsonValue::Array(a) => !a.is_empty(),
+                                        JsonValue::Object(o) => !o.is_empty(),
+                                    };
+                                    debug!(
+                                        node_id = %successor.node_id,
+                                        guard_expr = ?guard_expr,
+                                        result = ?val,
+                                        is_true = is_true,
+                                        "evaluated conditional guard expression"
+                                    );
+                                    Some(is_true)
+                                }
+                                Err(e) => {
+                                    warn!(
+                                        node_id = %successor.node_id,
+                                        error = %e,
+                                        "failed to evaluate conditional guard expression"
+                                    );
+                                    None
+                                }
+                            }
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+
                     // Execute inline node with in-memory scope
                     let inline_result = Self::execute_inline_node(succ_node, inline_scope)?;
 
@@ -1905,16 +1456,25 @@ impl DAGRunner {
                         );
                     }
 
-                    // Recursively process inline successors
-                    Box::pin(Self::process_successors_async(
+                    // Determine what result to pass to successors:
+                    // - Control-flow nodes (join, if, try) pass through the incoming result
+                    // - Value-producing nodes use their own inline_result
+                    let passthrough_result = match succ_node.node_type.as_str() {
+                        "join" | "if" | "try" | "except" | "try_join" => result.clone(),
+                        _ => inline_result,
+                    };
+
+                    // Recursively process inline successors, passing condition result for branching
+                    Box::pin(Self::process_successors_with_condition(
                         &successor.node_id,
-                        &inline_result,
+                        &passthrough_result,
                         dag,
                         helper,
                         inline_scope,
                         batch,
                         instance_id,
                         db,
+                        condition_result,
                     ))
                     .await?;
                 }
@@ -1931,6 +1491,12 @@ impl DAGRunner {
                                 pending_write.value.clone(),
                             );
                         }
+                    }
+
+                    // Merge inline scope variables (from parent inline nodes like `if`)
+                    // This ensures actions inside branches have access to variables defined earlier
+                    for (var_name, var_value) in inline_scope.iter() {
+                        inbox.entry(var_name.clone()).or_insert_with(|| var_value.clone());
                     }
 
                     // Create actions (may be multiple for spread nodes)
@@ -2094,19 +1660,46 @@ impl DAGRunner {
 
             match mode {
                 ExecutionMode::Delegated => {
-                    // This is an action - enqueue it
-                    // For initial actions, we use the initial scope as the "inbox"
-                    // For spread nodes, this creates multiple actions plus inbox writes
-                    let result = Self::create_actions_for_node(node, instance_id, &scope, &dag)?;
-                    debug!(
-                        node_id = %node_id,
-                        actions_created = result.actions.len(),
-                        inbox_writes = result.inbox_writes.len(),
-                        "created initial actions for node"
-                    );
-                    actions_to_enqueue.extend(result.actions);
-                    inbox_writes_to_commit.extend(result.inbox_writes);
-                    // Don't traverse past delegated nodes - they'll handle their successors
+                    // Check if this is a fn_call node - these need to be expanded into
+                    // their function body rather than treated as external actions
+                    if node.is_fn_call {
+                        if let Some(ref called_fn) = node.called_function {
+                            // Find the input node for this function
+                            let fn_input_node_id = format!("{}_input_", called_fn);
+                            if let Some(input_id) = dag.nodes.keys().find(|k| k.starts_with(&fn_input_node_id)) {
+                                debug!(
+                                    fn_call_node = %node_id,
+                                    called_function = %called_fn,
+                                    input_node = %input_id,
+                                    "expanding fn_call into function body"
+                                );
+                                // Add the function's input node to the queue to traverse
+                                if !visited.contains(input_id) {
+                                    queue.push_back(input_id.clone());
+                                }
+                            } else {
+                                warn!(
+                                    fn_call_node = %node_id,
+                                    called_function = %called_fn,
+                                    "fn_call: could not find input node for called function"
+                                );
+                            }
+                        }
+                    } else {
+                        // This is an action - enqueue it
+                        // For initial actions, we use the initial scope as the "inbox"
+                        // For spread nodes, this creates multiple actions plus inbox writes
+                        let result = Self::create_actions_for_node(node, instance_id, &scope, &dag)?;
+                        debug!(
+                            node_id = %node_id,
+                            actions_created = result.actions.len(),
+                            inbox_writes = result.inbox_writes.len(),
+                            "created initial actions for node"
+                        );
+                        actions_to_enqueue.extend(result.actions);
+                        inbox_writes_to_commit.extend(result.inbox_writes);
+                        // Don't traverse past delegated nodes - they'll handle their successors
+                    }
                 }
                 ExecutionMode::Inline => {
                     // Skip inline nodes and continue to their successors
@@ -2338,10 +1931,11 @@ impl DAGRunner {
         let items = match &collection {
             JsonValue::Array(arr) => arr.clone(),
             _ => {
-                return Err(RunnerError::Evaluation(format!(
+                return Err(EvaluationError::Evaluation(format!(
                     "Spread collection '{}' is not an array: {:?}",
                     collection_str, collection
-                )));
+                ))
+                .into());
             }
         };
 

@@ -19,6 +19,7 @@
 //! - [`db`]: PostgreSQL database layer with distributed queue (SKIP LOCKED)
 //! - [`config`]: Environment-based configuration
 
+pub mod ast_evaluator;
 pub mod ast_printer;
 pub mod config;
 pub mod dag;
@@ -63,8 +64,11 @@ pub use ast_printer::{AstPrinter, print_expr, print_program, print_statement};
 // DAG State Helper
 pub use dag_state::{DAGHelper, DataFlowTarget, ExecutionMode, SuccessorInfo};
 
+// AST Evaluator
+pub use ast_evaluator::{EvaluationError, EvaluationResult, ExpressionEvaluator, Scope};
+
 // Runner
 pub use runner::{
-    CompletionBatch, DAGRunner, ExpressionEvaluator, InFlightTracker, InboxWrite, RunnerConfig,
-    RunnerError, RunnerResult, Scope, WorkCompletionHandler, WorkQueueHandler, WorkerSlotTracker,
+    CompletionBatch, DAGRunner, InFlightTracker, InboxWrite, RunnerConfig, RunnerError,
+    RunnerResult, WorkCompletionHandler, WorkQueueHandler, WorkerSlotTracker,
 };

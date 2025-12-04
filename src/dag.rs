@@ -75,6 +75,8 @@ pub struct DAGNode {
     pub spread_loop_var: Option<String>,
     /// Collection variable being spread over (e.g., "items" in "spread items:item -> @action()")
     pub spread_collection: Option<String>,
+    /// Guard expression for conditional nodes (if/elif). Evaluated at runtime to determine branch.
+    pub guard_expr: Option<ast::Expr>,
 }
 
 impl DAGNode {
@@ -102,7 +104,14 @@ impl DAGNode {
             is_spread: false,
             spread_loop_var: None,
             spread_collection: None,
+            guard_expr: None,
         }
+    }
+
+    /// Builder method to set guard expression for conditional nodes
+    pub fn with_guard_expr(mut self, expr: ast::Expr) -> Self {
+        self.guard_expr = Some(expr);
+        self
     }
 
     /// Builder method to set target variable
@@ -892,11 +901,17 @@ impl DAGConverter {
     fn convert_conditional(&mut self, cond: &ast::Conditional) -> Vec<String> {
         let mut result_nodes = Vec::new();
 
-        // Create condition node
+        // Create condition node with guard expression
         let cond_id = self.next_id("if_cond");
         let mut cond_node = DAGNode::new(cond_id.clone(), "if".to_string(), "if ...".to_string());
         if let Some(ref fn_name) = self.current_function {
             cond_node = cond_node.with_function_name(fn_name);
+        }
+        // Store the guard expression for runtime evaluation
+        if let Some(if_branch) = &cond.if_branch {
+            if let Some(condition) = &if_branch.condition {
+                cond_node = cond_node.with_guard_expr(condition.clone());
+            }
         }
         self.dag.add_node(cond_node);
         result_nodes.push(cond_id.clone());

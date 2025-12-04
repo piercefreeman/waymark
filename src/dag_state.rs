@@ -292,7 +292,18 @@ impl<'a> DAGHelper<'a> {
         for edge in self.get_state_machine_successors(node_id) {
             // Handle conditional edges
             if let Some(ref condition) = edge.condition {
+                // Try/except handling: "try" is default path, "except:*" only on failure
+                if condition.starts_with("except:") {
+                    // Exception handlers are only activated when explicitly requested
+                    // During normal traversal (condition_result=None), skip them
+                    continue;
+                }
+
                 match (condition.as_str(), condition_result) {
+                    // "try" is always followed (default success path)
+                    ("try", _) => {
+                        // Edge should be followed
+                    }
                     ("then", Some(true)) | ("else", Some(false)) | (_, None) => {
                         // Edge should be followed
                     }
@@ -301,7 +312,7 @@ impl<'a> DAGHelper<'a> {
                         continue;
                     }
                     _ => {
-                        // Other conditions (parallel, except, etc.) - include for now
+                        // Other conditions (parallel, etc.) - include for now
                     }
                 }
             }
