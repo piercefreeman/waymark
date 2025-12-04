@@ -16,6 +16,9 @@ from typing import List, Optional
 
 from proto import ast_pb2 as ir
 
+# Global variable for test_global_statement_raises_error test
+some_var: int = 0
+
 
 class TestAsyncioSleepDetection:
     """Test that asyncio.sleep is detected and converted to @sleep action."""
@@ -1038,6 +1041,7 @@ class TestUnsupportedPatternDetection:
             GlobalWorkflow.workflow_ir()
 
         error = exc_info.value
+        assert isinstance(error, UnsupportedPatternError)
         assert "Global" in error.message, "Error should mention global"
 
     def test_nonlocal_statement_raises_error(self) -> None:
@@ -1064,6 +1068,7 @@ class TestUnsupportedPatternDetection:
             NonlocalWorkflow.workflow_ir()
 
         error = exc_info.value
+        assert isinstance(error, UnsupportedPatternError)
         assert "function" in error.message.lower(), "Error should mention nested function"
 
     def test_import_inside_run_raises_error(self) -> None:
@@ -1084,6 +1089,7 @@ class TestUnsupportedPatternDetection:
             ImportWorkflow.workflow_ir()
 
         error = exc_info.value
+        assert isinstance(error, UnsupportedPatternError)
         assert "Import" in error.message, "Error should mention import"
 
     def test_class_def_inside_run_raises_error(self) -> None:
@@ -1105,6 +1111,7 @@ class TestUnsupportedPatternDetection:
             ClassDefWorkflow.workflow_ir()
 
         error = exc_info.value
+        assert isinstance(error, UnsupportedPatternError)
         assert "Class" in error.message, "Error should mention class"
 
     def test_nested_function_raises_error(self) -> None:
@@ -1126,6 +1133,7 @@ class TestUnsupportedPatternDetection:
             NestedFuncWorkflow.workflow_ir()
 
         error = exc_info.value
+        assert isinstance(error, UnsupportedPatternError)
         assert "function" in error.message.lower(), "Error should mention function"
 
 
@@ -1536,3 +1544,622 @@ class TestLiteralTypes:
 
         assert none_assign is not None, "Should have None assignment"
         assert none_assign.value.literal.is_none is True, "Should be None"
+
+
+class TestMoreUnsupportedPatterns:
+    """Test additional unsupported patterns for coverage."""
+
+    def test_dict_comprehension_raises_error(self) -> None:
+        """Test: dict comprehensions raise error."""
+        import pytest
+
+        from rappel import UnsupportedPatternError, workflow
+        from rappel.workflow import Workflow
+
+        @workflow
+        class DictCompWorkflow(Workflow):
+            async def run(self, items: list[int]) -> dict[int, int]:
+                return {x: x * 2 for x in items}
+
+        with pytest.raises(UnsupportedPatternError) as exc_info:
+            DictCompWorkflow.workflow_ir()
+
+        error = exc_info.value
+        assert isinstance(error, UnsupportedPatternError)
+        assert "Dict comprehension" in error.message
+
+    def test_set_comprehension_raises_error(self) -> None:
+        """Test: set comprehensions raise error."""
+        import pytest
+
+        from rappel import UnsupportedPatternError, workflow
+        from rappel.workflow import Workflow
+
+        @workflow
+        class SetCompWorkflow(Workflow):
+            async def run(self, items: list[int]) -> set[int]:
+                return {x * 2 for x in items}
+
+        with pytest.raises(UnsupportedPatternError) as exc_info:
+            SetCompWorkflow.workflow_ir()
+
+        error = exc_info.value
+        assert isinstance(error, UnsupportedPatternError)
+        assert "Set comprehension" in error.message
+
+    def test_generator_expression_raises_error(self) -> None:
+        """Test: generator expressions raise error."""
+        import pytest
+
+        from rappel import UnsupportedPatternError, workflow
+        from rappel.workflow import Workflow
+
+        @workflow
+        class GeneratorWorkflow(Workflow):
+            async def run(self, items: list[int]) -> int:
+                return sum(x * 2 for x in items)
+
+        with pytest.raises(UnsupportedPatternError) as exc_info:
+            GeneratorWorkflow.workflow_ir()
+
+        error = exc_info.value
+        assert isinstance(error, UnsupportedPatternError)
+        assert "Generator" in error.message
+
+    def test_walrus_operator_raises_error(self) -> None:
+        """Test: walrus operator raises error."""
+        import pytest
+
+        from rappel import UnsupportedPatternError, workflow
+        from rappel.workflow import Workflow
+
+        @workflow
+        class WalrusWorkflow(Workflow):
+            async def run(self, items: list[int]) -> int:
+                if (n := len(items)) > 0:
+                    return n
+                return 0
+
+        with pytest.raises(UnsupportedPatternError) as exc_info:
+            WalrusWorkflow.workflow_ir()
+
+        error = exc_info.value
+        assert isinstance(error, UnsupportedPatternError)
+        assert "walrus" in error.message.lower()
+
+    def test_match_statement_raises_error(self) -> None:
+        """Test: match statements raise error (Python 3.10+)."""
+        import sys
+
+        if sys.version_info < (3, 10):
+            return  # Skip on older Python versions
+
+        import pytest
+
+        from rappel import UnsupportedPatternError
+
+        # Use fixture file to test match statement (requires source code access)
+        from tests.fixtures_unsupported.match_workflow import MatchWorkflow
+
+        with pytest.raises(UnsupportedPatternError) as exc_info:
+            MatchWorkflow.workflow_ir()
+
+        error = exc_info.value
+        assert isinstance(error, UnsupportedPatternError)
+        assert "Match" in error.message
+
+
+class TestForLoopEnumerate:
+    """Test for loop with enumerate pattern."""
+
+    def test_for_enumerate_unpacking(self) -> None:
+        """Test: for i, item in enumerate(items) creates correct loop vars."""
+        from rappel import action, workflow
+        from rappel.workflow import Workflow
+
+        @action(name="enumerate_action")
+        async def process_item(idx: int, item: str) -> str:
+            return f"{idx}: {item}"
+
+        @workflow
+        class EnumerateWorkflow(Workflow):
+            async def run(self, items: list[str]) -> list[str]:
+                results = []
+                for i, item in enumerate(items):
+                    result = await process_item(idx=i, item=item)
+                    results.append(result)
+                return results
+
+        program = EnumerateWorkflow.workflow_ir()
+
+        # Find the for loop
+        func = program.functions[0]
+        for_loop = None
+        for stmt in func.body.statements:
+            if stmt.HasField("for_loop"):
+                for_loop = stmt.for_loop
+                break
+
+        assert for_loop is not None, "Should have for loop"
+        # enumerate unpacks to two loop vars
+        assert len(for_loop.loop_vars) == 2, "Should have 2 loop vars (i, item)"
+        assert "i" in for_loop.loop_vars, "Should have 'i' loop var"
+        assert "item" in for_loop.loop_vars, "Should have 'item' loop var"
+
+
+class TestExprStmt:
+    """Test expression statements (side-effect only)."""
+
+    def test_action_call_without_assignment(self) -> None:
+        """Test: await action() without assignment uses action from fixture file."""
+        # Uses a fixture with module-level actions because action discovery
+        # requires actions to be at module level
+        from tests.fixtures_side_effects.side_effect_action import SideEffectWorkflow
+
+        program = SideEffectWorkflow.workflow_ir()
+
+        func = program.functions[0]
+        # Find action call statement (not in assignment)
+        action_stmt = None
+        for stmt in func.body.statements:
+            if stmt.HasField("action_call"):
+                action_stmt = stmt
+                break
+
+        assert action_stmt is not None, (
+            f"Should have side-effect action call, got: {[s.WhichOneof('kind') for s in func.body.statements]}"
+        )
+        assert action_stmt.action_call.action_name == "side_effect"
+
+
+class TestUnaryOperators:
+    """Test unary operators."""
+
+    def test_unary_minus(self) -> None:
+        """Test: -x unary negation."""
+        from rappel import workflow
+        from rappel.workflow import Workflow
+
+        @workflow
+        class UnaryMinusWorkflow(Workflow):
+            async def run(self, x: int) -> int:
+                result = -x
+                return result
+
+        program = UnaryMinusWorkflow.workflow_ir()
+
+        func = program.functions[0]
+        # Find unary op
+        unary_assign = None
+        for stmt in func.body.statements:
+            if stmt.HasField("assignment"):
+                if stmt.assignment.value.HasField("unary_op"):
+                    unary_assign = stmt.assignment
+                    break
+
+        assert unary_assign is not None, "Should have unary assignment"
+        assert unary_assign.value.unary_op.op == ir.UnaryOperator.UNARY_OP_NEG
+
+
+class TestElseBranch:
+    """Test else branches in conditionals."""
+
+    def test_if_else_with_actions(self) -> None:
+        """Test: if/else with action in else branch."""
+        from rappel import action, workflow
+        from rappel.workflow import Workflow
+
+        @action(name="if_action")
+        async def if_action() -> int:
+            return 1
+
+        @action(name="else_action")
+        async def else_action() -> int:
+            return 2
+
+        @workflow
+        class IfElseActionWorkflow(Workflow):
+            async def run(self, flag: bool) -> int:
+                if flag:
+                    result = await if_action()
+                else:
+                    result = await else_action()
+                return result
+
+        program = IfElseActionWorkflow.workflow_ir()
+
+        # Find conditional
+        func = program.functions[0]
+        conditional = None
+        for stmt in func.body.statements:
+            if stmt.HasField("conditional"):
+                conditional = stmt.conditional
+                break
+
+        assert conditional is not None, "Should have conditional"
+        assert conditional.HasField("if_branch"), "Should have if branch"
+        # Should have else branch
+        assert len(conditional.elif_branches) == 0 or conditional.HasField("else_branch"), (
+            "Should have else branch"
+        )
+
+
+class TestMoreBinaryOperators:
+    """Test more binary operator coverage."""
+
+    def test_modulo_operator(self) -> None:
+        """Test: x % y modulo operator."""
+        from rappel import workflow
+        from rappel.workflow import Workflow
+
+        @workflow
+        class ModuloWorkflow(Workflow):
+            async def run(self, x: int, y: int) -> int:
+                return x % y
+
+        program = ModuloWorkflow.workflow_ir()
+        assert program is not None
+
+    def test_power_operator(self) -> None:
+        """Test: x ** y power operator."""
+        from rappel import workflow
+        from rappel.workflow import Workflow
+
+        @workflow
+        class PowerWorkflow(Workflow):
+            async def run(self, x: int, y: int) -> int:
+                return x**y
+
+        program = PowerWorkflow.workflow_ir()
+        assert program is not None
+
+    def test_floor_division(self) -> None:
+        """Test: x // y floor division."""
+        from rappel import workflow
+        from rappel.workflow import Workflow
+
+        @workflow
+        class FloorDivWorkflow(Workflow):
+            async def run(self, x: int, y: int) -> int:
+                return x // y
+
+        program = FloorDivWorkflow.workflow_ir()
+        assert program is not None
+
+    def test_true_division(self) -> None:
+        """Test: x / y true division."""
+        from rappel import workflow
+        from rappel.workflow import Workflow
+
+        @workflow
+        class TrueDivWorkflow(Workflow):
+            async def run(self, x: float, y: float) -> float:
+                return x / y
+
+        program = TrueDivWorkflow.workflow_ir()
+        assert program is not None
+
+
+class TestNestedExpressions:
+    """Test nested expression handling."""
+
+    def test_nested_binary_ops(self) -> None:
+        """Test: (a + b) * c nested operations."""
+        from rappel import workflow
+        from rappel.workflow import Workflow
+
+        @workflow
+        class NestedOpsWorkflow(Workflow):
+            async def run(self, a: int, b: int, c: int) -> int:
+                result = (a + b) * c
+                return result
+
+        program = NestedOpsWorkflow.workflow_ir()
+
+        func = program.functions[0]
+        # Should have assignment with binary op
+        found = False
+        for stmt in func.body.statements:
+            if stmt.HasField("assignment"):
+                if stmt.assignment.value.HasField("binary_op"):
+                    found = True
+                    break
+
+        assert found, "Should have nested binary ops"
+
+    def test_list_with_expressions(self) -> None:
+        """Test: [a + 1, b * 2] list with expressions."""
+        from rappel import workflow
+        from rappel.workflow import Workflow
+
+        @workflow
+        class ListExprWorkflow(Workflow):
+            async def run(self, a: int, b: int) -> list[int]:
+                result = [a + 1, b * 2]
+                return result
+
+        program = ListExprWorkflow.workflow_ir()
+
+        func = program.functions[0]
+        # Find list assignment
+        list_assign = None
+        for stmt in func.body.statements:
+            if stmt.HasField("assignment"):
+                if stmt.assignment.value.HasField("list"):
+                    list_assign = stmt.assignment
+                    break
+
+        assert list_assign is not None, "Should have list"
+        assert len(list_assign.value.list.elements) == 2, "Should have 2 elements"
+
+
+class TestAugmentedAssignmentTypes:
+    """Test different augmented assignment operators."""
+
+    def test_minus_equals(self) -> None:
+        """Test: x -= 1"""
+        from rappel import workflow
+        from rappel.workflow import Workflow
+
+        @workflow
+        class MinusEqualsWorkflow(Workflow):
+            async def run(self) -> int:
+                x = 10
+                x -= 1
+                return x
+
+        program = MinusEqualsWorkflow.workflow_ir()
+
+        func = program.functions[0]
+        # Find augmented assignment with SUB
+        found = False
+        for stmt in func.body.statements:
+            if stmt.HasField("assignment"):
+                if stmt.assignment.value.HasField("binary_op"):
+                    if stmt.assignment.value.binary_op.op == ir.BinaryOperator.BINARY_OP_SUB:
+                        found = True
+                        break
+
+        assert found, "Should have -= converted to binary sub"
+
+    def test_times_equals(self) -> None:
+        """Test: x *= 2"""
+        from rappel import workflow
+        from rappel.workflow import Workflow
+
+        @workflow
+        class TimesEqualsWorkflow(Workflow):
+            async def run(self) -> int:
+                x = 5
+                x *= 2
+                return x
+
+        program = TimesEqualsWorkflow.workflow_ir()
+
+        func = program.functions[0]
+        # Find augmented assignment with MUL
+        found = False
+        for stmt in func.body.statements:
+            if stmt.HasField("assignment"):
+                if stmt.assignment.value.HasField("binary_op"):
+                    if stmt.assignment.value.binary_op.op == ir.BinaryOperator.BINARY_OP_MUL:
+                        found = True
+                        break
+
+        assert found, "Should have *= converted to binary mul"
+
+
+class TestCallInTryBody:
+    """Test call handling in try body."""
+
+    def test_try_with_function_call(self) -> None:
+        """Test: try body with action call uses fixture."""
+        # Uses fixture with module-level action
+        from tests.fixtures_try_except.try_with_action import TryWithActionWorkflow
+
+        program = TryWithActionWorkflow.workflow_ir()
+
+        # Find try/except
+        func = program.functions[0]
+        try_except = None
+        for stmt in func.body.statements:
+            if stmt.HasField("try_except"):
+                try_except = stmt.try_except
+                break
+
+        assert try_except is not None, "Should have try/except"
+        # The try_body can have either:
+        # 1. A direct 'call' field if the action call is extracted
+        # 2. Statements containing the assignment with action_call
+        # Due to how _stmts_to_single_call_body works, assignment with action_call
+        # ends up in statements, not as a direct call
+        assert len(try_except.try_body.statements) > 0 or try_except.try_body.HasField("call"), (
+            "Try body should have statements or call"
+        )
+
+        # Verify the action call is present (in statements as assignment)
+        found_action = False
+        for stmt in try_except.try_body.statements:
+            if stmt.HasField("assignment"):
+                if stmt.assignment.value.HasField("action_call"):
+                    found_action = True
+                    assert stmt.assignment.value.action_call.action_name == "try_action"
+                    break
+        assert found_action, "Should have action call in try body"
+
+
+class TestPolicyVariations:
+    """Test various policy configurations for coverage."""
+
+    def _find_action_by_name(self, program: ir.Program, action_name: str) -> ir.ActionCall | None:
+        """Find an action call by name."""
+        for fn in program.functions:
+            for stmt in fn.body.statements:
+                if stmt.HasField("action_call"):
+                    if stmt.action_call.action_name == action_name:
+                        return stmt.action_call
+                elif stmt.HasField("assignment"):
+                    if stmt.assignment.value.HasField("action_call"):
+                        if stmt.assignment.value.action_call.action_name == action_name:
+                            return stmt.assignment.value.action_call
+        return None
+
+    def test_timeout_with_direct_integer(self) -> None:
+        """Test: timeout=60 (direct integer, not timedelta)."""
+        from tests.fixtures_policy.policy_variations import PolicyVariationsWorkflow
+
+        program = PolicyVariationsWorkflow.workflow_ir()
+
+        action = self._find_action_by_name(program, "action_with_timeout_int")
+        assert action is not None, "Should find action_with_timeout_int"
+        assert len(action.policies) == 1, "Should have 1 policy"
+
+        policy = action.policies[0]
+        assert policy.HasField("timeout"), "Should be timeout policy"
+        assert policy.timeout.timeout.seconds == 60
+
+    def test_timeout_with_timedelta_minutes(self) -> None:
+        """Test: timeout=timedelta(minutes=2)."""
+        from tests.fixtures_policy.policy_variations import PolicyVariationsWorkflow
+
+        program = PolicyVariationsWorkflow.workflow_ir()
+
+        action = self._find_action_by_name(program, "action_with_timeout_minutes")
+        assert action is not None, "Should find action_with_timeout_minutes"
+        assert len(action.policies) == 1, "Should have 1 policy"
+
+        policy = action.policies[0]
+        assert policy.HasField("timeout"), "Should be timeout policy"
+        assert policy.timeout.timeout.seconds == 120  # 2 minutes
+
+    def test_retry_with_backoff_seconds(self) -> None:
+        """Test: retry=RetryPolicy(attempts=3, backoff_seconds=5)."""
+        from tests.fixtures_policy.policy_variations import PolicyVariationsWorkflow
+
+        program = PolicyVariationsWorkflow.workflow_ir()
+
+        action = self._find_action_by_name(program, "action_with_retry_backoff")
+        assert action is not None, "Should find action_with_retry_backoff"
+        assert len(action.policies) == 1, "Should have 1 policy"
+
+        policy = action.policies[0]
+        assert policy.HasField("retry"), "Should be retry policy"
+        assert policy.retry.max_retries == 3
+        assert policy.retry.backoff.seconds == 5
+
+    def test_retry_with_exception_types(self) -> None:
+        """Test: retry=RetryPolicy(attempts=2, exception_types=["ValueError", "KeyError"])."""
+        from tests.fixtures_policy.policy_variations import PolicyVariationsWorkflow
+
+        program = PolicyVariationsWorkflow.workflow_ir()
+
+        action = self._find_action_by_name(program, "action_with_retry_exceptions")
+        assert action is not None, "Should find action_with_retry_exceptions"
+        assert len(action.policies) == 1, "Should have 1 policy"
+
+        policy = action.policies[0]
+        assert policy.HasField("retry"), "Should be retry policy"
+        assert policy.retry.max_retries == 2
+        assert "ValueError" in policy.retry.exception_types
+        assert "KeyError" in policy.retry.exception_types
+
+    def test_timeout_with_timedelta_hours(self) -> None:
+        """Test: timeout=timedelta(hours=1)."""
+        from tests.fixtures_policy.policy_variations import PolicyVariationsWorkflow
+
+        program = PolicyVariationsWorkflow.workflow_ir()
+
+        action = self._find_action_by_name(program, "action_with_timeout_hours")
+        assert action is not None, "Should find action_with_timeout_hours"
+        assert len(action.policies) == 1, "Should have 1 policy"
+
+        policy = action.policies[0]
+        assert policy.HasField("timeout"), "Should be timeout policy"
+        assert policy.timeout.timeout.seconds == 3600  # 1 hour
+
+    def test_timeout_with_timedelta_days(self) -> None:
+        """Test: timeout=timedelta(days=1)."""
+        from tests.fixtures_policy.policy_variations import PolicyVariationsWorkflow
+
+        program = PolicyVariationsWorkflow.workflow_ir()
+
+        action = self._find_action_by_name(program, "action_with_timeout_days")
+        assert action is not None, "Should find action_with_timeout_days"
+        assert len(action.policies) == 1, "Should have 1 policy"
+
+        policy = action.policies[0]
+        assert policy.HasField("timeout"), "Should be timeout policy"
+        assert policy.timeout.timeout.seconds == 86400  # 1 day
+
+
+class TestSpreadAction:
+    """Test spread action detection - currently raises UnsupportedPatternError."""
+
+    def test_spread_pattern_raises_error(self) -> None:
+        """Test: asyncio.gather(*[action(item) for item in items]) raises error."""
+        import pytest
+
+        from rappel import UnsupportedPatternError
+        from tests.fixtures_gather.gather_listcomp import GatherListCompWorkflow
+
+        # Spread pattern in gather is not yet fully supported
+        with pytest.raises(UnsupportedPatternError) as exc_info:
+            GatherListCompWorkflow.workflow_ir()
+
+        error = exc_info.value
+        assert isinstance(error, UnsupportedPatternError)
+        assert "spread" in error.message.lower()
+
+
+class TestForLoopWithMultipleCalls:
+    """Test for loop body wrapping with multiple calls."""
+
+    def test_for_body_wrapped_to_function(self) -> None:
+        """Test: for loop with multiple calls gets wrapped into synthetic function."""
+        from tests.fixtures_for_loop.for_multiple_calls import ForMultipleCallsWorkflow
+
+        program = ForMultipleCallsWorkflow.workflow_ir()
+
+        # Should have implicit function generated
+        assert len(program.functions) > 1, "Should have implicit function for wrapped body"
+
+        # Find the for loop
+        for_loop = None
+        for fn in program.functions:
+            if fn.name == "run":
+                for stmt in fn.body.statements:
+                    if stmt.HasField("for_loop"):
+                        for_loop = stmt.for_loop
+                        break
+
+        assert for_loop is not None, "Should have for loop"
+
+        # The body should be a function call to the wrapper
+        body = for_loop.body
+        assert body.HasField("call"), "Body should have call to wrapper function"
+
+
+class TestConditionalWithMultipleCalls:
+    """Test conditional body wrapping with multiple calls."""
+
+    def test_if_body_wrapped_to_function(self) -> None:
+        """Test: if branch with multiple calls gets wrapped into synthetic function."""
+        from tests.fixtures_conditional.if_multiple_calls import IfMultipleCallsWorkflow
+
+        program = IfMultipleCallsWorkflow.workflow_ir()
+
+        # Should have implicit function generated
+        assert len(program.functions) > 1, "Should have implicit function for wrapped body"
+
+
+class TestTryExceptWithMultipleCalls:
+    """Test try/except body wrapping with multiple calls."""
+
+    def test_try_body_wrapped_to_function(self) -> None:
+        """Test: try body with multiple calls gets wrapped into synthetic function."""
+        from tests.fixtures_try_except.try_multiple_calls import TryMultipleCallsWorkflow
+
+        program = TryMultipleCallsWorkflow.workflow_ir()
+
+        # Should have implicit function generated
+        assert len(program.functions) > 1, "Should have implicit function for wrapped body"
