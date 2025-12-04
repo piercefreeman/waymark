@@ -49,9 +49,13 @@ struct Args {
     #[arg(long, default_value = "100")]
     iterations: u32,
 
-    /// Number of Python workers
+    /// Number of simulated hosts (each gets its own DAGRunner + worker pool)
+    #[arg(long, default_value = "1")]
+    hosts: u32,
+
+    /// Number of Python workers per host
     #[arg(long, default_value = "4")]
-    workers: u32,
+    workers_per_host: u32,
 
     /// Number of workflow instances to run concurrently
     #[arg(long, default_value = "1")]
@@ -422,47 +426,17 @@ async fn main() -> Result<()> {
     }
     info!(count = instance_ids.len(), "workflow instances created");
 
-    // Start worker pool
+    // Common worker configuration
     let worker_script = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("python")
         .join(".venv")
         .join("bin")
         .join("rappel-worker");
 
-    let worker_config = PythonWorkerConfig {
-        script_path: worker_script,
-        script_args: Vec::new(),
-        user_modules: vec!["benchmark_workflow".to_string()],
-        extra_python_paths: vec![python_env.path().to_path_buf()],
-    };
-
-    let worker_pool = Arc::new(
-        PythonWorkerPool::new(
-            worker_config,
-            args.workers as usize,
-            Arc::clone(&worker_bridge),
-        )
-        .await?,
-    );
-    info!(workers = args.workers, "worker pool ready");
-
-    // Enqueue initial actions (this would normally be done by DAGRunner)
-    // For the benchmark, we need to manually start the workflow
-    let runner_config = rappel::RunnerConfig {
-        batch_size: 64,
-        max_slots_per_worker: 10,
-        poll_interval_ms: 10,
-        timeout_check_interval_ms: 1000,
-    };
-    let runner = rappel::DAGRunner::new(
-        runner_config,
-        Arc::clone(&database),
-        Arc::clone(&worker_pool),
-    );
+    let python_env_path = python_env.path().to_path_buf();
 
     // Prepare initial inputs for the workflow
     let mut initial_inputs = HashMap::new();
-    // indices: list of integers [0, 1, 2, ..., count-1]
     let indices: Vec<serde_json::Value> = (0..args.count)
         .map(|i| serde_json::Value::Number(i.into()))
         .collect();
@@ -472,23 +446,71 @@ async fn main() -> Result<()> {
         serde_json::Value::Number(args.iterations.into()),
     );
 
-    // Start all instances with initial inputs
-    for instance_id in &instance_ids {
-        runner
-            .start_instance(*instance_id, initial_inputs.clone())
-            .await?;
-    }
-    info!(count = instance_ids.len(), "workflow instances started");
+    // Create multiple simulated hosts, each with its own runner + worker pool
+    let mut hosts: Vec<(
+        Arc<rappel::DAGRunner>,
+        Arc<PythonWorkerPool>,
+        JoinHandle<()>,
+    )> = Vec::new();
 
-    // Run the DAGRunner in a background task - this is the unified code path
-    // that handles dispatch, completion processing, and DAG traversal
-    let runner = Arc::new(runner);
-    let runner_clone = Arc::clone(&runner);
-    let runner_handle = tokio::spawn(async move {
-        if let Err(e) = runner_clone.run().await {
-            error!("Runner failed: {}", e);
+    for host_id in 0..args.hosts {
+        let worker_config = PythonWorkerConfig {
+            script_path: worker_script.clone(),
+            script_args: Vec::new(),
+            user_modules: vec!["benchmark_workflow".to_string()],
+            extra_python_paths: vec![python_env_path.clone()],
+        };
+
+        let worker_pool = Arc::new(
+            PythonWorkerPool::new(
+                worker_config,
+                args.workers_per_host as usize,
+                Arc::clone(&worker_bridge),
+            )
+            .await?,
+        );
+
+        let runner_config = rappel::RunnerConfig {
+            batch_size: 64,
+            max_slots_per_worker: 10,
+            poll_interval_ms: 10,
+            timeout_check_interval_ms: 1000,
+        };
+
+        let runner = Arc::new(rappel::DAGRunner::new(
+            runner_config,
+            Arc::clone(&database),
+            Arc::clone(&worker_pool),
+        ));
+
+        // Start instances from the first host only (they'll be picked up by all hosts via DB)
+        if host_id == 0 {
+            for instance_id in &instance_ids {
+                runner
+                    .start_instance(*instance_id, initial_inputs.clone())
+                    .await?;
+            }
         }
-    });
+
+        // Spawn the runner in its own tokio task
+        let runner_clone = Arc::clone(&runner);
+        let handle = tokio::spawn(async move {
+            if let Err(e) = runner_clone.run().await {
+                error!(host_id = host_id, "Runner failed: {}", e);
+            }
+        });
+
+        hosts.push((runner, worker_pool, handle));
+    }
+
+    let total_workers = args.hosts * args.workers_per_host;
+    info!(
+        hosts = args.hosts,
+        workers_per_host = args.workers_per_host,
+        total_workers = total_workers,
+        "all hosts ready"
+    );
+    info!(count = instance_ids.len(), "workflow instances started");
 
     // Wait for completion by monitoring the database
     let timeout = Duration::from_secs(args.timeout);
@@ -496,12 +518,37 @@ async fn main() -> Result<()> {
     let total = wait_for_completion(&database, timeout).await?;
     let elapsed = start.elapsed();
 
-    // Shutdown the runner
-    runner.shutdown();
-    let _ = tokio::time::timeout(Duration::from_secs(5), runner_handle).await;
+    // Shutdown all runners
+    for (runner, _, _) in &hosts {
+        runner.shutdown();
+    }
 
-    // Drop the runner to release worker_pool reference
-    drop(runner);
+    // Wait for all runner tasks to complete
+    for (_, _, handle) in &mut hosts {
+        let _ = tokio::time::timeout(Duration::from_secs(5), handle).await;
+    }
+
+    // Drop runners to release worker_pool references, then shutdown pools
+    let worker_pools: Vec<_> = hosts
+        .into_iter()
+        .map(|(r, p, _)| {
+            drop(r);
+            p
+        })
+        .collect();
+
+    for worker_pool in worker_pools {
+        match Arc::try_unwrap(worker_pool) {
+            Ok(pool) => {
+                if let Err(e) = pool.shutdown().await {
+                    error!("Failed to shutdown worker pool: {}", e);
+                }
+            }
+            Err(_) => {
+                error!("Worker pool still has references, cannot shut down cleanly");
+            }
+        }
+    }
 
     // Calculate statistics
     let elapsed_s = elapsed.as_secs_f64();
@@ -511,8 +558,6 @@ async fn main() -> Result<()> {
         total,
         elapsed_s,
         throughput,
-        // Round-trip metrics not available in this unified path
-        // (would need to add instrumentation to the runner)
         avg_round_trip_ms: 0.0,
         p95_round_trip_ms: 0.0,
     };
@@ -522,6 +567,9 @@ async fn main() -> Result<()> {
         println!("{}", serde_json::to_string(&output)?);
     } else {
         println!("\n=== Benchmark Results ===");
+        println!("Hosts: {}", args.hosts);
+        println!("Workers per host: {}", args.workers_per_host);
+        println!("Total workers: {}", total_workers);
         println!("Actions executed: {}", output.total);
         println!("Elapsed time: {:.2}s", output.elapsed_s);
         println!("Throughput: {:.2} actions/sec", output.throughput);
@@ -529,19 +577,6 @@ async fn main() -> Result<()> {
 
     // Cleanup
     let _ = grpc_shutdown.send(());
-
-    // Shutdown worker pool - need to unwrap the Arc
-    match Arc::try_unwrap(worker_pool) {
-        Ok(pool) => {
-            if let Err(e) = pool.shutdown().await {
-                error!("Failed to shutdown worker pool: {}", e);
-            }
-        }
-        Err(_) => {
-            error!("Worker pool still has references, cannot shut down cleanly");
-        }
-    }
-
     worker_bridge.shutdown().await;
     drop(python_env);
 
