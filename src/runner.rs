@@ -49,6 +49,7 @@ use prost::Message;
 
 use crate::{
     ast_evaluator::{EvaluationError, ExpressionEvaluator, Scope},
+    completion::{analyze_subgraph, execute_inline_subgraph},
     dag::{DAG, DAGConverter, DAGNode, EdgeType},
     dag_state::{DAGHelper, ExecutionMode},
     db::{
@@ -1011,6 +1012,205 @@ impl DAGRunner {
         }
 
         Ok(())
+    }
+
+    // ========================================================================
+    // Unified Readiness Model - New Completion Flow
+    // ========================================================================
+
+    /// Process a completion using the unified readiness model.
+    ///
+    /// This implements the 4-step completion flow:
+    /// 1. Analyze subgraph - find inline nodes and frontier (barriers/actions)
+    /// 2. Batch fetch inbox - single query for all relevant node inboxes
+    /// 3. Execute inline subgraph - run inline nodes in memory
+    /// 4. Execute completion plan - single atomic transaction
+    ///
+    /// Every frontier node gets readiness tracking. A node is only enqueued
+    /// when `completed_count == required_count`.
+    #[allow(dead_code)]
+    async fn process_completion_unified(
+        db: &Database,
+        dag_cache: &DAGCache,
+        in_flight: &InFlightAction,
+        metrics: &RoundTripMetrics,
+        instance_id: WorkflowInstanceId,
+    ) -> RunnerResult<crate::completion::CompletionResult> {
+        // Get DAG for this workflow instance
+        let dag = match dag_cache.get_dag_for_instance(instance_id).await? {
+            Some(dag) => dag,
+            None => {
+                return Ok(crate::completion::CompletionResult::default());
+            }
+        };
+
+        // Get node_id from action
+        let node_id = match in_flight.action.node_id.as_deref() {
+            Some(id) => id,
+            None => {
+                return Ok(crate::completion::CompletionResult::default());
+            }
+        };
+
+        // Parse spread index if present
+        let (base_node_id, _spread_index) = Self::parse_spread_node_id(node_id);
+
+        // Parse result from response payload
+        let result: JsonValue = if metrics.response_payload.is_empty() {
+            JsonValue::Null
+        } else {
+            match proto::WorkflowArguments::decode(&metrics.response_payload[..]) {
+                Ok(args) => args
+                    .arguments
+                    .iter()
+                    .find(|arg| arg.key == "result")
+                    .and_then(|arg| arg.value.as_ref())
+                    .map(proto_value_to_json)
+                    .unwrap_or(JsonValue::Null),
+                Err(_) => {
+                    serde_json::from_slice(&metrics.response_payload).unwrap_or(JsonValue::Null)
+                }
+            }
+        };
+
+        let helper = DAGHelper::new(&dag);
+
+        // Step 1: Analyze subgraph
+        let subgraph = analyze_subgraph(base_node_id, &dag, &helper);
+
+        debug!(
+            node_id = %node_id,
+            inline_nodes = subgraph.inline_nodes.len(),
+            frontier_nodes = subgraph.frontier_nodes.len(),
+            "analyzed subgraph for completion"
+        );
+
+        // Step 2: Batch fetch inbox for all nodes in subgraph
+        let existing_inbox = db
+            .batch_read_inbox(instance_id, &subgraph.all_node_ids)
+            .await?;
+
+        // Step 3: Execute inline subgraph and build completion plan
+        let mut plan = execute_inline_subgraph(
+            base_node_id,
+            result,
+            &subgraph,
+            &existing_inbox,
+            &dag,
+            instance_id,
+        )
+        .map_err(|e| RunnerError::Dag(e.to_string()))?;
+
+        // Fill in action completion details
+        plan = plan.with_action_completion(
+            ActionId(in_flight.action.id),
+            in_flight.action.delivery_token,
+            metrics.success,
+            metrics.response_payload.clone(),
+            metrics.error_message.clone(),
+        );
+
+        debug!(
+            node_id = %node_id,
+            inbox_writes = plan.inbox_writes.len(),
+            readiness_increments = plan.readiness_increments.len(),
+            has_instance_completion = plan.instance_completion.is_some(),
+            "built completion plan"
+        );
+
+        // Step 4: Execute completion plan in single atomic transaction
+        let result = db.execute_completion_plan(instance_id, plan).await?;
+
+        info!(
+            node_id = %node_id,
+            newly_ready_nodes = ?result.newly_ready_nodes,
+            workflow_completed = result.workflow_completed,
+            was_stale = result.was_stale,
+            "executed completion plan"
+        );
+
+        Ok(result)
+    }
+
+    /// Process a barrier (aggregator) that has become ready.
+    ///
+    /// Called when the polling loop picks up a barrier from the queue.
+    /// The barrier's inbox is guaranteed to be fully populated because
+    /// all predecessors completed and wrote their data before the barrier
+    /// was enqueued.
+    #[allow(dead_code)]
+    async fn process_barrier_unified(
+        db: &Database,
+        dag_cache: &DAGCache,
+        barrier: &QueuedAction,
+    ) -> RunnerResult<crate::completion::CompletionResult> {
+        let instance_id = WorkflowInstanceId(barrier.instance_id);
+        let node_id = match barrier.node_id.as_deref() {
+            Some(id) => id,
+            None => return Ok(crate::completion::CompletionResult::default()),
+        };
+
+        // Get DAG
+        let dag = match dag_cache.get_dag_for_instance(instance_id).await? {
+            Some(dag) => dag,
+            None => return Ok(crate::completion::CompletionResult::default()),
+        };
+
+        let helper = DAGHelper::new(&dag);
+
+        // Read aggregated results from inbox
+        let spread_results = db.read_inbox_for_aggregator(instance_id, node_id).await?;
+
+        // Aggregate results (already sorted by spread_index)
+        let aggregated = JsonValue::Array(
+            spread_results.into_iter().map(|(_, v)| v).collect()
+        );
+
+        debug!(
+            barrier_id = %node_id,
+            result_count = aggregated.as_array().map(|a| a.len()).unwrap_or(0),
+            "processing ready barrier"
+        );
+
+        // Analyze subgraph from barrier
+        let subgraph = analyze_subgraph(node_id, &dag, &helper);
+
+        // Batch fetch inbox
+        let existing_inbox = db
+            .batch_read_inbox(instance_id, &subgraph.all_node_ids)
+            .await?;
+
+        // Execute inline subgraph
+        let mut plan = execute_inline_subgraph(
+            node_id,
+            aggregated,
+            &subgraph,
+            &existing_inbox,
+            &dag,
+            instance_id,
+        )
+        .map_err(|e| RunnerError::Dag(e.to_string()))?;
+
+        // Fill in barrier completion details
+        plan = plan.with_action_completion(
+            ActionId(barrier.id),
+            barrier.delivery_token,
+            true, // barriers always succeed
+            Vec::new(),
+            None,
+        );
+
+        // Execute completion plan
+        let result = db.execute_completion_plan(instance_id, plan).await?;
+
+        info!(
+            barrier_id = %node_id,
+            newly_ready_nodes = ?result.newly_ready_nodes,
+            workflow_completed = result.workflow_completed,
+            "processed barrier"
+        );
+
+        Ok(result)
     }
 
     /// Process a completion in a tokio task (fully async with inbox pattern).
@@ -2775,6 +2975,7 @@ mod tests {
             timeout_retry_limit: 3,
             retry_kind: "failure".to_string(),
             node_id: Some("node_1".to_string()),
+            node_type: "action".to_string(),
         };
 
         tracker.add(action.clone(), 0);

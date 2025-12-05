@@ -21,6 +21,7 @@
 
 pub mod ast_evaluator;
 pub mod ast_printer;
+pub mod completion;
 pub mod config;
 pub mod dag;
 pub mod dag_state;
@@ -71,4 +72,12 @@ pub use ast_evaluator::{EvaluationError, EvaluationResult, ExpressionEvaluator, 
 pub use runner::{
     CompletionBatch, DAGRunner, InFlightTracker, InboxWrite, RunnerConfig, RunnerError,
     RunnerResult, WorkCompletionHandler, WorkQueueHandler, WorkerSlotTracker,
+};
+
+// Completion (unified readiness model)
+pub use completion::{
+    CompletionError, CompletionPlan, CompletionResult, FrontierCategory, FrontierNode,
+    InlineScope, InstanceCompletion, NodeType, ReadinessIncrement, SubgraphAnalysis,
+    analyze_subgraph, execute_inline_subgraph, find_direct_predecessor_in_path,
+    is_direct_predecessor,
 };

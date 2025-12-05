@@ -15,7 +15,10 @@
 use chrono::{DateTime, Utc};
 use sqlx::{FromRow, PgPool, Row, postgres::PgPoolOptions};
 use thiserror::Error;
+use tracing::debug;
 use uuid::Uuid;
+
+use crate::completion::{CompletionPlan, CompletionResult};
 
 // ============================================================================
 // Type Aliases & Newtypes
@@ -242,6 +245,8 @@ pub struct QueuedAction {
     pub timeout_retry_limit: i32,
     pub retry_kind: String,
     pub node_id: Option<String>,
+    /// Type of node: "action" or "barrier"
+    pub node_type: String,
 }
 
 /// Record for completing an action
@@ -629,7 +634,8 @@ impl Database {
                 aq.delivery_token,
                 aq.timeout_retry_limit,
                 aq.retry_kind,
-                aq.node_id
+                aq.node_id,
+                COALESCE(aq.node_type, 'action') as node_type
             "#,
         )
         .bind(limit)
@@ -653,6 +659,158 @@ impl Database {
                 timeout_retry_limit: row.get("timeout_retry_limit"),
                 retry_kind: row.get("retry_kind"),
                 node_id: row.get("node_id"),
+                node_type: row.get("node_type"),
+            })
+            .collect();
+
+        Ok(actions)
+    }
+
+    /// Dispatch runnable nodes (both actions and barriers) from the queue.
+    ///
+    /// This is the unified dispatch operation for the readiness model.
+    /// It atomically selects and marks nodes as dispatched.
+    ///
+    /// - Actions are dispatched to Python workers
+    /// - Barriers are processed inline by the runner (aggregation)
+    pub async fn dispatch_runnable_nodes(&self, limit: i32) -> DbResult<Vec<QueuedAction>> {
+        // Reuse dispatch_actions - it now handles both types via node_type column
+        self.dispatch_actions(limit).await
+    }
+
+    /// Dispatch only action nodes (not barriers).
+    /// Use this when you want to send work to external workers only.
+    pub async fn dispatch_actions_only(&self, limit: i32) -> DbResult<Vec<QueuedAction>> {
+        let rows = sqlx::query(
+            r#"
+            WITH next_actions AS (
+                SELECT id
+                FROM action_queue
+                WHERE status = 'queued'
+                  AND scheduled_at <= NOW()
+                  AND (node_type = 'action' OR node_type IS NULL)
+                ORDER BY scheduled_at, action_seq
+                FOR UPDATE SKIP LOCKED
+                LIMIT $1
+            )
+            UPDATE action_queue aq
+            SET status = 'dispatched',
+                dispatched_at = NOW(),
+                deadline_at = CASE
+                    WHEN timeout_seconds > 0
+                    THEN NOW() + (timeout_seconds || ' seconds')::interval
+                    ELSE NULL
+                END,
+                delivery_token = gen_random_uuid()
+            FROM next_actions
+            WHERE aq.id = next_actions.id
+            RETURNING
+                aq.id,
+                aq.instance_id,
+                aq.partition_id,
+                aq.action_seq,
+                aq.module_name,
+                aq.action_name,
+                aq.dispatch_payload,
+                aq.timeout_seconds,
+                aq.max_retries,
+                aq.attempt_number,
+                aq.delivery_token,
+                aq.timeout_retry_limit,
+                aq.retry_kind,
+                aq.node_id,
+                COALESCE(aq.node_type, 'action') as node_type
+            "#,
+        )
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let actions = rows
+            .into_iter()
+            .map(|row| QueuedAction {
+                id: row.get("id"),
+                instance_id: row.get("instance_id"),
+                partition_id: row.get("partition_id"),
+                action_seq: row.get("action_seq"),
+                module_name: row.get("module_name"),
+                action_name: row.get("action_name"),
+                dispatch_payload: row.get("dispatch_payload"),
+                timeout_seconds: row.get("timeout_seconds"),
+                max_retries: row.get("max_retries"),
+                attempt_number: row.get("attempt_number"),
+                delivery_token: row.get("delivery_token"),
+                timeout_retry_limit: row.get("timeout_retry_limit"),
+                retry_kind: row.get("retry_kind"),
+                node_id: row.get("node_id"),
+                node_type: row.get("node_type"),
+            })
+            .collect();
+
+        Ok(actions)
+    }
+
+    /// Dispatch only barrier nodes.
+    /// Use this when you want to process aggregators separately.
+    pub async fn dispatch_barriers_only(&self, limit: i32) -> DbResult<Vec<QueuedAction>> {
+        let rows = sqlx::query(
+            r#"
+            WITH next_barriers AS (
+                SELECT id
+                FROM action_queue
+                WHERE status = 'queued'
+                  AND scheduled_at <= NOW()
+                  AND node_type = 'barrier'
+                ORDER BY scheduled_at, action_seq
+                FOR UPDATE SKIP LOCKED
+                LIMIT $1
+            )
+            UPDATE action_queue aq
+            SET status = 'dispatched',
+                dispatched_at = NOW(),
+                delivery_token = gen_random_uuid()
+            FROM next_barriers
+            WHERE aq.id = next_barriers.id
+            RETURNING
+                aq.id,
+                aq.instance_id,
+                aq.partition_id,
+                aq.action_seq,
+                aq.module_name,
+                aq.action_name,
+                aq.dispatch_payload,
+                aq.timeout_seconds,
+                aq.max_retries,
+                aq.attempt_number,
+                aq.delivery_token,
+                aq.timeout_retry_limit,
+                aq.retry_kind,
+                aq.node_id,
+                aq.node_type
+            "#,
+        )
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let actions = rows
+            .into_iter()
+            .map(|row| QueuedAction {
+                id: row.get("id"),
+                instance_id: row.get("instance_id"),
+                partition_id: row.get("partition_id"),
+                action_seq: row.get("action_seq"),
+                module_name: row.get("module_name"),
+                action_name: row.get("action_name"),
+                dispatch_payload: row.get("dispatch_payload"),
+                timeout_seconds: row.get("timeout_seconds"),
+                max_retries: row.get("max_retries"),
+                attempt_number: row.get("attempt_number"),
+                delivery_token: row.get("delivery_token"),
+                timeout_retry_limit: row.get("timeout_retry_limit"),
+                retry_kind: row.get("retry_kind"),
+                node_id: row.get("node_id"),
+                node_type: row.get("node_type"),
             })
             .collect();
 
@@ -776,7 +934,8 @@ impl Database {
                 COALESCE(delivery_token, gen_random_uuid()) as delivery_token,
                 timeout_retry_limit,
                 retry_kind,
-                node_id
+                node_id,
+                COALESCE(node_type, 'action') as node_type
             FROM action_queue
             WHERE instance_id = $1
             ORDER BY action_seq
@@ -803,6 +962,7 @@ impl Database {
                 timeout_retry_limit: row.get("timeout_retry_limit"),
                 retry_kind: row.get("retry_kind"),
                 node_id: row.get("node_id"),
+                node_type: row.get("node_type"),
             })
             .collect();
 
@@ -1233,6 +1393,283 @@ impl Database {
         .await?;
 
         Ok(())
+    }
+
+    // ========================================================================
+    // Unified Readiness Model - Batch Operations
+    // ========================================================================
+
+    /// Batch fetch inbox data for multiple nodes in a single query.
+    ///
+    /// Returns a map of target_node_id -> (variable_name -> value).
+    /// This is used to fetch all inbox data needed for inline subgraph execution
+    /// before any database writes occur.
+    pub async fn batch_read_inbox(
+        &self,
+        instance_id: WorkflowInstanceId,
+        node_ids: &std::collections::HashSet<String>,
+    ) -> DbResult<std::collections::HashMap<String, std::collections::HashMap<String, serde_json::Value>>> {
+        if node_ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+
+        let node_ids_vec: Vec<&str> = node_ids.iter().map(|s| s.as_str()).collect();
+
+        let rows: Vec<(String, String, serde_json::Value, Option<i32>)> = sqlx::query_as(
+            r#"
+            SELECT target_node_id, variable_name, value, spread_index
+            FROM node_inputs
+            WHERE instance_id = $1 AND target_node_id = ANY($2)
+            ORDER BY target_node_id, spread_index NULLS FIRST, created_at
+            "#,
+        )
+        .bind(instance_id.0)
+        .bind(&node_ids_vec)
+        .fetch_all(&self.pool)
+        .await?;
+
+        // Group by target_node_id, then by variable_name
+        // For non-spread results, later writes overwrite earlier ones (last write wins)
+        let mut result: std::collections::HashMap<String, std::collections::HashMap<String, serde_json::Value>> =
+            std::collections::HashMap::new();
+
+        for (target_node_id, var_name, value, _spread_index) in rows {
+            result
+                .entry(target_node_id)
+                .or_default()
+                .insert(var_name, value);
+        }
+
+        Ok(result)
+    }
+
+    /// Batch fetch spread results for aggregator nodes.
+    ///
+    /// Returns a map of aggregator_node_id -> Vec<(spread_index, value)>.
+    /// Results are ordered by spread_index for correct aggregation order.
+    pub async fn batch_read_inbox_for_aggregators(
+        &self,
+        instance_id: WorkflowInstanceId,
+        aggregator_node_ids: &[&str],
+    ) -> DbResult<std::collections::HashMap<String, Vec<(i32, serde_json::Value)>>> {
+        if aggregator_node_ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+
+        let rows: Vec<(String, i32, serde_json::Value)> = sqlx::query_as(
+            r#"
+            SELECT target_node_id, spread_index, value
+            FROM node_inputs
+            WHERE instance_id = $1
+              AND target_node_id = ANY($2)
+              AND spread_index IS NOT NULL
+            ORDER BY target_node_id, spread_index
+            "#,
+        )
+        .bind(instance_id.0)
+        .bind(aggregator_node_ids)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut result: std::collections::HashMap<String, Vec<(i32, serde_json::Value)>> =
+            std::collections::HashMap::new();
+
+        for (target_node_id, spread_index, value) in rows {
+            result
+                .entry(target_node_id)
+                .or_default()
+                .push((spread_index, value));
+        }
+
+        Ok(result)
+    }
+
+    /// Execute a completion plan in a single atomic transaction.
+    ///
+    /// This is the core operation of the unified readiness model. It atomically:
+    /// 1. Marks the completed action as complete (with idempotency check)
+    /// 2. Writes inbox entries for all frontier nodes
+    /// 3. Increments readiness counters for frontier nodes
+    /// 4. Enqueues nodes when their readiness reaches the required count
+    /// 5. Completes the workflow instance if output node was reached
+    ///
+    /// If the completion is stale (duplicate delivery), the transaction is rolled
+    /// back and `CompletionResult::stale()` is returned.
+    pub async fn execute_completion_plan(
+        &self,
+        instance_id: WorkflowInstanceId,
+        plan: CompletionPlan,
+    ) -> DbResult<CompletionResult> {
+        let mut tx = self.pool.begin().await?;
+        let mut result = CompletionResult::default();
+
+        // 1. Mark the completed action as complete (idempotent guard)
+        if let Some(action_id) = plan.completed_action_id {
+            if let Some(delivery_token) = plan.delivery_token {
+                let rows = sqlx::query(
+                    r#"
+                    UPDATE action_queue
+                    SET status = CASE WHEN $2 THEN 'completed' ELSE 'failed' END,
+                        success = $2,
+                        result_payload = $3,
+                        last_error = $4,
+                        completed_at = NOW()
+                    WHERE id = $1 AND delivery_token = $5 AND status = 'dispatched'
+                    "#,
+                )
+                .bind(action_id.0)
+                .bind(plan.success)
+                .bind(&plan.result_payload)
+                .bind(&plan.error_message)
+                .bind(delivery_token)
+                .execute(&mut *tx)
+                .await?;
+
+                if rows.rows_affected() == 0 {
+                    // Stale or duplicate completion - roll back
+                    tx.rollback().await?;
+                    return Ok(CompletionResult::stale());
+                }
+            }
+        }
+
+        // 2. Write inbox entries for all frontier nodes
+        for write in &plan.inbox_writes {
+            sqlx::query(
+                r#"
+                INSERT INTO node_inputs
+                    (instance_id, target_node_id, variable_name, value, source_node_id, spread_index)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                "#,
+            )
+            .bind(instance_id.0)
+            .bind(&write.target_node_id)
+            .bind(&write.variable_name)
+            .bind(&write.value)
+            .bind(&write.source_node_id)
+            .bind(write.spread_index)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        // 3. Increment readiness for frontier nodes, enqueue if ready
+        for increment in &plan.readiness_increments {
+            let row = sqlx::query(
+                r#"
+                INSERT INTO node_readiness (instance_id, node_id, required_count, completed_count)
+                VALUES ($1, $2, $3, 1)
+                ON CONFLICT (instance_id, node_id)
+                DO UPDATE SET completed_count = node_readiness.completed_count + 1,
+                              updated_at = NOW()
+                RETURNING completed_count, required_count
+                "#,
+            )
+            .bind(instance_id.0)
+            .bind(&increment.node_id)
+            .bind(increment.required_count)
+            .fetch_one(&mut *tx)
+            .await?;
+
+            let completed_count: i32 = row.get(0);
+            let required_count: i32 = row.get(1);
+
+            debug!(
+                node_id = %increment.node_id,
+                completed_count = completed_count,
+                required_count = required_count,
+                "incremented node readiness"
+            );
+
+            // Check for overflow (indicates a bug)
+            if completed_count > required_count {
+                tx.rollback().await?;
+                return Err(DbError::NotFound(format!(
+                    "Readiness overflow for node {}: {} > {}",
+                    increment.node_id, completed_count, required_count
+                )));
+            }
+
+            // If this increment made the node ready, enqueue it
+            if completed_count == required_count {
+                // Get the next action_seq for this instance
+                let seq_row = sqlx::query(
+                    r#"
+                    UPDATE workflow_instances
+                    SET next_action_seq = next_action_seq + 1
+                    WHERE id = $1
+                    RETURNING next_action_seq - 1
+                    "#,
+                )
+                .bind(instance_id.0)
+                .fetch_one(&mut *tx)
+                .await?;
+                let action_seq: i32 = seq_row.get(0);
+
+                // Enqueue the node based on its type
+                sqlx::query(
+                    r#"
+                    INSERT INTO action_queue
+                        (instance_id, action_seq, module_name, action_name,
+                         dispatch_payload, timeout_seconds, max_retries,
+                         backoff_kind, backoff_base_delay_ms, node_id, node_type)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                    "#,
+                )
+                .bind(instance_id.0)
+                .bind(action_seq)
+                .bind(increment.module_name.as_deref().unwrap_or("__internal__"))
+                .bind(increment.action_name.as_deref().unwrap_or("__barrier__"))
+                .bind(increment.dispatch_payload.as_deref().unwrap_or(&[]))
+                .bind(300) // timeout_seconds
+                .bind(3) // max_retries
+                .bind("exponential")
+                .bind(1000) // backoff_base_delay_ms
+                .bind(&increment.node_id)
+                .bind(increment.node_type.as_str())
+                .execute(&mut *tx)
+                .await?;
+
+                result.newly_ready_nodes.push(increment.node_id.clone());
+
+                debug!(
+                    node_id = %increment.node_id,
+                    node_type = %increment.node_type.as_str(),
+                    action_seq = action_seq,
+                    "enqueued ready node"
+                );
+            }
+        }
+
+        // 4. Complete workflow instance if output node was reached
+        if let Some(completion) = &plan.instance_completion {
+            let rows = sqlx::query(
+                r#"
+                UPDATE workflow_instances
+                SET status = 'completed',
+                    result_payload = $2,
+                    completed_at = NOW()
+                WHERE id = $1 AND status = 'running'
+                "#,
+            )
+            .bind(instance_id.0)
+            .bind(&completion.result_payload)
+            .execute(&mut *tx)
+            .await?;
+
+            if rows.rows_affected() > 0 {
+                result.workflow_completed = true;
+                debug!(
+                    instance_id = %instance_id.0,
+                    "workflow instance completed"
+                );
+            }
+            // If rows_affected == 0, another path already completed it (ok)
+        }
+
+        // 5. Commit the transaction
+        tx.commit().await?;
+
+        Ok(result)
     }
 }
 
