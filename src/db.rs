@@ -1722,4 +1722,504 @@ mod tests {
         assert_eq!(actions[1].action_seq, 1);
         assert_eq!(actions[2].action_seq, 2);
     }
+
+    // ========================================================================
+    // Node Readiness Tests
+    // ========================================================================
+
+    /// Helper to create a test instance for readiness tests
+    async fn create_test_instance(db: &Database, name: &str) -> WorkflowInstanceId {
+        let version_id = db
+            .upsert_workflow_version(name, &format!("hash_{}", name), b"proto", false)
+            .await
+            .expect("failed to create version");
+
+        db.create_instance(name, version_id, None)
+            .await
+            .expect("failed to create instance")
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_init_node_readiness() {
+        let db = test_db().await;
+        let instance_id = create_test_instance(&db, "init_readiness_test").await;
+
+        // Initialize readiness for a node
+        db.init_node_readiness(instance_id, "aggregator_1", 5)
+            .await
+            .expect("failed to init readiness");
+
+        // Verify via get_node_readiness
+        let state = db
+            .get_node_readiness(instance_id, "aggregator_1")
+            .await
+            .expect("failed to get readiness");
+
+        let (completed, required) = state.expect("readiness should exist");
+        assert_eq!(completed, 0, "should start with 0 completed");
+        assert_eq!(required, 5, "should have required count of 5");
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_init_node_readiness_idempotent() {
+        let db = test_db().await;
+        let instance_id = create_test_instance(&db, "idempotent_readiness_test").await;
+
+        // Initialize twice with different required counts
+        db.init_node_readiness(instance_id, "aggregator_1", 5)
+            .await
+            .expect("failed to init readiness");
+
+        // Second init should be ignored (ON CONFLICT DO NOTHING)
+        db.init_node_readiness(instance_id, "aggregator_1", 10)
+            .await
+            .expect("failed to init readiness again");
+
+        // Should still have the original required count
+        let state = db
+            .get_node_readiness(instance_id, "aggregator_1")
+            .await
+            .expect("failed to get readiness");
+
+        let (_, required) = state.expect("readiness should exist");
+        assert_eq!(required, 5, "should keep original required count");
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_increment_node_readiness_basic() {
+        let db = test_db().await;
+        let instance_id = create_test_instance(&db, "increment_readiness_test").await;
+
+        // First increment creates the entry
+        let result = db
+            .increment_node_readiness(instance_id, "aggregator_1", 3)
+            .await
+            .expect("failed to increment");
+
+        assert_eq!(result.completed_count, 1);
+        assert_eq!(result.required_count, 3);
+        assert!(!result.is_now_ready);
+
+        // Second increment
+        let result = db
+            .increment_node_readiness(instance_id, "aggregator_1", 3)
+            .await
+            .expect("failed to increment");
+
+        assert_eq!(result.completed_count, 2);
+        assert!(!result.is_now_ready);
+
+        // Third increment should mark as ready
+        let result = db
+            .increment_node_readiness(instance_id, "aggregator_1", 3)
+            .await
+            .expect("failed to increment");
+
+        assert_eq!(result.completed_count, 3);
+        assert!(result.is_now_ready, "should be ready when completed == required");
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_increment_node_readiness_single_required() {
+        let db = test_db().await;
+        let instance_id = create_test_instance(&db, "single_required_test").await;
+
+        // With required_count=1, first increment should make it ready
+        let result = db
+            .increment_node_readiness(instance_id, "aggregator_1", 1)
+            .await
+            .expect("failed to increment");
+
+        assert_eq!(result.completed_count, 1);
+        assert_eq!(result.required_count, 1);
+        assert!(result.is_now_ready);
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_write_inbox_and_mark_precursor_complete() {
+        let db = test_db().await;
+        let instance_id = create_test_instance(&db, "inbox_precursor_test").await;
+
+        // Must pre-initialize node readiness
+        db.init_node_readiness(instance_id, "aggregator_1", 3)
+            .await
+            .expect("failed to init readiness");
+
+        // First completion
+        let result = db
+            .write_inbox_and_mark_precursor_complete(
+                instance_id,
+                "aggregator_1",
+                "target_node",
+                "result",
+                serde_json::json!({"value": 1}),
+                "source_1",
+                Some(0),
+            )
+            .await
+            .expect("failed to write inbox");
+
+        assert_eq!(result.completed_count, 1);
+        assert_eq!(result.required_count, 3);
+        assert!(!result.is_now_ready);
+
+        // Verify inbox entry was written
+        let inbox = db
+            .read_inbox(instance_id, "target_node")
+            .await
+            .expect("failed to get inbox");
+
+        assert_eq!(inbox.len(), 1);
+        assert!(inbox.contains_key("result"), "inbox should have result variable");
+
+        // Second and third completions
+        let result = db
+            .write_inbox_and_mark_precursor_complete(
+                instance_id,
+                "aggregator_1",
+                "target_node",
+                "result",
+                serde_json::json!({"value": 2}),
+                "source_2",
+                Some(1),
+            )
+            .await
+            .expect("failed to write inbox");
+
+        assert_eq!(result.completed_count, 2);
+        assert!(!result.is_now_ready);
+
+        let result = db
+            .write_inbox_and_mark_precursor_complete(
+                instance_id,
+                "aggregator_1",
+                "target_node",
+                "result",
+                serde_json::json!({"value": 3}),
+                "source_3",
+                Some(2),
+            )
+            .await
+            .expect("failed to write inbox");
+
+        assert_eq!(result.completed_count, 3);
+        assert!(result.is_now_ready, "should be ready after all precursors complete");
+
+        // Verify all inbox entries - read_inbox collapses by variable name,
+        // so we should still see 1 (last write wins for same variable)
+        let inbox = db
+            .read_inbox(instance_id, "target_node")
+            .await
+            .expect("failed to get inbox");
+
+        assert_eq!(inbox.len(), 1, "read_inbox dedupes by variable name");
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_write_inbox_batch_and_increment_readiness() {
+        let db = test_db().await;
+        let instance_id = create_test_instance(&db, "batch_inbox_test").await;
+
+        // Prepare batch of inbox writes
+        let inbox_writes = vec![
+            (
+                "target_1".to_string(),
+                "var_a".to_string(),
+                serde_json::json!(1),
+                "source_1".to_string(),
+                None,
+            ),
+            (
+                "target_2".to_string(),
+                "var_b".to_string(),
+                serde_json::json!(2),
+                "source_1".to_string(),
+                None,
+            ),
+        ];
+
+        // First batch write creates readiness entry
+        let result = db
+            .write_inbox_batch_and_increment_readiness(
+                instance_id,
+                "aggregator_1",
+                2,
+                &inbox_writes,
+            )
+            .await
+            .expect("failed to write batch");
+
+        assert_eq!(result.completed_count, 1);
+        assert_eq!(result.required_count, 2);
+        assert!(!result.is_now_ready);
+
+        // Verify inbox entries were written
+        let inbox1 = db
+            .read_inbox(instance_id, "target_1")
+            .await
+            .expect("failed to get inbox");
+        assert_eq!(inbox1.len(), 1);
+        assert!(inbox1.contains_key("var_a"));
+
+        let inbox2 = db
+            .read_inbox(instance_id, "target_2")
+            .await
+            .expect("failed to get inbox");
+        assert_eq!(inbox2.len(), 1);
+        assert!(inbox2.contains_key("var_b"));
+
+        // Second batch makes it ready
+        let inbox_writes_2 = vec![(
+            "target_3".to_string(),
+            "var_c".to_string(),
+            serde_json::json!(3),
+            "source_2".to_string(),
+            None,
+        )];
+
+        let result = db
+            .write_inbox_batch_and_increment_readiness(
+                instance_id,
+                "aggregator_1",
+                2,
+                &inbox_writes_2,
+            )
+            .await
+            .expect("failed to write batch");
+
+        assert_eq!(result.completed_count, 2);
+        assert!(result.is_now_ready);
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_node_readiness_multiple_nodes() {
+        let db = test_db().await;
+        let instance_id = create_test_instance(&db, "multi_node_readiness_test").await;
+
+        // Initialize two different aggregators
+        db.init_node_readiness(instance_id, "aggregator_1", 2)
+            .await
+            .expect("failed to init readiness");
+
+        db.init_node_readiness(instance_id, "aggregator_2", 3)
+            .await
+            .expect("failed to init readiness");
+
+        // Complete aggregator_1
+        let result = db
+            .write_inbox_and_mark_precursor_complete(
+                instance_id,
+                "aggregator_1",
+                "target_1",
+                "result",
+                serde_json::json!(1),
+                "source_1",
+                None,
+            )
+            .await
+            .expect("failed to write");
+
+        assert_eq!(result.completed_count, 1);
+        assert!(!result.is_now_ready);
+
+        // aggregator_2 should still be at 0
+        let state = db
+            .get_node_readiness(instance_id, "aggregator_2")
+            .await
+            .expect("failed to get readiness");
+        let (completed, _) = state.expect("should exist");
+        assert_eq!(completed, 0);
+
+        // Complete aggregator_1 again
+        let result = db
+            .write_inbox_and_mark_precursor_complete(
+                instance_id,
+                "aggregator_1",
+                "target_1",
+                "result",
+                serde_json::json!(2),
+                "source_2",
+                None,
+            )
+            .await
+            .expect("failed to write");
+
+        assert!(result.is_now_ready, "aggregator_1 should be ready");
+
+        // aggregator_2 should still be at 0
+        let state = db
+            .get_node_readiness(instance_id, "aggregator_2")
+            .await
+            .expect("failed to get readiness");
+        let (completed, _) = state.expect("should exist");
+        assert_eq!(completed, 0, "aggregator_2 should still be at 0");
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_node_readiness_isolated_by_instance() {
+        let db = test_db().await;
+        let instance_1 = create_test_instance(&db, "isolated_test_1").await;
+        let instance_2 = create_test_instance(&db, "isolated_test_2").await;
+
+        // Initialize same node name in both instances
+        db.init_node_readiness(instance_1, "aggregator_1", 2)
+            .await
+            .expect("failed to init");
+        db.init_node_readiness(instance_2, "aggregator_1", 3)
+            .await
+            .expect("failed to init");
+
+        // Increment instance_1
+        let result = db
+            .write_inbox_and_mark_precursor_complete(
+                instance_1,
+                "aggregator_1",
+                "target",
+                "result",
+                serde_json::json!(1),
+                "source",
+                None,
+            )
+            .await
+            .expect("failed to write");
+
+        assert_eq!(result.completed_count, 1);
+
+        // instance_2 should still be at 0
+        let state = db
+            .get_node_readiness(instance_2, "aggregator_1")
+            .await
+            .expect("failed to get");
+        let (completed, required) = state.expect("should exist");
+        assert_eq!(completed, 0, "instance_2 should be isolated");
+        assert_eq!(required, 3, "instance_2 should have its own required count");
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_is_now_ready_only_true_once() {
+        let db = test_db().await;
+        let instance_id = create_test_instance(&db, "ready_once_test").await;
+
+        // Initialize with required=2
+        db.init_node_readiness(instance_id, "aggregator_1", 2)
+            .await
+            .expect("failed to init");
+
+        // First completion
+        let result = db
+            .write_inbox_and_mark_precursor_complete(
+                instance_id,
+                "aggregator_1",
+                "target",
+                "result",
+                serde_json::json!(1),
+                "source_1",
+                None,
+            )
+            .await
+            .expect("failed to write");
+        assert!(!result.is_now_ready);
+
+        // Second completion makes it ready
+        let result = db
+            .write_inbox_and_mark_precursor_complete(
+                instance_id,
+                "aggregator_1",
+                "target",
+                "result",
+                serde_json::json!(2),
+                "source_2",
+                None,
+            )
+            .await
+            .expect("failed to write");
+        assert!(result.is_now_ready, "should be ready at completed==required");
+
+        // Third completion (over the threshold) should NOT report is_now_ready
+        let result = db
+            .write_inbox_and_mark_precursor_complete(
+                instance_id,
+                "aggregator_1",
+                "target",
+                "result",
+                serde_json::json!(3),
+                "source_3",
+                None,
+            )
+            .await
+            .expect("failed to write");
+        assert_eq!(result.completed_count, 3);
+        assert!(!result.is_now_ready, "should only be ready exactly at the threshold");
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_spread_pattern_five_actions() {
+        let db = test_db().await;
+        let instance_id = create_test_instance(&db, "spread_five_test").await;
+
+        // Initialize for 5 spread actions
+        db.init_node_readiness(instance_id, "aggregator_11", 5)
+            .await
+            .expect("failed to init");
+
+        // Complete 4 actions - should not be ready
+        for i in 0..4 {
+            let result = db
+                .write_inbox_and_mark_precursor_complete(
+                    instance_id,
+                    "aggregator_11",
+                    "aggregator_11",
+                    "result",
+                    serde_json::json!({"index": i, "value": i * 10}),
+                    &format!("spread_action_{}", i),
+                    Some(i),
+                )
+                .await
+                .expect("failed to write");
+
+            assert_eq!(result.completed_count, i + 1);
+            assert!(!result.is_now_ready, "should not be ready at {} of 5", i + 1);
+        }
+
+        // 5th action makes it ready
+        let result = db
+            .write_inbox_and_mark_precursor_complete(
+                instance_id,
+                "aggregator_11",
+                "aggregator_11",
+                "result",
+                serde_json::json!({"index": 4, "value": 40}),
+                "spread_action_4",
+                Some(4),
+            )
+            .await
+            .expect("failed to write");
+
+        assert_eq!(result.completed_count, 5);
+        assert_eq!(result.required_count, 5);
+        assert!(result.is_now_ready, "should be ready after 5th completion");
+
+        // Verify all inbox entries exist with correct spread indices
+        let inbox = db
+            .read_inbox_for_aggregator(instance_id, "aggregator_11")
+            .await
+            .expect("failed to get inbox");
+
+        assert_eq!(inbox.len(), 5, "should have all 5 results");
+
+        // Verify spread indices are present and correct
+        let mut indices: Vec<_> = inbox.iter().map(|(idx, _)| *idx).collect();
+        indices.sort();
+        assert_eq!(indices, vec![0, 1, 2, 3, 4], "should have spread indices 0-4");
+    }
 }
