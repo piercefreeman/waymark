@@ -467,15 +467,13 @@ pub async fn run_in_env(
         fs::write(&path, contents.trim_start())?;
     }
 
-    // Set up pyproject.toml
+    // Set up pyproject.toml with editable install to avoid wheel caching issues
     let repo_python = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("python")
         .canonicalize()?;
 
-    let mut deps = vec![format!("rappel @ file://{}", repo_python.display())];
-    deps.extend(requirements.iter().map(|s| s.to_string()));
-
-    let deps_toml = deps
+    // Build extra dependencies (excluding rappel which we handle via editable install)
+    let extra_deps_toml = requirements
         .iter()
         .map(|dep| format!(r#""{dep}""#))
         .collect::<Vec<_>>()
@@ -487,13 +485,18 @@ name = "rappel-integration"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
-    {deps_toml}
+    "rappel",
+    {extra_deps_toml}
 ]
-"#
+
+[tool.uv.sources]
+rappel = {{ path = "{}", editable = true }}
+"#,
+        repo_python.display()
     );
     fs::write(env_dir.path().join("pyproject.toml"), pyproject)?;
 
-    // Run uv sync
+    // Run uv sync - editable install means no wheel caching
     run_shell(env_dir.path(), "uv sync", &[], None).await?;
 
     // Build PYTHONPATH

@@ -65,7 +65,7 @@ message Block {
 //   if item in inventory:
 //       valid_items = valid_items + [item]
 message SingleCallBody {
-  optional string target = 1;    // Variable to assign result (if call present)
+  repeated string targets = 1;   // Variables to assign result (supports tuple unpacking)
   optional Call call = 2;        // The single call (optional - missing = pure data)
   repeated Statement statements = 3;  // Pure data statements (if no call)
   Span span = 4;

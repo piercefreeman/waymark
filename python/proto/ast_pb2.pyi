@@ -245,12 +245,16 @@ class SingleCallBody(google.protobuf.message.Message):
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
-    TARGET_FIELD_NUMBER: builtins.int
+    TARGETS_FIELD_NUMBER: builtins.int
     CALL_FIELD_NUMBER: builtins.int
     STATEMENTS_FIELD_NUMBER: builtins.int
     SPAN_FIELD_NUMBER: builtins.int
-    target: builtins.str
-    """Variable to assign result (if call present)"""
+    @property
+    def targets(
+        self,
+    ) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[builtins.str]:
+        """Variables to assign result (supports tuple unpacking)"""
+
     @property
     def call(self) -> Global___Call:
         """The single call (optional - missing = pure data)"""
@@ -266,51 +270,32 @@ class SingleCallBody(google.protobuf.message.Message):
     def __init__(
         self,
         *,
-        target: builtins.str | None = ...,
+        targets: collections.abc.Iterable[builtins.str] | None = ...,
         call: Global___Call | None = ...,
         statements: collections.abc.Iterable[Global___Statement] | None = ...,
         span: Global___Span | None = ...,
     ) -> None: ...
     def HasField(
-        self,
-        field_name: typing.Literal[
-            "_call",
-            b"_call",
-            "_target",
-            b"_target",
-            "call",
-            b"call",
-            "span",
-            b"span",
-            "target",
-            b"target",
-        ],
+        self, field_name: typing.Literal["_call", b"_call", "call", b"call", "span", b"span"]
     ) -> builtins.bool: ...
     def ClearField(
         self,
         field_name: typing.Literal[
             "_call",
             b"_call",
-            "_target",
-            b"_target",
             "call",
             b"call",
             "span",
             b"span",
             "statements",
             b"statements",
-            "target",
-            b"target",
+            "targets",
+            b"targets",
         ],
     ) -> None: ...
-    @typing.overload
     def WhichOneof(
         self, oneof_group: typing.Literal["_call", b"_call"]
     ) -> typing.Literal["call"] | None: ...
-    @typing.overload
-    def WhichOneof(
-        self, oneof_group: typing.Literal["_target", b"_target"]
-    ) -> typing.Literal["target"] | None: ...
 
 Global___SingleCallBody: typing_extensions.TypeAlias = SingleCallBody
 

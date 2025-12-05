@@ -80,8 +80,9 @@ impl AstPrinter {
         // If there's a call, print it
         if let Some(ref call) = body.call {
             let call_str = self.print_call(call);
-            let line = if let Some(ref target) = body.target {
-                format!("{}{} = {}", self.current_indent(), target, call_str)
+            let line = if !body.targets.is_empty() {
+                let targets_str = body.targets.join(", ");
+                format!("{}{} = {}", self.current_indent(), targets_str, call_str)
             } else {
                 format!("{}{}", self.current_indent(), call_str)
             };

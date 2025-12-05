@@ -885,18 +885,15 @@ impl DAGConverter {
     fn convert_single_call_body(&mut self, body: &ast::SingleCallBody) -> Vec<String> {
         // If there's a call, convert it
         if let Some(call) = &body.call {
-            let target = body.target.as_deref();
+            let targets = &body.targets;
 
             return match &call.kind {
                 Some(ast::call::Kind::Action(action)) => {
-                    // SingleCallBody still uses a single optional target
-                    let targets: Vec<String> =
-                        target.map(|t| vec![t.to_string()]).unwrap_or_default();
-                    self.convert_action_call_with_targets(action, &targets)
+                    self.convert_action_call_with_targets(action, targets)
                 }
                 Some(ast::call::Kind::Function(func)) => {
-                    if let Some(t) = target {
-                        self.convert_fn_call_assignment(t, &[t.to_string()], func)
+                    if !targets.is_empty() {
+                        self.convert_fn_call_assignment(&targets[0], targets, func)
                     } else {
                         // Function call without assignment target
                         let node_id = self.next_id("fn_call");
@@ -1432,8 +1429,8 @@ impl DAGConverter {
 
         // Track output variables from the loop body (SingleCallBody)
         if let Some(body) = &for_loop.body {
-            // If there's a call with a target, track it
-            if let Some(ref target) = body.target {
+            // If there's a call with targets, track them
+            for target in &body.targets {
                 self.track_var_definition(target, &loop_id);
             }
             // Also check pure data statements for assignments

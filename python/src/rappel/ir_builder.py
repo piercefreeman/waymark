@@ -818,9 +818,8 @@ class IRBuilder(ast.NodeVisitor):
         # Look for a single call in the statements
         for stmt in stmts:
             if stmt.HasField("action_call"):
+                # ActionCall as a statement has no target (side-effect only)
                 action = stmt.action_call
-                if action.target:
-                    body.target = action.target
                 call = ir.Call()
                 call.action.CopyFrom(action)
                 body.call.CopyFrom(call)
@@ -829,18 +828,16 @@ class IRBuilder(ast.NodeVisitor):
                 # Check if assignment value is an action call or function call
                 if stmt.assignment.value.HasField("action_call"):
                     action = stmt.assignment.value.action_call
-                    # Use the first target as the assignment target
-                    if stmt.assignment.targets:
-                        body.target = stmt.assignment.targets[0]
+                    # Copy all targets for tuple unpacking support
+                    body.targets.extend(stmt.assignment.targets)
                     call = ir.Call()
                     call.action.CopyFrom(action)
                     body.call.CopyFrom(call)
                     return body
                 elif stmt.assignment.value.HasField("function_call"):
                     fn_call = stmt.assignment.value.function_call
-                    # Use the first target as the assignment target
-                    if stmt.assignment.targets:
-                        body.target = stmt.assignment.targets[0]
+                    # Copy all targets for tuple unpacking support
+                    body.targets.extend(stmt.assignment.targets)
                     call = ir.Call()
                     call.function.CopyFrom(fn_call)
                     body.call.CopyFrom(call)

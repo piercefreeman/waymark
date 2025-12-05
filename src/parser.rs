@@ -284,7 +284,7 @@ impl<'source> Parser<'source> {
         self.expect(&Token::Indent)?;
 
         let mut statements = Vec::new();
-        let mut target: Option<String> = None;
+        let mut targets: Vec<String> = Vec::new();
         let mut call: Option<ast::Call> = None;
 
         // Parse statements until dedent
@@ -298,7 +298,7 @@ impl<'source> Parser<'source> {
                 if matches!(self.peek(), Token::Ident(_)) && self.peek_nth(1) == Some(&Token::Eq) {
                     let (name, _) = self.expect_ident()?;
                     self.expect(&Token::Eq)?;
-                    target = Some(name);
+                    targets.push(name);
                 }
 
                 if self.check(&Token::At) {
@@ -321,7 +321,7 @@ impl<'source> Parser<'source> {
         self.expect(&Token::Dedent)?;
 
         Ok(ast::SingleCallBody {
-            target,
+            targets,
             call,
             statements,
             span: self.make_span(start_span, end_span),

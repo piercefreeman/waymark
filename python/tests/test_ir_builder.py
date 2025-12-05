@@ -1969,11 +1969,11 @@ class TestCallInTryBody:
 
         assert try_except is not None, "Should have try/except"
         # The try_body should have a 'call' field with the action call extracted
-        # and a 'target' field with the assignment variable
+        # and a 'targets' field with the assignment variable(s)
         assert try_except.try_body.HasField("call"), "Try body should have call extracted"
         assert try_except.try_body.call.HasField("action"), "Call should be an action"
         assert try_except.try_body.call.action.action_name == "try_action"
-        assert try_except.try_body.target == "result", "Target should be 'result'"
+        assert list(try_except.try_body.targets) == ["result"], "Targets should be ['result']"
 
 
 class TestPolicyVariations:
