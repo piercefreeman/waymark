@@ -300,6 +300,21 @@ pub enum DbError {
 pub type DbResult<T> = Result<T, DbError>;
 
 // ============================================================================
+// Node Readiness Types
+// ============================================================================
+
+/// Result of incrementing node readiness.
+#[derive(Debug)]
+pub struct ReadinessResult {
+    /// Current completed count after increment
+    pub completed_count: i32,
+    /// Required count to be ready
+    pub required_count: i32,
+    /// Whether this increment made the node ready
+    pub is_now_ready: bool,
+}
+
+// ============================================================================
 // Database
 // ============================================================================
 
@@ -992,48 +1007,86 @@ impl Database {
         Ok(count.0 as usize)
     }
 
-    /// Atomically increment and return a parallel aggregator counter.
-    /// Uses INSERT ON CONFLICT to safely handle concurrent increments.
-    /// Returns the new count after incrementing.
-    pub async fn increment_parallel_aggregator_count(
+    // ========================================================================
+    // Node Readiness Tracking (for aggregation patterns)
+    // ========================================================================
+
+    /// Initialize readiness tracking for a node that has multiple precursors.
+    /// Called when we know a node needs to wait for N precursors to complete.
+    /// This is idempotent - calling multiple times with the same node_id is safe.
+    pub async fn init_node_readiness(
         &self,
         instance_id: WorkflowInstanceId,
-        aggregator_node_id: &str,
-    ) -> DbResult<i64> {
-        // Use dedicated parallel_counters table with unique constraint
-        // This ensures atomic increment even with concurrent calls
-        let row = sqlx::query(
+        node_id: &str,
+        required_count: i32,
+    ) -> DbResult<()> {
+        sqlx::query(
             r#"
-            INSERT INTO parallel_counters (instance_id, aggregator_node_id, count)
-            VALUES ($1, $2, 1)
-            ON CONFLICT (instance_id, aggregator_node_id)
-            DO UPDATE SET count = parallel_counters.count + 1
-            RETURNING count
+            INSERT INTO node_readiness (instance_id, node_id, required_count, completed_count)
+            VALUES ($1, $2, $3, 0)
+            ON CONFLICT (instance_id, node_id) DO NOTHING
             "#,
         )
         .bind(instance_id.0)
-        .bind(aggregator_node_id)
+        .bind(node_id)
+        .bind(required_count)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    /// Atomically increment node readiness counter, initializing if needed.
+    /// This is for cases where we know the required_count at completion time
+    /// (e.g., parallel blocks where count is computed from DAG).
+    ///
+    /// Uses UPSERT: first call inserts with completed_count=1, subsequent calls increment.
+    pub async fn increment_node_readiness(
+        &self,
+        instance_id: WorkflowInstanceId,
+        node_id: &str,
+        required_count: i32,
+    ) -> DbResult<ReadinessResult> {
+        let row = sqlx::query(
+            r#"
+            INSERT INTO node_readiness (instance_id, node_id, required_count, completed_count)
+            VALUES ($1, $2, $3, 1)
+            ON CONFLICT (instance_id, node_id)
+            DO UPDATE SET completed_count = node_readiness.completed_count + 1,
+                          updated_at = NOW()
+            RETURNING completed_count, required_count
+            "#,
+        )
+        .bind(instance_id.0)
+        .bind(node_id)
+        .bind(required_count)
         .fetch_one(&self.pool)
         .await?;
 
-        let count: i32 = row.get(0);
-        Ok(count as i64)
+        let completed_count: i32 = row.get(0);
+        let required_count: i32 = row.get(1);
+
+        Ok(ReadinessResult {
+            completed_count,
+            required_count,
+            is_now_ready: completed_count == required_count,
+        })
     }
 
-    /// Atomically write inbox entries and increment the parallel aggregator counter.
-    /// This ensures that when the counter reaches the expected value, all inbox writes
-    /// from all parallel actions are visible to the aggregator.
+    /// Atomically write inbox entries and increment node readiness counter.
+    /// This is for parallel blocks where multiple inbox writes need to be atomic.
     ///
-    /// Returns the new count after incrementing.
-    pub async fn write_inbox_and_increment_parallel_counter(
+    /// Returns the new counts and whether this action made the node ready.
+    pub async fn write_inbox_batch_and_increment_readiness(
         &self,
         instance_id: WorkflowInstanceId,
-        aggregator_node_id: &str,
-        inbox_writes: &[(String, String, serde_json::Value, String, Option<i32>)], // (target_node_id, variable_name, value, source_node_id, spread_index)
-    ) -> DbResult<i64> {
+        node_id: &str,
+        required_count: i32,
+        inbox_writes: &[(String, String, serde_json::Value, String, Option<i32>)],
+    ) -> DbResult<ReadinessResult> {
         let mut tx = self.pool.begin().await?;
 
-        // Write all inbox entries within the transaction
+        // Write all inbox entries
         for (target_node_id, variable_name, value, source_node_id, spread_index) in inbox_writes {
             sqlx::query(
                 r#"
@@ -1051,27 +1104,135 @@ impl Database {
             .await?;
         }
 
-        // Increment the counter within the same transaction
+        // Atomically increment readiness counter (init-on-first-use)
         let row = sqlx::query(
             r#"
-            INSERT INTO parallel_counters (instance_id, aggregator_node_id, count)
-            VALUES ($1, $2, 1)
-            ON CONFLICT (instance_id, aggregator_node_id)
-            DO UPDATE SET count = parallel_counters.count + 1
-            RETURNING count
+            INSERT INTO node_readiness (instance_id, node_id, required_count, completed_count)
+            VALUES ($1, $2, $3, 1)
+            ON CONFLICT (instance_id, node_id)
+            DO UPDATE SET completed_count = node_readiness.completed_count + 1,
+                          updated_at = NOW()
+            RETURNING completed_count, required_count
             "#,
         )
         .bind(instance_id.0)
-        .bind(aggregator_node_id)
+        .bind(node_id)
+        .bind(required_count)
         .fetch_one(&mut *tx)
         .await?;
 
-        let count: i32 = row.get(0);
+        let completed_count: i32 = row.get(0);
+        let required_count: i32 = row.get(1);
 
-        // Commit the transaction - inbox writes and counter increment are now atomic
         tx.commit().await?;
 
-        Ok(count as i64)
+        Ok(ReadinessResult {
+            completed_count,
+            required_count,
+            is_now_ready: completed_count == required_count,
+        })
+    }
+
+    /// Atomically write inbox entry and increment node readiness counter.
+    /// Returns the new counts and whether this action made the node ready.
+    ///
+    /// This is the key atomic operation:
+    /// 1. Write the inbox entry (result data)
+    /// 2. Increment completed_count
+    /// 3. Return whether completed_count == required_count
+    ///
+    /// Because this is transactional, when is_now_ready=true, the caller knows
+    /// ALL precursor results are already in the inbox.
+    ///
+    /// NOTE: Requires node_readiness to be pre-initialized via init_node_readiness.
+    pub async fn write_inbox_and_mark_precursor_complete(
+        &self,
+        instance_id: WorkflowInstanceId,
+        downstream_node_id: &str,
+        target_node_id: &str,
+        variable_name: &str,
+        value: serde_json::Value,
+        source_node_id: &str,
+        spread_index: Option<i32>,
+    ) -> DbResult<ReadinessResult> {
+        let mut tx = self.pool.begin().await?;
+
+        // Write the inbox entry
+        sqlx::query(
+            r#"
+            INSERT INTO node_inputs (instance_id, target_node_id, variable_name, value, source_node_id, spread_index)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            "#,
+        )
+        .bind(instance_id.0)
+        .bind(target_node_id)
+        .bind(variable_name)
+        .bind(&value)
+        .bind(source_node_id)
+        .bind(spread_index)
+        .execute(&mut *tx)
+        .await?;
+
+        // Atomically increment completed_count and return both counts
+        let row = sqlx::query(
+            r#"
+            UPDATE node_readiness
+            SET completed_count = completed_count + 1,
+                updated_at = NOW()
+            WHERE instance_id = $1 AND node_id = $2
+            RETURNING completed_count, required_count
+            "#,
+        )
+        .bind(instance_id.0)
+        .bind(downstream_node_id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        let completed_count: i32 = row.get(0);
+        let required_count: i32 = row.get(1);
+
+        tx.commit().await?;
+
+        Ok(ReadinessResult {
+            completed_count,
+            required_count,
+            is_now_ready: completed_count == required_count,
+        })
+    }
+
+    /// Get current readiness state for a node.
+    pub async fn get_node_readiness(
+        &self,
+        instance_id: WorkflowInstanceId,
+        node_id: &str,
+    ) -> DbResult<Option<(i32, i32)>> {
+        let row: Option<(i32, i32)> = sqlx::query_as(
+            r#"
+            SELECT completed_count, required_count
+            FROM node_readiness
+            WHERE instance_id = $1 AND node_id = $2
+            "#,
+        )
+        .bind(instance_id.0)
+        .bind(node_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row)
+    }
+
+    /// Clean up readiness tracking for an instance.
+    pub async fn clear_node_readiness(&self, instance_id: WorkflowInstanceId) -> DbResult<()> {
+        sqlx::query(
+            r#"
+            DELETE FROM node_readiness WHERE instance_id = $1
+            "#,
+        )
+        .bind(instance_id.0)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
     }
 }
 

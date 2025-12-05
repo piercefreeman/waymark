@@ -842,6 +842,16 @@ pub struct InboxWrite {
 struct NodeActionResult {
     pub actions: Vec<NewAction>,
     pub inbox_writes: Vec<InboxWrite>,
+    /// If this is a spread node, the aggregator node ID and expected count
+    /// that needs readiness initialization.
+    pub readiness_init: Option<ReadinessInit>,
+}
+
+/// Info needed to initialize readiness tracking for an aggregator node.
+#[derive(Debug, Clone)]
+struct ReadinessInit {
+    pub aggregator_node_id: String,
+    pub required_count: i32,
 }
 
 /// Exception information for error handling.
@@ -1305,17 +1315,57 @@ impl DAGRunner {
             )
             .await?;
         } else {
-            // For spread actions: check if all spread actions are complete
-            // If so, process the aggregator node
-            Self::check_and_process_aggregator(
-                base_node_id,
-                &dag,
-                &helper,
-                &mut batch,
-                instance_id,
-                &handler.db,
-            )
-            .await?;
+            // Spread action completion - use atomic readiness tracking
+            // Find the aggregator node (successor via StateMachine edge)
+            let aggregator_id = dag
+                .edges
+                .iter()
+                .find(|e| e.source == base_node_id && e.edge_type == EdgeType::StateMachine)
+                .map(|e| e.target.clone());
+
+            if let Some(agg_id) = aggregator_id {
+                // Take the inbox writes for this spread action
+                // There should be exactly one write to the aggregator with _spread_result
+                let inbox_write = batch.inbox_writes.drain(..).next();
+
+                if let Some(write) = inbox_write {
+                    // Atomically: write inbox entry + increment counter + check if ready
+                    let readiness = handler
+                        .db
+                        .write_inbox_and_mark_precursor_complete(
+                            instance_id,
+                            &agg_id,
+                            &write.target_node_id,
+                            &write.variable_name,
+                            write.value.clone(),
+                            &write.source_node_id,
+                            write.spread_index,
+                        )
+                        .await?;
+
+                    debug!(
+                        aggregator_id = %agg_id,
+                        completed_count = readiness.completed_count,
+                        required_count = readiness.required_count,
+                        is_now_ready = readiness.is_now_ready,
+                        spread_index = ?spread_index,
+                        "spread action completed, updated readiness"
+                    );
+
+                    // If WE are the action that made the aggregator ready, process it
+                    if readiness.is_now_ready {
+                        Self::process_ready_aggregator(
+                            &agg_id,
+                            &dag,
+                            &helper,
+                            &mut batch,
+                            instance_id,
+                            &handler.db,
+                        )
+                        .await?;
+                    }
+                }
+            }
         }
 
         // Write everything in one batch: completion, inbox writes, new actions
@@ -1390,78 +1440,42 @@ impl DAGRunner {
         );
     }
 
-    /// Check if all spread actions are complete and process the aggregator if ready.
+    /// Process a ready aggregator - called when all precursors have completed.
     ///
-    /// This is called after each spread action completes. It:
-    /// 1. Finds the aggregator node for this spread
-    /// 2. Reads the aggregator's inbox to get _spread_count and _spread_result entries
-    /// 3. If all results are in, aggregates them and processes successors
+    /// At this point, all spread results are already in the inbox (guaranteed by
+    /// the atomic write_inbox_and_mark_precursor_complete operation).
+    /// This reads results from inbox, aggregates them, and processes successors.
     #[allow(clippy::too_many_arguments)]
-    async fn check_and_process_aggregator(
-        spread_node_id: &str,
+    async fn process_ready_aggregator(
+        agg_id: &str,
         dag: &DAG,
         helper: &DAGHelper<'_>,
         batch: &mut CompletionBatch,
         instance_id: WorkflowInstanceId,
         db: &Database,
     ) -> RunnerResult<()> {
-        // Find the aggregator node (successor via StateMachine edge)
-        let aggregator_id = dag
-            .edges
-            .iter()
-            .find(|e| e.source == spread_node_id && e.edge_type == EdgeType::StateMachine)
-            .map(|e| e.target.clone());
-
-        let agg_id = match aggregator_id {
-            Some(id) => id,
-            None => return Ok(()), // No aggregator, nothing to do
-        };
-
-        let agg_node = match dag.nodes.get(&agg_id) {
+        let agg_node = match dag.nodes.get(agg_id) {
             Some(n) => n,
             None => return Ok(()),
         };
 
-        // Read the aggregator's inbox - both spread results and the expected count
-        let spread_results = db.read_inbox_for_aggregator(instance_id, &agg_id).await?;
-        let agg_inbox = db.read_inbox(instance_id, &agg_id).await?;
+        // Read all spread results from inbox - they're guaranteed to be there
+        let spread_results = db.read_inbox_for_aggregator(instance_id, agg_id).await?;
 
-        // Get expected count from the regular inbox
-        let expected_count = agg_inbox
-            .get("_spread_count")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0) as usize;
-
-        // Count spread results (these come from read_inbox_for_aggregator)
-        let current_results = spread_results.len();
-
-        debug!(
-            aggregator_id = %agg_id,
-            expected_count = expected_count,
-            current_results = current_results,
-            "checking aggregator readiness"
-        );
-
-        // If not all results are in yet, wait for more
-        if current_results < expected_count {
-            return Ok(());
-        }
-
-        // All results are in! Aggregate them.
-        // spread_results is already sorted by spread_index from the DB query
+        // Aggregate results (already sorted by spread_index from DB query)
         let aggregated_result =
             JsonValue::Array(spread_results.into_iter().map(|(_, v)| v).collect());
 
         debug!(
             aggregator_id = %agg_id,
-            result_count = current_results,
+            result_count = aggregated_result.as_array().map(|a| a.len()).unwrap_or(0),
             "aggregator ready, processing result"
         );
 
         // Write aggregated result to downstream nodes via DATA_FLOW edges
         if let Some(ref target) = agg_node.target {
             Self::collect_inbox_writes_for_node(
-                &agg_id,
+                agg_id,
                 target,
                 &aggregated_result,
                 dag,
@@ -1470,48 +1484,29 @@ impl DAGRunner {
             );
         }
 
-        // Process aggregator's successors
+        // Process aggregator's successors using the full recursive processing
         let mut inline_scope: Scope = HashMap::new();
         if let Some(ref target) = agg_node.target {
             inline_scope.insert(target.clone(), aggregated_result.clone());
         }
 
-        // Find and process successors of the aggregator
-        let successors = helper.get_ready_successors(&agg_id, None);
-        for successor in successors {
-            let succ_node = match dag.nodes.get(&successor.node_id) {
-                Some(n) => n,
-                None => continue,
-            };
+        debug!(
+            aggregator_id = %agg_id,
+            "processing aggregator successors"
+        );
 
-            let exec_mode = helper.get_execution_mode(succ_node);
-            match exec_mode {
-                ExecutionMode::Inline => {
-                    // Execute inline and recurse
-                    let inline_result = Self::execute_inline_node(succ_node, &mut inline_scope)?;
-                    if let Some(ref target) = succ_node.target {
-                        Self::collect_inbox_writes_for_node(
-                            &successor.node_id,
-                            target,
-                            &inline_result,
-                            dag,
-                            instance_id,
-                            &mut batch.inbox_writes,
-                        );
-                    }
-                    // Continue processing inline successors...
-                    // (simplified - in production would use full recursive processing)
-                }
-                ExecutionMode::Delegated => {
-                    // Read inbox and create action
-                    let inbox = db.read_inbox(instance_id, &successor.node_id).await?;
-                    let result =
-                        Self::create_actions_for_node(succ_node, instance_id, &inbox, dag)?;
-                    batch.new_actions.extend(result.actions);
-                    batch.inbox_writes.extend(result.inbox_writes);
-                }
-            }
-        }
+        // Use the full successor processing to handle inline nodes recursively
+        Self::process_successors_async(
+            agg_id,
+            &aggregated_result,
+            dag,
+            helper,
+            &mut inline_scope,
+            batch,
+            instance_id,
+            db,
+        )
+        .await?;
 
         Ok(())
     }
@@ -1554,7 +1549,7 @@ impl DAGRunner {
             .map(|e| e.target.clone())
             .collect();
 
-        let expected_count = parallel_action_ids.len();
+        let expected_count = parallel_action_ids.len() as i32;
 
         // Collect inbox writes that need to be committed atomically with the counter
         // These are writes from the current parallel action completion
@@ -1572,24 +1567,29 @@ impl DAGRunner {
             })
             .collect();
 
-        // Atomically write inbox entries and increment counter in one transaction
-        // This ensures that when the counter reaches expected_count, all inbox writes
-        // from all parallel actions are visible
-        let completed_count = db
-            .write_inbox_and_increment_parallel_counter(instance_id, agg_id, &inbox_writes_for_tx)
-            .await? as usize;
+        // Atomically write inbox entries and increment readiness counter
+        // Uses init-on-first-use pattern so we don't need separate initialization
+        let readiness = db
+            .write_inbox_batch_and_increment_readiness(
+                instance_id,
+                agg_id,
+                expected_count,
+                &inbox_writes_for_tx,
+            )
+            .await?;
 
         debug!(
             aggregator_id = %agg_id,
             expected_count = expected_count,
-            completed_count = completed_count,
+            completed_count = readiness.completed_count,
+            is_now_ready = readiness.is_now_ready,
             parallel_action_ids = ?parallel_action_ids,
             inbox_writes_committed = inbox_writes_for_tx.len(),
             "checking parallel aggregator readiness"
         );
 
         // If not all parallel actions are complete, wait for more
-        if completed_count < expected_count {
+        if !readiness.is_now_ready {
             return Ok(());
         }
 
@@ -2314,6 +2314,7 @@ impl DAGRunner {
         // Find first delegated successors starting from input node
         let mut actions_to_enqueue = Vec::new();
         let mut inbox_writes_to_commit = Vec::new();
+        let mut readiness_inits: Vec<ReadinessInit> = Vec::new();
         let mut visited = std::collections::HashSet::new();
         let mut queue = std::collections::VecDeque::new();
 
@@ -2412,10 +2413,15 @@ impl DAGRunner {
                             node_id = %node_id,
                             actions_created = result.actions.len(),
                             inbox_writes = result.inbox_writes.len(),
+                            readiness_init = ?result.readiness_init,
                             "created initial actions for node"
                         );
                         actions_to_enqueue.extend(result.actions);
                         inbox_writes_to_commit.extend(result.inbox_writes);
+                        // Collect readiness init for spread aggregators
+                        if let Some(init) = result.readiness_init {
+                            readiness_inits.push(init);
+                        }
                         // Don't traverse past delegated nodes - they'll handle their successors
                     }
                 }
@@ -2448,6 +2454,18 @@ impl DAGRunner {
                 write.spread_index,
             )
             .await?;
+        }
+
+        // Initialize node_readiness for spread aggregators BEFORE enqueuing actions
+        // This ensures the readiness row exists when spread actions complete
+        for init in readiness_inits {
+            debug!(
+                aggregator_node_id = %init.aggregator_node_id,
+                required_count = init.required_count,
+                "initializing node readiness for aggregator"
+            );
+            db.init_node_readiness(instance_id, &init.aggregator_node_id, init.required_count)
+                .await?;
         }
 
         // Enqueue all initial actions
@@ -2483,13 +2501,14 @@ impl DAGRunner {
             Some(action) => Ok(NodeActionResult {
                 actions: vec![action],
                 inbox_writes: vec![],
+                readiness_init: None,
             }),
             None => Ok(NodeActionResult::default()),
         }
     }
 
     /// Create actions and inbox writes for a spread node.
-    /// This writes the expected count to the aggregator's inbox.
+    /// Returns readiness init info so caller can initialize node_readiness table.
     fn create_spread_node_result(
         node: &DAGNode,
         instance_id: WorkflowInstanceId,
@@ -2506,23 +2525,16 @@ impl DAGRunner {
             .find(|e| e.source == node.id && e.edge_type == EdgeType::StateMachine)
             .map(|e| e.target.clone());
 
-        let mut inbox_writes = Vec::new();
-
-        // Write the expected count to the aggregator's inbox
-        if let Some(agg_id) = aggregator_id {
-            inbox_writes.push(InboxWrite {
-                instance_id,
-                target_node_id: agg_id,
-                variable_name: "_spread_count".to_string(),
-                value: JsonValue::Number(spread_count.into()),
-                source_node_id: node.id.clone(),
-                spread_index: None,
-            });
-        }
+        // Return readiness init info so caller can initialize node_readiness
+        let readiness_init = aggregator_id.clone().map(|agg_id| ReadinessInit {
+            aggregator_node_id: agg_id,
+            required_count: spread_count as i32,
+        });
 
         Ok(NodeActionResult {
             actions,
-            inbox_writes,
+            inbox_writes: vec![],
+            readiness_init,
         })
     }
 

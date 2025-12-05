@@ -300,11 +300,13 @@ async fn run_shell_with_env(
 
 /// Wait for the workflow to complete by monitoring the database.
 /// Returns action count and metrics collection.
-async fn wait_for_completion(database: &Arc<Database>, timeout: Duration) -> Result<u64> {
+async fn wait_for_completion(
+    database: &Arc<Database>,
+    instance_ids: &[rappel::WorkflowInstanceId],
+    timeout: Duration,
+) -> Result<u64> {
     let start = std::time::Instant::now();
-    let mut last_completed = 0u64;
-    let mut idle_cycles = 0usize;
-    let max_idle_cycles = 40; // 2 seconds of no progress
+    let expected_count = instance_ids.len();
 
     loop {
         if start.elapsed() > timeout {
@@ -312,42 +314,52 @@ async fn wait_for_completion(database: &Arc<Database>, timeout: Duration) -> Res
             break;
         }
 
-        // Check how many actions have completed
-        let completed: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM action_queue WHERE status = 'completed'")
-                .fetch_one(database.pool())
-                .await?;
-
-        let pending: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM action_queue WHERE status IN ('pending', 'running')",
+        // Check workflow instance statuses
+        let completed: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM workflow_instances WHERE status IN ('completed', 'failed')",
         )
         .fetch_one(database.pool())
         .await?;
 
-        if pending == 0 && completed > 0 {
-            info!(completed = completed, "All actions completed");
-            return Ok(completed as u64);
-        }
+        if completed as usize >= expected_count {
+            // All instances finished - get final action count
+            let action_count: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM action_queue WHERE status = 'completed'")
+                    .fetch_one(database.pool())
+                    .await?;
 
-        if completed as u64 > last_completed {
-            last_completed = completed as u64;
-            idle_cycles = 0;
-        } else {
-            idle_cycles += 1;
-            if idle_cycles >= max_idle_cycles && completed > 0 {
+            // Check for failures
+            let failed: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM workflow_instances WHERE status = 'failed'")
+                    .fetch_one(database.pool())
+                    .await?;
+
+            if failed > 0 {
                 info!(
                     completed = completed,
-                    pending = pending,
-                    "No progress, stopping"
+                    failed = failed,
+                    "Workflows finished with failures"
                 );
-                break;
+            } else {
+                info!(
+                    instances = completed,
+                    actions = action_count,
+                    "All workflows completed successfully"
+                );
             }
+
+            return Ok(action_count as u64);
         }
 
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
 
-    Ok(last_completed)
+    // Timeout - return what we have
+    let action_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM action_queue WHERE status = 'completed'")
+            .fetch_one(database.pool())
+            .await?;
+    Ok(action_count as u64)
 }
 
 // ============================================================================
@@ -512,10 +524,10 @@ async fn main() -> Result<()> {
     );
     info!(count = instance_ids.len(), "workflow instances started");
 
-    // Wait for completion by monitoring the database
+    // Wait for completion by monitoring workflow instance status
     let timeout = Duration::from_secs(args.timeout);
     let start = Instant::now();
-    let total = wait_for_completion(&database, timeout).await?;
+    let total = wait_for_completion(&database, &instance_ids, timeout).await?;
     let elapsed = start.elapsed();
 
     // Shutdown all runners
