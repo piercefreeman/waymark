@@ -825,6 +825,26 @@ class IRBuilder(ast.NodeVisitor):
                 call.action.CopyFrom(action)
                 body.call.CopyFrom(call)
                 return body
+            elif stmt.HasField("assignment"):
+                # Check if assignment value is an action call or function call
+                if stmt.assignment.value.HasField("action_call"):
+                    action = stmt.assignment.value.action_call
+                    # Use the first target as the assignment target
+                    if stmt.assignment.targets:
+                        body.target = stmt.assignment.targets[0]
+                    call = ir.Call()
+                    call.action.CopyFrom(action)
+                    body.call.CopyFrom(call)
+                    return body
+                elif stmt.assignment.value.HasField("function_call"):
+                    fn_call = stmt.assignment.value.function_call
+                    # Use the first target as the assignment target
+                    if stmt.assignment.targets:
+                        body.target = stmt.assignment.targets[0]
+                    call = ir.Call()
+                    call.function.CopyFrom(fn_call)
+                    body.call.CopyFrom(call)
+                    return body
             elif stmt.HasField("expr_stmt") and stmt.expr_stmt.expr.HasField("function_call"):
                 fn_call = stmt.expr_stmt.expr.function_call
                 call = ir.Call()

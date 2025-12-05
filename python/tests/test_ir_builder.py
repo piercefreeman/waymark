@@ -1968,24 +1968,12 @@ class TestCallInTryBody:
                 break
 
         assert try_except is not None, "Should have try/except"
-        # The try_body can have either:
-        # 1. A direct 'call' field if the action call is extracted
-        # 2. Statements containing the assignment with action_call
-        # Due to how _stmts_to_single_call_body works, assignment with action_call
-        # ends up in statements, not as a direct call
-        assert len(try_except.try_body.statements) > 0 or try_except.try_body.HasField("call"), (
-            "Try body should have statements or call"
-        )
-
-        # Verify the action call is present (in statements as assignment)
-        found_action = False
-        for stmt in try_except.try_body.statements:
-            if stmt.HasField("assignment"):
-                if stmt.assignment.value.HasField("action_call"):
-                    found_action = True
-                    assert stmt.assignment.value.action_call.action_name == "try_action"
-                    break
-        assert found_action, "Should have action call in try body"
+        # The try_body should have a 'call' field with the action call extracted
+        # and a 'target' field with the assignment variable
+        assert try_except.try_body.HasField("call"), "Try body should have call extracted"
+        assert try_except.try_body.call.HasField("action"), "Call should be an action"
+        assert try_except.try_body.call.action.action_name == "try_action"
+        assert try_except.try_body.target == "result", "Target should be 'result'"
 
 
 class TestPolicyVariations:
