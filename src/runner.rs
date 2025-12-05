@@ -720,12 +720,13 @@ impl WorkQueueHandler {
         let helper = DAGHelper::new(&dag);
 
         // Read aggregated results from inbox
-        let spread_results = self.db.read_inbox_for_aggregator(instance_id, node_id).await?;
+        let spread_results = self
+            .db
+            .read_inbox_for_aggregator(instance_id, node_id)
+            .await?;
 
         // Aggregate results (already sorted by spread_index)
-        let aggregated = JsonValue::Array(
-            spread_results.into_iter().map(|(_, v)| v).collect()
-        );
+        let aggregated = JsonValue::Array(spread_results.into_iter().map(|(_, v)| v).collect());
 
         debug!(
             barrier_id = %node_id,
@@ -737,7 +738,8 @@ impl WorkQueueHandler {
         let subgraph = analyze_subgraph(node_id, &dag, &helper);
 
         // Batch fetch inbox for all nodes in subgraph
-        let existing_inbox = self.db
+        let existing_inbox = self
+            .db
             .batch_read_inbox(instance_id, &subgraph.all_node_ids)
             .await?;
 
@@ -1279,9 +1281,7 @@ impl DAGRunner {
         let spread_results = db.read_inbox_for_aggregator(instance_id, node_id).await?;
 
         // Aggregate results (already sorted by spread_index)
-        let aggregated = JsonValue::Array(
-            spread_results.into_iter().map(|(_, v)| v).collect()
-        );
+        let aggregated = JsonValue::Array(spread_results.into_iter().map(|(_, v)| v).collect());
 
         debug!(
             barrier_id = %node_id,
@@ -1498,196 +1498,9 @@ impl DAGRunner {
             return Ok(());
         }
 
-        // Get DAG for this workflow instance
-        let dag = match dag_cache.get_dag_for_instance(instance_id).await? {
-            Some(dag) => dag,
-            None => {
-                handler.write_batch(batch).await?;
-                return Ok(());
-            }
-        };
-
-        // Find the node that was executed
-        let node_id = match in_flight.action.node_id.as_deref() {
-            Some(id) => id,
-            None => {
-                handler.write_batch(batch).await?;
-                return Ok(());
-            }
-        };
-
-        // Parse result payload (protobuf WorkflowArguments -> JSON)
-        let result: JsonValue = if metrics.response_payload.is_empty() {
-            JsonValue::Null
-        } else {
-            match proto::WorkflowArguments::decode(&metrics.response_payload[..]) {
-                Ok(args) => args
-                    .arguments
-                    .iter()
-                    .find(|arg| arg.key == "result")
-                    .and_then(|arg| arg.value.as_ref())
-                    .map(proto_value_to_json)
-                    .unwrap_or(JsonValue::Null),
-                Err(_) => {
-                    serde_json::from_slice(&metrics.response_payload).unwrap_or(JsonValue::Null)
-                }
-            }
-        };
-
-        let helper = DAGHelper::new(&dag);
-
-        // Parse spread index from node_id if present (e.g., "spread_action_1[2]" -> ("spread_action_1", Some(2)))
-        let (base_node_id, spread_index) = Self::parse_spread_node_id(node_id);
-
-        // INBOX PATTERN: Collect inbox writes for downstream nodes via DATA_FLOW edges
-        // For spread actions, use the base node ID to look up the node, but include spread_index
-        // For parallel blocks with tuple unpacking, unpack array results into multiple targets
-        if let Some(node) = dag.nodes.get(base_node_id) {
-            // Check if we have multiple targets for tuple unpacking
-            if let Some(ref targets) = node.targets
-                && targets.len() > 1
-            {
-                // Tuple unpacking: result should be an array, unpack to targets
-                debug!(
-                    node_id = %node_id,
-                    base_node_id = %base_node_id,
-                    spread_index = ?spread_index,
-                    targets = ?targets,
-                    result = ?result,
-                    "collecting inbox writes for multiple targets (tuple unpacking)"
-                );
-
-                if let JsonValue::Array(ref arr) = result {
-                    // Unpack each array element to its corresponding target
-                    for (i, target) in targets.iter().enumerate() {
-                        let value = arr.get(i).cloned().unwrap_or(JsonValue::Null);
-                        Self::collect_inbox_writes_for_node_with_spread(
-                            base_node_id,
-                            target,
-                            &value,
-                            &dag,
-                            instance_id,
-                            spread_index,
-                            &mut batch.inbox_writes,
-                        );
-                    }
-                } else {
-                    // Result is not an array, broadcast to all targets (fallback)
-                    warn!(
-                        node_id = %node_id,
-                        targets = ?targets,
-                        "expected array result for tuple unpacking but got: {:?}",
-                        result
-                    );
-                    for target in targets {
-                        Self::collect_inbox_writes_for_node_with_spread(
-                            base_node_id,
-                            target,
-                            &result,
-                            &dag,
-                            instance_id,
-                            spread_index,
-                            &mut batch.inbox_writes,
-                        );
-                    }
-                }
-            } else if let Some(ref target) = node.target {
-                // Single target: write result directly
-                debug!(
-                    node_id = %node_id,
-                    base_node_id = %base_node_id,
-                    spread_index = ?spread_index,
-                    target = %target,
-                    result = ?result,
-                    "collecting inbox writes for downstream nodes"
-                );
-
-                Self::collect_inbox_writes_for_node_with_spread(
-                    base_node_id,
-                    target,
-                    &result,
-                    &dag,
-                    instance_id,
-                    spread_index,
-                    &mut batch.inbox_writes,
-                );
-            }
-        }
-
-        // Process successors - inline nodes use in-memory scope, delegated read from inbox
-        // For spread actions, we use base_node_id to find successors in the DAG
-        // But we DON'T process successors for individual spread completions - only the aggregator handles that
-        let mut inline_scope: Scope = HashMap::new();
-        if spread_index.is_none() {
-            // Regular action - process successors normally
-            Self::process_successors_async(
-                base_node_id,
-                &result,
-                &dag,
-                &helper,
-                &mut inline_scope,
-                &mut batch,
-                instance_id,
-                &handler.db,
-            )
-            .await?;
-        } else {
-            // Spread action completion - use atomic readiness tracking
-            // Find the aggregator node (successor via StateMachine edge)
-            let aggregator_id = dag
-                .edges
-                .iter()
-                .find(|e| e.source == base_node_id && e.edge_type == EdgeType::StateMachine)
-                .map(|e| e.target.clone());
-
-            if let Some(agg_id) = aggregator_id {
-                // Take the inbox writes for this spread action
-                // There should be exactly one write to the aggregator with _spread_result
-                let inbox_write = batch.inbox_writes.drain(..).next();
-
-                if let Some(write) = inbox_write {
-                    // Atomically: write inbox entry + increment counter + check if ready
-                    let readiness = handler
-                        .db
-                        .write_inbox_and_mark_precursor_complete(
-                            instance_id,
-                            &agg_id,
-                            &write.target_node_id,
-                            &write.variable_name,
-                            write.value.clone(),
-                            &write.source_node_id,
-                            write.spread_index,
-                        )
-                        .await?;
-
-                    debug!(
-                        aggregator_id = %agg_id,
-                        completed_count = readiness.completed_count,
-                        required_count = readiness.required_count,
-                        is_now_ready = readiness.is_now_ready,
-                        spread_index = ?spread_index,
-                        "spread action completed, updated readiness"
-                    );
-
-                    // If WE are the action that made the aggregator ready, process it
-                    if readiness.is_now_ready {
-                        Self::process_ready_aggregator(
-                            &agg_id,
-                            &dag,
-                            &helper,
-                            &mut batch,
-                            instance_id,
-                            &handler.db,
-                        )
-                        .await?;
-                    }
-                }
-            }
-        }
-
-        // Write everything in one batch: completion, inbox writes, new actions
+        // If we get here, the action failed but no exception handler was found
+        // Just write the completion record
         handler.write_batch(batch).await?;
-
         Ok(())
     }
 
@@ -1755,77 +1568,6 @@ impl DAGRunner {
             None,
             inbox_writes,
         );
-    }
-
-    /// Process a ready aggregator - called when all precursors have completed.
-    ///
-    /// At this point, all spread results are already in the inbox (guaranteed by
-    /// the atomic write_inbox_and_mark_precursor_complete operation).
-    /// This reads results from inbox, aggregates them, and processes successors.
-    #[allow(clippy::too_many_arguments)]
-    async fn process_ready_aggregator(
-        agg_id: &str,
-        dag: &DAG,
-        helper: &DAGHelper<'_>,
-        batch: &mut CompletionBatch,
-        instance_id: WorkflowInstanceId,
-        db: &Database,
-    ) -> RunnerResult<()> {
-        let agg_node = match dag.nodes.get(agg_id) {
-            Some(n) => n,
-            None => return Ok(()),
-        };
-
-        // Read all spread results from inbox - they're guaranteed to be there
-        let spread_results = db.read_inbox_for_aggregator(instance_id, agg_id).await?;
-
-        // Aggregate results (already sorted by spread_index from DB query)
-        let aggregated_result =
-            JsonValue::Array(spread_results.into_iter().map(|(_, v)| v).collect());
-
-        debug!(
-            aggregator_id = %agg_id,
-            result_count = aggregated_result.as_array().map(|a| a.len()).unwrap_or(0),
-            "aggregator ready, processing result"
-        );
-
-        // Write aggregated result to downstream nodes via DATA_FLOW edges
-        if let Some(ref target) = agg_node.target {
-            Self::collect_inbox_writes_for_node(
-                agg_id,
-                target,
-                &aggregated_result,
-                dag,
-                instance_id,
-                &mut batch.inbox_writes,
-            );
-        }
-
-        // Process aggregator's successors using the full recursive processing
-        let mut inline_scope: Scope = HashMap::new();
-        if let Some(ref target) = agg_node.target {
-            inline_scope.insert(target.clone(), aggregated_result.clone());
-        }
-
-        debug!(
-            aggregator_id = %agg_id,
-            "processing aggregator successors"
-        );
-
-        // Use the full successor processing to handle inline nodes recursively
-        Self::process_successors_async(
-            agg_id,
-            &aggregated_result,
-            dag,
-            helper,
-            &mut inline_scope,
-            batch,
-            instance_id,
-            db,
-        )
-        .await?;
-
-        Ok(())
     }
 
     /// Check if all parallel actions are complete and process the aggregator if ready.
@@ -2003,34 +1745,6 @@ impl DAGRunner {
         }
 
         Ok(())
-    }
-
-    /// Process successor nodes asynchronously.
-    /// Inline nodes execute immediately and collect inbox writes.
-    /// Delegated nodes read from inbox and queue for execution.
-    #[allow(clippy::too_many_arguments)]
-    async fn process_successors_async(
-        node_id: &str,
-        result: &JsonValue,
-        dag: &DAG,
-        helper: &DAGHelper<'_>,
-        inline_scope: &mut Scope,
-        batch: &mut CompletionBatch,
-        instance_id: WorkflowInstanceId,
-        db: &Database,
-    ) -> RunnerResult<()> {
-        Self::process_successors_with_condition(
-            node_id,
-            result,
-            dag,
-            helper,
-            inline_scope,
-            batch,
-            instance_id,
-            db,
-            None,
-        )
-        .await
     }
 
     /// Check if a result represents an exception.

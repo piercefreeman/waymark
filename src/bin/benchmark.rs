@@ -329,10 +329,11 @@ async fn wait_for_completion(
                     .await?;
 
             // Check for failures
-            let failed: i64 =
-                sqlx::query_scalar("SELECT COUNT(*) FROM workflow_instances WHERE status = 'failed'")
-                    .fetch_one(database.pool())
-                    .await?;
+            let failed: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM workflow_instances WHERE status = 'failed'",
+            )
+            .fetch_one(database.pool())
+            .await?;
 
             if failed > 0 {
                 info!(

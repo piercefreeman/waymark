@@ -1305,6 +1305,7 @@ impl Database {
     /// ALL precursor results are already in the inbox.
     ///
     /// NOTE: Requires node_readiness to be pre-initialized via init_node_readiness.
+    #[allow(clippy::too_many_arguments)]
     pub async fn write_inbox_and_mark_precursor_complete(
         &self,
         instance_id: WorkflowInstanceId,
@@ -1408,7 +1409,9 @@ impl Database {
         &self,
         instance_id: WorkflowInstanceId,
         node_ids: &std::collections::HashSet<String>,
-    ) -> DbResult<std::collections::HashMap<String, std::collections::HashMap<String, serde_json::Value>>> {
+    ) -> DbResult<
+        std::collections::HashMap<String, std::collections::HashMap<String, serde_json::Value>>,
+    > {
         if node_ids.is_empty() {
             return Ok(std::collections::HashMap::new());
         }
@@ -1430,8 +1433,10 @@ impl Database {
 
         // Group by target_node_id, then by variable_name
         // For non-spread results, later writes overwrite earlier ones (last write wins)
-        let mut result: std::collections::HashMap<String, std::collections::HashMap<String, serde_json::Value>> =
-            std::collections::HashMap::new();
+        let mut result: std::collections::HashMap<
+            String,
+            std::collections::HashMap<String, serde_json::Value>,
+        > = std::collections::HashMap::new();
 
         for (target_node_id, var_name, value, _spread_index) in rows {
             result
@@ -1504,32 +1509,32 @@ impl Database {
         let mut result = CompletionResult::default();
 
         // 1. Mark the completed action as complete (idempotent guard)
-        if let Some(action_id) = plan.completed_action_id {
-            if let Some(delivery_token) = plan.delivery_token {
-                let rows = sqlx::query(
-                    r#"
-                    UPDATE action_queue
-                    SET status = CASE WHEN $2 THEN 'completed' ELSE 'failed' END,
-                        success = $2,
-                        result_payload = $3,
-                        last_error = $4,
-                        completed_at = NOW()
-                    WHERE id = $1 AND delivery_token = $5 AND status = 'dispatched'
-                    "#,
-                )
-                .bind(action_id.0)
-                .bind(plan.success)
-                .bind(&plan.result_payload)
-                .bind(&plan.error_message)
-                .bind(delivery_token)
-                .execute(&mut *tx)
-                .await?;
+        if let Some(action_id) = plan.completed_action_id
+            && let Some(delivery_token) = plan.delivery_token
+        {
+            let rows = sqlx::query(
+                r#"
+                UPDATE action_queue
+                SET status = CASE WHEN $2 THEN 'completed' ELSE 'failed' END,
+                    success = $2,
+                    result_payload = $3,
+                    last_error = $4,
+                    completed_at = NOW()
+                WHERE id = $1 AND delivery_token = $5 AND status = 'dispatched'
+                "#,
+            )
+            .bind(action_id.0)
+            .bind(plan.success)
+            .bind(&plan.result_payload)
+            .bind(&plan.error_message)
+            .bind(delivery_token)
+            .execute(&mut *tx)
+            .await?;
 
-                if rows.rows_affected() == 0 {
-                    // Stale or duplicate completion - roll back
-                    tx.rollback().await?;
-                    return Ok(CompletionResult::stale());
-                }
+            if rows.rows_affected() == 0 {
+                // Stale or duplicate completion - roll back
+                tx.rollback().await?;
+                return Ok(CompletionResult::stale());
             }
         }
 
@@ -2256,7 +2261,10 @@ mod tests {
             .expect("failed to increment");
 
         assert_eq!(result.completed_count, 3);
-        assert!(result.is_now_ready, "should be ready when completed == required");
+        assert!(
+            result.is_now_ready,
+            "should be ready when completed == required"
+        );
     }
 
     #[tokio::test]
@@ -2312,7 +2320,10 @@ mod tests {
             .expect("failed to get inbox");
 
         assert_eq!(inbox.len(), 1);
-        assert!(inbox.contains_key("result"), "inbox should have result variable");
+        assert!(
+            inbox.contains_key("result"),
+            "inbox should have result variable"
+        );
 
         // Second and third completions
         let result = db
@@ -2345,7 +2356,10 @@ mod tests {
             .expect("failed to write inbox");
 
         assert_eq!(result.completed_count, 3);
-        assert!(result.is_now_ready, "should be ready after all precursors complete");
+        assert!(
+            result.is_now_ready,
+            "should be ready after all precursors complete"
+        );
 
         // Verify all inbox entries - read_inbox collapses by variable name,
         // so we should still see 1 (last write wins for same variable)
@@ -2579,7 +2593,10 @@ mod tests {
             )
             .await
             .expect("failed to write");
-        assert!(result.is_now_ready, "should be ready at completed==required");
+        assert!(
+            result.is_now_ready,
+            "should be ready at completed==required"
+        );
 
         // Third completion (over the threshold) should NOT report is_now_ready
         let result = db
@@ -2595,7 +2612,10 @@ mod tests {
             .await
             .expect("failed to write");
         assert_eq!(result.completed_count, 3);
-        assert!(!result.is_now_ready, "should only be ready exactly at the threshold");
+        assert!(
+            !result.is_now_ready,
+            "should only be ready exactly at the threshold"
+        );
     }
 
     #[tokio::test]
@@ -2625,7 +2645,11 @@ mod tests {
                 .expect("failed to write");
 
             assert_eq!(result.completed_count, i + 1);
-            assert!(!result.is_now_ready, "should not be ready at {} of 5", i + 1);
+            assert!(
+                !result.is_now_ready,
+                "should not be ready at {} of 5",
+                i + 1
+            );
         }
 
         // 5th action makes it ready
@@ -2657,6 +2681,10 @@ mod tests {
         // Verify spread indices are present and correct
         let mut indices: Vec<_> = inbox.iter().map(|(idx, _)| *idx).collect();
         indices.sort();
-        assert_eq!(indices, vec![0, 1, 2, 3, 4], "should have spread indices 0-4");
+        assert_eq!(
+            indices,
+            vec![0, 1, 2, 3, 4],
+            "should have spread indices 0-4"
+        );
     }
 }

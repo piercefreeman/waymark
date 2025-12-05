@@ -272,11 +272,7 @@ fn count_sm_predecessors(dag: &DAG, node_id: &str) -> i32 {
 /// - Frontier nodes: Actions, barriers, or output where traversal stops
 ///
 /// The inline_nodes are returned in topological order suitable for execution.
-pub fn analyze_subgraph(
-    start_node_id: &str,
-    dag: &DAG,
-    helper: &DAGHelper,
-) -> SubgraphAnalysis {
+pub fn analyze_subgraph(start_node_id: &str, dag: &DAG, helper: &DAGHelper) -> SubgraphAnalysis {
     let mut analysis = SubgraphAnalysis::default();
     let mut visited = HashSet::new();
     let mut queue = VecDeque::new();
@@ -350,11 +346,7 @@ pub fn analyze_subgraph(
 ///
 /// This is important for readiness tracking - we only increment readiness when
 /// the completing node is a direct predecessor via StateMachine edge.
-pub fn is_direct_predecessor(
-    completed_node_id: &str,
-    frontier_node_id: &str,
-    dag: &DAG,
-) -> bool {
+pub fn is_direct_predecessor(completed_node_id: &str, frontier_node_id: &str, dag: &DAG) -> bool {
     dag.edges.iter().any(|e| {
         e.source == completed_node_id
             && e.target == frontier_node_id
@@ -434,16 +426,18 @@ pub fn execute_inline_subgraph(
 
     // Initialize inline scope with completed node's result
     let mut inline_scope: InlineScope = HashMap::new();
-    if let Some(node) = dag.nodes.get(completed_node_id) {
-        if let Some(ref target) = node.target {
-            inline_scope.insert(target.clone(), completed_result.clone());
-        }
+    if let Some(node) = dag.nodes.get(completed_node_id)
+        && let Some(ref target) = node.target
+    {
+        inline_scope.insert(target.clone(), completed_result.clone());
     }
 
     // Merge existing inbox data for the completed node
     if let Some(node_inbox) = existing_inbox.get(completed_node_id) {
         for (var, val) in node_inbox {
-            inline_scope.entry(var.clone()).or_insert_with(|| val.clone());
+            inline_scope
+                .entry(var.clone())
+                .or_insert_with(|| val.clone());
         }
     }
 
@@ -457,11 +451,11 @@ pub fn execute_inline_subgraph(
     // Start with successors of the completed node
     let mut queue: VecDeque<(String, bool)> = VecDeque::new();
     for successor in helper.get_ready_successors(completed_node_id, None) {
-        // Evaluate guard if present
-        if let Some(ref guard) = successor.guard_expr {
-            if !evaluate_guard(Some(guard), &inline_scope, &successor.node_id) {
-                continue; // Guard failed, don't traverse this branch
-            }
+        // Evaluate guard if present - skip branch if guard fails
+        if let Some(ref guard) = successor.guard_expr
+            && !evaluate_guard(Some(guard), &inline_scope, &successor.node_id)
+        {
+            continue;
         }
         queue.push_back((successor.node_id, true));
     }
@@ -485,7 +479,9 @@ pub fn execute_inline_subgraph(
         // Merge this node's inbox from DB into scope
         if let Some(node_inbox) = existing_inbox.get(&node_id) {
             for (var, val) in node_inbox {
-                inline_scope.entry(var.clone()).or_insert_with(|| val.clone());
+                inline_scope
+                    .entry(var.clone())
+                    .or_insert_with(|| val.clone());
             }
         }
 
@@ -510,16 +506,16 @@ pub fn execute_inline_subgraph(
                     continue;
                 }
 
-                // Evaluate guard if present
-                if let Some(ref guard) = successor.guard_expr {
-                    if !evaluate_guard(Some(guard), &inline_scope, &successor.node_id) {
-                        debug!(
-                            node_id = %node_id,
-                            successor_id = %successor.node_id,
-                            "guard failed, skipping branch"
-                        );
-                        continue;
-                    }
+                // Evaluate guard if present - skip branch if guard fails
+                if let Some(ref guard) = successor.guard_expr
+                    && !evaluate_guard(Some(guard), &inline_scope, &successor.node_id)
+                {
+                    debug!(
+                        node_id = %node_id,
+                        successor_id = %successor.node_id,
+                        "guard failed, skipping branch"
+                    );
+                    continue;
                 }
 
                 queue.push_back((successor.node_id, false));
@@ -547,12 +543,7 @@ pub fn execute_inline_subgraph(
         };
 
         // Collect DataFlow writes from inline scope to this frontier node
-        let writes = collect_data_flow_writes(
-            &frontier.node_id,
-            &inline_scope,
-            dag,
-            instance_id,
-        );
+        let writes = collect_data_flow_writes(&frontier.node_id, &inline_scope, dag, instance_id);
         plan.inbox_writes.extend(writes);
 
         // Find which node in our path is the direct predecessor of this frontier
@@ -738,19 +729,19 @@ fn collect_data_flow_writes(
     let mut writes = Vec::new();
 
     for edge in &dag.edges {
-        if edge.target == target_node_id && edge.edge_type == EdgeType::DataFlow {
-            if let Some(ref var_name) = edge.variable {
-                if let Some(value) = inline_scope.get(var_name) {
-                    writes.push(InboxWrite {
-                        instance_id,
-                        target_node_id: target_node_id.to_string(),
-                        variable_name: var_name.clone(),
-                        value: value.clone(),
-                        source_node_id: edge.source.clone(),
-                        spread_index: None,
-                    });
-                }
-            }
+        if edge.target == target_node_id
+            && edge.edge_type == EdgeType::DataFlow
+            && let Some(ref var_name) = edge.variable
+            && let Some(value) = inline_scope.get(var_name)
+        {
+            writes.push(InboxWrite {
+                instance_id,
+                target_node_id: target_node_id.to_string(),
+                variable_name: var_name.clone(),
+                value: value.clone(),
+                source_node_id: edge.source.clone(),
+                spread_index: None,
+            });
         }
     }
 
@@ -765,7 +756,9 @@ fn merge_data_flow_into_inbox(
     inbox: &mut HashMap<String, JsonValue>,
 ) {
     // Find all DataFlow edges to this target
-    let df_edges: Vec<_> = dag.edges.iter()
+    let df_edges: Vec<_> = dag
+        .edges
+        .iter()
         .filter(|e| e.target == target_node_id && e.edge_type == EdgeType::DataFlow)
         .collect();
 
@@ -831,14 +824,13 @@ fn resolve_kwarg_value(value_str: &str, inbox: &HashMap<String, JsonValue>) -> J
 
 /// Serialize workflow result as protobuf WorkflowArguments.
 fn serialize_workflow_result(result: &JsonValue) -> Result<Vec<u8>, CompletionError> {
-    use prost::Message;
     use crate::messages::proto;
+    use prost::Message;
 
-    let mut arguments = Vec::new();
-    arguments.push(proto::WorkflowArgument {
+    let arguments = vec![proto::WorkflowArgument {
         key: "result".to_string(),
         value: Some(json_to_proto_value(result)),
-    });
+    }];
 
     let workflow_args = proto::WorkflowArguments { arguments };
     Ok(workflow_args.encode_to_vec())
@@ -871,7 +863,9 @@ fn json_to_proto_value(value: &JsonValue) -> crate::messages::proto::WorkflowArg
             }
         }
         JsonValue::String(s) => Kind::Primitive(proto::PrimitiveWorkflowArgument {
-            kind: Some(proto::primitive_workflow_argument::Kind::StringValue(s.clone())),
+            kind: Some(proto::primitive_workflow_argument::Kind::StringValue(
+                s.clone(),
+            )),
         }),
         JsonValue::Array(arr) => {
             let items = arr.iter().map(json_to_proto_value).collect();

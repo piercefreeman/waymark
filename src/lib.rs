@@ -76,8 +76,7 @@ pub use runner::{
 
 // Completion (unified readiness model)
 pub use completion::{
-    CompletionError, CompletionPlan, CompletionResult, FrontierCategory, FrontierNode,
-    InlineScope, InstanceCompletion, NodeType, ReadinessIncrement, SubgraphAnalysis,
-    analyze_subgraph, execute_inline_subgraph, find_direct_predecessor_in_path,
-    is_direct_predecessor,
+    CompletionError, CompletionPlan, CompletionResult, FrontierCategory, FrontierNode, InlineScope,
+    InstanceCompletion, NodeType, ReadinessIncrement, SubgraphAnalysis, analyze_subgraph,
+    execute_inline_subgraph, find_direct_predecessor_in_path, is_direct_predecessor,
 };
