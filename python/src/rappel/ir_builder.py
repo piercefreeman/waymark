@@ -24,7 +24,7 @@ import ast
 import inspect
 import textwrap
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 from proto import ast_pb2 as ir
 
@@ -496,13 +496,17 @@ class IRBuilder(ast.NodeVisitor):
         stmt = ir.Statement(span=_make_span(node))
         targets = self._get_assign_targets(node.targets)
 
-        # Check for asyncio.gather() - convert to parallel expression
+        # Check for asyncio.gather() - convert to parallel or spread expression
         if isinstance(node.value, ast.Await) and isinstance(node.value.value, ast.Call):
             gather_call = node.value.value
             if self._is_asyncio_gather_call(gather_call):
-                parallel_expr = self._convert_asyncio_gather_to_parallel_expr(gather_call)
-                if parallel_expr:
-                    value = ir.Expr(parallel_expr=parallel_expr, span=_make_span(node))
+                gather_result = self._convert_asyncio_gather(gather_call)
+                if gather_result is not None:
+                    if isinstance(gather_result, ir.ParallelExpr):
+                        value = ir.Expr(parallel_expr=gather_result, span=_make_span(node))
+                    else:
+                        # SpreadExpr
+                        value = ir.Expr(spread_expr=gather_result, span=_make_span(node))
                     assign = ir.Assignment(targets=targets, value=value)
                     stmt.assignment.CopyFrom(assign)
                     return stmt
@@ -532,13 +536,21 @@ class IRBuilder(ast.NodeVisitor):
         if isinstance(node.value, ast.Await) and isinstance(node.value.value, ast.Call):
             gather_call = node.value.value
             if self._is_asyncio_gather_call(gather_call):
-                parallel_expr = self._convert_asyncio_gather_to_parallel_expr(gather_call)
-                if parallel_expr:
-                    # Side effect only - use ParallelBlock statement
-                    parallel = ir.ParallelBlock()
-                    parallel.calls.extend(parallel_expr.calls)
-                    stmt.parallel_block.CopyFrom(parallel)
-                    return stmt
+                gather_result = self._convert_asyncio_gather(gather_call)
+                if gather_result is not None:
+                    if isinstance(gather_result, ir.ParallelExpr):
+                        # Side effect only - use ParallelBlock statement
+                        parallel = ir.ParallelBlock()
+                        parallel.calls.extend(gather_result.calls)
+                        stmt.parallel_block.CopyFrom(parallel)
+                        return stmt
+                    else:
+                        # SpreadExpr as side effect - wrap in assignment with no targets
+                        # This handles: await asyncio.gather(*[action(x) for x in items])
+                        value = ir.Expr(spread_expr=gather_result, span=_make_span(node))
+                        assign = ir.Assignment(targets=[], value=value)
+                        stmt.assignment.CopyFrom(assign)
+                        return stmt
 
         # Check if this is an action call (side effect only)
         action_call = self._extract_action_call(node.value)
@@ -1135,36 +1147,27 @@ class IRBuilder(ast.NodeVisitor):
                 return imported.module == "asyncio" and imported.original_name == "gather"
         return False
 
-    def _convert_asyncio_gather_to_parallel_expr(self, node: ast.Call) -> Optional[ir.ParallelExpr]:
-        """Convert asyncio.gather(...) to ParallelExpr IR.
+    def _convert_asyncio_gather(
+        self, node: ast.Call
+    ) -> Optional[Union[ir.ParallelExpr, ir.SpreadExpr]]:
+        """Convert asyncio.gather(...) to ParallelExpr or SpreadExpr IR.
 
-        Handles the static gather pattern: asyncio.gather(a(), b(), c())
-        Returns a ParallelExpr that can be used in an Assignment for unpacking.
-
-        For dynamic spread (asyncio.gather(*[...])), raises UnsupportedPatternError
-        with guidance to use spread syntax.
+        Handles two patterns:
+        1. Static gather: asyncio.gather(a(), b(), c()) -> ParallelExpr
+        2. Spread gather: asyncio.gather(*[action(x) for x in items]) -> SpreadExpr
 
         Args:
             node: The asyncio.gather() Call node
 
         Returns:
-            A ParallelExpr, or None if conversion fails.
+            A ParallelExpr, SpreadExpr, or None if conversion fails.
         """
         # Check for starred expressions - spread pattern
         if len(node.args) == 1 and isinstance(node.args[0], ast.Starred):
             starred = node.args[0]
-            # Only list comprehensions are supported
+            # Only list comprehensions are supported for spread
             if isinstance(starred.value, ast.ListComp):
-                # TODO: Convert to SpreadExpr when we add full spread support
-                # For now, raise an error with guidance
-                line = getattr(node, "lineno", None)
-                col = getattr(node, "col_offset", None)
-                raise UnsupportedPatternError(
-                    "Spread pattern in asyncio.gather() requires spread syntax",
-                    RECOMMENDATIONS["gather_variable_spread"],
-                    line=line,
-                    col=col,
-                )
+                return self._convert_listcomp_to_spread_expr(starred.value)
             else:
                 # Spreading a variable or other expression is not supported
                 line = getattr(node, "lineno", None)
@@ -1199,6 +1202,99 @@ class IRBuilder(ast.NodeVisitor):
             return None
 
         return parallel
+
+    def _convert_listcomp_to_spread_expr(self, listcomp: ast.ListComp) -> Optional[ir.SpreadExpr]:
+        """Convert a list comprehension to SpreadExpr IR.
+
+        Handles patterns like:
+            [action(x=item) for item in collection]
+
+        The comprehension must have exactly one generator with no conditions,
+        and the element must be an action call.
+
+        Args:
+            listcomp: The ListComp AST node
+
+        Returns:
+            A SpreadExpr, or None if conversion fails.
+        """
+        # Only support simple list comprehensions with one generator
+        if len(listcomp.generators) != 1:
+            line = getattr(listcomp, "lineno", None)
+            col = getattr(listcomp, "col_offset", None)
+            raise UnsupportedPatternError(
+                "Spread pattern only supports a single loop variable",
+                "Use a simple list comprehension: [action(x) for x in items]",
+                line=line,
+                col=col,
+            )
+
+        gen = listcomp.generators[0]
+
+        # Check for conditions - not supported
+        if gen.ifs:
+            line = getattr(listcomp, "lineno", None)
+            col = getattr(listcomp, "col_offset", None)
+            raise UnsupportedPatternError(
+                "Spread pattern does not support conditions in list comprehension",
+                "Remove the 'if' clause from the comprehension",
+                line=line,
+                col=col,
+            )
+
+        # Get the loop variable name
+        if not isinstance(gen.target, ast.Name):
+            line = getattr(listcomp, "lineno", None)
+            col = getattr(listcomp, "col_offset", None)
+            raise UnsupportedPatternError(
+                "Spread pattern requires a simple loop variable",
+                "Use a simple variable: [action(x) for x in items]",
+                line=line,
+                col=col,
+            )
+        loop_var = gen.target.id
+
+        # Get the collection expression
+        collection_expr = _expr_to_ir(gen.iter)
+        if not collection_expr:
+            line = getattr(listcomp, "lineno", None)
+            col = getattr(listcomp, "col_offset", None)
+            raise UnsupportedPatternError(
+                "Could not convert collection expression in spread pattern",
+                "Ensure the collection is a simple variable or expression",
+                line=line,
+                col=col,
+            )
+
+        # The element must be an action call
+        if not isinstance(listcomp.elt, ast.Call):
+            line = getattr(listcomp, "lineno", None)
+            col = getattr(listcomp, "col_offset", None)
+            raise UnsupportedPatternError(
+                "Spread pattern requires an action call in the list comprehension",
+                "Use: [action(x=item) for item in items]",
+                line=line,
+                col=col,
+            )
+
+        action_call = self._extract_action_call_from_call(listcomp.elt)
+        if not action_call:
+            line = getattr(listcomp, "lineno", None)
+            col = getattr(listcomp, "col_offset", None)
+            raise UnsupportedPatternError(
+                "Spread pattern element must be an @action call",
+                "Ensure the function is decorated with @action",
+                line=line,
+                col=col,
+            )
+
+        # Build the SpreadExpr
+        spread = ir.SpreadExpr()
+        spread.collection.CopyFrom(collection_expr)
+        spread.loop_var = loop_var
+        spread.action.CopyFrom(action_call)
+
+        return spread
 
     def _convert_gather_arg_to_call(self, node: ast.expr) -> Optional[ir.Call]:
         """Convert a gather argument to an IR Call.

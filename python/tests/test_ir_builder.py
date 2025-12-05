@@ -293,17 +293,37 @@ class TestAsyncioGatherDetection:
     def test_gather_starred_list_comprehension(self) -> None:
         """Test: await asyncio.gather(*[action(x) for x in items])
 
-        This pattern is not currently supported and should raise UnsupportedPatternError.
-        Users should use explicit spread syntax instead.
+        This pattern is converted to a SpreadExpr in the IR.
         """
-        import pytest
-
-        from rappel.ir_builder import UnsupportedPatternError
         from tests.fixtures_gather.gather_listcomp import GatherListCompWorkflow
 
-        # This pattern should raise an error guiding users to use spread syntax
-        with pytest.raises(UnsupportedPatternError):
-            GatherListCompWorkflow.workflow_ir()
+        program = GatherListCompWorkflow.workflow_ir()
+
+        # Find the SpreadExpr in the IR
+        spread_found = False
+        spread_expr = None
+        targets = []
+        for fn in program.functions:
+            for stmt in fn.body.statements:
+                if stmt.HasField("assignment"):
+                    if stmt.assignment.value.HasField("spread_expr"):
+                        spread_found = True
+                        spread_expr = stmt.assignment.value.spread_expr
+                        targets = list(stmt.assignment.targets)
+
+        assert spread_found, "Expected spread expression from asyncio.gather(*[...])"
+        assert spread_expr is not None
+
+        # Check the spread details
+        assert spread_expr.loop_var == "item"
+        assert spread_expr.action.action_name == "process_item"
+
+        # Check the collection is the 'items' variable
+        assert spread_expr.collection.HasField("variable")
+        assert spread_expr.collection.variable.name == "items"
+
+        # Check the target
+        assert targets == ["results"]
 
     def test_gather_tuple_unpacking(self) -> None:
         """Test: a, b = await asyncio.gather(action1(), action2())
@@ -2081,22 +2101,27 @@ class TestPolicyVariations:
 
 
 class TestSpreadAction:
-    """Test spread action detection - currently raises UnsupportedPatternError."""
+    """Test spread action detection - converts to SpreadExpr in IR."""
 
-    def test_spread_pattern_raises_error(self) -> None:
-        """Test: asyncio.gather(*[action(item) for item in items]) raises error."""
-        import pytest
-
-        from rappel import UnsupportedPatternError
+    def test_spread_pattern_converts_to_spread_expr(self) -> None:
+        """Test: asyncio.gather(*[action(item) for item in items]) -> SpreadExpr."""
         from tests.fixtures_gather.gather_listcomp import GatherListCompWorkflow
 
-        # Spread pattern in gather is not yet fully supported
-        with pytest.raises(UnsupportedPatternError) as exc_info:
-            GatherListCompWorkflow.workflow_ir()
+        program = GatherListCompWorkflow.workflow_ir()
 
-        error = exc_info.value
-        assert isinstance(error, UnsupportedPatternError)
-        assert "spread" in error.message.lower()
+        # Find the SpreadExpr in the IR
+        spread_found = False
+        for fn in program.functions:
+            for stmt in fn.body.statements:
+                if stmt.HasField("assignment"):
+                    if stmt.assignment.value.HasField("spread_expr"):
+                        spread_found = True
+                        spread_expr = stmt.assignment.value.spread_expr
+                        # Verify the spread structure
+                        assert spread_expr.loop_var == "item"
+                        assert spread_expr.action.action_name == "process_item"
+
+        assert spread_found, "Expected spread expression from asyncio.gather(*[...])"
 
 
 class TestForLoopWithMultipleCalls:
