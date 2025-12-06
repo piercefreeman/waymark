@@ -294,6 +294,12 @@ impl<'a> DAGHelper<'a> {
         let mut successors = Vec::new();
 
         for edge in self.get_state_machine_successors(node_id) {
+            // Skip loop-back edges - these are only followed when explicitly
+            // re-triggering the loop after body completion
+            if edge.is_loop_back {
+                continue;
+            }
+
             // Handle exception edges - these are only followed when an exception occurs
             // They're identified by having exception_types set
             if edge.exception_types.is_some() {

@@ -627,13 +627,11 @@ class IRBuilder(ast.NodeVisitor):
         accumulator_targets = self._detect_accumulator_targets(body_stmts, in_scope_vars)
 
         # Wrap for loop body if multiple calls (use loop_vars as inputs)
-        # NOTE: For loops use spread/gather pattern - each iteration runs independently
-        # and returns a value that gets collected by the aggregator. We do NOT pass
-        # modified_vars here because the accumulator is handled by the aggregator,
-        # not by passing mutable state between iterations.
+        # For sequential loops, modified_vars (accumulators) are passed in and returned
+        # from each iteration, enabling mutable state across iterations.
         if self._count_calls(body_stmts) > 1:
             body_stmts = self._wrap_body_as_function(
-                body_stmts, "for_body", node, inputs=loop_vars
+                body_stmts, "for_body", node, inputs=loop_vars, modified_vars=accumulator_targets
             )
 
         # For loops use SingleCallBody (at most one action/function call per iteration)

@@ -794,6 +794,62 @@ pub fn evaluate_guard(
     }
 }
 
+/// Evaluate a string-based guard for loop control.
+///
+/// Handles guards like "__loop_has_next(for_loop_0)" by checking if there are
+/// more items to iterate in the collection.
+///
+/// Parameters:
+/// - `guard_string`: The guard string (e.g., "__loop_has_next(for_loop_0)")
+/// - `loop_state`: Tuple of (current_index, collection_length)
+/// - `successor_id`: For logging
+///
+/// Returns true if the loop should continue, false if it should break.
+pub fn evaluate_guard_string(
+    guard_string: Option<&str>,
+    loop_state: Option<(usize, usize)>,
+    successor_id: &str,
+) -> bool {
+    let Some(guard) = guard_string else {
+        // No guard string - always pass
+        return true;
+    };
+
+    // Parse __loop_has_next(loop_id) pattern
+    if guard.starts_with("__loop_has_next(") && guard.ends_with(')') {
+        let loop_id = &guard[16..guard.len() - 1];
+
+        // Check if we have loop state
+        if let Some((current_index, collection_length)) = loop_state {
+            let has_next = current_index < collection_length;
+            debug!(
+                successor_id = %successor_id,
+                loop_id = %loop_id,
+                current_index = current_index,
+                collection_length = collection_length,
+                has_next = has_next,
+                "evaluated loop guard"
+            );
+            return has_next;
+        } else {
+            warn!(
+                successor_id = %successor_id,
+                loop_id = %loop_id,
+                "no loop state found for guard, assuming false"
+            );
+            return false;
+        }
+    }
+
+    // Unknown guard string pattern
+    warn!(
+        successor_id = %successor_id,
+        guard_string = %guard,
+        "unknown guard string pattern, assuming false"
+    );
+    false
+}
+
 /// Collect DataFlow edge writes from inline scope to a target node.
 fn collect_data_flow_writes(
     target_node_id: &str,
