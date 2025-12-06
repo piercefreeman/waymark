@@ -643,12 +643,10 @@ impl DAGConverter {
                                 if let Some(action_node) = target.nodes.get_mut(&action_id) {
                                     if action_node.node_type == "action_call" {
                                         action_node.is_spread = true;
-                                        action_node.spread_loop_var =
-                                            node.spread_loop_var.clone();
+                                        action_node.spread_loop_var = node.spread_loop_var.clone();
                                         action_node.spread_collection =
                                             node.spread_collection.clone();
-                                        action_node.aggregates_to =
-                                            node.aggregates_to.clone();
+                                        action_node.aggregates_to = node.aggregates_to.clone();
                                     }
                                 }
                             }
@@ -1978,6 +1976,10 @@ impl DAGConverter {
     }
 
     /// Convert a return statement
+    ///
+    /// Return statements should only contain variables (not action calls).
+    /// The Python IR builder normalizes `return await action()` to
+    /// `_tmp = await action(); return _tmp`.
     fn convert_return(&mut self, _ret: &ast::ReturnStmt) -> Vec<String> {
         let node_id = self.next_id("return");
         let mut node = DAGNode::new(node_id.clone(), "return".to_string(), "return".to_string());
@@ -3594,6 +3596,107 @@ fn main(input: [], output: [result]):
         assert!(
             number_edge.is_some(),
             "Should have DataFlow edge for 'number' from input to summarize_math"
+        );
+    }
+
+    #[test]
+    fn test_dag_chain_workflow_dataflow_edges() {
+        // Test the chain workflow pattern where a final action needs variables from
+        // multiple earlier actions:
+        // step1 = @action1(text=text)
+        // step2 = @action2(text=step1)
+        // step3 = @action3(text=step2)
+        // _return_tmp = @final_action(original=text, step1=step1, step2=step2, step3=step3)
+        // return _return_tmp
+        //
+        // The final_action needs text (from input), step1, step2, and step3.
+        // This tests that DataFlow edges are created correctly for all these dependencies.
+        let source = r#"fn run(input: [text], output: [result]):
+    step1 = @step_uppercase(text=text)
+    step2 = @step_reverse(text=step1)
+    step3 = @step_add_stars(text=step2)
+    _return_tmp = @build_chain_result(original=text, step1=step1, step2=step2, step3=step3)
+    return _return_tmp"#;
+        let program = parse(source).unwrap();
+        let dag = convert_to_dag(&program);
+
+        // Find the final action node (build_chain_result)
+        let final_action = dag
+            .nodes
+            .values()
+            .find(|n| n.action_name.as_deref() == Some("build_chain_result"))
+            .expect("Should have build_chain_result action");
+
+        println!("\n=== Chain Workflow DAG Analysis ===");
+        println!("\nAll action nodes:");
+        for node in dag.nodes.values().filter(|n| n.node_type == "action_call") {
+            println!(
+                "  {} -> {} (target: {:?})",
+                node.id,
+                node.action_name.as_deref().unwrap_or("?"),
+                node.target
+            );
+        }
+
+        println!("\nAll DataFlow edges:");
+        for edge in dag.get_data_flow_edges() {
+            println!(
+                "  {} --[{}]--> {}",
+                edge.source,
+                edge.variable.as_deref().unwrap_or("?"),
+                edge.target
+            );
+        }
+
+        // Get all DataFlow edges pointing to the final action
+        let final_action_data_flow: Vec<_> = dag
+            .get_data_flow_edges()
+            .iter()
+            .filter(|e| e.target == final_action.id)
+            .cloned()
+            .collect();
+
+        println!("\nDataFlow edges to build_chain_result ({}):", final_action.id);
+        for edge in &final_action_data_flow {
+            println!(
+                "  {} --[{}]--> {}",
+                edge.source,
+                edge.variable.as_deref().unwrap_or("?"),
+                edge.target
+            );
+        }
+
+        // The final action needs 4 variables: text, step1, step2, step3
+        // Each should have a DataFlow edge to the final action
+
+        let text_edge = final_action_data_flow
+            .iter()
+            .find(|e| e.variable.as_deref() == Some("text"));
+        let step1_edge = final_action_data_flow
+            .iter()
+            .find(|e| e.variable.as_deref() == Some("step1"));
+        let step2_edge = final_action_data_flow
+            .iter()
+            .find(|e| e.variable.as_deref() == Some("step2"));
+        let step3_edge = final_action_data_flow
+            .iter()
+            .find(|e| e.variable.as_deref() == Some("step3"));
+
+        assert!(
+            text_edge.is_some(),
+            "Should have DataFlow edge for 'text' to build_chain_result"
+        );
+        assert!(
+            step1_edge.is_some(),
+            "Should have DataFlow edge for 'step1' to build_chain_result"
+        );
+        assert!(
+            step2_edge.is_some(),
+            "Should have DataFlow edge for 'step2' to build_chain_result"
+        );
+        assert!(
+            step3_edge.is_some(),
+            "Should have DataFlow edge for 'step3' to build_chain_result"
         );
     }
 }

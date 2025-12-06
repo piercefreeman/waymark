@@ -387,8 +387,7 @@ class IRBuilder(ast.NodeVisitor):
         elif isinstance(node, ast.Try):
             return self._visit_try(node)
         elif isinstance(node, ast.Return):
-            result = self._visit_return(node)
-            return [result] if result else []
+            return self._visit_return(node)
         elif isinstance(node, ast.AugAssign):
             result = self._visit_aug_assign(node)
             return [result] if result else []
@@ -902,31 +901,49 @@ class IRBuilder(ast.NodeVisitor):
 
         return [call_stmt]
 
-    def _visit_return(self, node: ast.Return) -> Optional[ir.Statement]:
-        """Convert return statement to IR."""
-        stmt = ir.Statement(span=_make_span(node))
+    def _visit_return(self, node: ast.Return) -> List[ir.Statement]:
+        """Convert return statement to IR.
 
+        Return statements should only contain variables or literals, not action calls.
+        If the return contains an action call, we normalize it:
+            return await action()
+        becomes:
+            _return_tmp = await action()
+            return _return_tmp
+        """
         if node.value:
-            # Check if returning an action call
+            # Check if returning an action call - normalize to assignment + return
             action_call = self._extract_action_call(node.value)
             if action_call:
-                # Return with action call
-                return_stmt = ir.ReturnStmt()
-                # Action calls in returns need special handling
-                expr = _expr_to_ir(node.value)
-                if expr:
-                    return_stmt.value.CopyFrom(expr)
-                stmt.return_stmt.CopyFrom(return_stmt)
-                return stmt
+                # Create a temporary variable for the action result
+                tmp_var = "_return_tmp"
 
+                # Create assignment: _return_tmp = await action()
+                assign_stmt = ir.Statement(span=_make_span(node))
+                value = ir.Expr(action_call=action_call, span=_make_span(node))
+                assign = ir.Assignment(targets=[tmp_var], value=value)
+                assign_stmt.assignment.CopyFrom(assign)
+
+                # Create return: return _return_tmp
+                return_stmt = ir.Statement(span=_make_span(node))
+                var_expr = ir.Expr(variable=ir.Variable(name=tmp_var), span=_make_span(node))
+                ret = ir.ReturnStmt(value=var_expr)
+                return_stmt.return_stmt.CopyFrom(ret)
+
+                return [assign_stmt, return_stmt]
+
+            # Regular return with expression (variable, literal, etc.)
             expr = _expr_to_ir(node.value)
             if expr:
+                stmt = ir.Statement(span=_make_span(node))
                 return_stmt = ir.ReturnStmt(value=expr)
                 stmt.return_stmt.CopyFrom(return_stmt)
-        else:
-            stmt.return_stmt.CopyFrom(ir.ReturnStmt())
+                return [stmt]
 
-        return stmt
+        # Return with no value
+        stmt = ir.Statement(span=_make_span(node))
+        stmt.return_stmt.CopyFrom(ir.ReturnStmt())
+        return [stmt]
 
     def _visit_aug_assign(self, node: ast.AugAssign) -> Optional[ir.Statement]:
         """Convert augmented assignment (+=, -=, etc.) to IR."""

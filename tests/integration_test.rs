@@ -28,6 +28,7 @@ const EXCEPTION_WITH_SUCCESS_WORKFLOW_MODULE: &str =
     include_str!("fixtures/integration_exception_with_success.py");
 const IMMEDIATE_CONDITIONAL_WORKFLOW_MODULE: &str =
     include_str!("fixtures/immediate_conditional_workflow.py");
+const CHAIN_WORKFLOW_MODULE: &str = include_str!("fixtures/chain_workflow.py");
 
 /// Registration script that imports and runs the workflow.
 /// This triggers the workflow decorator which registers the IR via gRPC.
@@ -876,6 +877,72 @@ async fn conditional_workflow_low_branch() -> Result<()> {
     assert_eq!(
         message,
         Some("needs_work:10".to_string()),
+        "unexpected workflow result"
+    );
+
+    harness.shutdown().await?;
+    Ok(())
+}
+
+// =============================================================================
+// Chain Workflow Tests (example_app pattern)
+// =============================================================================
+
+const REGISTER_CHAIN_SCRIPT: &str = r#"
+import asyncio
+import os
+
+from chain_workflow import ChainWorkflow
+
+async def main():
+    os.environ.pop("PYTEST_CURRENT_TEST", None)
+    wf = ChainWorkflow()
+    result = await wf.run(text="hello world")
+    print(f"Registration result: {result}")
+
+asyncio.run(main())
+"#;
+
+/// Test that chain workflows execute all actions and combine results correctly.
+///
+/// This matches the SequentialChainWorkflow pattern from example_app:
+/// "hello world" -> "HELLO WORLD" -> "DLROW OLLEH" -> "*** DLROW OLLEH ***"
+/// Then build_chain_result combines: original, step1, step2, step3
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[serial]
+async fn chain_workflow_executes_all_steps() -> Result<()> {
+    let _ = tracing_subscriber::fmt::try_init();
+    let _ = dotenvy::dotenv();
+
+    let Some(harness) = IntegrationHarness::new(HarnessConfig {
+        files: &[
+            ("chain_workflow.py", CHAIN_WORKFLOW_MODULE),
+            ("register.py", REGISTER_CHAIN_SCRIPT),
+        ],
+        entrypoint: "register.py",
+        workflow_name: "chainworkflow",
+        user_module: "chain_workflow",
+        inputs: &[("text", "hello world")],
+    })
+    .await?
+    else {
+        return Ok(());
+    };
+
+    // Execute all actions via the DAGRunner
+    harness.dispatch_all().await?;
+    info!("workflow completed");
+
+    // Verify the workflow result contains all transformations
+    // Expected: "original:hello world,step1:HELLO WORLD,step2:DLROW OLLEH,step3:*** DLROW OLLEH ***"
+    let stored_payload = harness
+        .stored_result()
+        .await?
+        .expect("workflow should have a result");
+    let message = parse_result(&stored_payload)?;
+    assert_eq!(
+        message,
+        Some("original:hello world,step1:HELLO WORLD,step2:DLROW OLLEH,step3:*** DLROW OLLEH ***".to_string()),
         "unexpected workflow result"
     );
 

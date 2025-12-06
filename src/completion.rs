@@ -439,8 +439,8 @@ pub fn execute_inline_subgraph(
         //
         // For spread/for-loop aggregators (single target), the aggregated array IS the result
         // and should be used.
-        let is_parallel_aggregator = node.node_type == "aggregator"
-            && node.targets.as_ref().is_some_and(|t| t.len() > 1);
+        let is_parallel_aggregator =
+            node.node_type == "aggregator" && node.targets.as_ref().is_some_and(|t| t.len() > 1);
 
         if !is_parallel_aggregator {
             inline_scope.insert(target.clone(), completed_result.clone());
@@ -452,7 +452,10 @@ pub fn execute_inline_subgraph(
         if let Some(node) = dag.nodes.get(completed_node_id) {
             if let Some(ref aggregator_id) = node.aggregates_to {
                 // Write result to aggregator with spread_index
-                let var_name = node.target.clone().unwrap_or_else(|| "_for_loop_result".to_string());
+                let var_name = node
+                    .target
+                    .clone()
+                    .unwrap_or_else(|| "_for_loop_result".to_string());
                 plan.inbox_writes.push(InboxWrite {
                     instance_id,
                     target_node_id: aggregator_id.clone(),
@@ -564,6 +567,13 @@ pub fn execute_inline_subgraph(
         "BFS traversal complete"
     );
 
+    // Write variables to ALL downstream DataFlow edge targets, not just frontiers.
+    // This is crucial for chain workflows where action_5 needs step1 from action_2,
+    // but action_5 is not in the frontier when action_2 completes.
+    let all_df_writes =
+        collect_all_data_flow_writes(&inline_scope, dag, instance_id, completed_node_id);
+    plan.inbox_writes.extend(all_df_writes);
+
     // Process only the reachable frontier nodes
     for frontier in &subgraph.frontier_nodes {
         // Skip frontiers that weren't reachable via passing guards
@@ -576,8 +586,14 @@ pub fn execute_inline_subgraph(
         };
 
         // Collect DataFlow writes from inline scope to this frontier node
-        let writes = collect_data_flow_writes(&frontier.node_id, &inline_scope, dag, instance_id);
-        plan.inbox_writes.extend(writes);
+        // Skip for Barrier frontiers - their data flow is handled specially:
+        // - Spread patterns: written with spread_index at the start of this function
+        // - Parallel blocks: written with target variable name in the Barrier case below
+        if frontier.category != FrontierCategory::Barrier {
+            let writes =
+                collect_data_flow_writes(&frontier.node_id, &inline_scope, dag, instance_id);
+            plan.inbox_writes.extend(writes);
+        }
 
         // Find which node in our path is the direct predecessor of this frontier
         let predecessor_id = find_direct_predecessor_in_path(
@@ -617,20 +633,25 @@ pub fn execute_inline_subgraph(
                     });
                 }
                 FrontierCategory::Barrier => {
-                    // For parallel blocks, write the completed node's result to the barrier's inbox
-                    // so it can be passed to successor nodes when the barrier fires.
-                    // This is different from spread actions which use spread_index.
-                    if let Some(completed_node) = dag.nodes.get(completed_node_id) {
-                        if let Some(ref target) = completed_node.target {
-                            // Write this parallel action's result to the barrier's inbox
-                            plan.inbox_writes.push(InboxWrite {
-                                instance_id,
-                                target_node_id: frontier.node_id.clone(),
-                                variable_name: target.clone(),
-                                value: completed_result.clone(),
-                                source_node_id: completed_node_id.to_string(),
-                                spread_index: None,
-                            });
+                    // For parallel blocks (NOT spread patterns), write the completed node's
+                    // result to the barrier's inbox so it can be passed to successor nodes
+                    // when the barrier fires.
+                    //
+                    // Spread actions already write their result with spread_index at the
+                    // beginning of execute_inline_subgraph, so we skip this for spread actions.
+                    if spread_index.is_none() {
+                        if let Some(completed_node) = dag.nodes.get(completed_node_id) {
+                            if let Some(ref target) = completed_node.target {
+                                // Write this parallel action's result to the barrier's inbox
+                                plan.inbox_writes.push(InboxWrite {
+                                    instance_id,
+                                    target_node_id: frontier.node_id.clone(),
+                                    variable_name: target.clone(),
+                                    value: completed_result.clone(),
+                                    source_node_id: completed_node_id.to_string(),
+                                    spread_index: None,
+                                });
+                            }
                         }
                     }
 
@@ -796,6 +817,57 @@ fn collect_data_flow_writes(
                 source_node_id: edge.source.clone(),
                 spread_index: None,
             });
+        }
+    }
+
+    writes
+}
+
+/// Collect ALL DataFlow edge writes from inline scope to ANY target node.
+///
+/// This is crucial for chain workflows where a node (e.g., action_5) may need
+/// variables from multiple earlier nodes (action_2, action_3, action_4) that
+/// are NOT in its immediate frontier. Without this, variables like `step1`
+/// from `action_2` would never be written to `action_5`'s inbox because
+/// `action_5` is not a frontier when `action_2` completes.
+fn collect_all_data_flow_writes(
+    inline_scope: &InlineScope,
+    dag: &DAG,
+    instance_id: WorkflowInstanceId,
+    completed_node_id: &str,
+) -> Vec<InboxWrite> {
+    let mut writes = Vec::new();
+
+    // Find all DataFlow edges where the variable is in scope
+    for edge in &dag.edges {
+        if edge.edge_type == EdgeType::DataFlow
+            && let Some(ref var_name) = edge.variable
+            && let Some(value) = inline_scope.get(var_name)
+        {
+            // Only write if the source is either the completed node or the input node
+            // (i.e., don't re-write variables from nodes that haven't completed yet)
+            if let Some(completed_node) = dag.nodes.get(completed_node_id) {
+                // The variable should come from either:
+                // 1. The completed node's target (it just produced this variable)
+                // 2. The input node (workflow inputs are always in scope)
+                let is_from_completed = completed_node.target.as_deref() == Some(var_name);
+                let is_from_input = dag
+                    .nodes
+                    .get(&edge.source)
+                    .map(|n| n.is_input)
+                    .unwrap_or(false);
+
+                if is_from_completed || is_from_input {
+                    writes.push(InboxWrite {
+                        instance_id,
+                        target_node_id: edge.target.clone(),
+                        variable_name: var_name.clone(),
+                        value: value.clone(),
+                        source_node_id: edge.source.clone(),
+                        spread_index: None,
+                    });
+                }
+            }
         }
     }
 
