@@ -168,6 +168,9 @@ pub struct ReadinessIncrement {
 
     /// Dispatch payload (for action nodes).
     pub dispatch_payload: Option<Vec<u8>>,
+
+    /// Scheduled time for durable sleep actions.
+    pub scheduled_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 /// Type of node for the action queue.
@@ -176,6 +179,7 @@ pub enum NodeType {
     Action,
     Barrier,
     ForLoop,
+    Sleep,
 }
 
 impl NodeType {
@@ -184,6 +188,7 @@ impl NodeType {
             NodeType::Action => "action",
             NodeType::Barrier => "barrier",
             NodeType::ForLoop => "for_loop",
+            NodeType::Sleep => "sleep",
         }
     }
 }
@@ -285,9 +290,7 @@ fn count_sm_predecessors(dag: &DAG, node_id: &str) -> i32 {
     dag.edges
         .iter()
         .filter(|e| {
-            e.target == node_id
-                && e.edge_type == EdgeType::StateMachine
-                && !e.is_loop_back // Don't count loop-back edges
+            e.target == node_id && e.edge_type == EdgeType::StateMachine && !e.is_loop_back // Don't count loop-back edges
         })
         .count() as i32
 }
@@ -496,24 +499,23 @@ pub fn execute_inline_subgraph(
     }
 
     // If this is a spread action, write the result to the aggregator with spread_index
-    if let Some(spread_idx) = spread_index {
-        if let Some(node) = dag.nodes.get(completed_node_id) {
-            if let Some(ref aggregator_id) = node.aggregates_to {
-                // Write result to aggregator with spread_index
-                let var_name = node
-                    .target
-                    .clone()
-                    .unwrap_or_else(|| "_for_loop_result".to_string());
-                plan.inbox_writes.push(InboxWrite {
-                    instance_id,
-                    target_node_id: aggregator_id.clone(),
-                    variable_name: var_name,
-                    value: completed_result.clone(),
-                    source_node_id: completed_node_id.to_string(),
-                    spread_index: Some(spread_idx as i32),
-                });
-            }
-        }
+    if let Some(spread_idx) = spread_index
+        && let Some(node) = dag.nodes.get(completed_node_id)
+        && let Some(ref aggregator_id) = node.aggregates_to
+    {
+        // Write result to aggregator with spread_index
+        let var_name = node
+            .target
+            .clone()
+            .unwrap_or_else(|| "_for_loop_result".to_string());
+        plan.inbox_writes.push(InboxWrite {
+            instance_id,
+            target_node_id: aggregator_id.clone(),
+            variable_name: var_name,
+            value: completed_result.clone(),
+            source_node_id: completed_node_id.to_string(),
+            spread_index: Some(spread_idx as i32),
+        });
     }
 
     // Merge existing inbox data for the completed node
@@ -685,13 +687,31 @@ pub fn execute_inline_subgraph(
 
                     let dispatch_payload = build_action_payload(frontier_node, &action_inbox)?;
 
+                    // Check if this is a sleep action
+                    let is_sleep = frontier_node.action_name.as_deref() == Some("sleep");
+                    let (node_type, scheduled_at) = if is_sleep {
+                        // Parse duration from the dispatch payload
+                        let duration_secs =
+                            serde_json::from_slice::<serde_json::Value>(&dispatch_payload)
+                                .ok()
+                                .and_then(|v| v.get("duration").cloned())
+                                .and_then(|d| d.as_f64().or_else(|| d.as_i64().map(|i| i as f64)))
+                                .unwrap_or(0.0);
+                        let scheduled_at = chrono::Utc::now()
+                            + chrono::Duration::milliseconds((duration_secs * 1000.0) as i64);
+                        (NodeType::Sleep, Some(scheduled_at))
+                    } else {
+                        (NodeType::Action, None)
+                    };
+
                     plan.readiness_increments.push(ReadinessIncrement {
                         node_id: frontier.node_id.clone(),
                         required_count: frontier.required_count,
-                        node_type: NodeType::Action,
+                        node_type,
                         module_name: frontier_node.module_name.clone(),
                         action_name: frontier_node.action_name.clone(),
                         dispatch_payload: Some(dispatch_payload),
+                        scheduled_at,
                     });
                 }
                 FrontierCategory::Barrier => {
@@ -701,20 +721,19 @@ pub fn execute_inline_subgraph(
                     //
                     // Spread actions already write their result with spread_index at the
                     // beginning of execute_inline_subgraph, so we skip this for spread actions.
-                    if spread_index.is_none() {
-                        if let Some(completed_node) = dag.nodes.get(completed_node_id) {
-                            if let Some(ref target) = completed_node.target {
-                                // Write this parallel action's result to the barrier's inbox
-                                plan.inbox_writes.push(InboxWrite {
-                                    instance_id,
-                                    target_node_id: frontier.node_id.clone(),
-                                    variable_name: target.clone(),
-                                    value: completed_result.clone(),
-                                    source_node_id: completed_node_id.to_string(),
-                                    spread_index: None,
-                                });
-                            }
-                        }
+                    if spread_index.is_none()
+                        && let Some(completed_node) = dag.nodes.get(completed_node_id)
+                        && let Some(ref target) = completed_node.target
+                    {
+                        // Write this parallel action's result to the barrier's inbox
+                        plan.inbox_writes.push(InboxWrite {
+                            instance_id,
+                            target_node_id: frontier.node_id.clone(),
+                            variable_name: target.clone(),
+                            value: completed_result.clone(),
+                            source_node_id: completed_node_id.to_string(),
+                            spread_index: None,
+                        });
                     }
 
                     plan.readiness_increments.push(ReadinessIncrement {
@@ -724,6 +743,7 @@ pub fn execute_inline_subgraph(
                         module_name: None,
                         action_name: None,
                         dispatch_payload: None,
+                        scheduled_at: None,
                     });
                 }
                 FrontierCategory::Output => {
@@ -861,6 +881,7 @@ pub fn execute_inline_subgraph(
                         module_name: None,
                         action_name: None,
                         dispatch_payload: None,
+                        scheduled_at: None,
                     });
                 }
             }

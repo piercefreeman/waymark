@@ -570,7 +570,7 @@ impl Database {
                 dispatch_payload, timeout_seconds, max_retries,
                 backoff_kind, backoff_base_delay_ms, node_id, node_type
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11, 'action'))
             RETURNING id
             "#,
         )
@@ -1656,8 +1656,9 @@ impl Database {
                     INSERT INTO action_queue
                         (instance_id, action_seq, module_name, action_name,
                          dispatch_payload, timeout_seconds, max_retries,
-                         backoff_kind, backoff_base_delay_ms, node_id, node_type)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                         backoff_kind, backoff_base_delay_ms, node_id, node_type,
+                         scheduled_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, COALESCE($12, NOW()))
                     "#,
                 )
                 .bind(instance_id.0)
@@ -1671,6 +1672,7 @@ impl Database {
                 .bind(1000) // backoff_base_delay_ms
                 .bind(&increment.node_id)
                 .bind(increment.node_type.as_str())
+                .bind(increment.scheduled_at)
                 .execute(&mut *tx)
                 .await?;
 

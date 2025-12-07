@@ -525,9 +525,7 @@ class TestForLoopAccumulatorDetection:
         assert for_loop is not None, "Expected for_loop in IR"
 
         # Should have an implicit function (multi-action body)
-        has_implicit_fn = any(
-            fn.name.startswith("__for_body") for fn in program.functions
-        )
+        has_implicit_fn = any(fn.name.startswith("__for_body") for fn in program.functions)
         assert has_implicit_fn, "Expected implicit function for multi-action body"
 
         # Even with wrapped body, 'results' should be detected
@@ -565,9 +563,7 @@ class TestConditionalAccumulatorDetection:
         )
 
         # Should have a return statement
-        has_return = any(
-            stmt.HasField("return_stmt") for stmt in implicit_fn.body.statements
-        )
+        has_return = any(stmt.HasField("return_stmt") for stmt in implicit_fn.body.statements)
         assert has_return, "Expected return statement in implicit function"
 
 
@@ -2323,117 +2319,157 @@ class TestUnsupportedPatternValidation:
 
     def test_constructor_return_raises_error(self) -> None:
         """Test: return MyModel(...) raises UnsupportedPatternError."""
+        from typing import cast
+
         import pytest
+
         from rappel.ir_builder import UnsupportedPatternError
 
         with pytest.raises(UnsupportedPatternError) as exc_info:
             from tests.fixtures_unsupported.constructor_return import ConstructorReturnWorkflow
+
             ConstructorReturnWorkflow.workflow_ir()
 
-        error = exc_info.value
+        error = cast(UnsupportedPatternError, exc_info.value)
         assert "MyResult" in error.message
-        assert "constructor" in error.message.lower() or "constructor" in error.recommendation.lower()
+        assert (
+            "constructor" in error.message.lower() or "constructor" in error.recommendation.lower()
+        )
         assert "@action" in error.recommendation
 
     def test_constructor_assignment_raises_error(self) -> None:
         """Test: x = MyClass(...) raises UnsupportedPatternError."""
+        from typing import cast
+
         import pytest
+
         from rappel.ir_builder import UnsupportedPatternError
 
         with pytest.raises(UnsupportedPatternError) as exc_info:
-            from tests.fixtures_unsupported.constructor_assignment import ConstructorAssignmentWorkflow
+            from tests.fixtures_unsupported.constructor_assignment import (
+                ConstructorAssignmentWorkflow,
+            )
+
             ConstructorAssignmentWorkflow.workflow_ir()
 
-        error = exc_info.value
+        error = cast(UnsupportedPatternError, exc_info.value)
         assert "Config" in error.message
         assert "@action" in error.recommendation
 
     def test_non_action_await_raises_error(self) -> None:
         """Test: await non_action_func() raises UnsupportedPatternError."""
+        from typing import cast
+
         import pytest
+
         from rappel.ir_builder import UnsupportedPatternError
 
         with pytest.raises(UnsupportedPatternError) as exc_info:
             from tests.fixtures_unsupported.non_action_await import NonActionAwaitWorkflow
+
             NonActionAwaitWorkflow.workflow_ir()
 
-        error = exc_info.value
+        error = cast(UnsupportedPatternError, exc_info.value)
         assert "helper_function" in error.message
         assert "non-action" in error.message.lower() or "@action" in error.recommendation
 
     def test_fstring_raises_error(self) -> None:
         """Test: f-strings raise UnsupportedPatternError."""
+        from typing import cast
+
         import pytest
+
         from rappel.ir_builder import UnsupportedPatternError
 
         with pytest.raises(UnsupportedPatternError) as exc_info:
             from tests.fixtures_unsupported.fstring_usage import FstringWorkflow
+
             FstringWorkflow.workflow_ir()
 
-        error = exc_info.value
+        error = cast(UnsupportedPatternError, exc_info.value)
         assert "f-string" in error.message.lower() or "F-string" in error.message
         assert "@action" in error.recommendation
 
     def test_while_loop_raises_error(self) -> None:
         """Test: while loops raise UnsupportedPatternError."""
+        from typing import cast
+
         import pytest
+
         from rappel.ir_builder import UnsupportedPatternError
 
         with pytest.raises(UnsupportedPatternError) as exc_info:
             from tests.fixtures_unsupported.while_loop import WhileLoopWorkflow
+
             WhileLoopWorkflow.workflow_ir()
 
-        error = exc_info.value
+        error = cast(UnsupportedPatternError, exc_info.value)
         assert "while" in error.message.lower()
 
     def test_list_comprehension_raises_error(self) -> None:
         """Test: list comprehensions outside gather raise UnsupportedPatternError."""
+        from typing import cast
+
         import pytest
+
         from rappel.ir_builder import UnsupportedPatternError
 
         with pytest.raises(UnsupportedPatternError) as exc_info:
             from tests.fixtures_unsupported.list_comprehension import ListComprehensionWorkflow
+
             ListComprehensionWorkflow.workflow_ir()
 
-        error = exc_info.value
+        error = cast(UnsupportedPatternError, exc_info.value)
         assert "comprehension" in error.message.lower()
 
     def test_lambda_raises_error(self) -> None:
         """Test: lambda expressions raise UnsupportedPatternError."""
+        from typing import cast
+
         import pytest
+
         from rappel.ir_builder import UnsupportedPatternError
 
         with pytest.raises(UnsupportedPatternError) as exc_info:
             from tests.fixtures_unsupported.lambda_expression import LambdaExpressionWorkflow
+
             LambdaExpressionWorkflow.workflow_ir()
 
-        error = exc_info.value
+        error = cast(UnsupportedPatternError, exc_info.value)
         assert "lambda" in error.message.lower()
         assert "@action" in error.recommendation
 
     def test_with_statement_raises_error(self) -> None:
         """Test: with statements raise UnsupportedPatternError."""
+        from typing import cast
+
         import pytest
+
         from rappel.ir_builder import UnsupportedPatternError
 
         with pytest.raises(UnsupportedPatternError) as exc_info:
             from tests.fixtures_unsupported.with_statement import WithStatementWorkflow
+
             WithStatementWorkflow.workflow_ir()
 
-        error = exc_info.value
+        error = cast(UnsupportedPatternError, exc_info.value)
         assert "with" in error.message.lower() or "context" in error.message.lower()
         assert "@action" in error.recommendation
 
     def test_match_statement_raises_error(self) -> None:
         """Test: match statements raise UnsupportedPatternError."""
+        from typing import cast
+
         import pytest
+
         from rappel.ir_builder import UnsupportedPatternError
 
         with pytest.raises(UnsupportedPatternError) as exc_info:
             from tests.fixtures_unsupported.match_workflow import MatchWorkflow
+
             MatchWorkflow.workflow_ir()
 
-        error = exc_info.value
+        error = cast(UnsupportedPatternError, exc_info.value)
         assert "match" in error.message.lower()
         assert "if/elif/else" in error.recommendation.lower()
 

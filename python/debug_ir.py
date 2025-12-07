@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Debug script to check IR structure for ForLoopWorkflow."""
-import sys
+
 import os
+import sys
 
 # Set test mode
 os.environ["PYTEST_CURRENT_TEST"] = "true"

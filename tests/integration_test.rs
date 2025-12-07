@@ -942,7 +942,10 @@ async fn chain_workflow_executes_all_steps() -> Result<()> {
     let message = parse_result(&stored_payload)?;
     assert_eq!(
         message,
-        Some("original:hello world,step1:HELLO WORLD,step2:DLROW OLLEH,step3:*** DLROW OLLEH ***".to_string()),
+        Some(
+            "original:hello world,step1:HELLO WORLD,step2:DLROW OLLEH,step3:*** DLROW OLLEH ***"
+                .to_string()
+        ),
         "unexpected workflow result"
     );
 
@@ -1013,6 +1016,91 @@ async fn for_loop_workflow_executes_all_iterations() -> Result<()> {
         message,
         Some("APPLE,BANANA,CHERRY".to_string()),
         "unexpected workflow result"
+    );
+
+    harness.shutdown().await?;
+    Ok(())
+}
+
+// =============================================================================
+// Durable Sleep Workflow Test
+// =============================================================================
+
+const SLEEP_WORKFLOW_MODULE: &str = include_str!("fixtures/integration_sleep.py");
+
+const REGISTER_SLEEP_SCRIPT: &str = r#"
+import asyncio
+import os
+
+from integration_sleep import SleepWorkflow
+
+async def main():
+    os.environ.pop("PYTEST_CURRENT_TEST", None)
+    wf = SleepWorkflow()
+    result = await wf.run()
+    print(f"Registration result: {result}")
+
+asyncio.run(main())
+"#;
+
+/// Test that durable sleep workflows execute correctly.
+///
+/// This tests that asyncio.sleep() is converted to a scheduler-managed sleep node.
+/// The sleep is handled by scheduling the action for future dispatch (scheduled_at)
+/// rather than blocking the worker.
+///
+/// The workflow:
+/// 1. get_timestamp() -> records start time
+/// 2. asyncio.sleep(1) -> durable sleep for 1 second
+/// 3. get_timestamp() -> records resume time
+/// 4. format_sleep_result() -> calculates duration
+///
+/// Result should be "slept:1.0s" (approximately 1 second).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[serial]
+async fn durable_sleep_workflow_executes() -> Result<()> {
+    let _ = tracing_subscriber::fmt::try_init();
+    let _ = dotenvy::dotenv();
+
+    let Some(harness) = IntegrationHarness::new(HarnessConfig {
+        files: &[
+            ("integration_sleep.py", SLEEP_WORKFLOW_MODULE),
+            ("register.py", REGISTER_SLEEP_SCRIPT),
+        ],
+        entrypoint: "register.py",
+        workflow_name: "sleepworkflow",
+        user_module: "integration_sleep",
+        inputs: &[],
+    })
+    .await?
+    else {
+        return Ok(());
+    };
+
+    // Execute all actions via the DAGRunner
+    harness.dispatch_all().await?;
+    info!("workflow completed");
+
+    // Verify the workflow result - should show approximately 1 second of sleep
+    let stored_payload = harness
+        .stored_result()
+        .await?
+        .expect("workflow should have a result");
+    let message = parse_result(&stored_payload)?;
+
+    // The result should be "slept:X.Xs" where X is approximately 1
+    let result = message.expect("result should be present");
+    assert!(
+        result.starts_with("slept:"),
+        "unexpected result format: {result}"
+    );
+
+    // Parse the duration and verify it's approximately 1 second (allowing 0.5-2.0s range)
+    let duration_str = result.trim_start_matches("slept:").trim_end_matches('s');
+    let duration: f64 = duration_str.parse().expect("should parse as float");
+    assert!(
+        (0.5..=2.0).contains(&duration),
+        "sleep duration {duration}s not in expected range 0.5-2.0s"
     );
 
     harness.shutdown().await?;

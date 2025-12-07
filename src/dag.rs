@@ -1118,10 +1118,9 @@ impl DAGConverter {
         // Extract kwargs from the function call
         let kwargs = self.extract_kwargs(&call.kwargs);
 
-        let mut node =
-            DAGNode::new(node_id.clone(), "fn_call".to_string(), label)
-                .with_fn_call(&call.name)
-                .with_kwargs(kwargs);
+        let mut node = DAGNode::new(node_id.clone(), "fn_call".to_string(), label)
+            .with_fn_call(&call.name)
+            .with_kwargs(kwargs);
         if let Some(ref fn_name) = self.current_function {
             node = node.with_function_name(fn_name);
         }
@@ -1635,10 +1634,8 @@ impl DAGConverter {
                             guard.clone(),
                         ));
                     } else {
-                        self.dag.add_edge(DAGEdge::state_machine(
-                            loop_id.clone(),
-                            fn_call_id.clone(),
-                        ));
+                        self.dag
+                            .add_edge(DAGEdge::state_machine(loop_id.clone(), fn_call_id.clone()));
                     }
 
                     // Data flow: loop index from for_loop to body
@@ -1695,10 +1692,8 @@ impl DAGConverter {
                             guard.clone(),
                         ));
                     } else {
-                        self.dag.add_edge(DAGEdge::state_machine(
-                            loop_id.clone(),
-                            action_id.clone(),
-                        ));
+                        self.dag
+                            .add_edge(DAGEdge::state_machine(loop_id.clone(), action_id.clone()));
                     }
 
                     // Data flow: loop index from for_loop to body
@@ -3817,7 +3812,10 @@ fn main(input: [], output: [result]):
             .cloned()
             .collect();
 
-        println!("\nDataFlow edges to build_chain_result ({}):", final_action.id);
+        println!(
+            "\nDataFlow edges to build_chain_result ({}):",
+            final_action.id
+        );
         for edge in &final_action_data_flow {
             println!(
                 "  {} --[{}]--> {}",

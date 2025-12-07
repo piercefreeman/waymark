@@ -659,9 +659,7 @@ class IRBuilder(ast.NodeVisitor):
                 list_name = call.func.value.id
                 append_value = call.args[0]
                 # Create: list = list + [value]
-                list_var = ir.Expr(
-                    variable=ir.Variable(name=list_name), span=_make_span(node)
-                )
+                list_var = ir.Expr(variable=ir.Variable(name=list_name), span=_make_span(node))
                 value_expr = _expr_to_ir(append_value)
                 if value_expr:
                     # Create [value] as a list literal
@@ -834,10 +832,19 @@ class IRBuilder(ast.NodeVisitor):
             if expr.HasField("function_call"):
                 fn_name = expr.function_call.name
                 # Check for mutating method calls: x.append, x.extend, x.add, x.update, etc.
-                mutating_methods = {".append", ".extend", ".add", ".update", ".insert", ".pop", ".remove", ".clear"}
+                mutating_methods = {
+                    ".append",
+                    ".extend",
+                    ".add",
+                    ".update",
+                    ".insert",
+                    ".pop",
+                    ".remove",
+                    ".clear",
+                }
                 for method in mutating_methods:
                     if fn_name.endswith(method):
-                        var_name = fn_name[:len(fn_name) - len(method)]
+                        var_name = fn_name[: len(fn_name) - len(method)]
                         # Only return if it's an out-of-scope variable
                         if var_name and var_name not in in_scope_vars:
                             return var_name
@@ -1207,13 +1214,10 @@ class IRBuilder(ast.NodeVisitor):
                     span=_make_span(node),
                 )
             else:
-                # Return as tuple
+                # Return as list (tuples are represented as lists in IR)
                 return_expr = ir.Expr(
-                    tuple=ir.TupleExpr(
-                        elements=[
-                            ir.Expr(variable=ir.Variable(name=var))
-                            for var in modified_vars
-                        ]
+                    list=ir.ListExpr(
+                        elements=[ir.Expr(variable=ir.Variable(name=var)) for var in modified_vars]
                     ),
                     span=_make_span(node),
                 )
@@ -1450,7 +1454,7 @@ class IRBuilder(ast.NodeVisitor):
         #
         # The check works by looking at _module_functions which contains
         # functions defined in the same module as the workflow.
-        if func_name in getattr(self, '_module_functions', set()):
+        if func_name in getattr(self, "_module_functions", set()):
             if func_name not in self._action_defs:
                 line = getattr(node, "lineno", None)
                 col = getattr(node, "col_offset", None)
@@ -1478,10 +1482,35 @@ class IRBuilder(ast.NodeVisitor):
 
         # Builtins that users commonly try to use
         common_builtins = {
-            "len", "str", "int", "float", "bool", "list", "dict", "set", "tuple",
-            "sum", "min", "max", "sorted", "reversed", "enumerate", "zip", "map",
-            "filter", "range", "abs", "round", "print", "type", "isinstance",
-            "hasattr", "getattr", "setattr", "open", "format",
+            "len",
+            "str",
+            "int",
+            "float",
+            "bool",
+            "list",
+            "dict",
+            "set",
+            "tuple",
+            "sum",
+            "min",
+            "max",
+            "sorted",
+            "reversed",
+            "enumerate",
+            "zip",
+            "map",
+            "filter",
+            "range",
+            "abs",
+            "round",
+            "print",
+            "type",
+            "isinstance",
+            "hasattr",
+            "getattr",
+            "setattr",
+            "open",
+            "format",
         }
 
         if func_name in common_builtins:

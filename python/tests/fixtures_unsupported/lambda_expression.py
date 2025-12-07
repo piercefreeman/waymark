@@ -15,5 +15,5 @@ class LambdaExpressionWorkflow(Workflow):
     async def run(self) -> list:
         items = await get_items_for_lambda()
         # This should fail: lambda expressions not supported
-        key_func = lambda x: -x
+        key_func = lambda x: -x  # noqa: E731, F841
         return items

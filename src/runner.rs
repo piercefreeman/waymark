@@ -680,6 +680,11 @@ impl WorkQueueHandler {
                     // Process for-loop controllers inline
                     self.process_for_loop(node, completion_tx.clone()).await?;
                 }
+                "sleep" => {
+                    // Process durable sleep inline (no worker dispatch)
+                    self.process_sleep_action(node, completion_tx.clone())
+                        .await?;
+                }
                 _ => {
                     // Dispatch actions to workers
                     self.dispatch_action(node, completion_tx.clone()).await?;
@@ -794,6 +799,89 @@ impl WorkQueueHandler {
         Ok(())
     }
 
+    /// Process a durable sleep action that has become ready.
+    ///
+    /// Sleep actions are processed inline by the runner, not dispatched to workers.
+    /// The sleep delay is handled by the database scheduling (scheduled_at column).
+    /// When this method is called, the sleep duration has already elapsed.
+    async fn process_sleep_action(
+        &self,
+        sleep: QueuedAction,
+        _completion_tx: mpsc::Sender<(InFlightAction, RoundTripMetrics)>,
+    ) -> RunnerResult<()> {
+        let instance_id = WorkflowInstanceId(sleep.instance_id);
+        let node_id = match sleep.node_id.as_deref() {
+            Some(id) => id,
+            None => {
+                warn!(sleep_id = %sleep.id, "Sleep action missing node_id");
+                return Ok(());
+            }
+        };
+
+        debug!(
+            sleep_id = %sleep.id,
+            node_id = %node_id,
+            instance_id = %instance_id.0,
+            "processing sleep action"
+        );
+
+        // Get DAG
+        let dag = match self.dag_cache.get_dag_for_instance(instance_id).await? {
+            Some(dag) => dag,
+            None => {
+                warn!(instance_id = %instance_id.0, "DAG not found for sleep processing");
+                return Ok(());
+            }
+        };
+
+        let helper = DAGHelper::new(&dag);
+
+        // Sleep actions return null - they're just for timing
+        let sleep_result = JsonValue::Null;
+
+        // Analyze subgraph from sleep node
+        let subgraph = analyze_subgraph(node_id, &dag, &helper);
+
+        // Batch fetch inbox for all nodes in subgraph
+        let existing_inbox = self
+            .db
+            .batch_read_inbox(instance_id, &subgraph.all_node_ids)
+            .await?;
+
+        // Execute inline subgraph and build completion plan
+        let mut plan = execute_inline_subgraph(
+            node_id,
+            sleep_result,
+            &subgraph,
+            &existing_inbox,
+            &dag,
+            instance_id,
+            None, // sleep actions are not spread actions
+        )
+        .map_err(|e| RunnerError::Dag(e.to_string()))?;
+
+        // Fill in sleep completion details
+        plan = plan.with_action_completion(
+            ActionId(sleep.id),
+            sleep.delivery_token,
+            true, // sleep always succeeds
+            Vec::new(),
+            None,
+        );
+
+        // Execute completion plan in single atomic transaction
+        let result = self.db.execute_completion_plan(instance_id, plan).await?;
+
+        info!(
+            sleep_id = %node_id,
+            newly_ready_nodes = ?result.newly_ready_nodes,
+            workflow_completed = result.workflow_completed,
+            "processed sleep action"
+        );
+
+        Ok(())
+    }
+
     /// Process a for-loop controller that has become ready.
     ///
     /// For-loops evaluate their guard expression to decide whether to:
@@ -804,9 +892,7 @@ impl WorkQueueHandler {
         for_loop: QueuedAction,
         _completion_tx: mpsc::Sender<(InFlightAction, RoundTripMetrics)>,
     ) -> RunnerResult<()> {
-        use crate::completion::{
-            CompletionPlan, InboxWrite, NodeType, ReadinessIncrement,
-        };
+        use crate::completion::{CompletionPlan, InboxWrite, NodeType, ReadinessIncrement};
 
         let instance_id = WorkflowInstanceId(for_loop.instance_id);
         let node_id = match for_loop.node_id.as_deref() {
@@ -962,7 +1048,9 @@ impl WorkQueueHandler {
                         continue;
                     }
                     // Skip loop variables - we already wrote them above
-                    let is_loop_var = loop_vars.as_ref().map_or(false, |vars| vars.contains(var_name));
+                    let is_loop_var = loop_vars
+                        .as_ref()
+                        .is_some_and(|vars| vars.contains(var_name));
                     if is_loop_var {
                         continue;
                     }
@@ -993,25 +1081,35 @@ impl WorkQueueHandler {
                         // Build dispatch payload for the action
                         let mut action_inbox: HashMap<String, JsonValue> = HashMap::new();
                         // Add loop variable
-                        if let Some(ref vars) = loop_vars {
-                            if vars.len() == 1 {
-                                action_inbox.insert(vars[0].clone(), current_item.clone());
-                            }
+                        if let Some(ref vars) = loop_vars
+                            && vars.len() == 1
+                        {
+                            action_inbox.insert(vars[0].clone(), current_item.clone());
                         }
-                        action_inbox.insert(loop_i_var.clone(), JsonValue::Number((current_index as i64).into()));
+                        action_inbox.insert(
+                            loop_i_var.clone(),
+                            JsonValue::Number((current_index as i64).into()),
+                        );
 
                         // Build kwargs-based payload
                         if let Some(ref kwargs) = bn.kwargs {
                             let mut payload_map = serde_json::Map::new();
                             for (key, value_str) in kwargs {
                                 let resolved = if let Some(var_name) = value_str.strip_prefix('$') {
-                                    action_inbox.get(var_name).cloned().unwrap_or(JsonValue::Null)
+                                    action_inbox
+                                        .get(var_name)
+                                        .cloned()
+                                        .unwrap_or(JsonValue::Null)
                                 } else {
-                                    serde_json::from_str(value_str).unwrap_or(JsonValue::String(value_str.clone()))
+                                    serde_json::from_str(value_str)
+                                        .unwrap_or(JsonValue::String(value_str.clone()))
                                 };
                                 payload_map.insert(key.clone(), resolved);
                             }
-                            Some(serde_json::to_vec(&JsonValue::Object(payload_map)).unwrap_or_default())
+                            Some(
+                                serde_json::to_vec(&JsonValue::Object(payload_map))
+                                    .unwrap_or_default(),
+                            )
                         } else {
                             None
                         }
@@ -1025,13 +1123,18 @@ impl WorkQueueHandler {
 
                 // Reset body node's readiness for this iteration
                 // This is needed because the body was already triggered in a previous iteration
-                self.db.reset_node_readiness(instance_id, body_node_id).await?;
+                self.db
+                    .reset_node_readiness(instance_id, body_node_id)
+                    .await?;
 
                 // Add readiness increment for body node
                 plan.readiness_increments.push(ReadinessIncrement {
                     node_id: body_node_id.clone(),
                     required_count: 1, // Body has one predecessor (the for_loop)
-                    node_type: if body_node.map(|n| n.node_type == "action_call").unwrap_or(false) {
+                    node_type: if body_node
+                        .map(|n| n.node_type == "action_call")
+                        .unwrap_or(false)
+                    {
                         NodeType::Action
                     } else {
                         NodeType::Barrier // fn_call treated as barrier-like
@@ -1039,6 +1142,7 @@ impl WorkQueueHandler {
                     module_name,
                     action_name,
                     dispatch_payload,
+                    scheduled_at: None,
                 });
 
                 debug!(
@@ -1082,31 +1186,41 @@ impl WorkQueueHandler {
 
                 // Look up the successor node to determine its type and dispatch info
                 let successor_node = dag.nodes.get(&successor.node_id);
-                let (node_type, module_name, action_name, dispatch_payload) =
-                    if let Some(sn) = successor_node {
-                        if sn.node_type == "action_call" {
-                            // Build dispatch payload for the action
-                            let payload = if let Some(ref kwargs) = sn.kwargs {
-                                let mut payload_map = serde_json::Map::new();
-                                for (key, value_str) in kwargs {
-                                    let resolved = if let Some(var_name) = value_str.strip_prefix('$') {
-                                        loop_inbox.get(var_name).cloned().unwrap_or(JsonValue::Null)
-                                    } else {
-                                        serde_json::from_str(value_str).unwrap_or(JsonValue::String(value_str.clone()))
-                                    };
-                                    payload_map.insert(key.clone(), resolved);
-                                }
-                                Some(serde_json::to_vec(&JsonValue::Object(payload_map)).unwrap_or_default())
-                            } else {
-                                None
-                            };
-                            (NodeType::Action, sn.module_name.clone(), sn.action_name.clone(), payload)
+                let (node_type, module_name, action_name, dispatch_payload) = if let Some(sn) =
+                    successor_node
+                {
+                    if sn.node_type == "action_call" {
+                        // Build dispatch payload for the action
+                        let payload = if let Some(ref kwargs) = sn.kwargs {
+                            let mut payload_map = serde_json::Map::new();
+                            for (key, value_str) in kwargs {
+                                let resolved = if let Some(var_name) = value_str.strip_prefix('$') {
+                                    loop_inbox.get(var_name).cloned().unwrap_or(JsonValue::Null)
+                                } else {
+                                    serde_json::from_str(value_str)
+                                        .unwrap_or(JsonValue::String(value_str.clone()))
+                                };
+                                payload_map.insert(key.clone(), resolved);
+                            }
+                            Some(
+                                serde_json::to_vec(&JsonValue::Object(payload_map))
+                                    .unwrap_or_default(),
+                            )
                         } else {
-                            (NodeType::Barrier, None, None, None)
-                        }
+                            None
+                        };
+                        (
+                            NodeType::Action,
+                            sn.module_name.clone(),
+                            sn.action_name.clone(),
+                            payload,
+                        )
                     } else {
                         (NodeType::Barrier, None, None, None)
-                    };
+                    }
+                } else {
+                    (NodeType::Barrier, None, None, None)
+                };
 
                 // Add readiness increment for break successors
                 plan.readiness_increments.push(ReadinessIncrement {
@@ -1116,6 +1230,7 @@ impl WorkQueueHandler {
                     module_name,
                     action_name,
                     dispatch_payload,
+                    scheduled_at: None,
                 });
 
                 debug!(
@@ -2864,10 +2979,10 @@ impl DAGRunner {
                         scope.insert(target.clone(), inline_result.clone());
                     }
                     // Also handle multiple targets (tuple unpacking)
-                    if let Some(ref targets) = node.targets {
-                        if targets.len() == 1 {
-                            scope.insert(targets[0].clone(), inline_result.clone());
-                        }
+                    if let Some(ref targets) = node.targets
+                        && targets.len() == 1
+                    {
+                        scope.insert(targets[0].clone(), inline_result.clone());
                         // For multiple targets, the inline_result would be an array
                     }
 
