@@ -35,6 +35,16 @@ pub struct SubgraphAnalysis {
     pub all_node_ids: HashSet<String>,
 }
 
+/// Inline execution context for subgraph processing.
+pub struct InlineContext<'a> {
+    /// Variables available prior to processing this completion (e.g., workflow inputs).
+    pub initial_scope: &'a HashMap<String, JsonValue>,
+    /// Inbox data fetched from storage for nodes involved in this completion.
+    pub existing_inbox: &'a HashMap<String, HashMap<String, JsonValue>>,
+    /// Spread index for spread actions (if applicable).
+    pub spread_index: Option<usize>,
+}
+
 /// A frontier node where inline traversal stops.
 #[derive(Debug, Clone)]
 pub struct FrontierNode {
@@ -474,19 +484,21 @@ pub enum CompletionError {
 /// are executed and have their frontiers processed.
 ///
 /// Returns a CompletionPlan ready to be executed as a single transaction.
-#[allow(clippy::too_many_arguments)]
 pub fn execute_inline_subgraph(
     completed_node_id: &str,
     completed_result: JsonValue,
-    initial_scope: &HashMap<String, JsonValue>,
+    ctx: InlineContext<'_>,
     subgraph: &SubgraphAnalysis,
-    existing_inbox: &HashMap<String, HashMap<String, JsonValue>>,
     dag: &DAG,
     instance_id: WorkflowInstanceId,
-    spread_index: Option<usize>,
 ) -> Result<CompletionPlan, CompletionError> {
     let mut plan = CompletionPlan::new(completed_node_id.to_string());
     let helper = DAGHelper::new(dag);
+    let InlineContext {
+        initial_scope,
+        existing_inbox,
+        spread_index,
+    } = ctx;
 
     // Initialize inline scope with completed node's result
     let mut inline_scope: InlineScope = initial_scope.clone();
@@ -1524,17 +1536,15 @@ fn workflow(input: [x], output: [result]):
         let instance_id = WorkflowInstanceId(Uuid::new_v4());
         let initial_scope: HashMap<String, JsonValue> = HashMap::new();
 
-        let plan = execute_inline_subgraph(
-            &action_node.id,
-            result,
-            &initial_scope,
-            &subgraph,
-            &existing_inbox,
-            &dag,
-            instance_id,
-            None, // no spread index
-        )
-        .expect("Should succeed");
+        let ctx = InlineContext {
+            initial_scope: &initial_scope,
+            existing_inbox: &existing_inbox,
+            spread_index: None,
+        };
+
+        let plan =
+            execute_inline_subgraph(&action_node.id, result, ctx, &subgraph, &dag, instance_id)
+                .expect("Should succeed");
 
         // Should have instance completion (workflow output)
         assert!(

@@ -49,7 +49,7 @@ use prost::Message;
 
 use crate::{
     ast_evaluator::{EvaluationError, ExpressionEvaluator, Scope},
-    completion::{analyze_subgraph, evaluate_guard, execute_inline_subgraph},
+    completion::{InlineContext, analyze_subgraph, evaluate_guard, execute_inline_subgraph},
     dag::{DAG, DAGConverter, DAGNode, EdgeType},
     dag_state::{DAGHelper, ExecutionMode},
     db::{
@@ -766,17 +766,15 @@ impl WorkQueueHandler {
         }
 
         // Execute inline subgraph and build completion plan
-        let mut plan = execute_inline_subgraph(
-            node_id,
-            aggregated,
-            &HashMap::new(),
-            &subgraph,
-            &existing_inbox,
-            &dag,
-            instance_id,
-            None, // barriers are not spread actions
-        )
-        .map_err(|e| RunnerError::Dag(e.to_string()))?;
+        let empty_scope = HashMap::new();
+        let ctx = InlineContext {
+            initial_scope: &empty_scope,
+            existing_inbox: &existing_inbox,
+            spread_index: None,
+        };
+        let mut plan =
+            execute_inline_subgraph(node_id, aggregated, ctx, &subgraph, &dag, instance_id)
+                .map_err(|e| RunnerError::Dag(e.to_string()))?;
 
         // Fill in barrier completion details
         plan = plan.with_action_completion(
@@ -850,17 +848,15 @@ impl WorkQueueHandler {
             .await?;
 
         // Execute inline subgraph and build completion plan
-        let mut plan = execute_inline_subgraph(
-            node_id,
-            sleep_result,
-            &HashMap::new(),
-            &subgraph,
-            &existing_inbox,
-            &dag,
-            instance_id,
-            None, // sleep actions are not spread actions
-        )
-        .map_err(|e| RunnerError::Dag(e.to_string()))?;
+        let empty_scope = HashMap::new();
+        let ctx = InlineContext {
+            initial_scope: &empty_scope,
+            existing_inbox: &existing_inbox,
+            spread_index: None,
+        };
+        let mut plan =
+            execute_inline_subgraph(node_id, sleep_result, ctx, &subgraph, &dag, instance_id)
+                .map_err(|e| RunnerError::Dag(e.to_string()))?;
 
         // Fill in sleep completion details
         plan = plan.with_action_completion(
@@ -1703,17 +1699,14 @@ impl DAGRunner {
             .await?;
 
         // Step 3: Execute inline subgraph and build completion plan
-        let mut plan = execute_inline_subgraph(
-            base_node_id,
-            result,
-            &initial_scope,
-            &subgraph,
-            &existing_inbox,
-            &dag,
-            instance_id,
+        let ctx = InlineContext {
+            initial_scope: &initial_scope,
+            existing_inbox: &existing_inbox,
             spread_index,
-        )
-        .map_err(|e| RunnerError::Dag(e.to_string()))?;
+        };
+        let mut plan =
+            execute_inline_subgraph(base_node_id, result, ctx, &subgraph, &dag, instance_id)
+                .map_err(|e| RunnerError::Dag(e.to_string()))?;
 
         // Fill in action completion details
         plan = plan.with_action_completion(
@@ -1793,17 +1786,15 @@ impl DAGRunner {
             .await?;
 
         // Execute inline subgraph
-        let mut plan = execute_inline_subgraph(
-            node_id,
-            aggregated,
-            &HashMap::new(),
-            &subgraph,
-            &existing_inbox,
-            &dag,
-            instance_id,
-            None, // barriers are not spread actions
-        )
-        .map_err(|e| RunnerError::Dag(e.to_string()))?;
+        let empty_scope = HashMap::new();
+        let ctx = InlineContext {
+            initial_scope: &empty_scope,
+            existing_inbox: &existing_inbox,
+            spread_index: None,
+        };
+        let mut plan =
+            execute_inline_subgraph(node_id, aggregated, ctx, &subgraph, &dag, instance_id)
+                .map_err(|e| RunnerError::Dag(e.to_string()))?;
 
         // Fill in barrier completion details
         plan = plan.with_action_completion(
@@ -2065,6 +2056,27 @@ impl DAGRunner {
             None,
             inbox_writes,
         );
+    }
+
+    /// Seed inline scope and initial inbox writes from workflow inputs.
+    fn seed_scope_and_inbox(
+        initial_inputs: &HashMap<String, JsonValue>,
+        dag: &DAG,
+        source_node_id: &str,
+        instance_id: WorkflowInstanceId,
+    ) -> (Scope, Vec<InboxWrite>) {
+        let mut inbox_writes = Vec::new();
+        for (var_name, value) in initial_inputs {
+            Self::collect_inbox_writes_for_node(
+                source_node_id,
+                var_name,
+                value,
+                dag,
+                instance_id,
+                &mut inbox_writes,
+            );
+        }
+        (initial_inputs.clone(), inbox_writes)
     }
 
     /// Check if all parallel actions are complete and enqueue the barrier when ready.
@@ -2728,21 +2740,6 @@ impl DAGRunner {
             .await?
             .ok_or_else(|| RunnerError::InstanceNotFound(instance_id.0))?;
 
-        // Create initial scope from inputs (mutable for inline node execution)
-        let mut scope: Scope = initial_inputs;
-
-        debug!(
-            instance_id = %instance_id.0,
-            initial_scope = ?scope,
-            "starting instance with initial scope"
-        );
-
-        // Store scope for inline evaluation
-        {
-            let mut contexts = self.instance_contexts.write().await;
-            contexts.insert(instance_id.0, scope.clone());
-        }
-
         // Find the entry function and its input node
         let helper = DAGHelper::new(&dag);
         let function_names = helper.get_function_names();
@@ -2777,33 +2774,28 @@ impl DAGRunner {
             "found entry function and input node"
         );
 
+        // Seed scope and inbox writes from initial inputs
+        let (mut scope, mut inbox_writes_to_commit) =
+            Self::seed_scope_and_inbox(&initial_inputs, &dag, &input_node.id, instance_id);
+
+        debug!(
+            instance_id = %instance_id.0,
+            initial_scope = ?scope,
+            inbox_writes = inbox_writes_to_commit.len(),
+            "starting instance with initial scope"
+        );
+
+        // Store scope for inline evaluation
+        {
+            let mut contexts = self.instance_contexts.write().await;
+            contexts.insert(instance_id.0, scope.clone());
+        }
+
         // Find first delegated successors starting from input node
         let mut actions_to_enqueue = Vec::new();
-        let mut inbox_writes_to_commit = Vec::new();
         let mut readiness_inits: Vec<ReadinessInit> = Vec::new();
         let mut visited = std::collections::HashSet::new();
         let mut queue = std::collections::VecDeque::new();
-
-        // Collect inbox writes for input variables to downstream nodes via DataFlow edges.
-        // This ensures that actions which reference input variables (like summarize_math
-        // using input_number=n) receive those values in their inbox, even if they're not
-        // immediate successors of the input node.
-        for (var_name, value) in &scope {
-            Self::collect_inbox_writes_for_node(
-                &input_node.id,
-                var_name,
-                value,
-                &dag,
-                instance_id,
-                &mut inbox_writes_to_commit,
-            );
-        }
-        debug!(
-            input_node_id = %input_node.id,
-            inbox_writes = inbox_writes_to_commit.len(),
-            variables = ?scope.keys().collect::<Vec<_>>(),
-            "collected inbox writes for input variables"
-        );
 
         // Start from input node's successors
         let initial_successors = helper.get_ready_successors(&input_node.id, None);
