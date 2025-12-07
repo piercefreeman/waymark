@@ -2316,3 +2316,159 @@ class TestTryExceptWithMultipleCalls:
 
         # Should have implicit function generated
         assert len(program.functions) > 1, "Should have implicit function for wrapped body"
+
+
+class TestUnsupportedPatternValidation:
+    """Test that unsupported patterns raise UnsupportedPatternError with helpful messages."""
+
+    def test_constructor_return_raises_error(self) -> None:
+        """Test: return MyModel(...) raises UnsupportedPatternError."""
+        import pytest
+        from rappel.ir_builder import UnsupportedPatternError
+
+        with pytest.raises(UnsupportedPatternError) as exc_info:
+            from tests.fixtures_unsupported.constructor_return import ConstructorReturnWorkflow
+            ConstructorReturnWorkflow.workflow_ir()
+
+        error = exc_info.value
+        assert "MyResult" in error.message
+        assert "constructor" in error.message.lower() or "constructor" in error.recommendation.lower()
+        assert "@action" in error.recommendation
+
+    def test_constructor_assignment_raises_error(self) -> None:
+        """Test: x = MyClass(...) raises UnsupportedPatternError."""
+        import pytest
+        from rappel.ir_builder import UnsupportedPatternError
+
+        with pytest.raises(UnsupportedPatternError) as exc_info:
+            from tests.fixtures_unsupported.constructor_assignment import ConstructorAssignmentWorkflow
+            ConstructorAssignmentWorkflow.workflow_ir()
+
+        error = exc_info.value
+        assert "Config" in error.message
+        assert "@action" in error.recommendation
+
+    def test_non_action_await_raises_error(self) -> None:
+        """Test: await non_action_func() raises UnsupportedPatternError."""
+        import pytest
+        from rappel.ir_builder import UnsupportedPatternError
+
+        with pytest.raises(UnsupportedPatternError) as exc_info:
+            from tests.fixtures_unsupported.non_action_await import NonActionAwaitWorkflow
+            NonActionAwaitWorkflow.workflow_ir()
+
+        error = exc_info.value
+        assert "helper_function" in error.message
+        assert "non-action" in error.message.lower() or "@action" in error.recommendation
+
+    def test_fstring_raises_error(self) -> None:
+        """Test: f-strings raise UnsupportedPatternError."""
+        import pytest
+        from rappel.ir_builder import UnsupportedPatternError
+
+        with pytest.raises(UnsupportedPatternError) as exc_info:
+            from tests.fixtures_unsupported.fstring_usage import FstringWorkflow
+            FstringWorkflow.workflow_ir()
+
+        error = exc_info.value
+        assert "f-string" in error.message.lower() or "F-string" in error.message
+        assert "@action" in error.recommendation
+
+    def test_while_loop_raises_error(self) -> None:
+        """Test: while loops raise UnsupportedPatternError."""
+        import pytest
+        from rappel.ir_builder import UnsupportedPatternError
+
+        with pytest.raises(UnsupportedPatternError) as exc_info:
+            from tests.fixtures_unsupported.while_loop import WhileLoopWorkflow
+            WhileLoopWorkflow.workflow_ir()
+
+        error = exc_info.value
+        assert "while" in error.message.lower()
+
+    def test_list_comprehension_raises_error(self) -> None:
+        """Test: list comprehensions outside gather raise UnsupportedPatternError."""
+        import pytest
+        from rappel.ir_builder import UnsupportedPatternError
+
+        with pytest.raises(UnsupportedPatternError) as exc_info:
+            from tests.fixtures_unsupported.list_comprehension import ListComprehensionWorkflow
+            ListComprehensionWorkflow.workflow_ir()
+
+        error = exc_info.value
+        assert "comprehension" in error.message.lower()
+
+    def test_lambda_raises_error(self) -> None:
+        """Test: lambda expressions raise UnsupportedPatternError."""
+        import pytest
+        from rappel.ir_builder import UnsupportedPatternError
+
+        with pytest.raises(UnsupportedPatternError) as exc_info:
+            from tests.fixtures_unsupported.lambda_expression import LambdaExpressionWorkflow
+            LambdaExpressionWorkflow.workflow_ir()
+
+        error = exc_info.value
+        assert "lambda" in error.message.lower()
+        assert "@action" in error.recommendation
+
+    def test_with_statement_raises_error(self) -> None:
+        """Test: with statements raise UnsupportedPatternError."""
+        import pytest
+        from rappel.ir_builder import UnsupportedPatternError
+
+        with pytest.raises(UnsupportedPatternError) as exc_info:
+            from tests.fixtures_unsupported.with_statement import WithStatementWorkflow
+            WithStatementWorkflow.workflow_ir()
+
+        error = exc_info.value
+        assert "with" in error.message.lower() or "context" in error.message.lower()
+        assert "@action" in error.recommendation
+
+    def test_match_statement_raises_error(self) -> None:
+        """Test: match statements raise UnsupportedPatternError."""
+        import pytest
+        from rappel.ir_builder import UnsupportedPatternError
+
+        with pytest.raises(UnsupportedPatternError) as exc_info:
+            from tests.fixtures_unsupported.match_workflow import MatchWorkflow
+            MatchWorkflow.workflow_ir()
+
+        error = exc_info.value
+        assert "match" in error.message.lower()
+        assert "if/elif/else" in error.recommendation.lower()
+
+
+class TestValidPatterns:
+    """Test that valid patterns do NOT raise errors."""
+
+    def test_action_return_is_valid(self) -> None:
+        """Test: return await action() is valid."""
+        from tests.fixtures_actions.action_return import ActionReturnWorkflow
+
+        # Should not raise
+        program = ActionReturnWorkflow.workflow_ir()
+        assert program is not None
+
+    def test_variable_return_is_valid(self) -> None:
+        """Test: return some_var is valid."""
+        from tests.fixtures_actions.variable_return import VariableReturnWorkflow
+
+        # Should not raise
+        program = VariableReturnWorkflow.workflow_ir()
+        assert program is not None
+
+    def test_literal_return_is_valid(self) -> None:
+        """Test: return 42 is valid."""
+        from tests.fixtures_actions.literal_return import LiteralReturnWorkflow
+
+        # Should not raise
+        program = LiteralReturnWorkflow.workflow_ir()
+        assert program is not None
+
+    def test_action_call_is_valid(self) -> None:
+        """Test: await action() is valid."""
+        from tests.fixtures_actions.simple_action import SimpleActionWorkflow
+
+        # Should not raise
+        program = SimpleActionWorkflow.workflow_ir()
+        assert program is not None

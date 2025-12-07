@@ -24,7 +24,7 @@ import ast
 import inspect
 import textwrap
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Union
 
 from proto import ast_pb2 as ir
 
@@ -55,6 +55,56 @@ class UnsupportedPatternError(Exception):
 
 # Recommendations for common unsupported patterns
 RECOMMENDATIONS = {
+    "constructor_return": (
+        "Returning a class constructor (like MyModel(...)) directly is not supported.\n"
+        "The workflow IR cannot serialize arbitrary object instantiation.\n\n"
+        "Use an @action to create the object:\n\n"
+        "    @action\n"
+        "    async def build_result(items: list, count: int) -> MyResult:\n"
+        "        return MyResult(items=items, count=count)\n\n"
+        "    # In workflow:\n"
+        "    return await build_result(items, count)"
+    ),
+    "constructor_assignment": (
+        "Assigning a class constructor result (like x = MyClass(...)) is not supported.\n"
+        "The workflow IR cannot serialize arbitrary object instantiation.\n\n"
+        "Use an @action to create the object:\n\n"
+        "    @action\n"
+        "    async def create_config(value: int) -> Config:\n"
+        "        return Config(value=value)\n\n"
+        "    # In workflow:\n"
+        "    config = await create_config(value)"
+    ),
+    "non_action_call": (
+        "Calling a function that is not decorated with @action is not supported.\n"
+        "Only @action decorated functions can be awaited in workflow code.\n\n"
+        "Add the @action decorator to your function:\n\n"
+        "    @action\n"
+        "    async def my_function(x: int) -> int:\n"
+        "        return x * 2"
+    ),
+    "sync_function_call": (
+        "Calling a synchronous function directly in workflow code is not supported.\n"
+        "All computation must happen inside @action decorated async functions.\n\n"
+        "Wrap your logic in an @action:\n\n"
+        "    @action\n"
+        "    async def compute(x: int) -> int:\n"
+        "        return some_sync_function(x)"
+    ),
+    "method_call_non_self": (
+        "Calling methods on objects other than 'self' is not supported in workflow code.\n"
+        "Use an @action to perform method calls:\n\n"
+        "    @action\n"
+        "    async def call_method(obj: MyClass) -> Result:\n"
+        "        return obj.some_method()"
+    ),
+    "builtin_call": (
+        "Calling built-in functions like len(), str(), int() directly is not supported.\n"
+        "Use an @action to perform these operations:\n\n"
+        "    @action\n"
+        "    async def get_length(items: list) -> int:\n"
+        "        return len(items)"
+    ),
     "fstring": (
         "F-strings are not supported in workflow code because they require "
         "runtime string interpolation.\n"
@@ -233,9 +283,12 @@ def build_workflow_ir(workflow_cls: type["Workflow"]) -> ir.Program:
     # Discover imports for built-in detection (e.g., from asyncio import sleep)
     imported_names = _discover_module_imports(module)
 
+    # Discover all async function names in the module (for non-action detection)
+    module_functions = _discover_module_functions(module)
+
     # Build the IR with transformation context
     ctx = TransformContext()
-    builder = IRBuilder(action_defs, ctx, imported_names)
+    builder = IRBuilder(action_defs, ctx, imported_names, module_functions)
     builder.visit(tree)
 
     # Create the Program with the main function and any implicit functions
@@ -267,6 +320,33 @@ def _discover_action_names(module: Any) -> Dict[str, ActionDefinition]:
                 signature=signature,
             )
     return names
+
+
+def _discover_module_functions(module: Any) -> Set[str]:
+    """Discover all async function names defined in a module.
+
+    This is used to detect when users await functions in the same module
+    that are NOT decorated with @action.
+    """
+    function_names: Set[str] = set()
+    for attr_name in dir(module):
+        try:
+            attr = getattr(module, attr_name)
+        except AttributeError:
+            continue
+
+        # Only include functions defined in THIS module (not imported)
+        if not callable(attr):
+            continue
+        if not inspect.iscoroutinefunction(attr):
+            continue
+
+        # Check if the function is defined in this module
+        func_module = getattr(attr, "__module__", None)
+        if func_module == module.__name__:
+            function_names.add(attr_name)
+
+    return function_names
 
 
 @dataclass
@@ -315,10 +395,12 @@ class IRBuilder(ast.NodeVisitor):
         action_defs: Dict[str, ActionDefinition],
         ctx: TransformContext,
         imported_names: Optional[Dict[str, ImportedName]] = None,
+        module_functions: Optional[Set[str]] = None,
     ):
         self._action_defs = action_defs
         self._ctx = ctx
         self._imported_names = imported_names or {}
+        self._module_functions = module_functions or set()
         self.function_def: Optional[ir.FunctionDef] = None
         self._statements: List[ir.Statement] = []
 
@@ -491,9 +573,16 @@ class IRBuilder(ast.NodeVisitor):
         - Action calls: a, b = @get_pair()
         - Parallel blocks: a, b = parallel: @x() @y()
         - Regular expressions: a, b = some_list
+
+        Raises UnsupportedPatternError for:
+        - Constructor calls: x = MyClass(...)
+        - Non-action await: x = await some_func()
         """
         stmt = ir.Statement(span=_make_span(node))
         targets = self._get_assign_targets(node.targets)
+
+        # Check for constructor calls in assignment (e.g., x = MyModel(...))
+        self._check_constructor_in_assignment(node.value)
 
         # Check for asyncio.gather() - convert to parallel or spread expression
         if isinstance(node.value, ast.Await) and isinstance(node.value.value, ast.Call):
@@ -1172,8 +1261,14 @@ class IRBuilder(ast.NodeVisitor):
         becomes:
             _return_tmp = await action()
             return _return_tmp
+
+        Constructor calls (like return MyModel(...)) are not supported and will
+        raise an error with a recommendation to use an @action instead.
         """
         if node.value:
+            # Check for constructor calls in return (e.g., return MyModel(...))
+            self._check_constructor_in_return(node.value)
+
             # Check if returning an action call - normalize to assignment + return
             action_call = self._extract_action_call(node.value)
             if action_call:
@@ -1230,8 +1325,181 @@ class IRBuilder(ast.NodeVisitor):
 
         return None
 
+    def _check_constructor_in_return(self, node: ast.expr) -> None:
+        """Check for constructor calls in return statements.
+
+        Raises UnsupportedPatternError if the return value is a class instantiation
+        like: return MyModel(field=value)
+
+        This is not supported because the workflow IR cannot serialize arbitrary
+        object instantiation. Users should use an @action to create objects.
+        """
+        # Skip if it's an await (action call) - those are fine
+        if isinstance(node, ast.Await):
+            return
+
+        # Check for direct Call that looks like a constructor
+        if isinstance(node, ast.Call):
+            func_name = self._get_constructor_name(node.func)
+            if func_name and self._looks_like_constructor(func_name, node):
+                line = getattr(node, "lineno", None)
+                col = getattr(node, "col_offset", None)
+                raise UnsupportedPatternError(
+                    f"Returning constructor call '{func_name}(...)' is not supported",
+                    RECOMMENDATIONS["constructor_return"],
+                    line=line,
+                    col=col,
+                )
+
+    def _check_constructor_in_assignment(self, node: ast.expr) -> None:
+        """Check for constructor calls in assignments.
+
+        Raises UnsupportedPatternError if the assignment value is a class instantiation
+        like: result = MyModel(field=value)
+
+        This is not supported because the workflow IR cannot serialize arbitrary
+        object instantiation. Users should use an @action to create objects.
+        """
+        # Skip if it's an await (action call) - those are fine
+        if isinstance(node, ast.Await):
+            return
+
+        # Check for direct Call that looks like a constructor
+        if isinstance(node, ast.Call):
+            func_name = self._get_constructor_name(node.func)
+            if func_name and self._looks_like_constructor(func_name, node):
+                line = getattr(node, "lineno", None)
+                col = getattr(node, "col_offset", None)
+                raise UnsupportedPatternError(
+                    f"Assigning constructor call '{func_name}(...)' is not supported",
+                    RECOMMENDATIONS["constructor_assignment"],
+                    line=line,
+                    col=col,
+                )
+
+    def _get_constructor_name(self, func: ast.expr) -> Optional[str]:
+        """Get the name from a function expression if it looks like a constructor."""
+        if isinstance(func, ast.Name):
+            return func.id
+        elif isinstance(func, ast.Attribute):
+            return func.attr
+        return None
+
+    def _looks_like_constructor(self, func_name: str, call: ast.Call) -> bool:
+        """Check if a function call looks like a class constructor.
+
+        A constructor is identified by:
+        1. Name starts with uppercase (PEP8 convention for classes)
+        2. It's not a known action
+        3. It's not a known builtin like String operations
+
+        This is a heuristic - we can't perfectly distinguish constructors
+        from functions without full type information.
+        """
+        # Check if first letter is uppercase (class naming convention)
+        if not func_name or not func_name[0].isupper():
+            return False
+
+        # If it's a known action, it's not a constructor
+        if func_name in self._action_defs:
+            return False
+
+        # Common builtins that start with uppercase but aren't constructors
+        # (these are rarely used in workflow code but let's be safe)
+        builtin_exceptions = {"True", "False", "None", "Ellipsis"}
+        if func_name in builtin_exceptions:
+            return False
+
+        return True
+
+    def _check_non_action_await(self, node: ast.Await) -> None:
+        """Check if an await is for a non-action function.
+
+        Note: We can only reliably detect non-action awaits for functions defined
+        in the same module. Actions imported from other modules will pass through
+        and may fail at runtime if they're not actually actions.
+
+        For now, we only check against common builtins and known non-action patterns.
+        A runtime check will catch functions that aren't registered actions.
+        """
+        awaited = node.value
+        if not isinstance(awaited, ast.Call):
+            return
+
+        # Skip special cases that are handled elsewhere
+        if self._is_run_action_call(awaited):
+            return
+        if self._is_asyncio_sleep_call(awaited):
+            return
+        if self._is_asyncio_gather_call(awaited):
+            return
+
+        # Get the function name
+        func_name = None
+        if isinstance(awaited.func, ast.Name):
+            func_name = awaited.func.id
+        elif isinstance(awaited.func, ast.Attribute):
+            func_name = awaited.func.attr
+
+        if not func_name:
+            return
+
+        # Only raise error for functions defined in THIS module that we know
+        # are NOT actions (i.e., async functions without @action decorator)
+        # We can't reliably detect imported non-actions without full type info.
+        #
+        # The check works by looking at _module_functions which contains
+        # functions defined in the same module as the workflow.
+        if func_name in getattr(self, '_module_functions', set()):
+            if func_name not in self._action_defs:
+                line = getattr(node, "lineno", None)
+                col = getattr(node, "col_offset", None)
+                raise UnsupportedPatternError(
+                    f"Awaiting non-action function '{func_name}()' is not supported",
+                    RECOMMENDATIONS["non_action_call"],
+                    line=line,
+                    col=col,
+                )
+
+    def _check_sync_function_call(self, node: ast.Call) -> None:
+        """Check for synchronous function calls that should be in actions.
+
+        Common patterns like len(), str(), etc. are not supported in workflow code.
+        """
+        func_name = None
+        if isinstance(node.func, ast.Name):
+            func_name = node.func.id
+        elif isinstance(node.func, ast.Attribute):
+            # Method calls on objects - check the method name
+            func_name = node.func.attr
+
+        if not func_name:
+            return
+
+        # Builtins that users commonly try to use
+        common_builtins = {
+            "len", "str", "int", "float", "bool", "list", "dict", "set", "tuple",
+            "sum", "min", "max", "sorted", "reversed", "enumerate", "zip", "map",
+            "filter", "range", "abs", "round", "print", "type", "isinstance",
+            "hasattr", "getattr", "setattr", "open", "format",
+        }
+
+        if func_name in common_builtins:
+            line = getattr(node, "lineno", None)
+            col = getattr(node, "col_offset", None)
+            raise UnsupportedPatternError(
+                f"Calling built-in function '{func_name}()' directly is not supported",
+                RECOMMENDATIONS["builtin_call"],
+                line=line,
+                col=col,
+            )
+
     def _extract_action_call(self, node: ast.expr) -> Optional[ir.ActionCall]:
-        """Extract an action call from an expression if present."""
+        """Extract an action call from an expression if present.
+
+        Also validates that awaited calls are actually @action decorated functions.
+        Raises UnsupportedPatternError if awaiting a non-action function.
+        """
         if not isinstance(node, ast.Await):
             return None
 
@@ -1249,8 +1517,14 @@ class IRBuilder(ast.NodeVisitor):
             # Check for asyncio.sleep() - convert to @sleep action
             if self._is_asyncio_sleep_call(awaited):
                 return self._convert_asyncio_sleep_to_action(awaited)
-            # Direct action call
-            return self._extract_action_call_from_call(awaited)
+            # Try to extract as action call
+            action_call = self._extract_action_call_from_call(awaited)
+            if action_call:
+                return action_call
+
+            # If we get here, it's an await of a non-action function
+            self._check_non_action_await(node)
+            return None
 
         return None
 
