@@ -937,8 +937,24 @@ fn execute_inline_node(node: &DAGNode, scope: &InlineScope) -> JsonValue {
                 JsonValue::Null
             }
         }
+        "return" => {
+            if let Some(ref expr) = node.assign_expr {
+                match ExpressionEvaluator::evaluate(expr, scope) {
+                    Ok(val) => val,
+                    Err(e) => {
+                        tracing::warn!(
+                            node_id = %node.id,
+                            error = %e,
+                            "failed to evaluate return expression in completion"
+                        );
+                        JsonValue::Null
+                    }
+                }
+            } else {
+                JsonValue::Null
+            }
+        }
         "input" | "output" => JsonValue::Null,
-        "return" => JsonValue::Null,
         "conditional" | "branch" => JsonValue::Bool(true),
         "join" => JsonValue::Null,
         "aggregator" => JsonValue::Array(vec![]),

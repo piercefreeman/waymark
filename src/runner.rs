@@ -2587,8 +2587,24 @@ impl DAGRunner {
                     Ok(JsonValue::Null)
                 }
             }
+            "return" => {
+                if let Some(ref expr) = node.assign_expr {
+                    match ExpressionEvaluator::evaluate(expr, scope) {
+                        Ok(val) => Ok(val),
+                        Err(e) => {
+                            warn!(
+                                node_id = %node.id,
+                                error = %e,
+                                "failed to evaluate return expression"
+                            );
+                            Ok(JsonValue::Null)
+                        }
+                    }
+                } else {
+                    Ok(JsonValue::Null)
+                }
+            }
             "input" | "output" => Ok(JsonValue::Null),
-            "return" => Ok(JsonValue::Null),
             "conditional" => Ok(JsonValue::Bool(true)),
             "aggregator" => Ok(JsonValue::Array(vec![])),
             _ => Ok(JsonValue::Null),

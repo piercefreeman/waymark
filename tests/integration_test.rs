@@ -26,6 +26,21 @@ const EXCEPTION_CUSTOM_WORKFLOW_MODULE: &str =
     include_str!("fixtures/integration_exception_custom.py");
 const EXCEPTION_WITH_SUCCESS_WORKFLOW_MODULE: &str =
     include_str!("fixtures/integration_exception_with_success.py");
+const EXCEPTION_WITH_SUCCESS_FAILURE_SCRIPT: &str = r#"
+import asyncio
+import os
+
+from integration_exception_with_success import ExceptionWithSuccessWorkflow
+
+async def main():
+    os.environ.pop("PYTEST_CURRENT_TEST", None)
+    wf = ExceptionWithSuccessWorkflow()
+    # Trigger the failure branch so exception handling is exercised.
+    result = await wf.run(should_fail=True)
+    print(f"Registration result (should_fail=True): {result}")
+
+asyncio.run(main())
+"#;
 const IMMEDIATE_CONDITIONAL_WORKFLOW_MODULE: &str =
     include_str!("fixtures/immediate_conditional_workflow.py");
 const CHAIN_WORKFLOW_MODULE: &str = include_str!("fixtures/chain_workflow.py");
@@ -86,6 +101,86 @@ fn extract_string_from_value(value: &proto::WorkflowArgumentValue) -> Result<Opt
             }
         }
         _ => Ok(None),
+    }
+}
+
+fn proto_value_to_json(value: &proto::WorkflowArgumentValue) -> serde_json::Value {
+    use proto::primitive_workflow_argument::Kind as PrimitiveKind;
+    use proto::workflow_argument_value::Kind;
+
+    match &value.kind {
+        Some(Kind::Primitive(p)) => match &p.kind {
+            Some(PrimitiveKind::IntValue(i)) => serde_json::Value::Number((*i).into()),
+            Some(PrimitiveKind::DoubleValue(f)) => serde_json::Number::from_f64(*f)
+                .map(serde_json::Value::Number)
+                .unwrap_or(serde_json::Value::Null),
+            Some(PrimitiveKind::StringValue(s)) => serde_json::Value::String(s.clone()),
+            Some(PrimitiveKind::BoolValue(b)) => serde_json::Value::Bool(*b),
+            Some(PrimitiveKind::NullValue(_)) => serde_json::Value::Null,
+            None => serde_json::Value::Null,
+        },
+        Some(Kind::ListValue(list)) => serde_json::Value::Array(
+            list.items
+                .iter()
+                .map(proto_value_to_json)
+                .collect::<Vec<_>>(),
+        ),
+        Some(Kind::DictValue(dict)) => {
+            let entries: serde_json::Map<String, serde_json::Value> = dict
+                .entries
+                .iter()
+                .filter_map(|arg| {
+                    arg.value
+                        .as_ref()
+                        .map(|v| (arg.key.clone(), proto_value_to_json(v)))
+                })
+                .collect();
+            serde_json::Value::Object(entries)
+        }
+        Some(Kind::TupleValue(tuple)) => serde_json::Value::Array(
+            tuple
+                .items
+                .iter()
+                .map(proto_value_to_json)
+                .collect::<Vec<_>>(),
+        ),
+        Some(Kind::Basemodel(model)) => {
+            let mut obj = serde_json::Map::new();
+            obj.insert(
+                "__class__".to_string(),
+                serde_json::Value::String(model.name.clone()),
+            );
+            obj.insert(
+                "__module__".to_string(),
+                serde_json::Value::String(model.module.clone()),
+            );
+            if let Some(data_dict) = &model.data {
+                for entry in &data_dict.entries {
+                    if let Some(v) = &entry.value {
+                        obj.insert(entry.key.clone(), proto_value_to_json(v));
+                    }
+                }
+            }
+            serde_json::Value::Object(obj)
+        }
+        Some(Kind::Exception(exc)) => {
+            let mut obj = serde_json::Map::new();
+            obj.insert("__exception__".to_string(), serde_json::Value::Bool(true));
+            obj.insert(
+                "type".to_string(),
+                serde_json::Value::String(exc.r#type.clone()),
+            );
+            obj.insert(
+                "module".to_string(),
+                serde_json::Value::String(exc.module.clone()),
+            );
+            obj.insert(
+                "message".to_string(),
+                serde_json::Value::String(exc.message.clone()),
+            );
+            serde_json::Value::Object(obj)
+        }
+        None => serde_json::Value::Null,
     }
 }
 
@@ -480,6 +575,71 @@ async fn exception_with_success_workflow_registers() -> Result<()> {
     // Execute all actions via the DAGRunner
     harness.dispatch_all().await?;
     info!("workflow completed");
+
+    harness.shutdown().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[serial]
+async fn exception_with_success_workflow_handles_failure_branch() -> Result<()> {
+    let _ = tracing_subscriber::fmt::try_init();
+    let _ = dotenvy::dotenv();
+
+    let Some(harness) = IntegrationHarness::new(HarnessConfig {
+        files: &[
+            (
+                "integration_exception_with_success.py",
+                EXCEPTION_WITH_SUCCESS_WORKFLOW_MODULE,
+            ),
+            ("register.py", EXCEPTION_WITH_SUCCESS_FAILURE_SCRIPT),
+        ],
+        entrypoint: "register.py",
+        workflow_name: "exceptionwithsuccessworkflow",
+        user_module: "integration_exception_with_success",
+        inputs: &[],
+    })
+    .await?
+    else {
+        return Ok(());
+    };
+
+    harness.dispatch_all().await?;
+
+    let stored_payload = harness
+        .stored_result()
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("missing stored result payload"))?;
+
+    let arguments = proto::WorkflowArguments::decode(&stored_payload[..])?;
+    let result_value = arguments
+        .arguments
+        .iter()
+        .find(|arg| arg.key == "result")
+        .and_then(|arg| arg.value.as_ref())
+        .map(proto_value_to_json)
+        .ok_or_else(|| anyhow::anyhow!("missing result value"))?;
+
+    let result_obj = result_value
+        .as_object()
+        .ok_or_else(|| anyhow::anyhow!("result is not an object: {result_value}"))?;
+
+    assert_eq!(
+        result_obj.get("attempted"),
+        Some(&serde_json::Value::Bool(true))
+    );
+    assert_eq!(
+        result_obj.get("recovered"),
+        Some(&serde_json::Value::Bool(true))
+    );
+    let message = result_obj
+        .get("message")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("missing message in result"))?;
+    assert!(
+        message.contains("Recovered from error"),
+        "unexpected message: {message}"
+    );
 
     harness.shutdown().await?;
     Ok(())

@@ -2148,13 +2148,26 @@ impl DAGConverter {
     /// Return statements should only contain variables (not action calls).
     /// The Python IR builder normalizes `return await action()` to
     /// `_tmp = await action(); return _tmp`.
-    fn convert_return(&mut self, _ret: &ast::ReturnStmt) -> Vec<String> {
+    fn convert_return(&mut self, ret: &ast::ReturnStmt) -> Vec<String> {
         let node_id = self.next_id("return");
         let mut node = DAGNode::new(node_id.clone(), "return".to_string(), "return".to_string());
+
+        if let Some(ref expr) = ret.value {
+            node.assign_expr = Some(expr.clone());
+            // Store the return value in a canonical "result" slot so it can
+            // flow to the workflow output boundary.
+            node.target = Some("result".to_string());
+        }
+
         if let Some(ref fn_name) = self.current_function {
             node = node.with_function_name(fn_name);
         }
+        let has_target = node.target.is_some();
         self.dag.add_node(node);
+
+        if has_target {
+            self.track_var_definition("result", &node_id);
+        }
 
         vec![node_id]
     }
