@@ -241,10 +241,10 @@ async def process_item(item: str) -> str:
 
 
 @action
-async def finalize_loop(processed: list[str]) -> int:
-    """Finalize loop processing and return count."""
+async def build_loop_result(items: list[str], processed: list[str]) -> LoopResult:
+    """Build the final loop result."""
     await asyncio.sleep(0.1)
-    return len(processed)
+    return LoopResult(items=items, processed=processed, count=len(processed))
 
 
 # =============================================================================
@@ -393,13 +393,8 @@ class LoopProcessingWorkflow(Workflow):
             result = await process_item(item)
             processed.append(result)
 
-        count = await finalize_loop(processed)
-
-        return LoopResult(
-            items=items,
-            processed=processed,
-            count=count,
-        )
+        # Build the result in an action (constructors aren't supported in return)
+        return await build_loop_result(items, processed)
 
 
 @workflow
