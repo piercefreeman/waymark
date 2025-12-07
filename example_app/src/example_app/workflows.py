@@ -281,6 +281,14 @@ async def success_action(result: str) -> str:
     return f"Success path: {result}"
 
 
+@action
+async def build_error_result(
+    attempted: bool, recovered: bool, message: str
+) -> ErrorResult:
+    """Build the error handling result."""
+    return ErrorResult(attempted=attempted, recovered=recovered, message=message)
+
+
 # =============================================================================
 # Actions - Sleep Workflow
 # =============================================================================
@@ -422,11 +430,8 @@ class ErrorHandlingWorkflow(Workflow):
             recovered = True
             message = recovered_msg
 
-        return ErrorResult(
-            attempted=True,
-            recovered=recovered,
-            message=message,
-        )
+        # Build result in action (constructors aren't supported in return)
+        return await build_error_result(True, recovered, message)
 
 
 @workflow
