@@ -2,46 +2,62 @@
 
 ![Rappel Logo](https://raw.githubusercontent.com/piercefreeman/rappel/main/media/header.png)
 
-rappel is a library to let you build durable background tasks that withstand device restarts, task crashes, and long-running jobs. It's built for Python and Postgres without any additional deploy time requirements.
+rappel is a library to let you build durable background tasks that withstand server restarts, task crashes, and long-running jobs. It's built for Python and Postgres without any additional deploy time requirements.
 
 ## Usage
 
-An example is worth a thousand words. Here's how you define your workflow:
+Let's say you need to send welcome emails to a batch of users, but only the active ones. You want to fetch them all, filter out inactive accounts, then fan out emails in parallel. This is how you write that workflow in rappel:
 
 ```python
+import asyncio
 from rappel import Workflow, action, workflow
-from myapp.models import User, GreetingSummary
-from myapp.db import my_db
 
 @workflow
-class GreetingWorkflow(Workflow):
-    async def run(self, user_id: str):
-        user = await fetch_user(user_id)      # first action
-        summary = await build_greetings(user)      # second action, chained
-        return summary
+class WelcomeEmailWorkflow(Workflow):
+    async def run(self, user_ids: list[str]) -> list[EmailResult]:
+        users = await fetch_users(user_ids)
+        active_users = [user for user in users if user.active]
+
+        results = await asyncio.gather(*[
+            send_email(to=user.email, subject="Welcome")
+            for user in active_users
+        ])
+        
+        return results
 ```
 
-And here's how you describe your distributed actions:
+And here's how you define the actions distributed to your worker cluster:
 
 ```python
 @action
-async def fetch_user(user_id: str) -> User:
-    return await my_db.get(User, user_id)
-
+async def fetch_users(
+    user_ids: list[str],
+    db: Annotated[Database, Depend(get_db)],
+) -> list[User]:
+    return await db.get_many(User, user_ids)
 
 @action
-async def build_greetings(user: User) -> GreetingSummary:
-    messages: list[str] = []
-    for topic in user.interests:
-        messages.append(f"Hi {user.name}, let's talk about {topic}!")
-    return GreetingSummary(user=user, messages=messages)
+async def send_email(
+    to: str,
+    subject: str,
+    emailer: Annotated[EmailClient, Depend(get_email_client)],
+) -> EmailResult:
+    return await emailer.send(to=to, subject=subject)
 ```
 
-Your webserver wants to greet some user but do it (1) asynchronously and (2) guarantee this happens even if your webapp crashes. When you call `await workflow.run()` from within your code we'll queue up this work in Postgres; none of the workflow logic is actually executed inline within your webserver. We start by parsing the AST definition to determine your control flow and identify that `fetch_user` and `build_greetings` are decorated with `@action` and depend on the outputs of the another. We will call them in sequence, passing the data as necessary, on whatever background machines are able to handle more work. When the `summary` is returned to your original webapp caller it looks like everything just happened right in the same process. Whereas the actual code was orchestrated across multiple different machines.
+To kick off a background job and wait for completion:
 
-Actions are the distributed work that your system does: these are the parallelism primitives that can be retired, throw errors independently, etc.
+```python
+async def welcome_users(user_ids: list[str]):
+    workflow = WelcomeEmailWorkflow()
+    await workflow.run(user_ids)
+```
 
-Workflows are your control flow - also written in Python - that orchestrate the actions. They are intended to be fast business logic: list iterations. Not long-running or blocking network jobs, for instance.
+When you call `await workflow.run()`, we parse the AST of your `run()` method and compile it into the Rappel Runtime Language. The `for` loop becomes a filter node, the `asyncio.gather` becomes a parallel fan-out. None of this executes inline in your webserver, instead it's queued to Postgres and orchestrated by the Rust runtime across your worker cluster.
+
+**Actions** are the distributed work: network calls, database queries, anything that can fail and should be retried independently.
+
+**Workflows** are the control flow: loops, conditionals, parallel branches. They orchestrate actions but don't do heavy lifting themselves.
 
 ### Complex Workflows
 
@@ -74,7 +90,7 @@ Workflows can get much more complex than the example above:
         # loop + non-action helper call
         top_spenders: list[float] = []
         for record in summary.transactions.records:
-            if _is_high_value(record):
+            if record.is_high_value:
                 top_spenders.append(record.amount)
     ```
 
@@ -91,7 +107,7 @@ Workflows can get much more complex than the example above:
             fetch_profile(user_id=user_id),
             fetch_settings(user_id=user_id),
             fetch_purchase_history(user_id=user_id)
-        )
+        ) 
 
         # wait before sending email
         await asyncio.sleep(24*60*60)
@@ -100,36 +116,22 @@ Workflows can get much more complex than the example above:
         return Summary(profile=profile, settings=settings, recommendations=recommendations)
     ```
 
-1. Helper functions
-
-    You can declare helper functions in your file, in your class, or import helper functions from elsewhere in your project.
-
-    ```python
-    from myapp.helpers import _format_currency
-
-    async def run(self, user_id: str) -> Summary:
-        # actions related to one another
-        profile = await fetch_profile(user_id=user_id)
-        txns = await load_transactions(user_id=user_id)
-        summary = await compute_summary(profile=profile, txns=txns)
-
-        # helper functions
-        pretty = _format_currency(summary.transactions.total)
-    ```
-
 ### Error handling
 
-To build truly robust background tasks, you need to consider how things can go wrong. Actions can 'fail' in a few ways. This is supported by our `.run_action` syntax that allows users to provide additional parameters to modify the execution bounds on each action.
+To build truly robust background tasks, you need to consider how things can go wrong. Actions can 'fail' in a couple ways. This is supported by our `.run_action` syntax that allows users to provide additional parameters to modify the execution bounds on each action.
 
-1. Action explicitly throws an error and we want to retry it. Caused by intermittent database connectivity / overloaded webservers / or simply buggy code will throw an error.
+1. Action explicitly throws an error and we want to retry it. Caused by intermittent database connectivity / overloaded webservers / or simply buggy code will throw an error. This comes from a standard python `raise Exception()`
 1. Actions raise an error that is a really a RappelTimeout. This indicates that we dequeued the task but weren't able to complete it in the time allocated. This could be because we dequeued the task, started work on it, then the server crashed. Or it could still be running in the background but simply took too much time. Either way we will raise a synthetic error that is representative of this execution.
 
 By default we will only try explicit actions one time if there is an explicit exception raised. We will try them infinite times in the case of a timeout since this is usually caused by cross device coordination issues.
 
 ## Project Status
 
+_NOTE: Right now you shouldn't use rappel in any production applications. The spec is changing too quickly and we don't guarantee backwards compatibility before 1.0.0. But we would love if you try it out in your side project and see how you find it._
+
 Rappel is in an early alpha. Particular areas of focus include:
 
+1. Finalizing the Rappel Runtime Language
 1. Extending AST parsing logic to handle most core control flows
 1. Performance tuning
 1. Unit and integration tests
@@ -165,9 +167,20 @@ On the point of control flow, we shouldn't be forced into a DAG definition (deco
 
 Nothing on the market provides this balance - `rappel` aims to try. We don't expect ourselves to reach best in class functionality for load performance. Instead we intend for this to scale _most_ applications well past product market fit.
 
-## Other options
+## How It Works
 
-_NOTE: Right now you shouldn't use rappel in any production applications. The spec is changing too quickly and we don't guarantee backwards compatibility before 1.0.0. But we would love if you try it out in your side project and see how you find it._
+Rappel takes a different approach from replay-based workflow engines like Temporal or Vercel Workflow.
+
+| Approach | How it works | Constraint on users |
+|----------|-------------|-------------------|
+| **Temporal/Vercel Workflows** | Replay-based. Your workflow code re-executes from the beginning on each step; completed activities return cached results. | Code must be deterministic. No `random()`, no `datetime.now()`, no side effects in workflow logic. |
+| **Rappel** | Compile-once. Parse your Python AST → intermediate representation → DAG. Execute the DAG directly. Your code never re-runs. | Code must use supported patterns. But once parsed, a node is self-aware where it lives in the computation graph. |
+
+When you decorate a class with `@workflow`, Rappel parses the `run()` method's AST and compiles it to an intermediate representation (IR). This IR captures your control flow—loops, conditionals, parallel branches—as a static directed graph. The DAG is stored in Postgres and executed by the Rust runtime. Your original Python run definition is never re-executed during workflow recovery.
+
+This is convenient in practice because it means that if your workflow compiles, your workflow will run as advertised. There's no need to hack around stdlib functions that are non-deterministic (like time/uuid/etc) because you'll get an error on compilation to switch these into an explicit `@action` where all non-determinism should live.
+
+## Other options
 
 **When should you use Rappel?**
 
@@ -185,11 +198,7 @@ Performance is a top priority of rappel. That's why it's written with a Rust cor
 - You have a huge scale of concurrent background jobs, order of magnitude >10k actions being coordinated concurrently.
 - You have tried some existing task coordinators and need to scale your solution to the next 10x worth of traffic.
 
-There is no shortage of robust background queues in Python, including ones that scale to millions of requests a second:
-
-1. Temporal.io
-2. Celery/RabbitMQ
-3. Redis
+There is no shortage of robust background queues in Python, including ones like Temporal.io/RabbitMQ that scale to millions of requests a second.
 
 Almost all of these require a dedicated task broker that you host alongside your app. This usually isn't a huge deal during POCs but can get complex as you need to performance tune it for production. Cloud hosting of most of these are billed per-event and can get very expensive depending on how you orchestrate your jobs. They also typically force you to migrate your logic to fit the conventions of the framework.
 

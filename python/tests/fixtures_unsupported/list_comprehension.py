@@ -1,4 +1,4 @@
-"""Fixture: list comprehensions outside gather are not supported."""
+"""Fixture: list comprehensions outside gather or assignment are not supported."""
 
 from rappel import Workflow, action, workflow
 
@@ -14,6 +14,5 @@ class ListComprehensionWorkflow(Workflow):
 
     async def run(self) -> list:
         items = await get_items()
-        # This should fail: list comprehension outside asyncio.gather()
-        doubled = [x * 2 for x in items]
-        return doubled
+        # This should fail: list comprehension returned directly
+        return [x * 2 for x in items]
