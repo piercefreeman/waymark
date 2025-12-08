@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 /// Action status in the queue.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
-#[sqlx(type_name = "action_status", rename_all = "lowercase")]
+#[sqlx(type_name = "action_status", rename_all = "snake_case")]
 pub enum ActionStatus {
     Queued,
     Dispatched,
@@ -23,7 +23,7 @@ pub enum ActionStatus {
 
 /// Workflow instance status.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, sqlx::Type)]
-#[sqlx(type_name = "instance_status", rename_all = "lowercase")]
+#[sqlx(type_name = "instance_status", rename_all = "snake_case")]
 pub enum InstanceStatus {
     Running,
     WaitingForActions,
@@ -93,6 +93,8 @@ impl Database {
     // =========================================================================
 
     /// Create a new workflow instance.
+    /// Instance starts with status='running' and dispatched_at=NULL.
+    /// The dispatcher will claim it and set dispatched_at when actually dispatching.
     pub async fn create_instance(
         &self,
         workflow_name: &str,
@@ -103,8 +105,8 @@ impl Database {
         sqlx::query(
             r#"
             INSERT INTO workflow_instances
-                (id, workflow_name, module_name, status, initial_args, dispatched_at)
-            VALUES ($1, $2, $3, 'running', $4, NOW())
+                (id, workflow_name, module_name, status, initial_args)
+            VALUES ($1, $2, $3, 'running', $4)
             "#,
         )
         .bind(id)
@@ -137,7 +139,10 @@ impl Database {
         Ok(row)
     }
 
-    /// Claim instances that are ready to run (waiting_for_actions with all actions done).
+    /// Claim instances that are ready to run.
+    /// This includes:
+    /// - New instances (status='running', dispatched_at IS NULL) - never dispatched yet
+    /// - Resumed instances (status='waiting_for_actions') - yielded and ready to continue
     /// Sets dispatched_at, generates dispatch_token, and status='running'.
     /// The dispatch_token MUST be passed back when completing/yielding the instance.
     pub async fn claim_ready_instances(&self, limit: i32) -> anyhow::Result<Vec<WorkflowInstance>> {
@@ -145,7 +150,13 @@ impl Database {
             r#"
             WITH claimed AS (
                 SELECT id FROM workflow_instances
-                WHERE status = 'waiting_for_actions'
+                WHERE (
+                    -- New instances that haven't been dispatched yet
+                    (status = 'running' AND dispatched_at IS NULL)
+                    OR
+                    -- Instances that yielded and are ready to resume
+                    status = 'waiting_for_actions'
+                )
                   AND (scheduled_at IS NULL OR scheduled_at <= NOW())
                 ORDER BY scheduled_at ASC NULLS FIRST, created_at ASC
                 LIMIT $1
@@ -292,6 +303,7 @@ impl Database {
     // =========================================================================
 
     /// Add actions to an instance's inbox.
+    /// Uses ON CONFLICT DO NOTHING to handle re-dispatches idempotently.
     pub async fn add_actions(
         &self,
         instance_id: Uuid,
@@ -305,12 +317,15 @@ impl Database {
             let sequence = start_sequence + i as i32;
             let timeout_seconds = timeout.unwrap_or(300); // 5 min default
 
+            // Use ON CONFLICT DO NOTHING to handle re-dispatches idempotently.
+            // If this (instance_id, sequence) pair already exists, skip it.
             sqlx::query(
                 r#"
                 INSERT INTO actions
                     (id, instance_id, sequence, action_name, module_name, kwargs,
                      status, timeout_seconds)
                 VALUES ($1, $2, $3, $4, $5, $6, 'queued', $7)
+                ON CONFLICT (instance_id, sequence) DO NOTHING
                 "#,
             )
             .bind(id)

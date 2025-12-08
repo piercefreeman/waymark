@@ -18,7 +18,54 @@ use crate::db::Database;
 use crate::messages::{
     instance_worker_bridge_server::InstanceWorkerBridge, Ack, Envelope, InstanceActions,
     InstanceComplete, InstanceDispatch, MessageKind, WorkerHello, WorkerType,
+    WorkflowArguments, WorkflowArgumentValue,
 };
+
+/// Convert protobuf WorkflowArgumentValue to serde_json::Value.
+fn proto_value_to_json(value: &WorkflowArgumentValue) -> serde_json::Value {
+    use crate::messages::workflow_argument_value::Kind;
+    use crate::messages::primitive_workflow_argument::Kind as PrimKind;
+
+    match &value.kind {
+        Some(Kind::Primitive(prim)) => match &prim.kind {
+            Some(PrimKind::StringValue(s)) => serde_json::Value::String(s.clone()),
+            Some(PrimKind::IntValue(i)) => serde_json::json!(*i),
+            Some(PrimKind::DoubleValue(d)) => serde_json::json!(*d),
+            Some(PrimKind::BoolValue(b)) => serde_json::Value::Bool(*b),
+            Some(PrimKind::NullValue(_)) => serde_json::Value::Null,
+            None => serde_json::Value::Null,
+        },
+        Some(Kind::ListValue(list)) => {
+            let items: Vec<serde_json::Value> = list.items.iter().map(proto_value_to_json).collect();
+            serde_json::Value::Array(items)
+        }
+        Some(Kind::DictValue(dict)) => {
+            let mut map = serde_json::Map::new();
+            for entry in &dict.entries {
+                if let Some(v) = &entry.value {
+                    map.insert(entry.key.clone(), proto_value_to_json(v));
+                }
+            }
+            serde_json::Value::Object(map)
+        }
+        Some(Kind::TupleValue(tuple)) => {
+            let items: Vec<serde_json::Value> = tuple.items.iter().map(proto_value_to_json).collect();
+            serde_json::Value::Array(items)
+        }
+        _ => serde_json::Value::Null,
+    }
+}
+
+/// Convert protobuf WorkflowArguments to serde_json::Value (as an object).
+fn proto_args_to_json(args: &WorkflowArguments) -> serde_json::Value {
+    let mut map = serde_json::Map::new();
+    for arg in &args.arguments {
+        if let Some(v) = &arg.value {
+            map.insert(arg.key.clone(), proto_value_to_json(v));
+        }
+    }
+    serde_json::Value::Object(map)
+}
 
 /// State for a connected instance worker.
 struct WorkerConnection {
@@ -138,7 +185,7 @@ impl InstanceWorkerBridge for InstanceWorkerBridgeService {
         let outbound = ReceiverStream::new(rx);
 
         let state = self.state.clone();
-        let _db = self.db.clone();
+        let db = self.db.clone();
 
         // Spawn handler task
         tokio::spawn(async move {
@@ -195,13 +242,13 @@ impl InstanceWorkerBridge for InstanceWorkerBridgeService {
                             }
 
                             MessageKind::InstanceActions => {
-                                let actions: InstanceActions =
+                                let actions_msg: InstanceActions =
                                     prost::Message::decode(envelope.payload.as_slice())
                                         .unwrap_or_default();
 
                                 info!(
-                                    instance_id = %actions.instance_id,
-                                    pending_count = actions.pending_actions.len(),
+                                    instance_id = %actions_msg.instance_id,
+                                    pending_count = actions_msg.pending_actions.len(),
                                     "Instance reported pending actions"
                                 );
 
@@ -213,8 +260,71 @@ impl InstanceWorkerBridge for InstanceWorkerBridgeService {
                                     }
                                 }
 
-                                // TODO: Add actions to database queue
-                                // Update instance status to waiting_for_actions
+                                // Parse IDs
+                                let instance_id = match uuid::Uuid::parse_str(&actions_msg.instance_id) {
+                                    Ok(id) => id,
+                                    Err(e) => {
+                                        error!(error = %e, "Invalid instance_id");
+                                        continue;
+                                    }
+                                };
+
+                                let dispatch_token = match &actions_msg.dispatch_token {
+                                    Some(t) => match uuid::Uuid::parse_str(t) {
+                                        Ok(id) => id,
+                                        Err(e) => {
+                                            error!(error = %e, "Invalid dispatch_token");
+                                            continue;
+                                        }
+                                    },
+                                    None => {
+                                        error!("Missing dispatch_token in instance actions");
+                                        continue;
+                                    }
+                                };
+
+                                // Add pending actions to database
+                                let actions_to_add: Vec<(String, String, serde_json::Value, Option<i32>)> =
+                                    actions_msg.pending_actions.iter().map(|a| {
+                                        let kwargs = a.kwargs.as_ref()
+                                            .map(proto_args_to_json)
+                                            .unwrap_or_else(|| serde_json::json!({}));
+                                        (
+                                            a.action_name.clone(),
+                                            a.module_name.clone(),
+                                            kwargs,
+                                            a.timeout_seconds.map(|t| t as i32),
+                                        )
+                                    }).collect();
+
+                                let start_sequence = actions_msg.replayed_count as i32;
+                                let new_actions_until = start_sequence + actions_to_add.len() as i32;
+
+                                // Add actions to DB
+                                if !actions_to_add.is_empty() {
+                                    if let Err(e) = db.add_actions(instance_id, actions_to_add, start_sequence).await {
+                                        error!(error = %e, "Failed to add actions to database");
+                                        continue;
+                                    }
+                                }
+
+                                // Update instance to waiting_for_actions
+                                match db.set_instance_waiting(instance_id, dispatch_token, new_actions_until).await {
+                                    Ok(updated) => {
+                                        if updated {
+                                            debug!(
+                                                instance_id = %instance_id,
+                                                actions_until = new_actions_until,
+                                                "Instance set to waiting_for_actions"
+                                            );
+                                        } else {
+                                            warn!(instance_id = %instance_id, "Instance update ignored (stale token)");
+                                        }
+                                    }
+                                    Err(e) => {
+                                        error!(error = %e, "Failed to update instance status");
+                                    }
+                                }
                             }
 
                             MessageKind::InstanceComplete => {
@@ -236,7 +346,52 @@ impl InstanceWorkerBridge for InstanceWorkerBridgeService {
                                     }
                                 }
 
-                                // TODO: Mark instance as completed in database
+                                // Parse IDs
+                                let instance_id = match uuid::Uuid::parse_str(&complete.instance_id) {
+                                    Ok(id) => id,
+                                    Err(e) => {
+                                        error!(error = %e, "Invalid instance_id");
+                                        continue;
+                                    }
+                                };
+
+                                let dispatch_token = match &complete.dispatch_token {
+                                    Some(t) => match uuid::Uuid::parse_str(t) {
+                                        Ok(id) => id,
+                                        Err(e) => {
+                                            error!(error = %e, "Invalid dispatch_token");
+                                            continue;
+                                        }
+                                    },
+                                    None => {
+                                        error!("Missing dispatch_token in instance complete");
+                                        continue;
+                                    }
+                                };
+
+                                // Mark instance as completed
+                                let result_json = serde_json::json!({
+                                    "completed": true,
+                                    "total_actions": complete.total_actions,
+                                    // TODO: Properly deserialize result payload
+                                });
+
+                                match db.complete_instance(instance_id, dispatch_token, result_json).await {
+                                    Ok(updated) => {
+                                        if updated {
+                                            info!(
+                                                instance_id = %instance_id,
+                                                total_actions = complete.total_actions,
+                                                "Instance marked completed in database"
+                                            );
+                                        } else {
+                                            warn!(instance_id = %instance_id, "Instance completion ignored (stale token)");
+                                        }
+                                    }
+                                    Err(e) => {
+                                        error!(error = %e, "Failed to complete instance");
+                                    }
+                                }
                             }
 
                             _ => {

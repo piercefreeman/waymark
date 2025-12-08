@@ -67,6 +67,8 @@ def action(func: Callable[..., T]) -> Callable[..., T]:
             func_name=func.__name__,
             args=args,
             kwargs=kwargs,
+            module_name=func.__module__,
+            timeout_seconds=getattr(func, "_timeout_seconds", None),
         )
         instance.pending_actions.append(action_call)
 

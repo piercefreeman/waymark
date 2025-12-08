@@ -6,9 +6,11 @@
 //! - Instance Workers: Run workflow instances with replay
 
 pub mod config;
+pub mod coordinator;
 pub mod db;
 pub mod messages;
 pub mod server;
 pub mod worker;
 
 pub use config::Config;
+pub use coordinator::{HostConfig, HostCoordinator, HostStats};

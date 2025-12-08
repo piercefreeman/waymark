@@ -32,6 +32,7 @@ enum MessageKind {
   MESSAGE_KIND_INSTANCE_DISPATCH = 10; // Server -> InstanceWorker: run instance
   MESSAGE_KIND_INSTANCE_ACTIONS = 11;  // InstanceWorker -> Server: pending actions
   MESSAGE_KIND_INSTANCE_COMPLETE = 12; // InstanceWorker -> Server: workflow done
+  MESSAGE_KIND_INSTANCE_FAILED = 13;   // InstanceWorker -> Server: workflow failed
 
   // Common Messages
   MESSAGE_KIND_ACK = 20;               // Worker -> Server: message received

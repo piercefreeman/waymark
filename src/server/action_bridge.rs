@@ -144,7 +144,7 @@ impl ActionWorkerBridge for ActionWorkerBridgeService {
         let outbound = ReceiverStream::new(rx);
 
         let state = self.state.clone();
-        let _db = self.db.clone();
+        let db = self.db.clone();
 
         // Spawn handler task
         tokio::spawn(async move {
@@ -201,13 +201,13 @@ impl ActionWorkerBridge for ActionWorkerBridgeService {
                             }
 
                             MessageKind::ActionResult => {
-                                let result: ActionResult =
+                                let action_result: ActionResult =
                                     prost::Message::decode(envelope.payload.as_slice())
                                         .unwrap_or_default();
 
-                                debug!(
-                                    action_id = %result.action_id,
-                                    success = result.success,
+                                info!(
+                                    action_id = %action_result.action_id,
+                                    success = action_result.success,
                                     "Received action result"
                                 );
 
@@ -219,8 +219,68 @@ impl ActionWorkerBridge for ActionWorkerBridgeService {
                                     }
                                 }
 
-                                // TODO: Process result and update database
-                                // This will trigger instance rescheduling
+                                // Parse IDs
+                                let action_id = match uuid::Uuid::parse_str(&action_result.action_id) {
+                                    Ok(id) => id,
+                                    Err(e) => {
+                                        error!(error = %e, "Invalid action_id");
+                                        continue;
+                                    }
+                                };
+
+                                let dispatch_token = match &action_result.dispatch_token {
+                                    Some(t) => match uuid::Uuid::parse_str(t) {
+                                        Ok(id) => id,
+                                        Err(e) => {
+                                            error!(error = %e, "Invalid dispatch_token");
+                                            continue;
+                                        }
+                                    },
+                                    None => {
+                                        error!("Missing dispatch_token in action result");
+                                        continue;
+                                    }
+                                };
+
+                                // Update database with result
+                                if action_result.success {
+                                    // Convert payload to JSON (simplified - just store success)
+                                    let result_json = serde_json::json!({
+                                        "success": true,
+                                        // TODO: Properly deserialize payload
+                                    });
+
+                                    match db.complete_action_atomic(action_id, dispatch_token, result_json).await {
+                                        Ok((action_updated, instance_rescheduled)) => {
+                                            if action_updated {
+                                                debug!(
+                                                    action_id = %action_id,
+                                                    instance_rescheduled = instance_rescheduled,
+                                                    "Action completed in database"
+                                                );
+                                            } else {
+                                                warn!(action_id = %action_id, "Action completion ignored (stale token)");
+                                            }
+                                        }
+                                        Err(e) => {
+                                            error!(error = %e, "Failed to complete action");
+                                        }
+                                    }
+                                } else {
+                                    let error_msg = action_result.error_message.as_deref().unwrap_or("Unknown error");
+                                    match db.fail_action_atomic(action_id, dispatch_token, error_msg).await {
+                                        Ok(updated) => {
+                                            if updated {
+                                                debug!(action_id = %action_id, "Action failed in database");
+                                            } else {
+                                                warn!(action_id = %action_id, "Action failure ignored (stale token)");
+                                            }
+                                        }
+                                        Err(e) => {
+                                            error!(error = %e, "Failed to mark action as failed");
+                                        }
+                                    }
+                                }
                             }
 
                             _ => {

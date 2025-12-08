@@ -12,8 +12,8 @@ name = "rappel-server"
 path = "src/bin/rappel-server.rs"
 
 [[bin]]
-name = "benchmark"
-path = "src/bin/benchmark.rs"
+name = "rappel-benchmark"
+path = "src/bin/rappel-benchmark.rs"
 
 [dependencies]
 anyhow = "1"

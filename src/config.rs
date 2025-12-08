@@ -31,6 +31,9 @@ pub struct Config {
 
     /// Python modules to load (contain workflows and actions)
     pub user_modules: Vec<String>,
+
+    /// Working directory for Python workers (must contain pyproject.toml)
+    pub python_dir: Option<String>,
 }
 
 impl Config {
@@ -82,6 +85,8 @@ impl Config {
             .map(|s| s.trim().to_string())
             .collect();
 
+        let python_dir: Option<String> = std::env::var("RAPPEL_PYTHON_DIR").ok();
+
         Ok(Config {
             database_url,
             http_addr,
@@ -92,6 +97,7 @@ impl Config {
             max_concurrent_per_action_worker,
             max_concurrent_per_instance_worker,
             user_modules,
+            python_dir,
         })
     }
 }

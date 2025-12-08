@@ -38,6 +38,8 @@ class ActionCall:
     func_name: str
     args: tuple
     kwargs: dict
+    module_name: str | None = None
+    timeout_seconds: int | None = None
 
     def __repr__(self) -> str:
         args_str = ", ".join(

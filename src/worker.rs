@@ -47,6 +47,7 @@ impl WorkerProcess {
         worker_type: WorkerType,
         grpc_addr: &str,
         user_modules: &[String],
+        working_dir: Option<&str>,
     ) -> anyhow::Result<Self> {
         let mut cmd = Command::new("uv");
         cmd.arg("run")
@@ -58,6 +59,11 @@ impl WorkerProcess {
 
         for module in user_modules {
             cmd.arg("--user-module").arg(module);
+        }
+
+        // Set working directory if specified (needed for uv to find pyproject.toml)
+        if let Some(dir) = working_dir {
+            cmd.current_dir(dir);
         }
 
         cmd.stdout(Stdio::inherit()).stderr(Stdio::inherit());
@@ -94,6 +100,7 @@ pub struct WorkerPool {
     worker_type: WorkerType,
     grpc_addr: String,
     user_modules: Vec<String>,
+    working_dir: Option<String>,
     target_count: usize,
     next_id: AtomicU64,
     workers: Arc<Mutex<Vec<WorkerProcess>>>,
@@ -105,12 +112,14 @@ impl WorkerPool {
         worker_type: WorkerType,
         grpc_addr: String,
         user_modules: Vec<String>,
+        working_dir: Option<String>,
         target_count: usize,
     ) -> Self {
         WorkerPool {
             worker_type,
             grpc_addr,
             user_modules,
+            working_dir,
             target_count,
             next_id: AtomicU64::new(1),
             workers: Arc::new(Mutex::new(Vec::new())),
@@ -128,6 +137,7 @@ impl WorkerPool {
                 self.worker_type,
                 &self.grpc_addr,
                 &self.user_modules,
+                self.working_dir.as_deref(),
             ) {
                 Ok(process) => {
                     info!(
@@ -191,6 +201,7 @@ impl WorkerPool {
                 self.worker_type,
                 &self.grpc_addr,
                 &self.user_modules,
+                self.working_dir.as_deref(),
             ) {
                 Ok(process) => {
                     info!(

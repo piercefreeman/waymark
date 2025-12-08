@@ -21,6 +21,7 @@ class MessageKind(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     MESSAGE_KIND_INSTANCE_DISPATCH: _ClassVar[MessageKind]
     MESSAGE_KIND_INSTANCE_ACTIONS: _ClassVar[MessageKind]
     MESSAGE_KIND_INSTANCE_COMPLETE: _ClassVar[MessageKind]
+    MESSAGE_KIND_INSTANCE_FAILED: _ClassVar[MessageKind]
     MESSAGE_KIND_ACK: _ClassVar[MessageKind]
     MESSAGE_KIND_HEARTBEAT: _ClassVar[MessageKind]
     MESSAGE_KIND_WORKER_HELLO: _ClassVar[MessageKind]
@@ -33,6 +34,7 @@ MESSAGE_KIND_ACTION_RESULT: MessageKind
 MESSAGE_KIND_INSTANCE_DISPATCH: MessageKind
 MESSAGE_KIND_INSTANCE_ACTIONS: MessageKind
 MESSAGE_KIND_INSTANCE_COMPLETE: MessageKind
+MESSAGE_KIND_INSTANCE_FAILED: MessageKind
 MESSAGE_KIND_ACK: MessageKind
 MESSAGE_KIND_HEARTBEAT: MessageKind
 MESSAGE_KIND_WORKER_HELLO: MessageKind
