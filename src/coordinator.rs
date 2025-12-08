@@ -356,15 +356,19 @@ impl HostCoordinator {
                                 initial_args: json_to_proto_args(&instance.initial_args),
                                 completed_actions: completed_actions
                                     .into_iter()
-                                    .map(|a| ActionResult {
-                                        action_id: a.id.to_string(),
-                                        success: a.status == ActionStatus::Completed,
-                                        payload: None,
-                                        worker_start_ns: 0,
-                                        worker_end_ns: 0,
-                                        dispatch_token: None,
-                                        error_type: None,
-                                        error_message: a.error_message,
+                                    .map(|a| {
+                                        // Convert stored JSON result to proto WorkflowArguments
+                                        let payload = a.result.as_ref().and_then(|r| json_to_proto_args(r));
+                                        ActionResult {
+                                            action_id: a.id.to_string(),
+                                            success: a.status == ActionStatus::Completed,
+                                            payload,
+                                            worker_start_ns: 0,
+                                            worker_end_ns: 0,
+                                            dispatch_token: None,
+                                            error_type: None,
+                                            error_message: a.error_message,
+                                        }
                                     })
                                     .collect(),
                                 scheduled_at_ms: instance

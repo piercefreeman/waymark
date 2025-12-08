@@ -138,3 +138,33 @@ class SimpleFanOutWorkflow(Workflow):
             "count": count,
             "final_hash": final_hash,
         }
+
+
+@workflow
+class BenchmarkWorkflow(Workflow):
+    """
+    Simple benchmark workflow for end-to-end testing.
+
+    Used by the Rust rappel-benchmark binary. Just executes N hash actions
+    sequentially to measure throughput.
+    """
+
+    async def run(
+        self,
+        count: int,
+        iterations: int = 10,
+    ) -> dict[str, Any]:
+        # Execute count hash computations sequentially
+        hashes = []
+        for i in range(count):
+            h = await compute_hash_for_index(index=i, iterations=iterations)
+            hashes.append(h)
+
+        # Simple aggregation
+        combined = "".join(hashes)
+        final_hash = hashlib.sha256(combined.encode()).hexdigest()
+
+        return {
+            "count": count,
+            "final_hash": final_hash,
+        }

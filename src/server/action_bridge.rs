@@ -17,8 +17,85 @@ use tracing::{debug, error, info, warn};
 use crate::db::Database;
 use crate::messages::{
     action_worker_bridge_server::ActionWorkerBridge, Ack, ActionDispatch, ActionResult, Envelope,
-    MessageKind, WorkerHello, WorkerType,
+    MessageKind, WorkerHello, WorkerType, WorkflowArguments, WorkflowArgumentValue,
+    workflow_argument_value::Kind as ValueKind,
+    primitive_workflow_argument::Kind as PrimitiveKind,
 };
+
+/// Convert a WorkflowArgumentValue proto to a JSON value.
+fn proto_value_to_json(value: &WorkflowArgumentValue) -> serde_json::Value {
+    match &value.kind {
+        Some(ValueKind::Primitive(prim)) => match &prim.kind {
+            Some(PrimitiveKind::StringValue(s)) => serde_json::Value::String(s.clone()),
+            Some(PrimitiveKind::DoubleValue(d)) => serde_json::json!(*d),
+            Some(PrimitiveKind::IntValue(i)) => serde_json::json!(*i),
+            Some(PrimitiveKind::BoolValue(b)) => serde_json::Value::Bool(*b),
+            Some(PrimitiveKind::NullValue(_)) => serde_json::Value::Null,
+            None => serde_json::Value::Null,
+        },
+        Some(ValueKind::ListValue(list)) => {
+            let items: Vec<serde_json::Value> = list.items.iter().map(proto_value_to_json).collect();
+            serde_json::Value::Array(items)
+        }
+        Some(ValueKind::TupleValue(tuple)) => {
+            let items: Vec<serde_json::Value> = tuple.items.iter().map(proto_value_to_json).collect();
+            serde_json::Value::Array(items)
+        }
+        Some(ValueKind::DictValue(dict)) => {
+            let map: serde_json::Map<String, serde_json::Value> = dict
+                .entries
+                .iter()
+                .filter_map(|entry| {
+                    entry.value.as_ref().map(|v| (entry.key.clone(), proto_value_to_json(v)))
+                })
+                .collect();
+            serde_json::Value::Object(map)
+        }
+        Some(ValueKind::Basemodel(bm)) => {
+            // Convert BaseModel to a dict with type info
+            let mut map = serde_json::Map::new();
+            map.insert("__type__".to_string(), serde_json::json!({
+                "module": bm.module.clone(),
+                "name": bm.name.clone(),
+            }));
+            if let Some(data) = &bm.data {
+                for entry in &data.entries {
+                    if let Some(v) = &entry.value {
+                        map.insert(entry.key.clone(), proto_value_to_json(v));
+                    }
+                }
+            }
+            serde_json::Value::Object(map)
+        }
+        Some(ValueKind::Exception(exc)) => {
+            serde_json::json!({
+                "__exception__": true,
+                "type": exc.r#type,
+                "module": exc.module,
+                "message": exc.message,
+                "traceback": exc.traceback,
+            })
+        }
+        None => serde_json::Value::Null,
+    }
+}
+
+/// Convert WorkflowArguments proto to a JSON object.
+fn proto_args_to_json(args: &Option<WorkflowArguments>) -> serde_json::Value {
+    match args {
+        Some(workflow_args) => {
+            let map: serde_json::Map<String, serde_json::Value> = workflow_args
+                .arguments
+                .iter()
+                .filter_map(|arg| {
+                    arg.value.as_ref().map(|v| (arg.key.clone(), proto_value_to_json(v)))
+                })
+                .collect();
+            serde_json::Value::Object(map)
+        }
+        None => serde_json::json!({}),
+    }
+}
 
 /// State for a connected action worker.
 struct WorkerConnection {
@@ -244,11 +321,8 @@ impl ActionWorkerBridge for ActionWorkerBridgeService {
 
                                 // Update database with result
                                 if action_result.success {
-                                    // Convert payload to JSON (simplified - just store success)
-                                    let result_json = serde_json::json!({
-                                        "success": true,
-                                        // TODO: Properly deserialize payload
-                                    });
+                                    // Convert payload proto to JSON
+                                    let result_json = proto_args_to_json(&action_result.payload);
 
                                     match db.complete_action_atomic(action_id, dispatch_token, result_json).await {
                                         Ok((action_updated, instance_rescheduled)) => {

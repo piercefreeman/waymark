@@ -359,6 +359,12 @@ def main() -> None:
     """Entry point for rappel-instance-worker command."""
     args = _parse_args(sys.argv[1:])
 
+    # Add current directory to sys.path so user modules can be imported
+    import os
+    cwd = os.getcwd()
+    if cwd not in sys.path:
+        sys.path.insert(0, cwd)
+
     # Import user modules to register workflows and actions
     for module_name in args.user_module:
         print(f"[InstanceWorker] Importing module: {module_name}")
