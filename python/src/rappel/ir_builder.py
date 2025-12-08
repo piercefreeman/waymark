@@ -153,8 +153,8 @@ RECOMMENDATIONS = {
         "For other cases, use a for loop or an @action."
     ),
     "dict_comprehension": (
-        "Dict comprehensions are not supported in workflow code.\n"
-        "Use an @action to build dictionaries:\n\n"
+        "Dict comprehensions are only supported when assigned directly to a variable.\n"
+        "For other cases, use a for loop or an @action:\n\n"
         "    @action\n"
         "    async def build_dict(items: list) -> dict:\n"
         "        return {k: v for k, v in items}"
@@ -458,6 +458,9 @@ class IRBuilder(ast.NodeVisitor):
         Raises UnsupportedPatternError for unsupported statement types.
         """
         if isinstance(node, ast.Assign):
+            dict_expanded = self._expand_dict_comprehension_assignment(node)
+            if dict_expanded is not None:
+                return dict_expanded
             expanded = self._expand_list_comprehension_assignment(node)
             if expanded is not None:
                 return expanded
@@ -671,6 +674,103 @@ class IRBuilder(ast.NodeVisitor):
             ast.copy_location(if_stmt, gen.ifs[0])
             ast.fix_missing_locations(if_stmt)
             loop_body = [if_stmt]
+
+        loop_ast = ast.For(
+            target=copy.deepcopy(gen.target),
+            iter=copy.deepcopy(gen.iter),
+            body=loop_body,
+            orelse=[],
+            type_comment=None,
+        )
+        ast.copy_location(loop_ast, node)
+        ast.fix_missing_locations(loop_ast)
+
+        statements: List[ir.Statement] = []
+        init_stmt = self._visit_assign(init_assign_ast)
+        if init_stmt:
+            statements.append(init_stmt)
+        statements.extend(self._visit_for(loop_ast))
+
+        return statements
+
+    def _expand_dict_comprehension_assignment(
+        self, node: ast.Assign
+    ) -> Optional[List[ir.Statement]]:
+        """Expand a dict comprehension assignment into loop-based statements."""
+        if not isinstance(node.value, ast.DictComp):
+            return None
+
+        if len(node.targets) != 1 or not isinstance(node.targets[0], ast.Name):
+            line = getattr(node, "lineno", None)
+            col = getattr(node, "col_offset", None)
+            raise UnsupportedPatternError(
+                "Dict comprehension assignments must target a single variable",
+                "Assign the comprehension to a simple variable like `result = {k: v for k, v in pairs}`",
+                line=line,
+                col=col,
+            )
+
+        dictcomp = node.value
+        if len(dictcomp.generators) != 1:
+            line = getattr(dictcomp, "lineno", None)
+            col = getattr(dictcomp, "col_offset", None)
+            raise UnsupportedPatternError(
+                "Dict comprehensions with multiple generators are not supported",
+                "Use nested for loops instead of combining multiple generators in one comprehension",
+                line=line,
+                col=col,
+            )
+
+        gen = dictcomp.generators[0]
+        if gen.is_async:
+            line = getattr(dictcomp, "lineno", None)
+            col = getattr(dictcomp, "col_offset", None)
+            raise UnsupportedPatternError(
+                "Async dict comprehensions are not supported",
+                "Rewrite using an explicit async for loop",
+                line=line,
+                col=col,
+            )
+
+        target_name = node.targets[0].id
+
+        # Initialize accumulator: result = {}
+        init_assign_ast = ast.Assign(
+            targets=[ast.Name(id=target_name, ctx=ast.Store())],
+            value=ast.Dict(keys=[], values=[]),
+            type_comment=None,
+        )
+        ast.copy_location(init_assign_ast, node)
+        ast.fix_missing_locations(init_assign_ast)
+
+        # result[key] = value
+        subscript_target = ast.Subscript(
+            value=ast.Name(id=target_name, ctx=ast.Load()),
+            slice=copy.deepcopy(dictcomp.key),
+            ctx=ast.Store(),
+        )
+        append_assign_ast = ast.Assign(
+            targets=[subscript_target],
+            value=copy.deepcopy(dictcomp.value),
+            type_comment=None,
+        )
+        ast.copy_location(append_assign_ast, node.value)
+        ast.fix_missing_locations(append_assign_ast)
+
+        loop_body: List[ast.stmt] = []
+        if gen.ifs:
+            condition: ast.expr
+            if len(gen.ifs) == 1:
+                condition = copy.deepcopy(gen.ifs[0])
+            else:
+                condition = ast.BoolOp(op=ast.And(), values=[copy.deepcopy(iff) for iff in gen.ifs])
+                ast.copy_location(condition, gen.ifs[0])
+            if_stmt = ast.If(test=condition, body=[append_assign_ast], orelse=[])
+            ast.copy_location(if_stmt, gen.ifs[0])
+            ast.fix_missing_locations(if_stmt)
+            loop_body.append(if_stmt)
+        else:
+            loop_body.append(append_assign_ast)
 
         loop_ast = ast.For(
             target=copy.deepcopy(gen.target),
@@ -2386,6 +2486,10 @@ class IRBuilder(ast.NodeVisitor):
         for t in targets:
             if isinstance(t, ast.Name):
                 result.append(t.id)
+            elif isinstance(t, ast.Subscript):
+                formatted = _format_subscript_target(t)
+                if formatted:
+                    result.append(formatted)
             elif isinstance(t, ast.Tuple):
                 for elt in t.elts:
                     if isinstance(elt, ast.Name):
@@ -2550,7 +2654,7 @@ def _check_unsupported_expression(expr: ast.AST) -> None:
         )
     elif isinstance(expr, ast.DictComp):
         raise UnsupportedPatternError(
-            "Dict comprehensions are not supported",
+            "Dict comprehensions are not supported in this context",
             RECOMMENDATIONS["dict_comprehension"],
             line=line,
             col=col,
@@ -2583,6 +2687,20 @@ def _check_unsupported_expression(expr: ast.AST) -> None:
             line=line,
             col=col,
         )
+
+
+def _format_subscript_target(target: ast.Subscript) -> Optional[str]:
+    """Convert a subscript target to a string representation for tracking."""
+    if not isinstance(target.value, ast.Name):
+        return None
+
+    base = target.value.id
+    try:
+        index_str = ast.unparse(target.slice)
+    except Exception:
+        return None
+
+    return f"{base}[{index_str}]"
 
 
 def _constant_to_literal(value: Any) -> Optional[ir.Literal]:

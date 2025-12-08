@@ -1192,6 +1192,51 @@ class TestUnsupportedPatternDetection:
         assert "statuses" in conditional_stmt.if_branch.body.targets
         assert conditional_stmt.else_branch.body.targets
 
+    def test_dict_comprehension_assignment_is_supported(self) -> None:
+        """Test: dict comprehension assignments expand into for loop IR."""
+        from tests.fixtures_comprehension.dict_comprehension_assignment import (
+            DictComprehensionAssignmentWorkflow,
+        )
+
+        program = DictComprehensionAssignmentWorkflow.workflow_ir()
+
+        run_fn = next(fn for fn in program.functions if fn.name == "run")
+        has_initializer = any(
+            stmt.HasField("assignment")
+            and list(stmt.assignment.targets) == ["active_lookup"]
+            and stmt.assignment.value.HasField("dict")
+            and len(stmt.assignment.value.dict.entries) == 0
+            for stmt in run_fn.body.statements
+        )
+        assert has_initializer, "Expected accumulator initialization for active_lookup"
+
+        for_loop = next(
+            (stmt.for_loop for stmt in run_fn.body.statements if stmt.HasField("for_loop")),
+            None,
+        )
+        assert for_loop is not None, "Expected for loop generated from dict comprehension"
+        assert "user" in for_loop.loop_vars
+        assert "active_lookup" in for_loop.body.targets
+
+    def test_dict_comprehension_tuple_assignment_is_supported(self) -> None:
+        """Test: dict comprehension assignments with tuple unpacking expand to IR."""
+        from tests.fixtures_comprehension.dict_comprehension_tuple import (
+            DictComprehensionTupleWorkflow,
+        )
+
+        program = DictComprehensionTupleWorkflow.workflow_ir()
+        for_loop = next(
+            (
+                stmt.for_loop
+                for fn in program.functions
+                for stmt in fn.body.statements
+                if stmt.HasField("for_loop")
+            ),
+            None,
+        )
+        assert for_loop is not None
+        assert "mapping" in for_loop.body.targets
+
     def test_delete_statement_raises_error(self) -> None:
         """Test: del statements raise error with recommendation."""
         import pytest
