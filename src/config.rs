@@ -23,6 +23,12 @@ pub struct Config {
     /// Number of instance workers to spawn
     pub instance_worker_count: usize,
 
+    /// Max concurrent actions per action worker
+    pub max_concurrent_per_action_worker: usize,
+
+    /// Max concurrent instances per instance worker
+    pub max_concurrent_per_instance_worker: usize,
+
     /// Python modules to load (contain workflows and actions)
     pub user_modules: Vec<String>,
 }
@@ -57,6 +63,18 @@ impl Config {
             .and_then(|s| s.parse().ok())
             .unwrap_or(4);
 
+        let max_concurrent_per_action_worker: usize =
+            std::env::var("RAPPEL_MAX_CONCURRENT_PER_ACTION_WORKER")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(10);
+
+        let max_concurrent_per_instance_worker: usize =
+            std::env::var("RAPPEL_MAX_CONCURRENT_PER_INSTANCE_WORKER")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(5);
+
         let user_modules: Vec<String> = std::env::var("RAPPEL_USER_MODULES")
             .unwrap_or_default()
             .split(',')
@@ -71,6 +89,8 @@ impl Config {
             instance_grpc_addr,
             action_worker_count,
             instance_worker_count,
+            max_concurrent_per_action_worker,
+            max_concurrent_per_instance_worker,
             user_modules,
         })
     }

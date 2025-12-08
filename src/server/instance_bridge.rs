@@ -1,9 +1,11 @@
 //! InstanceWorkerBridge gRPC service.
 //!
 //! Handles bidirectional streaming with instance workers.
+//! Tracks capacity per worker and only dequeues what we can handle.
 
 use std::collections::HashMap;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use futures::Stream;
@@ -20,25 +22,41 @@ use crate::messages::{
 
 /// State for a connected instance worker.
 struct WorkerConnection {
-    #[allow(dead_code)]
     worker_id: u64,
     tx: mpsc::Sender<Envelope>,
+    /// Number of instances currently in-flight for this worker
+    in_flight: AtomicUsize,
 }
 
 /// Shared state for the instance worker bridge.
 pub struct InstanceWorkerBridgeState {
     /// Connected workers by ID
-    workers: RwLock<HashMap<u64, WorkerConnection>>,
+    workers: RwLock<HashMap<u64, Arc<WorkerConnection>>>,
     /// Next delivery ID
     next_delivery_id: std::sync::atomic::AtomicU64,
+    /// Max concurrent instances per worker (from config)
+    max_concurrent_per_worker: usize,
 }
 
 impl InstanceWorkerBridgeState {
-    pub fn new() -> Self {
+    pub fn new(max_concurrent_per_worker: usize) -> Self {
         InstanceWorkerBridgeState {
             workers: RwLock::new(HashMap::new()),
             next_delivery_id: std::sync::atomic::AtomicU64::new(1),
+            max_concurrent_per_worker,
         }
+    }
+
+    /// Get total available slots across all connected workers.
+    pub async fn available_slots(&self) -> usize {
+        let workers = self.workers.read().await;
+        workers
+            .values()
+            .map(|w| {
+                let in_flight = w.in_flight.load(Ordering::SeqCst);
+                self.max_concurrent_per_worker.saturating_sub(in_flight)
+            })
+            .sum()
     }
 
     /// Get the next delivery ID.
@@ -48,12 +66,24 @@ impl InstanceWorkerBridgeState {
     }
 
     /// Send an instance dispatch to an available worker.
+    /// Picks the worker with the most available capacity.
+    /// Increments in_flight counter on dispatch.
     pub async fn dispatch_instance(&self, dispatch: InstanceDispatch) -> Result<(), Status> {
         let workers = self.workers.read().await;
 
-        // Simple round-robin: pick first available worker
-        // TODO: Better load balancing, maybe sticky per instance
-        if let Some(conn) = workers.values().next() {
+        // Find worker with most available capacity
+        let best_worker = workers
+            .values()
+            .filter(|w| {
+                let in_flight = w.in_flight.load(Ordering::SeqCst);
+                in_flight < self.max_concurrent_per_worker
+            })
+            .min_by_key(|w| w.in_flight.load(Ordering::SeqCst));
+
+        if let Some(conn) = best_worker {
+            // Increment in_flight BEFORE sending
+            conn.in_flight.fetch_add(1, Ordering::SeqCst);
+
             let envelope = Envelope {
                 delivery_id: self.next_delivery_id(),
                 partition_id: 0,
@@ -61,26 +91,23 @@ impl InstanceWorkerBridgeState {
                 payload: prost::Message::encode_to_vec(&dispatch),
             };
 
-            conn.tx
-                .send(envelope)
-                .await
-                .map_err(|_| Status::unavailable("Worker disconnected"))?;
+            if let Err(e) = conn.tx.send(envelope).await {
+                // Failed to send, decrement in_flight
+                conn.in_flight.fetch_sub(1, Ordering::SeqCst);
+                return Err(Status::unavailable(format!("Worker disconnected: {}", e)));
+            }
 
             Ok(())
         } else {
-            Err(Status::unavailable("No workers available"))
+            Err(Status::resource_exhausted(
+                "No workers with available capacity",
+            ))
         }
     }
 
     /// Get the number of connected workers.
     pub async fn worker_count(&self) -> usize {
         self.workers.read().await.len()
-    }
-}
-
-impl Default for InstanceWorkerBridgeState {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -139,17 +166,22 @@ impl InstanceWorkerBridge for InstanceWorkerBridgeService {
 
                                 worker_id = Some(hello.worker_id);
 
-                                // Register worker
+                                // Register worker with capacity tracking
                                 let mut workers = state.workers.write().await;
                                 workers.insert(
                                     hello.worker_id,
-                                    WorkerConnection {
+                                    Arc::new(WorkerConnection {
                                         worker_id: hello.worker_id,
                                         tx: tx.clone(),
-                                    },
+                                        in_flight: AtomicUsize::new(0),
+                                    }),
                                 );
 
-                                info!(worker_id = hello.worker_id, "Instance worker connected");
+                                info!(
+                                    worker_id = hello.worker_id,
+                                    max_concurrent = state.max_concurrent_per_worker,
+                                    "Instance worker connected"
+                                );
                             }
 
                             MessageKind::Ack => {
@@ -173,6 +205,14 @@ impl InstanceWorkerBridge for InstanceWorkerBridgeService {
                                     "Instance reported pending actions"
                                 );
 
+                                // Decrement in_flight - instance yielded with pending actions
+                                if let Some(wid) = worker_id {
+                                    let workers = state.workers.read().await;
+                                    if let Some(conn) = workers.get(&wid) {
+                                        conn.in_flight.fetch_sub(1, Ordering::SeqCst);
+                                    }
+                                }
+
                                 // TODO: Add actions to database queue
                                 // Update instance status to waiting_for_actions
                             }
@@ -187,6 +227,14 @@ impl InstanceWorkerBridge for InstanceWorkerBridgeService {
                                     total_actions = complete.total_actions,
                                     "Instance completed"
                                 );
+
+                                // Decrement in_flight - instance completed
+                                if let Some(wid) = worker_id {
+                                    let workers = state.workers.read().await;
+                                    if let Some(conn) = workers.get(&wid) {
+                                        conn.in_flight.fetch_sub(1, Ordering::SeqCst);
+                                    }
+                                }
 
                                 // TODO: Mark instance as completed in database
                             }
