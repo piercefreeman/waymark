@@ -1,7 +1,7 @@
-use base64::Engine;
+use clap::Parser;
 use prost::Message;
 use rappel::{
-    EdgeType, WorkflowInstanceId,
+    Database, EdgeType, WorkflowInstanceId, WorkflowVersionId,
     ast::Program,
     completion::{InlineContext, analyze_subgraph, execute_inline_subgraph},
     convert_to_dag,
@@ -11,14 +11,34 @@ use serde_json::json;
 use std::collections::{BTreeMap, HashMap};
 use uuid::Uuid;
 
-fn main() {
-    // Base64-encoded Program proto for benchmark workflow (captured from DB)
-    let b64 = "Co8BCg1fX2lmX3RoZW5fMV9fEgAacgpwCmQKBnJlc3VsdBJaUk4KFHByb2Nlc3Nfc3BlY2lhbF9oYXNoEiIKCGFuYWx5c2lzEhYSCgoIYW5hbHlzaXNaCAgUEDAYFCA4IhJiZW5jaG1hcmtfd29ya2Zsb3daCAgUEAwYFCA5UggIFBAMGBQgOSIICBMQCBgWIDgKjgEKDV9faWZfZWxzZV8yX18SABpxCm8KYwoGcmVzdWx0EllSTQoTcHJvY2Vzc19ub3JtYWxfaGFzaBIiCghhbmFseXNpcxIWEgoKCGFuYWx5c2lzWggIFhAvGBYgNyISYmVuY2htYXJrX3dvcmtmbG93WggIFhAMGBYgOFIICBYQDBgWIDgiCAgWEAwYFiA4CuQDCg5fX2Zvcl9ib2R5XzNfXxIiCgpoYXNoX3ZhbHVlCglwcm9jZXNzZWQSCXByb2Nlc3NlZBqjAwpuCmIKCGFuYWx5c2lzElZSSgoMYW5hbHl6ZV9oYXNoEiYKCmhhc2hfdmFsdWUSGBIMCgpoYXNoX3ZhbHVlWggIEBAmGBAgMCISYmVuY2htYXJrX3dvcmtmbG93WggIEBAIGBAgMVIICBAQCBgQIDEKowEylgEKaQo+OjIKFhIKCghhbmFseXNpc1oICBMQCxgTIBMSGAoMGgppc19zcGVjaWFsWggIExAUGBMgIFoICBMQCxgTICESHRIREg8KDV9faWZfdGhlbl8xX18iCAgTEAgYFiA4GggIExAIGBYgOBopCh0SERIPCg1fX2lmX2Vsc2VfMl9fIggIFhAMGBYgOBIICBYQDBgWIDhSCAgTEAgYFiA4CmQKWAoJcHJvY2Vzc2VkEksaPwoXEgsKCXByb2Nlc3NlZFoICBgQCBgYICAQARoiKhYKFBIICgZyZXN1bHRaCAgYEBkYGCAfWggIGBAIGBggIFoICBgQCBgYICBSCAgYEAgYGCAgCiVCGQoXEgsKCXByb2Nlc3NlZFoICA4QBBgYICBSCAgOEAQYGCAgIggIDhAEGBggIAqqBAoDcnVuEhUKB2luZGljZXMKCml0ZXJhdGlvbnMagwQKrwEKogEKBmhhc2hlcxKXAVoICAcQBBgKIAZqigEKFRIJCgdpbmRpY2VzWggICRARGAkgGBIBaRpuChZjb21wdXRlX2hhc2hfZm9yX2luZGV4EhgKBWluZGV4Eg8SAwoBaVoICAgQJRgIICYSJgoKaXRlcmF0aW9ucxIYEgwKCml0ZXJhdGlvbnNaCAgIEDMYCCA9IhJiZW5jaG1hcmtfd29ya2Zsb3dSCAgHEAQYCiAGCiUKGQoJcHJvY2Vzc2VkEgwqAFoICA0QEBgNIBJSCAgNEAQYDSASCpQBKocBCgpoYXNoX3ZhbHVlEhQSCAoGaGFzaGVzWggIDhAWGA4gHBpjCglwcm9jZXNzZWQSTBJKCg5fX2Zvcl9ib2R5XzNfXxocCgpoYXNoX3ZhbHVlEg4SDAoKaGFzaF92YWx1ZRoaCglwcm9jZXNzZWQSDRILCglwcm9jZXNzZWQiCAgOEAQYGCAgUggIDhAEGBggIApsCmAKB3N1bW1hcnkSVVJJCg9jb21iaW5lX3Jlc3VsdHMSIgoHcmVzdWx0cxIXEgsKCXByb2Nlc3NlZFoICBsQJBgbIC0iEmJlbmNobWFya193b3JrZmxvd1oICBsQBBgbIC5SCAgbEAQYGyAuCiNCFwoVEgkKB3N1bW1hcnlaCAgcEAsYHCASUggIHBAEGBwgEiIGCAEYHCAS";
+#[derive(Parser, Debug)]
+#[command(name = "dag_debug", about = "Debug DAG for a workflow version")]
+struct Args {
+    /// Workflow version ID to debug
+    #[arg(long)]
+    version_id: Uuid,
+}
 
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(b64)
-        .expect("failed to decode base64");
-    let program = Program::decode(bytes.as_slice()).expect("decode program");
+#[tokio::main]
+async fn main() {
+    let args = Args::parse();
+
+    // Connect to database
+    let database_url =
+        std::env::var("DATABASE_URL").expect("DATABASE_URL environment variable required");
+    let database = Database::connect(&database_url)
+        .await
+        .expect("failed to connect to database");
+
+    // Load workflow version
+    let version_id = WorkflowVersionId(args.version_id);
+    let workflow_version = database
+        .get_workflow_version(version_id)
+        .await
+        .expect("failed to load workflow version");
+
+    let program = Program::decode(workflow_version.program_proto.as_slice())
+        .expect("decode program");
     let dag = convert_to_dag(&program);
 
     println!("=== Nodes ===");
@@ -27,16 +47,6 @@ fn main() {
         println!(
             "{}: type={} targets={:?} kwargs={:?}",
             id, node.node_type, node.targets, node.kwargs
-        );
-    }
-    if let Some(assign) = dag
-        .nodes
-        .get("for_body_call_21:assign_13")
-        .and_then(|n| n.assign_expr.as_ref())
-    {
-        println!(
-            "assign_13 expr = {}",
-            rappel::ast_printer::print_expr(assign)
         );
     }
 
@@ -69,38 +79,87 @@ fn main() {
 
     let helper = DAGHelper::new(&dag);
 
-    // Check spread_action_17 subgraph
-    let spread_subgraph = analyze_subgraph("spread_action_17", &dag, &helper);
-    println!(
-        "\nFrontiers from spread_action_17: {:?}",
-        spread_subgraph.frontier_nodes
-    );
+    // Check spread_action subgraph if it exists
+    if dag.nodes.contains_key("spread_action_6") {
+        let spread_subgraph = analyze_subgraph("spread_action_6", &dag, &helper);
+        println!(
+            "\nFrontiers from spread_action_6: {:?}",
+            spread_subgraph.frontier_nodes
+        );
+    }
 
-    let subgraph = analyze_subgraph("aggregator_18", &dag, &helper);
-    println!(
-        "\nFrontiers from aggregator_18: {:?}",
-        subgraph.frontier_nodes
-    );
+    // Check aggregator subgraph if it exists
+    if dag.nodes.contains_key("aggregator_7") {
+        let subgraph = analyze_subgraph("aggregator_7", &dag, &helper);
+        println!(
+            "\nFrontiers from aggregator_7: {:?}",
+            subgraph.frontier_nodes
+        );
+        println!(
+            "Inline nodes from aggregator_7: {:?}",
+            subgraph.inline_nodes
+        );
+        println!(
+            "All nodes from aggregator_7: {:?}",
+            subgraph.all_node_ids
+        );
 
-    let ctx = InlineContext {
-        initial_scope: &HashMap::new(),
-        existing_inbox: &HashMap::new(),
-        spread_index: None,
-    };
-    let plan = execute_inline_subgraph(
-        "aggregator_18",
-        json!(["dummy"]),
-        ctx,
-        &subgraph,
-        &dag,
-        WorkflowInstanceId(Uuid::nil()),
-    )
-    .expect("execute_inline_subgraph");
-    println!(
-        "Readiness increments targets: {:?}",
-        plan.readiness_increments
-            .iter()
-            .map(|r| r.node_id.as_str())
-            .collect::<Vec<_>>()
-    );
+        // Enable tracing for debugging
+        use tracing_subscriber::fmt::format::FmtSpan;
+        let _ = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::DEBUG)
+            .with_span_events(FmtSpan::CLOSE)
+            .try_init();
+
+        let ctx = InlineContext {
+            initial_scope: &HashMap::new(),
+            existing_inbox: &HashMap::new(),
+            spread_index: None,
+        };
+        let plan = execute_inline_subgraph(
+            "aggregator_7",
+            json!(["hash1", "hash2"]),
+            ctx,
+            &subgraph,
+            &dag,
+            WorkflowInstanceId(Uuid::nil()),
+        );
+
+        match plan {
+            Ok(plan) => {
+                println!(
+                    "Readiness increments targets: {:?}",
+                    plan.readiness_increments
+                        .iter()
+                        .map(|r| r.node_id.as_str())
+                        .collect::<Vec<_>>()
+                );
+                println!(
+                    "Inbox writes: {:?}",
+                    plan.inbox_writes
+                        .iter()
+                        .map(|w| format!("{} -> {} ({})", w.source_node_id, w.target_node_id, w.variable_name))
+                        .collect::<Vec<_>>()
+                );
+            }
+            Err(e) => {
+                println!("execute_inline_subgraph error: {:?}", e);
+            }
+        }
+
+        // Check if loop_exit_14 -> action_15 edge exists
+        use rappel::completion::{find_direct_predecessor_in_path, is_direct_predecessor};
+        let executed_inline = subgraph.inline_nodes.clone();
+        let pred = find_direct_predecessor_in_path(
+            &executed_inline,
+            "action_15",
+            "aggregator_7",
+            &dag,
+        );
+        println!("Predecessor for action_15: {}", pred);
+        println!("is_direct_predecessor(loop_exit_14, action_15): {}",
+            is_direct_predecessor("loop_exit_14", "action_15", &dag));
+        println!("is_direct_predecessor(pred, action_15): {}",
+            is_direct_predecessor(&pred, "action_15", &dag));
+    }
 }

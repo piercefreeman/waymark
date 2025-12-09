@@ -34,9 +34,33 @@ const BENCHMARK_WORKFLOW_MODULE: &str = include_str!("../../tests/fixtures/bench
 // CLI Arguments
 // ============================================================================
 
+/// Benchmark type to run
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+enum BenchmarkType {
+    /// Fan-out with blocking for loop (current default)
+    /// Tests sequential processing with conditional branching
+    ForLoop,
+    /// Pure fan-out - all actions run in parallel
+    /// Tests maximum action completion parallelism
+    FanOut,
+}
+
+impl std::fmt::Display for BenchmarkType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BenchmarkType::ForLoop => write!(f, "for-loop"),
+            BenchmarkType::FanOut => write!(f, "fan-out"),
+        }
+    }
+}
+
 #[derive(Parser, Debug)]
 #[command(name = "benchmark", about = "Run Rappel benchmarks")]
 struct Args {
+    /// Benchmark type to run
+    #[arg(long, value_enum, default_value = "for-loop")]
+    benchmark: BenchmarkType,
+
     /// Output results as JSON
     #[arg(long, default_value = "false")]
     json: bool,
@@ -76,6 +100,8 @@ struct Args {
 
 #[derive(Serialize, Debug)]
 struct BenchmarkOutput {
+    /// Benchmark type that was run
+    benchmark_type: String,
     /// Total number of actions executed
     total: u64,
     /// Total elapsed time in seconds
@@ -179,7 +205,12 @@ async fn start_grpc_server(
 // Python Environment
 // ============================================================================
 
-async fn setup_python_env(grpc_addr: SocketAddr, count: u32, iterations: u32) -> Result<TempDir> {
+async fn setup_python_env(
+    grpc_addr: SocketAddr,
+    count: u32,
+    iterations: u32,
+    benchmark_type: BenchmarkType,
+) -> Result<(TempDir, String)> {
     let env_dir = TempDir::new().context("create python env dir")?;
 
     // Write workflow module
@@ -188,18 +219,23 @@ async fn setup_python_env(grpc_addr: SocketAddr, count: u32, iterations: u32) ->
         BENCHMARK_WORKFLOW_MODULE.trim_start(),
     )?;
 
-    // Write registration script
+    // Write registration script based on benchmark type
     // indices is a list of integers [0, 1, 2, ..., count-1]
+    let (workflow_class, workflow_name) = match benchmark_type {
+        BenchmarkType::ForLoop => ("BenchmarkFanOutWorkflow", "benchmarkfanoutworkflow"),
+        BenchmarkType::FanOut => ("BenchmarkPureFanOutWorkflow", "benchmarkpurefanoutworkflow"),
+    };
+
     let register_script = format!(
         r#"
 import asyncio
 import os
 
-from benchmark_workflow import BenchmarkFanOutWorkflow
+from benchmark_workflow import {workflow_class}
 
 async def main():
     os.environ.pop("PYTEST_CURRENT_TEST", None)
-    wf = BenchmarkFanOutWorkflow()
+    wf = {workflow_class}()
     indices = list(range({count}))
     result = await wf.run(indices=indices, iterations={iterations})
     print(f"Registration result: {{result}}")
@@ -257,7 +293,7 @@ dependencies = [
     // Run registration
     run_shell_with_env(env_dir.path(), "uv run python register.py", &env_vars).await?;
 
-    Ok(env_dir)
+    Ok((env_dir, workflow_name.to_string()))
 }
 
 async fn run_shell(cwd: &std::path::Path, command: &str, envs: &[(&str, String)]) -> Result<()> {
@@ -420,14 +456,15 @@ async fn main() -> Result<()> {
     info!(addr = %worker_bridge.addr(), "worker bridge started");
 
     // Set up Python environment and run registration
-    let python_env = setup_python_env(grpc_addr, args.count, args.iterations).await?;
-    info!("workflow registered");
+    let (python_env, workflow_name) =
+        setup_python_env(grpc_addr, args.count, args.iterations, args.benchmark).await?;
+    info!(benchmark = %args.benchmark, "workflow registered");
 
     // Find the workflow version
     let versions = database.list_workflow_versions().await?;
     let version = versions
         .iter()
-        .find(|v| v.workflow_name == "benchmarkfanoutworkflow")
+        .find(|v| v.workflow_name == workflow_name)
         .context("benchmark workflow not found")?;
     let version_id = WorkflowVersionId(version.id);
 
@@ -451,7 +488,7 @@ async fn main() -> Result<()> {
     let mut instance_ids = vec![first_instance_id];
     for _ in 1..args.instances {
         let instance_id = database
-            .create_instance("benchmarkfanoutworkflow", version_id, None)
+            .create_instance(&workflow_name, version_id, None)
             .await?;
         instance_ids.push(instance_id);
     }
@@ -586,6 +623,7 @@ async fn main() -> Result<()> {
     let throughput = total as f64 / elapsed_s;
 
     let output = BenchmarkOutput {
+        benchmark_type: args.benchmark.to_string(),
         total,
         elapsed_s,
         throughput,
@@ -598,6 +636,7 @@ async fn main() -> Result<()> {
         println!("{}", serde_json::to_string(&output)?);
     } else {
         println!("\n=== Benchmark Results ===");
+        println!("Benchmark type: {}", args.benchmark);
         println!("Hosts: {}", args.hosts);
         println!("Workers per host: {}", args.workers_per_host);
         println!("Total workers: {}", total_workers);

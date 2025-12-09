@@ -265,12 +265,14 @@ async def combine_results(results: list[str]) -> dict[str, Any]:
 @workflow
 class BenchmarkFanOutWorkflow(Workflow):
     """
-    Fan-out/fan-in benchmark with conditional processing.
+    Fan-out/fan-in benchmark with conditional processing (for-loop variant).
 
     This workflow demonstrates:
     1. Spread over a range (parallel fan-out)
-    2. Sequential processing with conditional branching
+    2. Sequential processing with conditional branching (blocking for loop)
     3. Final aggregation (fan-in)
+
+    This tests the runtime's ability to handle sequential dependencies.
 
     Args:
         count: Number of parallel hash computations
@@ -305,3 +307,42 @@ class BenchmarkFanOutWorkflow(Workflow):
         # Fan-in: combine all results
         summary = await combine_results(processed)
         return summary
+
+
+@workflow
+class BenchmarkPureFanOutWorkflow(Workflow):
+    """
+    Pure fan-out benchmark - maximum parallelism test.
+
+    This workflow tests maximum action completion parallelism by:
+    1. Fanning out N actions that can all run in parallel
+    2. Each action is independent (no sequential dependencies)
+    3. Final aggregation waits for all results
+
+    This tests the runtime's raw throughput when there are no
+    sequential bottlenecks.
+
+    Args:
+        count: Number of parallel hash computations
+        iterations: Number of hash iterations per computation
+    """
+
+    async def run(
+        self,
+        indices: list[int],
+        iterations: int = 100,
+    ) -> dict[str, Any]:
+        # Pure fan-out: compute ALL hashes in parallel
+        hash_results = await asyncio.gather(*[
+            compute_hash_for_index(index=i, iterations=iterations)
+            for i in indices
+        ])
+
+        # Fan-in: aggregate with a single action (no sequential processing)
+        # Note: hash_results from gather is already a list that can be passed directly
+        final_hash = await aggregate_hashes(hashes=hash_results)
+
+        return {
+            "total_processed": len(hash_results),
+            "final_hash": final_hash,
+        }

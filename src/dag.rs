@@ -2133,9 +2133,12 @@ impl DAGConverter {
         // ============================================================
         // 7. Create loop_exit node (join point for break path)
         // ============================================================
+        // loop_exit only has one predecessor (loop_cond with break guard), so it
+        // can be treated as inline when the loop body has no actions.
         let exit_id = self.next_id("loop_exit");
         let exit_label = format!("end for {}", loop_vars_str);
-        let mut exit_node = DAGNode::new(exit_id.clone(), "join".to_string(), exit_label);
+        let mut exit_node = DAGNode::new(exit_id.clone(), "join".to_string(), exit_label)
+            .with_join_required_count(1);
         if let Some(ref fn_name) = self.current_function {
             exit_node = exit_node.with_function_name(fn_name);
         }

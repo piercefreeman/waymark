@@ -260,10 +260,21 @@ fn categorize_node(node: &DAGNode) -> NodeCategory {
         return NodeCategory::Output;
     }
 
-    // Aggregators and joins are barriers (wait for multiple predecessors)
-    // With normalized loops, the loop_exit (join) node is a barrier that
-    // waits for the loop condition to evaluate to false.
-    if node.is_aggregator || node.node_type == "join" {
+    // Aggregators are always barriers (wait for parallel/spread results)
+    if node.is_aggregator {
+        return NodeCategory::Barrier;
+    }
+
+    // Join nodes are barriers ONLY if they have join_required_count > 1
+    // (meaning they wait for multiple branches to converge).
+    // For loop_exit joins with required_count = 1, they're just collecting
+    // the loop accumulator and can be inlined.
+    if node.node_type == "join" {
+        // If join_required_count is explicitly set to 1, treat as inline
+        // Otherwise, conservatively treat as barrier (it will be computed later)
+        if node.join_required_count == Some(1) {
+            return NodeCategory::Inline;
+        }
         return NodeCategory::Barrier;
     }
 
@@ -570,8 +581,24 @@ pub fn execute_inline_subgraph(
         queue.push_back((edge.target.clone(), edge.is_loop_back));
     }
 
+    // Track loop iteration counts to prevent infinite loops
+    let mut loop_iterations: HashMap<String, usize> = HashMap::new();
+    const MAX_LOOP_ITERATIONS: usize = 10000;
+
     while let Some((node_id, reached_via_loop_back)) = queue.pop_front() {
-        if visited.contains(&node_id) {
+        // For loop-back traversals, we allow re-visiting loop nodes but track iteration count
+        if reached_via_loop_back {
+            let count = loop_iterations.entry(node_id.clone()).or_insert(0);
+            *count += 1;
+            if *count > MAX_LOOP_ITERATIONS {
+                warn!(
+                    node_id = %node_id,
+                    iterations = *count,
+                    "loop exceeded max iterations, terminating"
+                );
+                break;
+            }
+        } else if visited.contains(&node_id) {
             continue;
         }
         visited.insert(node_id.clone());
@@ -613,7 +640,11 @@ pub fn execute_inline_subgraph(
             // Continue to successors, evaluating guards
             // Use get_state_machine_successors to include loop-back edges
             for edge in helper.get_state_machine_successors(&node_id) {
-                if visited.contains(&edge.target) {
+                // Allow loop-back edges and their downstream nodes to re-visit (for inline loop execution)
+                // If we reached the current node via loop-back, we're in a loop iteration and need to
+                // allow re-visiting downstream nodes in the loop body too.
+                let is_loop_back_context = reached_via_loop_back || edge.is_loop_back;
+                if !is_loop_back_context && visited.contains(&edge.target) {
                     continue;
                 }
 
