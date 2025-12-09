@@ -246,6 +246,15 @@ pub type InlineScope = HashMap<String, JsonValue>;
 // ============================================================================
 
 /// Categorize a DAG node for subgraph analysis.
+///
+/// The key principle: **Barriers exist where actual runtime coordination is needed**
+/// (waiting for multiple async operations to complete). Nodes with only one predecessor
+/// can always be inlined because there's nothing to wait for - data flows directly.
+///
+/// - `Action`: External calls that require worker execution (actual async work)
+/// - `Barrier`: Structural nodes that wait for multiple branches to converge
+/// - `Inline`: Pure computation that can be evaluated immediately
+/// - `Output`: Workflow completion points
 fn categorize_node(node: &DAGNode) -> NodeCategory {
     // Only `is_output` nodes are workflow completion points.
     // These are function output boundary nodes. For the entry function, this
@@ -265,10 +274,10 @@ fn categorize_node(node: &DAGNode) -> NodeCategory {
         return NodeCategory::Barrier;
     }
 
-    // Join nodes are barriers ONLY if they have join_required_count > 1
-    // (meaning they wait for multiple branches to converge).
-    // For loop_exit joins with required_count = 1, they're just collecting
-    // the loop accumulator and can be inlined.
+    // Join nodes (like loop_exit) are barriers ONLY if they wait for multiple branches.
+    // A join with required_count = 1 has only one predecessor, so there's nothing to
+    // wait for - data flows directly and it can be inlined. This commonly happens with
+    // simple for-loops where the loop body doesn't have parallel branches inside.
     if node.node_type == "join" {
         // If join_required_count is explicitly set to 1, treat as inline
         // Otherwise, conservatively treat as barrier (it will be computed later)
