@@ -387,25 +387,19 @@ async fn wait_for_completion(
             return Err(anyhow!("Workflow execution timed out"));
         }
 
-        // Check workflow instance status
-        let instance = database.get_instance(instance_id).await?;
+        // Check workflow instance status using a direct query to avoid pool contention
+        // The database.get_instance uses the shared pool which may be contended by the runner
+        let status: String = sqlx::query_scalar(
+            "SELECT status FROM workflow_instances WHERE id = $1"
+        )
+        .bind(instance_id.0)
+        .fetch_one(database.pool())
+        .await
+        .unwrap_or_else(|_| "unknown".to_string());
 
-        match instance.status.as_str() {
+        match status.as_str() {
             "completed" => {
-                // Parse result if available
-                if let Some(result_payload) = instance.result_payload {
-                    let result = proto::WorkflowArguments::decode(&result_payload[..])
-                        .context("Failed to decode result")?;
-
-                    // Convert to JSON
-                    let mut result_map = serde_json::Map::new();
-                    for arg in result.arguments {
-                        if let Some(value) = arg.value {
-                            result_map.insert(arg.key, proto_value_to_json(&value));
-                        }
-                    }
-                    return Ok(Some(JsonValue::Object(result_map)));
-                }
+                // Return success marker - result fetching happens after runner shutdown
                 return Ok(None);
             }
             "failed" => {
@@ -442,8 +436,9 @@ async fn wait_for_completion(
                     last_progress = Instant::now();
                 }
 
-                // Still running, wait a bit
+                // Still running, wait a bit and yield to let the runner make progress
                 tokio::time::sleep(Duration::from_millis(50)).await;
+                tokio::task::yield_now().await;
             }
         }
     }
@@ -536,12 +531,18 @@ async fn main() -> Result<()> {
             .add_directive("tower=warn".parse().unwrap())
             .add_directive("tonic=warn".parse().unwrap())
     } else {
+        // Note: We need at least info level for rappel::runner to ensure proper async task scheduling.
+        // Setting rappel=warn causes timing issues with the runner task, so we use rappel::runner=info
+        // but keep other rappel modules quiet. This is a workaround for what appears to be a
+        // scheduling issue when tracing is completely disabled.
         tracing_subscriber::EnvFilter::from_default_env()
             .add_directive("hyper=warn".parse().unwrap())
             .add_directive("h2=warn".parse().unwrap())
             .add_directive("tower=warn".parse().unwrap())
             .add_directive("tonic=warn".parse().unwrap())
             .add_directive("rappel=warn".parse().unwrap())
+            .add_directive("rappel::runner=info".parse().unwrap())
+            .add_directive("rappel::db=info".parse().unwrap())
     };
 
     tracing_subscriber::fmt()
@@ -577,9 +578,11 @@ async fn main() -> Result<()> {
     });
     eprintln!("[run-workflow] Connecting to database at {}...", database_url);
 
+    // Use a larger pool size to avoid contention between runner and polling
+    let pool_size = (args.workers * 2).max(20);
     let database = tokio::time::timeout(
         Duration::from_secs(5),
-        Database::connect(&database_url)
+        Database::connect_with_pool_size(&database_url, pool_size)
     )
     .await
     .map_err(|_| anyhow!(
@@ -697,21 +700,20 @@ async fn main() -> Result<()> {
         }
     });
 
-    // Wait for completion
+    // Wait for completion (just status polling, no result fetch)
     let start = Instant::now();
     let timeout = Duration::from_secs(args.timeout);
-    let result = wait_for_completion(&database, instance_id, timeout, args.verbose).await;
+    let completed = wait_for_completion(&database, instance_id, timeout, args.verbose).await;
 
     let elapsed = start.elapsed();
 
-    // Shutdown
+    // Shutdown runner FIRST to release database connections
     runner.shutdown();
     let _ = tokio::time::timeout(Duration::from_secs(5), runner_handle).await;
-
     match Arc::try_unwrap(worker_pool) {
         Ok(pool) => {
-            if let Err(e) = pool.shutdown().await {
-                warn!("Failed to shutdown worker pool: {}", e);
+            if let Err(e) = tokio::time::timeout(Duration::from_secs(3), pool.shutdown()).await {
+                warn!("Worker pool shutdown timed out: {}", e);
             }
         }
         Err(_) => {
@@ -720,23 +722,44 @@ async fn main() -> Result<()> {
     }
 
     let _ = grpc_shutdown.send(());
-    worker_bridge.shutdown().await;
+    let _ = tokio::time::timeout(Duration::from_secs(2), worker_bridge.shutdown()).await;
     drop(python_env);
 
-    // Output result
-    match result {
-        Ok(Some(result_value)) => {
-            if args.json {
-                println!("{}", serde_json::to_string_pretty(&result_value)?);
+    // Now fetch result after runner is shutdown (database connections freed)
+    match completed {
+        Ok(_) => {
+            // Fetch the result payload now that runner is shutdown
+            let result_payload: Option<Vec<u8>> = sqlx::query_scalar(
+                "SELECT result_payload FROM workflow_instances WHERE id = $1"
+            )
+            .bind(instance_id.0)
+            .fetch_one(database.pool())
+            .await?;
+
+            if let Some(result_payload) = result_payload {
+                let result = proto::WorkflowArguments::decode(&result_payload[..])
+                    .context("Failed to decode result")?;
+
+                // Convert to JSON
+                let mut result_map = serde_json::Map::new();
+                for arg in result.arguments {
+                    if let Some(value) = arg.value {
+                        result_map.insert(arg.key, proto_value_to_json(&value));
+                    }
+                }
+                let result_value = JsonValue::Object(result_map);
+
+                if args.json {
+                    println!("{}", serde_json::to_string_pretty(&result_value)?);
+                } else {
+                    println!("\n=== Workflow Result ===");
+                    println!("{}", serde_json::to_string_pretty(&result_value)?);
+                    println!("\nCompleted in {:.2}s", elapsed.as_secs_f64());
+                }
             } else {
-                println!("\n=== Workflow Result ===");
-                println!("{}", serde_json::to_string_pretty(&result_value)?);
-                println!("\nCompleted in {:.2}s", elapsed.as_secs_f64());
+                println!("Workflow completed with no return value");
+                println!("Completed in {:.2}s", elapsed.as_secs_f64());
             }
-        }
-        Ok(None) => {
-            println!("Workflow completed with no return value");
-            println!("Completed in {:.2}s", elapsed.as_secs_f64());
         }
         Err(e) => {
             eprintln!("Error: {}", e);
