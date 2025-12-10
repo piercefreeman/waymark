@@ -285,6 +285,13 @@ impl ExpressionEvaluator {
     }
 
     fn eval_function_call(call: &ast::FunctionCall, scope: &Scope) -> EvaluationResult<JsonValue> {
+        // Evaluate positional args
+        let mut args = Vec::new();
+        for arg_expr in &call.args {
+            let val = Self::evaluate(arg_expr, scope)?;
+            args.push(val);
+        }
+
         // Evaluate kwargs
         let mut kwargs = HashMap::new();
         for kwarg in &call.kwargs {
@@ -296,11 +303,11 @@ impl ExpressionEvaluator {
             kwargs.insert(kwarg.name.clone(), val);
         }
 
-        // Built-in functions
+        // Built-in functions - support both positional and keyword args
         match call.name.as_str() {
-            "range" => Self::builtin_range(&kwargs),
-            "len" => Self::builtin_len(&kwargs),
-            "enumerate" => Self::builtin_enumerate(&kwargs),
+            "range" => Self::builtin_range(&args, &kwargs),
+            "len" => Self::builtin_len(&args, &kwargs),
+            "enumerate" => Self::builtin_enumerate(&args, &kwargs),
             _ => Err(EvaluationError::FunctionNotFound(call.name.clone())),
         }
     }
@@ -503,13 +510,55 @@ impl ExpressionEvaluator {
         }
     }
 
-    // Built-in functions
-    fn builtin_range(kwargs: &HashMap<String, JsonValue>) -> EvaluationResult<JsonValue> {
-        let start = kwargs.get("start").and_then(|v| v.as_i64()).unwrap_or(0);
-        let stop = kwargs.get("stop").and_then(|v| v.as_i64()).ok_or_else(|| {
-            EvaluationError::Evaluation("range() requires 'stop' argument".to_string())
-        })?;
-        let step = kwargs.get("step").and_then(|v| v.as_i64()).unwrap_or(1);
+    // Built-in functions - support both positional args and kwargs
+    // Positional args take precedence over kwargs
+
+    fn builtin_range(
+        args: &[JsonValue],
+        kwargs: &HashMap<String, JsonValue>,
+    ) -> EvaluationResult<JsonValue> {
+        // range(stop) or range(start, stop) or range(start, stop, step)
+        let (start, stop, step) = match args.len() {
+            0 => {
+                // Fall back to kwargs
+                let start = kwargs.get("start").and_then(|v| v.as_i64()).unwrap_or(0);
+                let stop = kwargs.get("stop").and_then(|v| v.as_i64()).ok_or_else(|| {
+                    EvaluationError::Evaluation("range() requires 'stop' argument".to_string())
+                })?;
+                let step = kwargs.get("step").and_then(|v| v.as_i64()).unwrap_or(1);
+                (start, stop, step)
+            }
+            1 => {
+                // range(stop)
+                let stop = args[0].as_i64().ok_or_else(|| {
+                    EvaluationError::Evaluation("range() argument must be integer".to_string())
+                })?;
+                (0, stop, 1)
+            }
+            2 => {
+                // range(start, stop)
+                let start = args[0].as_i64().ok_or_else(|| {
+                    EvaluationError::Evaluation("range() start must be integer".to_string())
+                })?;
+                let stop = args[1].as_i64().ok_or_else(|| {
+                    EvaluationError::Evaluation("range() stop must be integer".to_string())
+                })?;
+                (start, stop, 1)
+            }
+            _ => {
+                // range(start, stop, step)
+                let start = args[0].as_i64().ok_or_else(|| {
+                    EvaluationError::Evaluation("range() start must be integer".to_string())
+                })?;
+                let stop = args[1].as_i64().ok_or_else(|| {
+                    EvaluationError::Evaluation("range() stop must be integer".to_string())
+                })?;
+                let step = args[2].as_i64().ok_or_else(|| {
+                    EvaluationError::Evaluation("range() step must be integer".to_string())
+                })?;
+                (start, stop, step)
+            }
+        };
 
         if step == 0 {
             return Err(EvaluationError::Evaluation(
@@ -527,10 +576,18 @@ impl ExpressionEvaluator {
         Ok(JsonValue::Array(result))
     }
 
-    fn builtin_len(kwargs: &HashMap<String, JsonValue>) -> EvaluationResult<JsonValue> {
-        let items = kwargs.get("items").ok_or_else(|| {
-            EvaluationError::Evaluation("len() requires 'items' argument".to_string())
-        })?;
+    fn builtin_len(
+        args: &[JsonValue],
+        kwargs: &HashMap<String, JsonValue>,
+    ) -> EvaluationResult<JsonValue> {
+        // len(items)
+        let items = if !args.is_empty() {
+            &args[0]
+        } else {
+            kwargs.get("items").ok_or_else(|| {
+                EvaluationError::Evaluation("len() requires an argument".to_string())
+            })?
+        };
 
         let len = match items {
             JsonValue::Array(a) => a.len(),
@@ -546,10 +603,18 @@ impl ExpressionEvaluator {
         Ok(JsonValue::Number((len as i64).into()))
     }
 
-    fn builtin_enumerate(kwargs: &HashMap<String, JsonValue>) -> EvaluationResult<JsonValue> {
-        let items = kwargs.get("items").ok_or_else(|| {
-            EvaluationError::Evaluation("enumerate() requires 'items' argument".to_string())
-        })?;
+    fn builtin_enumerate(
+        args: &[JsonValue],
+        kwargs: &HashMap<String, JsonValue>,
+    ) -> EvaluationResult<JsonValue> {
+        // enumerate(items)
+        let items = if !args.is_empty() {
+            &args[0]
+        } else {
+            kwargs.get("items").ok_or_else(|| {
+                EvaluationError::Evaluation("enumerate() requires an argument".to_string())
+            })?
+        };
 
         let arr = match items {
             JsonValue::Array(a) => a,

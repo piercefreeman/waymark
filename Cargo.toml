@@ -27,6 +27,14 @@ path = "src/bin/start_workers.rs"
 name = "dag-visualize"
 path = "src/bin/dag_visualize.rs"
 
+[[bin]]
+name = "dag-debug"
+path = "src/bin/dag_debug.rs"
+
+[[bin]]
+name = "run-workflow"
+path = "src/bin/run_workflow.rs"
+
 [dependencies]
 anyhow = "1"
 axum = "0.7"
