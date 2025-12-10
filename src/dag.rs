@@ -822,7 +822,7 @@ impl DAGConverter {
                 continue;
             }
 
-            // For inlined functions (not entry), skip edges to/from input/output nodes
+            // For inlined functions (not entry), skip edges to/from input/output/return nodes
             if !is_entry_function {
                 // Handle edges from input node - these become edges from predecessor (handled by caller)
                 if input_id == Some(edge.source.as_str()) {
@@ -834,6 +834,14 @@ impl DAGConverter {
                 if output_id == Some(edge.target.as_str()) {
                     // Skip - the caller will wire outgoing edges
                     continue;
+                }
+
+                // Handle edges to return nodes - return nodes are skipped during expansion
+                // (they're artifacts of function wrapping), so edges targeting them must also be skipped
+                if let Some(target_node) = unexpanded.nodes.get(&edge.target) {
+                    if target_node.node_type == "return" {
+                        continue;
+                    }
                 }
             }
 
@@ -858,6 +866,19 @@ impl DAGConverter {
                 // (e.g., fn_call being expanded, or external node). Skip this edge.
                 continue;
             };
+
+            // For data flow edges targeting a fn_call node, skip them.
+            // The fn_call kwargs (like {processed: $processed}) indicate that the variable
+            // is passed into the function, but after expansion, only specific nodes inside
+            // the function actually use it. We skip these edges and let add_global_data_flow_edges
+            // recompute them correctly after expansion.
+            if edge.edge_type == EdgeType::DataFlow {
+                if let Some(target_node) = unexpanded.nodes.get(&edge.target) {
+                    if target_node.is_fn_call {
+                        continue;
+                    }
+                }
+            }
 
             let new_target = match id_map.get(&edge.target) {
                 Some(t) => t.clone(),
@@ -989,9 +1010,26 @@ impl DAGConverter {
             order
         };
 
+        // Collect loop-back edges to restore loop-carried data flow later.
+        let loop_back_edges: Vec<_> = dag
+            .edges
+            .iter()
+            .filter(|e| e.edge_type == EdgeType::StateMachine && e.is_loop_back)
+            .cloned()
+            .collect();
+
+        tracing::debug!(?order, "add_global_data_flow_edges order");
+
         // Collect variable modifications (definitions) across all nodes.
+        // Skip join nodes - they mark variable availability at a join point but don't
+        // actually define the variable. Including them in var_modifications causes
+        // incorrect data flow edges due to topological ordering issues in loops.
         let mut var_modifications: HashMap<String, Vec<String>> = HashMap::new();
         for (node_id, node) in dag.nodes.iter() {
+            // Skip join nodes - they don't define variables
+            if node.node_type == "join" {
+                continue;
+            }
             if node.is_input {
                 if let Some(ref inputs) = node.io_vars {
                     for input in inputs {
@@ -1017,6 +1055,7 @@ impl DAGConverter {
                 }
             }
         }
+        let var_modifications_clone = var_modifications.clone();
 
         // Collect edge guard expressions by source node, so we can check them without
         // borrowing dag.edges inside the closure (which would conflict with later mutations)
@@ -1098,6 +1137,11 @@ impl DAGConverter {
             if let Some(ref kwargs) = node.kwargs {
                 for value in kwargs.values() {
                     if value == &format!("${}", var_name) {
+                        tracing::trace!(
+                            node_id = %node.id,
+                            var_name = %var_name,
+                            "uses_var: found in kwargs"
+                        );
                         return true;
                     }
                 }
@@ -1105,6 +1149,11 @@ impl DAGConverter {
 
             if let Some(ref assign_expr) = node.assign_expr {
                 if expr_uses_var(assign_expr, var_name) {
+                    tracing::trace!(
+                        node_id = %node.id,
+                        var_name = %var_name,
+                        "uses_var: found in assign_expr"
+                    );
                     return true;
                 }
             }
@@ -1114,6 +1163,25 @@ impl DAGConverter {
             if let Some(guards) = node_guard_exprs.get(&node.id) {
                 for guard in guards {
                     if expr_uses_var(guard, var_name) {
+                        tracing::trace!(
+                            node_id = %node.id,
+                            var_name = %var_name,
+                            "uses_var: found in edge guard"
+                        );
+                        return true;
+                    }
+                }
+            }
+
+            // Check kwarg_exprs for variable references
+            if let Some(ref kwarg_exprs) = node.kwarg_exprs {
+                for (_, expr) in kwarg_exprs {
+                    if expr_uses_var(expr, var_name) {
+                        tracing::trace!(
+                            node_id = %node.id,
+                            var_name = %var_name,
+                            "uses_var: found in kwarg_exprs"
+                        );
                         return true;
                     }
                 }
@@ -1202,6 +1270,118 @@ impl DAGConverter {
                             }
                         }
                     }
+                }
+            }
+        }
+
+        // Build a set of nodes that are "inside a loop" - i.e., between the loop condition
+        // and the loop back edge source.
+        // We do this by BFS backwards from loop_back sources, stopping at nodes that are
+        // direct successors of loop heads (the loop heads themselves are boundary nodes).
+        let loop_back_sources: HashSet<String> = loop_back_edges
+            .iter()
+            .map(|e| e.source.clone())
+            .collect();
+        let loop_back_targets: HashSet<String> = loop_back_edges
+            .iter()
+            .map(|e| e.target.clone())
+            .collect();
+        let mut nodes_in_loop: HashSet<String> = loop_back_sources.clone();
+        {
+            // BFS backwards from loop_back sources to find all nodes inside loops
+            let mut queue: Vec<String> = loop_back_sources.iter().cloned().collect();
+            let mut visited: HashSet<String> = loop_back_sources.clone();
+            while let Some(node_id) = queue.pop() {
+                // Stop BFS if current node is a loop head (target of loop_back)
+                // Loop heads like loop_cond are boundary nodes, not "inside" the loop
+                if loop_back_targets.contains(&node_id) {
+                    continue;
+                }
+
+                // Find predecessors (nodes with edges TO this node)
+                for edge in dag.get_state_machine_edges() {
+                    if edge.target == node_id && !edge.is_loop_back {
+                        if visited.insert(edge.source.clone()) {
+                            nodes_in_loop.insert(edge.source.clone());
+                            queue.push(edge.source.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        // Add loop-carried edges for variables whose defining node is inside a loop.
+        // This ensures updated values flow to earlier nodes in the cycle (e.g., loop
+        // heads and extract/index nodes) and to the same node for the next iteration.
+        for (var_name, modifications) in var_modifications_clone {
+            for mod_node in modifications {
+                if !nodes_in_loop.contains(&mod_node) {
+                    continue;
+                }
+
+                for node_id in &order {
+                    if node_id == &mod_node {
+                        continue;
+                    }
+
+                    if let Some(node) = dag.nodes.get(node_id) {
+                        if uses_var(node, &var_name) {
+                            let key = (mod_node.clone(), node_id.clone(), Some(var_name.clone()));
+                            if seen_edges.insert(key.clone()) {
+                                dag.edges.push(DAGEdge {
+                                    source: mod_node.clone(),
+                                    target: node_id.clone(),
+                                    edge_type: EdgeType::DataFlow,
+                                    condition: None,
+                                    variable: Some(var_name.clone()),
+                                    guard_expr: None,
+                                    exception_types: None,
+                                    is_loop_back: false,
+                                    guard_string: None,
+                                });
+                            }
+                        }
+                    }
+                }
+
+                // Also feed the updated variable back into the defining node so it
+                // is available on the next iteration (e.g., loop counters).
+                let self_key = (mod_node.clone(), mod_node.clone(), Some(var_name.clone()));
+                if seen_edges.insert(self_key.clone()) {
+                    dag.edges.push(DAGEdge {
+                        source: mod_node.clone(),
+                        target: mod_node.clone(),
+                        edge_type: EdgeType::DataFlow,
+                        condition: None,
+                        variable: Some(var_name.clone()),
+                        guard_expr: None,
+                        exception_types: None,
+                        is_loop_back: false,
+                        guard_string: None,
+                    });
+                }
+            }
+        }
+
+        // Add loop-carried data flow edges along loop-back control edges so
+        // updated variables (e.g., loop indices or accumulators) are visible
+        // on the next iteration when the loop head re-executes.
+        for edge in loop_back_edges {
+            if let Some(source_node) = dag.nodes.get(&edge.source) {
+                let mut defined_vars: Vec<String> = Vec::new();
+                if let Some(ref target) = source_node.target {
+                    defined_vars.push(target.clone());
+                }
+                if let Some(ref targets) = source_node.targets {
+                    defined_vars.extend(targets.clone());
+                }
+
+                for var in defined_vars {
+                    dag.edges.push(DAGEdge::data_flow(
+                        edge.source.clone(),
+                        edge.target.clone(),
+                        &var,
+                    ));
                 }
             }
         }
@@ -4542,6 +4722,704 @@ fn main(input: [], output: [result]):
         assert!(
             action_names.contains("fallback_action"),
             "Should have fallback_action node from except handler"
+        );
+    }
+
+    // =========================================================================
+    // Complete Feature Workflow Tests
+    // =========================================================================
+    // These tests validate the DAG generation for a comprehensive workflow
+    // that exercises all Rappel language features. They ensure:
+    // 1. Conditional branches with action calls are properly inlined
+    // 2. For loop bodies with action calls are properly represented
+    // 3. Try/except bodies are properly inlined
+    // 4. Data flow edges are complete and correct
+    // 5. No dangling edges exist
+    // =========================================================================
+
+    /// The complete feature workflow IR that exercises all language features.
+    /// This is the IR representation of the Python workflow in
+    /// tests/fixtures/complete_feature_workflow.py
+    const COMPLETE_FEATURE_WORKFLOW_IR: &str = r#"
+fn __for_body_1__(input: [i, item, results], output: [results]):
+    item_result = @validate_item(item=item, index=i)
+    results = (results + [item_result])
+    return results
+
+fn __if_then_2__(input: [], output: []):
+    final_status = @handle_overflow(count=count)
+
+fn __if_elif_3__(input: [], output: []):
+    final_status = @handle_threshold(count=count)
+
+fn __if_else_4__(input: [], output: []):
+    final_status = @handle_normal(count=count)
+
+fn __try_body_5__(input: [results, risky_result], output: [risky_result]):
+    risky_result = @risky_operation(data=results)
+    return risky_result
+
+fn __except_handler_6__(input: [results, risky_result], output: [risky_result]):
+    risky_result = @fallback_operation(data=results)
+    return risky_result
+
+fn run(input: [items, threshold], output: []):
+    count = 0
+    results = []
+    status_a, status_b = parallel:
+        @check_status_a(service="alpha")
+        @check_status_b(service="beta")
+    processed = spread items:x -> @process_item(item=x)
+    for i, item in enumerate(processed):
+        results = __for_body_1__(i=i, item=item, results=results)
+    if (count > threshold):
+        __if_then_2__()
+    elif (count == threshold):
+        __if_elif_3__()
+    else:
+        __if_else_4__()
+    try:
+        risky_result = __try_body_5__(results=results, risky_result=risky_result)
+    except NetworkError:
+        risky_result = __except_handler_6__(results=results, risky_result=risky_result)
+    summary = @aggregate_results(items=processed, status_a=status_a, status_b=status_b, final_status=final_status)
+    return summary
+"#;
+
+    #[test]
+    fn test_complete_workflow_parses_successfully() {
+        let program = parse(COMPLETE_FEATURE_WORKFLOW_IR).expect("Should parse complete workflow");
+        assert_eq!(program.functions.len(), 7, "Should have 7 functions");
+
+        let function_names: HashSet<_> = program.functions.iter().map(|f| f.name.as_str()).collect();
+        assert!(function_names.contains("run"));
+        assert!(function_names.contains("__for_body_1__"));
+        assert!(function_names.contains("__if_then_2__"));
+        assert!(function_names.contains("__if_elif_3__"));
+        assert!(function_names.contains("__if_else_4__"));
+        assert!(function_names.contains("__try_body_5__"));
+        assert!(function_names.contains("__except_handler_6__"));
+    }
+
+    #[test]
+    fn test_complete_workflow_dag_has_all_action_calls() {
+        let program = parse(COMPLETE_FEATURE_WORKFLOW_IR).expect("Should parse");
+        let dag = convert_to_dag(&program);
+
+        // Collect all action names in the DAG
+        let action_names: HashSet<_> = dag
+            .nodes
+            .values()
+            .filter(|n| n.node_type == "action_call")
+            .filter_map(|n| n.action_name.as_deref())
+            .collect();
+
+        // All actions from the workflow should be present after expansion
+        let expected_actions = [
+            "check_status_a",
+            "check_status_b",
+            "process_item",
+            "validate_item",
+            "handle_overflow",
+            "handle_threshold",
+            "handle_normal",
+            "risky_operation",
+            "fallback_operation",
+            "aggregate_results",
+        ];
+
+        for expected in expected_actions {
+            assert!(
+                action_names.contains(expected),
+                "DAG should contain action '{}' after function expansion. Found: {:?}",
+                expected,
+                action_names
+            );
+        }
+    }
+
+    #[test]
+    fn test_complete_workflow_conditional_branches_inlined() {
+        let program = parse(COMPLETE_FEATURE_WORKFLOW_IR).expect("Should parse");
+        let dag = convert_to_dag(&program);
+
+        // The conditional branches should have action_call nodes, not just expression nodes
+        let action_names: HashSet<_> = dag
+            .nodes
+            .values()
+            .filter(|n| n.node_type == "action_call")
+            .filter_map(|n| n.action_name.as_deref())
+            .collect();
+
+        // These are the actions inside if/elif/else branches
+        assert!(
+            action_names.contains("handle_overflow"),
+            "if branch action should be inlined"
+        );
+        assert!(
+            action_names.contains("handle_threshold"),
+            "elif branch action should be inlined"
+        );
+        assert!(
+            action_names.contains("handle_normal"),
+            "else branch action should be inlined"
+        );
+
+        // There should be NO fn_call nodes for the synthetic functions after expansion
+        let fn_call_to_synthetic: Vec<_> = dag
+            .nodes
+            .values()
+            .filter(|n| n.is_fn_call)
+            .filter(|n| {
+                n.called_function
+                    .as_ref()
+                    .map(|f| f.starts_with("__if_"))
+                    .unwrap_or(false)
+            })
+            .collect();
+
+        assert!(
+            fn_call_to_synthetic.is_empty(),
+            "Synthetic if/elif/else functions should be expanded, not left as fn_call nodes. Found: {:?}",
+            fn_call_to_synthetic.iter().map(|n| &n.id).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_complete_workflow_for_loop_body_inlined() {
+        let program = parse(COMPLETE_FEATURE_WORKFLOW_IR).expect("Should parse");
+        let dag = convert_to_dag(&program);
+
+        // The for loop body should have the validate_item action
+        let validate_item_nodes: Vec<_> = dag
+            .nodes
+            .values()
+            .filter(|n| n.action_name.as_deref() == Some("validate_item"))
+            .collect();
+
+        assert!(
+            !validate_item_nodes.is_empty(),
+            "For loop body should contain validate_item action"
+        );
+
+        // The validate_item action should have proper kwargs for item and index
+        let validate_node = validate_item_nodes[0];
+        assert!(
+            validate_node.kwarg_exprs.is_some(),
+            "validate_item should have kwarg expressions"
+        );
+        let kwarg_exprs = validate_node.kwarg_exprs.as_ref().unwrap();
+        assert!(kwarg_exprs.contains_key("item"), "Should have 'item' kwarg");
+        assert!(
+            kwarg_exprs.contains_key("index"),
+            "Should have 'index' kwarg"
+        );
+
+        // There should be NO fn_call nodes for __for_body_1__ after expansion
+        let fn_call_to_for_body: Vec<_> = dag
+            .nodes
+            .values()
+            .filter(|n| n.is_fn_call)
+            .filter(|n| {
+                n.called_function
+                    .as_ref()
+                    .map(|f| f.starts_with("__for_body"))
+                    .unwrap_or(false)
+            })
+            .collect();
+
+        assert!(
+            fn_call_to_for_body.is_empty(),
+            "For loop body function should be expanded. Found fn_call nodes: {:?}",
+            fn_call_to_for_body.iter().map(|n| &n.id).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_complete_workflow_try_except_bodies_inlined() {
+        let program = parse(COMPLETE_FEATURE_WORKFLOW_IR).expect("Should parse");
+        let dag = convert_to_dag(&program);
+
+        // Both risky_operation and fallback_operation should be present
+        let action_names: HashSet<_> = dag
+            .nodes
+            .values()
+            .filter(|n| n.node_type == "action_call")
+            .filter_map(|n| n.action_name.as_deref())
+            .collect();
+
+        assert!(
+            action_names.contains("risky_operation"),
+            "Try body action should be inlined"
+        );
+        assert!(
+            action_names.contains("fallback_operation"),
+            "Except handler action should be inlined"
+        );
+
+        // There should be NO fn_call nodes for try/except synthetic functions
+        let fn_call_to_try_except: Vec<_> = dag
+            .nodes
+            .values()
+            .filter(|n| n.is_fn_call)
+            .filter(|n| {
+                n.called_function.as_ref().map(|f| {
+                    f.starts_with("__try_body") || f.starts_with("__except_handler")
+                }).unwrap_or(false)
+            })
+            .collect();
+
+        assert!(
+            fn_call_to_try_except.is_empty(),
+            "Try/except synthetic functions should be expanded. Found: {:?}",
+            fn_call_to_try_except.iter().map(|n| &n.id).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_complete_workflow_no_dangling_edges() {
+        let program = parse(COMPLETE_FEATURE_WORKFLOW_IR).expect("Should parse");
+        let dag = convert_to_dag(&program);
+
+        // Every edge should reference nodes that exist in the DAG
+        for edge in &dag.edges {
+            assert!(
+                dag.nodes.contains_key(&edge.source),
+                "Edge source '{}' should exist in DAG nodes. Edge: {:?}",
+                edge.source,
+                edge
+            );
+            assert!(
+                dag.nodes.contains_key(&edge.target),
+                "Edge target '{}' should exist in DAG nodes. Edge: {:?}",
+                edge.target,
+                edge
+            );
+        }
+    }
+
+    #[test]
+    fn test_complete_workflow_data_flow_to_aggregate_results() {
+        let program = parse(COMPLETE_FEATURE_WORKFLOW_IR).expect("Should parse");
+        let dag = convert_to_dag(&program);
+
+        // Find the aggregate_results action
+        let aggregate_node = dag
+            .nodes
+            .values()
+            .find(|n| n.action_name.as_deref() == Some("aggregate_results"))
+            .expect("Should have aggregate_results node");
+
+        // Collect all data flow edges TO aggregate_results
+        let incoming_data_edges: Vec<_> = dag
+            .edges
+            .iter()
+            .filter(|e| e.edge_type == EdgeType::DataFlow && e.target == aggregate_node.id)
+            .collect();
+
+        let incoming_vars: HashSet<_> = incoming_data_edges
+            .iter()
+            .filter_map(|e| e.variable.as_deref())
+            .collect();
+
+        // aggregate_results needs: items (processed), status_a, status_b, final_status
+        // Note: 'items' in kwargs refers to 'processed' variable
+        assert!(
+            incoming_vars.contains("processed") || incoming_vars.contains("items"),
+            "aggregate_results should have data flow for 'processed'. Found: {:?}",
+            incoming_vars
+        );
+        assert!(
+            incoming_vars.contains("status_a"),
+            "aggregate_results should have data flow for 'status_a'. Found: {:?}",
+            incoming_vars
+        );
+        assert!(
+            incoming_vars.contains("status_b"),
+            "aggregate_results should have data flow for 'status_b'. Found: {:?}",
+            incoming_vars
+        );
+        assert!(
+            incoming_vars.contains("final_status"),
+            "aggregate_results should have data flow for 'final_status'. Found: {:?}",
+            incoming_vars
+        );
+    }
+
+    #[test]
+    fn test_complete_workflow_final_status_defined_by_branches() {
+        let program = parse(COMPLETE_FEATURE_WORKFLOW_IR).expect("Should parse");
+        let dag = convert_to_dag(&program);
+
+        // Find all nodes that define final_status (should be the 3 branch actions)
+        let final_status_producers: Vec<_> = dag
+            .nodes
+            .values()
+            .filter(|n| {
+                n.targets
+                    .as_ref()
+                    .map(|t| t.contains(&"final_status".to_string()))
+                    .unwrap_or(false)
+                    || n.target.as_deref() == Some("final_status")
+            })
+            .collect();
+
+        assert!(
+            !final_status_producers.is_empty(),
+            "Should have nodes that produce 'final_status'"
+        );
+
+        // The producers should be the handle_* actions
+        let producer_actions: HashSet<_> = final_status_producers
+            .iter()
+            .filter_map(|n| n.action_name.as_deref())
+            .collect();
+
+        // At least one of the branch actions should produce final_status
+        let branch_actions = ["handle_overflow", "handle_threshold", "handle_normal"];
+        let has_branch_producer = branch_actions.iter().any(|a| producer_actions.contains(a));
+
+        assert!(
+            has_branch_producer,
+            "One of the branch actions should produce 'final_status'. Producers: {:?}",
+            producer_actions
+        );
+    }
+
+    #[test]
+    fn test_complete_workflow_no_expression_nodes_for_branches() {
+        let program = parse(COMPLETE_FEATURE_WORKFLOW_IR).expect("Should parse");
+        let dag = convert_to_dag(&program);
+
+        // There should be NO generic "expression" nodes that are actually branch bodies
+        // Branch bodies should be expanded to their actual content (action_call nodes)
+        let expression_nodes: Vec<_> = dag
+            .nodes
+            .values()
+            .filter(|n| n.node_type == "expression" && n.label == "expr")
+            .collect();
+
+        // If there are expression nodes, they shouldn't be connected to branch nodes
+        let branch_nodes: HashSet<_> = dag
+            .nodes
+            .values()
+            .filter(|n| n.node_type == "branch")
+            .map(|n| n.id.as_str())
+            .collect();
+
+        for expr_node in &expression_nodes {
+            // Check if this expression node is directly connected from a branch
+            let is_branch_body = dag.edges.iter().any(|e| {
+                branch_nodes.contains(e.source.as_str())
+                    && e.target == expr_node.id
+                    && e.edge_type == EdgeType::StateMachine
+            });
+
+            assert!(
+                !is_branch_body,
+                "Expression node '{}' should not be a branch body - branch bodies should be expanded to action_call nodes",
+                expr_node.id
+            );
+        }
+    }
+
+    #[test]
+    fn test_complete_workflow_parallel_structure() {
+        let program = parse(COMPLETE_FEATURE_WORKFLOW_IR).expect("Should parse");
+        let dag = convert_to_dag(&program);
+
+        // Should have parallel entry node
+        let parallel_nodes: Vec<_> = dag
+            .nodes
+            .values()
+            .filter(|n| n.node_type == "parallel")
+            .collect();
+
+        assert!(
+            !parallel_nodes.is_empty(),
+            "Should have parallel entry node"
+        );
+
+        // Should have aggregator for parallel
+        let parallel_aggregators: Vec<_> = dag
+            .nodes
+            .values()
+            .filter(|n| n.is_aggregator && n.aggregates_from.is_some())
+            .collect();
+
+        assert!(
+            !parallel_aggregators.is_empty(),
+            "Should have aggregator for parallel block"
+        );
+
+        // Parallel actions check_status_a and check_status_b should exist
+        let action_names: HashSet<_> = dag
+            .nodes
+            .values()
+            .filter_map(|n| n.action_name.as_deref())
+            .collect();
+
+        assert!(action_names.contains("check_status_a"));
+        assert!(action_names.contains("check_status_b"));
+    }
+
+    #[test]
+    fn test_complete_workflow_spread_structure() {
+        let program = parse(COMPLETE_FEATURE_WORKFLOW_IR).expect("Should parse");
+        let dag = convert_to_dag(&program);
+
+        // Should have spread action for process_item
+        let spread_nodes: Vec<_> = dag
+            .nodes
+            .values()
+            .filter(|n| n.is_spread && n.action_name.as_deref() == Some("process_item"))
+            .collect();
+
+        assert!(
+            !spread_nodes.is_empty(),
+            "Should have spread action for process_item"
+        );
+
+        // Should have aggregator for spread results
+        let spread_node = spread_nodes[0];
+        assert!(
+            spread_node.aggregates_to.is_some(),
+            "Spread action should link to aggregator"
+        );
+
+        let aggregator_id = spread_node.aggregates_to.as_ref().unwrap();
+        assert!(
+            dag.nodes.contains_key(aggregator_id),
+            "Aggregator node should exist"
+        );
+    }
+
+    #[test]
+    fn test_complete_workflow_for_loop_structure() {
+        let program = parse(COMPLETE_FEATURE_WORKFLOW_IR).expect("Should parse");
+        let dag = convert_to_dag(&program);
+
+        // Normalized for loop should have these components:
+        // 1. loop_init (assignment): __loop_*_i = 0
+        // 2. loop_cond (branch): condition check
+        // 3. loop_extract (assignment): extract item from collection
+        // 4. body nodes (action_call for validate_item)
+        // 5. loop_incr (assignment): increment index
+        // 6. loop_exit (join): exit point
+
+        // Check for loop init
+        let loop_init = dag
+            .nodes
+            .values()
+            .find(|n| n.node_type == "assignment" && n.id.contains("loop_init"));
+        assert!(loop_init.is_some(), "Should have loop_init node");
+
+        // Check for loop condition (branch)
+        let loop_cond = dag
+            .nodes
+            .values()
+            .find(|n| n.node_type == "branch" && n.label.contains("for"));
+        assert!(loop_cond.is_some(), "Should have loop_cond branch node");
+
+        // Check for loop extract
+        let loop_extract = dag
+            .nodes
+            .values()
+            .find(|n| n.node_type == "assignment" && n.id.contains("loop_extract"));
+        assert!(loop_extract.is_some(), "Should have loop_extract node");
+
+        // Check for loop increment
+        let loop_incr = dag
+            .nodes
+            .values()
+            .find(|n| n.node_type == "assignment" && n.id.contains("loop_incr"));
+        assert!(loop_incr.is_some(), "Should have loop_incr node");
+
+        // Check for loop exit (join)
+        let loop_exit = dag
+            .nodes
+            .values()
+            .find(|n| n.node_type == "join" && n.label.contains("end for"));
+        assert!(loop_exit.is_some(), "Should have loop_exit join node");
+
+        // Check for back-edge
+        let back_edges: Vec<_> = dag.edges.iter().filter(|e| e.is_loop_back).collect();
+        assert!(!back_edges.is_empty(), "Should have loop back-edge");
+    }
+
+    #[test]
+    fn test_complete_workflow_try_except_structure() {
+        let program = parse(COMPLETE_FEATURE_WORKFLOW_IR).expect("Should parse");
+        let dag = convert_to_dag(&program);
+
+        // Find the risky_operation and fallback_operation nodes
+        let risky_node = dag
+            .nodes
+            .values()
+            .find(|n| n.action_name.as_deref() == Some("risky_operation"));
+        let fallback_node = dag
+            .nodes
+            .values()
+            .find(|n| n.action_name.as_deref() == Some("fallback_operation"));
+
+        assert!(risky_node.is_some(), "Should have risky_operation node");
+        assert!(
+            fallback_node.is_some(),
+            "Should have fallback_operation node"
+        );
+
+        let risky = risky_node.unwrap();
+        let fallback = fallback_node.unwrap();
+
+        // Should have exception edge from risky to fallback
+        let exception_edges: Vec<_> = dag
+            .edges
+            .iter()
+            .filter(|e| e.exception_types.is_some())
+            .collect();
+
+        assert!(
+            !exception_edges.is_empty(),
+            "Should have exception edges"
+        );
+
+        // Check for success edge from try body
+        let success_edges: Vec<_> = dag
+            .edges
+            .iter()
+            .filter(|e| e.condition.as_deref() == Some("success"))
+            .collect();
+
+        assert!(
+            !success_edges.is_empty(),
+            "Should have success edge from try body"
+        );
+
+        // Should have join node for try/except convergence
+        let try_except_joins: Vec<_> = dag
+            .nodes
+            .values()
+            .filter(|n| n.node_type == "join")
+            .filter(|n| {
+                // Find joins that have the risky or fallback as predecessors
+                dag.edges.iter().any(|e| {
+                    (e.source == risky.id || e.source == fallback.id)
+                        && e.target == n.id
+                        && e.edge_type == EdgeType::StateMachine
+                })
+            })
+            .collect();
+
+        assert!(
+            !try_except_joins.is_empty(),
+            "Should have join node for try/except"
+        );
+    }
+
+    #[test]
+    fn test_complete_workflow_return_node_is_singular() {
+        let program = parse(COMPLETE_FEATURE_WORKFLOW_IR).expect("Should parse");
+        let dag = convert_to_dag(&program);
+
+        // After expansion, there should be only ONE return node (from the main 'run' function)
+        // Synthetic function return nodes should be stripped during expansion
+        let return_nodes: Vec<_> = dag
+            .nodes
+            .values()
+            .filter(|n| n.node_type == "return")
+            .collect();
+
+        assert_eq!(
+            return_nodes.len(),
+            1,
+            "Should have exactly 1 return node after expansion. Found: {:?}",
+            return_nodes.iter().map(|n| &n.id).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_complete_workflow_no_fn_call_nodes_after_expansion() {
+        let program = parse(COMPLETE_FEATURE_WORKFLOW_IR).expect("Should parse");
+        let dag = convert_to_dag(&program);
+
+        // All fn_call nodes to internal synthetic functions should be expanded
+        let fn_call_nodes: Vec<_> = dag
+            .nodes
+            .values()
+            .filter(|n| n.is_fn_call)
+            .collect();
+
+        // Print details for debugging
+        if !fn_call_nodes.is_empty() {
+            eprintln!("Found unexpanded fn_call nodes:");
+            for node in &fn_call_nodes {
+                eprintln!(
+                    "  - id: {}, called_function: {:?}",
+                    node.id, node.called_function
+                );
+            }
+        }
+
+        assert!(
+            fn_call_nodes.is_empty(),
+            "All internal function calls should be expanded. Found {} fn_call nodes",
+            fn_call_nodes.len()
+        );
+    }
+
+    #[test]
+    fn test_complete_workflow_input_variables_flow_to_users() {
+        let program = parse(COMPLETE_FEATURE_WORKFLOW_IR).expect("Should parse");
+        let dag = convert_to_dag(&program);
+
+        // Find the input node
+        let input_node = dag
+            .nodes
+            .values()
+            .find(|n| n.is_input)
+            .expect("Should have input node");
+
+        assert_eq!(
+            input_node.io_vars,
+            Some(vec!["items".to_string(), "threshold".to_string()])
+        );
+
+        // Check that the spread action can access 'items'
+        // The spread action stores its collection in spread_collection field
+        let spread_node = dag
+            .nodes
+            .values()
+            .find(|n| n.is_spread)
+            .expect("Should have spread node");
+
+        // The spread_collection should reference 'items'
+        let spread_collection = spread_node.spread_collection.as_ref();
+        assert!(
+            spread_collection.is_some(),
+            "Spread node should have spread_collection"
+        );
+        assert!(
+            spread_collection.unwrap().contains("items"),
+            "Spread collection should reference 'items'. Got: {:?}",
+            spread_collection
+        );
+
+        // Additionally, check that data flow edges exist from input to nodes that use
+        // the input variables via kwarg_exprs
+        let input_data_edges: Vec<_> = dag
+            .edges
+            .iter()
+            .filter(|e| {
+                e.edge_type == EdgeType::DataFlow
+                    && e.source == input_node.id
+            })
+            .collect();
+
+        // Input node should have some outgoing data edges
+        assert!(
+            !input_data_edges.is_empty(),
+            "Input node should have outgoing data flow edges. Found: {:?}",
+            input_data_edges.iter().map(|e| (&e.target, &e.variable)).collect::<Vec<_>>()
         );
     }
 }

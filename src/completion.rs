@@ -552,7 +552,9 @@ pub fn execute_inline_subgraph(
         });
     }
 
-    // Merge existing inbox data for the completed node
+    // Merge existing inbox data for the completed node, but only for variables
+    // that we haven't already set (like the action result). This prevents stale
+    // inbox values from overwriting fresh action results.
     let completed_inbox = existing_inbox.get(completed_node_id);
     debug!(
         completed_node_id = %completed_node_id,
@@ -563,9 +565,18 @@ pub fn execute_inline_subgraph(
     );
     if let Some(node_inbox) = completed_inbox {
         for (var, val) in node_inbox {
-            inline_scope
-                .entry(var.clone())
-                .or_insert_with(|| val.clone());
+            if var == "__loop_loop_8_i" {
+                debug!(
+                    var_name = %var,
+                    inbox_value = ?val,
+                    "merging __loop_loop_8_i from inbox"
+                );
+            }
+            // Only insert if not already in scope - preserves action results and
+            // values computed during this BFS traversal
+            if !inline_scope.contains_key(var) {
+                inline_scope.insert(var.clone(), val.clone());
+            }
         }
     }
 
@@ -622,12 +633,16 @@ pub fn execute_inline_subgraph(
             None => continue,
         };
 
-        // Merge this node's inbox from DB into scope
+        // Merge this node's inbox from DB into scope, but only for variables
+        // that we haven't already computed during this BFS traversal.
+        // This prevents stale DB values from overwriting fresh inline computations
+        // (e.g., loop_incr computing __loop_loop_8_i = 1, but loop_cond's inbox
+        // still has the old value __loop_loop_8_i = 0 from a previous iteration).
         if let Some(node_inbox) = existing_inbox.get(&node_id) {
             for (var, val) in node_inbox {
-                inline_scope
-                    .entry(var.clone())
-                    .or_insert_with(|| val.clone());
+                if !inline_scope.contains_key(var) {
+                    inline_scope.insert(var.clone(), val.clone());
+                }
             }
         }
 
@@ -641,8 +656,29 @@ pub fn execute_inline_subgraph(
         } else {
             // This is an inline node - execute it
             let result = execute_inline_node(node, &inline_scope);
+            tracing::debug!(
+                node_id = %node.id,
+                node_type = %node.node_type,
+                target = ?node.target,
+                result = ?result,
+                scope_keys = ?inline_scope.keys().collect::<Vec<_>>(),
+                "executed inline node (completion)"
+            );
             if let Some(ref target) = node.target {
+                tracing::debug!(
+                    node_id = %node.id,
+                    target = %target,
+                    old_value = ?inline_scope.get(target),
+                    new_value = ?result,
+                    "scope update"
+                );
                 inline_scope.insert(target.clone(), result);
+                tracing::debug!(
+                    node_id = %node.id,
+                    target = %target,
+                    inserted_value = ?inline_scope.get(target),
+                    "scope after insert"
+                );
             }
             executed_inline.push(node_id.clone());
 

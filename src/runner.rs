@@ -2124,6 +2124,14 @@ impl DAGRunner {
 
                     // Execute inline node with in-memory scope
                     let inline_result = Self::execute_inline_node(succ_node, inline_scope)?;
+                    tracing::debug!(
+                        node_id = %succ_node.id,
+                        node_type = %succ_node.node_type,
+                        target = ?succ_node.target,
+                        result = ?inline_result,
+                        scope_keys = ?inline_scope.keys().collect::<Vec<_>>(),
+                        "executed inline node"
+                    );
 
                     // Collect inbox writes for inline node's result
                     if let Some(ref target) = succ_node.target {
@@ -2311,7 +2319,20 @@ impl DAGRunner {
                 // Evaluate the assignment expression
                 if let Some(ref expr) = node.assign_expr {
                     match ExpressionEvaluator::evaluate(expr, scope) {
-                        Ok(val) => Ok(val),
+                        Ok(val) => {
+                            if let Some(ref target) = node.target {
+                                if target.starts_with("__loop_") {
+                                    tracing::debug!(
+                                        node_id = %node.id,
+                                        target,
+                                        scope_value = ?scope.get(target),
+                                        result = ?val,
+                                        "loop assignment evaluation"
+                                    );
+                                }
+                            }
+                            Ok(val)
+                        }
                         Err(e) => {
                             warn!(
                                 node_id = %node.id,

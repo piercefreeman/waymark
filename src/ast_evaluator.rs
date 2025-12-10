@@ -96,10 +96,20 @@ impl ExpressionEvaluator {
     }
 
     fn eval_variable(var: &ast::Variable, scope: &Scope) -> EvaluationResult<JsonValue> {
-        scope
+        let value = scope
             .get(&var.name)
             .cloned()
-            .ok_or_else(|| EvaluationError::VariableNotFound(var.name.clone()))
+            .ok_or_else(|| EvaluationError::VariableNotFound(var.name.clone()))?;
+
+        if var.name == "__loop_loop_8_i" {
+            tracing::debug!(
+                var_name = %var.name,
+                value = ?value,
+                "eval_variable __loop_loop_8_i"
+            );
+        }
+
+        Ok(value)
     }
 
     fn eval_binary_op(op: &ast::BinaryOp, scope: &Scope) -> EvaluationResult<JsonValue> {
@@ -222,6 +232,13 @@ impl ExpressionEvaluator {
 
         let obj = Self::evaluate(obj_expr, scope)?;
         let index = Self::evaluate(idx_expr, scope)?;
+
+        tracing::debug!(
+            obj = ?obj,
+            index = ?index,
+            idx_expr = ?idx_expr,
+            "eval_index"
+        );
 
         match (&obj, &index) {
             (JsonValue::Array(arr), JsonValue::Number(n)) => {

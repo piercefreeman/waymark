@@ -102,6 +102,9 @@ fn generate_ir(python_path: &str, workflow_file: &PathBuf) -> Result<String> {
 }
 
 fn main() -> Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .init();
     let args = Args::parse();
 
     // Read Python source

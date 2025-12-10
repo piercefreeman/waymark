@@ -1525,6 +1525,14 @@ impl Database {
         > = std::collections::HashMap::new();
 
         for (target_node_id, var_name, value) in rows {
+            if var_name == "__loop_loop_8_i" {
+                debug!(
+                    target_node_id = %target_node_id,
+                    variable_name = %var_name,
+                    value = ?value,
+                    "DB reading __loop_loop_8_i from inbox"
+                );
+            }
             result
                 .entry(target_node_id)
                 .or_default()
@@ -1627,6 +1635,15 @@ impl Database {
 
         // 2. Write inbox entries for all frontier nodes
         for write in &plan.inbox_writes {
+            if write.variable_name == "__loop_loop_8_i" {
+                debug!(
+                    target_node_id = %write.target_node_id,
+                    variable_name = %write.variable_name,
+                    value = ?write.value,
+                    source_node_id = %write.source_node_id,
+                    "DB writing __loop_loop_8_i to inbox"
+                );
+            }
             sqlx::query(
                 r#"
                 INSERT INTO node_inputs
