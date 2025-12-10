@@ -37,8 +37,8 @@ async fn main() {
         .await
         .expect("failed to load workflow version");
 
-    let program = Program::decode(workflow_version.program_proto.as_slice())
-        .expect("decode program");
+    let program =
+        Program::decode(workflow_version.program_proto.as_slice()).expect("decode program");
     let dag = convert_to_dag(&program);
 
     println!("=== Nodes ===");
@@ -56,7 +56,10 @@ async fn main() {
         .iter()
         .filter(|e| e.edge_type == EdgeType::StateMachine)
     {
-        let guard_str = edge.guard_expr.as_ref().map(|g| rappel::ast_printer::print_expr(g));
+        let guard_str = edge
+            .guard_expr
+            .as_ref()
+            .map(rappel::ast_printer::print_expr);
         println!(
             "{} -> {} (loop_back={} guard={:?})",
             edge.source, edge.target, edge.is_loop_back, guard_str
@@ -99,10 +102,7 @@ async fn main() {
             "Inline nodes from aggregator_7: {:?}",
             subgraph.inline_nodes
         );
-        println!(
-            "All nodes from aggregator_7: {:?}",
-            subgraph.all_node_ids
-        );
+        println!("All nodes from aggregator_7: {:?}", subgraph.all_node_ids);
 
         // Enable tracing for debugging
         use tracing_subscriber::fmt::format::FmtSpan;
@@ -138,7 +138,10 @@ async fn main() {
                     "Inbox writes: {:?}",
                     plan.inbox_writes
                         .iter()
-                        .map(|w| format!("{} -> {} ({})", w.source_node_id, w.target_node_id, w.variable_name))
+                        .map(|w| format!(
+                            "{} -> {} ({})",
+                            w.source_node_id, w.target_node_id, w.variable_name
+                        ))
                         .collect::<Vec<_>>()
                 );
             }
@@ -150,16 +153,16 @@ async fn main() {
         // Check if loop_exit_14 -> action_15 edge exists
         use rappel::completion::{find_direct_predecessor_in_path, is_direct_predecessor};
         let executed_inline = subgraph.inline_nodes.clone();
-        let pred = find_direct_predecessor_in_path(
-            &executed_inline,
-            "action_15",
-            "aggregator_7",
-            &dag,
-        );
+        let pred =
+            find_direct_predecessor_in_path(&executed_inline, "action_15", "aggregator_7", &dag);
         println!("Predecessor for action_15: {}", pred);
-        println!("is_direct_predecessor(loop_exit_14, action_15): {}",
-            is_direct_predecessor("loop_exit_14", "action_15", &dag));
-        println!("is_direct_predecessor(pred, action_15): {}",
-            is_direct_predecessor(&pred, "action_15", &dag));
+        println!(
+            "is_direct_predecessor(loop_exit_14, action_15): {}",
+            is_direct_predecessor("loop_exit_14", "action_15", &dag)
+        );
+        println!(
+            "is_direct_predecessor(pred, action_15): {}",
+            is_direct_predecessor(&pred, "action_15", &dag)
+        );
     }
 }

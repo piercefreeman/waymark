@@ -1041,15 +1041,30 @@ mod tests {
 
         // The target of a back-edge is the loop condition node
         let loop_cond_id = &back_edges[0].target;
-        let loop_cond = dag.nodes.get(loop_cond_id).expect("Should find loop condition node");
-        assert_eq!(loop_cond.node_type, "branch", "Loop condition should be a branch node");
+        let loop_cond = dag
+            .nodes
+            .get(loop_cond_id)
+            .expect("Should find loop condition node");
+        assert_eq!(
+            loop_cond.node_type, "branch",
+            "Loop condition should be a branch node"
+        );
 
         // The loop condition should have guarded successors
         let successors = helper.get_state_machine_successors(loop_cond_id);
-        assert!(successors.len() >= 2, "Loop condition should have at least 2 successors (continue and break)");
+        assert!(
+            successors.len() >= 2,
+            "Loop condition should have at least 2 successors (continue and break)"
+        );
 
         // At least one successor should have a guard (continue path)
-        let guarded_successors: Vec<_> = successors.iter().filter(|e| e.guard_expr.is_some()).collect();
-        assert!(!guarded_successors.is_empty(), "Should have guarded successors for loop condition");
+        let guarded_successors: Vec<_> = successors
+            .iter()
+            .filter(|e| e.guard_expr.is_some())
+            .collect();
+        assert!(
+            !guarded_successors.is_empty(),
+            "Should have guarded successors for loop condition"
+        );
     }
 }

@@ -1585,6 +1585,16 @@ impl DAGConverter {
                     .collect();
                 format!("{{{}}}", entries.join(", "))
             }
+            Some(ast::expr::Kind::FunctionCall(call)) => {
+                let mut parts: Vec<String> =
+                    call.args.iter().map(|a| self.expr_to_string(a)).collect();
+                for kw in &call.kwargs {
+                    if let Some(ref value) = kw.value {
+                        parts.push(format!("{}={}", kw.name, self.expr_to_string(value)));
+                    }
+                }
+                format!("{}({})", call.name, parts.join(", "))
+            }
             _ => "null".to_string(),
         }
     }
@@ -1979,8 +1989,7 @@ impl DAGConverter {
         // ============================================================
         let cond_id = self.next_id("loop_cond");
         let cond_label = format!("for {} in {}", loop_vars_str, collection_str);
-        let mut cond_node =
-            DAGNode::new(cond_id.clone(), "branch".to_string(), cond_label.clone());
+        let mut cond_node = DAGNode::new(cond_id.clone(), "branch".to_string(), cond_label.clone());
         if let Some(ref fn_name) = self.current_function {
             cond_node = cond_node.with_function_name(fn_name);
         }
@@ -2513,6 +2522,26 @@ impl DAGConverter {
             return self.convert_action_call_with_targets(action, &[]);
         }
 
+        if let Some(ast::expr::Kind::FunctionCall(func_call)) = &expr.kind {
+            let node_id = self.next_id("fn_call");
+            let kwargs = self.extract_kwargs(&func_call.kwargs);
+            let kwarg_exprs = self.extract_kwarg_exprs(&func_call.kwargs);
+            let mut node = DAGNode::new(
+                node_id.clone(),
+                "fn_call".to_string(),
+                format!("{}()", func_call.name),
+            )
+            .with_fn_call(&func_call.name)
+            .with_kwargs(kwargs)
+            .with_kwarg_exprs(kwarg_exprs);
+            if let Some(ref fn_name) = self.current_function {
+                node = node.with_function_name(fn_name);
+            }
+            self.dag.add_node(node);
+
+            return vec![node_id];
+        }
+
         let node_id = self.next_id("expr");
         let mut node = DAGNode::new(
             node_id.clone(),
@@ -2838,6 +2867,38 @@ mod tests {
     }
 
     #[test]
+    fn test_dag_inlines_function_call_in_conditional_branch() {
+        let source = r#"fn helper(input: [], output: [value]):
+    value = @do_work()
+    return value
+
+fn run(input: [], output: [result]):
+    if true:
+        helper()
+    else:
+        result = @fallback()
+    return result"#;
+
+        let program = parse(source).unwrap();
+        let dag = convert_to_dag(&program);
+
+        // Helper action should be present after inlining the function call in the conditional branch
+        let action_names: HashSet<_> = dag
+            .nodes
+            .values()
+            .filter_map(|n| n.action_name.as_deref())
+            .collect();
+        assert!(
+            action_names.contains("do_work"),
+            "expected helper action to be inlined into DAG"
+        );
+        assert!(
+            action_names.contains("fallback"),
+            "expected fallback action to remain in DAG"
+        );
+    }
+
+    #[test]
     fn test_dag_edge_types() {
         let source = r#"fn compute(input: [x], output: [y]):
     y = x + 1
@@ -2889,6 +2950,34 @@ mod tests {
         // Should have aggregator node
         let node_types: HashSet<_> = dag.nodes.values().map(|n| n.node_type.as_str()).collect();
         assert!(node_types.contains("aggregator"));
+    }
+
+    #[test]
+    fn test_dag_for_loop_label_includes_iterable() {
+        let source = r#"fn loop_labels(input: [items], output: [result]):
+    result = []
+    for i, item in enumerate(items):
+        result = result + [item]
+    return result"#;
+
+        let program = parse(source).unwrap();
+        let dag = convert_to_dag(&program);
+
+        let labels: Vec<_> = dag
+            .nodes
+            .values()
+            .filter(|n| n.node_type == "branch")
+            .map(|n| n.label.as_str())
+            .collect();
+
+        assert!(
+            labels.iter().any(|label| label.contains("enumerate")),
+            "loop label should include iterable representation"
+        );
+        assert!(
+            labels.iter().all(|label| !label.contains("null")),
+            "loop label should not degrade to 'null'"
+        );
     }
 
     #[test]
@@ -3263,10 +3352,10 @@ fn main(input: [], output: [result]):
         // In normalized structure, loop variables are tracked in the loop_extract assignment node
         // The extract label is: "{loop_vars} = {collection}[{index_var}]"
         // So we look for an assignment containing the loop vars and the collection
-        let extract_node = dag.nodes.values().find(|n| {
-            n.node_type == "assignment"
-                && n.id.contains("loop_extract")
-        });
+        let extract_node = dag
+            .nodes
+            .values()
+            .find(|n| n.node_type == "assignment" && n.id.contains("loop_extract"));
         assert!(
             extract_node.is_some(),
             "Should have loop_extract assignment node"

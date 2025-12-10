@@ -312,10 +312,10 @@ enum NodeCategory {
 fn count_sm_predecessors(dag: &DAG, node_id: &str) -> i32 {
     // Check if this node has an explicit join_required_count set
     // (used for conditional joins where only one branch executes)
-    if let Some(node) = dag.nodes.get(node_id) {
-        if let Some(required) = node.join_required_count {
-            return required;
-        }
+    if let Some(node) = dag.nodes.get(node_id)
+        && let Some(required) = node.join_required_count
+    {
+        return required;
     }
 
     dag.edges
@@ -687,8 +687,13 @@ pub fn execute_inline_subgraph(
     // Write variables to ALL downstream DataFlow edge targets, not just frontiers.
     // This is crucial for chain workflows where action_5 needs step1 from action_2,
     // but action_5 is not in the frontier when action_2 completes.
-    let all_df_writes =
-        collect_all_data_flow_writes(&inline_scope, dag, instance_id, completed_node_id, &executed_inline);
+    let all_df_writes = collect_all_data_flow_writes(
+        &inline_scope,
+        dag,
+        instance_id,
+        completed_node_id,
+        &executed_inline,
+    );
     plan.inbox_writes.extend(all_df_writes);
 
     // Process only the reachable frontier nodes

@@ -311,6 +311,38 @@ impl<'source> Parser<'source> {
             }
 
             // Check for function call (with optional assignment)
+            if let Token::Ident(_) = self.peek() {
+                // target = helper(...)
+                if self.peek_nth(1) == Some(&Token::Eq)
+                    && matches!(self.peek_nth(2), Some(Token::Ident(_)))
+                    && self.peek_nth(3) == Some(&Token::LParen)
+                {
+                    let (name, _) = self.expect_ident()?;
+                    self.expect(&Token::Eq)?;
+                    targets.push(name);
+
+                    let expr = self.parse_expr()?;
+                    if let Some(ast::expr::Kind::FunctionCall(func_call)) = expr.kind {
+                        call = Some(ast::Call {
+                            kind: Some(ast::call::Kind::Function(func_call)),
+                        });
+                        continue;
+                    }
+                }
+
+                // Bare helper(...)
+                if self.peek_nth(1) == Some(&Token::LParen) {
+                    let expr = self.parse_expr()?;
+                    if let Some(ast::expr::Kind::FunctionCall(func_call)) = expr.kind {
+                        call = Some(ast::Call {
+                            kind: Some(ast::call::Kind::Function(func_call)),
+                        });
+                        continue;
+                    }
+                }
+            }
+
+            // Check for function call (with optional assignment)
             // This is complex because identifiers can be many things
             // For now, just parse as regular statement
             let stmt = self.parse_statement()?;
@@ -1361,6 +1393,48 @@ mod tests {
 
         // Should have conditional + return
         assert_eq!(body.statements.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_single_call_body_function_call() {
+        let source = r#"fn helper(input: [value], output: [result]):
+    result = @do_work(val=value)
+    return result
+
+fn runner(input: [], output: [result]):
+    if true:
+        helper(value=1)
+    else:
+        result = helper(value=2)
+    return result"#;
+
+        let program = parse(source).unwrap();
+        let runner = &program.functions[1];
+        let body = runner.body.as_ref().unwrap();
+
+        if let Some(ast::statement::Kind::Conditional(cond)) = &body.statements[0].kind {
+            let if_body = cond.if_branch.as_ref().unwrap().body.as_ref().unwrap();
+            assert!(
+                if_body.call.is_some(),
+                "expected function call in if branch"
+            );
+            if let Some(ast::call::Kind::Function(func)) = &if_body.call.as_ref().unwrap().kind {
+                assert_eq!(func.name, "helper");
+                assert!(if_body.targets.is_empty());
+            } else {
+                panic!("expected function call kind");
+            }
+
+            let else_body = cond.else_branch.as_ref().unwrap().body.as_ref().unwrap();
+            assert_eq!(else_body.targets, vec!["result"]);
+            if let Some(ast::call::Kind::Function(func)) = &else_body.call.as_ref().unwrap().kind {
+                assert_eq!(func.name, "helper");
+            } else {
+                panic!("expected function call kind");
+            }
+        } else {
+            panic!("expected conditional");
+        }
     }
 
     #[test]
