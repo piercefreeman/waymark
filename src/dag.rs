@@ -1321,7 +1321,18 @@ impl DAGConverter {
                     }
 
                     if let Some(node) = dag.nodes.get(node_id) {
-                        if uses_var(node, &var_name) {
+                        // For loop index variables (__loop_*), we need to propagate to ALL
+                        // action nodes inside the loop body, not just nodes that directly use
+                        // the variable. This ensures the current loop index is in the action's
+                        // inbox when it completes, so the subsequent completion traversal has
+                        // the correct iteration value rather than a stale one.
+                        let is_loop_index = var_name.starts_with("__loop_");
+                        let is_action_in_loop =
+                            node.node_type == "action_call" && nodes_in_loop.contains(node_id);
+                        let should_add_edge =
+                            uses_var(node, &var_name) || (is_loop_index && is_action_in_loop);
+
+                        if should_add_edge {
                             let key = (mod_node.clone(), node_id.clone(), Some(var_name.clone()));
                             if seen_edges.insert(key.clone()) {
                                 dag.edges.push(DAGEdge {
@@ -5421,5 +5432,84 @@ fn run(input: [items, threshold], output: []):
                 .map(|e| (&e.target, &e.variable))
                 .collect::<Vec<_>>()
         );
+    }
+
+    /// Test that loop index variables (__loop_*) are propagated to ALL action nodes
+    /// inside the loop body via DataFlow edges.
+    ///
+    /// This is critical for correct loop iteration: when an action inside a loop completes,
+    /// the completion logic reads the loop index from the action's inbox. Without these
+    /// edges, the action would have a stale loop index value from when it was first
+    /// dispatched, causing infinite loops.
+    #[test]
+    fn test_loop_index_propagated_to_action_nodes_in_loop_body() {
+        // A for-loop with a function call in the body that expands to actions
+        let source = r#"fn process(input: [x], output: [result]):
+    result = @do_work(value=x)
+    return result
+
+fn run(input: [items], output: [final]):
+    for item in items:
+        processed = process(x=item)
+    final = processed
+    return final"#;
+
+        let program = parse(source).unwrap();
+        let dag = convert_to_dag(&program);
+
+        // Find the loop_incr node (it defines __loop_*_i)
+        let loop_incr_node = dag
+            .nodes
+            .values()
+            .find(|n| n.id.contains("loop_incr"))
+            .expect("Should have loop_incr node");
+
+        // Get the loop index variable name
+        let loop_index_var = loop_incr_node
+            .target
+            .as_ref()
+            .expect("loop_incr should have a target");
+        assert!(
+            loop_index_var.starts_with("__loop_"),
+            "Loop index should start with __loop_"
+        );
+
+        // Find all action nodes inside the loop body (they have IDs containing the fn_call prefix)
+        let action_nodes_in_loop: Vec<_> = dag
+            .nodes
+            .values()
+            .filter(|n| n.node_type == "action_call" && n.id.contains("fn_call"))
+            .collect();
+
+        assert!(
+            !action_nodes_in_loop.is_empty(),
+            "Should have action nodes inside the loop body"
+        );
+
+        // Verify that loop_incr has DataFlow edges to each action node for the loop index
+        for action_node in &action_nodes_in_loop {
+            let has_loop_index_edge = dag.edges.iter().any(|e| {
+                e.edge_type == EdgeType::DataFlow
+                    && e.source == loop_incr_node.id
+                    && e.target == action_node.id
+                    && e.variable.as_ref() == Some(loop_index_var)
+            });
+
+            assert!(
+                has_loop_index_edge,
+                "loop_incr ({}) should have DataFlow edge for {} to action node {}. \
+                 This is required for correct loop iteration - without it, the action's \
+                 inbox would have a stale loop index causing infinite loops. \
+                 Existing edges from loop_incr: {:?}",
+                loop_incr_node.id,
+                loop_index_var,
+                action_node.id,
+                dag.edges
+                    .iter()
+                    .filter(|e| e.source == loop_incr_node.id)
+                    .map(|e| (&e.target, &e.variable))
+                    .collect::<Vec<_>>()
+            );
+        }
     }
 }

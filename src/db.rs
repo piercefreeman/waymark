@@ -1057,10 +1057,11 @@ impl Database {
     // Node Inputs (Inbox Pattern)
     // ========================================================================
 
-    /// Append a value to a node's inbox (O(1) write, no locks).
+    /// Write a value to a node's inbox (O(1) upsert, no locks).
     ///
     /// When Node A completes, it calls this for each downstream node that needs the value.
-    /// This is append-only - no read-modify-write cycle.
+    /// Uses UPSERT to overwrite existing values for the same (target, variable, spread_index),
+    /// preventing unbounded inbox growth during loops.
     pub async fn append_to_inbox(
         &self,
         instance_id: WorkflowInstanceId,
@@ -1074,6 +1075,8 @@ impl Database {
             r#"
             INSERT INTO node_inputs (instance_id, target_node_id, variable_name, value, source_node_id, spread_index)
             VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (instance_id, target_node_id, variable_name, COALESCE(spread_index, -1))
+            DO UPDATE SET value = EXCLUDED.value, source_node_id = EXCLUDED.source_node_id, created_at = NOW()
             "#,
         )
         .bind(instance_id.0)
@@ -1501,16 +1504,14 @@ impl Database {
 
         let node_ids_vec: Vec<&str> = node_ids.iter().map(|s| s.as_str()).collect();
 
-        // Use DISTINCT ON to get only the latest value per (target_node_id, variable_name).
-        // This is critical for performance when workflows have loops that write many
-        // values to the same inbox over time.
+        // With UPSERT, each (target_node_id, variable_name, spread_index) is unique,
+        // so we just need a simple SELECT. Non-spread variables (spread_index IS NULL)
+        // are also unique due to the COALESCE(-1) in the unique index.
         let rows: Vec<(String, String, serde_json::Value)> = sqlx::query_as(
             r#"
-            SELECT DISTINCT ON (target_node_id, variable_name)
-                   target_node_id, variable_name, value
+            SELECT target_node_id, variable_name, value
             FROM node_inputs
             WHERE instance_id = $1 AND target_node_id = ANY($2)
-            ORDER BY target_node_id, variable_name, created_at DESC
             "#,
         )
         .bind(instance_id.0)
@@ -1649,6 +1650,8 @@ impl Database {
                 INSERT INTO node_inputs
                     (instance_id, target_node_id, variable_name, value, source_node_id, spread_index)
                 VALUES ($1, $2, $3, $4, $5, $6)
+                ON CONFLICT (instance_id, target_node_id, variable_name, COALESCE(spread_index, -1))
+                DO UPDATE SET value = EXCLUDED.value, source_node_id = EXCLUDED.source_node_id, created_at = NOW()
                 "#,
             )
             .bind(instance_id.0)
@@ -2627,7 +2630,7 @@ mod tests {
                 "result",
                 serde_json::json!(1),
                 "source_1",
-                None,
+                Some(0),
             )
             .await
             .expect("failed to write");
@@ -2652,7 +2655,7 @@ mod tests {
                 "result",
                 serde_json::json!(2),
                 "source_2",
-                None,
+                Some(1),
             )
             .await
             .expect("failed to write");
@@ -2729,7 +2732,7 @@ mod tests {
                 "result",
                 serde_json::json!(1),
                 "source_1",
-                None,
+                Some(0),
             )
             .await
             .expect("failed to write");
@@ -2744,7 +2747,7 @@ mod tests {
                 "result",
                 serde_json::json!(2),
                 "source_2",
-                None,
+                Some(1),
             )
             .await
             .expect("failed to write");
@@ -2762,7 +2765,7 @@ mod tests {
                 "result",
                 serde_json::json!(3),
                 "source_3",
-                None,
+                Some(2),
             )
             .await
             .expect("failed to write");

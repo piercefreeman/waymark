@@ -108,6 +108,9 @@ class JsonFormatter(OutputFormatter):
 class TextFormatter(OutputFormatter):
     """Output as human-readable text."""
 
+    # Minimum runtime in seconds for reliable throughput measurements
+    MIN_RELIABLE_RUNTIME = 1.0
+
     def format_single(self, data: SingleData) -> str:
         lines = [
             f"Benchmark: {data.benchmark}",
@@ -116,10 +119,11 @@ class TextFormatter(OutputFormatter):
 
         if isinstance(data.result, BenchmarkResult):
             r = data.result
+            warning = " (unreliable - too short)" if r.elapsed_s < self.MIN_RELIABLE_RUNTIME else ""
             lines.extend(
                 [
                     f"  Total actions:    {r.total:,}",
-                    f"  Elapsed time:     {r.elapsed_s:.2f}s",
+                    f"  Elapsed time:     {r.elapsed_s:.2f}s{warning}",
                     f"  Throughput:       {r.throughput:.1f} actions/s",
                     f"  Avg latency:      {r.avg_round_trip_ms:.1f}ms",
                     f"  P95 latency:      {r.p95_round_trip_ms:.1f}ms",
@@ -133,17 +137,24 @@ class TextFormatter(OutputFormatter):
     def format_grid(self, data: GridData) -> str:
         lines = [
             "Benchmark Grid Results",
-            "=" * 70,
+            "=" * 86,
             "",
             "Configuration:",
             f"  Benchmarks:       {', '.join(data.config['benchmarks'])}",
             f"  Hosts:            {data.config['hosts']}",
             f"  Instances:        {data.config['instances']}",
             f"  Workers/host:     {data.config['workers_per_host']}",
-            f"  Count:            {data.config['count']}",
-            f"  Iterations:       {data.config['iterations']}",
-            "",
         ]
+
+        # Show per-benchmark config if available, otherwise show global
+        if "benchmark_configs" in data.config:
+            for bench, cfg in data.config["benchmark_configs"].items():
+                lines.append(f"  {bench}: count={cfg['count']}, iterations={cfg['iterations']}")
+        else:
+            lines.append(f"  Count:            {data.config['count']}")
+            lines.append(f"  Iterations:       {data.config['iterations']}")
+
+        lines.append("")
 
         # Group by benchmark type
         by_benchmark: dict[str, list[GridCell]] = {}
@@ -154,25 +165,41 @@ class TextFormatter(OutputFormatter):
             lines.extend(
                 [
                     f"[{bench_name}]",
-                    "-" * 70,
-                    f"{'Hosts':>6} {'Inst':>6} {'Workers':>8} {'Actions/s':>12} {'P95 (ms)':>10} {'Avg (ms)':>10}",
-                    "-" * 70,
+                    "-" * 86,
+                    f"{'Hosts':>6} {'Inst':>6} {'Workers':>8} {'Actions/s':>12} {'Elapsed':>10} {'P95 (ms)':>10} {'Avg (ms)':>10}",
+                    "-" * 86,
                 ]
             )
 
             for cell in cells:
                 if isinstance(cell.result, BenchmarkResult):
                     r = cell.result
+                    # Add warning marker for short runs
+                    elapsed_str = f"{r.elapsed_s:.2f}s"
+                    if r.elapsed_s < self.MIN_RELIABLE_RUNTIME:
+                        elapsed_str += "*"
                     lines.append(
                         f"{cell.hosts:>6} {cell.instances:>6} {cell.total_workers:>8} "
-                        f"{r.throughput:>12.1f} {r.p95_round_trip_ms:>10.1f} {r.avg_round_trip_ms:>10.1f}"
+                        f"{r.throughput:>12.1f} {elapsed_str:>10} {r.p95_round_trip_ms:>10.1f} {r.avg_round_trip_ms:>10.1f}"
                     )
                 else:
                     lines.append(
                         f"{cell.hosts:>6} {cell.instances:>6} {cell.total_workers:>8} "
-                        f"{'ERROR':>12} {'-':>10} {'-':>10}"
+                        f"{'ERROR':>12} {'-':>10} {'-':>10} {'-':>10}"
                     )
 
+            lines.append("")
+
+        # Add note about short runs if any exist
+        has_short_runs = any(
+            isinstance(cell.result, BenchmarkResult)
+            and cell.result.elapsed_s < self.MIN_RELIABLE_RUNTIME
+            for cell in data.cells
+        )
+        if has_short_runs:
+            lines.append(
+                f"* = Run completed in <{self.MIN_RELIABLE_RUNTIME}s - throughput may be unreliable"
+            )
             lines.append("")
 
         # Add scaling analysis
@@ -233,6 +260,9 @@ class TextFormatter(OutputFormatter):
 class MarkdownFormatter(OutputFormatter):
     """Output as Markdown table."""
 
+    # Minimum runtime in seconds for reliable throughput measurements
+    MIN_RELIABLE_RUNTIME = 1.0
+
     def format_single(self, data: SingleData) -> str:
         lines = [
             f"## Benchmark: {data.benchmark}",
@@ -241,17 +271,25 @@ class MarkdownFormatter(OutputFormatter):
 
         if isinstance(data.result, BenchmarkResult):
             r = data.result
+            warning = " ⚠️" if r.elapsed_s < self.MIN_RELIABLE_RUNTIME else ""
             lines.extend(
                 [
                     "| Metric | Value |",
                     "|--------|------:|",
                     f"| Total actions | {r.total:,} |",
-                    f"| Elapsed time | {r.elapsed_s:.2f}s |",
+                    f"| Elapsed time | {r.elapsed_s:.2f}s{warning} |",
                     f"| Throughput | {r.throughput:.1f} actions/s |",
                     f"| Avg latency | {r.avg_round_trip_ms:.1f}ms |",
                     f"| P95 latency | {r.p95_round_trip_ms:.1f}ms |",
                 ]
             )
+            if r.elapsed_s < self.MIN_RELIABLE_RUNTIME:
+                lines.extend(
+                    [
+                        "",
+                        f"⚠️ *Run completed in <{self.MIN_RELIABLE_RUNTIME}s - throughput may be unreliable*",
+                    ]
+                )
         else:
             lines.append(f"**ERROR:** {data.result.error}")
 
@@ -267,8 +305,17 @@ class MarkdownFormatter(OutputFormatter):
             f"- **Hosts:** {data.config['hosts']}",
             f"- **Instances:** {data.config['instances']}",
             f"- **Workers/host:** {data.config['workers_per_host']}",
-            "",
         ]
+
+        # Show per-benchmark config if available
+        if "benchmark_configs" in data.config:
+            for bench, cfg in data.config["benchmark_configs"].items():
+                lines.append(f"- **{bench}:** count={cfg['count']}, iterations={cfg['iterations']}")
+        else:
+            lines.append(f"- **Count:** {data.config['count']}")
+            lines.append(f"- **Iterations:** {data.config['iterations']}")
+
+        lines.append("")
 
         # Group by benchmark type
         by_benchmark: dict[str, list[GridCell]] = {}
@@ -280,24 +327,37 @@ class MarkdownFormatter(OutputFormatter):
                 [
                     f"### {bench_name}",
                     "",
-                    "| Hosts | Instances | Workers | Actions/s | P95 (ms) | Avg (ms) |",
-                    "|------:|----------:|--------:|----------:|---------:|---------:|",
+                    "| Hosts | Instances | Workers | Actions/s | Elapsed | P95 (ms) | Avg (ms) |",
+                    "|------:|----------:|--------:|----------:|--------:|---------:|---------:|",
                 ]
             )
 
             for cell in cells:
                 if isinstance(cell.result, BenchmarkResult):
                     r = cell.result
+                    warning = " ⚠️" if r.elapsed_s < self.MIN_RELIABLE_RUNTIME else ""
                     lines.append(
                         f"| {cell.hosts} | {cell.instances} | {cell.total_workers} | "
-                        f"{r.throughput:.1f} | {r.p95_round_trip_ms:.1f} | {r.avg_round_trip_ms:.1f} |"
+                        f"{r.throughput:.1f} | {r.elapsed_s:.2f}s{warning} | {r.p95_round_trip_ms:.1f} | {r.avg_round_trip_ms:.1f} |"
                     )
                 else:
                     lines.append(
                         f"| {cell.hosts} | {cell.instances} | {cell.total_workers} | "
-                        f"ERROR | - | - |"
+                        f"ERROR | - | - | - |"
                     )
 
+            lines.append("")
+
+        # Add note about short runs if any exist
+        has_short_runs = any(
+            isinstance(cell.result, BenchmarkResult)
+            and cell.result.elapsed_s < self.MIN_RELIABLE_RUNTIME
+            for cell in data.cells
+        )
+        if has_short_runs:
+            lines.append(
+                f"⚠️ *Runs completed in <{self.MIN_RELIABLE_RUNTIME}s may have unreliable throughput measurements*"
+            )
             lines.append("")
 
         return "\n".join(lines)
@@ -544,6 +604,26 @@ def single(
         print(formatted)
 
 
+def parse_benchmark_config(config_str: str) -> dict[str, dict[str, int]]:
+    """Parse benchmark-specific config string.
+
+    Format: "benchmark:count:iterations,benchmark:count:iterations,..."
+    Example: "for-loop:64:500,fan-out:32:200"
+
+    Returns dict like {"for-loop": {"count": 64, "iterations": 500}, ...}
+    """
+    result = {}
+    for part in config_str.split(","):
+        parts = part.strip().split(":")
+        if len(parts) == 3:
+            bench, count, iterations = parts
+            result[bench.strip()] = {
+                "count": int(count),
+                "iterations": int(iterations),
+            }
+    return result
+
+
 @cli.command()
 @click.option(
     "--output", "-o", type=click.Path(), help="Output file path (stdout if not specified)"
@@ -562,8 +642,16 @@ def single(
 @click.option(
     "--benchmarks", default="for-loop,fan-out", help="Comma-separated list of benchmark types"
 )
-@click.option("--count", default=16, help="Number of parallel hash computations per workflow")
-@click.option("--iterations", default=100, help="Hash iterations per action")
+@click.option(
+    "--count", default=16, help="Default number of parallel hash computations per workflow"
+)
+@click.option("--iterations", default=100, help="Default hash iterations per action")
+@click.option(
+    "--benchmark-config",
+    "benchmark_config_str",
+    default=None,
+    help="Per-benchmark config: 'bench:count:iterations,...' e.g. 'for-loop:64:500,fan-out:32:200'",
+)
 @click.option("--timeout", default=300, help="Timeout per benchmark run in seconds")
 def grid(
     output: str | None,
@@ -574,16 +662,34 @@ def grid(
     benchmarks: str,
     count: int,
     iterations: int,
+    benchmark_config_str: str | None,
     timeout: int,
 ):
     """Run a grid of benchmarks across hosts and instances.
 
     This runs ALL benchmark types with varying numbers of hosts and instances,
     allowing you to see how throughput scales with parallelism.
+
+    You can specify different count/iterations per benchmark using --benchmark-config:
+
+        --benchmark-config "for-loop:64:500,fan-out:32:200"
+
+    This sets for-loop to count=64, iterations=500 and fan-out to count=32, iterations=200.
+    Benchmarks not in the config use the default --count and --iterations values.
     """
     host_counts = [int(h.strip()) for h in hosts.split(",")]
     instance_counts = [int(i.strip()) for i in instances.split(",")]
     benchmark_types = [b.strip() for b in benchmarks.split(",")]
+
+    # Parse per-benchmark config
+    benchmark_configs: dict[str, dict[str, int]] = {}
+    if benchmark_config_str:
+        benchmark_configs = parse_benchmark_config(benchmark_config_str)
+
+    # Fill in defaults for benchmarks not in the config
+    for bench in benchmark_types:
+        if bench not in benchmark_configs:
+            benchmark_configs[bench] = {"count": count, "iterations": iterations}
 
     if not check_benchmark_available():
         print("Benchmark binary not found. Run 'cargo build --release' first.", file=sys.stderr)
@@ -599,10 +705,16 @@ def grid(
     print(f"Hosts: {host_counts}", file=sys.stderr)
     print(f"Instances: {instance_counts}", file=sys.stderr)
     print(f"Workers per host: {workers_per_host}", file=sys.stderr)
+    for bench, cfg in benchmark_configs.items():
+        print(f"  {bench}: count={cfg['count']}, iterations={cfg['iterations']}", file=sys.stderr)
     print(f"Total runs: {total_runs}", file=sys.stderr)
     print("", file=sys.stderr)
 
     for benchmark_type in benchmark_types:
+        bench_cfg = benchmark_configs[benchmark_type]
+        bench_count = bench_cfg["count"]
+        bench_iterations = bench_cfg["iterations"]
+
         for host_count in host_counts:
             for instance_count in instance_counts:
                 current_run += 1
@@ -622,9 +734,9 @@ def grid(
                         "--benchmark",
                         benchmark_type,
                         "--count",
-                        str(count),
+                        str(bench_count),
                         "--iterations",
-                        str(iterations),
+                        str(bench_iterations),
                         "--hosts",
                         str(host_count),
                         "--workers-per-host",
@@ -652,6 +764,7 @@ def grid(
                 if isinstance(result, BenchmarkResult):
                     print(
                         f"    -> {result.throughput:.1f} actions/s, "
+                        f"elapsed={result.elapsed_s:.2f}s, "
                         f"p95={result.p95_round_trip_ms:.1f}ms",
                         file=sys.stderr,
                     )
@@ -663,8 +776,7 @@ def grid(
         "instances": instance_counts,
         "workers_per_host": workers_per_host,
         "benchmarks": benchmark_types,
-        "count": count,
-        "iterations": iterations,
+        "benchmark_configs": benchmark_configs,
     }
 
     data = GridData(config=config, cells=cells)
