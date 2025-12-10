@@ -196,11 +196,16 @@ async def final_summary(
 
 
 @action
-async def compute_hash_for_index(index: int, iterations: int) -> str:
-    """Compute a hash chain for a given index."""
+async def compute_hash_for_index(index: int, complexity: int) -> str:
+    """Compute a hash chain for a given index.
+
+    Args:
+        index: The index to compute hash for
+        complexity: Number of hash iterations (CPU intensity)
+    """
     seed = ("benchmark_seed_" + str(index)).encode()
     result = seed
-    for _ in range(iterations):
+    for _ in range(complexity):
         result = hashlib.sha256(result).digest()
     return result.hex()
 
@@ -275,18 +280,18 @@ class BenchmarkFanOutWorkflow(Workflow):
     This tests the runtime's ability to handle sequential dependencies.
 
     Args:
-        count: Number of parallel hash computations
-        iterations: Number of hash iterations per computation
+        indices: List of indices to process (determines loop_size)
+        complexity: CPU complexity per action (hash iterations)
     """
 
     async def run(
         self,
         indices: list[int],
-        iterations: int = 100,
+        complexity: int = 100,
     ) -> dict[str, Any]:
         # Fan-out: compute hashes in parallel over the range
         hashes = await asyncio.gather(*[
-            compute_hash_for_index(index=i, iterations=iterations)
+            compute_hash_for_index(index=i, complexity=complexity)
             for i in indices
         ])
 
@@ -323,18 +328,18 @@ class BenchmarkPureFanOutWorkflow(Workflow):
     sequential bottlenecks.
 
     Args:
-        count: Number of parallel hash computations
-        iterations: Number of hash iterations per computation
+        indices: List of indices to process (determines loop_size)
+        complexity: CPU complexity per action (hash iterations)
     """
 
     async def run(
         self,
         indices: list[int],
-        iterations: int = 100,
+        complexity: int = 100,
     ) -> dict[str, Any]:
         # Pure fan-out: compute ALL hashes in parallel
         hash_results = await asyncio.gather(*[
-            compute_hash_for_index(index=i, iterations=iterations)
+            compute_hash_for_index(index=i, complexity=complexity)
             for i in indices
         ])
 

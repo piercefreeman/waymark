@@ -65,13 +65,13 @@ struct Args {
     #[arg(long, default_value = "false")]
     json: bool,
 
-    /// Number of parallel hash computations (indices 0..count)
+    /// Number of actions to spawn (fan-out width / for-loop iterations)
     #[arg(long, default_value = "16")]
-    count: u32,
+    loop_size: u32,
 
-    /// Hash iterations per action (CPU intensity)
+    /// CPU complexity per action (hash iterations)
     #[arg(long, default_value = "100")]
-    iterations: u32,
+    complexity: u32,
 
     /// Number of simulated hosts (each gets its own DAGRunner + worker pool)
     #[arg(long, default_value = "1")]
@@ -207,8 +207,8 @@ async fn start_grpc_server(
 
 async fn setup_python_env(
     grpc_addr: SocketAddr,
-    count: u32,
-    iterations: u32,
+    loop_size: u32,
+    complexity: u32,
     benchmark_type: BenchmarkType,
 ) -> Result<(TempDir, String)> {
     let env_dir = TempDir::new().context("create python env dir")?;
@@ -220,7 +220,7 @@ async fn setup_python_env(
     )?;
 
     // Write registration script based on benchmark type
-    // indices is a list of integers [0, 1, 2, ..., count-1]
+    // indices is a list of integers [0, 1, 2, ..., loop_size-1]
     let (workflow_class, workflow_name) = match benchmark_type {
         BenchmarkType::ForLoop => ("BenchmarkFanOutWorkflow", "benchmarkfanoutworkflow"),
         BenchmarkType::FanOut => ("BenchmarkPureFanOutWorkflow", "benchmarkpurefanoutworkflow"),
@@ -236,8 +236,8 @@ from benchmark_workflow import {workflow_class}
 async def main():
     os.environ.pop("PYTEST_CURRENT_TEST", None)
     wf = {workflow_class}()
-    indices = list(range({count}))
-    result = await wf.run(indices=indices, iterations={iterations})
+    indices = list(range({loop_size}))
+    result = await wf.run(indices=indices, complexity={complexity})
     print(f"Registration result: {{result}}")
 
 asyncio.run(main())
@@ -457,7 +457,7 @@ async fn main() -> Result<()> {
 
     // Set up Python environment and run registration
     let (python_env, workflow_name) =
-        setup_python_env(grpc_addr, args.count, args.iterations, args.benchmark).await?;
+        setup_python_env(grpc_addr, args.loop_size, args.complexity, args.benchmark).await?;
     info!(benchmark = %args.benchmark, "workflow registered");
 
     // Find the workflow version
@@ -505,13 +505,13 @@ async fn main() -> Result<()> {
 
     // Prepare initial inputs for the workflow
     let mut initial_inputs = HashMap::new();
-    let indices: Vec<serde_json::Value> = (0..args.count)
+    let indices: Vec<serde_json::Value> = (0..args.loop_size)
         .map(|i| serde_json::Value::Number(i.into()))
         .collect();
     initial_inputs.insert("indices".to_string(), serde_json::Value::Array(indices));
     initial_inputs.insert(
-        "iterations".to_string(),
-        serde_json::Value::Number(args.iterations.into()),
+        "complexity".to_string(),
+        serde_json::Value::Number(args.complexity.into()),
     );
 
     // Create multiple simulated hosts, each with its own runner + worker pool

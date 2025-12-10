@@ -149,10 +149,10 @@ class TextFormatter(OutputFormatter):
         # Show per-benchmark config if available, otherwise show global
         if "benchmark_configs" in data.config:
             for bench, cfg in data.config["benchmark_configs"].items():
-                lines.append(f"  {bench}: count={cfg['count']}, iterations={cfg['iterations']}")
+                lines.append(f"  {bench}: loop_size={cfg['loop_size']}, complexity={cfg['complexity']}")
         else:
-            lines.append(f"  Count:            {data.config['count']}")
-            lines.append(f"  Iterations:       {data.config['iterations']}")
+            lines.append(f"  Loop size:        {data.config['loop_size']}")
+            lines.append(f"  Complexity:       {data.config['complexity']}")
 
         lines.append("")
 
@@ -310,10 +310,10 @@ class MarkdownFormatter(OutputFormatter):
         # Show per-benchmark config if available
         if "benchmark_configs" in data.config:
             for bench, cfg in data.config["benchmark_configs"].items():
-                lines.append(f"- **{bench}:** count={cfg['count']}, iterations={cfg['iterations']}")
+                lines.append(f"- **{bench}:** loop_size={cfg['loop_size']}, complexity={cfg['complexity']}")
         else:
-            lines.append(f"- **Count:** {data.config['count']}")
-            lines.append(f"- **Iterations:** {data.config['iterations']}")
+            lines.append(f"- **Loop size:** {data.config['loop_size']}")
+            lines.append(f"- **Complexity:** {data.config['complexity']}")
 
         lines.append("")
 
@@ -551,8 +551,8 @@ def cli():
     type=click.Choice(["for-loop", "fan-out"]),
     help="Benchmark type",
 )
-@click.option("--count", default=16, help="Number of parallel hash computations")
-@click.option("--iterations", default=1000, help="Hash iterations per action")
+@click.option("--loop-size", default=16, help="Number of actions to spawn (fan-out width / for-loop iterations)")
+@click.option("--complexity", default=1000, help="CPU complexity per action (hash iterations)")
 @click.option("--workers-per-host", default=4, help="Number of Python workers per host")
 @click.option("--hosts", default=1, help="Number of hosts")
 @click.option("--instances", default=1, help="Number of workflow instances")
@@ -560,8 +560,8 @@ def single(
     output: str | None,
     fmt: str,
     benchmark: str,
-    count: int,
-    iterations: int,
+    loop_size: int,
+    complexity: int,
     workers_per_host: int,
     hosts: int,
     instances: int,
@@ -578,10 +578,10 @@ def single(
         [
             "--benchmark",
             benchmark,
-            "--count",
-            str(count),
-            "--iterations",
-            str(iterations),
+            "--loop-size",
+            str(loop_size),
+            "--complexity",
+            str(complexity),
             "--workers-per-host",
             str(workers_per_host),
             "--hosts",
@@ -607,19 +607,19 @@ def single(
 def parse_benchmark_config(config_str: str) -> dict[str, dict[str, int]]:
     """Parse benchmark-specific config string.
 
-    Format: "benchmark:count:iterations,benchmark:count:iterations,..."
+    Format: "benchmark:loop_size:complexity,benchmark:loop_size:complexity,..."
     Example: "for-loop:64:500,fan-out:32:200"
 
-    Returns dict like {"for-loop": {"count": 64, "iterations": 500}, ...}
+    Returns dict like {"for-loop": {"loop_size": 64, "complexity": 500}, ...}
     """
     result = {}
     for part in config_str.split(","):
         parts = part.strip().split(":")
         if len(parts) == 3:
-            bench, count, iterations = parts
+            bench, loop_size, complexity = parts
             result[bench.strip()] = {
-                "count": int(count),
-                "iterations": int(iterations),
+                "loop_size": int(loop_size),
+                "complexity": int(complexity),
             }
     return result
 
@@ -643,14 +643,14 @@ def parse_benchmark_config(config_str: str) -> dict[str, dict[str, int]]:
     "--benchmarks", default="for-loop,fan-out", help="Comma-separated list of benchmark types"
 )
 @click.option(
-    "--count", default=16, help="Default number of parallel hash computations per workflow"
+    "--loop-size", default=16, help="Default number of actions to spawn per workflow"
 )
-@click.option("--iterations", default=100, help="Default hash iterations per action")
+@click.option("--complexity", default=100, help="Default CPU complexity per action (hash iterations)")
 @click.option(
     "--benchmark-config",
     "benchmark_config_str",
     default=None,
-    help="Per-benchmark config: 'bench:count:iterations,...' e.g. 'for-loop:64:500,fan-out:32:200'",
+    help="Per-benchmark config: 'bench:loop_size:complexity,...' e.g. 'for-loop:64:500,fan-out:32:200'",
 )
 @click.option("--timeout", default=300, help="Timeout per benchmark run in seconds")
 def grid(
@@ -660,8 +660,8 @@ def grid(
     instances: str,
     workers_per_host: int,
     benchmarks: str,
-    count: int,
-    iterations: int,
+    loop_size: int,
+    complexity: int,
     benchmark_config_str: str | None,
     timeout: int,
 ):
@@ -670,12 +670,12 @@ def grid(
     This runs ALL benchmark types with varying numbers of hosts and instances,
     allowing you to see how throughput scales with parallelism.
 
-    You can specify different count/iterations per benchmark using --benchmark-config:
+    You can specify different loop_size/complexity per benchmark using --benchmark-config:
 
         --benchmark-config "for-loop:64:500,fan-out:32:200"
 
-    This sets for-loop to count=64, iterations=500 and fan-out to count=32, iterations=200.
-    Benchmarks not in the config use the default --count and --iterations values.
+    This sets for-loop to loop_size=64, complexity=500 and fan-out to loop_size=32, complexity=200.
+    Benchmarks not in the config use the default --loop-size and --complexity values.
     """
     host_counts = [int(h.strip()) for h in hosts.split(",")]
     instance_counts = [int(i.strip()) for i in instances.split(",")]
@@ -689,7 +689,7 @@ def grid(
     # Fill in defaults for benchmarks not in the config
     for bench in benchmark_types:
         if bench not in benchmark_configs:
-            benchmark_configs[bench] = {"count": count, "iterations": iterations}
+            benchmark_configs[bench] = {"loop_size": loop_size, "complexity": complexity}
 
     if not check_benchmark_available():
         print("Benchmark binary not found. Run 'cargo build --release' first.", file=sys.stderr)
@@ -706,14 +706,14 @@ def grid(
     print(f"Instances: {instance_counts}", file=sys.stderr)
     print(f"Workers per host: {workers_per_host}", file=sys.stderr)
     for bench, cfg in benchmark_configs.items():
-        print(f"  {bench}: count={cfg['count']}, iterations={cfg['iterations']}", file=sys.stderr)
+        print(f"  {bench}: loop_size={cfg['loop_size']}, complexity={cfg['complexity']}", file=sys.stderr)
     print(f"Total runs: {total_runs}", file=sys.stderr)
     print("", file=sys.stderr)
 
     for benchmark_type in benchmark_types:
         bench_cfg = benchmark_configs[benchmark_type]
-        bench_count = bench_cfg["count"]
-        bench_iterations = bench_cfg["iterations"]
+        bench_loop_size = bench_cfg["loop_size"]
+        bench_complexity = bench_cfg["complexity"]
 
         for host_count in host_counts:
             for instance_count in instance_counts:
@@ -733,10 +733,10 @@ def grid(
                     [
                         "--benchmark",
                         benchmark_type,
-                        "--count",
-                        str(bench_count),
-                        "--iterations",
-                        str(bench_iterations),
+                        "--loop-size",
+                        str(bench_loop_size),
+                        "--complexity",
+                        str(bench_complexity),
                         "--hosts",
                         str(host_count),
                         "--workers-per-host",
