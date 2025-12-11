@@ -480,12 +480,24 @@ jobs:
   build-wheel:
     runs-on: ${{ matrix.os }}
     needs: [python-tests, rust-tests]
-    timeout-minutes: 20
+    timeout-minutes: 30
     if: startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' || (github.event_name == 'pull_request' && contains(toJson(github.event.pull_request.labels), 'full-build'))
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            artifact-name: rappel-wheel-Linux-x86_64
+            build-sdist: true
+          - os: ubuntu-24.04-arm
+            artifact-name: rappel-wheel-Linux-aarch64
+            build-sdist: false
+          - os: macos-latest
+            artifact-name: rappel-wheel-macOS
+            build-sdist: false
+          - os: windows-latest
+            artifact-name: rappel-wheel-Windows
+            build-sdist: false
     steps:
       - uses: actions/checkout@v4
 
@@ -515,12 +527,12 @@ jobs:
       - name: Build wheel artifact
         run: uv run scripts/build_wheel.py --out-dir target/wheels
 
-      - name: Build sdist artifact (Linux only)
-        if: runner.os == 'Linux'
+      - name: Build sdist artifact
+        if: matrix.build-sdist
         run: uv build --project python --sdist --out-dir target/sdist
 
-      - name: Upload sdist artifact (Linux only)
-        if: runner.os == 'Linux'
+      - name: Upload sdist artifact
+        if: matrix.build-sdist
         uses: actions/upload-artifact@v4
         with:
           name: rappel-sdist
@@ -529,12 +541,12 @@ jobs:
       - name: Upload wheel artifact
         uses: actions/upload-artifact@v4
         with:
-          name: rappel-wheel-${{ runner.os }}
+          name: ${{ matrix.artifact-name }}
           path: target/wheels/*.whl
 
   package-release:
     runs-on: ubuntu-latest
-    needs: build-wheel
+    needs: [build-wheel]
     timeout-minutes: 20
     environment: pypi
     if: startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main'
@@ -547,11 +559,17 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@v7
 
-      - name: Download Linux wheel
+      - name: Download Linux x86_64 wheel
         uses: actions/download-artifact@v4
         with:
-          name: rappel-wheel-Linux
-          path: artifacts/linux
+          name: rappel-wheel-Linux-x86_64
+          path: artifacts/linux-x86_64
+
+      - name: Download Linux aarch64 wheel
+        uses: actions/download-artifact@v4
+        with:
+          name: rappel-wheel-Linux-aarch64
+          path: artifacts/linux-aarch64
 
       - name: Download macOS wheel
         uses: actions/download-artifact@v4
@@ -576,7 +594,8 @@ jobs:
           uv run scripts/assemble_wheels.py \
             --output target/release-wheels \
             --sdist artifacts/sdist \
-            linux=artifacts/linux \
+            linux-x86_64=artifacts/linux-x86_64 \
+            linux-aarch64=artifacts/linux-aarch64 \
             macos=artifacts/macos \
             windows=artifacts/windows
 
