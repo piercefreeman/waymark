@@ -30,11 +30,11 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://rappel:rappel@postgres:5432/rappel_example
-      CARABINER_USER_MODULE: example_app.workflows
-      CARABINER_WORKER_COUNT: 2
+      RAPPEL_USER_MODULE: example_app.workflows
+      RAPPEL_WORKER_COUNT: 2
       RAPPEL_LOG_LEVEL: debug
-      CARABINER_WEBAPP_ENABLED: "true"
-      CARABINER_WEBAPP_ADDR: "0.0.0.0:24119"
+      RAPPEL_WEBAPP_ENABLED: "true"
+      RAPPEL_WEBAPP_ADDR: "0.0.0.0:24119"
     ports:
       - "24119:24119"
 

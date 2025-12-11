@@ -4,8 +4,8 @@
 //! viewing workflow versions, and monitoring workflow instances.
 //!
 //! The webapp is disabled by default and can be enabled via environment variables:
-//! - `CARABINER_WEBAPP_ENABLED`: Set to "true" or "1" to enable
-//! - `CARABINER_WEBAPP_PORT`: Port to bind (default: 24119)
+//! - `RAPPEL_WEBAPP_ENABLED`: Set to "true" or "1" to enable
+//! - `RAPPEL_WEBAPP_ADDR`: Address to bind to (default: 0.0.0.0:24119)
 
 use std::{net::SocketAddr, sync::Arc};
 
@@ -49,14 +49,14 @@ impl Default for WebappConfig {
 impl WebappConfig {
     /// Load configuration from environment variables
     ///
-    /// - `CARABINER_WEBAPP_ENABLED`: Set to "true" or "1" to enable
-    /// - `CARABINER_WEBAPP_ADDR`: Address to bind to (default: 0.0.0.0:24119)
+    /// - `RAPPEL_WEBAPP_ENABLED`: Set to "true" or "1" to enable
+    /// - `RAPPEL_WEBAPP_ADDR`: Address to bind to (default: 0.0.0.0:24119)
     pub fn from_env() -> Self {
-        let enabled = std::env::var("CARABINER_WEBAPP_ENABLED")
+        let enabled = std::env::var("RAPPEL_WEBAPP_ENABLED")
             .map(|v| v == "true" || v == "1")
             .unwrap_or(false);
 
-        let addr = std::env::var("CARABINER_WEBAPP_ADDR")
+        let addr = std::env::var("RAPPEL_WEBAPP_ADDR")
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or_else(|| DEFAULT_WEBAPP_ADDR.parse().unwrap());
@@ -82,7 +82,7 @@ impl WebappServer {
     /// Returns None if the webapp is disabled via configuration.
     pub async fn start(config: WebappConfig, database: Arc<Database>) -> Result<Option<Self>> {
         if !config.enabled {
-            info!("webapp disabled (set CARABINER_WEBAPP_ENABLED=true to enable)");
+            info!("webapp disabled (set RAPPEL_WEBAPP_ENABLED=true to enable)");
             return Ok(None);
         }
 

@@ -185,7 +185,7 @@ def workflow(cls: type[TWorkflow]) -> type[TWorkflow]:
         cls._workflow_version_id = run_result.workflow_version_id
         if _skip_wait_for_instance():
             logger.info(
-                "Skipping wait_for_instance for workflow %s due to CARABINER_SKIP_WAIT_FOR_INSTANCE",
+                "Skipping wait_for_instance for workflow %s due to RAPPEL_SKIP_WAIT_FOR_INSTANCE",
                 cls.short_name(),
             )
             return None
@@ -230,7 +230,7 @@ def _running_under_pytest() -> bool:
 
 
 def _skip_wait_for_instance() -> bool:
-    value = os.environ.get("CARABINER_SKIP_WAIT_FOR_INSTANCE")
+    value = os.environ.get("RAPPEL_SKIP_WAIT_FOR_INSTANCE")
     if not value:
         return False
     return value.strip().lower() not in {"0", "false", "no"}

@@ -36,12 +36,12 @@ class RunInstanceResult:
 
 
 def _boot_command() -> list[str]:
-    override = os.environ.get("CARABINER_BOOT_COMMAND")
+    override = os.environ.get("RAPPEL_BOOT_COMMAND")
     if override:
-        LOGGER.debug("Using CARABINER_BOOT_COMMAND=%s", override)
+        LOGGER.debug("Using RAPPEL_BOOT_COMMAND=%s", override)
         return shlex.split(override)
-    binary = os.environ.get("CARABINER_BOOT_BINARY", "boot-rappel-singleton")
-    LOGGER.debug("Using CARABINER_BOOT_BINARY=%s", binary)
+    binary = os.environ.get("RAPPEL_BOOT_BINARY", "boot-rappel-singleton")
+    LOGGER.debug("Using RAPPEL_BOOT_BINARY=%s", binary)
     return [binary]
 
 
@@ -58,13 +58,13 @@ def _cached_port() -> Optional[int]:
 
 
 def _env_port_override() -> Optional[int]:
-    override = os.environ.get("CARABINER_SERVER_PORT")
+    override = os.environ.get("RAPPEL_SERVER_PORT")
     if not override:
         return None
     try:
         return int(override)
     except ValueError as exc:  # pragma: no cover
-        raise RuntimeError(f"invalid CARABINER_SERVER_PORT value: {override}") from exc
+        raise RuntimeError(f"invalid RAPPEL_SERVER_PORT value: {override}") from exc
 
 
 def _boot_singleton_blocking() -> int:
@@ -147,23 +147,23 @@ async def ensure_singleton() -> AsyncIterator[int]:
 
 
 def _grpc_target() -> str:
-    explicit = os.environ.get("CARABINER_GRPC_ADDR")
+    explicit = os.environ.get("RAPPEL_GRPC_ADDR")
     if explicit:
         return explicit
-    http_url = os.environ.get("CARABINER_SERVER_URL")
+    http_url = os.environ.get("RAPPEL_SERVER_URL")
     host_from_url = None
     port_from_url = None
     if http_url:
         parsed = urlparse(http_url)
         host_from_url = parsed.hostname
         port_from_url = parsed.port
-    host = host_from_url or os.environ.get("CARABINER_SERVER_HOST", DEFAULT_HOST)
-    port_override = os.environ.get("CARABINER_GRPC_PORT")
+    host = host_from_url or os.environ.get("RAPPEL_SERVER_HOST", DEFAULT_HOST)
+    port_override = os.environ.get("RAPPEL_GRPC_PORT")
     if port_override:
         try:
             port = int(port_override)
         except ValueError as exc:  # pragma: no cover
-            raise RuntimeError(f"invalid CARABINER_GRPC_PORT value: {port_override}") from exc
+            raise RuntimeError(f"invalid RAPPEL_GRPC_PORT value: {port_override}") from exc
     else:
         http_port = port_from_url if port_from_url is not None else _resolve_port()
         port = http_port + 1

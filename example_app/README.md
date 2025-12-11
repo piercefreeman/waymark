@@ -32,7 +32,7 @@ Environment notes:
 - `webapp` relies on the default rappel behavior of booting a singleton server
   inside the container whenever a workflow is invoked, so no extra env vars are
   required.
-- `daemons` runs `start_workers` with `CARABINER_USER_MODULE=example_app.workflows`
+- `daemons` runs `start_workers` with `RAPPEL_USER_MODULE=example_app.workflows`
   so the worker dispatcher preloads the module that defines the sample actions.
 
 ## Tests

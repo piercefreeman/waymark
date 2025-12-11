@@ -9,12 +9,12 @@
 //!
 //! Configuration is via environment variables:
 //! - DATABASE_URL: PostgreSQL connection string (required)
-//! - CARABINER_USER_MODULE or RAPPEL_USER_MODULE: Python module to preload
-//! - CARABINER_WORKER_COUNT or RAPPEL_WORKER_COUNT: Number of workers (default: num_cpus)
+//! - RAPPEL_USER_MODULE: Python module to preload
+//! - RAPPEL_WORKER_COUNT: Number of workers (default: num_cpus)
 //! - RAPPEL_BATCH_SIZE: Actions per poll cycle (default: 100)
 //! - RAPPEL_POLL_INTERVAL_MS: Poll interval in ms (default: 100)
-//! - CARABINER_WEBAPP_ENABLED: Set to "true" or "1" to enable web dashboard
-//! - CARABINER_WEBAPP_ADDR: Web dashboard address (default: 0.0.0.0:24119)
+//! - RAPPEL_WEBAPP_ENABLED: Set to "true" or "1" to enable web dashboard
+//! - RAPPEL_WEBAPP_ADDR: Web dashboard address (default: 0.0.0.0:24119)
 
 use std::{env, sync::Arc};
 
@@ -42,10 +42,8 @@ async fn main() -> Result<()> {
     // Load configuration
     let config = Config::from_env()?;
 
-    // Get user module from environment (support both old and new env var names)
-    let user_module = env::var("CARABINER_USER_MODULE")
-        .or_else(|_| env::var("RAPPEL_USER_MODULE"))
-        .ok();
+    // Get user module from environment
+    let user_module = env::var("RAPPEL_USER_MODULE").ok();
 
     info!(
         worker_count = config.worker_count,

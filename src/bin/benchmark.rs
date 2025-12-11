@@ -285,9 +285,9 @@ dependencies = [
 
     let env_vars = vec![
         ("PYTHONPATH", pythonpath),
-        ("CARABINER_SERVER_PORT", "9999".to_string()),
-        ("CARABINER_GRPC_ADDR", grpc_addr.to_string()),
-        ("CARABINER_SKIP_WAIT_FOR_INSTANCE", "1".to_string()),
+        ("RAPPEL_SERVER_PORT", "9999".to_string()),
+        ("RAPPEL_GRPC_ADDR", grpc_addr.to_string()),
+        ("RAPPEL_SKIP_WAIT_FOR_INSTANCE", "1".to_string()),
     ];
 
     // Run registration

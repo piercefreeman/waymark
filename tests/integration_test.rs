@@ -89,7 +89,7 @@ async def main():
 
     wf = SimpleWorkflow()
     # This will call the gRPC server to register the workflow
-    # CARABINER_SKIP_WAIT_FOR_INSTANCE tells it not to wait for completion
+    # RAPPEL_SKIP_WAIT_FOR_INSTANCE tells it not to wait for completion
     result = await wf.run(name="integration")
     print(f"Registration result: {result}")
 

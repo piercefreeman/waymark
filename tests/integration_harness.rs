@@ -236,9 +236,9 @@ impl IntegrationHarness {
 
         // Set up Python environment and run registration script
         let env_vars = vec![
-            ("CARABINER_SERVER_PORT", "9999".to_string()),
-            ("CARABINER_GRPC_ADDR", grpc_addr.to_string()),
-            ("CARABINER_SKIP_WAIT_FOR_INSTANCE", "1".to_string()),
+            ("RAPPEL_SERVER_PORT", "9999".to_string()),
+            ("RAPPEL_GRPC_ADDR", grpc_addr.to_string()),
+            ("RAPPEL_SKIP_WAIT_FOR_INSTANCE", "1".to_string()),
         ];
         let python_env = run_in_env(config.files, &[], &env_vars, config.entrypoint).await?;
 

@@ -145,13 +145,15 @@ The main rappel configuration is done through env vars, which is what you'll typ
 | Environment Variable | Description | Default | Example |
 |---------------------|-------------|---------|---------|
 | `DATABASE_URL` | PostgreSQL connection string for the rappel server | (required) | `postgresql://user:pass@localhost:5433/rappel` |
-| `CARABINER_HTTP_ADDR` | HTTP bind address for `rappel-server` | `127.0.0.1:24117` | `0.0.0.0:24117` |
-| `CARABINER_GRPC_ADDR` | gRPC bind address for `rappel-server` | HTTP port + 1 | `0.0.0.0:24118` |
-| `CARABINER_WORKER_COUNT` | Number of Python worker processes | `num_cpus` | `8` |
-| `CARABINER_MAX_CONCURRENT` | Max concurrent actions across all workers | `32` | `64` |
-| `CARABINER_USER_MODULE` | Python module preloaded into each worker | none | `my_app.actions` |
-| `CARABINER_POLL_INTERVAL_MS` | Poll interval for the dispatch loop (ms) | `100` | `50` |
-| `CARABINER_BATCH_SIZE` | Max actions fetched per poll | `100` | `200` |
+| `RAPPEL_HTTP_ADDR` | HTTP bind address for `rappel-server` | `127.0.0.1:24117` | `0.0.0.0:24117` |
+| `RAPPEL_GRPC_ADDR` | gRPC bind address for `rappel-server` | HTTP port + 1 | `0.0.0.0:24118` |
+| `RAPPEL_WORKER_COUNT` | Number of Python worker processes | `num_cpus` | `8` |
+| `RAPPEL_MAX_CONCURRENT` | Max concurrent actions across all workers | `32` | `64` |
+| `RAPPEL_USER_MODULE` | Python module preloaded into each worker | none | `my_app.actions` |
+| `RAPPEL_POLL_INTERVAL_MS` | Poll interval for the dispatch loop (ms) | `100` | `50` |
+| `RAPPEL_BATCH_SIZE` | Max actions fetched per poll | `100` | `200` |
+| `RAPPEL_WEBAPP_ENABLED` | Enable the web dashboard | `false` | `true` |
+| `RAPPEL_WEBAPP_ADDR` | Web dashboard bind address | `0.0.0.0:24119` | `0.0.0.0:8080` |
 
 ## Philosophy
 
@@ -245,8 +247,8 @@ $ cargo run --bin boot-rappel-singleton
 24117
 ```
 
-The Python bridge automatically shells out to the helper unless you provide `CARABINER_SERVER_URL`
-(`CARABINER_GRPC_ADDR` for direct sockets) overrides. Once the ports are known it opens a gRPC channel to the
+The Python bridge automatically shells out to the helper unless you provide `RAPPEL_SERVER_URL`
+(`RAPPEL_GRPC_ADDR` for direct sockets) overrides. Once the ports are known it opens a gRPC channel to the
 `WorkflowService`.
 
 ### Benchmarking
