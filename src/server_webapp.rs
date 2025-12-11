@@ -81,10 +81,29 @@ impl WebappServer {
     }
 }
 
-/// Initialize Tera templates
+// Embed templates at compile time so they're included in the binary
+const TEMPLATE_BASE: &str = include_str!("../templates/base.html");
+const TEMPLATE_HOME: &str = include_str!("../templates/home.html");
+const TEMPLATE_ERROR: &str = include_str!("../templates/error.html");
+const TEMPLATE_WORKFLOW: &str = include_str!("../templates/workflow.html");
+const TEMPLATE_WORKFLOW_RUN: &str = include_str!("../templates/workflow_run.html");
+
+/// Initialize Tera templates from embedded strings
 fn init_templates() -> Result<Tera> {
-    let mut tera = Tera::new("templates/**/*.html")
-        .context("failed to initialize templates from templates/ directory")?;
+    let mut tera = Tera::default();
+
+    // Add templates in order - base first since others extend it
+    tera.add_raw_template("base.html", TEMPLATE_BASE)
+        .context("failed to add base.html template")?;
+    tera.add_raw_template("home.html", TEMPLATE_HOME)
+        .context("failed to add home.html template")?;
+    tera.add_raw_template("error.html", TEMPLATE_ERROR)
+        .context("failed to add error.html template")?;
+    tera.add_raw_template("workflow.html", TEMPLATE_WORKFLOW)
+        .context("failed to add workflow.html template")?;
+    tera.add_raw_template("workflow_run.html", TEMPLATE_WORKFLOW_RUN)
+        .context("failed to add workflow_run.html template")?;
+
     tera.autoescape_on(vec![".html", ".tera"]);
     Ok(tera)
 }
