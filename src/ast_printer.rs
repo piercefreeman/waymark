@@ -424,7 +424,9 @@ impl AstPrinter {
                 }
             }
             Some(ast::literal::Value::IsNone(true)) => "None".to_string(),
-            Some(ast::literal::Value::IsNone(false)) => "None".to_string(), // shouldn't happen
+            Some(ast::literal::Value::IsNone(false)) => {
+                panic!("BUG: malformed AST - IsNone(false) literal is invalid")
+            }
             None => String::new(),
         }
     }

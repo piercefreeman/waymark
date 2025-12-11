@@ -425,11 +425,13 @@ impl<'a> DAGHelper<'a> {
             .unwrap_or(false)
     }
 
-    /// Check if a node is a loop head.
+    /// Check if a node is a loop head (target of a back-edge).
     pub fn is_loop_head(&self, node_id: &str) -> bool {
-        self.get_node(node_id)
-            .map(|n| n.is_loop_head)
-            .unwrap_or(false)
+        // With normalized loops, the loop head is the branch node that's the target of a back-edge
+        self.dag
+            .edges
+            .iter()
+            .any(|e| e.is_loop_back && e.target == node_id)
     }
 
     /// Check if a node is a conditional branch decision point.
@@ -1021,7 +1023,9 @@ mod tests {
     }
 
     #[test]
-    fn test_is_loop_head() {
+    fn test_loop_structure() {
+        // In normalized loop structure, we detect loop heads by finding
+        // nodes that are targets of back-edges
         let source = r#"fn test(input: [items], output: [results]):
     results = []
     for item in items:
@@ -1031,14 +1035,36 @@ mod tests {
         let dag = convert_to_dag(&program);
         let helper = DAGHelper::new(&dag);
 
-        // Find the for_loop node
-        let loop_node_id = dag
-            .nodes
-            .iter()
-            .find(|(_, n)| n.node_type == "for_loop")
-            .map(|(id, _)| id.clone());
+        // Find back-edges
+        let back_edges: Vec<_> = dag.edges.iter().filter(|e| e.is_loop_back).collect();
+        assert!(!back_edges.is_empty(), "Should have back-edges for loop");
 
-        assert!(loop_node_id.is_some());
-        assert!(helper.is_loop_head(&loop_node_id.unwrap()));
+        // The target of a back-edge is the loop condition node
+        let loop_cond_id = &back_edges[0].target;
+        let loop_cond = dag
+            .nodes
+            .get(loop_cond_id)
+            .expect("Should find loop condition node");
+        assert_eq!(
+            loop_cond.node_type, "branch",
+            "Loop condition should be a branch node"
+        );
+
+        // The loop condition should have guarded successors
+        let successors = helper.get_state_machine_successors(loop_cond_id);
+        assert!(
+            successors.len() >= 2,
+            "Loop condition should have at least 2 successors (continue and break)"
+        );
+
+        // At least one successor should have a guard (continue path)
+        let guarded_successors: Vec<_> = successors
+            .iter()
+            .filter(|e| e.guard_expr.is_some())
+            .collect();
+        assert!(
+            !guarded_successors.is_empty(),
+            "Should have guarded successors for loop condition"
+        );
     }
 }

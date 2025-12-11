@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rappel DAG Visualizer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #0a0a0a;
+            color: #e4e4e7;
+            min-height: 100vh;
+        }
+
+        .header {
+            background: linear-gradient(to right, #18181b, #27272a);
+            border-bottom: 1px solid #3f3f46;
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .header h1 {
+            font-size: 20px;
+            font-weight: 600;
+            color: #fff;
+        }
+
+        .header .badge {
+            background: #3b82f6;
+            color: white;
+            padding: 4px 10px;
+            border-radius: 9999px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .container {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1.5fr;
+            gap: 1px;
+            background: #27272a;
+            height: calc(100vh - 57px);
+        }
+
+        .panel {
+            background: #0a0a0a;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .panel-header {
+            padding: 12px 16px;
+            background: #18181b;
+            border-bottom: 1px solid #27272a;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .panel-header .icon {
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .panel-header h2 {
+            font-size: 14px;
+            font-weight: 600;
+            color: #a1a1aa;
+        }
+
+        .panel-content {
+            flex: 1;
+            overflow: auto;
+            padding: 16px;
+        }
+
+        pre {
+            font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+            font-size: 12px;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            color: #d4d4d8;
+        }
+
+        .dag-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+        }
+
+        .dag-svg {
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+        }
+
+        .dag-nodes {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        .dag-node {
+            position: absolute;
+            background: #18181b;
+            border: 2px solid #3f3f46;
+            border-radius: 12px;
+            padding: 10px 14px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            min-width: 140px;
+            max-width: 200px;
+        }
+
+        .dag-node:hover {
+            border-color: #6366f1;
+            box-shadow: 0 0 20px rgba(99, 102, 241, 0.2);
+        }
+
+        .dag-node.selected {
+            border-color: #22c55e;
+            box-shadow: 0 0 20px rgba(34, 197, 94, 0.3);
+        }
+
+        .dag-node .node-id {
+            font-family: 'SF Mono', monospace;
+            font-size: 10px;
+            color: #71717a;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 4px;
+        }
+
+        .dag-node .node-label {
+            font-size: 12px;
+            font-weight: 500;
+            color: #e4e4e7;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .dag-node .node-type {
+            font-size: 10px;
+            color: #a1a1aa;
+            margin-top: 4px;
+        }
+
+        /* Node type colors */
+        .dag-node[data-type="input"] {
+            border-color: #22c55e;
+            background: linear-gradient(135deg, #14532d 0%, #18181b 100%);
+        }
+
+        .dag-node[data-type="output"] {
+            border-color: #f97316;
+            background: linear-gradient(135deg, #7c2d12 0%, #18181b 100%);
+        }
+
+        .dag-node[data-type="action_call"] {
+            border-color: #3b82f6;
+            background: linear-gradient(135deg, #1e3a5f 0%, #18181b 100%);
+        }
+
+        .dag-node[data-type="assignment"] {
+            border-color: #8b5cf6;
+            background: linear-gradient(135deg, #4c1d95 0%, #18181b 100%);
+        }
+
+        .dag-node[data-type="for_loop"] {
+            border-color: #06b6d4;
+            background: linear-gradient(135deg, #164e63 0%, #18181b 100%);
+        }
+
+        .dag-node[data-type="if"] {
+            border-color: #eab308;
+            background: linear-gradient(135deg, #713f12 0%, #18181b 100%);
+        }
+
+        .dag-node[data-type="branch"] {
+            border-color: #eab308;
+            background: linear-gradient(135deg, #713f12 0%, #18181b 100%);
+        }
+
+        .dag-node[data-type="spread_action"] {
+            border-color: #ec4899;
+            background: linear-gradient(135deg, #831843 0%, #18181b 100%);
+        }
+
+        .dag-node[data-type="aggregator"] {
+            border-color: #10b981;
+            background: linear-gradient(135deg, #064e3b 0%, #18181b 100%);
+        }
+
+        .dag-node[data-type="join"] {
+            border-color: #6366f1;
+            background: linear-gradient(135deg, #312e81 0%, #18181b 100%);
+        }
+
+        .edge-control {
+            stroke: #4b5563;
+            stroke-width: 2;
+            fill: none;
+            marker-end: url(#arrowhead);
+        }
+
+        .edge-data {
+            stroke: #9333ea;
+            stroke-width: 1.5;
+            stroke-dasharray: 5, 5;
+            fill: none;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+            marker-end: url(#arrowhead-data);
+        }
+
+        .edge-data.visible {
+            opacity: 0.7;
+        }
+
+        .edge-loop-back {
+            stroke: #06b6d4;
+            stroke-width: 2;
+            stroke-dasharray: 8, 4;
+        }
+
+        .legend {
+            position: absolute;
+            bottom: 16px;
+            left: 16px;
+            background: #18181b;
+            border: 1px solid #27272a;
+            border-radius: 8px;
+            padding: 12px;
+            font-size: 11px;
+            z-index: 100;
+        }
+
+        .legend-title {
+            font-weight: 600;
+            color: #a1a1aa;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 4px 0;
+        }
+
+        .legend-color {
+            width: 24px;
+            height: 4px;
+            border-radius: 2px;
+        }
+
+        .legend-color.control {
+            background: #4b5563;
+        }
+
+        .legend-color.data {
+            background: #9333ea;
+            background: repeating-linear-gradient(
+                90deg,
+                #9333ea,
+                #9333ea 5px,
+                transparent 5px,
+                transparent 10px
+            );
+        }
+
+        .legend-color.loop-back {
+            background: #06b6d4;
+            background: repeating-linear-gradient(
+                90deg,
+                #06b6d4,
+                #06b6d4 8px,
+                transparent 8px,
+                transparent 12px
+            );
+        }
+
+        .help-text {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            background: #18181b;
+            border: 1px solid #27272a;
+            border-radius: 8px;
+            padding: 8px 12px;
+            font-size: 11px;
+            color: #71717a;
+            z-index: 100;
+        }
+
+        /* Node type legend */
+        .node-legend {
+            position: absolute;
+            bottom: 16px;
+            right: 16px;
+            background: #18181b;
+            border: 1px solid #27272a;
+            border-radius: 8px;
+            padding: 12px;
+            font-size: 11px;
+            z-index: 100;
+        }
+
+        .node-legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 4px 0;
+        }
+
+        .node-legend-color {
+            width: 12px;
+            height: 12px;
+            border-radius: 4px;
+            border: 2px solid;
+        }
+
+        .node-legend-color.input { border-color: #22c55e; background: #14532d; }
+        .node-legend-color.output { border-color: #f97316; background: #7c2d12; }
+        .node-legend-color.action { border-color: #3b82f6; background: #1e3a5f; }
+        .node-legend-color.assignment { border-color: #8b5cf6; background: #4c1d95; }
+        .node-legend-color.for-loop { border-color: #06b6d4; background: #164e63; }
+        .node-legend-color.branch { border-color: #eab308; background: #713f12; }
+        .node-legend-color.spread { border-color: #ec4899; background: #831843; }
+        .node-legend-color.join { border-color: #6366f1; background: #312e81; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Rappel DAG Visualizer</h1>
+        <span class="badge">Interactive</span>
+    </div>
+
+    <div class="container">
+        <div class="panel">
+            <div class="panel-header">
+                <div class="icon">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fbbf24" stroke-width="2">
+                        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+                    </svg>
+                </div>
+                <h2>Python Source</h2>
+            </div>
+            <div class="panel-content">
+                <pre id="python-source"></pre>
+            </div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header">
+                <div class="icon">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#a78bfa" stroke-width="2">
+                        <rect x="3" y="3" width="18" height="18" rx="2"/>
+                        <path d="M9 9h6M9 12h6M9 15h4"/>
+                    </svg>
+                </div>
+                <h2>Intermediate Representation (IR)</h2>
+            </div>
+            <div class="panel-content">
+                <pre id="ir-text"></pre>
+            </div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header">
+                <div class="icon">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2">
+                        <circle cx="12" cy="5" r="3"/>
+                        <circle cx="5" cy="19" r="3"/>
+                        <circle cx="19" cy="19" r="3"/>
+                        <path d="M12 8v4M9 16l-2.5-4M15 16l2.5-4"/>
+                    </svg>
+                </div>
+                <h2>Execution DAG</h2>
+            </div>
+            <div class="panel-content">
+                <div class="dag-container" id="dag-container">
+                    <svg class="dag-svg" id="dag-svg">
+                        <defs>
+                            <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                                <polygon points="0 0, 10 3.5, 0 7" fill="#4b5563"/>
+                            </marker>
+                            <marker id="arrowhead-data" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                                <polygon points="0 0, 10 3.5, 0 7" fill="#9333ea"/>
+                            </marker>
+                        </defs>
+                    </svg>
+                    <div class="dag-nodes" id="dag-nodes"></div>
+
+                    <div class="legend">
+                        <div class="legend-title">Edge Types</div>
+                        <div class="legend-item">
+                            <div class="legend-color control"></div>
+                            <span>Control Flow</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color data"></div>
+                            <span>Data Flow (click node)</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-color loop-back"></div>
+                            <span>Loop Back</span>
+                        </div>
+                    </div>
+
+                    <div class="help-text">
+                        Click a node to see data flow edges
+                    </div>
+
+                    <div class="node-legend">
+                        <div class="legend-title">Node Types</div>
+                        <div class="node-legend-item">
+                            <div class="node-legend-color input"></div>
+                            <span>Input/Output</span>
+                        </div>
+                        <div class="node-legend-item">
+                            <div class="node-legend-color action"></div>
+                            <span>Action Call</span>
+                        </div>
+                        <div class="node-legend-item">
+                            <div class="node-legend-color assignment"></div>
+                            <span>Assignment</span>
+                        </div>
+                        <div class="node-legend-item">
+                            <div class="node-legend-color for-loop"></div>
+                            <span>For Loop</span>
+                        </div>
+                        <div class="node-legend-item">
+                            <div class="node-legend-color branch"></div>
+                            <span>Branch</span>
+                        </div>
+                        <div class="node-legend-item">
+                            <div class="node-legend-color spread"></div>
+                            <span>Parallel/Spread</span>
+                        </div>
+                        <div class="node-legend-item">
+                            <div class="node-legend-color join"></div>
+                            <span>Join</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const data = {"python_source":"\"\"\"\nBenchmark workflow for stress testing the Rappel runtime.\n\nThis workflow is designed to saturate the host CPU and test throughput:\n1. Fan-out: Spawns many parallel action calls\n2. CPU-intensive: Each action performs non-trivial computation\n3. Fan-in: Aggregates results from all parallel branches\n4. Nested parallelism: Multiple layers of fan-out/fan-in\n\nConfigurable parameters:\n- fan_out_width: Number of parallel branches at each level\n- computation_depth: CPU work per action (iterations)\n- nesting_levels: Depth of nested fan-out/fan-in patterns\n\"\"\"\n\nimport asyncio\nimport hashlib\nfrom typing import Any\n\nfrom rappel import action, workflow\nfrom rappel.workflow import Workflow\n\n\n# =============================================================================\n# CPU-Intensive Actions\n# =============================================================================\n\n\n@action\nasync def hash_chain(seed: str, iterations: int) -> str:\n    \"\"\"\n    Perform a chain of SHA-256 hashes.\n\n    This is CPU-intensive and cannot be optimized away.\n    Each iteration depends on the previous, preventing parallelization.\n    \"\"\"\n    result = seed.encode()\n    for _ in range(iterations):\n        result = hashlib.sha256(result).digest()\n    return result.hex()\n\n\n@action\nasync def prime_sieve(limit: int) -> int:\n    \"\"\"\n    Count primes up to limit using Sieve of Eratosthenes.\n\n    CPU-intensive with memory pressure.\n    \"\"\"\n    if limit < 2:\n        return 0\n\n    sieve = [True] * (limit + 1)\n    sieve[0] = sieve[1] = False\n\n    for i in range(2, int(limit ** 0.5) + 1):\n        if sieve[i]:\n            for j in range(i * i, limit + 1, i):\n                sieve[j] = False\n\n    return sum(sieve)\n\n\n@action\nasync def matrix_multiply(size: int, seed: int) -> int:\n    \"\"\"\n    Perform matrix multiplication on randomly seeded matrices.\n\n    O(n^3) complexity - very CPU intensive for larger sizes.\n    Returns a checksum of the result matrix.\n    \"\"\"\n    # Simple PRNG for reproducible \"random\" matrices\n    def lcg(x: int) -> int:\n        return (1103515245 * x + 12345) & 0x7FFFFFFF\n\n    # Generate matrices\n    state = seed\n    a: list[list[int]] = []\n    b: list[list[int]] = []\n\n    for i in range(size):\n        row_a: list[int] = []\n        row_b: list[int] = []\n        for j in range(size):\n            state = lcg(state)\n            row_a.append(state % 100)\n            state = lcg(state)\n            row_b.append(state % 100)\n        a.append(row_a)\n        b.append(row_b)\n\n    # Multiply\n    c: list[list[int]] = [[0] * size for _ in range(size)]\n    for i in range(size):\n        for j in range(size):\n            for k in range(size):\n                c[i][j] += a[i][k] * b[k][j]\n\n    # Checksum\n    checksum = 0\n    for row in c:\n        for val in row:\n            checksum ^= val\n    return checksum\n\n\n@action\nasync def fibonacci_memo(n: int) -> int:\n    \"\"\"\n    Compute nth Fibonacci number with memoization.\n\n    Tests memory allocation patterns with large dict.\n    \"\"\"\n    memo: dict[int, int] = {0: 0, 1: 1}\n\n    def fib(x: int) -> int:\n        if x in memo:\n            return memo[x]\n        memo[x] = fib(x - 1) + fib(x - 2)\n        return memo[x]\n\n    return fib(n)\n\n\n@action\nasync def string_processing(text: str, rounds: int) -> str:\n    \"\"\"\n    Perform multiple rounds of string transformations.\n\n    Tests string allocation and manipulation performance.\n    \"\"\"\n    result = text\n    for _ in range(rounds):\n        # Reverse\n        result = result[::-1]\n        # Uppercase/lowercase alternating\n        chars = []\n        for i, c in enumerate(result):\n            chars.append(c.upper() if i % 2 == 0 else c.lower())\n        result = \"\".join(chars)\n        # Hash and append\n        h = hashlib.md5(result.encode()).hexdigest()[:8]\n        result = result + h\n    return result[-64:]  # Return last 64 chars to bound output size\n\n\n# =============================================================================\n# Aggregation Actions\n# =============================================================================\n\n\n@action\nasync def aggregate_hashes(hashes: list[str]) -> str:\n    \"\"\"Combine multiple hashes into a single result.\"\"\"\n    combined = \"\".join(hashes)\n    return hashlib.sha256(combined.encode()).hexdigest()\n\n\n@action\nasync def aggregate_counts(counts: list[int]) -> dict[str, Any]:\n    \"\"\"Aggregate numeric results with statistics.\"\"\"\n    if not counts:\n        return {\"sum\": 0, \"count\": 0, \"min\": 0, \"max\": 0, \"avg\": 0.0}\n\n    return {\n        \"sum\": sum(counts),\n        \"count\": len(counts),\n        \"min\": min(counts),\n        \"max\": max(counts),\n        \"avg\": sum(counts) / len(counts),\n    }\n\n\n@action\nasync def final_summary(\n    hash_result: str,\n    prime_stats: dict[str, Any],\n    matrix_checksum: int,\n    fib_value: int,\n    string_result: str,\n) -> dict[str, Any]:\n    \"\"\"Create final benchmark summary.\"\"\"\n    return {\n        \"hash_aggregate\": hash_result,\n        \"prime_statistics\": prime_stats,\n        \"matrix_checksum\": matrix_checksum,\n        \"fibonacci_result\": fib_value,\n        \"string_sample\": string_result,\n        \"benchmark_complete\": True,\n    }\n\n\n# =============================================================================\n# Additional Actions for Complex Workflow\n# =============================================================================\n\n\n@action\nasync def compute_hash_for_index(index: int, iterations: int) -> str:\n    \"\"\"Compute a hash chain for a given index.\"\"\"\n    seed = (\"benchmark_seed_\" + str(index)).encode()\n    result = seed\n    for _ in range(iterations):\n        result = hashlib.sha256(result).digest()\n    return result.hex()\n\n\n@action\nasync def analyze_hash(hash_value: str) -> dict[str, Any]:\n    \"\"\"Analyze a hash and return statistics.\"\"\"\n    # Count leading zeros (simple analysis)\n    leading_zeros = 0\n    for c in hash_value:\n        if c == \"0\":\n            leading_zeros += 1\n        else:\n            break\n\n    # Compute numeric value of first 8 chars\n    prefix_value = int(hash_value[:8], 16)\n\n    return {\n        \"hash\": hash_value,\n        \"leading_zeros\": leading_zeros,\n        \"prefix_value\": prefix_value,\n        \"is_special\": leading_zeros >= 2,\n    }\n\n\n@action\nasync def process_special_hash(analysis: dict[str, Any]) -> str:\n    \"\"\"Process a hash that was marked as special.\"\"\"\n    return \"SPECIAL:\" + analysis[\"hash\"][:16]\n\n\n@action\nasync def process_normal_hash(analysis: dict[str, Any]) -> str:\n    \"\"\"Process a hash that was not special.\"\"\"\n    return \"NORMAL:\" + analysis[\"hash\"][:16]\n\n\n@action\nasync def combine_results(results: list[str]) -> dict[str, Any]:\n    \"\"\"Combine all processed results into a final summary.\"\"\"\n    special_count = sum(1 for r in results if r.startswith(\"SPECIAL:\"))\n    normal_count = sum(1 for r in results if r.startswith(\"NORMAL:\"))\n\n    # Create a combined hash of all results\n    combined = \"\".join(results)\n    final_hash = hashlib.sha256(combined.encode()).hexdigest()\n\n    return {\n        \"total_processed\": len(results),\n        \"special_count\": special_count,\n        \"normal_count\": normal_count,\n        \"final_hash\": final_hash,\n    }\n\n\n# =============================================================================\n# Benchmark Workflows\n# =============================================================================\n\n\n@workflow\nclass BenchmarkFanOutWorkflow(Workflow):\n    \"\"\"\n    Fan-out/fan-in benchmark with conditional processing.\n\n    This workflow demonstrates:\n    1. Spread over a range (parallel fan-out)\n    2. Sequential processing with conditional branching\n    3. Final aggregation (fan-in)\n\n    Args:\n        count: Number of parallel hash computations\n        iterations: Number of hash iterations per computation\n    \"\"\"\n\n    async def run(\n        self,\n        indices: list[int],\n        iterations: int = 100,\n    ) -> dict[str, Any]:\n        # Fan-out: compute hashes in parallel over the range\n        hashes = await asyncio.gather(*[\n            compute_hash_for_index(index=i, iterations=iterations)\n            for i in indices\n        ])\n\n        # Process each hash sequentially with conditional logic\n        processed = []\n        for hash_value in hashes:\n            # Analyze the hash\n            analysis = await analyze_hash(hash_value)\n\n            # Conditional processing based on analysis\n            if analysis[\"is_special\"]:\n                result = await process_special_hash(analysis)\n            else:\n                result = await process_normal_hash(analysis)\n\n            processed.append(result)\n\n        # Fan-in: combine all results\n        summary = await combine_results(processed)\n        return summary\n","ir_text":"fn __if_then_1__(input: [], output: []):\n    result = @process_special_hash(analysis=analysis)\n\nfn __if_else_2__(input: [], output: []):\n    result = @process_normal_hash(analysis=analysis)\n\nfn __for_body_3__(input: [hash_value, processed], output: [processed]):\n    analysis = @analyze_hash(hash_value=hash_value)\n    if analysis[\"is_special\"]:\n            __if_then_1__()\n    else:\n            __if_else_2__()\n    processed = (processed + [result])\n    return processed\n\nfn run(input: [indices, iterations], output: []):\n    hashes = spread indices:i -> @compute_hash_for_index(index=i, iterations=iterations)\n    processed = []\n    for hash_value in hashes:\n            processed = __for_body_3__(hash_value=hash_value, processed=processed)\n    summary = @combine_results(results=processed)\n    return summary","dag":{"nodes":[{"id":"action_21","node_type":"action_call","label":"@combine_results() -> summary","action_name":"combine_results","targets":["summary"],"is_input":false,"is_output":false,"is_loop_head":false,"is_aggregator":false,"is_spread":false},{"id":"aggregator_18","node_type":"aggregator","label":"aggregate -> hashes","targets":["hashes"],"is_input":false,"is_output":false,"is_loop_head":false,"is_aggregator":true,"is_spread":false},{"id":"assign_19","node_type":"assignment","label":"processed = ...","targets":["processed"],"is_input":false,"is_output":false,"is_loop_head":false,"is_aggregator":false,"is_spread":false},{"id":"for_loop_20","node_type":"for_loop","label":"for hash_value in $hashes","guard_expr":"(__loop_for_loop_20_i < len(hashes))","is_input":false,"is_output":false,"is_loop_head":true,"is_aggregator":false,"is_spread":false},{"id":"return_22","node_type":"return","label":"return","is_input":false,"is_output":false,"is_loop_head":false,"is_aggregator":false,"is_spread":false},{"id":"run_input_16","node_type":"input","label":"input: [indices, iterations]","is_input":true,"is_output":false,"is_loop_head":false,"is_aggregator":false,"is_spread":false},{"id":"run_output_23","node_type":"output","label":"output: []","is_input":false,"is_output":true,"is_loop_head":false,"is_aggregator":false,"is_spread":false},{"id":"spread_action_17","node_type":"action_call","label":"@compute_hash_for_index() [spread over i]","action_name":"compute_hash_for_index","targets":["_spread_result"],"is_input":false,"is_output":false,"is_loop_head":false,"is_aggregator":false,"is_spread":true}],"edges":[{"source":"spread_action_17","target":"aggregator_18","edge_type":"control_flow","is_loop_back":false},{"source":"run_input_16","target":"spread_action_17","edge_type":"control_flow","is_loop_back":false},{"source":"aggregator_18","target":"assign_19","edge_type":"control_flow","is_loop_back":false},{"source":"assign_19","target":"for_loop_20","edge_type":"control_flow","is_loop_back":false},{"source":"for_loop_20","target":"action_21","edge_type":"control_flow","is_loop_back":false},{"source":"action_21","target":"return_22","edge_type":"control_flow","is_loop_back":false},{"source":"return_22","target":"run_output_23","edge_type":"control_flow","is_loop_back":false},{"source":"assign_19","target":"action_21","edge_type":"data_flow","variable":"processed","is_loop_back":false},{"source":"action_21","target":"return_22","edge_type":"data_flow","variable":"summary","is_loop_back":false},{"source":"spread_action_17","target":"aggregator_18","edge_type":"data_flow","variable":"_spread_result","is_loop_back":false},{"source":"for_loop_20","target":"action_21","edge_type":"data_flow","variable":"processed","is_loop_back":false},{"source":"run_input_16","target":"spread_action_17","edge_type":"data_flow","variable":"iterations","is_loop_back":false},{"source":"aggregator_18","target":"for_loop_20","edge_type":"data_flow","variable":"hashes","is_loop_back":false}]}};
+
+        // Display Python source
+        document.getElementById('python-source').textContent = data.python_source;
+
+        // Display IR text
+        document.getElementById('ir-text').textContent = data.ir_text;
+
+        // Build DAG visualization
+        const container = document.getElementById('dag-container');
+        const svg = document.getElementById('dag-svg');
+        const nodesContainer = document.getElementById('dag-nodes');
+
+        const nodes = data.dag.nodes;
+        const edges = data.dag.edges;
+
+        // Build adjacency info
+        const nodeMap = new Map(nodes.map(n => [n.id, n]));
+        const incomingEdges = new Map();
+        const outgoingEdges = new Map();
+
+        edges.forEach(edge => {
+            if (!incomingEdges.has(edge.target)) incomingEdges.set(edge.target, []);
+            if (!outgoingEdges.has(edge.source)) outgoingEdges.set(edge.source, []);
+            incomingEdges.get(edge.target).push(edge);
+            outgoingEdges.get(edge.source).push(edge);
+        });
+
+        // Compute topological depth
+        const depthCache = new Map();
+        function computeDepth(nodeId, visited = new Set()) {
+            if (depthCache.has(nodeId)) return depthCache.get(nodeId);
+            if (visited.has(nodeId)) return 0;
+            visited.add(nodeId);
+
+            const incoming = (incomingEdges.get(nodeId) || [])
+                .filter(e => e.edge_type === 'control_flow' && !e.is_loop_back);
+
+            let maxDepth = 0;
+            incoming.forEach(edge => {
+                maxDepth = Math.max(maxDepth, computeDepth(edge.source, visited) + 1);
+            });
+
+            depthCache.set(nodeId, maxDepth);
+            return maxDepth;
+        }
+
+        nodes.forEach(n => computeDepth(n.id));
+
+        // Group by depth
+        const levels = [];
+        nodes.forEach(node => {
+            const depth = depthCache.get(node.id) || 0;
+            if (!levels[depth]) levels[depth] = [];
+            levels[depth].push(node);
+        });
+
+        // Layout parameters
+        const padding = 40;
+        const columnGap = 260;
+        const rowGap = 100;
+        const nodeWidth = 180;
+        const nodeHeight = 70;
+
+        // Position nodes
+        const positions = new Map();
+        let maxX = 0;
+        let maxY = 0;
+
+        levels.forEach((levelNodes, depth) => {
+            levelNodes.forEach((node, index) => {
+                const x = padding + depth * columnGap;
+                const y = padding + index * rowGap;
+                positions.set(node.id, { x, y, cx: x + nodeWidth / 2, cy: y + nodeHeight / 2 });
+                maxX = Math.max(maxX, x + nodeWidth);
+                maxY = Math.max(maxY, y + nodeHeight);
+            });
+        });
+
+        // Set SVG size
+        svg.setAttribute('width', maxX + padding);
+        svg.setAttribute('height', maxY + padding);
+        container.style.minWidth = (maxX + padding) + 'px';
+        container.style.minHeight = (maxY + padding) + 'px';
+
+        // Draw edges
+        const edgeElements = new Map();
+
+        edges.forEach((edge, idx) => {
+            const start = positions.get(edge.source);
+            const end = positions.get(edge.target);
+            if (!start || !end) return;
+
+            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+
+            // Calculate path
+            let d;
+            if (edge.is_loop_back) {
+                // Loop back: curve around
+                const midY = Math.max(start.cy, end.cy) + 60;
+                d = `M${start.cx + nodeWidth/2},${start.cy}
+                     Q${start.cx + nodeWidth/2 + 40},${midY} ${end.cx},${end.cy + nodeHeight/2}`;
+            } else if (start.x > end.x) {
+                // Backward edge
+                const midY = Math.min(start.cy, end.cy) - 50;
+                d = `M${start.cx - nodeWidth/2},${start.cy}
+                     Q${(start.cx + end.cx)/2},${midY} ${end.cx + nodeWidth/2},${end.cy}`;
+            } else {
+                // Forward edge
+                const dx = end.cx - start.cx;
+                d = `M${start.cx + nodeWidth/2},${start.cy}
+                     C${start.cx + nodeWidth/2 + dx/3},${start.cy}
+                      ${end.cx - nodeWidth/2 - dx/3},${end.cy}
+                      ${end.cx - nodeWidth/2},${end.cy}`;
+            }
+
+            path.setAttribute('d', d);
+
+            if (edge.edge_type === 'data_flow') {
+                path.classList.add('edge-data');
+                path.dataset.target = edge.target;
+                path.dataset.source = edge.source;
+            } else {
+                path.classList.add('edge-control');
+                if (edge.is_loop_back) {
+                    path.classList.add('edge-loop-back');
+                }
+            }
+
+            svg.appendChild(path);
+
+            if (edge.edge_type === 'data_flow') {
+                if (!edgeElements.has(edge.target)) edgeElements.set(edge.target, []);
+                edgeElements.get(edge.target).push(path);
+            }
+        });
+
+        // Create node elements
+        let selectedNode = null;
+
+        nodes.forEach(node => {
+            const pos = positions.get(node.id);
+            if (!pos) return;
+
+            const el = document.createElement('div');
+            el.className = 'dag-node';
+
+            // Determine node type for styling
+            let dataType = node.node_type;
+            if (node.is_input) dataType = 'input';
+            else if (node.is_output) dataType = 'output';
+            else if (node.is_aggregator) dataType = 'aggregator';
+            else if (node.is_spread) dataType = 'spread_action';
+            else if (node.is_loop_head) dataType = 'for_loop';
+            else if (node.node_type === 'branch' || node.node_type === 'if') dataType = 'branch';
+            else if (node.node_type === 'join') dataType = 'join';
+
+            el.dataset.type = dataType;
+            el.style.left = pos.x + 'px';
+            el.style.top = pos.y + 'px';
+            el.style.width = nodeWidth + 'px';
+
+            // Build label
+            let label = node.label;
+            if (node.action_name) {
+                label = '@' + node.action_name;
+            } else if (label.length > 25) {
+                label = label.substring(0, 22) + '...';
+            }
+
+            el.innerHTML = `
+                <div class="node-id">${node.id}</div>
+                <div class="node-label">${label}</div>
+                <div class="node-type">${node.node_type}${node.targets ? ' -> ' + node.targets.join(', ') : ''}</div>
+            `;
+
+            // Click handler to show data flow edges
+            el.addEventListener('click', () => {
+                // Deselect previous
+                if (selectedNode) {
+                    selectedNode.classList.remove('selected');
+                    const prevEdges = edgeElements.get(selectedNode.dataset.nodeId) || [];
+                    prevEdges.forEach(e => e.classList.remove('visible'));
+                }
+
+                // Toggle selection
+                if (selectedNode === el) {
+                    selectedNode = null;
+                } else {
+                    selectedNode = el;
+                    el.classList.add('selected');
+                    el.dataset.nodeId = node.id;
+
+                    // Show incoming data edges
+                    const nodeEdges = edgeElements.get(node.id) || [];
+                    nodeEdges.forEach(e => e.classList.add('visible'));
+                }
+            });
+
+            el.dataset.nodeId = node.id;
+            nodesContainer.appendChild(el);
+        });
+
+        // Click outside to deselect
+        container.addEventListener('click', (e) => {
+            if (e.target === container || e.target === nodesContainer) {
+                if (selectedNode) {
+                    selectedNode.classList.remove('selected');
+                    const prevEdges = edgeElements.get(selectedNode.dataset.nodeId) || [];
+                    prevEdges.forEach(e => e.classList.remove('visible'));
+                    selectedNode = null;
+                }
+            }
+        });
+    </script>
+</body>
+</html>

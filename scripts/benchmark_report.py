@@ -220,11 +220,29 @@ def main(
 
     if pr_json:
         with open(pr_json) as f:
-            pr_results = json.load(f)
+            content = f.read().strip()
+            if content:
+                pr_results = json.loads(content)
+            else:
+                pr_results = {
+                    "_meta": {
+                        "benchmark_available": False,
+                        "reason": "Benchmark output file was empty",
+                    }
+                }
 
     if main_json:
         with open(main_json) as f:
-            main_results = json.load(f)
+            content = f.read().strip()
+            if content:
+                main_results = json.loads(content)
+            else:
+                main_results = {
+                    "_meta": {
+                        "benchmark_available": False,
+                        "reason": "Benchmark output file was empty",
+                    }
+                }
 
     if benchmark_diff:
         with open(benchmark_diff) as f:

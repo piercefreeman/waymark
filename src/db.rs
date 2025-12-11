@@ -601,6 +601,7 @@ impl Database {
     /// 4. Sets deadline and delivery token
     /// 5. Returns the actions for execution
     pub async fn dispatch_actions(&self, limit: i32) -> DbResult<Vec<QueuedAction>> {
+        let start = std::time::Instant::now();
         let rows = sqlx::query(
             r#"
             WITH next_actions AS (
@@ -645,7 +646,7 @@ impl Database {
         .fetch_all(&self.pool)
         .await?;
 
-        let actions = rows
+        let actions: Vec<QueuedAction> = rows
             .into_iter()
             .map(|row| QueuedAction {
                 id: row.get("id"),
@@ -666,6 +667,14 @@ impl Database {
             })
             .collect();
 
+        let count = actions.len();
+        if count > 0 {
+            tracing::info!(
+                elapsed_ms = start.elapsed().as_millis() as u64,
+                count = count,
+                "dispatch_actions"
+            );
+        }
         Ok(actions)
     }
 
@@ -1048,10 +1057,11 @@ impl Database {
     // Node Inputs (Inbox Pattern)
     // ========================================================================
 
-    /// Append a value to a node's inbox (O(1) write, no locks).
+    /// Write a value to a node's inbox (O(1) upsert, no locks).
     ///
     /// When Node A completes, it calls this for each downstream node that needs the value.
-    /// This is append-only - no read-modify-write cycle.
+    /// Uses UPSERT to overwrite existing values for the same (target, variable, spread_index),
+    /// preventing unbounded inbox growth during loops.
     pub async fn append_to_inbox(
         &self,
         instance_id: WorkflowInstanceId,
@@ -1065,6 +1075,8 @@ impl Database {
             r#"
             INSERT INTO node_inputs (instance_id, target_node_id, variable_name, value, source_node_id, spread_index)
             VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (instance_id, target_node_id, variable_name, COALESCE(spread_index, -1))
+            DO UPDATE SET value = EXCLUDED.value, source_node_id = EXCLUDED.source_node_id, created_at = NOW()
             "#,
         )
         .bind(instance_id.0)
@@ -1492,12 +1504,14 @@ impl Database {
 
         let node_ids_vec: Vec<&str> = node_ids.iter().map(|s| s.as_str()).collect();
 
-        let rows: Vec<(String, String, serde_json::Value, Option<i32>)> = sqlx::query_as(
+        // With UPSERT, each (target_node_id, variable_name, spread_index) is unique,
+        // so we just need a simple SELECT. Non-spread variables (spread_index IS NULL)
+        // are also unique due to the COALESCE(-1) in the unique index.
+        let rows: Vec<(String, String, serde_json::Value)> = sqlx::query_as(
             r#"
-            SELECT target_node_id, variable_name, value, spread_index
+            SELECT target_node_id, variable_name, value
             FROM node_inputs
             WHERE instance_id = $1 AND target_node_id = ANY($2)
-            ORDER BY target_node_id, spread_index NULLS FIRST, created_at
             "#,
         )
         .bind(instance_id.0)
@@ -1505,14 +1519,21 @@ impl Database {
         .fetch_all(&self.pool)
         .await?;
 
-        // Group by target_node_id, then by variable_name
-        // For non-spread results, later writes overwrite earlier ones (last write wins)
+        // Group by target_node_id
         let mut result: std::collections::HashMap<
             String,
             std::collections::HashMap<String, serde_json::Value>,
         > = std::collections::HashMap::new();
 
-        for (target_node_id, var_name, value, _spread_index) in rows {
+        for (target_node_id, var_name, value) in rows {
+            if var_name == "__loop_loop_8_i" {
+                debug!(
+                    target_node_id = %target_node_id,
+                    variable_name = %var_name,
+                    value = ?value,
+                    "DB reading __loop_loop_8_i from inbox"
+                );
+            }
             result
                 .entry(target_node_id)
                 .or_default()
@@ -1579,6 +1600,7 @@ impl Database {
         instance_id: WorkflowInstanceId,
         plan: CompletionPlan,
     ) -> DbResult<CompletionResult> {
+        let start = std::time::Instant::now();
         let mut tx = self.pool.begin().await?;
         let mut result = CompletionResult::default();
 
@@ -1614,11 +1636,22 @@ impl Database {
 
         // 2. Write inbox entries for all frontier nodes
         for write in &plan.inbox_writes {
+            if write.variable_name == "__loop_loop_8_i" {
+                debug!(
+                    target_node_id = %write.target_node_id,
+                    variable_name = %write.variable_name,
+                    value = ?write.value,
+                    source_node_id = %write.source_node_id,
+                    "DB writing __loop_loop_8_i to inbox"
+                );
+            }
             sqlx::query(
                 r#"
                 INSERT INTO node_inputs
                     (instance_id, target_node_id, variable_name, value, source_node_id, spread_index)
                 VALUES ($1, $2, $3, $4, $5, $6)
+                ON CONFLICT (instance_id, target_node_id, variable_name, COALESCE(spread_index, -1))
+                DO UPDATE SET value = EXCLUDED.value, source_node_id = EXCLUDED.source_node_id, created_at = NOW()
                 "#,
             )
             .bind(instance_id.0)
@@ -1764,6 +1797,13 @@ impl Database {
 
         // 5. Commit the transaction
         tx.commit().await?;
+
+        tracing::info!(
+            elapsed_ms = start.elapsed().as_millis() as u64,
+            inbox_writes = plan.inbox_writes.len(),
+            readiness_increments = plan.readiness_increments.len(),
+            "execute_completion_plan"
+        );
 
         Ok(result)
     }
@@ -2590,7 +2630,7 @@ mod tests {
                 "result",
                 serde_json::json!(1),
                 "source_1",
-                None,
+                Some(0),
             )
             .await
             .expect("failed to write");
@@ -2615,7 +2655,7 @@ mod tests {
                 "result",
                 serde_json::json!(2),
                 "source_2",
-                None,
+                Some(1),
             )
             .await
             .expect("failed to write");
@@ -2692,7 +2732,7 @@ mod tests {
                 "result",
                 serde_json::json!(1),
                 "source_1",
-                None,
+                Some(0),
             )
             .await
             .expect("failed to write");
@@ -2707,7 +2747,7 @@ mod tests {
                 "result",
                 serde_json::json!(2),
                 "source_2",
-                None,
+                Some(1),
             )
             .await
             .expect("failed to write");
@@ -2725,7 +2765,7 @@ mod tests {
                 "result",
                 serde_json::json!(3),
                 "source_3",
-                None,
+                Some(2),
             )
             .await
             .expect("failed to write");

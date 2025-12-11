@@ -1,6 +1,0 @@
- for @actions only we should support @action(...) as well as @action(...) [Exception: parameters] ...
-these parameters include the following: Retry Policies: @action(...) [ValueError: retry: 3, backoff_exp: 2m, timeout: 30s] ... not all args need to be
-provided. we can force all arguments to be seconds ... in the db you'll implement timeout as NOW()+timeout, so we can fetch timed out actions, you should
-assign a lock_uuid to each runnable action so owners can only update it if they currently own the lock. if an action handler picks up a timed out event via
-the SELECT SKIP LOCKED WHERE timeout < NOW() AND existing_filters, then it should be in charge with decrementing the allowable retry count and queuing it for
-the future based on the backoff interval. if we receive an explicit action failure as a result, same deal...

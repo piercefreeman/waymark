@@ -7,6 +7,7 @@ dependencies = [
     "click>=8",
     "packaging>=23",
     "pydantic>=2",
+    "protobuf>=5",
     "rich>=13",
     "toml>=0.10",
 ]

@@ -49,7 +49,9 @@ use prost::Message;
 
 use crate::{
     ast_evaluator::{EvaluationError, ExpressionEvaluator, Scope},
-    completion::{InlineContext, analyze_subgraph, evaluate_guard, execute_inline_subgraph},
+    completion::{
+        GuardResult, InlineContext, analyze_subgraph, evaluate_guard, execute_inline_subgraph,
+    },
     dag::{DAG, DAGConverter, DAGNode, EdgeType},
     dag_state::{DAGHelper, ExecutionMode},
     db::{
@@ -688,35 +690,60 @@ impl WorkQueueHandler {
         batch_size: usize,
         completion_tx: mpsc::Sender<(InFlightAction, RoundTripMetrics)>,
     ) -> RunnerResult<usize> {
+        let total_start = std::time::Instant::now();
+
         let available = self.slot_tracker.available_slots();
         if available == 0 {
             return Ok(0);
         }
 
         let limit = available.min(batch_size);
+        let db_start = std::time::Instant::now();
         let nodes = self.db.dispatch_runnable_nodes(limit as i32).await?;
+        let db_us = db_start.elapsed().as_micros() as u64;
         let dispatched = nodes.len();
 
+        let mut barrier_count = 0;
+        let mut action_count = 0;
+        let mut sleep_count = 0;
+
+        let dispatch_start = std::time::Instant::now();
         for node in nodes {
             match node.node_type.as_str() {
-                "barrier" => {
-                    // Process barriers inline using unified readiness model
+                "barrier" | "branch" | "join" => {
+                    // Process control flow nodes inline using unified readiness model
+                    // - barrier: synchronization points
+                    // - branch: conditional decision points (if/elif/else, loop conditions)
+                    // - join: merge points after conditionals or loops
                     self.process_barrier(node).await?;
-                }
-                "for_loop" => {
-                    // Process for-loop controllers inline
-                    self.process_for_loop(node, completion_tx.clone()).await?;
+                    barrier_count += 1;
                 }
                 "sleep" => {
                     // Process durable sleep inline (no worker dispatch)
                     self.process_sleep_action(node, completion_tx.clone())
                         .await?;
+                    sleep_count += 1;
                 }
                 _ => {
                     // Dispatch actions to workers
                     self.dispatch_action(node, completion_tx.clone()).await?;
+                    action_count += 1;
                 }
             }
+        }
+        let dispatch_us = dispatch_start.elapsed().as_micros() as u64;
+
+        if dispatched > 0 {
+            info!(
+                total_us = total_start.elapsed().as_micros() as u64,
+                db_fetch_us = db_us,
+                dispatch_us = dispatch_us,
+                dispatched = dispatched,
+                barriers = barrier_count,
+                actions = action_count,
+                sleeps = sleep_count,
+                "fetch_and_dispatch timing"
+            );
         }
 
         Ok(dispatched)
@@ -728,6 +755,8 @@ impl WorkQueueHandler {
     /// The barrier's inbox is guaranteed to be fully populated because all
     /// predecessors completed and wrote their data before the barrier was enqueued.
     async fn process_barrier(&self, barrier: QueuedAction) -> RunnerResult<()> {
+        let total_start = std::time::Instant::now();
+
         let instance_id = WorkflowInstanceId(barrier.instance_id);
         let node_id = match barrier.node_id.as_deref() {
             Some(id) => id,
@@ -756,6 +785,7 @@ impl WorkQueueHandler {
         let helper = DAGHelper::new(&dag);
 
         // Read aggregated results from inbox (for spread actions with spread_index)
+        let inbox_start = std::time::Instant::now();
         let spread_results = self
             .db
             .read_inbox_for_aggregator(instance_id, node_id)
@@ -766,6 +796,7 @@ impl WorkQueueHandler {
 
         // Also read named variables from the barrier's inbox (for parallel blocks)
         let barrier_inbox = self.db.read_inbox(instance_id, node_id).await?;
+        let inbox_us = inbox_start.elapsed().as_micros() as u64;
 
         debug!(
             barrier_id = %node_id,
@@ -775,13 +806,17 @@ impl WorkQueueHandler {
         );
 
         // Analyze subgraph from barrier
+        let subgraph_start = std::time::Instant::now();
         let subgraph = analyze_subgraph(node_id, &dag, &helper);
+        let subgraph_us = subgraph_start.elapsed().as_micros() as u64;
 
         // Batch fetch inbox for all nodes in subgraph
+        let batch_start = std::time::Instant::now();
         let mut existing_inbox = self
             .db
             .batch_read_inbox(instance_id, &subgraph.all_node_ids)
             .await?;
+        let batch_us = batch_start.elapsed().as_micros() as u64;
 
         // Merge barrier's named variables into the existing inbox so they're available
         // to successors. This is how parallel block results flow to downstream nodes.
@@ -793,6 +828,7 @@ impl WorkQueueHandler {
         }
 
         // Execute inline subgraph and build completion plan
+        let inline_start = std::time::Instant::now();
         let initial_scope = load_initial_scope(&self.db, instance_id).await?;
         let ctx = InlineContext {
             initial_scope: &initial_scope,
@@ -811,15 +847,24 @@ impl WorkQueueHandler {
             Vec::new(),
             None,
         );
+        let inline_us = inline_start.elapsed().as_micros() as u64;
 
         // Execute completion plan in single atomic transaction
+        let db_start = std::time::Instant::now();
         let result = self.db.execute_completion_plan(instance_id, plan).await?;
+        let db_us = db_start.elapsed().as_micros() as u64;
 
         info!(
             barrier_id = %node_id,
-            newly_ready_nodes = ?result.newly_ready_nodes,
+            total_us = total_start.elapsed().as_micros() as u64,
+            inbox_us = inbox_us,
+            subgraph_us = subgraph_us,
+            batch_us = batch_us,
+            inline_us = inline_us,
+            db_us = db_us,
+            newly_ready = result.newly_ready_nodes.len(),
             workflow_completed = result.workflow_completed,
-            "processed barrier"
+            "process_barrier timing"
         );
 
         Ok(())
@@ -902,380 +947,6 @@ impl WorkQueueHandler {
             newly_ready_nodes = ?result.newly_ready_nodes,
             workflow_completed = result.workflow_completed,
             "processed sleep action"
-        );
-
-        Ok(())
-    }
-
-    /// Process a for-loop controller that has become ready.
-    ///
-    /// For-loops evaluate their guard expression to decide whether to:
-    /// - Continue: dispatch the loop body and set the loop variable
-    /// - Break: proceed to successors after the loop
-    async fn process_for_loop(
-        &self,
-        for_loop: QueuedAction,
-        _completion_tx: mpsc::Sender<(InFlightAction, RoundTripMetrics)>,
-    ) -> RunnerResult<()> {
-        use crate::completion::{CompletionPlan, InboxWrite, NodeType, ReadinessIncrement};
-
-        let instance_id = WorkflowInstanceId(for_loop.instance_id);
-        let node_id = match for_loop.node_id.as_deref() {
-            Some(id) => id,
-            None => {
-                warn!(for_loop_id = %for_loop.id, "ForLoop missing node_id");
-                return Ok(());
-            }
-        };
-
-        debug!(
-            for_loop_id = %for_loop.id,
-            node_id = %node_id,
-            instance_id = %instance_id.0,
-            "processing for_loop"
-        );
-
-        // Get DAG
-        let dag = match self.dag_cache.get_dag_for_instance(instance_id).await? {
-            Some(dag) => dag,
-            None => {
-                warn!(
-                    for_loop_id = %for_loop.id,
-                    instance_id = %instance_id.0,
-                    "No DAG found for instance"
-                );
-                return Ok(());
-            }
-        };
-
-        let helper = DAGHelper::new(&dag);
-
-        // Get the for_loop node
-        let loop_node = match dag.nodes.get(node_id) {
-            Some(n) => n,
-            None => {
-                warn!(node_id = %node_id, "ForLoop node not found in DAG");
-                return Ok(());
-            }
-        };
-
-        // Read the for_loop's inbox to get the loop index and collection
-        let loop_inbox = self.db.read_inbox(instance_id, node_id).await?;
-        let loop_i_var = format!("__loop_{}_i", node_id);
-
-        // Get current loop index (should have been set by completion handler)
-        let current_index = loop_inbox
-            .get(&loop_i_var)
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0) as usize;
-
-        // Get collection from inbox using the loop_collection field
-        // Strip the $ prefix if present (expr_to_string adds $ for variables)
-        let collection_var = loop_node.loop_collection.clone().unwrap_or_default();
-        let collection_key = collection_var.strip_prefix('$').unwrap_or(&collection_var);
-        let collection = loop_inbox.get(collection_key);
-        let collection_len = collection
-            .and_then(|v| v.as_array())
-            .map(|a| a.len())
-            .unwrap_or(0);
-
-        debug!(
-            node_id = %node_id,
-            loop_i_var = %loop_i_var,
-            current_index = current_index,
-            collection_var = %collection_var,
-            collection_len = collection_len,
-            "for_loop state"
-        );
-
-        // Evaluate guard: current_index < collection_len
-        let should_continue = current_index < collection_len;
-
-        // Build completion plan
-        let mut plan = CompletionPlan::new(node_id.to_string());
-        plan = plan.with_action_completion(
-            ActionId(for_loop.id),
-            for_loop.delivery_token,
-            true, // for_loops always "succeed"
-            Vec::new(),
-            None,
-        );
-
-        if should_continue {
-            // Continue: set loop variable(s) and dispatch body
-            let loop_vars = loop_node.loop_vars.clone();
-            let collection_arr = collection.and_then(|v| v.as_array());
-
-            // Get the current item from the collection
-            let current_item = collection_arr
-                .and_then(|arr| arr.get(current_index))
-                .cloned()
-                .unwrap_or(JsonValue::Null);
-
-            // Find the body node (successor with guard)
-            let body_successors: Vec<_> = helper
-                .get_ready_successors(node_id, None)
-                .into_iter()
-                .filter(|s| s.guard_expr.is_some())
-                .collect();
-
-            if let Some(body_successor) = body_successors.first() {
-                let body_node_id = &body_successor.node_id;
-
-                // Write loop variable(s) to body's inbox
-                // Handle both single variable and tuple unpacking
-                if let Some(ref vars) = loop_vars {
-                    if vars.len() == 1 {
-                        // Single variable: item = collection[i]
-                        plan.inbox_writes.push(InboxWrite {
-                            instance_id,
-                            target_node_id: body_node_id.clone(),
-                            variable_name: vars[0].clone(),
-                            value: current_item.clone(),
-                            source_node_id: node_id.to_string(),
-                            spread_index: None,
-                        });
-                    } else if vars.len() > 1 {
-                        // Tuple unpacking: (i, item) = enumerate(collection)[i]
-                        // or (a, b) = collection[i] where collection[i] is a tuple
-                        if let Some(arr) = current_item.as_array() {
-                            for (idx, var) in vars.iter().enumerate() {
-                                let val = arr.get(idx).cloned().unwrap_or(JsonValue::Null);
-                                plan.inbox_writes.push(InboxWrite {
-                                    instance_id,
-                                    target_node_id: body_node_id.clone(),
-                                    variable_name: var.clone(),
-                                    value: val,
-                                    source_node_id: node_id.to_string(),
-                                    spread_index: None,
-                                });
-                            }
-                        }
-                    }
-                }
-
-                // Write the loop index to body's inbox (for data flow back)
-                plan.inbox_writes.push(InboxWrite {
-                    instance_id,
-                    target_node_id: body_node_id.clone(),
-                    variable_name: loop_i_var.clone(),
-                    value: JsonValue::Number((current_index as i64).into()),
-                    source_node_id: node_id.to_string(),
-                    spread_index: None,
-                });
-
-                // Write ALL variables from the for_loop's inbox to body's inbox
-                // (except the collection variable itself)
-                // This ensures variables like 'processed' flow through to the body
-                for (var_name, value) in &loop_inbox {
-                    // Skip the collection variable (e.g., 'items') - body doesn't need the whole collection
-                    if var_name == collection_key {
-                        continue;
-                    }
-                    // Skip loop variables - we already wrote them above
-                    let is_loop_var = loop_vars
-                        .as_ref()
-                        .is_some_and(|vars| vars.contains(var_name));
-                    if is_loop_var {
-                        continue;
-                    }
-                    // Skip the loop index variable - we already wrote it above
-                    if var_name == &loop_i_var {
-                        continue;
-                    }
-
-                    debug!(
-                        var_name = %var_name,
-                        target = %body_node_id,
-                        "writing inbox variable to body"
-                    );
-                    plan.inbox_writes.push(InboxWrite {
-                        instance_id,
-                        target_node_id: body_node_id.clone(),
-                        variable_name: var_name.clone(),
-                        value: value.clone(),
-                        source_node_id: node_id.to_string(),
-                        spread_index: None,
-                    });
-                }
-
-                // Get body node for dispatch info
-                let body_node = dag.nodes.get(body_node_id);
-                let (module_name, action_name, dispatch_payload) = if let Some(bn) = body_node {
-                    let payload = if bn.node_type == "action_call" {
-                        // Build dispatch payload for the action
-                        let mut action_inbox: HashMap<String, JsonValue> = HashMap::new();
-                        // Add loop variable
-                        if let Some(ref vars) = loop_vars
-                            && vars.len() == 1
-                        {
-                            action_inbox.insert(vars[0].clone(), current_item.clone());
-                        }
-                        action_inbox.insert(
-                            loop_i_var.clone(),
-                            JsonValue::Number((current_index as i64).into()),
-                        );
-
-                        // Build kwargs-based payload
-                        if let Some(ref kwargs) = bn.kwargs {
-                            let mut payload_map = serde_json::Map::new();
-                            for (key, value_str) in kwargs {
-                                let resolved = if let Some(var_name) = value_str.strip_prefix('$') {
-                                    action_inbox
-                                        .get(var_name)
-                                        .cloned()
-                                        .unwrap_or(JsonValue::Null)
-                                } else {
-                                    serde_json::from_str(value_str)
-                                        .unwrap_or(JsonValue::String(value_str.clone()))
-                                };
-                                payload_map.insert(key.clone(), resolved);
-                            }
-                            Some(
-                                serde_json::to_vec(&JsonValue::Object(payload_map))
-                                    .unwrap_or_default(),
-                            )
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    };
-                    (bn.module_name.clone(), bn.action_name.clone(), payload)
-                } else {
-                    (None, None, None)
-                };
-
-                // Reset body node's readiness for this iteration
-                // This is needed because the body was already triggered in a previous iteration
-                self.db
-                    .reset_node_readiness(instance_id, body_node_id)
-                    .await?;
-
-                // Add readiness increment for body node
-                plan.readiness_increments.push(ReadinessIncrement {
-                    node_id: body_node_id.clone(),
-                    required_count: 1, // Body has one predecessor (the for_loop)
-                    node_type: if body_node
-                        .map(|n| n.node_type == "action_call")
-                        .unwrap_or(false)
-                    {
-                        NodeType::Action
-                    } else {
-                        NodeType::Barrier // fn_call treated as barrier-like
-                    },
-                    module_name,
-                    action_name,
-                    dispatch_payload,
-                    scheduled_at: None,
-                });
-
-                debug!(
-                    for_loop_id = %node_id,
-                    body_node_id = %body_node_id,
-                    current_index = current_index,
-                    "dispatching loop body"
-                );
-            }
-        } else {
-            // Break: proceed to successors after the loop
-            // Find successors without guards (break edges)
-            let break_successors: Vec<_> = helper
-                .get_ready_successors(node_id, None)
-                .into_iter()
-                .filter(|s| s.guard_expr.is_none())
-                .collect();
-
-            for successor in break_successors {
-                // Write the loop's accumulated variables to break successor's inbox
-                // This passes variables like 'processed' that were modified during the loop
-                for (var_name, value) in &loop_inbox {
-                    // Skip the collection variable and loop index - they're not needed
-                    if var_name == collection_key || var_name == &loop_i_var {
-                        continue;
-                    }
-                    debug!(
-                        var_name = %var_name,
-                        target = %successor.node_id,
-                        "writing loop variable to break successor"
-                    );
-                    plan.inbox_writes.push(InboxWrite {
-                        instance_id,
-                        target_node_id: successor.node_id.clone(),
-                        variable_name: var_name.clone(),
-                        value: value.clone(),
-                        source_node_id: node_id.to_string(),
-                        spread_index: None,
-                    });
-                }
-
-                // Look up the successor node to determine its type and dispatch info
-                let successor_node = dag.nodes.get(&successor.node_id);
-                let (node_type, module_name, action_name, dispatch_payload) = if let Some(sn) =
-                    successor_node
-                {
-                    if sn.node_type == "action_call" {
-                        // Build dispatch payload for the action
-                        let payload = if let Some(ref kwargs) = sn.kwargs {
-                            let mut payload_map = serde_json::Map::new();
-                            for (key, value_str) in kwargs {
-                                let resolved = if let Some(var_name) = value_str.strip_prefix('$') {
-                                    loop_inbox.get(var_name).cloned().unwrap_or(JsonValue::Null)
-                                } else {
-                                    serde_json::from_str(value_str)
-                                        .unwrap_or(JsonValue::String(value_str.clone()))
-                                };
-                                payload_map.insert(key.clone(), resolved);
-                            }
-                            Some(
-                                serde_json::to_vec(&JsonValue::Object(payload_map))
-                                    .unwrap_or_default(),
-                            )
-                        } else {
-                            None
-                        };
-                        (
-                            NodeType::Action,
-                            sn.module_name.clone(),
-                            sn.action_name.clone(),
-                            payload,
-                        )
-                    } else {
-                        (NodeType::Barrier, None, None, None)
-                    }
-                } else {
-                    (NodeType::Barrier, None, None, None)
-                };
-
-                // Add readiness increment for break successors
-                plan.readiness_increments.push(ReadinessIncrement {
-                    node_id: successor.node_id.clone(),
-                    required_count: 1,
-                    node_type,
-                    module_name,
-                    action_name,
-                    dispatch_payload,
-                    scheduled_at: None,
-                });
-
-                debug!(
-                    for_loop_id = %node_id,
-                    successor_id = %successor.node_id,
-                    "loop complete, proceeding to successor"
-                );
-            }
-        }
-
-        // Execute completion plan in single atomic transaction
-        let result = self.db.execute_completion_plan(instance_id, plan).await?;
-
-        info!(
-            for_loop_id = %node_id,
-            current_index = current_index,
-            collection_len = collection_len,
-            should_continue = should_continue,
-            newly_ready_nodes = ?result.newly_ready_nodes,
-            "processed for_loop"
         );
 
         Ok(())
@@ -1662,6 +1333,8 @@ impl DAGRunner {
         metrics: &RoundTripMetrics,
         instance_id: WorkflowInstanceId,
     ) -> RunnerResult<crate::completion::CompletionResult> {
+        let total_start = std::time::Instant::now();
+
         // Get DAG for this workflow instance
         let dag = match dag_cache.get_dag_for_instance(instance_id).await? {
             Some(dag) => dag,
@@ -1711,7 +1384,9 @@ impl DAGRunner {
         let helper = DAGHelper::new(&dag);
 
         // Step 1: Analyze subgraph
+        let subgraph_start = std::time::Instant::now();
         let subgraph = analyze_subgraph(base_node_id, &dag, &helper);
+        let subgraph_ms = subgraph_start.elapsed().as_micros() as u64;
 
         debug!(
             node_id = %node_id,
@@ -1721,11 +1396,28 @@ impl DAGRunner {
         );
 
         // Step 2: Batch fetch inbox for all nodes in subgraph
+        let inbox_start = std::time::Instant::now();
         let existing_inbox = db
             .batch_read_inbox(instance_id, &subgraph.all_node_ids)
             .await?;
+        let inbox_ms = inbox_start.elapsed().as_micros() as u64;
+
+        // DEBUG: Log full inbox state for completed node
+        info!(
+            node_id = %node_id,
+            existing_inbox_keys = ?existing_inbox.keys().collect::<Vec<_>>(),
+            "DEBUG: existing inbox node keys"
+        );
+        for (inbox_node_id, inbox_vars) in &existing_inbox {
+            info!(
+                inbox_node_id = %inbox_node_id,
+                inbox_vars = ?inbox_vars,
+                "DEBUG: inbox contents for node"
+            );
+        }
 
         // Step 3: Execute inline subgraph and build completion plan
+        let inline_start = std::time::Instant::now();
         let ctx = InlineContext {
             initial_scope: &initial_scope,
             existing_inbox: &existing_inbox,
@@ -1743,6 +1435,7 @@ impl DAGRunner {
             metrics.response_payload.clone(),
             metrics.error_message.clone(),
         );
+        let inline_ms = inline_start.elapsed().as_micros() as u64;
 
         debug!(
             node_id = %node_id,
@@ -1752,15 +1445,45 @@ impl DAGRunner {
             "built completion plan"
         );
 
-        // Step 4: Execute completion plan in single atomic transaction
-        let result = db.execute_completion_plan(instance_id, plan).await?;
+        // DEBUG: Log all inbox writes in the plan
+        for write in &plan.inbox_writes {
+            info!(
+                target_node_id = %write.target_node_id,
+                variable_name = %write.variable_name,
+                value = ?write.value,
+                source_node_id = %write.source_node_id,
+                spread_index = ?write.spread_index,
+                "DEBUG: plan inbox write"
+            );
+        }
 
+        // DEBUG: Log all readiness increments
+        for inc in &plan.readiness_increments {
+            info!(
+                node_id = %inc.node_id,
+                required_count = inc.required_count,
+                node_type = ?inc.node_type,
+                action_name = ?inc.action_name,
+                "DEBUG: plan readiness increment"
+            );
+        }
+
+        // Step 4: Execute completion plan in single atomic transaction
+        let db_start = std::time::Instant::now();
+        let result = db.execute_completion_plan(instance_id, plan).await?;
+        let db_ms = db_start.elapsed().as_micros() as u64;
+
+        let total_ms = total_start.elapsed().as_micros() as u64;
         info!(
             node_id = %node_id,
-            newly_ready_nodes = ?result.newly_ready_nodes,
+            total_us = total_ms,
+            subgraph_us = subgraph_ms,
+            inbox_us = inbox_ms,
+            inline_us = inline_ms,
+            db_us = db_ms,
+            newly_ready = result.newly_ready_nodes.len(),
             workflow_completed = result.workflow_completed,
-            was_stale = result.was_stale,
-            "executed completion plan"
+            "process_completion timing"
         );
 
         Ok(result)
@@ -2235,14 +1958,23 @@ impl DAGRunner {
         catch_all_handler
     }
 
-    /// Evaluate a guard expression and return whether it passes (truthy).
+    /// Evaluate a guard expression for the runner's scope type.
     ///
-    /// Returns `true` if there's no guard expression, or if the expression evaluates to truthy.
-    /// Returns `false` if the expression evaluates to falsy or if evaluation fails.
-    fn evaluate_guard(guard_expr: Option<&ast::Expr>, scope: &Scope, successor_id: &str) -> bool {
+    /// This is a wrapper around the completion module's evaluate_guard that
+    /// accepts the runner's Scope type (which is the same as InlineScope).
+    ///
+    /// Returns:
+    /// - `GuardResult::Pass` if the guard passes
+    /// - `GuardResult::Fail` if the guard evaluates to false
+    /// - `GuardResult::Error` if evaluation failed
+    fn evaluate_guard_for_scope(
+        guard_expr: Option<&ast::Expr>,
+        scope: &Scope,
+        successor_id: &str,
+    ) -> GuardResult {
         let Some(guard) = guard_expr else {
             // No guard expression - always pass
-            return true;
+            return GuardResult::Pass;
         };
 
         match ExpressionEvaluator::evaluate(guard, scope) {
@@ -2262,15 +1994,19 @@ impl DAGRunner {
                     is_true = is_true,
                     "evaluated guard expression"
                 );
-                is_true
+                if is_true {
+                    GuardResult::Pass
+                } else {
+                    GuardResult::Fail
+                }
             }
             Err(e) => {
                 warn!(
                     successor_id = %successor_id,
                     error = %e,
-                    "failed to evaluate guard expression, skipping"
+                    "failed to evaluate guard expression"
                 );
-                false
+                GuardResult::Error(e.to_string())
             }
         }
     }
@@ -2382,15 +2118,21 @@ impl DAGRunner {
         // Initialize queue with immediate successors from the starting node
         for successor in helper.get_ready_successors(node_id, condition_result) {
             // Evaluate guard at edge traversal time
-            if !Self::evaluate_guard(
+            match Self::evaluate_guard_for_scope(
                 successor.guard_expr.as_ref(),
                 inline_scope,
                 &successor.node_id,
             ) {
-                continue;
+                GuardResult::Pass => {
+                    work_queue.push_back((successor.node_id, result.clone()));
+                }
+                GuardResult::Fail | GuardResult::Error(_) => {
+                    // Guard failed or had an error - skip this branch
+                    // Dead-end detection in execute_inline_subgraph will catch
+                    // cases where all branches are blocked
+                    continue;
+                }
             }
-
-            work_queue.push_back((successor.node_id, result.clone()));
         }
 
         // Process work queue iteratively (BFS)
@@ -2440,6 +2182,14 @@ impl DAGRunner {
 
                     // Execute inline node with in-memory scope
                     let inline_result = Self::execute_inline_node(succ_node, inline_scope)?;
+                    tracing::debug!(
+                        node_id = %succ_node.id,
+                        node_type = %succ_node.node_type,
+                        target = ?succ_node.target,
+                        result = ?inline_result,
+                        scope_keys = ?inline_scope.keys().collect::<Vec<_>>(),
+                        "executed inline node"
+                    );
 
                     // Collect inbox writes for inline node's result
                     if let Some(ref target) = succ_node.target {
@@ -2464,15 +2214,20 @@ impl DAGRunner {
                     // Add successors to work queue (instead of recursive call)
                     for successor in helper.get_ready_successors(&current_node_id, None) {
                         // Evaluate guard at edge traversal time
-                        if !Self::evaluate_guard(
+                        match Self::evaluate_guard_for_scope(
                             successor.guard_expr.as_ref(),
                             inline_scope,
                             &successor.node_id,
                         ) {
-                            continue;
+                            GuardResult::Pass => {
+                                work_queue
+                                    .push_back((successor.node_id, passthrough_result.clone()));
+                            }
+                            GuardResult::Fail | GuardResult::Error(_) => {
+                                // Guard failed or had an error - skip this branch
+                                continue;
+                            }
                         }
-
-                        work_queue.push_back((successor.node_id, passthrough_result.clone()));
                     }
                 }
                 ExecutionMode::Delegated => {
@@ -2627,7 +2382,20 @@ impl DAGRunner {
                 // Evaluate the assignment expression
                 if let Some(ref expr) = node.assign_expr {
                     match ExpressionEvaluator::evaluate(expr, scope) {
-                        Ok(val) => Ok(val),
+                        Ok(val) => {
+                            if let Some(ref target) = node.target
+                                && target.starts_with("__loop_")
+                            {
+                                tracing::debug!(
+                                    node_id = %node.id,
+                                    target,
+                                    scope_value = ?scope.get(target),
+                                    result = ?val,
+                                    "loop assignment evaluation"
+                                );
+                            }
+                            Ok(val)
+                        }
                         Err(e) => {
                             warn!(
                                 node_id = %node.id,
@@ -2833,15 +2601,18 @@ impl DAGRunner {
             "input node successors"
         );
         for successor in initial_successors {
-            // Evaluate guard if present - skip branch if guard fails
-            if let Some(ref guard) = successor.guard_expr
-                && !evaluate_guard(Some(guard), &scope, &successor.node_id)
-            {
-                debug!(
-                    successor_id = %successor.node_id,
-                    "skipping initial successor due to failed guard"
-                );
-                continue;
+            // Evaluate guard if present - skip branch if guard fails or errors
+            if let Some(ref guard) = successor.guard_expr {
+                match evaluate_guard(Some(guard), &scope, &successor.node_id) {
+                    GuardResult::Pass => {}
+                    GuardResult::Fail | GuardResult::Error(_) => {
+                        debug!(
+                            successor_id = %successor.node_id,
+                            "skipping initial successor due to failed guard"
+                        );
+                        continue;
+                    }
+                }
             }
             queue.push_back(successor.node_id);
         }
@@ -2981,15 +2752,18 @@ impl DAGRunner {
                         "continuing to successors after inline execution"
                     );
                     for successor in inline_successors {
-                        // Evaluate guard if present - skip branch if guard fails
-                        if let Some(ref guard) = successor.guard_expr
-                            && !evaluate_guard(Some(guard), &scope, &successor.node_id)
-                        {
-                            debug!(
-                                successor_id = %successor.node_id,
-                                "skipping successor due to failed guard during start_instance"
-                            );
-                            continue;
+                        // Evaluate guard if present - skip branch if guard fails or errors
+                        if let Some(ref guard) = successor.guard_expr {
+                            match evaluate_guard(Some(guard), &scope, &successor.node_id) {
+                                GuardResult::Pass => {}
+                                GuardResult::Fail | GuardResult::Error(_) => {
+                                    debug!(
+                                        successor_id = %successor.node_id,
+                                        "skipping successor due to failed guard during start_instance"
+                                    );
+                                    continue;
+                                }
+                            }
                         }
                         if !visited.contains(&successor.node_id) {
                             queue.push_back(successor.node_id);
