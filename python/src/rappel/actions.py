@@ -70,9 +70,10 @@ def action(
         if not inspect.iscoroutinefunction(target):
             raise TypeError(f"action '{target.__name__}' must be defined with 'async def'")
         action_name = name or target.__name__
-        registry.register(action_name, target)
+        action_module = target.__module__
+        registry.register(action_module, action_name, target)
         target.__rappel_action_name__ = action_name
-        target.__rappel_action_module__ = target.__module__
+        target.__rappel_action_module__ = action_module
         return target
 
     if func is not None:

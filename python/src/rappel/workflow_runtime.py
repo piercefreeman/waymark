@@ -43,18 +43,18 @@ async def execute_action(dispatch: pb2.ActionDispatch) -> ActionExecutionResult:
     action_name = dispatch.action_name
     module_name = dispatch.module_name
 
-    # Import the module if specified
+    # Import the module if specified (this registers actions via @action decorator)
     if module_name:
         import importlib
 
         importlib.import_module(module_name)
 
-    # Get the action handler
-    handler = registry.get(action_name)
+    # Get the action handler using both module and name
+    handler = registry.get(module_name, action_name)
     if handler is None:
         return ActionExecutionResult(
             result=None,
-            exception=KeyError(f"action '{action_name}' not registered"),
+            exception=KeyError(f"action '{module_name}:{action_name}' not registered"),
         )
 
     # Deserialize kwargs

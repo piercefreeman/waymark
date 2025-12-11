@@ -61,8 +61,8 @@ def _build_action_dispatch(
 
 def test_execute_action_with_kwargs() -> None:
     """Test executing an action with resolved kwargs."""
-    if action_registry.get("multiply") is None:
-        action_registry.register("multiply", multiply)
+    if action_registry.get(__name__, "multiply") is None:
+        action_registry.register(__name__, "multiply", multiply)
 
     dispatch = _build_action_dispatch(
         action_name="multiply",
@@ -79,8 +79,8 @@ def test_execute_action_with_kwargs() -> None:
 
 def test_execute_action_resolves_dependencies() -> None:
     """Test executing an action with injected dependencies."""
-    if action_registry.get("with_dependency") is None:
-        action_registry.register("with_dependency", with_dependency)
+    if action_registry.get(__name__, "with_dependency") is None:
+        action_registry.register(__name__, "with_dependency", with_dependency)
 
     dispatch = _build_action_dispatch(
         action_name="with_dependency",
@@ -97,8 +97,8 @@ def test_execute_action_resolves_dependencies() -> None:
 
 def test_execute_action_handles_error() -> None:
     """Test that action errors are captured in the result."""
-    if action_registry.get("failing_action") is None:
-        action_registry.register("failing_action", failing_action)
+    if action_registry.get(__name__, "failing_action") is None:
+        action_registry.register(__name__, "failing_action", failing_action)
 
     dispatch = _build_action_dispatch(
         action_name="failing_action",
