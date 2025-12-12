@@ -164,6 +164,61 @@ message WaitForInstanceResponse {
 }
 
 // =============================================================================
+// Workflow Schedules
+// =============================================================================
+// Messages for scheduling workflows to run on a recurring basis.
+
+enum ScheduleType {
+  SCHEDULE_TYPE_UNSPECIFIED = 0;
+  SCHEDULE_TYPE_CRON = 1;
+  SCHEDULE_TYPE_INTERVAL = 2;
+}
+
+enum ScheduleStatus {
+  SCHEDULE_STATUS_UNSPECIFIED = 0;
+  SCHEDULE_STATUS_ACTIVE = 1;
+  SCHEDULE_STATUS_PAUSED = 2;
+}
+
+message ScheduleDefinition {
+  ScheduleType type = 1;
+  // For cron: the cron expression (e.g., "0 * * * *")
+  string cron_expression = 2;
+  // For interval: duration in seconds
+  int64 interval_seconds = 3;
+}
+
+message RegisterScheduleRequest {
+  string workflow_name = 1;
+  ScheduleDefinition schedule = 2;
+  // Optional: inputs to pass to each scheduled run
+  WorkflowArguments inputs = 3;
+}
+
+message RegisterScheduleResponse {
+  string schedule_id = 1;
+  // The computed next_run_at timestamp (ISO 8601)
+  string next_run_at = 2;
+}
+
+message UpdateScheduleStatusRequest {
+  string workflow_name = 1;
+  ScheduleStatus status = 2;
+}
+
+message UpdateScheduleStatusResponse {
+  bool success = 1;
+}
+
+message DeleteScheduleRequest {
+  string workflow_name = 1;
+}
+
+message DeleteScheduleResponse {
+  bool success = 1;
+}
+
+// =============================================================================
 // gRPC Service Definitions
 // =============================================================================
 
@@ -177,4 +232,8 @@ service WorkerBridge {
 service WorkflowService {
   rpc RegisterWorkflow(RegisterWorkflowRequest) returns (RegisterWorkflowResponse);
   rpc WaitForInstance(WaitForInstanceRequest) returns (WaitForInstanceResponse);
+  // Schedule management
+  rpc RegisterSchedule(RegisterScheduleRequest) returns (RegisterScheduleResponse);
+  rpc UpdateScheduleStatus(UpdateScheduleStatusRequest) returns (UpdateScheduleStatusResponse);
+  rpc DeleteSchedule(DeleteScheduleRequest) returns (DeleteScheduleResponse);
 }

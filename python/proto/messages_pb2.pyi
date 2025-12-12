@@ -63,6 +63,51 @@ MESSAGE_KIND_WORKER_HELLO: MessageKind.ValueType  # 5
 """Worker -> Server: handshake on connect"""
 Global___MessageKind: typing_extensions.TypeAlias = MessageKind
 
+class _ScheduleType:
+    ValueType = typing.NewType("ValueType", builtins.int)
+    V: typing_extensions.TypeAlias = ValueType
+
+class _ScheduleTypeEnumTypeWrapper(
+    google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[_ScheduleType.ValueType],
+    builtins.type,
+):
+    DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor
+    SCHEDULE_TYPE_UNSPECIFIED: _ScheduleType.ValueType  # 0
+    SCHEDULE_TYPE_CRON: _ScheduleType.ValueType  # 1
+    SCHEDULE_TYPE_INTERVAL: _ScheduleType.ValueType  # 2
+
+class ScheduleType(_ScheduleType, metaclass=_ScheduleTypeEnumTypeWrapper):
+    """=============================================================================
+    Workflow Schedules
+    =============================================================================
+    Messages for scheduling workflows to run on a recurring basis.
+    """
+
+SCHEDULE_TYPE_UNSPECIFIED: ScheduleType.ValueType  # 0
+SCHEDULE_TYPE_CRON: ScheduleType.ValueType  # 1
+SCHEDULE_TYPE_INTERVAL: ScheduleType.ValueType  # 2
+Global___ScheduleType: typing_extensions.TypeAlias = ScheduleType
+
+class _ScheduleStatus:
+    ValueType = typing.NewType("ValueType", builtins.int)
+    V: typing_extensions.TypeAlias = ValueType
+
+class _ScheduleStatusEnumTypeWrapper(
+    google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[_ScheduleStatus.ValueType],
+    builtins.type,
+):
+    DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor
+    SCHEDULE_STATUS_UNSPECIFIED: _ScheduleStatus.ValueType  # 0
+    SCHEDULE_STATUS_ACTIVE: _ScheduleStatus.ValueType  # 1
+    SCHEDULE_STATUS_PAUSED: _ScheduleStatus.ValueType  # 2
+
+class ScheduleStatus(_ScheduleStatus, metaclass=_ScheduleStatusEnumTypeWrapper): ...
+
+SCHEDULE_STATUS_UNSPECIFIED: ScheduleStatus.ValueType  # 0
+SCHEDULE_STATUS_ACTIVE: ScheduleStatus.ValueType  # 1
+SCHEDULE_STATUS_PAUSED: ScheduleStatus.ValueType  # 2
+Global___ScheduleStatus: typing_extensions.TypeAlias = ScheduleStatus
+
 @typing.final
 class Envelope(google.protobuf.message.Message):
     """Universal transport wrapper for all worker bridge messages.
@@ -822,3 +867,156 @@ class WaitForInstanceResponse(google.protobuf.message.Message):
     def ClearField(self, field_name: typing.Literal["payload", b"payload"]) -> None: ...
 
 Global___WaitForInstanceResponse: typing_extensions.TypeAlias = WaitForInstanceResponse
+
+@typing.final
+class ScheduleDefinition(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    TYPE_FIELD_NUMBER: builtins.int
+    CRON_EXPRESSION_FIELD_NUMBER: builtins.int
+    INTERVAL_SECONDS_FIELD_NUMBER: builtins.int
+    type: Global___ScheduleType.ValueType
+    cron_expression: builtins.str
+    """For cron: the cron expression (e.g., "0 * * * *")"""
+    interval_seconds: builtins.int
+    """For interval: duration in seconds"""
+    def __init__(
+        self,
+        *,
+        type: Global___ScheduleType.ValueType = ...,
+        cron_expression: builtins.str = ...,
+        interval_seconds: builtins.int = ...,
+    ) -> None: ...
+    def ClearField(
+        self,
+        field_name: typing.Literal[
+            "cron_expression",
+            b"cron_expression",
+            "interval_seconds",
+            b"interval_seconds",
+            "type",
+            b"type",
+        ],
+    ) -> None: ...
+
+Global___ScheduleDefinition: typing_extensions.TypeAlias = ScheduleDefinition
+
+@typing.final
+class RegisterScheduleRequest(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    WORKFLOW_NAME_FIELD_NUMBER: builtins.int
+    SCHEDULE_FIELD_NUMBER: builtins.int
+    INPUTS_FIELD_NUMBER: builtins.int
+    workflow_name: builtins.str
+    @property
+    def schedule(self) -> Global___ScheduleDefinition: ...
+    @property
+    def inputs(self) -> Global___WorkflowArguments:
+        """Optional: inputs to pass to each scheduled run"""
+
+    def __init__(
+        self,
+        *,
+        workflow_name: builtins.str = ...,
+        schedule: Global___ScheduleDefinition | None = ...,
+        inputs: Global___WorkflowArguments | None = ...,
+    ) -> None: ...
+    def HasField(
+        self, field_name: typing.Literal["inputs", b"inputs", "schedule", b"schedule"]
+    ) -> builtins.bool: ...
+    def ClearField(
+        self,
+        field_name: typing.Literal[
+            "inputs", b"inputs", "schedule", b"schedule", "workflow_name", b"workflow_name"
+        ],
+    ) -> None: ...
+
+Global___RegisterScheduleRequest: typing_extensions.TypeAlias = RegisterScheduleRequest
+
+@typing.final
+class RegisterScheduleResponse(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    SCHEDULE_ID_FIELD_NUMBER: builtins.int
+    NEXT_RUN_AT_FIELD_NUMBER: builtins.int
+    schedule_id: builtins.str
+    next_run_at: builtins.str
+    """The computed next_run_at timestamp (ISO 8601)"""
+    def __init__(
+        self,
+        *,
+        schedule_id: builtins.str = ...,
+        next_run_at: builtins.str = ...,
+    ) -> None: ...
+    def ClearField(
+        self,
+        field_name: typing.Literal["next_run_at", b"next_run_at", "schedule_id", b"schedule_id"],
+    ) -> None: ...
+
+Global___RegisterScheduleResponse: typing_extensions.TypeAlias = RegisterScheduleResponse
+
+@typing.final
+class UpdateScheduleStatusRequest(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    WORKFLOW_NAME_FIELD_NUMBER: builtins.int
+    STATUS_FIELD_NUMBER: builtins.int
+    workflow_name: builtins.str
+    status: Global___ScheduleStatus.ValueType
+    def __init__(
+        self,
+        *,
+        workflow_name: builtins.str = ...,
+        status: Global___ScheduleStatus.ValueType = ...,
+    ) -> None: ...
+    def ClearField(
+        self, field_name: typing.Literal["status", b"status", "workflow_name", b"workflow_name"]
+    ) -> None: ...
+
+Global___UpdateScheduleStatusRequest: typing_extensions.TypeAlias = UpdateScheduleStatusRequest
+
+@typing.final
+class UpdateScheduleStatusResponse(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    SUCCESS_FIELD_NUMBER: builtins.int
+    success: builtins.bool
+    def __init__(
+        self,
+        *,
+        success: builtins.bool = ...,
+    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["success", b"success"]) -> None: ...
+
+Global___UpdateScheduleStatusResponse: typing_extensions.TypeAlias = UpdateScheduleStatusResponse
+
+@typing.final
+class DeleteScheduleRequest(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    WORKFLOW_NAME_FIELD_NUMBER: builtins.int
+    workflow_name: builtins.str
+    def __init__(
+        self,
+        *,
+        workflow_name: builtins.str = ...,
+    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["workflow_name", b"workflow_name"]) -> None: ...
+
+Global___DeleteScheduleRequest: typing_extensions.TypeAlias = DeleteScheduleRequest
+
+@typing.final
+class DeleteScheduleResponse(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    SUCCESS_FIELD_NUMBER: builtins.int
+    success: builtins.bool
+    def __init__(
+        self,
+        *,
+        success: builtins.bool = ...,
+    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["success", b"success"]) -> None: ...
+
+Global___DeleteScheduleResponse: typing_extensions.TypeAlias = DeleteScheduleResponse

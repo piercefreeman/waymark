@@ -10,9 +10,12 @@ use uuid::Uuid;
 
 use crate::completion::{CompletionPlan, CompletionResult};
 
+use chrono::{DateTime, Utc};
+
 use super::{
     ActionId, CompletionRecord, Database, DbError, DbResult, LoopState, NewAction, QueuedAction,
-    ReadinessResult, WorkflowInstance, WorkflowInstanceId, WorkflowVersion, WorkflowVersionId,
+    ReadinessResult, ScheduleId, ScheduleType, WorkflowInstance, WorkflowInstanceId,
+    WorkflowSchedule, WorkflowVersion, WorkflowVersionId,
 };
 
 impl Database {
@@ -1495,5 +1498,240 @@ impl Database {
         );
 
         Ok(result)
+    }
+
+    // ========================================================================
+    // Workflow Schedules
+    // ========================================================================
+
+    /// Get the latest workflow version ID for a workflow name.
+    /// Used by the scheduler to find which version to run.
+    pub async fn get_latest_workflow_version(
+        &self,
+        workflow_name: &str,
+    ) -> DbResult<Option<WorkflowVersionId>> {
+        let row: Option<(Uuid,)> = sqlx::query_as(
+            r#"
+            SELECT id
+            FROM workflow_versions
+            WHERE workflow_name = $1
+            ORDER BY created_at DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(workflow_name)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(|(id,)| WorkflowVersionId(id)))
+    }
+
+    /// Upsert a workflow schedule (insert or update by workflow_name).
+    /// Returns the schedule ID.
+    pub async fn upsert_schedule(
+        &self,
+        workflow_name: &str,
+        schedule_type: ScheduleType,
+        cron_expression: Option<&str>,
+        interval_seconds: Option<i64>,
+        input_payload: Option<&[u8]>,
+        next_run_at: DateTime<Utc>,
+    ) -> DbResult<ScheduleId> {
+        let row = sqlx::query(
+            r#"
+            INSERT INTO workflow_schedules
+                (workflow_name, schedule_type, cron_expression, interval_seconds, input_payload, next_run_at)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (workflow_name)
+            DO UPDATE SET
+                schedule_type = EXCLUDED.schedule_type,
+                cron_expression = EXCLUDED.cron_expression,
+                interval_seconds = EXCLUDED.interval_seconds,
+                input_payload = EXCLUDED.input_payload,
+                next_run_at = EXCLUDED.next_run_at,
+                status = 'active',
+                updated_at = NOW()
+            RETURNING id
+            "#,
+        )
+        .bind(workflow_name)
+        .bind(schedule_type.as_str())
+        .bind(cron_expression)
+        .bind(interval_seconds)
+        .bind(input_payload)
+        .bind(next_run_at)
+        .fetch_one(&self.pool)
+        .await?;
+
+        let id: Uuid = row.get("id");
+        Ok(ScheduleId(id))
+    }
+
+    /// Get a schedule by workflow name.
+    pub async fn get_schedule_by_name(
+        &self,
+        workflow_name: &str,
+    ) -> DbResult<Option<WorkflowSchedule>> {
+        let schedule = sqlx::query_as::<_, WorkflowSchedule>(
+            r#"
+            SELECT id, workflow_name, schedule_type, cron_expression, interval_seconds,
+                   input_payload, status, next_run_at, last_run_at, last_instance_id,
+                   created_at, updated_at
+            FROM workflow_schedules
+            WHERE workflow_name = $1 AND status != 'deleted'
+            "#,
+        )
+        .bind(workflow_name)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(schedule)
+    }
+
+    /// Find due schedules for the scheduler loop.
+    /// Uses FOR UPDATE SKIP LOCKED for multi-runner safety.
+    pub async fn find_due_schedules(&self, limit: i32) -> DbResult<Vec<WorkflowSchedule>> {
+        let schedules = sqlx::query_as::<_, WorkflowSchedule>(
+            r#"
+            SELECT id, workflow_name, schedule_type, cron_expression, interval_seconds,
+                   input_payload, status, next_run_at, last_run_at, last_instance_id,
+                   created_at, updated_at
+            FROM workflow_schedules
+            WHERE status = 'active'
+              AND next_run_at IS NOT NULL
+              AND next_run_at <= NOW()
+            ORDER BY next_run_at
+            FOR UPDATE SKIP LOCKED
+            LIMIT $1
+            "#,
+        )
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(schedules)
+    }
+
+    /// Mark a schedule as executed and update next_run_at.
+    /// Called after creating an instance for a scheduled workflow.
+    pub async fn mark_schedule_executed(
+        &self,
+        schedule_id: ScheduleId,
+        instance_id: WorkflowInstanceId,
+        next_run_at: DateTime<Utc>,
+    ) -> DbResult<()> {
+        sqlx::query(
+            r#"
+            UPDATE workflow_schedules
+            SET last_run_at = NOW(),
+                last_instance_id = $2,
+                next_run_at = $3,
+                updated_at = NOW()
+            WHERE id = $1
+            "#,
+        )
+        .bind(schedule_id.0)
+        .bind(instance_id.0)
+        .bind(next_run_at)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    /// Update next_run_at without creating an instance.
+    /// Used when skipping a scheduled run (e.g., no workflow version exists).
+    pub async fn update_schedule_next_run(
+        &self,
+        schedule_id: ScheduleId,
+        next_run_at: DateTime<Utc>,
+    ) -> DbResult<()> {
+        sqlx::query(
+            r#"
+            UPDATE workflow_schedules
+            SET next_run_at = $2, updated_at = NOW()
+            WHERE id = $1
+            "#,
+        )
+        .bind(schedule_id.0)
+        .bind(next_run_at)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    /// Update schedule status (pause/resume).
+    pub async fn update_schedule_status(
+        &self,
+        workflow_name: &str,
+        status: &str,
+    ) -> DbResult<bool> {
+        let result = sqlx::query(
+            r#"
+            UPDATE workflow_schedules
+            SET status = $2, updated_at = NOW()
+            WHERE workflow_name = $1 AND status != 'deleted'
+            "#,
+        )
+        .bind(workflow_name)
+        .bind(status)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Delete a schedule (soft delete).
+    pub async fn delete_schedule(&self, workflow_name: &str) -> DbResult<bool> {
+        let result = sqlx::query(
+            r#"
+            UPDATE workflow_schedules
+            SET status = 'deleted', updated_at = NOW()
+            WHERE workflow_name = $1 AND status != 'deleted'
+            "#,
+        )
+        .bind(workflow_name)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// List all schedules with optional status filter.
+    pub async fn list_schedules(
+        &self,
+        status_filter: Option<&str>,
+    ) -> DbResult<Vec<WorkflowSchedule>> {
+        let schedules = if let Some(status) = status_filter {
+            sqlx::query_as::<_, WorkflowSchedule>(
+                r#"
+                SELECT id, workflow_name, schedule_type, cron_expression, interval_seconds,
+                       input_payload, status, next_run_at, last_run_at, last_instance_id,
+                       created_at, updated_at
+                FROM workflow_schedules
+                WHERE status = $1
+                ORDER BY workflow_name
+                "#,
+            )
+            .bind(status)
+            .fetch_all(&self.pool)
+            .await?
+        } else {
+            sqlx::query_as::<_, WorkflowSchedule>(
+                r#"
+                SELECT id, workflow_name, schedule_type, cron_expression, interval_seconds,
+                       input_payload, status, next_run_at, last_run_at, last_instance_id,
+                       created_at, updated_at
+                FROM workflow_schedules
+                WHERE status != 'deleted'
+                ORDER BY workflow_name
+                "#,
+            )
+            .fetch_all(&self.pool)
+            .await?
+        };
+
+        Ok(schedules)
     }
 }

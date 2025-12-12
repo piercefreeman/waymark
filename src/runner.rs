@@ -55,11 +55,12 @@ use crate::{
     dag::{DAG, DAGConverter, DAGNode, EdgeType},
     dag_state::{DAGHelper, ExecutionMode},
     db::{
-        ActionId, BackoffKind, CompletionRecord, Database, NewAction, QueuedAction,
+        ActionId, BackoffKind, CompletionRecord, Database, NewAction, QueuedAction, ScheduleId,
         WorkflowInstanceId, WorkflowVersionId,
     },
     messages::proto,
     parser::ast,
+    schedule::{next_cron_run, next_interval_run},
     worker::{ActionDispatchPayload, PythonWorkerPool, RoundTripMetrics},
 };
 
@@ -1161,6 +1162,10 @@ pub struct RunnerConfig {
     pub timeout_check_interval_ms: u64,
     /// Maximum actions to process per timeout check cycle
     pub timeout_check_batch_size: i32,
+    /// Schedule check interval (milliseconds)
+    pub schedule_check_interval_ms: u64,
+    /// Maximum schedules to process per check cycle
+    pub schedule_check_batch_size: i32,
 }
 
 impl Default for RunnerConfig {
@@ -1171,6 +1176,8 @@ impl Default for RunnerConfig {
             poll_interval_ms: 100,
             timeout_check_interval_ms: 1000,
             timeout_check_batch_size: 100,
+            schedule_check_interval_ms: 10000, // 10 seconds
+            schedule_check_batch_size: 100,
         }
     }
 }
@@ -1243,6 +1250,12 @@ impl DAGRunner {
         ));
         // Don't fire immediately on first tick
         timeout_check_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
+        // Interval for checking scheduled workflows
+        let mut schedule_check_interval = tokio::time::interval(
+            tokio::time::Duration::from_millis(self.config.schedule_check_interval_ms),
+        );
+        schedule_check_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
         loop {
             tokio::select! {
@@ -1360,6 +1373,13 @@ impl DAGRunner {
                     }
                 }
 
+                // Check for due scheduled workflows
+                _ = schedule_check_interval.tick() => {
+                    if let Err(e) = self.process_due_schedules().await {
+                        error!("Failed to process due schedules: {}", e);
+                    }
+                }
+
                 // Fetch and dispatch work (delegated to WorkQueueHandler)
                 _ = tokio::time::sleep(tokio::time::Duration::from_millis(self.config.poll_interval_ms)) => {
                     // First, check for and start any unstarted instances
@@ -1390,6 +1410,105 @@ impl DAGRunner {
         }
 
         Ok(())
+    }
+
+    /// Process due scheduled workflows by creating new instances.
+    async fn process_due_schedules(&self) -> RunnerResult<()> {
+        let batch_size = self.config.schedule_check_batch_size;
+
+        // Find due schedules (uses SKIP LOCKED for multi-runner safety)
+        let schedules = self
+            .completion_handler
+            .db
+            .find_due_schedules(batch_size)
+            .await
+            .map_err(|e| RunnerError::Dag(format!("Failed to find due schedules: {}", e)))?;
+
+        for schedule in schedules {
+            // Get the latest version for this workflow
+            let version_id = match self
+                .completion_handler
+                .db
+                .get_latest_workflow_version(&schedule.workflow_name)
+                .await
+                .map_err(|e| RunnerError::Dag(format!("Failed to get workflow version: {}", e)))?
+            {
+                Some(id) => id,
+                None => {
+                    warn!(
+                        workflow_name = %schedule.workflow_name,
+                        "Scheduled workflow has no registered version, skipping"
+                    );
+                    // Still update next_run_at to avoid infinite retries
+                    let next_run = self.compute_next_run(&schedule)?;
+                    self.completion_handler
+                        .db
+                        .update_schedule_next_run(ScheduleId(schedule.id), next_run)
+                        .await
+                        .map_err(|e| {
+                            RunnerError::Dag(format!("Failed to update schedule next_run: {}", e))
+                        })?;
+                    continue;
+                }
+            };
+
+            // Create workflow instance with scheduled inputs
+            let instance_id = self
+                .completion_handler
+                .db
+                .create_instance(
+                    &schedule.workflow_name,
+                    version_id,
+                    schedule.input_payload.as_deref(),
+                )
+                .await
+                .map_err(|e| RunnerError::Dag(format!("Failed to create instance: {}", e)))?;
+
+            info!(
+                schedule_id = %schedule.id,
+                workflow_name = %schedule.workflow_name,
+                instance_id = %instance_id,
+                "Created scheduled workflow instance"
+            );
+
+            // Compute next run and update schedule
+            let next_run = self.compute_next_run(&schedule)?;
+            self.completion_handler
+                .db
+                .mark_schedule_executed(ScheduleId(schedule.id), instance_id, next_run)
+                .await
+                .map_err(|e| {
+                    RunnerError::Dag(format!("Failed to mark schedule executed: {}", e))
+                })?;
+        }
+
+        Ok(())
+    }
+
+    /// Compute the next run time based on schedule type.
+    fn compute_next_run(
+        &self,
+        schedule: &crate::db::WorkflowSchedule,
+    ) -> RunnerResult<chrono::DateTime<chrono::Utc>> {
+        match schedule.schedule_type.as_str() {
+            "cron" => {
+                let expr = schedule
+                    .cron_expression
+                    .as_ref()
+                    .ok_or_else(|| RunnerError::Dag("Missing cron expression".into()))?;
+                next_cron_run(expr).map_err(RunnerError::Dag)
+            }
+            "interval" => {
+                let secs = schedule
+                    .interval_seconds
+                    .ok_or_else(|| RunnerError::Dag("Missing interval_seconds".into()))?;
+                Ok(next_interval_run(secs, Some(chrono::Utc::now())))
+            }
+            _ => Err(RunnerError::Dag(format!(
+                "Unknown schedule type: {}",
+                schedule.schedule_type
+            ))),
+        }
     }
 
     // ========================================================================

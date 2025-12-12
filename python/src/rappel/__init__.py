@@ -13,6 +13,12 @@ from .dependencies import Depend, provide_dependencies
 from .exceptions import ExhaustedRetries, ExhaustedRetriesError
 from .ir_builder import UnsupportedPatternError, build_workflow_ir
 from .registry import registry
+from .schedule import (
+    delete_schedule,
+    pause_schedule,
+    resume_schedule,
+    schedule_workflow,
+)
 from .workflow import (
     RetryPolicy,
     Workflow,
@@ -38,4 +44,9 @@ __all__ = [
     "ExhaustedRetries",
     "ExhaustedRetriesError",
     "UnsupportedPatternError",
+    # Schedule functions
+    "schedule_workflow",
+    "pause_schedule",
+    "resume_schedule",
+    "delete_schedule",
 ]

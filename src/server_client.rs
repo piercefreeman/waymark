@@ -22,7 +22,13 @@ use tokio_stream::wrappers::TcpListenerStream;
 use tonic::transport::Server;
 use tracing::{error, info};
 
-use crate::{db::Database, ir_printer, messages::ast as ir_ast, messages::proto};
+use crate::{
+    db::{Database, ScheduleType},
+    ir_printer,
+    messages::ast as ir_ast,
+    messages::proto,
+    schedule::{next_cron_run, next_interval_run},
+};
 
 /// Service name for health checks
 pub const SERVICE_NAME: &str = "rappel";
@@ -461,6 +467,125 @@ impl proto::workflow_service_server::WorkflowService for WorkflowGrpcService {
                 }
             }
         }
+    }
+
+    async fn register_schedule(
+        &self,
+        request: tonic::Request<proto::RegisterScheduleRequest>,
+    ) -> Result<tonic::Response<proto::RegisterScheduleResponse>, tonic::Status> {
+        let inner = request.into_inner();
+        let schedule = inner
+            .schedule
+            .ok_or_else(|| tonic::Status::invalid_argument("schedule required"))?;
+
+        // Validate and compute next_run_at
+        let (schedule_type, cron_expr, interval_secs, next_run) = match schedule.r#type() {
+            proto::ScheduleType::Cron => {
+                let expr = &schedule.cron_expression;
+                if expr.is_empty() {
+                    return Err(tonic::Status::invalid_argument(
+                        "cron_expression required for cron schedule",
+                    ));
+                }
+                let next = next_cron_run(expr).map_err(tonic::Status::invalid_argument)?;
+                (ScheduleType::Cron, Some(expr.as_str()), None, next)
+            }
+            proto::ScheduleType::Interval => {
+                let secs = schedule.interval_seconds;
+                if secs <= 0 {
+                    return Err(tonic::Status::invalid_argument(
+                        "interval_seconds must be positive",
+                    ));
+                }
+                let next = next_interval_run(secs, None);
+                (ScheduleType::Interval, None, Some(secs), next)
+            }
+            proto::ScheduleType::Unspecified => {
+                return Err(tonic::Status::invalid_argument("schedule type required"));
+            }
+        };
+
+        let input_payload = inner.inputs.map(|i| i.encode_to_vec());
+
+        let schedule_id = self
+            .database
+            .upsert_schedule(
+                &inner.workflow_name,
+                schedule_type,
+                cron_expr,
+                interval_secs,
+                input_payload.as_deref(),
+                next_run,
+            )
+            .await
+            .map_err(|e| tonic::Status::internal(format!("database error: {e}")))?;
+
+        info!(
+            workflow_name = %inner.workflow_name,
+            schedule_type = %schedule_type.as_str(),
+            next_run_at = %next_run.to_rfc3339(),
+            "registered workflow schedule"
+        );
+
+        Ok(tonic::Response::new(proto::RegisterScheduleResponse {
+            schedule_id: schedule_id.to_string(),
+            next_run_at: next_run.to_rfc3339(),
+        }))
+    }
+
+    async fn update_schedule_status(
+        &self,
+        request: tonic::Request<proto::UpdateScheduleStatusRequest>,
+    ) -> Result<tonic::Response<proto::UpdateScheduleStatusResponse>, tonic::Status> {
+        let inner = request.into_inner();
+
+        let status_str = match inner.status() {
+            proto::ScheduleStatus::Active => "active",
+            proto::ScheduleStatus::Paused => "paused",
+            proto::ScheduleStatus::Unspecified => {
+                return Err(tonic::Status::invalid_argument("status required"));
+            }
+        };
+
+        let success = self
+            .database
+            .update_schedule_status(&inner.workflow_name, status_str)
+            .await
+            .map_err(|e| tonic::Status::internal(format!("database error: {e}")))?;
+
+        info!(
+            workflow_name = %inner.workflow_name,
+            status = %status_str,
+            success = success,
+            "updated schedule status"
+        );
+
+        Ok(tonic::Response::new(proto::UpdateScheduleStatusResponse {
+            success,
+        }))
+    }
+
+    async fn delete_schedule(
+        &self,
+        request: tonic::Request<proto::DeleteScheduleRequest>,
+    ) -> Result<tonic::Response<proto::DeleteScheduleResponse>, tonic::Status> {
+        let inner = request.into_inner();
+
+        let success = self
+            .database
+            .delete_schedule(&inner.workflow_name)
+            .await
+            .map_err(|e| tonic::Status::internal(format!("database error: {e}")))?;
+
+        info!(
+            workflow_name = %inner.workflow_name,
+            success = success,
+            "deleted schedule"
+        );
+
+        Ok(tonic::Response::new(proto::DeleteScheduleResponse {
+            success,
+        }))
     }
 }
 

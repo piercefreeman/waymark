@@ -145,6 +145,30 @@ impl proto::workflow_service_server::WorkflowService for TestWorkflowService {
             tokio::time::sleep(interval).await;
         }
     }
+
+    async fn register_schedule(
+        &self,
+        _request: tonic::Request<proto::RegisterScheduleRequest>,
+    ) -> Result<tonic::Response<proto::RegisterScheduleResponse>, tonic::Status> {
+        // Not needed for tests
+        Err(tonic::Status::unimplemented("not implemented"))
+    }
+
+    async fn update_schedule_status(
+        &self,
+        _request: tonic::Request<proto::UpdateScheduleStatusRequest>,
+    ) -> Result<tonic::Response<proto::UpdateScheduleStatusResponse>, tonic::Status> {
+        // Not needed for tests
+        Err(tonic::Status::unimplemented("not implemented"))
+    }
+
+    async fn delete_schedule(
+        &self,
+        _request: tonic::Request<proto::DeleteScheduleRequest>,
+    ) -> Result<tonic::Response<proto::DeleteScheduleResponse>, tonic::Status> {
+        // Not needed for tests
+        Err(tonic::Status::unimplemented("not implemented"))
+    }
 }
 
 /// Start a gRPC server for workflow registration.
@@ -304,6 +328,7 @@ impl IntegrationHarness {
             poll_interval_ms: 50,
             timeout_check_interval_ms: 1000,
             timeout_check_batch_size: 100,
+            ..Default::default()
         };
         let runner = Arc::new(DAGRunner::new(
             runner_config,

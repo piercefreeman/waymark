@@ -138,8 +138,62 @@ _WorkflowServiceWaitForInstanceType = typing_extensions.TypeVar(
     ],
 )
 
+_WorkflowServiceRegisterScheduleType = typing_extensions.TypeVar(
+    "_WorkflowServiceRegisterScheduleType",
+    grpc.UnaryUnaryMultiCallable[
+        messages_pb2.RegisterScheduleRequest,
+        messages_pb2.RegisterScheduleResponse,
+    ],
+    grpc.aio.UnaryUnaryMultiCallable[
+        messages_pb2.RegisterScheduleRequest,
+        messages_pb2.RegisterScheduleResponse,
+    ],
+    default=grpc.UnaryUnaryMultiCallable[
+        messages_pb2.RegisterScheduleRequest,
+        messages_pb2.RegisterScheduleResponse,
+    ],
+)
+
+_WorkflowServiceUpdateScheduleStatusType = typing_extensions.TypeVar(
+    "_WorkflowServiceUpdateScheduleStatusType",
+    grpc.UnaryUnaryMultiCallable[
+        messages_pb2.UpdateScheduleStatusRequest,
+        messages_pb2.UpdateScheduleStatusResponse,
+    ],
+    grpc.aio.UnaryUnaryMultiCallable[
+        messages_pb2.UpdateScheduleStatusRequest,
+        messages_pb2.UpdateScheduleStatusResponse,
+    ],
+    default=grpc.UnaryUnaryMultiCallable[
+        messages_pb2.UpdateScheduleStatusRequest,
+        messages_pb2.UpdateScheduleStatusResponse,
+    ],
+)
+
+_WorkflowServiceDeleteScheduleType = typing_extensions.TypeVar(
+    "_WorkflowServiceDeleteScheduleType",
+    grpc.UnaryUnaryMultiCallable[
+        messages_pb2.DeleteScheduleRequest,
+        messages_pb2.DeleteScheduleResponse,
+    ],
+    grpc.aio.UnaryUnaryMultiCallable[
+        messages_pb2.DeleteScheduleRequest,
+        messages_pb2.DeleteScheduleResponse,
+    ],
+    default=grpc.UnaryUnaryMultiCallable[
+        messages_pb2.DeleteScheduleRequest,
+        messages_pb2.DeleteScheduleResponse,
+    ],
+)
+
 class WorkflowServiceStub(
-    typing.Generic[_WorkflowServiceRegisterWorkflowType, _WorkflowServiceWaitForInstanceType]
+    typing.Generic[
+        _WorkflowServiceRegisterWorkflowType,
+        _WorkflowServiceWaitForInstanceType,
+        _WorkflowServiceRegisterScheduleType,
+        _WorkflowServiceUpdateScheduleStatusType,
+        _WorkflowServiceDeleteScheduleType,
+    ]
 ):
     """Workflow management service for client operations."""
 
@@ -153,6 +207,18 @@ class WorkflowServiceStub(
             grpc.UnaryUnaryMultiCallable[
                 messages_pb2.WaitForInstanceRequest,
                 messages_pb2.WaitForInstanceResponse,
+            ],
+            grpc.UnaryUnaryMultiCallable[
+                messages_pb2.RegisterScheduleRequest,
+                messages_pb2.RegisterScheduleResponse,
+            ],
+            grpc.UnaryUnaryMultiCallable[
+                messages_pb2.UpdateScheduleStatusRequest,
+                messages_pb2.UpdateScheduleStatusResponse,
+            ],
+            grpc.UnaryUnaryMultiCallable[
+                messages_pb2.DeleteScheduleRequest,
+                messages_pb2.DeleteScheduleResponse,
             ],
         ],
         channel: grpc.Channel,
@@ -168,6 +234,18 @@ class WorkflowServiceStub(
                 messages_pb2.WaitForInstanceRequest,
                 messages_pb2.WaitForInstanceResponse,
             ],
+            grpc.aio.UnaryUnaryMultiCallable[
+                messages_pb2.RegisterScheduleRequest,
+                messages_pb2.RegisterScheduleResponse,
+            ],
+            grpc.aio.UnaryUnaryMultiCallable[
+                messages_pb2.UpdateScheduleStatusRequest,
+                messages_pb2.UpdateScheduleStatusResponse,
+            ],
+            grpc.aio.UnaryUnaryMultiCallable[
+                messages_pb2.DeleteScheduleRequest,
+                messages_pb2.DeleteScheduleResponse,
+            ],
         ],
         channel: grpc.aio.Channel,
     ) -> None: ...
@@ -175,6 +253,13 @@ class WorkflowServiceStub(
     RegisterWorkflow: _WorkflowServiceRegisterWorkflowType
 
     WaitForInstance: _WorkflowServiceWaitForInstanceType
+
+    RegisterSchedule: _WorkflowServiceRegisterScheduleType
+    """Schedule management"""
+
+    UpdateScheduleStatus: _WorkflowServiceUpdateScheduleStatusType
+
+    DeleteSchedule: _WorkflowServiceDeleteScheduleType
 
 WorkflowServiceAsyncStub: typing_extensions.TypeAlias = WorkflowServiceStub[
     grpc.aio.UnaryUnaryMultiCallable[
@@ -184,6 +269,18 @@ WorkflowServiceAsyncStub: typing_extensions.TypeAlias = WorkflowServiceStub[
     grpc.aio.UnaryUnaryMultiCallable[
         messages_pb2.WaitForInstanceRequest,
         messages_pb2.WaitForInstanceResponse,
+    ],
+    grpc.aio.UnaryUnaryMultiCallable[
+        messages_pb2.RegisterScheduleRequest,
+        messages_pb2.RegisterScheduleResponse,
+    ],
+    grpc.aio.UnaryUnaryMultiCallable[
+        messages_pb2.UpdateScheduleStatusRequest,
+        messages_pb2.UpdateScheduleStatusResponse,
+    ],
+    grpc.aio.UnaryUnaryMultiCallable[
+        messages_pb2.DeleteScheduleRequest,
+        messages_pb2.DeleteScheduleResponse,
     ],
 ]
 
@@ -207,6 +304,35 @@ class WorkflowServiceServicer(metaclass=abc.ABCMeta):
     ) -> typing.Union[
         messages_pb2.WaitForInstanceResponse,
         collections.abc.Awaitable[messages_pb2.WaitForInstanceResponse],
+    ]: ...
+    @abc.abstractmethod
+    def RegisterSchedule(
+        self,
+        request: messages_pb2.RegisterScheduleRequest,
+        context: _ServicerContext,
+    ) -> typing.Union[
+        messages_pb2.RegisterScheduleResponse,
+        collections.abc.Awaitable[messages_pb2.RegisterScheduleResponse],
+    ]:
+        """Schedule management"""
+
+    @abc.abstractmethod
+    def UpdateScheduleStatus(
+        self,
+        request: messages_pb2.UpdateScheduleStatusRequest,
+        context: _ServicerContext,
+    ) -> typing.Union[
+        messages_pb2.UpdateScheduleStatusResponse,
+        collections.abc.Awaitable[messages_pb2.UpdateScheduleStatusResponse],
+    ]: ...
+    @abc.abstractmethod
+    def DeleteSchedule(
+        self,
+        request: messages_pb2.DeleteScheduleRequest,
+        context: _ServicerContext,
+    ) -> typing.Union[
+        messages_pb2.DeleteScheduleResponse,
+        collections.abc.Awaitable[messages_pb2.DeleteScheduleResponse],
     ]: ...
 
 def add_WorkflowServiceServicer_to_server(
