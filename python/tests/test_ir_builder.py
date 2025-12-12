@@ -2888,3 +2888,68 @@ class TestDataclassSupport:
         keys = self._get_dict_keys(dict_expr)
         assert "x" in keys, "Expected 'x' key from positional arg"
         assert "y" in keys, "Expected 'y' key from positional arg"
+
+
+class TestPydanticModelAsActionArgument:
+    """Test that Pydantic models passed directly as action arguments are converted to dicts.
+
+    This tests the case where a Pydantic model constructor is passed directly
+    as an argument to an action call:
+
+        await self.run_action(my_action(MyModel(field=value)))
+
+    The model constructor should be converted to a dict expression in the IR,
+    not left as a FunctionCall (which Rust can't evaluate).
+    """
+
+    def _find_action_call_kwargs(
+        self, program: ir.Program, action_name: str
+    ) -> list[ir.Kwarg] | None:
+        """Find kwargs for an action call in the program.
+
+        Checks both:
+        - Direct action_call statements
+        - Assignment statements where value contains an action_call expression
+        """
+        for fn in program.functions:
+            for stmt in fn.body.statements:
+                # Check direct action_call statement
+                if stmt.HasField("action_call"):
+                    if stmt.action_call.action_name == action_name:
+                        return list(stmt.action_call.kwargs)
+                # Check assignment with action_call expression
+                if stmt.HasField("assignment"):
+                    if stmt.assignment.value.HasField("action_call"):
+                        action = stmt.assignment.value.action_call
+                        if action.action_name == action_name:
+                            return list(action.kwargs)
+        return None
+
+    def test_pydantic_model_as_action_arg_is_dict(self) -> None:
+        """Test: Pydantic model passed as action argument should become dict in IR."""
+        from tests.fixtures_models.pydantic_action_arg import PydanticActionArgWorkflow
+
+        # Should not raise - should compile the IR
+        program = PydanticActionArgWorkflow.workflow_ir()
+        assert program is not None
+
+        # Find the action call to process_request
+        kwargs = self._find_action_call_kwargs(program, "process_request")
+        assert kwargs is not None, "Expected to find process_request action call"
+        assert len(kwargs) == 1, f"Expected 1 kwarg (request), got {len(kwargs)}"
+
+        # The kwarg should be a dict expression (converted from Pydantic model)
+        # NOT a function_call expression
+        request_kwarg = kwargs[0]
+        assert request_kwarg.name == "request", f"Expected 'request' kwarg, got {request_kwarg.name}"
+
+        # The value should be a dict expression, not a function call
+        value = request_kwarg.value
+        assert value is not None, "Expected kwarg to have a value"
+
+        # This is the key assertion: the model constructor should be converted to a dict
+        # If it's still a function_call, the fix is needed
+        assert value.HasField("dict"), (
+            f"Expected Pydantic model constructor to be converted to dict expression, "
+            f"but got: {value.WhichOneof('kind')}"
+        )

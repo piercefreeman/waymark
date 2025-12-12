@@ -2757,6 +2757,25 @@ class IRBuilder(ast.NodeVisitor):
             return ".".join(reversed(parts))
         return None
 
+    def _expr_to_ir_with_model_coercion(self, node: ast.expr) -> Optional[ir.Expr]:
+        """Convert an AST expression to IR, converting model constructors to dicts.
+
+        This is used for action arguments where Pydantic models or dataclass
+        constructors should be converted to dict expressions that Rust can evaluate.
+
+        If the expression is a model constructor (e.g., MyModel(field=value)),
+        it is converted to a dict expression. Otherwise, falls back to the
+        standard _expr_to_ir conversion.
+        """
+        # Check if this is a model constructor call
+        if isinstance(node, ast.Call):
+            model_name = self._is_model_constructor(node)
+            if model_name:
+                return self._convert_model_constructor_to_dict(node, model_name)
+
+        # Fall back to standard expression conversion
+        return _expr_to_ir(node)
+
     def _extract_action_call_from_awaitable(self, node: ast.expr) -> Optional[ir.ActionCall]:
         """Extract action call from an awaitable expression."""
         if isinstance(node, ast.Call):
@@ -2768,6 +2787,9 @@ class IRBuilder(ast.NodeVisitor):
 
         Converts positional arguments to keyword arguments using the action's
         signature introspection. This ensures all arguments are named in the IR.
+
+        Pydantic models and dataclass constructors passed as arguments are
+        automatically converted to dict expressions.
         """
         action_name = self._get_action_name(node.func)
         if not action_name:
@@ -2787,17 +2809,19 @@ class IRBuilder(ast.NodeVisitor):
         param_names = list(action_def.signature.parameters.keys())
 
         # Convert positional args to kwargs using signature introspection
+        # Model constructors are converted to dict expressions
         for i, arg in enumerate(node.args):
             if i < len(param_names):
-                expr = _expr_to_ir(arg)
+                expr = self._expr_to_ir_with_model_coercion(arg)
                 if expr:
                     kwarg = ir.Kwarg(name=param_names[i], value=expr)
                     action_call.kwargs.append(kwarg)
 
         # Add explicit kwargs
+        # Model constructors are converted to dict expressions
         for kw in node.keywords:
             if kw.arg:
-                expr = _expr_to_ir(kw.value)
+                expr = self._expr_to_ir_with_model_coercion(kw.value)
                 if expr:
                     kwarg = ir.Kwarg(name=kw.arg, value=expr)
                     action_call.kwargs.append(kwarg)
