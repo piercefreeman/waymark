@@ -1,13 +1,18 @@
-"""Fixture: returning a constructor call is not supported."""
+"""Fixture: returning a constructor call is not supported.
 
-from pydantic import BaseModel
+Note: Pydantic models and dataclasses ARE supported and will be converted
+to dict expressions. This test uses a regular class which is NOT supported.
+"""
 
 from rappel import Workflow, action, workflow
 
 
-class MyResult(BaseModel):
-    value: int
-    message: str
+class CustomResult:
+    """Regular class (not Pydantic/dataclass) - constructor calls are not supported."""
+
+    def __init__(self, value: int, message: str):
+        self.value = value
+        self.message = message
 
 
 @action
@@ -19,7 +24,7 @@ async def get_value() -> int:
 class ConstructorReturnWorkflow(Workflow):
     """Workflow that returns a constructor - should fail validation."""
 
-    async def run(self) -> MyResult:
+    async def run(self) -> CustomResult:
         value = await get_value()
-        # This should fail: returning a constructor call
-        return MyResult(value=value, message="done")
+        # This should fail: returning a constructor call for non-model class
+        return CustomResult(value=value, message="done")

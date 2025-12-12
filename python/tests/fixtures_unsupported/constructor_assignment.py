@@ -1,13 +1,18 @@
-"""Fixture: assigning a constructor call is not supported."""
+"""Fixture: assigning a constructor call is not supported.
 
-from pydantic import BaseModel
+Note: Pydantic models and dataclasses ARE supported and will be converted
+to dict expressions. This test uses a regular class which is NOT supported.
+"""
 
 from rappel import Workflow, action, workflow
 
 
-class Config(BaseModel):
-    timeout: int
-    retries: int
+class CustomConfig:
+    """Regular class (not Pydantic/dataclass) - constructor calls are not supported."""
+
+    def __init__(self, timeout: int, retries: int):
+        self.timeout = timeout
+        self.retries = retries
 
 
 @action
@@ -21,6 +26,6 @@ class ConstructorAssignmentWorkflow(Workflow):
 
     async def run(self) -> int:
         timeout = await get_timeout()
-        # This should fail: assigning a constructor call
-        config = Config(timeout=timeout, retries=3)
+        # This should fail: assigning a constructor call for non-model class
+        config = CustomConfig(timeout=timeout, retries=3)
         return config.timeout

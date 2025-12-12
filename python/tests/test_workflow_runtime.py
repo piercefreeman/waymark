@@ -1,7 +1,10 @@
 """Tests for the simplified workflow runtime execution."""
 
 import asyncio
+from dataclasses import dataclass as python_dataclass
 from typing import Annotated
+
+from pydantic import BaseModel
 
 from proto import messages_pb2 as pb2
 from rappel import registry as action_registry
@@ -129,3 +132,109 @@ def test_execute_action_unknown_action() -> None:
     assert result.result is None
     assert result.exception is not None
     assert "not registered" in str(result.exception)
+
+
+# Pydantic model for testing coercion
+class PersonModel(BaseModel):
+    name: str
+    age: int
+
+
+# Dataclass for testing coercion
+@python_dataclass
+class PointData:
+    x: int
+    y: int
+
+
+@action
+async def greet_person(person: PersonModel) -> str:
+    """Action that expects a Pydantic model argument."""
+    return f"Hello {person.name}, you are {person.age} years old"
+
+
+@action
+async def compute_distance(point: PointData) -> int:
+    """Action that expects a dataclass argument."""
+    return point.x + point.y
+
+
+def _build_action_dispatch_with_dict(
+    action_name: str,
+    module_name: str,
+    kwargs: dict,
+) -> pb2.ActionDispatch:
+    """Build an ActionDispatch proto message with dict values.
+
+    This version handles nested dict values for testing model coercion.
+    """
+    dispatch = pb2.ActionDispatch(
+        action_id="test-action-id",
+        instance_id="test-instance-id",
+        sequence=1,
+        action_name=action_name,
+        module_name=module_name,
+    )
+
+    def add_value_to_proto(proto_value: pb2.WorkflowArgumentValue, value: object) -> None:
+        """Recursively add a value to a proto message."""
+        if isinstance(value, int):
+            proto_value.primitive.int_value = value
+        elif isinstance(value, str):
+            proto_value.primitive.string_value = value
+        elif isinstance(value, float):
+            proto_value.primitive.double_value = value
+        elif isinstance(value, bool):
+            proto_value.primitive.bool_value = value
+        elif isinstance(value, dict):
+            proto_value.dict_value.SetInParent()
+            for k, v in value.items():
+                entry = proto_value.dict_value.entries.add()
+                entry.key = k
+                add_value_to_proto(entry.value, v)
+
+    # Build kwargs
+    for key, value in kwargs.items():
+        arg = dispatch.kwargs.arguments.add()
+        arg.key = key
+        add_value_to_proto(arg.value, value)
+
+    return dispatch
+
+
+def test_execute_action_coerces_dict_to_pydantic_model() -> None:
+    """Test that dict arguments are coerced to Pydantic models based on type hints."""
+    if action_registry.get(__name__, "greet_person") is None:
+        action_registry.register(__name__, "greet_person", greet_person)
+
+    # Pass a dict that should be coerced to PersonModel
+    dispatch = _build_action_dispatch_with_dict(
+        action_name="greet_person",
+        module_name=__name__,
+        kwargs={"person": {"name": "Alice", "age": 30}},
+    )
+
+    result = asyncio.run(execute_action(dispatch))
+
+    assert isinstance(result, ActionExecutionResult)
+    assert result.exception is None, f"Unexpected exception: {result.exception}"
+    assert result.result == "Hello Alice, you are 30 years old"
+
+
+def test_execute_action_coerces_dict_to_dataclass() -> None:
+    """Test that dict arguments are coerced to dataclasses based on type hints."""
+    if action_registry.get(__name__, "compute_distance") is None:
+        action_registry.register(__name__, "compute_distance", compute_distance)
+
+    # Pass a dict that should be coerced to PointData
+    dispatch = _build_action_dispatch_with_dict(
+        action_name="compute_distance",
+        module_name=__name__,
+        kwargs={"point": {"x": 3, "y": 4}},
+    )
+
+    result = asyncio.run(execute_action(dispatch))
+
+    assert isinstance(result, ActionExecutionResult)
+    assert result.exception is None, f"Unexpected exception: {result.exception}"
+    assert result.result == 7  # 3 + 4

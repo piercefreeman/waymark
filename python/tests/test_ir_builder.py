@@ -2492,7 +2492,11 @@ class TestUnsupportedPatternValidation:
     """Test that unsupported patterns raise UnsupportedPatternError with helpful messages."""
 
     def test_constructor_return_raises_error(self) -> None:
-        """Test: return MyModel(...) raises UnsupportedPatternError."""
+        """Test: return CustomClass(...) raises UnsupportedPatternError.
+
+        Note: Pydantic models and dataclasses ARE supported. This test uses
+        a regular class to ensure unsupported constructors still fail.
+        """
         from typing import cast
 
         import pytest
@@ -2505,14 +2509,18 @@ class TestUnsupportedPatternValidation:
             ConstructorReturnWorkflow.workflow_ir()
 
         error = cast(UnsupportedPatternError, exc_info.value)
-        assert "MyResult" in error.message
+        assert "CustomResult" in error.message
         assert (
             "constructor" in error.message.lower() or "constructor" in error.recommendation.lower()
         )
         assert "@action" in error.recommendation
 
     def test_constructor_assignment_raises_error(self) -> None:
-        """Test: x = MyClass(...) raises UnsupportedPatternError."""
+        """Test: x = CustomClass(...) raises UnsupportedPatternError.
+
+        Note: Pydantic models and dataclasses ARE supported. This test uses
+        a regular class to ensure unsupported constructors still fail.
+        """
         from typing import cast
 
         import pytest
@@ -2527,7 +2535,7 @@ class TestUnsupportedPatternValidation:
             ConstructorAssignmentWorkflow.workflow_ir()
 
         error = cast(UnsupportedPatternError, exc_info.value)
-        assert "Config" in error.message
+        assert "CustomConfig" in error.message
         assert "@action" in error.recommendation
 
     def test_non_action_await_raises_error(self) -> None:
@@ -2682,3 +2690,201 @@ class TestValidPatterns:
         # Should not raise
         program = SimpleActionWorkflow.workflow_ir()
         assert program is not None
+
+
+class TestPydanticModelSupport:
+    """Test that Pydantic models can be instantiated in workflow code."""
+
+    def _find_dict_assignment(self, program: ir.Program) -> tuple[ir.DictExpr, list[str]] | None:
+        """Find an assignment with a dict expression.
+
+        Returns tuple of (DictExpr, targets) where targets are assignment variables.
+        """
+        for fn in program.functions:
+            for stmt in fn.body.statements:
+                if stmt.HasField("assignment"):
+                    if stmt.assignment.value.HasField("dict"):
+                        return (
+                            stmt.assignment.value.dict,
+                            list(stmt.assignment.targets),
+                        )
+        return None
+
+    def _get_dict_keys(self, dict_expr: ir.DictExpr) -> list[str]:
+        """Extract string keys from a dict expression."""
+        keys = []
+        for entry in dict_expr.entries:
+            if entry.key.HasField("literal") and entry.key.literal.HasField("string_value"):
+                keys.append(entry.key.literal.string_value)
+        return keys
+
+    def _get_dict_entry_value(self, dict_expr: ir.DictExpr, key: str) -> ir.Expr | None:
+        """Get the value for a specific key in a dict expression."""
+        for entry in dict_expr.entries:
+            if (
+                entry.key.HasField("literal")
+                and entry.key.literal.HasField("string_value")
+                and entry.key.literal.string_value == key
+            ):
+                return entry.value
+        return None
+
+    def test_pydantic_simple_model(self) -> None:
+        """Test: Simple Pydantic model is converted to dict expression."""
+        from tests.fixtures_models.pydantic_simple import PydanticSimpleWorkflow
+
+        # Should not raise - Pydantic models are allowed
+        program = PydanticSimpleWorkflow.workflow_ir()
+        assert program is not None
+
+        # Find the dict assignment (result = SimpleResult(...))
+        result = self._find_dict_assignment(program)
+        assert result is not None, "Expected dict assignment from Pydantic model"
+        dict_expr, targets = result
+
+        # Check targets
+        assert targets == ["result"], f"Expected target 'result', got {targets}"
+
+        # Check dict has expected keys
+        keys = self._get_dict_keys(dict_expr)
+        assert "value" in keys, "Expected 'value' key in dict"
+        assert "message" in keys, "Expected 'message' key in dict"
+
+    def test_pydantic_model_with_defaults(self) -> None:
+        """Test: Pydantic model with defaults includes default values in dict."""
+        from tests.fixtures_models.pydantic_with_defaults import PydanticDefaultsWorkflow
+
+        program = PydanticDefaultsWorkflow.workflow_ir()
+        assert program is not None
+
+        result = self._find_dict_assignment(program)
+        assert result is not None, "Expected dict assignment"
+        dict_expr, _targets = result
+
+        keys = self._get_dict_keys(dict_expr)
+        # 'value' is provided, 'status' and 'count' have defaults
+        assert "value" in keys, "Expected 'value' key"
+        assert "status" in keys, "Expected 'status' key from default"
+        assert "count" in keys, "Expected 'count' key from default"
+
+        # Check default values are present
+        status_val = self._get_dict_entry_value(dict_expr, "status")
+        assert status_val is not None
+        if status_val.HasField("literal"):
+            assert status_val.literal.string_value == "ok", "Expected default status='ok'"
+
+        count_val = self._get_dict_entry_value(dict_expr, "count")
+        assert count_val is not None
+        if count_val.HasField("literal"):
+            assert count_val.literal.int_value == 0, "Expected default count=0"
+
+    def test_pydantic_nested_model(self) -> None:
+        """Test: Pydantic model with nested dict field."""
+        from tests.fixtures_models.pydantic_nested import PydanticNestedWorkflow
+
+        program = PydanticNestedWorkflow.workflow_ir()
+        assert program is not None
+
+        result = self._find_dict_assignment(program)
+        assert result is not None, "Expected dict assignment"
+        dict_expr, _targets = result
+
+        keys = self._get_dict_keys(dict_expr)
+        assert "name" in keys, "Expected 'name' key"
+        assert "inner" in keys, "Expected 'inner' key"
+
+
+class TestDataclassSupport:
+    """Test that dataclasses can be instantiated in workflow code."""
+
+    def _find_dict_assignment(self, program: ir.Program) -> tuple[ir.DictExpr, list[str]] | None:
+        """Find an assignment with a dict expression."""
+        for fn in program.functions:
+            for stmt in fn.body.statements:
+                if stmt.HasField("assignment"):
+                    if stmt.assignment.value.HasField("dict"):
+                        return (
+                            stmt.assignment.value.dict,
+                            list(stmt.assignment.targets),
+                        )
+        return None
+
+    def _get_dict_keys(self, dict_expr: ir.DictExpr) -> list[str]:
+        """Extract string keys from a dict expression."""
+        keys = []
+        for entry in dict_expr.entries:
+            if entry.key.HasField("literal") and entry.key.literal.HasField("string_value"):
+                keys.append(entry.key.literal.string_value)
+        return keys
+
+    def _get_dict_entry_value(self, dict_expr: ir.DictExpr, key: str) -> ir.Expr | None:
+        """Get the value for a specific key in a dict expression."""
+        for entry in dict_expr.entries:
+            if (
+                entry.key.HasField("literal")
+                and entry.key.literal.HasField("string_value")
+                and entry.key.literal.string_value == key
+            ):
+                return entry.value
+        return None
+
+    def test_dataclass_simple(self) -> None:
+        """Test: Simple dataclass is converted to dict expression."""
+        from tests.fixtures_models.dataclass_simple import DataclassSimpleWorkflow
+
+        program = DataclassSimpleWorkflow.workflow_ir()
+        assert program is not None
+
+        result = self._find_dict_assignment(program)
+        assert result is not None, "Expected dict assignment from dataclass"
+        dict_expr, targets = result
+
+        assert targets == ["result"], f"Expected target 'result', got {targets}"
+
+        keys = self._get_dict_keys(dict_expr)
+        assert "value" in keys, "Expected 'value' key"
+        assert "message" in keys, "Expected 'message' key"
+
+    def test_dataclass_with_defaults(self) -> None:
+        """Test: Dataclass with defaults includes default values in dict."""
+        from tests.fixtures_models.dataclass_with_defaults import DataclassDefaultsWorkflow
+
+        program = DataclassDefaultsWorkflow.workflow_ir()
+        assert program is not None
+
+        result = self._find_dict_assignment(program)
+        assert result is not None, "Expected dict assignment"
+        dict_expr, _targets = result
+
+        keys = self._get_dict_keys(dict_expr)
+        assert "value" in keys, "Expected 'value' key"
+        assert "status" in keys, "Expected 'status' key from default"
+        assert "retry_count" in keys, "Expected 'retry_count' key from default"
+
+        # Check default values
+        status_val = self._get_dict_entry_value(dict_expr, "status")
+        assert status_val is not None
+        if status_val.HasField("literal"):
+            assert status_val.literal.string_value == "pending"
+
+        retry_val = self._get_dict_entry_value(dict_expr, "retry_count")
+        assert retry_val is not None
+        if retry_val.HasField("literal"):
+            assert retry_val.literal.int_value == 0
+
+    def test_dataclass_positional_args(self) -> None:
+        """Test: Dataclass with positional arguments."""
+        from tests.fixtures_models.dataclass_positional import DataclassPositionalWorkflow
+
+        program = DataclassPositionalWorkflow.workflow_ir()
+        assert program is not None
+
+        result = self._find_dict_assignment(program)
+        assert result is not None, "Expected dict assignment"
+        dict_expr, targets = result
+
+        assert targets == ["point"], f"Expected target 'point', got {targets}"
+
+        keys = self._get_dict_keys(dict_expr)
+        assert "x" in keys, "Expected 'x' key from positional arg"
+        assert "y" in keys, "Expected 'y' key from positional arg"
