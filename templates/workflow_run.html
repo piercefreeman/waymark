@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "macros.html" as macros %}
 
 {% block title %}{{ title }}{% endblock title %}
 
@@ -6,17 +7,17 @@
 <section class="space-y-4">
     <a href="/workflow/{{ workflow.id }}" class="text-xs uppercase tracking-[0.4em] text-zinc-500 transition hover:text-zinc-700 dark:hover:text-zinc-300">&larr; Back to workflow detail</a>
     <div class="space-y-2">
-        <h1 class="text-3xl font-semibold tracking-tight text-zinc-900 dark:text-white">Run {{ instance.id | truncate(length=8, end="...") }}</h1>
+        <h1 class="text-3xl font-semibold tracking-tight text-zinc-900 dark:text-white">Run {{ instance.id }}</h1>
         <p class="text-sm text-zinc-600 dark:text-zinc-400">{{ workflow.name }}</p>
     </div>
     <dl class="grid gap-4 rounded-2xl border border-zinc-200 dark:border-zinc-900 bg-zinc-100 dark:bg-zinc-900/40 p-6 md:grid-cols-2 lg:grid-cols-4">
         <div>
             <dt class="text-xs uppercase tracking-[0.4em] text-zinc-500">Version ID</dt>
-            <dd class="text-lg font-semibold text-zinc-900 dark:text-white">{{ workflow.id | truncate(length=8, end="...") }}</dd>
+            <dd class="text-lg font-semibold text-zinc-900 dark:text-white font-mono text-sm">{{ workflow.id }}</dd>
         </div>
         <div>
             <dt class="text-xs uppercase tracking-[0.4em] text-zinc-500">Run Created</dt>
-            <dd class="text-lg font-semibold text-zinc-900 dark:text-white">{{ instance.created_at }}</dd>
+            <dd class="text-lg font-semibold text-zinc-900 dark:text-white">{{ macros::datetime(timestamp=instance.created_at) }}</dd>
         </div>
         <div>
             <dt class="text-xs uppercase tracking-[0.4em] text-zinc-500">Status</dt>
@@ -115,16 +116,40 @@ class DAGLayout {
     this.container = container;
     this.options = {
       orientation: options.orientation || 'horizontal', // 'horizontal' or 'vertical'
-      nodeWidth: options.nodeWidth || 160,
+      minNodeWidth: options.minNodeWidth || 120,
+      maxNodeWidth: options.maxNodeWidth || 280,
       nodeHeight: options.nodeHeight || 64,
       padding: options.padding || 24,
-      gap: options.gap || 140,
+      gap: options.gap || 80,
       rowGap: options.rowGap || 80,
       onNodeClick: options.onNodeClick || null,
       isDark: document.documentElement.classList.contains('dark'),
     };
     this.positions = new Map();
     this.nodeElements = new Map();
+    this.nodeWidths = new Map();
+  }
+
+  // Measure text width to determine node width
+  measureNodeWidth(node) {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+
+    // Measure each text element
+    ctx.font = '600 14px system-ui, sans-serif'; // semibold for action name
+    const actionWidth = ctx.measureText(node.action).width;
+
+    ctx.font = '500 10px ui-monospace, monospace'; // mono for node id
+    const idWidth = ctx.measureText(node.id).width;
+
+    ctx.font = '400 10px system-ui, sans-serif'; // normal for module
+    const moduleWidth = ctx.measureText(node.module).width;
+
+    // Take the max width + padding
+    const textWidth = Math.max(actionWidth, idWidth, moduleWidth);
+    const paddedWidth = textWidth + 32; // 16px padding on each side
+
+    return Math.max(this.options.minNodeWidth, Math.min(paddedWidth, this.options.maxNodeWidth));
   }
 
   // Status colors for nodes (opaque backgrounds)
@@ -173,6 +198,11 @@ class DAGLayout {
     const nodeMap = new Map(nodes.map(n => [n.id, n]));
     const depthCache = new Map();
 
+    // Pre-calculate all node widths
+    nodes.forEach(node => {
+      this.nodeWidths.set(node.id, this.measureNodeWidth(node));
+    });
+
     const computeDepth = (nodeId, stack = new Set()) => {
       if (depthCache.has(nodeId)) return depthCache.get(nodeId);
       const node = nodeMap.get(nodeId);
@@ -199,18 +229,27 @@ class DAGLayout {
     });
 
     const normalizedLevels = Array.from({ length: levels.length }, (_, i) => levels[i] || []);
-    const { nodeWidth, nodeHeight, padding, gap, rowGap, orientation } = this.options;
+    const { nodeHeight, padding, gap, rowGap, orientation } = this.options;
 
-    // Calculate total dimensions first
+    // Calculate max width per level
+    const levelMaxWidths = normalizedLevels.map(levelNodes =>
+      Math.max(...levelNodes.map(n => this.nodeWidths.get(n.id)), this.options.minNodeWidth)
+    );
+
+    // Calculate total dimensions
     const maxDepth = normalizedLevels.length;
     const maxNodesInLevel = Math.max(...normalizedLevels.map(l => l.length), 1);
 
     let totalWidth, totalHeight;
     if (orientation === 'vertical') {
-      totalWidth = padding * 2 + maxNodesInLevel * nodeWidth + (maxNodesInLevel - 1) * (rowGap / 2);
+      const maxLevelWidth = Math.max(...normalizedLevels.map(levelNodes =>
+        levelNodes.reduce((sum, n) => sum + this.nodeWidths.get(n.id), 0) + (levelNodes.length - 1) * (rowGap / 2)
+      ), 0);
+      totalWidth = padding * 2 + maxLevelWidth;
       totalHeight = padding * 2 + maxDepth * gap + nodeHeight;
     } else {
-      totalWidth = padding * 2 + maxDepth * (nodeWidth + gap);
+      const levelWidthsSum = levelMaxWidths.reduce((sum, w) => sum + w, 0);
+      totalWidth = padding * 2 + levelWidthsSum + (maxDepth - 1) * gap;
       totalHeight = padding * 2 + maxNodesInLevel * rowGap + nodeHeight;
     }
 
@@ -226,25 +265,44 @@ class DAGLayout {
     svg.setAttribute('height', Math.max(totalHeight, 300));
     wrapper.appendChild(svg);
 
+    // Calculate cumulative positions for horizontal layout
+    const levelStartX = [];
+    let cumX = padding;
+    levelMaxWidths.forEach((w, i) => {
+      levelStartX[i] = cumX;
+      cumX += w + gap;
+    });
+
     // Create node elements
     normalizedLevels.forEach((levelNodes, depth) => {
       levelNodes.forEach((node, index) => {
+        const nodeWidth = this.nodeWidths.get(node.id);
+        const levelMaxWidth = levelMaxWidths[depth];
+
         let left, top;
         if (orientation === 'vertical') {
-          left = padding + index * (nodeWidth + rowGap / 2);
+          // Center nodes within level for vertical orientation
+          const levelTotalWidth = levelNodes.reduce((sum, n, i) =>
+            sum + this.nodeWidths.get(n.id) + (i > 0 ? rowGap / 2 : 0), 0);
+          let runningX = padding + (totalWidth - padding * 2 - levelTotalWidth) / 2;
+          for (let i = 0; i < index; i++) {
+            runningX += this.nodeWidths.get(levelNodes[i].id) + rowGap / 2;
+          }
+          left = runningX;
           top = padding + depth * gap;
         } else {
-          left = padding + depth * (nodeWidth + gap);
+          left = levelStartX[depth] + (levelMaxWidth - nodeWidth) / 2;
           top = padding + index * rowGap;
         }
 
         this.positions.set(node.id, {
           x: left + nodeWidth / 2,
           y: top + nodeHeight / 2,
-          left, top
+          left, top,
+          width: nodeWidth
         });
 
-        const el = this.createNodeElement(node, left, top);
+        const el = this.createNodeElement(node, left, top, nodeWidth);
         wrapper.appendChild(el);
         this.nodeElements.set(node.id, el);
       });
@@ -261,6 +319,9 @@ class DAGLayout {
         const end = this.positions.get(node.id);
         if (!start || !end) return;
 
+        const startWidth = start.width || this.options.minNodeWidth;
+        const endWidth = end.width || this.options.minNodeWidth;
+
         const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         let d;
         if (orientation === 'vertical') {
@@ -268,7 +329,7 @@ class DAGLayout {
           d = `M${start.x},${start.y + nodeHeight/2} C${start.x},${midY} ${end.x},${midY} ${end.x},${end.y - nodeHeight/2}`;
         } else {
           const midX = (start.x + end.x) / 2;
-          d = `M${start.x + nodeWidth/2},${start.y} C${midX},${start.y} ${midX},${end.y} ${end.x - nodeWidth/2},${end.y}`;
+          d = `M${start.x + startWidth/2},${start.y} C${midX},${start.y} ${midX},${end.y} ${end.x - endWidth/2},${end.y}`;
         }
         path.setAttribute('d', d);
         path.setAttribute('fill', 'none');
@@ -280,8 +341,8 @@ class DAGLayout {
     });
   }
 
-  createNodeElement(node, left, top) {
-    const { nodeWidth, nodeHeight } = this.options;
+  createNodeElement(node, left, top, nodeWidth) {
+    const { nodeHeight } = this.options;
     const colors = this.getStatusColors(node.status);
 
     const el = document.createElement('div');
@@ -294,11 +355,12 @@ class DAGLayout {
       background: ${colors.bg};
       border: 2px solid ${colors.border};
       box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      overflow: hidden;
     `;
     el.dataset.nodeId = node.id;
 
     el.innerHTML = `
-      <p class="text-[10px] font-mono font-medium uppercase tracking-wider" style="color: ${colors.label}">${node.id}</p>
+      <p class="text-[10px] font-mono font-medium uppercase tracking-wider truncate" style="color: ${colors.label}">${node.id}</p>
       <p class="text-sm font-semibold truncate mt-0.5" style="color: ${colors.text}">${node.action}</p>
       <p class="text-[10px] truncate opacity-70" style="color: ${colors.text}">${node.module}</p>
     `;
@@ -352,7 +414,8 @@ document.addEventListener('DOMContentLoaded', () => {
   // Create vertical DAG layout
   const dag = new DAGLayout(container, {
     orientation: 'vertical',
-    nodeWidth: 160,
+    minNodeWidth: 120,
+    maxNodeWidth: 280,
     nodeHeight: 64,
     padding: 24,
     gap: 100,

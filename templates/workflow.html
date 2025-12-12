@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "macros.html" as macros %}
 
 {% block title %}{{ title }}{% endblock title %}
 
@@ -16,7 +17,7 @@
         </div>
         <div>
             <dt class="text-xs uppercase tracking-[0.4em] text-zinc-500">Created</dt>
-            <dd class="text-lg font-semibold text-zinc-900 dark:text-white">{{ workflow.created_at }}</dd>
+            <dd class="text-lg font-semibold text-zinc-900 dark:text-white">{{ macros::datetime(timestamp=workflow.created_at) }}</dd>
         </div>
         <div>
             <dt class="text-xs uppercase tracking-[0.4em] text-zinc-500">Hash</dt>
@@ -45,15 +46,15 @@
         <h2 class="text-2xl font-semibold text-zinc-900 dark:text-white">Latest Workflow Instances</h2>
     </div>
     {% if has_runs %}
-        <div class="rounded-2xl border border-zinc-200 dark:border-zinc-900 bg-zinc-100 dark:bg-zinc-900/40">
+        <div class="rounded-2xl border border-zinc-200 dark:border-zinc-900 bg-white dark:bg-zinc-900/40 overflow-hidden">
             <div class="overflow-x-auto">
                 <table class="min-w-full divide-y divide-zinc-200 dark:divide-zinc-800 text-sm">
-                    <thead class="bg-zinc-200/60 dark:bg-zinc-900/60">
+                    <thead class="bg-zinc-100 dark:bg-zinc-800/60">
                         <tr>
-                            <th class="px-4 py-3 text-left font-semibold text-zinc-600 dark:text-zinc-400">Instance</th>
-                            <th class="px-4 py-3 text-left font-semibold text-zinc-600 dark:text-zinc-400">Created</th>
-                            <th class="px-4 py-3 text-left font-semibold text-zinc-600 dark:text-zinc-400">Status</th>
-                            <th class="px-4 py-3 text-left font-semibold text-zinc-600 dark:text-zinc-400">Progress</th>
+                            <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-semibold text-zinc-500 dark:text-zinc-400">Instance</th>
+                            <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-semibold text-zinc-500 dark:text-zinc-400">Created</th>
+                            <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-semibold text-zinc-500 dark:text-zinc-400">Status</th>
+                            <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-semibold text-zinc-500 dark:text-zinc-400">Progress</th>
                             <th class="px-4 py-3"></th>
                         </tr>
                     </thead>
@@ -61,10 +62,8 @@
                         {% for run in recent_runs %}
                             <tr>
                                 <td class="px-4 py-3 font-mono text-xs text-zinc-700 dark:text-zinc-300">{{ run.id }}</td>
-                                <td class="px-4 py-3 text-zinc-700 dark:text-zinc-300">{{ run.created_at }}</td>
-                                <td class="px-4 py-3">
-                                    <span class="rounded-full bg-zinc-200 dark:bg-zinc-800 px-2 py-1 text-xs font-semibold text-zinc-800 dark:text-zinc-200">{{ run.status }}</span>
-                                </td>
+                                <td class="px-4 py-3 text-zinc-700 dark:text-zinc-300">{{ macros::datetime(timestamp=run.created_at) }}</td>
+                                <td class="px-4 py-3">{{ macros::status_badge(status=run.status) }}</td>
                                 <td class="px-4 py-3 text-zinc-700 dark:text-zinc-300">{{ run.progress }}</td>
                                 <td class="px-4 py-3 text-right">
                                     <a href="{{ run.url }}" class="text-sm font-semibold text-indigo-600 dark:text-indigo-400 transition hover:text-indigo-500 dark:hover:text-indigo-300">View &rarr;</a>
@@ -97,15 +96,39 @@ class DAGLayout {
     this.container = container;
     this.options = {
       orientation: options.orientation || 'horizontal',
-      nodeWidth: options.nodeWidth || 180,
+      minNodeWidth: options.minNodeWidth || 120,
+      maxNodeWidth: options.maxNodeWidth || 300,
       nodeHeight: options.nodeHeight || 72,
       padding: options.padding || 32,
-      gap: options.gap || 200,
+      gap: options.gap || 80,
       rowGap: options.rowGap || 100,
       onNodeClick: options.onNodeClick || null,
     };
     this.positions = new Map();
     this.nodeElements = new Map();
+    this.nodeWidths = new Map();
+  }
+
+  // Measure text width to determine node width
+  measureNodeWidth(node) {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+
+    // Measure each text element
+    ctx.font = '600 14px system-ui, sans-serif'; // semibold for action name
+    const actionWidth = ctx.measureText(node.action).width;
+
+    ctx.font = '500 10px ui-monospace, monospace'; // mono for node id
+    const idWidth = ctx.measureText(node.id).width;
+
+    ctx.font = '400 12px system-ui, sans-serif'; // normal for module
+    const moduleWidth = ctx.measureText(node.module).width;
+
+    // Take the max width + padding
+    const textWidth = Math.max(actionWidth, idWidth, moduleWidth);
+    const paddedWidth = textWidth + 40; // 20px padding on each side
+
+    return Math.max(this.options.minNodeWidth, Math.min(paddedWidth, this.options.maxNodeWidth));
   }
 
   render(nodes) {
@@ -115,6 +138,11 @@ class DAGLayout {
 
     const nodeMap = new Map(nodes.map(n => [n.id, n]));
     const depthCache = new Map();
+
+    // Pre-calculate all node widths
+    nodes.forEach(node => {
+      this.nodeWidths.set(node.id, this.measureNodeWidth(node));
+    });
 
     const computeDepth = (nodeId, stack = new Set()) => {
       if (depthCache.has(nodeId)) return depthCache.get(nodeId);
@@ -142,18 +170,28 @@ class DAGLayout {
     });
 
     const normalizedLevels = Array.from({ length: levels.length }, (_, i) => levels[i] || []);
-    const { nodeWidth, nodeHeight, padding, gap, rowGap, orientation } = this.options;
+    const { nodeHeight, padding, gap, rowGap, orientation } = this.options;
 
-    // Calculate total dimensions first
+    // Calculate max width per level for horizontal layout
+    const levelMaxWidths = normalizedLevels.map(levelNodes =>
+      Math.max(...levelNodes.map(n => this.nodeWidths.get(n.id)), this.options.minNodeWidth)
+    );
+
+    // Calculate total dimensions
     const maxDepth = normalizedLevels.length;
     const maxNodesInLevel = Math.max(...normalizedLevels.map(l => l.length), 1);
 
     let totalWidth, totalHeight;
     if (orientation === 'vertical') {
-      totalWidth = padding * 2 + maxNodesInLevel * nodeWidth + (maxNodesInLevel - 1) * (rowGap / 2);
+      const maxLevelWidth = Math.max(...normalizedLevels.map(levelNodes =>
+        levelNodes.reduce((sum, n) => sum + this.nodeWidths.get(n.id), 0) + (levelNodes.length - 1) * (rowGap / 2)
+      ), 0);
+      totalWidth = padding * 2 + maxLevelWidth;
       totalHeight = padding * 2 + maxDepth * gap + nodeHeight;
     } else {
-      totalWidth = padding * 2 + maxDepth * (nodeWidth + gap);
+      // Sum of all level widths + gaps between levels
+      const levelWidthsSum = levelMaxWidths.reduce((sum, w) => sum + w, 0);
+      totalWidth = padding * 2 + levelWidthsSum + (maxDepth - 1) * gap;
       totalHeight = padding * 2 + maxNodesInLevel * rowGap + nodeHeight;
     }
 
@@ -169,25 +207,45 @@ class DAGLayout {
     svg.setAttribute('height', Math.max(totalHeight, 240));
     wrapper.appendChild(svg);
 
+    // Calculate cumulative x positions for each level (horizontal layout)
+    const levelStartX = [];
+    let cumX = padding;
+    levelMaxWidths.forEach((w, i) => {
+      levelStartX[i] = cumX;
+      cumX += w + gap;
+    });
+
     // Create node elements
     normalizedLevels.forEach((levelNodes, depth) => {
       levelNodes.forEach((node, index) => {
+        const nodeWidth = this.nodeWidths.get(node.id);
+        const levelMaxWidth = levelMaxWidths[depth];
+
         let left, top;
         if (orientation === 'vertical') {
-          left = padding + index * (nodeWidth + rowGap / 2);
+          // Center nodes within level for vertical orientation
+          const levelTotalWidth = levelNodes.reduce((sum, n, i) =>
+            sum + this.nodeWidths.get(n.id) + (i > 0 ? rowGap / 2 : 0), 0);
+          let runningX = padding + (totalWidth - padding * 2 - levelTotalWidth) / 2;
+          for (let i = 0; i < index; i++) {
+            runningX += this.nodeWidths.get(levelNodes[i].id) + rowGap / 2;
+          }
+          left = runningX;
           top = padding + depth * gap;
         } else {
-          left = padding + depth * (nodeWidth + gap);
+          // Center each node within its level's max width column
+          left = levelStartX[depth] + (levelMaxWidth - nodeWidth) / 2;
           top = padding + index * rowGap;
         }
 
         this.positions.set(node.id, {
           x: left + nodeWidth / 2,
           y: top + nodeHeight / 2,
-          left, top
+          left, top,
+          width: nodeWidth
         });
 
-        const el = this.createNodeElement(node, left, top);
+        const el = this.createNodeElement(node, left, top, nodeWidth);
         wrapper.appendChild(el);
         this.nodeElements.set(node.id, el);
       });
@@ -204,6 +262,9 @@ class DAGLayout {
         const end = this.positions.get(node.id);
         if (!start || !end) return;
 
+        const startWidth = start.width || this.options.minNodeWidth;
+        const endWidth = end.width || this.options.minNodeWidth;
+
         const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         let d;
         if (orientation === 'vertical') {
@@ -211,7 +272,7 @@ class DAGLayout {
           d = `M${start.x},${start.y + nodeHeight/2} C${start.x},${midY} ${end.x},${midY} ${end.x},${end.y - nodeHeight/2}`;
         } else {
           const midX = (start.x + end.x) / 2;
-          d = `M${start.x + nodeWidth/2},${start.y} C${midX},${start.y} ${midX},${end.y} ${end.x - nodeWidth/2},${end.y}`;
+          d = `M${start.x + startWidth/2},${start.y} C${midX},${start.y} ${midX},${end.y} ${end.x - endWidth/2},${end.y}`;
         }
         path.setAttribute('d', d);
         path.setAttribute('fill', 'none');
@@ -223,8 +284,8 @@ class DAGLayout {
     });
   }
 
-  createNodeElement(node, left, top) {
-    const { nodeWidth, nodeHeight } = this.options;
+  createNodeElement(node, left, top, nodeWidth) {
+    const { nodeHeight } = this.options;
     const isDark = document.documentElement.classList.contains('dark');
 
     const el = document.createElement('div');
@@ -237,13 +298,14 @@ class DAGLayout {
       background: ${isDark ? '#27272a' : '#ffffff'};
       border: 2px solid ${isDark ? '#3f3f46' : '#d4d4d8'};
       box-shadow: 0 4px 12px rgba(0,0,0,${isDark ? '0.3' : '0.08'});
+      overflow: hidden;
     `;
     el.dataset.nodeId = node.id;
 
     el.innerHTML = `
-      <p class="text-[10px] font-mono font-medium uppercase tracking-wider ${isDark ? 'text-zinc-500' : 'text-zinc-400'}">${node.id}</p>
-      <p class="text-sm font-semibold mt-1 ${isDark ? 'text-white' : 'text-zinc-900'}">${node.action}</p>
-      <p class="text-xs ${isDark ? 'text-zinc-400' : 'text-zinc-600'}">${node.module}</p>
+      <p class="text-[10px] font-mono font-medium uppercase tracking-wider truncate ${isDark ? 'text-zinc-500' : 'text-zinc-400'}">${node.id}</p>
+      <p class="text-sm font-semibold mt-1 truncate ${isDark ? 'text-white' : 'text-zinc-900'}">${node.action}</p>
+      <p class="text-xs truncate ${isDark ? 'text-zinc-400' : 'text-zinc-600'}">${node.module}</p>
     `;
 
     if (this.options.onNodeClick) {
@@ -266,10 +328,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const dag = new DAGLayout(container, {
     orientation: 'horizontal',
-    nodeWidth: 180,
+    minNodeWidth: 120,
+    maxNodeWidth: 300,
     nodeHeight: 72,
     padding: 32,
-    gap: 200,
+    gap: 80,
     rowGap: 100
   });
 

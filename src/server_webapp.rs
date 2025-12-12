@@ -83,6 +83,7 @@ impl WebappServer {
 
 // Embed templates at compile time so they're included in the binary
 const TEMPLATE_BASE: &str = include_str!("../templates/base.html");
+const TEMPLATE_MACROS: &str = include_str!("../templates/macros.html");
 const TEMPLATE_HOME: &str = include_str!("../templates/home.html");
 const TEMPLATE_ERROR: &str = include_str!("../templates/error.html");
 const TEMPLATE_WORKFLOW: &str = include_str!("../templates/workflow.html");
@@ -92,9 +93,11 @@ const TEMPLATE_WORKFLOW_RUN: &str = include_str!("../templates/workflow_run.html
 fn init_templates() -> Result<Tera> {
     let mut tera = Tera::default();
 
-    // Add templates in order - base first since others extend it
+    // Add templates in order - base and macros first since others use them
     tera.add_raw_template("base.html", TEMPLATE_BASE)
         .context("failed to add base.html template")?;
+    tera.add_raw_template("macros.html", TEMPLATE_MACROS)
+        .context("failed to add macros.html template")?;
     tera.add_raw_template("home.html", TEMPLATE_HOME)
         .context("failed to add home.html template")?;
     tera.add_raw_template("error.html", TEMPLATE_ERROR)
@@ -295,31 +298,46 @@ impl IntoResponse for HttpError {
 #[derive(Serialize)]
 struct HomePageContext {
     title: String,
-    workflows: Vec<HomeWorkflowContext>,
+    workflow_groups: Vec<WorkflowGroup>,
 }
 
 #[derive(Serialize)]
-struct HomeWorkflowContext {
-    id: String,
+struct WorkflowGroup {
     name: String,
-    hash: String,
+    versions: Vec<WorkflowVersionBrief>,
+}
+
+#[derive(Serialize)]
+struct WorkflowVersionBrief {
+    id: String,
     created_at: String,
 }
 
 fn render_home_page(templates: &Tera, workflows: &[WorkflowVersionSummary]) -> String {
-    let workflows: Vec<HomeWorkflowContext> = workflows
-        .iter()
-        .map(|w| HomeWorkflowContext {
-            id: w.id.to_string(),
-            name: w.workflow_name.clone(),
-            hash: truncate_hash(&w.dag_hash),
-            created_at: w.created_at.format("%Y-%m-%d %H:%M:%S UTC").to_string(),
-        })
+    // Group workflows by name
+    let mut groups: std::collections::HashMap<String, Vec<WorkflowVersionBrief>> =
+        std::collections::HashMap::new();
+
+    for w in workflows {
+        groups
+            .entry(w.workflow_name.clone())
+            .or_default()
+            .push(WorkflowVersionBrief {
+                id: w.id.to_string(),
+                created_at: w.created_at.to_rfc3339(),
+            });
+    }
+
+    // Convert to sorted vec (sort by workflow name)
+    let mut workflow_groups: Vec<WorkflowGroup> = groups
+        .into_iter()
+        .map(|(name, versions)| WorkflowGroup { name, versions })
         .collect();
+    workflow_groups.sort_by(|a, b| a.name.cmp(&b.name));
 
     let context = HomePageContext {
         title: "Registered Workflow Versions".to_string(),
-        workflows,
+        workflow_groups,
     };
 
     render_template(templates, "home.html", &context)
@@ -341,6 +359,7 @@ struct WorkflowDetailMetadata {
     id: String,
     name: String,
     hash: String,
+    /// ISO 8601 timestamp (client renders as relative/local/UTC)
     created_at: String,
     concurrency_label: String,
 }
@@ -358,6 +377,7 @@ struct WorkflowNodeContext {
 #[derive(Serialize)]
 struct WorkflowRunSummary {
     id: String,
+    /// ISO 8601 timestamp (client renders as relative/local/UTC)
     created_at: String,
     status: String,
     progress: String,
@@ -425,25 +445,54 @@ fn render_workflow_detail_page(
             .collect(),
     };
 
+    // Create a map of node sequence to action name from the DAG
+    // In the DAG, nodes are ordered by their topological order which corresponds to execution sequence
+    let action_names: Vec<String> = dag
+        .iter()
+        .map(|node| {
+            if node.action.is_empty() {
+                "action".to_string()
+            } else {
+                node.action.clone()
+            }
+        })
+        .collect();
+
     let recent_runs: Vec<WorkflowRunSummary> = instances
         .iter()
-        .map(|i| WorkflowRunSummary {
-            id: i.id.to_string(),
-            created_at: i.created_at.format("%Y-%m-%d %H:%M:%S UTC").to_string(),
-            status: i.status.clone(),
-            progress: format!("seq {}", i.next_action_seq),
-            url: format!("/workflow/{}/run/{}", version.id, i.id),
+        .map(|i| {
+            // Determine progress based on status and sequence
+            let progress = if i.status == "completed" {
+                "Done".to_string()
+            } else if i.status == "failed" {
+                "Failed".to_string()
+            } else if i.status == "pending" || i.next_action_seq == 0 {
+                "Queued".to_string()
+            } else {
+                // Show the current action being executed (seq is 0-based for the node index)
+                // next_action_seq is the NEXT action to dispatch, so current is seq - 1
+                let current_idx = (i.next_action_seq as usize).saturating_sub(1);
+                action_names
+                    .get(current_idx)
+                    .cloned()
+                    .unwrap_or_else(|| format!("Step {}", i.next_action_seq))
+            };
+
+            WorkflowRunSummary {
+                id: i.id.to_string(),
+                created_at: i.created_at.to_rfc3339(),
+                status: i.status.clone(),
+                progress,
+                url: format!("/workflow/{}/run/{}", version.id, i.id),
+            }
         })
         .collect();
 
     let workflow = WorkflowDetailMetadata {
         id: version.id.to_string(),
         name: version.workflow_name.clone(),
-        hash: truncate_hash(&version.dag_hash),
-        created_at: version
-            .created_at
-            .format("%Y-%m-%d %H:%M:%S UTC")
-            .to_string(),
+        hash: version.dag_hash.clone(),
+        created_at: version.created_at.to_rfc3339(),
         concurrency_label: if version.concurrent {
             "Concurrent".to_string()
         } else {
@@ -496,6 +545,7 @@ struct ExecutionGraphNode {
 #[derive(Serialize)]
 struct InstanceContext {
     id: String,
+    /// ISO 8601 timestamp (client renders as relative/local/UTC)
     created_at: String,
     status: String,
     progress: String,
@@ -532,11 +582,8 @@ fn render_workflow_run_page(
     let workflow = WorkflowDetailMetadata {
         id: version.id.to_string(),
         name: version.workflow_name.clone(),
-        hash: truncate_hash(&version.dag_hash),
-        created_at: version
-            .created_at
-            .format("%Y-%m-%d %H:%M:%S UTC")
-            .to_string(),
+        hash: version.dag_hash.clone(),
+        created_at: version.created_at.to_rfc3339(),
         concurrency_label: if version.concurrent {
             "Concurrent".to_string()
         } else {
@@ -544,14 +591,42 @@ fn render_workflow_run_page(
         },
     };
 
+    // Decode the DAG from the workflow version
+    let dag = decode_dag_from_proto(&version.program_proto);
+
+    // Build action names list for progress display
+    let action_names: Vec<String> = dag
+        .iter()
+        .map(|node| {
+            if node.action.is_empty() {
+                "action".to_string()
+            } else {
+                node.action.clone()
+            }
+        })
+        .collect();
+
+    // Determine progress based on status and sequence
+    let progress = if instance.status == "completed" {
+        "Done".to_string()
+    } else if instance.status == "failed" {
+        "Failed".to_string()
+    } else if instance.status == "pending" || instance.next_action_seq == 0 {
+        "Queued".to_string()
+    } else {
+        // Show the current action being executed
+        let current_idx = (instance.next_action_seq as usize).saturating_sub(1);
+        action_names
+            .get(current_idx)
+            .cloned()
+            .unwrap_or_else(|| format!("Step {}", instance.next_action_seq))
+    };
+
     let instance_ctx = InstanceContext {
         id: instance.id.to_string(),
-        created_at: instance
-            .created_at
-            .format("%Y-%m-%d %H:%M:%S UTC")
-            .to_string(),
+        created_at: instance.created_at.to_rfc3339(),
         status: instance.status.clone(),
-        progress: format!("seq {}", instance.next_action_seq),
+        progress,
         input_payload: format_payload(&instance.input_payload),
         result_payload: format_payload(&instance.result_payload),
     };
@@ -561,9 +636,6 @@ fn render_workflow_run_page(
         .iter()
         .filter_map(|a| a.node_id.clone().map(|id| (id, a.status.clone())))
         .collect();
-
-    // Decode the DAG from the workflow version
-    let dag = decode_dag_from_proto(&version.program_proto);
 
     // Build execution graph data with status info
     let graph_data = ExecutionGraphData {
@@ -719,14 +791,6 @@ fn decode_dag_from_proto(proto_bytes: &[u8]) -> Vec<SimpleDagNode> {
         .collect()
 }
 
-fn truncate_hash(hash: &str) -> String {
-    if hash.len() > 12 {
-        format!("{}...", &hash[..12])
-    } else {
-        hash.to_string()
-    }
-}
-
 fn format_dependencies(items: &[String]) -> String {
     if items.is_empty() {
         "None".to_string()
@@ -768,12 +832,6 @@ fn format_binary_payload(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_truncate_hash() {
-        assert_eq!(truncate_hash("abc"), "abc");
-        assert_eq!(truncate_hash("abcdefghijklmnop"), "abcdefghijkl...");
-    }
 
     #[test]
     fn test_format_dependencies() {
@@ -825,8 +883,8 @@ mod tests {
         let templates = test_templates();
         let html = render_home_page(&templates, &[]);
 
-        assert!(html.contains("Registered Workflow Versions"));
-        assert!(html.contains("No workflow versions found"));
+        assert!(html.contains("Registered Workflows"));
+        assert!(html.contains("No workflows found"));
     }
 
     #[test]
@@ -851,9 +909,11 @@ mod tests {
 
         let html = render_home_page(&templates, &workflows);
 
+        // Workflows should be grouped by name
         assert!(html.contains("test_workflow"));
         assert!(html.contains("another_workflow"));
-        assert!(html.contains("abc123def456")); // hash should be truncated if > 12 chars
+        // Should show version count
+        assert!(html.contains("1 version"));
     }
 
     #[test]
@@ -882,7 +942,7 @@ mod tests {
 
         assert!(html.contains("my_workflow"));
         assert!(html.contains("Concurrent"));
-        assert!(html.contains("hash12345678...")); // truncated hash (first 12 chars)
+        assert!(html.contains("hash123456789")); // full hash
     }
 
     #[test]
@@ -915,7 +975,7 @@ mod tests {
         assert!(html.contains("my_workflow"));
         assert!(html.contains("Serial")); // not concurrent
         assert!(html.contains("completed"));
-        assert!(html.contains("seq 5"));
+        assert!(html.contains("Done")); // progress shows "Done" for completed status
     }
 
     #[test]
@@ -1205,7 +1265,7 @@ mod tests {
         let html = String::from_utf8(body.to_vec()).unwrap();
 
         assert!(html.contains("webapp_test_workflow"));
-        assert!(html.contains("test_hash_we...")); // truncated hash
+        assert!(html.contains("test_hash_webapp")); // full hash
         assert!(html.contains("Serial")); // not concurrent
     }
 
