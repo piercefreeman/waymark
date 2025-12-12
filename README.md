@@ -148,10 +148,10 @@ The main rappel configuration is done through env vars, which is what you'll typ
 | `RAPPEL_HTTP_ADDR` | HTTP bind address for `rappel-bridge` | `127.0.0.1:24117` | `0.0.0.0:24117` |
 | `RAPPEL_GRPC_ADDR` | gRPC bind address for `rappel-bridge` | HTTP port + 1 | `0.0.0.0:24118` |
 | `RAPPEL_WORKER_COUNT` | Number of Python worker processes | `num_cpus` | `8` |
-| `RAPPEL_MAX_CONCURRENT` | Max concurrent actions across all workers | `32` | `64` |
+| `RAPPEL_CONCURRENT_PER_WORKER` | Max concurrent actions per worker | `10` | `20` |
 | `RAPPEL_USER_MODULE` | Python module preloaded into each worker | none | `my_app.actions` |
 | `RAPPEL_POLL_INTERVAL_MS` | Poll interval for the dispatch loop (ms) | `100` | `50` |
-| `RAPPEL_BATCH_SIZE` | Max actions fetched per poll | `100` | `200` |
+| `RAPPEL_BATCH_SIZE` | Max actions fetched per poll | `workers * concurrent_per_worker` | `200` |
 | `RAPPEL_WEBAPP_ENABLED` | Enable the web dashboard | `false` | `true` |
 | `RAPPEL_WEBAPP_ADDR` | Web dashboard bind address | `0.0.0.0:24119` | `0.0.0.0:8080` |
 

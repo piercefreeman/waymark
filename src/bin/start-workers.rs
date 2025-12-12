@@ -44,6 +44,7 @@ async fn main() -> Result<()> {
 
     info!(
         worker_count = config.worker_count,
+        concurrent_per_worker = config.concurrent_per_worker,
         batch_size = config.batch_size,
         poll_interval_ms = config.poll_interval_ms,
         user_module = ?config.user_module,
@@ -84,7 +85,7 @@ async fn main() -> Result<()> {
     // Configure and create DAG runner
     let runner_config = RunnerConfig {
         batch_size: config.batch_size as usize,
-        max_slots_per_worker: 10,
+        max_slots_per_worker: config.concurrent_per_worker,
         poll_interval_ms: config.poll_interval_ms,
         timeout_check_interval_ms: 1000,
         timeout_check_batch_size: 100,

@@ -6,9 +6,9 @@
 //! - `RAPPEL_GRPC_ADDR`: gRPC server bind address (default: HTTP port + 1)
 //! - `RAPPEL_BASE_PORT`: Base port for singleton server probing (default: 24117)
 //! - `RAPPEL_WORKER_COUNT`: Number of Python workers (default: num_cpus)
-//! - `RAPPEL_MAX_CONCURRENT`: Max concurrent action dispatches (default: 32)
+//! - `RAPPEL_CONCURRENT_PER_WORKER`: Max concurrent actions per worker (default: 10)
 //! - `RAPPEL_POLL_INTERVAL_MS`: Dispatcher poll interval (default: 100)
-//! - `RAPPEL_BATCH_SIZE`: Actions to dispatch per poll (default: 100)
+//! - `RAPPEL_BATCH_SIZE`: Actions to dispatch per poll (default: worker_count * concurrent_per_worker)
 //! - `RAPPEL_USER_MODULE`: Python module to preload in workers (optional)
 //! - `RAPPEL_WEBAPP_ENABLED`: Enable webapp dashboard (default: false)
 //! - `RAPPEL_WEBAPP_ADDR`: Webapp bind address (default: 0.0.0.0:24119)
@@ -49,8 +49,8 @@ pub struct Config {
     /// Number of Python worker processes
     pub worker_count: usize,
 
-    /// Maximum concurrent action dispatches
-    pub max_concurrent: usize,
+    /// Maximum concurrent actions per worker
+    pub concurrent_per_worker: usize,
 
     /// Dispatcher poll interval in milliseconds
     pub poll_interval_ms: u64,
@@ -139,20 +139,22 @@ impl Config {
             .and_then(|s| s.parse().ok())
             .unwrap_or_else(num_cpus::get);
 
-        let max_concurrent = env::var("RAPPEL_MAX_CONCURRENT")
+        let concurrent_per_worker = env::var("RAPPEL_CONCURRENT_PER_WORKER")
             .ok()
             .and_then(|s| s.parse().ok())
-            .unwrap_or(32);
+            .unwrap_or(10);
 
         let poll_interval_ms = env::var("RAPPEL_POLL_INTERVAL_MS")
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(100);
 
+        // Default batch_size to workers * concurrent_per_worker (max available slots)
+        let default_batch_size = (worker_count * concurrent_per_worker) as i32;
         let batch_size = env::var("RAPPEL_BATCH_SIZE")
             .ok()
             .and_then(|s| s.parse().ok())
-            .unwrap_or(100);
+            .unwrap_or(default_batch_size);
 
         let user_module = env::var("RAPPEL_USER_MODULE").ok();
 
@@ -164,7 +166,7 @@ impl Config {
             grpc_addr,
             base_port,
             worker_count,
-            max_concurrent,
+            concurrent_per_worker,
             poll_interval_ms,
             batch_size,
             user_module,
@@ -175,15 +177,17 @@ impl Config {
     /// Create a test configuration with defaults
     #[cfg(test)]
     pub fn test_config(database_url: &str) -> Self {
+        let worker_count = 2;
+        let concurrent_per_worker = 5;
         Self {
             database_url: database_url.to_string(),
             http_addr: "127.0.0.1:0".parse().unwrap(),
             grpc_addr: "127.0.0.1:0".parse().unwrap(),
             base_port: DEFAULT_BASE_PORT,
-            worker_count: 2,
-            max_concurrent: 10,
+            worker_count,
+            concurrent_per_worker,
             poll_interval_ms: 50,
-            batch_size: 10,
+            batch_size: (worker_count * concurrent_per_worker) as i32,
             user_module: None,
             webapp: WebappConfig::default(),
         }
