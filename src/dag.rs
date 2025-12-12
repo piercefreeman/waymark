@@ -2574,7 +2574,14 @@ impl DAGConverter {
                 ));
             }
         }
-        if else_first.is_none() && cond.else_branch.is_some() {
+        // When there's no else branch (or empty else), we need to create
+        // a "skip" edge from the branch node to the join node with a negated guard.
+        // This ensures that when the if condition is false, execution continues
+        // to the statements after the if block instead of hitting a dead-end.
+        //
+        // Previously this only handled the case where `cond.else_branch.is_some()`
+        // but was missing, which missed the common case of `if` without any `else`.
+        if else_first.is_none() {
             let else_guard = self.build_compound_guard(&prior_guards, None);
             self.dag.add_edge(DAGEdge::state_machine_with_guard(
                 branch_id.clone(),

@@ -2018,4 +2018,181 @@ fn workflow(input: [x], output: [result]):
             "Should have readiness increments or instance completion"
         );
     }
+
+    // ========================================================================
+    // If Without Else Continuation Tests
+    // ========================================================================
+
+    #[test]
+    fn test_if_without_else_continuation_when_condition_true() {
+        // Test: if without else where condition is TRUE
+        // Should execute the if body and then continue to the next action
+        let source = r#"
+fn workflow(input: [x], output: [result]):
+    response = @get_items(value=x)
+    if response:
+        count = @process_items(items=response)
+    final = @finalize(count=0)
+    return final
+"#;
+        let dag = dag_from_source(source);
+        let helper = DAGHelper::new(&dag);
+
+        // Find the get_items action
+        let get_items_action = dag
+            .nodes
+            .values()
+            .find(|n| n.action_name.as_deref() == Some("get_items"))
+            .expect("Should have get_items action");
+
+        let subgraph = analyze_subgraph(&get_items_action.id, &dag, &helper);
+
+        // Log the subgraph structure for debugging
+        println!("Subgraph inline nodes: {:?}", subgraph.inline_nodes);
+        println!(
+            "Subgraph frontier nodes: {:?}",
+            subgraph
+                .frontier_nodes
+                .iter()
+                .map(|f| &f.node_id)
+                .collect::<Vec<_>>()
+        );
+
+        let initial_scope: InlineScope = HashMap::new();
+        let existing_inbox: HashMap<String, HashMap<String, JsonValue>> = HashMap::new();
+        let instance_id = WorkflowInstanceId(uuid::Uuid::new_v4());
+
+        let ctx = InlineContext {
+            initial_scope: &initial_scope,
+            existing_inbox: &existing_inbox,
+            spread_index: None,
+        };
+
+        // Execute with response = ["item1"] (truthy - should take the if branch)
+        let result = execute_inline_subgraph(
+            &get_items_action.id,
+            JsonValue::Array(vec![JsonValue::String("item1".to_string())]),
+            ctx,
+            &subgraph,
+            &dag,
+            instance_id,
+        );
+
+        assert!(
+            result.is_ok(),
+            "Should succeed when condition is true, got: {:?}",
+            result
+        );
+
+        let plan = result.unwrap();
+        // Should have readiness increment for process_items (the if body action)
+        assert!(
+            !plan.readiness_increments.is_empty(),
+            "Should have readiness increments for the if body action"
+        );
+    }
+
+    #[test]
+    fn test_if_without_else_continuation_when_condition_false() {
+        // Test: if without else where condition is FALSE
+        // This is the bug case! When condition is false, should skip the if body
+        // and continue to the finalize action, NOT hit a dead-end.
+        let source = r#"
+fn workflow(input: [x], output: [result]):
+    response = @get_items(value=x)
+    if response:
+        count = @process_items(items=response)
+    final = @finalize(count=0)
+    return final
+"#;
+        let dag = dag_from_source(source);
+        let helper = DAGHelper::new(&dag);
+
+        // Find the get_items action
+        let get_items_action = dag
+            .nodes
+            .values()
+            .find(|n| n.action_name.as_deref() == Some("get_items"))
+            .expect("Should have get_items action");
+
+        let subgraph = analyze_subgraph(&get_items_action.id, &dag, &helper);
+
+        // Log the subgraph structure for debugging
+        println!("=== IF WITHOUT ELSE (condition FALSE) ===");
+        println!("Subgraph inline nodes: {:?}", subgraph.inline_nodes);
+        println!(
+            "Subgraph frontier nodes: {:?}",
+            subgraph
+                .frontier_nodes
+                .iter()
+                .map(|f| (&f.node_id, &f.category))
+                .collect::<Vec<_>>()
+        );
+
+        // Print all edges from the branch node to understand the structure
+        for node in dag.nodes.values() {
+            if node.node_type == "branch" {
+                println!("Branch node: {}", node.id);
+                for edge in &dag.edges {
+                    if edge.source == node.id {
+                        println!(
+                            "  Edge to {} (guard: {:?})",
+                            edge.target,
+                            edge.guard_expr.as_ref().map(|_| "present")
+                        );
+                    }
+                }
+            }
+        }
+
+        let initial_scope: InlineScope = HashMap::new();
+        let existing_inbox: HashMap<String, HashMap<String, JsonValue>> = HashMap::new();
+        let instance_id = WorkflowInstanceId(uuid::Uuid::new_v4());
+
+        let ctx = InlineContext {
+            initial_scope: &initial_scope,
+            existing_inbox: &existing_inbox,
+            spread_index: None,
+        };
+
+        // Execute with response = [] (falsy empty array - should SKIP the if branch)
+        let result = execute_inline_subgraph(
+            &get_items_action.id,
+            JsonValue::Array(vec![]), // Empty array is falsy
+            ctx,
+            &subgraph,
+            &dag,
+            instance_id,
+        );
+
+        // THIS IS THE BUG: currently this fails with WorkflowDeadEnd
+        // because there's no continuation path when the if condition is false.
+        // It should succeed and have a readiness increment for 'finalize' action.
+        assert!(
+            result.is_ok(),
+            "Should succeed when condition is false (continue to finalize), got: {:?}",
+            result
+        );
+
+        let plan = result.unwrap();
+        // Should have readiness increment for finalize action (skipping process_items)
+        assert!(
+            !plan.readiness_increments.is_empty() || plan.instance_completion.is_some(),
+            "Should have readiness increments for finalize action or workflow completion"
+        );
+
+        // Verify that the readiness increment is for 'finalize', not 'process_items'
+        if !plan.readiness_increments.is_empty() {
+            let action_names: Vec<_> = plan
+                .readiness_increments
+                .iter()
+                .filter_map(|r| r.action_name.as_ref())
+                .collect();
+            assert!(
+                action_names.iter().any(|n| *n == "finalize"),
+                "Expected finalize action in readiness increments, got: {:?}",
+                action_names
+            );
+        }
+    }
 }

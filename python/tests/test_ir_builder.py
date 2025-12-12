@@ -644,6 +644,67 @@ class TestConditionalConversion:
         )
 
 
+class TestConditionalWithoutElse:
+    """Test if statements without else clause where execution continues after."""
+
+    def _find_conditional(self, program: ir.Program) -> ir.Conditional | None:
+        """Find a conditional in the program."""
+        for fn in program.functions:
+            for stmt in fn.body.statements:
+                if stmt.HasField("conditional"):
+                    return stmt.conditional
+        return None
+
+    def _find_all_statements(self, program: ir.Program) -> list[ir.Statement]:
+        """Find all statements in the run function."""
+        for fn in program.functions:
+            if fn.name == "run":
+                return list(fn.body.statements)
+        return []
+
+    def test_if_without_else_has_continuation(self) -> None:
+        """Test: if without else should have statements after it.
+
+        This is the bug case from production: when an if statement has no else,
+        and the if condition is false, the workflow should continue to the next
+        statement, not get stuck in a dead-end.
+        """
+        from tests.fixtures_control_flow.if_no_else_continue import IfNoElseContinueWorkflow
+
+        program = IfNoElseContinueWorkflow.workflow_ir()
+
+        conditional = self._find_conditional(program)
+        assert conditional is not None, "Expected conditional in IR"
+
+        # Should have if_branch but NO else_branch
+        assert conditional.HasField("if_branch"), "Expected if_branch"
+        assert not conditional.HasField("else_branch") or not conditional.else_branch.HasField(
+            "body"
+        ), "Should not have else_branch (or it should be empty)"
+
+        # The run function should have statements AFTER the conditional
+        # (the finalize action call)
+        statements = self._find_all_statements(program)
+        assert len(statements) > 0, "Should have statements in run function"
+
+        # Find the conditional's position
+        conditional_idx = None
+        for i, stmt in enumerate(statements):
+            if stmt.HasField("conditional"):
+                conditional_idx = i
+                break
+
+        assert conditional_idx is not None, "Should find conditional in statements"
+
+        # There should be at least one statement after the conditional
+        # (the finalize action and return)
+        statements_after = statements[conditional_idx + 1 :]
+        assert len(statements_after) >= 1, (
+            f"Expected statements after conditional, but found none. "
+            f"Total statements: {len(statements)}, conditional at index: {conditional_idx}"
+        )
+
+
 class TestTryExceptConversion:
     """Test try/except conversion to IR."""
 
