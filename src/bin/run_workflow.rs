@@ -130,6 +130,30 @@ impl proto::workflow_service_server::WorkflowService for WorkflowService {
         // Not needed for local execution
         Err(tonic::Status::unimplemented("not implemented"))
     }
+
+    async fn register_schedule(
+        &self,
+        _request: tonic::Request<proto::RegisterScheduleRequest>,
+    ) -> Result<tonic::Response<proto::RegisterScheduleResponse>, tonic::Status> {
+        // Not needed for local execution
+        Err(tonic::Status::unimplemented("not implemented"))
+    }
+
+    async fn update_schedule_status(
+        &self,
+        _request: tonic::Request<proto::UpdateScheduleStatusRequest>,
+    ) -> Result<tonic::Response<proto::UpdateScheduleStatusResponse>, tonic::Status> {
+        // Not needed for local execution
+        Err(tonic::Status::unimplemented("not implemented"))
+    }
+
+    async fn delete_schedule(
+        &self,
+        _request: tonic::Request<proto::DeleteScheduleRequest>,
+    ) -> Result<tonic::Response<proto::DeleteScheduleResponse>, tonic::Status> {
+        // Not needed for local execution
+        Err(tonic::Status::unimplemented("not implemented"))
+    }
 }
 
 async fn start_grpc_server(
@@ -688,6 +712,7 @@ async fn main() -> Result<()> {
         poll_interval_ms: 10,
         timeout_check_interval_ms: 1000,
         timeout_check_batch_size: 100,
+        ..Default::default()
     };
 
     let runner = Arc::new(rappel::DAGRunner::new(

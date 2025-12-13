@@ -31,6 +31,7 @@ pub mod lexer;
 pub mod messages;
 pub mod parser;
 pub mod runner;
+pub mod schedule;
 pub mod server_client;
 pub mod server_webapp;
 pub mod server_worker;
@@ -44,8 +45,9 @@ pub use config::{
 // Database
 pub use db::{
     ActionId, ActionStatus, BackoffKind, CompletionRecord, Database, DbError, DbResult,
-    InstanceStatus, NewAction, QueuedAction, RetryKind, WorkflowInstance, WorkflowInstanceId,
-    WorkflowVersion, WorkflowVersionId, WorkflowVersionSummary,
+    InstanceStatus, NewAction, QueuedAction, RetryKind, ScheduleId, ScheduleStatus, ScheduleType,
+    WorkflowInstance, WorkflowInstanceId, WorkflowSchedule, WorkflowVersion, WorkflowVersionId,
+    WorkflowVersionSummary,
 };
 
 // Worker infrastructure
@@ -87,3 +89,6 @@ pub use completion::{
 
 // Webapp server
 pub use server_webapp::WebappServer;
+
+// Schedule utilities
+pub use schedule::{next_cron_run, next_interval_run, validate_cron};

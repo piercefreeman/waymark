@@ -304,6 +304,100 @@ pub struct LoopState {
 }
 
 // ============================================================================
+// Workflow Schedules
+// ============================================================================
+
+/// Unique identifier for a workflow schedule
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ScheduleId(pub Uuid);
+
+impl ScheduleId {
+    pub fn new() -> Self {
+        Self(Uuid::new_v4())
+    }
+}
+
+impl Default for ScheduleId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl std::fmt::Display for ScheduleId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+/// Type of schedule
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScheduleType {
+    Cron,
+    Interval,
+}
+
+impl ScheduleType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Cron => "cron",
+            Self::Interval => "interval",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "cron" => Some(Self::Cron),
+            "interval" => Some(Self::Interval),
+            _ => None,
+        }
+    }
+}
+
+/// Status of a workflow schedule
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScheduleStatus {
+    Active,
+    Paused,
+    Deleted,
+}
+
+impl ScheduleStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::Paused => "paused",
+            Self::Deleted => "deleted",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "active" => Some(Self::Active),
+            "paused" => Some(Self::Paused),
+            "deleted" => Some(Self::Deleted),
+            _ => None,
+        }
+    }
+}
+
+/// A workflow schedule (recurring execution)
+#[derive(Debug, Clone, FromRow)]
+pub struct WorkflowSchedule {
+    pub id: Uuid,
+    pub workflow_name: String,
+    pub schedule_type: String,
+    pub cron_expression: Option<String>,
+    pub interval_seconds: Option<i64>,
+    pub input_payload: Option<Vec<u8>>,
+    pub status: String,
+    pub next_run_at: Option<DateTime<Utc>>,
+    pub last_run_at: Option<DateTime<Utc>>,
+    pub last_instance_id: Option<Uuid>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+// ============================================================================
 // Errors
 // ============================================================================
 
@@ -444,5 +538,44 @@ mod tests {
         let id = WorkflowInstanceId::new();
         let s = id.to_string();
         assert!(!s.is_empty());
+    }
+
+    #[test]
+    fn test_schedule_type_roundtrip() {
+        assert_eq!(
+            ScheduleType::parse(ScheduleType::Cron.as_str()),
+            Some(ScheduleType::Cron)
+        );
+        assert_eq!(
+            ScheduleType::parse(ScheduleType::Interval.as_str()),
+            Some(ScheduleType::Interval)
+        );
+        assert_eq!(ScheduleType::parse("invalid"), None);
+    }
+
+    #[test]
+    fn test_schedule_status_roundtrip() {
+        assert_eq!(
+            ScheduleStatus::parse(ScheduleStatus::Active.as_str()),
+            Some(ScheduleStatus::Active)
+        );
+        assert_eq!(
+            ScheduleStatus::parse(ScheduleStatus::Paused.as_str()),
+            Some(ScheduleStatus::Paused)
+        );
+        assert_eq!(
+            ScheduleStatus::parse(ScheduleStatus::Deleted.as_str()),
+            Some(ScheduleStatus::Deleted)
+        );
+        assert_eq!(ScheduleStatus::parse("invalid"), None);
+    }
+
+    #[test]
+    fn test_schedule_id_display() {
+        let id = ScheduleId::new();
+        let s = id.to_string();
+        assert!(!s.is_empty());
+        // Verify it's a valid UUID format
+        assert!(uuid::Uuid::parse_str(&s).is_ok());
     }
 }

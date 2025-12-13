@@ -89,6 +89,7 @@ async fn main() -> Result<()> {
         poll_interval_ms: config.poll_interval_ms,
         timeout_check_interval_ms: 1000,
         timeout_check_batch_size: 100,
+        ..Default::default()
     };
 
     let runner = Arc::new(DAGRunner::new(
