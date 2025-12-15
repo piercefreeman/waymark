@@ -1,13 +1,17 @@
 """FastAPI surface for the rappel example app."""
 
 import os
+from datetime import timedelta
 from pathlib import Path
+from typing import Literal, Optional
 
 import asyncpg
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from rappel import delete_schedule, pause_schedule, resume_schedule, schedule_workflow
 
 from example_app.workflows import (
     BranchRequest,
@@ -113,6 +117,158 @@ async def run_sleep_workflow(payload: SleepRequest) -> SleepResult:
     """Run the durable sleep workflow demonstrating asyncio.sleep."""
     workflow = DurableSleepWorkflow()
     return await workflow.run(seconds=payload.seconds)
+
+
+# =============================================================================
+# Scheduled Workflows
+# =============================================================================
+
+# Mapping of workflow names to classes for dynamic lookup
+WORKFLOW_REGISTRY = {
+    "ParallelMathWorkflow": ParallelMathWorkflow,
+    "SequentialChainWorkflow": SequentialChainWorkflow,
+    "ConditionalBranchWorkflow": ConditionalBranchWorkflow,
+    "LoopProcessingWorkflow": LoopProcessingWorkflow,
+    "ErrorHandlingWorkflow": ErrorHandlingWorkflow,
+    "DurableSleepWorkflow": DurableSleepWorkflow,
+}
+
+
+class ScheduleRequest(BaseModel):
+    workflow_name: str = Field(description="Name of the workflow to schedule")
+    schedule_type: Literal["cron", "interval"] = Field(description="Type of schedule")
+    cron_expression: Optional[str] = Field(
+        default=None, description="Cron expression (e.g., '*/5 * * * *' for every 5 minutes)"
+    )
+    interval_seconds: Optional[int] = Field(
+        default=None, ge=10, description="Interval in seconds (minimum 10)"
+    )
+
+
+class ScheduleResponse(BaseModel):
+    success: bool
+    schedule_id: Optional[str] = None
+    message: str
+
+
+class ScheduleActionRequest(BaseModel):
+    workflow_name: str = Field(description="Name of the workflow")
+
+
+class ScheduleActionResponse(BaseModel):
+    success: bool
+    message: str
+
+
+@app.post("/api/schedule", response_model=ScheduleResponse)
+async def register_schedule(payload: ScheduleRequest) -> ScheduleResponse:
+    """Register a workflow to run on a schedule."""
+    workflow_cls = WORKFLOW_REGISTRY.get(payload.workflow_name)
+    if not workflow_cls:
+        return ScheduleResponse(
+            success=False,
+            message=f"Unknown workflow: {payload.workflow_name}",
+        )
+
+    try:
+        if payload.schedule_type == "cron":
+            if not payload.cron_expression:
+                return ScheduleResponse(
+                    success=False,
+                    message="Cron expression required for cron schedule type",
+                )
+            schedule = payload.cron_expression
+        else:
+            if not payload.interval_seconds:
+                return ScheduleResponse(
+                    success=False,
+                    message="Interval seconds required for interval schedule type",
+                )
+            schedule = timedelta(seconds=payload.interval_seconds)
+
+        schedule_id = await schedule_workflow(workflow_cls, schedule=schedule)
+        return ScheduleResponse(
+            success=True,
+            schedule_id=schedule_id,
+            message=f"Schedule registered for {payload.workflow_name}",
+        )
+    except Exception as e:
+        return ScheduleResponse(success=False, message=str(e))
+
+
+@app.post("/api/schedule/pause", response_model=ScheduleActionResponse)
+async def pause_workflow_schedule(payload: ScheduleActionRequest) -> ScheduleActionResponse:
+    """Pause a workflow's schedule."""
+    workflow_cls = WORKFLOW_REGISTRY.get(payload.workflow_name)
+    if not workflow_cls:
+        return ScheduleActionResponse(
+            success=False,
+            message=f"Unknown workflow: {payload.workflow_name}",
+        )
+
+    try:
+        result = await pause_schedule(workflow_cls)
+        if result:
+            return ScheduleActionResponse(
+                success=True,
+                message=f"Schedule paused for {payload.workflow_name}",
+            )
+        return ScheduleActionResponse(
+            success=False,
+            message=f"No active schedule found for {payload.workflow_name}",
+        )
+    except Exception as e:
+        return ScheduleActionResponse(success=False, message=str(e))
+
+
+@app.post("/api/schedule/resume", response_model=ScheduleActionResponse)
+async def resume_workflow_schedule(payload: ScheduleActionRequest) -> ScheduleActionResponse:
+    """Resume a paused workflow schedule."""
+    workflow_cls = WORKFLOW_REGISTRY.get(payload.workflow_name)
+    if not workflow_cls:
+        return ScheduleActionResponse(
+            success=False,
+            message=f"Unknown workflow: {payload.workflow_name}",
+        )
+
+    try:
+        result = await resume_schedule(workflow_cls)
+        if result:
+            return ScheduleActionResponse(
+                success=True,
+                message=f"Schedule resumed for {payload.workflow_name}",
+            )
+        return ScheduleActionResponse(
+            success=False,
+            message=f"No paused schedule found for {payload.workflow_name}",
+        )
+    except Exception as e:
+        return ScheduleActionResponse(success=False, message=str(e))
+
+
+@app.post("/api/schedule/delete", response_model=ScheduleActionResponse)
+async def delete_workflow_schedule(payload: ScheduleActionRequest) -> ScheduleActionResponse:
+    """Delete a workflow's schedule."""
+    workflow_cls = WORKFLOW_REGISTRY.get(payload.workflow_name)
+    if not workflow_cls:
+        return ScheduleActionResponse(
+            success=False,
+            message=f"Unknown workflow: {payload.workflow_name}",
+        )
+
+    try:
+        result = await delete_schedule(workflow_cls)
+        if result:
+            return ScheduleActionResponse(
+                success=True,
+                message=f"Schedule deleted for {payload.workflow_name}",
+            )
+        return ScheduleActionResponse(
+            success=False,
+            message=f"No schedule found for {payload.workflow_name}",
+        )
+    except Exception as e:
+        return ScheduleActionResponse(success=False, message=str(e))
 
 
 # =============================================================================

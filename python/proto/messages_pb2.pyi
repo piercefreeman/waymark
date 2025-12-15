@@ -908,6 +908,7 @@ class RegisterScheduleRequest(google.protobuf.message.Message):
     WORKFLOW_NAME_FIELD_NUMBER: builtins.int
     SCHEDULE_FIELD_NUMBER: builtins.int
     INPUTS_FIELD_NUMBER: builtins.int
+    REGISTRATION_FIELD_NUMBER: builtins.int
     workflow_name: builtins.str
     @property
     def schedule(self) -> Global___ScheduleDefinition: ...
@@ -915,20 +916,39 @@ class RegisterScheduleRequest(google.protobuf.message.Message):
     def inputs(self) -> Global___WorkflowArguments:
         """Optional: inputs to pass to each scheduled run"""
 
+    @property
+    def registration(self) -> Global___WorkflowRegistration:
+        """Optional: workflow registration to register the DAG before scheduling.
+        If provided, the workflow version will be registered (or updated) before
+        the schedule is created. This ensures the workflow can execute when the
+        schedule fires.
+        """
+
     def __init__(
         self,
         *,
         workflow_name: builtins.str = ...,
         schedule: Global___ScheduleDefinition | None = ...,
         inputs: Global___WorkflowArguments | None = ...,
+        registration: Global___WorkflowRegistration | None = ...,
     ) -> None: ...
     def HasField(
-        self, field_name: typing.Literal["inputs", b"inputs", "schedule", b"schedule"]
+        self,
+        field_name: typing.Literal[
+            "inputs", b"inputs", "registration", b"registration", "schedule", b"schedule"
+        ],
     ) -> builtins.bool: ...
     def ClearField(
         self,
         field_name: typing.Literal[
-            "inputs", b"inputs", "schedule", b"schedule", "workflow_name", b"workflow_name"
+            "inputs",
+            b"inputs",
+            "registration",
+            b"registration",
+            "schedule",
+            b"schedule",
+            "workflow_name",
+            b"workflow_name",
         ],
     ) -> None: ...
 

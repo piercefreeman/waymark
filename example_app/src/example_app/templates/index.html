@@ -58,6 +58,13 @@
         width: 1.2rem;
         height: 1.2rem;
       }
+      select {
+        padding: 0.5rem;
+        border: 1px solid #cbd5e1;
+        border-radius: 0.375rem;
+        font-size: 0.9rem;
+        background: white;
+      }
       button {
         padding: 0.5rem 1rem;
         border-radius: 0.4rem;
@@ -127,7 +134,7 @@
     <p>
       Explore different workflow patterns supported by Rappel. Each section demonstrates
       a specific pattern - parallel execution, sequential chaining, conditionals, loops,
-      error handling, and durable sleep.
+      error handling, durable sleep, and scheduled execution.
     </p>
 
     <!-- Parallel Execution -->
@@ -223,6 +230,53 @@
       </form>
       <div class="status" id="sleep-status"></div>
       <div class="result" id="sleep-result" hidden></div>
+    </section>
+
+    <!-- Scheduled Workflows -->
+    <section class="workflow-section">
+      <h3>7. Scheduled Workflows</h3>
+      <p>
+        Register a workflow to run automatically on a cron schedule or at fixed intervals.
+        Schedules persist across server restarts.
+      </p>
+      <form id="schedule-form">
+        <label for="schedule-workflow">Workflow:</label>
+        <select id="schedule-workflow" name="workflow_name">
+          <option value="ParallelMathWorkflow">ParallelMathWorkflow</option>
+          <option value="SequentialChainWorkflow">SequentialChainWorkflow</option>
+          <option value="ConditionalBranchWorkflow">ConditionalBranchWorkflow</option>
+          <option value="LoopProcessingWorkflow">LoopProcessingWorkflow</option>
+          <option value="ErrorHandlingWorkflow">ErrorHandlingWorkflow</option>
+          <option value="DurableSleepWorkflow">DurableSleepWorkflow</option>
+        </select>
+        <label for="schedule-type">Type:</label>
+        <select id="schedule-type" name="schedule_type">
+          <option value="interval">Interval</option>
+          <option value="cron">Cron</option>
+        </select>
+        <input type="number" id="schedule-interval" name="interval_seconds" min="10" value="60" placeholder="Seconds" title="Interval in seconds (min 10)" />
+        <input type="text" id="schedule-cron" name="cron_expression" value="*/5 * * * *" placeholder="*/5 * * * *" title="Cron expression" hidden />
+        <button type="submit">Register Schedule</button>
+      </form>
+      <div class="status" id="schedule-status"></div>
+      <div class="result" id="schedule-result" hidden></div>
+
+      <h4 style="margin-top: 1.5rem; font-size: 0.95rem; color: #475569;">Manage Existing Schedule</h4>
+      <form id="schedule-action-form" style="margin-top: 0.5rem;">
+        <label for="action-workflow">Workflow:</label>
+        <select id="action-workflow" name="workflow_name">
+          <option value="ParallelMathWorkflow">ParallelMathWorkflow</option>
+          <option value="SequentialChainWorkflow">SequentialChainWorkflow</option>
+          <option value="ConditionalBranchWorkflow">ConditionalBranchWorkflow</option>
+          <option value="LoopProcessingWorkflow">LoopProcessingWorkflow</option>
+          <option value="ErrorHandlingWorkflow">ErrorHandlingWorkflow</option>
+          <option value="DurableSleepWorkflow">DurableSleepWorkflow</option>
+        </select>
+        <button type="button" id="pause-btn">Pause</button>
+        <button type="button" id="resume-btn">Resume</button>
+        <button type="button" id="delete-btn" class="danger">Delete</button>
+      </form>
+      <div class="status" id="schedule-action-status"></div>
     </section>
 
     <!-- Admin Section -->
@@ -342,6 +396,82 @@
         },
         (data) => JSON.stringify(data, null, 2)
       );
+
+      // 7. Schedule - toggle between cron and interval inputs
+      const scheduleTypeSelect = document.getElementById("schedule-type");
+      const intervalInput = document.getElementById("schedule-interval");
+      const cronInput = document.getElementById("schedule-cron");
+
+      scheduleTypeSelect.addEventListener("change", () => {
+        if (scheduleTypeSelect.value === "cron") {
+          intervalInput.hidden = true;
+          cronInput.hidden = false;
+        } else {
+          intervalInput.hidden = false;
+          cronInput.hidden = true;
+        }
+      });
+
+      // 7. Schedule - register schedule
+      runWorkflow(
+        "schedule-form",
+        "/api/schedule",
+        (form) => {
+          const workflow_name = form.querySelector("#schedule-workflow").value;
+          const schedule_type = form.querySelector("#schedule-type").value;
+          if (schedule_type === "cron") {
+            const cron_expression = form.querySelector("#schedule-cron").value.trim();
+            return cron_expression
+              ? { workflow_name, schedule_type, cron_expression }
+              : null;
+          } else {
+            const interval_seconds = Number(form.querySelector("#schedule-interval").value);
+            return interval_seconds >= 10
+              ? { workflow_name, schedule_type, interval_seconds }
+              : null;
+          }
+        },
+        (data) => JSON.stringify(data, null, 2)
+      );
+
+      // 7. Schedule actions - pause, resume, delete
+      async function scheduleAction(endpoint, action) {
+        const workflow_name = document.getElementById("action-workflow").value;
+        const status = document.getElementById("schedule-action-status");
+        const buttons = document.querySelectorAll("#schedule-action-form button");
+
+        buttons.forEach((btn) => (btn.disabled = true));
+        status.textContent = `${action}...`;
+        status.className = "status";
+
+        try {
+          const response = await fetch(endpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ workflow_name }),
+          });
+          const data = await response.json();
+          status.textContent = data.message;
+          status.className = data.success ? "status success" : "status error";
+        } catch (error) {
+          status.textContent = `Error: ${error.message}`;
+          status.className = "status error";
+        } finally {
+          buttons.forEach((btn) => (btn.disabled = false));
+        }
+      }
+
+      document.getElementById("pause-btn").addEventListener("click", () => {
+        scheduleAction("/api/schedule/pause", "Pausing");
+      });
+      document.getElementById("resume-btn").addEventListener("click", () => {
+        scheduleAction("/api/schedule/resume", "Resuming");
+      });
+      document.getElementById("delete-btn").addEventListener("click", () => {
+        if (confirm("Delete this schedule?")) {
+          scheduleAction("/api/schedule/delete", "Deleting");
+        }
+      });
 
       // Reset database button
       document.getElementById("reset-btn").addEventListener("click", async () => {

@@ -474,6 +474,28 @@ impl proto::workflow_service_server::WorkflowService for WorkflowGrpcService {
         request: tonic::Request<proto::RegisterScheduleRequest>,
     ) -> Result<tonic::Response<proto::RegisterScheduleResponse>, tonic::Status> {
         let inner = request.into_inner();
+
+        // If a workflow registration is provided, register the workflow version first.
+        // This ensures the workflow DAG exists when the schedule fires.
+        if let Some(ref registration) = inner.registration {
+            log_workflow_ir(registration);
+            self.database
+                .upsert_workflow_version(
+                    &registration.workflow_name,
+                    &registration.ir_hash,
+                    &registration.ir,
+                    registration.concurrent,
+                )
+                .await
+                .map_err(|e| tonic::Status::internal(format!("database error: {e}")))?;
+
+            info!(
+                workflow_name = %registration.workflow_name,
+                ir_hash = %registration.ir_hash,
+                "registered workflow version for scheduled execution"
+            );
+        }
+
         let schedule = inner
             .schedule
             .ok_or_else(|| tonic::Status::invalid_argument("schedule required"))?;

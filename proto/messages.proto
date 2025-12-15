@@ -193,6 +193,11 @@ message RegisterScheduleRequest {
   ScheduleDefinition schedule = 2;
   // Optional: inputs to pass to each scheduled run
   WorkflowArguments inputs = 3;
+  // Optional: workflow registration to register the DAG before scheduling.
+  // If provided, the workflow version will be registered (or updated) before
+  // the schedule is created. This ensures the workflow can execute when the
+  // schedule fires.
+  WorkflowRegistration registration = 4;
 }
 
 message RegisterScheduleResponse {

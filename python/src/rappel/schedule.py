@@ -26,9 +26,9 @@ async def schedule_workflow(
     """
     Register a schedule for a workflow.
 
-    The schedule is tied to the workflow_name, not a specific version.
-    When the schedule fires, the latest registered version of the workflow
-    will be executed.
+    This function registers both the workflow DAG and the schedule in a single
+    call. When the schedule fires, the registered workflow version will be
+    executed.
 
     Args:
         workflow_cls: The Workflow class to schedule.
@@ -73,10 +73,16 @@ async def schedule_workflow(
     else:
         raise TypeError(f"schedule must be str or timedelta, got {type(schedule)}")
 
-    # Build request
+    # Build the workflow registration payload to ensure the DAG is registered
+    # This is required for the schedule to execute - the scheduler needs a
+    # registered workflow version to create instances from.
+    registration = workflow_cls._build_registration_payload()
+
+    # Build request with both registration and schedule
     request = pb2.RegisterScheduleRequest(
         workflow_name=workflow_name,
         schedule=schedule_def,
+        registration=registration,
     )
 
     # Add inputs if provided

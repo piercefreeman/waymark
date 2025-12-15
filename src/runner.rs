@@ -1435,9 +1435,12 @@ impl DAGRunner {
             {
                 Some(id) => id,
                 None => {
-                    warn!(
+                    error!(
                         workflow_name = %schedule.workflow_name,
-                        "Scheduled workflow has no registered version, skipping"
+                        schedule_id = %schedule.id,
+                        "SCHEDULE SKIPPED: No registered workflow version found. \
+                         The workflow DAG must be registered before the schedule can execute. \
+                         Re-register the schedule using schedule_workflow() to fix this."
                     );
                     // Still update next_run_at to avoid infinite retries
                     let next_run = self.compute_next_run(&schedule)?;

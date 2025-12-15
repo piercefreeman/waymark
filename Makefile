@@ -8,6 +8,8 @@ build-proto:
 	@mkdir -p $(PY_PROTO_OUT)
 	cd python && uv run python -m grpc_tools.protoc \
 		--proto_path=../proto \
+		--plugin=protoc-gen-mypy="$$(pwd)/.venv/bin/protoc-gen-mypy" \
+		--plugin=protoc-gen-mypy_grpc="$$(pwd)/.venv/bin/protoc-gen-mypy_grpc" \
 		--python_out=../$(PY_PROTO_OUT) \
 		--grpc_python_out=../$(PY_PROTO_OUT) \
 		--mypy_out=../$(PY_PROTO_OUT) \
