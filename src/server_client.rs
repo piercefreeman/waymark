@@ -609,6 +609,57 @@ impl proto::workflow_service_server::WorkflowService for WorkflowGrpcService {
             success,
         }))
     }
+
+    async fn list_schedules(
+        &self,
+        request: tonic::Request<proto::ListSchedulesRequest>,
+    ) -> Result<tonic::Response<proto::ListSchedulesResponse>, tonic::Status> {
+        let inner = request.into_inner();
+
+        let schedules = self
+            .database
+            .list_schedules(inner.status_filter.as_deref())
+            .await
+            .map_err(|e| tonic::Status::internal(format!("database error: {e}")))?;
+
+        let schedule_infos: Vec<proto::ScheduleInfo> = schedules
+            .into_iter()
+            .map(|s| {
+                let schedule_type = match s.schedule_type.as_str() {
+                    "cron" => proto::ScheduleType::Cron,
+                    "interval" => proto::ScheduleType::Interval,
+                    _ => proto::ScheduleType::Unspecified,
+                };
+                let status = match s.status.as_str() {
+                    "active" => proto::ScheduleStatus::Active,
+                    "paused" => proto::ScheduleStatus::Paused,
+                    _ => proto::ScheduleStatus::Unspecified,
+                };
+                proto::ScheduleInfo {
+                    id: s.id.to_string(),
+                    workflow_name: s.workflow_name,
+                    schedule_type: schedule_type.into(),
+                    cron_expression: s.cron_expression.unwrap_or_default(),
+                    interval_seconds: s.interval_seconds.unwrap_or(0),
+                    status: status.into(),
+                    next_run_at: s.next_run_at.map(|t| t.to_rfc3339()).unwrap_or_default(),
+                    last_run_at: s.last_run_at.map(|t| t.to_rfc3339()).unwrap_or_default(),
+                    last_instance_id: s
+                        .last_instance_id
+                        .map(|id| id.to_string())
+                        .unwrap_or_default(),
+                    created_at: s.created_at.to_rfc3339(),
+                    updated_at: s.updated_at.to_rfc3339(),
+                }
+            })
+            .collect();
+
+        info!(count = schedule_infos.len(), "listed schedules");
+
+        Ok(tonic::Response::new(proto::ListSchedulesResponse {
+            schedules: schedule_infos,
+        }))
+    }
 }
 
 #[cfg(test)]

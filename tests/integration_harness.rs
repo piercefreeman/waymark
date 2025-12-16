@@ -169,10 +169,63 @@ impl proto::workflow_service_server::WorkflowService for TestWorkflowService {
         // Not needed for tests
         Err(tonic::Status::unimplemented("not implemented"))
     }
+
+    async fn list_schedules(
+        &self,
+        request: tonic::Request<proto::ListSchedulesRequest>,
+    ) -> Result<tonic::Response<proto::ListSchedulesResponse>, tonic::Status> {
+        let inner = request.into_inner();
+
+        let schedules = self
+            .database
+            .list_schedules(inner.status_filter.as_deref())
+            .await
+            .map_err(|e| tonic::Status::internal(format!("database error: {e}")))?;
+
+        fn format_opt_datetime(dt: Option<chrono::DateTime<chrono::Utc>>) -> String {
+            dt.map(|d| d.to_rfc3339()).unwrap_or_default()
+        }
+
+        let schedule_infos: Vec<proto::ScheduleInfo> = schedules
+            .into_iter()
+            .map(|s| {
+                let schedule_type = match s.schedule_type.as_str() {
+                    "cron" => proto::ScheduleType::Cron,
+                    "interval" => proto::ScheduleType::Interval,
+                    _ => proto::ScheduleType::Unspecified,
+                };
+                let status = match s.status.as_str() {
+                    "active" => proto::ScheduleStatus::Active,
+                    "paused" => proto::ScheduleStatus::Paused,
+                    _ => proto::ScheduleStatus::Unspecified,
+                };
+                proto::ScheduleInfo {
+                    id: s.id.to_string(),
+                    workflow_name: s.workflow_name,
+                    schedule_type: schedule_type.into(),
+                    cron_expression: s.cron_expression.unwrap_or_default(),
+                    interval_seconds: s.interval_seconds.unwrap_or(0),
+                    status: status.into(),
+                    next_run_at: format_opt_datetime(s.next_run_at),
+                    last_run_at: format_opt_datetime(s.last_run_at),
+                    last_instance_id: s
+                        .last_instance_id
+                        .map(|id| id.to_string())
+                        .unwrap_or_default(),
+                    created_at: format_opt_datetime(Some(s.created_at)),
+                    updated_at: format_opt_datetime(Some(s.updated_at)),
+                }
+            })
+            .collect();
+
+        Ok(tonic::Response::new(proto::ListSchedulesResponse {
+            schedules: schedule_infos,
+        }))
+    }
 }
 
 /// Start a gRPC server for workflow registration.
-async fn start_workflow_grpc_server(
+pub async fn start_workflow_grpc_server(
     database: Database,
 ) -> Result<(SocketAddr, oneshot::Sender<()>, JoinHandle<()>)> {
     use proto::workflow_service_server::WorkflowServiceServer;

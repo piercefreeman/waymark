@@ -5,8 +5,9 @@ This module provides functions for registering workflows to run on a cron
 schedule or at fixed intervals.
 """
 
-from datetime import timedelta
-from typing import Any, Dict, Optional, Type, Union
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Literal, Optional, Type, Union
 
 from grpc import aio  # type: ignore[attr-defined]
 
@@ -15,6 +16,26 @@ from proto import messages_pb2 as pb2
 from .bridge import _workflow_stub, ensure_singleton
 from .serialization import build_arguments_from_kwargs
 from .workflow import Workflow
+
+ScheduleType = Literal["cron", "interval"]
+ScheduleStatus = Literal["active", "paused"]
+
+
+@dataclass
+class ScheduleInfo:
+    """Information about a registered schedule."""
+
+    id: str
+    workflow_name: str
+    schedule_type: ScheduleType
+    cron_expression: Optional[str]
+    interval_seconds: Optional[int]
+    status: ScheduleStatus
+    next_run_at: Optional[datetime]
+    last_run_at: Optional[datetime]
+    last_instance_id: Optional[str]
+    created_at: datetime
+    updated_at: datetime
 
 
 async def schedule_workflow(
@@ -179,3 +200,95 @@ async def delete_schedule(workflow_cls: Type[Workflow]) -> bool:
         raise RuntimeError(f"Failed to delete schedule: {exc}") from exc
 
     return response.success
+
+
+def _parse_iso_datetime(value: str) -> Optional[datetime]:
+    """Parse an ISO 8601 datetime string, returning None if empty."""
+    if not value:
+        return None
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def _proto_schedule_type_to_str(
+    schedule_type: "pb2.ScheduleType.V",
+) -> ScheduleType:
+    """Convert protobuf ScheduleType to string literal."""
+    if schedule_type == pb2.SCHEDULE_TYPE_CRON:
+        return "cron"
+    elif schedule_type == pb2.SCHEDULE_TYPE_INTERVAL:
+        return "interval"
+    else:
+        return "cron"  # Default fallback
+
+
+def _proto_schedule_status_to_str(
+    status: "pb2.ScheduleStatus.V",
+) -> ScheduleStatus:
+    """Convert protobuf ScheduleStatus to string literal."""
+    if status == pb2.SCHEDULE_STATUS_ACTIVE:
+        return "active"
+    elif status == pb2.SCHEDULE_STATUS_PAUSED:
+        return "paused"
+    else:
+        return "active"  # Default fallback
+
+
+async def list_schedules(
+    status_filter: Optional[ScheduleStatus] = None,
+) -> List[ScheduleInfo]:
+    """
+    List all registered workflow schedules.
+
+    Args:
+        status_filter: Optional filter by status ("active" or "paused").
+                       If None, returns all non-deleted schedules.
+
+    Returns:
+        A list of ScheduleInfo objects containing schedule details.
+
+    Examples:
+        # List all schedules
+        schedules = await list_schedules()
+        for s in schedules:
+            print(f"{s.workflow_name}: {s.status}")
+
+        # List only active schedules
+        active = await list_schedules(status_filter="active")
+
+        # List only paused schedules
+        paused = await list_schedules(status_filter="paused")
+
+    Raises:
+        RuntimeError: If the gRPC call fails.
+    """
+    request = pb2.ListSchedulesRequest()
+    if status_filter is not None:
+        request.status_filter = status_filter
+
+    async with ensure_singleton():
+        stub = await _workflow_stub()
+
+    try:
+        response = await stub.ListSchedules(request, timeout=30.0)
+    except aio.AioRpcError as exc:
+        raise RuntimeError(f"Failed to list schedules: {exc}") from exc
+
+    schedules = []
+    for s in response.schedules:
+        schedules.append(
+            ScheduleInfo(
+                id=s.id,
+                workflow_name=s.workflow_name,
+                schedule_type=_proto_schedule_type_to_str(s.schedule_type),
+                cron_expression=s.cron_expression if s.cron_expression else None,
+                interval_seconds=s.interval_seconds if s.interval_seconds else None,
+                status=_proto_schedule_status_to_str(s.status),
+                next_run_at=_parse_iso_datetime(s.next_run_at),
+                last_run_at=_parse_iso_datetime(s.last_run_at),
+                last_instance_id=s.last_instance_id if s.last_instance_id else None,
+                created_at=_parse_iso_datetime(s.created_at),  # type: ignore
+                updated_at=_parse_iso_datetime(s.updated_at),  # type: ignore
+            )
+        )
+
+    return schedules

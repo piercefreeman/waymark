@@ -186,6 +186,22 @@ _WorkflowServiceDeleteScheduleType = typing_extensions.TypeVar(
     ],
 )
 
+_WorkflowServiceListSchedulesType = typing_extensions.TypeVar(
+    "_WorkflowServiceListSchedulesType",
+    grpc.UnaryUnaryMultiCallable[
+        messages_pb2.ListSchedulesRequest,
+        messages_pb2.ListSchedulesResponse,
+    ],
+    grpc.aio.UnaryUnaryMultiCallable[
+        messages_pb2.ListSchedulesRequest,
+        messages_pb2.ListSchedulesResponse,
+    ],
+    default=grpc.UnaryUnaryMultiCallable[
+        messages_pb2.ListSchedulesRequest,
+        messages_pb2.ListSchedulesResponse,
+    ],
+)
+
 class WorkflowServiceStub(
     typing.Generic[
         _WorkflowServiceRegisterWorkflowType,
@@ -193,6 +209,7 @@ class WorkflowServiceStub(
         _WorkflowServiceRegisterScheduleType,
         _WorkflowServiceUpdateScheduleStatusType,
         _WorkflowServiceDeleteScheduleType,
+        _WorkflowServiceListSchedulesType,
     ]
 ):
     """Workflow management service for client operations."""
@@ -220,6 +237,10 @@ class WorkflowServiceStub(
                 messages_pb2.DeleteScheduleRequest,
                 messages_pb2.DeleteScheduleResponse,
             ],
+            grpc.UnaryUnaryMultiCallable[
+                messages_pb2.ListSchedulesRequest,
+                messages_pb2.ListSchedulesResponse,
+            ],
         ],
         channel: grpc.Channel,
     ) -> None: ...
@@ -246,6 +267,10 @@ class WorkflowServiceStub(
                 messages_pb2.DeleteScheduleRequest,
                 messages_pb2.DeleteScheduleResponse,
             ],
+            grpc.aio.UnaryUnaryMultiCallable[
+                messages_pb2.ListSchedulesRequest,
+                messages_pb2.ListSchedulesResponse,
+            ],
         ],
         channel: grpc.aio.Channel,
     ) -> None: ...
@@ -260,6 +285,8 @@ class WorkflowServiceStub(
     UpdateScheduleStatus: _WorkflowServiceUpdateScheduleStatusType
 
     DeleteSchedule: _WorkflowServiceDeleteScheduleType
+
+    ListSchedules: _WorkflowServiceListSchedulesType
 
 WorkflowServiceAsyncStub: typing_extensions.TypeAlias = WorkflowServiceStub[
     grpc.aio.UnaryUnaryMultiCallable[
@@ -281,6 +308,10 @@ WorkflowServiceAsyncStub: typing_extensions.TypeAlias = WorkflowServiceStub[
     grpc.aio.UnaryUnaryMultiCallable[
         messages_pb2.DeleteScheduleRequest,
         messages_pb2.DeleteScheduleResponse,
+    ],
+    grpc.aio.UnaryUnaryMultiCallable[
+        messages_pb2.ListSchedulesRequest,
+        messages_pb2.ListSchedulesResponse,
     ],
 ]
 
@@ -333,6 +364,15 @@ class WorkflowServiceServicer(metaclass=abc.ABCMeta):
     ) -> typing.Union[
         messages_pb2.DeleteScheduleResponse,
         collections.abc.Awaitable[messages_pb2.DeleteScheduleResponse],
+    ]: ...
+    @abc.abstractmethod
+    def ListSchedules(
+        self,
+        request: messages_pb2.ListSchedulesRequest,
+        context: _ServicerContext,
+    ) -> typing.Union[
+        messages_pb2.ListSchedulesResponse,
+        collections.abc.Awaitable[messages_pb2.ListSchedulesResponse],
     ]: ...
 
 def add_WorkflowServiceServicer_to_server(

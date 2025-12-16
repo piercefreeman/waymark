@@ -1040,3 +1040,131 @@ class DeleteScheduleResponse(google.protobuf.message.Message):
     def ClearField(self, field_name: typing.Literal["success", b"success"]) -> None: ...
 
 Global___DeleteScheduleResponse: typing_extensions.TypeAlias = DeleteScheduleResponse
+
+@typing.final
+class ListSchedulesRequest(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    STATUS_FILTER_FIELD_NUMBER: builtins.int
+    status_filter: builtins.str
+    """Optional filter by status ("active", "paused"). If empty, returns all non-deleted."""
+    def __init__(
+        self,
+        *,
+        status_filter: builtins.str | None = ...,
+    ) -> None: ...
+    def HasField(
+        self,
+        field_name: typing.Literal[
+            "_status_filter", b"_status_filter", "status_filter", b"status_filter"
+        ],
+    ) -> builtins.bool: ...
+    def ClearField(
+        self,
+        field_name: typing.Literal[
+            "_status_filter", b"_status_filter", "status_filter", b"status_filter"
+        ],
+    ) -> None: ...
+    def WhichOneof(
+        self, oneof_group: typing.Literal["_status_filter", b"_status_filter"]
+    ) -> typing.Literal["status_filter"] | None: ...
+
+Global___ListSchedulesRequest: typing_extensions.TypeAlias = ListSchedulesRequest
+
+@typing.final
+class ScheduleInfo(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    ID_FIELD_NUMBER: builtins.int
+    WORKFLOW_NAME_FIELD_NUMBER: builtins.int
+    SCHEDULE_TYPE_FIELD_NUMBER: builtins.int
+    CRON_EXPRESSION_FIELD_NUMBER: builtins.int
+    INTERVAL_SECONDS_FIELD_NUMBER: builtins.int
+    STATUS_FIELD_NUMBER: builtins.int
+    NEXT_RUN_AT_FIELD_NUMBER: builtins.int
+    LAST_RUN_AT_FIELD_NUMBER: builtins.int
+    LAST_INSTANCE_ID_FIELD_NUMBER: builtins.int
+    CREATED_AT_FIELD_NUMBER: builtins.int
+    UPDATED_AT_FIELD_NUMBER: builtins.int
+    id: builtins.str
+    workflow_name: builtins.str
+    schedule_type: Global___ScheduleType.ValueType
+    cron_expression: builtins.str
+    """Empty if interval-based"""
+    interval_seconds: builtins.int
+    """0 if cron-based"""
+    status: Global___ScheduleStatus.ValueType
+    next_run_at: builtins.str
+    """ISO 8601 timestamp"""
+    last_run_at: builtins.str
+    """ISO 8601 timestamp, empty if never run"""
+    last_instance_id: builtins.str
+    """Empty if never run"""
+    created_at: builtins.str
+    """ISO 8601 timestamp"""
+    updated_at: builtins.str
+    """ISO 8601 timestamp"""
+    def __init__(
+        self,
+        *,
+        id: builtins.str = ...,
+        workflow_name: builtins.str = ...,
+        schedule_type: Global___ScheduleType.ValueType = ...,
+        cron_expression: builtins.str = ...,
+        interval_seconds: builtins.int = ...,
+        status: Global___ScheduleStatus.ValueType = ...,
+        next_run_at: builtins.str = ...,
+        last_run_at: builtins.str = ...,
+        last_instance_id: builtins.str = ...,
+        created_at: builtins.str = ...,
+        updated_at: builtins.str = ...,
+    ) -> None: ...
+    def ClearField(
+        self,
+        field_name: typing.Literal[
+            "created_at",
+            b"created_at",
+            "cron_expression",
+            b"cron_expression",
+            "id",
+            b"id",
+            "interval_seconds",
+            b"interval_seconds",
+            "last_instance_id",
+            b"last_instance_id",
+            "last_run_at",
+            b"last_run_at",
+            "next_run_at",
+            b"next_run_at",
+            "schedule_type",
+            b"schedule_type",
+            "status",
+            b"status",
+            "updated_at",
+            b"updated_at",
+            "workflow_name",
+            b"workflow_name",
+        ],
+    ) -> None: ...
+
+Global___ScheduleInfo: typing_extensions.TypeAlias = ScheduleInfo
+
+@typing.final
+class ListSchedulesResponse(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    SCHEDULES_FIELD_NUMBER: builtins.int
+    @property
+    def schedules(
+        self,
+    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
+        Global___ScheduleInfo
+    ]: ...
+    def __init__(
+        self,
+        *,
+        schedules: collections.abc.Iterable[Global___ScheduleInfo] | None = ...,
+    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["schedules", b"schedules"]) -> None: ...
+
+Global___ListSchedulesResponse: typing_extensions.TypeAlias = ListSchedulesResponse

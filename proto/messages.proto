@@ -223,6 +223,29 @@ message DeleteScheduleResponse {
   bool success = 1;
 }
 
+message ListSchedulesRequest {
+  // Optional filter by status ("active", "paused"). If empty, returns all non-deleted.
+  optional string status_filter = 1;
+}
+
+message ScheduleInfo {
+  string id = 1;
+  string workflow_name = 2;
+  ScheduleType schedule_type = 3;
+  string cron_expression = 4;       // Empty if interval-based
+  int64 interval_seconds = 5;       // 0 if cron-based
+  ScheduleStatus status = 6;
+  string next_run_at = 7;           // ISO 8601 timestamp
+  string last_run_at = 8;           // ISO 8601 timestamp, empty if never run
+  string last_instance_id = 9;      // Empty if never run
+  string created_at = 10;           // ISO 8601 timestamp
+  string updated_at = 11;           // ISO 8601 timestamp
+}
+
+message ListSchedulesResponse {
+  repeated ScheduleInfo schedules = 1;
+}
+
 // =============================================================================
 // gRPC Service Definitions
 // =============================================================================
@@ -241,4 +264,5 @@ service WorkflowService {
   rpc RegisterSchedule(RegisterScheduleRequest) returns (RegisterScheduleResponse);
   rpc UpdateScheduleStatus(UpdateScheduleStatusRequest) returns (UpdateScheduleStatusResponse);
   rpc DeleteSchedule(DeleteScheduleRequest) returns (DeleteScheduleResponse);
+  rpc ListSchedules(ListSchedulesRequest) returns (ListSchedulesResponse);
 }
