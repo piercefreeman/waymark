@@ -7,26 +7,40 @@ from typing import Annotated, Any, AsyncIterator, Callable, Optional, get_args, 
 
 
 @dataclass(frozen=True)
-class Depend:
-    """Marker for dependency injection, mirroring FastAPI's Depends syntax."""
+class DependMarker:
+    """Internal marker for dependency injection."""
 
     dependency: Optional[Callable[..., Any]] = None
     use_cache: bool = True
 
 
-def _depend_from_annotation(annotation: Any) -> Depend | None:
+def Depend(  # noqa: N802
+    dependency: Optional[Callable[..., Any]] = None,
+    *,
+    use_cache: bool = True,
+) -> Any:
+    """Marker for dependency injection, mirroring FastAPI's Depends syntax.
+
+    Returns Any to allow usage as a default parameter value:
+        def my_func(service: MyService = Depend(get_service)):
+            ...
+    """
+    return DependMarker(dependency=dependency, use_cache=use_cache)
+
+
+def _depend_from_annotation(annotation: Any) -> DependMarker | None:
     origin = get_origin(annotation)
     if origin is not Annotated:
         return None
     metadata = get_args(annotation)[1:]
     for meta in metadata:
-        if isinstance(meta, Depend):
+        if isinstance(meta, DependMarker):
             return meta
     return None
 
 
-def _dependency_marker(parameter: inspect.Parameter) -> Depend | None:
-    if isinstance(parameter.default, Depend):
+def _dependency_marker(parameter: inspect.Parameter) -> DependMarker | None:
+    if isinstance(parameter.default, DependMarker):
         return parameter.default
     return _depend_from_annotation(parameter.annotation)
 
@@ -69,7 +83,7 @@ class _DependencyResolver:
             raise TypeError(f"Missing required parameter '{name}' for {func_name}")
         return call_kwargs
 
-    async def _resolve_dependency(self, marker: Depend) -> Any:
+    async def _resolve_dependency(self, marker: DependMarker) -> Any:
         dependency = marker.dependency
         if dependency is None:
             raise TypeError("Depend requires a dependency callable")
