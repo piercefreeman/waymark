@@ -5,6 +5,7 @@
 //! 2. Scheduler loop fires on due schedules
 //! 3. Instance creation from schedules
 //! 4. Schedule status updates (pause/resume/delete)
+//! 5. ListSchedules gRPC endpoint
 
 use std::{env, path::PathBuf, sync::Arc};
 
@@ -12,13 +13,16 @@ use anyhow::Result;
 use chrono::Utc;
 use serial_test::serial;
 use tokio::time::Duration;
+use tonic::transport::Channel;
 use tracing::info;
 
 use rappel::{
     DAGRunner, Database, PythonWorkerConfig, PythonWorkerPool, RunnerConfig, ScheduleId,
-    ScheduleType, WorkerBridgeServer, WorkflowVersionId, ir_ast,
+    ScheduleType, WorkerBridgeServer, WorkflowVersionId, ir_ast, proto,
 };
 use sha2::{Digest, Sha256};
+
+mod integration_harness;
 
 /// Clean up test data from previous runs.
 async fn cleanup_database(database: &Database) -> Result<()> {
@@ -345,5 +349,130 @@ async fn test_scheduler_creates_instance() -> Result<()> {
     );
 
     info!("scheduler integration test passed");
+    Ok(())
+}
+
+/// Tests the ListSchedules gRPC endpoint.
+#[tokio::test]
+#[serial]
+async fn test_list_schedules_grpc_endpoint() -> Result<()> {
+    let _ = tracing_subscriber::fmt::try_init();
+
+    let database_url = match env::var("DATABASE_URL") {
+        Ok(url) => url,
+        Err(_) => {
+            eprintln!("skipping test: DATABASE_URL not set");
+            return Ok(());
+        }
+    };
+
+    let database = Database::connect(&database_url).await?;
+    cleanup_database(&database).await?;
+
+    // Create test workflows (schedules need workflow versions)
+    let version1 = create_test_workflow(&database, "cron_workflow").await?;
+    let version2 = create_test_workflow(&database, "interval_workflow").await?;
+    info!(%version1, %version2, "created test workflows");
+
+    // Create test schedules with different types and statuses
+    let next_run = Utc::now() + chrono::Duration::hours(1);
+    database
+        .upsert_schedule(
+            "cron_workflow",
+            ScheduleType::Cron,
+            Some("0 0 * * *"),
+            None,
+            None,
+            next_run,
+        )
+        .await?;
+    info!("created cron schedule");
+
+    database
+        .upsert_schedule(
+            "interval_workflow",
+            ScheduleType::Interval,
+            None,
+            Some(300),
+            None,
+            next_run,
+        )
+        .await?;
+    info!("created interval schedule");
+
+    // Pause one schedule to test status filtering
+    database
+        .update_schedule_status("interval_workflow", "paused")
+        .await?;
+
+    // Start gRPC server
+    let (grpc_addr, shutdown_tx, server_handle) =
+        integration_harness::start_workflow_grpc_server(database.clone()).await?;
+    info!(%grpc_addr, "gRPC server started");
+
+    // Give server a moment to start
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    // Create gRPC client
+    let channel = Channel::from_shared(format!("http://{}", grpc_addr))?
+        .connect()
+        .await?;
+    let mut client = proto::workflow_service_client::WorkflowServiceClient::new(channel);
+
+    // Test 1: List all schedules
+    let response = client
+        .list_schedules(proto::ListSchedulesRequest {
+            status_filter: None,
+        })
+        .await?;
+    let schedules = response.into_inner().schedules;
+    assert_eq!(schedules.len(), 2, "should have 2 schedules");
+
+    // Verify cron schedule
+    let cron_schedule = schedules
+        .iter()
+        .find(|s| s.workflow_name == "cron_workflow")
+        .expect("cron_workflow schedule should exist");
+    assert_eq!(cron_schedule.schedule_type, proto::ScheduleType::Cron as i32);
+    assert_eq!(cron_schedule.cron_expression, "0 0 * * *");
+    assert_eq!(cron_schedule.status, proto::ScheduleStatus::Active as i32);
+
+    // Verify interval schedule
+    let interval_schedule = schedules
+        .iter()
+        .find(|s| s.workflow_name == "interval_workflow")
+        .expect("interval_workflow schedule should exist");
+    assert_eq!(
+        interval_schedule.schedule_type,
+        proto::ScheduleType::Interval as i32
+    );
+    assert_eq!(interval_schedule.interval_seconds, 300);
+    assert_eq!(interval_schedule.status, proto::ScheduleStatus::Paused as i32);
+
+    // Test 2: List only active schedules
+    let response = client
+        .list_schedules(proto::ListSchedulesRequest {
+            status_filter: Some("active".to_string()),
+        })
+        .await?;
+    let active_schedules = response.into_inner().schedules;
+    assert_eq!(active_schedules.len(), 1, "should have 1 active schedule");
+    assert_eq!(active_schedules[0].workflow_name, "cron_workflow");
+
+    // Test 3: List only paused schedules
+    let response = client
+        .list_schedules(proto::ListSchedulesRequest {
+            status_filter: Some("paused".to_string()),
+        })
+        .await?;
+    let paused_schedules = response.into_inner().schedules;
+    assert_eq!(paused_schedules.len(), 1, "should have 1 paused schedule");
+    assert_eq!(paused_schedules[0].workflow_name, "interval_workflow");
+
+    // Shutdown server
+    let _ = shutdown_tx.send(());
+    let _ = server_handle.await;
+
+    info!("list_schedules gRPC endpoint test passed");
     Ok(())
 }
