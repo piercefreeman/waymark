@@ -198,6 +198,14 @@ impl proto::workflow_service_server::WorkflowService for BenchmarkWorkflowServic
         // Not used in benchmarks
         Err(tonic::Status::unimplemented("not implemented"))
     }
+
+    async fn list_schedules(
+        &self,
+        _request: tonic::Request<proto::ListSchedulesRequest>,
+    ) -> Result<tonic::Response<proto::ListSchedulesResponse>, tonic::Status> {
+        // Not used in benchmarks
+        Err(tonic::Status::unimplemented("not implemented"))
+    }
 }
 
 async fn start_grpc_server(

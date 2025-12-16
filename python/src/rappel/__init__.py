@@ -14,7 +14,9 @@ from .exceptions import ExhaustedRetries, ExhaustedRetriesError
 from .ir_builder import UnsupportedPatternError, build_workflow_ir
 from .registry import registry
 from .schedule import (
+    ScheduleInfo,
     delete_schedule,
+    list_schedules,
     pause_schedule,
     resume_schedule,
     schedule_workflow,
@@ -49,4 +51,6 @@ __all__ = [
     "pause_schedule",
     "resume_schedule",
     "delete_schedule",
+    "list_schedules",
+    "ScheduleInfo",
 ]

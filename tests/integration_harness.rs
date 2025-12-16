@@ -169,6 +169,14 @@ impl proto::workflow_service_server::WorkflowService for TestWorkflowService {
         // Not needed for tests
         Err(tonic::Status::unimplemented("not implemented"))
     }
+
+    async fn list_schedules(
+        &self,
+        _request: tonic::Request<proto::ListSchedulesRequest>,
+    ) -> Result<tonic::Response<proto::ListSchedulesResponse>, tonic::Status> {
+        // Not needed for tests
+        Err(tonic::Status::unimplemented("not implemented"))
+    }
 }
 
 /// Start a gRPC server for workflow registration.

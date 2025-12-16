@@ -150,6 +150,11 @@ class WorkflowServiceStub(object):
                 request_serializer=messages__pb2.DeleteScheduleRequest.SerializeToString,
                 response_deserializer=messages__pb2.DeleteScheduleResponse.FromString,
                 _registered_method=True)
+        self.ListSchedules = channel.unary_unary(
+                '/rappel.messages.WorkflowService/ListSchedules',
+                request_serializer=messages__pb2.ListSchedulesRequest.SerializeToString,
+                response_deserializer=messages__pb2.ListSchedulesResponse.FromString,
+                _registered_method=True)
 
 
 class WorkflowServiceServicer(object):
@@ -187,6 +192,12 @@ class WorkflowServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def ListSchedules(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_WorkflowServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -214,6 +225,11 @@ def add_WorkflowServiceServicer_to_server(servicer, server):
                     servicer.DeleteSchedule,
                     request_deserializer=messages__pb2.DeleteScheduleRequest.FromString,
                     response_serializer=messages__pb2.DeleteScheduleResponse.SerializeToString,
+            ),
+            'ListSchedules': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListSchedules,
+                    request_deserializer=messages__pb2.ListSchedulesRequest.FromString,
+                    response_serializer=messages__pb2.ListSchedulesResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -352,6 +368,33 @@ class WorkflowService(object):
             '/rappel.messages.WorkflowService/DeleteSchedule',
             messages__pb2.DeleteScheduleRequest.SerializeToString,
             messages__pb2.DeleteScheduleResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListSchedules(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/rappel.messages.WorkflowService/ListSchedules',
+            messages__pb2.ListSchedulesRequest.SerializeToString,
+            messages__pb2.ListSchedulesResponse.FromString,
             options,
             channel_credentials,
             insecure,
