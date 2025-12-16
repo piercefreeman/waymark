@@ -143,6 +143,9 @@ class ScheduleRequest(BaseModel):
     interval_seconds: Optional[int] = Field(
         default=None, ge=10, description="Interval in seconds (minimum 10)"
     )
+    inputs: Optional[dict] = Field(
+        default=None, description="Input arguments to pass to each scheduled run"
+    )
 
 
 class ScheduleResponse(BaseModel):
@@ -186,7 +189,9 @@ async def register_schedule(payload: ScheduleRequest) -> ScheduleResponse:
                 )
             schedule = timedelta(seconds=payload.interval_seconds)
 
-        schedule_id = await schedule_workflow(workflow_cls, schedule=schedule)
+        schedule_id = await schedule_workflow(
+            workflow_cls, schedule=schedule, inputs=payload.inputs
+        )
         return ScheduleResponse(
             success=True,
             schedule_id=schedule_id,

@@ -243,12 +243,9 @@
         <label for="schedule-workflow">Workflow:</label>
         <select id="schedule-workflow" name="workflow_name">
           <option value="ParallelMathWorkflow">ParallelMathWorkflow</option>
-          <option value="SequentialChainWorkflow">SequentialChainWorkflow</option>
-          <option value="ConditionalBranchWorkflow">ConditionalBranchWorkflow</option>
-          <option value="LoopProcessingWorkflow">LoopProcessingWorkflow</option>
-          <option value="ErrorHandlingWorkflow">ErrorHandlingWorkflow</option>
-          <option value="DurableSleepWorkflow">DurableSleepWorkflow</option>
         </select>
+        <label for="schedule-input">Number:</label>
+        <input type="number" id="schedule-input" name="number" min="1" max="10" value="7" title="Input number for workflow" />
         <label for="schedule-type">Type:</label>
         <select id="schedule-type" name="schedule_type">
           <option value="interval">Interval</option>
@@ -266,11 +263,6 @@
         <label for="action-workflow">Workflow:</label>
         <select id="action-workflow" name="workflow_name">
           <option value="ParallelMathWorkflow">ParallelMathWorkflow</option>
-          <option value="SequentialChainWorkflow">SequentialChainWorkflow</option>
-          <option value="ConditionalBranchWorkflow">ConditionalBranchWorkflow</option>
-          <option value="LoopProcessingWorkflow">LoopProcessingWorkflow</option>
-          <option value="ErrorHandlingWorkflow">ErrorHandlingWorkflow</option>
-          <option value="DurableSleepWorkflow">DurableSleepWorkflow</option>
         </select>
         <button type="button" id="pause-btn">Pause</button>
         <button type="button" id="resume-btn">Resume</button>
@@ -419,15 +411,17 @@
         (form) => {
           const workflow_name = form.querySelector("#schedule-workflow").value;
           const schedule_type = form.querySelector("#schedule-type").value;
+          const number = Number(form.querySelector("#schedule-input").value);
+          const inputs = { number };
           if (schedule_type === "cron") {
             const cron_expression = form.querySelector("#schedule-cron").value.trim();
             return cron_expression
-              ? { workflow_name, schedule_type, cron_expression }
+              ? { workflow_name, schedule_type, cron_expression, inputs }
               : null;
           } else {
             const interval_seconds = Number(form.querySelector("#schedule-interval").value);
             return interval_seconds >= 10
-              ? { workflow_name, schedule_type, interval_seconds }
+              ? { workflow_name, schedule_type, interval_seconds, inputs }
               : null;
           }
         },
