@@ -29,7 +29,7 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://rappel:rappel@postgres:5432/rappel_example
+      RAPPEL_DATABASE_URL: postgresql://rappel:rappel@postgres:5432/rappel_example
       RAPPEL_USER_MODULE: example_app.workflows
       RAPPEL_WORKER_COUNT: 2
       RAPPEL_LOG_LEVEL: debug
@@ -45,7 +45,7 @@ services:
       daemons:
         condition: service_started
     environment:
-      DATABASE_URL: postgresql://rappel:rappel@postgres:5432/rappel_example
+      RAPPEL_DATABASE_URL: postgresql://rappel:rappel@postgres:5432/rappel_example
       RAPPEL_LOG_LEVEL: debug
     ports:
       - "8000:8000"

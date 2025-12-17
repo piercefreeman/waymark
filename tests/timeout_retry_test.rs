@@ -17,10 +17,10 @@ use rappel::{BackoffKind, Database, NewAction, WorkflowInstanceId, WorkflowVersi
 
 /// Helper to create a test database connection.
 async fn setup_db() -> Option<Database> {
-    let database_url = match env::var("DATABASE_URL") {
+    let database_url = match env::var("RAPPEL_DATABASE_URL") {
         Ok(url) => url,
         Err(_) => {
-            eprintln!("skipping test: DATABASE_URL not set");
+            eprintln!("skipping test: RAPPEL_DATABASE_URL not set");
             return None;
         }
     };

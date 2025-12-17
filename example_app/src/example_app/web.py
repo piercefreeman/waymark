@@ -289,9 +289,9 @@ class ResetResponse(BaseModel):
 @app.post("/api/reset", response_model=ResetResponse)
 async def reset_database() -> ResetResponse:
     """Reset workflow-related tables for a clean slate. Development use only."""
-    database_url = os.environ.get("DATABASE_URL")
+    database_url = os.environ.get("RAPPEL_DATABASE_URL")
     if not database_url:
-        return ResetResponse(success=False, message="DATABASE_URL not configured")
+        return ResetResponse(success=False, message="RAPPEL_DATABASE_URL not configured")
 
     try:
         conn = await asyncpg.connect(database_url)

@@ -5,7 +5,7 @@
 //! - gRPC server for Python worker connections
 //!
 //! Configuration is via environment variables:
-//! - DATABASE_URL: PostgreSQL connection string (required)
+//! - RAPPEL_DATABASE_URL: PostgreSQL connection string (required)
 //! - RAPPEL_HTTP_ADDR: HTTP server bind address (default: 127.0.0.1:24117)
 //! - RAPPEL_GRPC_ADDR: gRPC server bind address (default: HTTP port + 1)
 

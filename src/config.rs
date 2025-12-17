@@ -1,7 +1,7 @@
 //! Configuration loading from environment variables.
 //!
 //! Uses the following environment variables:
-//! - `DATABASE_URL`: PostgreSQL connection string (required)
+//! - `RAPPEL_DATABASE_URL`: PostgreSQL connection string (required)
 //! - `RAPPEL_HTTP_ADDR`: HTTP server bind address (default: 127.0.0.1:24117)
 //! - `RAPPEL_GRPC_ADDR`: gRPC server bind address (default: HTTP port + 1)
 //! - `RAPPEL_BASE_PORT`: Base port for singleton server probing (default: 24117)
@@ -112,8 +112,8 @@ impl Config {
         // Load .env file if it exists
         dotenvy::dotenv().ok();
 
-        let database_url =
-            env::var("DATABASE_URL").context("DATABASE_URL environment variable is required")?;
+        let database_url = env::var("RAPPEL_DATABASE_URL")
+            .context("RAPPEL_DATABASE_URL environment variable is required")?;
 
         let http_addr =
             env::var("RAPPEL_HTTP_ADDR").unwrap_or_else(|_| "127.0.0.1:24117".to_string());
@@ -202,7 +202,7 @@ impl Config {
 ///
 /// # Panics
 ///
-/// Panics if configuration loading fails (e.g., missing required DATABASE_URL).
+/// Panics if configuration loading fails (e.g., missing required RAPPEL_DATABASE_URL).
 pub fn get_config() -> Config {
     CONFIG
         .get_or_init(|| {
@@ -246,7 +246,7 @@ pub fn reset_config() {
 /// Get the database URL from environment
 pub fn database_url() -> Result<String> {
     dotenvy::dotenv().ok();
-    env::var("DATABASE_URL").context("DATABASE_URL environment variable is required")
+    env::var("RAPPEL_DATABASE_URL").context("RAPPEL_DATABASE_URL environment variable is required")
 }
 
 #[cfg(test)]

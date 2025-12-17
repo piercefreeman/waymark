@@ -1647,7 +1647,7 @@ mod tests {
 
     // ========================================================================
     // HTTP Route Tests (require database)
-    // These tests require DATABASE_URL to be set and run with serial_test
+    // These tests require RAPPEL_DATABASE_URL to be set and run with serial_test
     // to avoid conflicts with other database tests.
     // ========================================================================
 
@@ -1658,8 +1658,8 @@ mod tests {
 
     async fn test_db() -> Database {
         dotenvy::dotenv().ok();
-        let url =
-            std::env::var("DATABASE_URL").expect("DATABASE_URL must be set for integration tests");
+        let url = std::env::var("RAPPEL_DATABASE_URL")
+            .expect("RAPPEL_DATABASE_URL must be set for integration tests");
         Database::connect(&url)
             .await
             .expect("failed to connect to database")

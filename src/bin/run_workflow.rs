@@ -605,7 +605,7 @@ async fn main() -> Result<()> {
     }
 
     // Connect to database with a short timeout
-    let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| {
+    let database_url = env::var("RAPPEL_DATABASE_URL").unwrap_or_else(|_| {
         "postgresql://mountaineer:mountaineer@localhost:5432/mountaineer_daemons".to_string()
     });
     eprintln!(
@@ -624,7 +624,7 @@ async fn main() -> Result<()> {
         anyhow!(
             "Database connection timed out after 5 seconds.\n\
          Please ensure PostgreSQL is running and accessible at: {}\n\
-         You can set DATABASE_URL environment variable to override.",
+         You can set RAPPEL_DATABASE_URL environment variable to override.",
             database_url
         )
     })?

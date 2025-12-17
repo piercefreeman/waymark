@@ -8,7 +8,7 @@
 //! - Optionally starts the web dashboard for monitoring
 //!
 //! Configuration is via environment variables:
-//! - DATABASE_URL: PostgreSQL connection string (required)
+//! - RAPPEL_DATABASE_URL: PostgreSQL connection string (required)
 //! - RAPPEL_USER_MODULE: Python module to preload
 //! - RAPPEL_WORKER_COUNT: Number of workers (default: num_cpus)
 //! - RAPPEL_BATCH_SIZE: Actions per poll cycle (default: 100)

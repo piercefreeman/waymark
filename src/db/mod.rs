@@ -9,9 +9,9 @@
 //!
 //! # Connection
 //!
-//! Set the `DATABASE_URL` environment variable to your PostgreSQL connection string:
+//! Set the `RAPPEL_DATABASE_URL` environment variable to your PostgreSQL connection string:
 //! ```text
-//! DATABASE_URL=postgresql://user:password@localhost:5432/rappel
+//! RAPPEL_DATABASE_URL=postgresql://user:password@localhost:5432/rappel
 //! ```
 
 mod webapp;

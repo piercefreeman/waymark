@@ -467,7 +467,7 @@ async fn main() -> Result<()> {
         .init();
 
     // Connect to database
-    let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| {
+    let database_url = env::var("RAPPEL_DATABASE_URL").unwrap_or_else(|_| {
         "postgresql://mountaineer:mountaineer@localhost:5432/mountaineer_daemons".to_string()
     });
     let pool_size = (args.hosts * args.workers_per_host * 2).max(20);

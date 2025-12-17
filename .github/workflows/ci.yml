@@ -120,7 +120,7 @@ jobs:
 
       - name: Run tests with coverage
         env:
-          DATABASE_URL: postgresql://mountaineer:mountaineer@localhost:5432/mountaineer_daemons
+          RAPPEL_DATABASE_URL: postgresql://mountaineer:mountaineer@localhost:5432/mountaineer_daemons
         run: make rust-coverage
 
       - name: Upload Rust coverage LCOV
@@ -181,7 +181,7 @@ jobs:
 
       - name: Rust tests with coverage
         env:
-          DATABASE_URL: postgresql://mountaineer:mountaineer@localhost:5432/mountaineer_daemons
+          RAPPEL_DATABASE_URL: postgresql://mountaineer:mountaineer@localhost:5432/mountaineer_daemons
         run: make rust-coverage
 
       - name: Upload main Python coverage XML
@@ -310,7 +310,7 @@ jobs:
 
       - name: Run benchmarks on PR branch
         env:
-          DATABASE_URL: postgresql://mountaineer:mountaineer@localhost:5432/mountaineer_daemons
+          RAPPEL_DATABASE_URL: postgresql://mountaineer:mountaineer@localhost:5432/mountaineer_daemons
         run: uv run scripts/run_benchmarks.py single --format json --output benchmark-pr.json
 
       - name: Save benchmark code diff
@@ -370,7 +370,7 @@ jobs:
 
       - name: Run benchmarks on main branch
         env:
-          DATABASE_URL: postgresql://mountaineer:mountaineer@localhost:5432/mountaineer_daemons
+          RAPPEL_DATABASE_URL: postgresql://mountaineer:mountaineer@localhost:5432/mountaineer_daemons
         run: uv run scripts/run_benchmarks.py single --format json --output benchmark-main.json
 
       - name: Upload main benchmark results
@@ -462,7 +462,7 @@ jobs:
 
       - name: Run integration tests
         env:
-          DATABASE_URL: postgresql://mountaineer:mountaineer@localhost:5432/mountaineer_daemons
+          RAPPEL_DATABASE_URL: postgresql://mountaineer:mountaineer@localhost:5432/mountaineer_daemons
         run: cargo test --test integration_test -- --nocapture
 
   example-app-tests:

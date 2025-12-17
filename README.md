@@ -146,7 +146,7 @@ These are the primary environment parameters that you'll likely want to customiz
 
 | Environment Variable | Description | Default | Example |
 |---------------------|-------------|---------|---------|
-| `DATABASE_URL` | PostgreSQL connection string for the rappel server | (required on bridge &workers ) | `postgresql://user:pass@localhost:5433/rappel` |
+| `RAPPEL_DATABASE_URL` | PostgreSQL connection string for the rappel server | (required on bridge &workers ) | `postgresql://user:pass@localhost:5433/rappel` |
 | `RAPPEL_WORKER_COUNT` | Number of Python worker processes | `num_cpus` | `8` |
 | `RAPPEL_CONCURRENT_PER_WORKER` | Max concurrent actions per worker | `10` | `20` |
 | `RAPPEL_USER_MODULE` | Python module preloaded into each worker | none | `my_app.actions` |

@@ -288,12 +288,12 @@ pub struct IntegrationHarness {
 impl IntegrationHarness {
     /// Create a new test harness with the given configuration.
     ///
-    /// Returns `None` if DATABASE_URL is not set (skips test).
+    /// Returns `None` if RAPPEL_DATABASE_URL is not set (skips test).
     pub async fn new(config: HarnessConfig<'_>) -> Result<Option<Self>> {
-        let database_url = match env::var("DATABASE_URL") {
+        let database_url = match env::var("RAPPEL_DATABASE_URL") {
             Ok(url) => url,
             Err(_) => {
-                eprintln!("skipping integration test: DATABASE_URL not set");
+                eprintln!("skipping integration test: RAPPEL_DATABASE_URL not set");
                 return Ok(None);
             }
         };

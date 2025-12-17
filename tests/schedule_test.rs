@@ -74,10 +74,10 @@ async fn create_test_workflow(database: &Database, name: &str) -> Result<Workflo
 async fn test_schedule_database_operations() -> Result<()> {
     let _ = tracing_subscriber::fmt::try_init();
 
-    let database_url = match env::var("DATABASE_URL") {
+    let database_url = match env::var("RAPPEL_DATABASE_URL") {
         Ok(url) => url,
         Err(_) => {
-            eprintln!("skipping test: DATABASE_URL not set");
+            eprintln!("skipping test: RAPPEL_DATABASE_URL not set");
             return Ok(());
         }
     };
@@ -221,10 +221,10 @@ async fn test_schedule_database_operations() -> Result<()> {
 async fn test_scheduler_creates_instance() -> Result<()> {
     let _ = tracing_subscriber::fmt::try_init();
 
-    let database_url = match env::var("DATABASE_URL") {
+    let database_url = match env::var("RAPPEL_DATABASE_URL") {
         Ok(url) => url,
         Err(_) => {
-            eprintln!("skipping test: DATABASE_URL not set");
+            eprintln!("skipping test: RAPPEL_DATABASE_URL not set");
             return Ok(());
         }
     };
@@ -358,10 +358,10 @@ async fn test_scheduler_creates_instance() -> Result<()> {
 async fn test_list_schedules_grpc_endpoint() -> Result<()> {
     let _ = tracing_subscriber::fmt::try_init();
 
-    let database_url = match env::var("DATABASE_URL") {
+    let database_url = match env::var("RAPPEL_DATABASE_URL") {
         Ok(url) => url,
         Err(_) => {
-            eprintln!("skipping test: DATABASE_URL not set");
+            eprintln!("skipping test: RAPPEL_DATABASE_URL not set");
             return Ok(());
         }
     };

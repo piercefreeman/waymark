@@ -423,12 +423,13 @@ FORMATTERS: dict[str, OutputFormatter] = {
 def reset_database():
     """Reset the database tables for clean benchmark runs."""
     db_url = os.environ.get(
-        "DATABASE_URL", "postgresql://mountaineer:mountaineer@localhost:5432/mountaineer_daemons"
+        "RAPPEL_DATABASE_URL",
+        "postgresql://mountaineer:mountaineer@localhost:5432/mountaineer_daemons",
     )
 
     match = re.match(r"postgresql://([^:]+):([^@]+)@([^:]+):(\d+)/(.+)", db_url)
     if not match:
-        print(f"Warning: Could not parse DATABASE_URL: {db_url}", file=sys.stderr)
+        print(f"Warning: Could not parse RAPPEL_DATABASE_URL: {db_url}", file=sys.stderr)
         return
 
     user, password, host, port, dbname = match.groups()
