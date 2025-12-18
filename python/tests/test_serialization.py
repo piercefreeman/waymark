@@ -1,4 +1,9 @@
 from dataclasses import dataclass
+from datetime import date, datetime, time, timedelta, timezone
+from decimal import Decimal
+from enum import Enum
+from pathlib import Path
+from uuid import UUID
 
 from pydantic import BaseModel
 
@@ -70,3 +75,148 @@ def test_result_round_trip_with_dataclass() -> None:
     assert isinstance(decoded.result, SampleDataclass)
     assert decoded.result.payload == "world"
     assert decoded.result.count == 42
+
+
+class ModelWithUUID(BaseModel):
+    id: UUID
+    name: str
+
+
+class ModelWithUUIDList(BaseModel):
+    ids: list[UUID]
+
+
+def test_uuid_serialization() -> None:
+    """Test that UUIDs are serialized as strings."""
+    test_uuid = UUID("12345678-1234-5678-1234-567812345678")
+    payload = serialize_result_payload({"user_id": test_uuid})
+    decoded = deserialize_result_payload(payload)
+    assert decoded.error is None
+    # UUID is serialized as string
+    assert decoded.result == {"user_id": str(test_uuid)}
+
+
+def test_uuid_in_pydantic_model() -> None:
+    """Test that UUIDs in Pydantic models round-trip correctly."""
+    test_uuid = UUID("12345678-1234-5678-1234-567812345678")
+    payload = serialize_result_payload(ModelWithUUID(id=test_uuid, name="test"))
+    decoded = deserialize_result_payload(payload)
+    assert decoded.error is None
+    assert isinstance(decoded.result, ModelWithUUID)
+    assert decoded.result.id == test_uuid
+    assert decoded.result.name == "test"
+
+
+def test_uuid_list_in_pydantic_model() -> None:
+    """Test that lists of UUIDs in Pydantic models round-trip correctly."""
+    test_uuids = [
+        UUID("12345678-1234-5678-1234-567812345678"),
+        UUID("87654321-4321-8765-4321-876543218765"),
+    ]
+    payload = serialize_result_payload(ModelWithUUIDList(ids=test_uuids))
+    decoded = deserialize_result_payload(payload)
+    assert decoded.error is None
+    assert isinstance(decoded.result, ModelWithUUIDList)
+    assert decoded.result.ids == test_uuids
+
+
+def test_datetime_serialization() -> None:
+    """Test that datetime types are serialized as ISO strings."""
+    dt = datetime(2024, 1, 15, 10, 30, 45, tzinfo=timezone.utc)
+    d = date(2024, 1, 15)
+    t = time(10, 30, 45)
+    td = timedelta(hours=2, minutes=30)
+
+    payload = serialize_result_payload(
+        {
+            "datetime": dt,
+            "date": d,
+            "time": t,
+            "timedelta": td,
+        }
+    )
+    decoded = deserialize_result_payload(payload)
+    assert decoded.error is None
+    assert decoded.result is not None
+    result = decoded.result
+    assert result["datetime"] == dt.isoformat()
+    assert result["date"] == d.isoformat()
+    assert result["time"] == t.isoformat()
+    assert result["timedelta"] == td.total_seconds()
+
+
+def test_decimal_serialization() -> None:
+    """Test that Decimal is serialized as string to preserve precision."""
+    value = Decimal("123.456789012345678901234567890")
+    payload = serialize_result_payload({"amount": value})
+    decoded = deserialize_result_payload(payload)
+    assert decoded.error is None
+    assert decoded.result is not None
+    assert decoded.result["amount"] == str(value)
+
+
+class Status(Enum):
+    PENDING = "pending"
+    ACTIVE = "active"
+    COMPLETED = "completed"
+
+
+class Priority(Enum):
+    LOW = 1
+    MEDIUM = 2
+    HIGH = 3
+
+
+def test_enum_serialization() -> None:
+    """Test that Enums are serialized as their values."""
+    payload = serialize_result_payload(
+        {
+            "status": Status.ACTIVE,
+            "priority": Priority.HIGH,
+        }
+    )
+    decoded = deserialize_result_payload(payload)
+    assert decoded.error is None
+    assert decoded.result is not None
+    assert decoded.result["status"] == "active"
+    assert decoded.result["priority"] == 3
+
+
+def test_bytes_serialization() -> None:
+    """Test that bytes are serialized as base64 strings."""
+    from base64 import b64encode
+
+    data = b"hello world"
+    payload = serialize_result_payload({"data": data})
+    decoded = deserialize_result_payload(payload)
+    assert decoded.error is None
+    assert decoded.result is not None
+    assert decoded.result["data"] == b64encode(data).decode("ascii")
+
+
+def test_path_serialization() -> None:
+    """Test that Path is serialized as string."""
+    p = Path("/usr/local/bin")
+    payload = serialize_result_payload({"path": p})
+    decoded = deserialize_result_payload(payload)
+    assert decoded.error is None
+    assert decoded.result is not None
+    assert decoded.result["path"] == str(p)
+
+
+def test_set_serialization() -> None:
+    """Test that sets are serialized as lists."""
+    s = {1, 2, 3}
+    fs = frozenset(["a", "b", "c"])
+    payload = serialize_result_payload(
+        {
+            "set": s,
+            "frozenset": fs,
+        }
+    )
+    decoded = deserialize_result_payload(payload)
+    assert decoded.error is None
+    assert decoded.result is not None
+    # Sets become lists, order may vary
+    assert set(decoded.result["set"]) == s
+    assert set(decoded.result["frozenset"]) == fs

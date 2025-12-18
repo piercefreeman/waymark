@@ -6,8 +6,13 @@ action dispatch commands from the Rust scheduler.
 
 import asyncio
 import dataclasses
+from base64 import b64decode
 from dataclasses import dataclass
-from typing import Any, Dict, get_type_hints
+from datetime import date, datetime, time, timedelta
+from decimal import Decimal
+from pathlib import Path, PurePath
+from typing import Any, Dict, get_args, get_origin, get_type_hints
+from uuid import UUID
 
 from pydantic import BaseModel
 
@@ -45,6 +50,87 @@ def _is_dataclass_type(cls: type) -> bool:
     return dataclasses.is_dataclass(cls) and isinstance(cls, type)
 
 
+def _coerce_primitive(value: Any, target_type: type) -> Any:
+    """Coerce a value to a primitive type based on target_type.
+
+    Handles conversion of serialized values (strings, floats) back to their
+    native Python types (UUID, datetime, etc.).
+    """
+    # Handle None
+    if value is None:
+        return None
+
+    # UUID from string
+    if target_type is UUID:
+        if isinstance(value, UUID):
+            return value
+        if isinstance(value, str):
+            return UUID(value)
+        return value
+
+    # datetime from ISO string
+    if target_type is datetime:
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, str):
+            return datetime.fromisoformat(value)
+        return value
+
+    # date from ISO string
+    if target_type is date:
+        if isinstance(value, date):
+            return value
+        if isinstance(value, str):
+            return date.fromisoformat(value)
+        return value
+
+    # time from ISO string
+    if target_type is time:
+        if isinstance(value, time):
+            return value
+        if isinstance(value, str):
+            return time.fromisoformat(value)
+        return value
+
+    # timedelta from total seconds
+    if target_type is timedelta:
+        if isinstance(value, timedelta):
+            return value
+        if isinstance(value, (int, float)):
+            return timedelta(seconds=value)
+        return value
+
+    # Decimal from string
+    if target_type is Decimal:
+        if isinstance(value, Decimal):
+            return value
+        if isinstance(value, (str, int, float)):
+            return Decimal(str(value))
+        return value
+
+    # bytes from base64 string
+    if target_type is bytes:
+        if isinstance(value, bytes):
+            return value
+        if isinstance(value, str):
+            return b64decode(value)
+        return value
+
+    # Path from string
+    if target_type is Path or target_type is PurePath:
+        if isinstance(value, PurePath):
+            return value
+        if isinstance(value, str):
+            return Path(value)
+        return value
+
+    return value
+
+
+# Types that can be coerced from serialized form
+COERCIBLE_TYPES = (UUID, datetime, date, time, timedelta, Decimal, bytes, Path, PurePath)
+
+
 def _coerce_dict_to_model(value: Any, target_type: type) -> Any:
     """Convert a dict to a Pydantic model or dataclass if needed.
 
@@ -67,12 +153,76 @@ def _coerce_dict_to_model(value: Any, target_type: type) -> Any:
     return value
 
 
-def _coerce_kwargs_to_type_hints(handler: Any, kwargs: Dict[str, Any]) -> Dict[str, Any]:
-    """Coerce dict kwargs to Pydantic models or dataclasses based on type hints.
+def _coerce_value(value: Any, target_type: type) -> Any:
+    """Coerce a value to the target type.
 
-    When the IR converts a Pydantic model or dataclass constructor call to a dict,
-    the action runner needs to convert that dict back to the expected type based
-    on the handler's type annotations.
+    Handles:
+    - Primitive types (UUID, datetime, etc.)
+    - Pydantic models and dataclasses (from dicts)
+    - Generic collections like list[UUID], set[datetime]
+    """
+    # Handle None
+    if value is None:
+        return None
+
+    # Check for coercible primitive types
+    if isinstance(target_type, type) and issubclass(target_type, COERCIBLE_TYPES):
+        return _coerce_primitive(value, target_type)
+
+    # Check for Pydantic models or dataclasses
+    if isinstance(value, dict):
+        coerced = _coerce_dict_to_model(value, target_type)
+        if coerced is not value:
+            return coerced
+
+    # Handle generic types like list[UUID], set[datetime]
+    origin = get_origin(target_type)
+    if origin is not None:
+        args = get_args(target_type)
+
+        # Handle list[T]
+        if origin is list and isinstance(value, list) and args:
+            item_type = args[0]
+            return [_coerce_value(item, item_type) for item in value]
+
+        # Handle set[T] (serialized as list)
+        if origin is set and isinstance(value, list) and args:
+            item_type = args[0]
+            return {_coerce_value(item, item_type) for item in value}
+
+        # Handle frozenset[T] (serialized as list)
+        if origin is frozenset and isinstance(value, list) and args:
+            item_type = args[0]
+            return frozenset(_coerce_value(item, item_type) for item in value)
+
+        # Handle tuple[T, ...] (serialized as list)
+        if origin is tuple and isinstance(value, (list, tuple)) and args:
+            # Variable length tuple like tuple[int, ...]
+            if len(args) == 2 and args[1] is ...:
+                item_type = args[0]
+                return tuple(_coerce_value(item, item_type) for item in value)
+            # Fixed length tuple like tuple[int, str, UUID]
+            return tuple(
+                _coerce_value(item, item_type) for item, item_type in zip(value, args, strict=False)
+            )
+
+        # Handle dict[K, V]
+        if origin is dict and isinstance(value, dict) and len(args) == 2:
+            key_type, val_type = args
+            return {
+                _coerce_value(k, key_type): _coerce_value(v, val_type) for k, v in value.items()
+            }
+
+    return value
+
+
+def _coerce_kwargs_to_type_hints(handler: Any, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    """Coerce kwargs to expected types based on handler's type hints.
+
+    Handles:
+    - Pydantic models and dataclasses (from dicts)
+    - Primitive types like UUID, datetime, Decimal, etc.
+    - Generic collections like list[UUID], dict[str, datetime]
     """
     try:
         type_hints = get_type_hints(handler)
@@ -84,7 +234,7 @@ def _coerce_kwargs_to_type_hints(handler: Any, kwargs: Dict[str, Any]) -> Dict[s
     for key, value in kwargs.items():
         if key in type_hints:
             target_type = type_hints[key]
-            coerced[key] = _coerce_dict_to_model(value, target_type)
+            coerced[key] = _coerce_value(value, target_type)
         else:
             coerced[key] = value
 
