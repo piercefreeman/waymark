@@ -9,6 +9,7 @@
 //!
 //! Configuration is via environment variables:
 //! - RAPPEL_DATABASE_URL: PostgreSQL connection string (required)
+//! - RAPPEL_WORKER_GRPC_ADDR: gRPC server for worker connections (default: 127.0.0.1:24118)
 //! - RAPPEL_USER_MODULE: Python module to preload
 //! - RAPPEL_WORKER_COUNT: Number of workers (default: num_cpus)
 //! - RAPPEL_BATCH_SIZE: Actions per poll cycle (default: 100)
@@ -56,7 +57,7 @@ async fn main() -> Result<()> {
     info!("connected to database");
 
     // Start worker bridge server
-    let worker_bridge = WorkerBridgeServer::start(Some(config.grpc_addr)).await?;
+    let worker_bridge = WorkerBridgeServer::start(Some(config.worker_grpc_addr)).await?;
     info!(addr = %worker_bridge.addr(), "worker bridge started");
 
     // Start webapp server if enabled

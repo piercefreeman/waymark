@@ -2,8 +2,8 @@
 //!
 //! Uses the following environment variables:
 //! - `RAPPEL_DATABASE_URL`: PostgreSQL connection string (required)
-//! - `RAPPEL_HTTP_ADDR`: HTTP server bind address (default: 127.0.0.1:24117)
-//! - `RAPPEL_GRPC_ADDR`: gRPC server bind address (default: HTTP port + 1)
+//! - `RAPPEL_BRIDGE_GRPC_ADDR`: gRPC server for client connections to singleton (default: 127.0.0.1:24117)
+//! - `RAPPEL_WORKER_GRPC_ADDR`: gRPC server for worker cluster connections (default: 127.0.0.1:24118)
 //! - `RAPPEL_BASE_PORT`: Base port for singleton server probing (default: 24117)
 //! - `RAPPEL_WORKER_COUNT`: Number of Python workers (default: num_cpus)
 //! - `RAPPEL_CONCURRENT_PER_WORKER`: Max concurrent actions per worker (default: 10)
@@ -37,11 +37,11 @@ pub struct Config {
     /// PostgreSQL connection URL
     pub database_url: String,
 
-    /// HTTP server bind address
-    pub http_addr: SocketAddr,
+    /// gRPC server for client connections to singleton (WorkflowService + health)
+    pub bridge_grpc_addr: SocketAddr,
 
-    /// gRPC server bind address (for worker bridge)
-    pub grpc_addr: SocketAddr,
+    /// gRPC server for worker cluster connections (WorkerBridge)
+    pub worker_grpc_addr: SocketAddr,
 
     /// Base port for singleton server probing
     pub base_port: u16,
@@ -115,19 +115,15 @@ impl Config {
         let database_url = env::var("RAPPEL_DATABASE_URL")
             .context("RAPPEL_DATABASE_URL environment variable is required")?;
 
-        let http_addr =
-            env::var("RAPPEL_HTTP_ADDR").unwrap_or_else(|_| "127.0.0.1:24117".to_string());
-        let http_addr =
-            SocketAddr::from_str(&http_addr).context("invalid RAPPEL_HTTP_ADDR format")?;
+        let bridge_grpc_addr =
+            env::var("RAPPEL_BRIDGE_GRPC_ADDR").unwrap_or_else(|_| "127.0.0.1:24117".to_string());
+        let bridge_grpc_addr = SocketAddr::from_str(&bridge_grpc_addr)
+            .context("invalid RAPPEL_BRIDGE_GRPC_ADDR format")?;
 
-        let grpc_addr = match env::var("RAPPEL_GRPC_ADDR") {
-            Ok(s) => SocketAddr::from_str(&s).context("invalid RAPPEL_GRPC_ADDR format")?,
-            Err(_) => {
-                let mut addr = http_addr;
-                addr.set_port(http_addr.port() + 1);
-                addr
-            }
-        };
+        let worker_grpc_addr =
+            env::var("RAPPEL_WORKER_GRPC_ADDR").unwrap_or_else(|_| "127.0.0.1:24118".to_string());
+        let worker_grpc_addr = SocketAddr::from_str(&worker_grpc_addr)
+            .context("invalid RAPPEL_WORKER_GRPC_ADDR format")?;
 
         let base_port = env::var("RAPPEL_BASE_PORT")
             .ok()
@@ -162,8 +158,8 @@ impl Config {
 
         Ok(Self {
             database_url,
-            http_addr,
-            grpc_addr,
+            bridge_grpc_addr,
+            worker_grpc_addr,
             base_port,
             worker_count,
             concurrent_per_worker,
@@ -181,8 +177,8 @@ impl Config {
         let concurrent_per_worker = 5;
         Self {
             database_url: database_url.to_string(),
-            http_addr: "127.0.0.1:0".parse().unwrap(),
-            grpc_addr: "127.0.0.1:0".parse().unwrap(),
+            bridge_grpc_addr: "127.0.0.1:0".parse().unwrap(),
+            worker_grpc_addr: "127.0.0.1:0".parse().unwrap(),
             base_port: DEFAULT_BASE_PORT,
             worker_count,
             concurrent_per_worker,
@@ -254,15 +250,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_default_grpc_port() {
-        // When GRPC addr not set, it should be HTTP port + 1
-        let http_addr: SocketAddr = "127.0.0.1:24117".parse().unwrap();
-        let expected_grpc: SocketAddr = "127.0.0.1:24118".parse().unwrap();
+    fn test_default_grpc_ports() {
+        // Bridge gRPC defaults to 24117, Worker gRPC defaults to 24118
+        let expected_bridge: SocketAddr = "127.0.0.1:24117".parse().unwrap();
+        let expected_worker: SocketAddr = "127.0.0.1:24118".parse().unwrap();
 
-        let mut grpc_addr = http_addr;
-        grpc_addr.set_port(http_addr.port() + 1);
-
-        assert_eq!(grpc_addr, expected_grpc);
+        // These are the hardcoded defaults in from_env()
+        assert_eq!(expected_bridge.port(), 24117);
+        assert_eq!(expected_worker.port(), 24118);
     }
 
     #[test]

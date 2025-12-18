@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock, RLock
 from typing import AsyncIterator, Optional
-from urllib.parse import urlparse
 
 import grpc
 from grpc import aio  # type: ignore[attr-defined]
@@ -21,7 +20,7 @@ DEFAULT_HOST = "127.0.0.1"
 LOGGER = configure_logger("rappel.bridge")
 
 _PORT_LOCK = RLock()
-_CACHED_PORT: Optional[int] = None
+_CACHED_GRPC_PORT: Optional[int] = None
 _GRPC_TARGET: Optional[str] = None
 _GRPC_CHANNEL: Optional[aio.Channel] = None
 _GRPC_STUB: Optional[pb2_grpc.WorkflowServiceStub] = None
@@ -45,29 +44,31 @@ def _boot_command() -> list[str]:
     return [binary]
 
 
-def _remember_port(port: int) -> int:
-    global _CACHED_PORT
+def _remember_grpc_port(port: int) -> int:
+    global _CACHED_GRPC_PORT
     with _PORT_LOCK:
-        _CACHED_PORT = port
+        _CACHED_GRPC_PORT = port
     return port
 
 
-def _cached_port() -> Optional[int]:
+def _cached_grpc_port() -> Optional[int]:
     with _PORT_LOCK:
-        return _CACHED_PORT
+        return _CACHED_GRPC_PORT
 
 
-def _env_port_override() -> Optional[int]:
-    override = os.environ.get("RAPPEL_SERVER_PORT")
+def _env_grpc_port_override() -> Optional[int]:
+    """Check for explicit gRPC port override via environment."""
+    override = os.environ.get("RAPPEL_BRIDGE_GRPC_PORT")
     if not override:
         return None
     try:
         return int(override)
     except ValueError as exc:  # pragma: no cover
-        raise RuntimeError(f"invalid RAPPEL_SERVER_PORT value: {override}") from exc
+        raise RuntimeError(f"invalid RAPPEL_BRIDGE_GRPC_PORT value: {override}") from exc
 
 
 def _boot_singleton_blocking() -> int:
+    """Boot the singleton and return the gRPC port."""
     command = _boot_command()
     with tempfile.NamedTemporaryFile(mode="w+", suffix=".txt") as f:
         output_file = Path(f.name)
@@ -99,74 +100,65 @@ def _boot_singleton_blocking() -> int:
             # pipe to the subprocess and therefore never correctly close the file descriptor and signal
             # exit process status to Python.
             port_str = output_file.read_text().strip()
-            port = int(port_str)
-            LOGGER.info("boot command reported singleton port %s", port)
-            return port
+            grpc_port = int(port_str)
+            LOGGER.info("boot command reported singleton gRPC port %s", grpc_port)
+            return grpc_port
         except (ValueError, FileNotFoundError) as exc:  # pragma: no cover
             raise RuntimeError(f"unable to read port from output file: {exc}") from exc
 
 
-def _resolve_port() -> int:
-    cached = _cached_port()
+def _resolve_grpc_port() -> int:
+    """Resolve the gRPC port, booting singleton if necessary."""
+    cached = _cached_grpc_port()
     if cached is not None:
         return cached
-    env_port = _env_port_override()
+    env_port = _env_grpc_port_override()
     if env_port is not None:
-        return _remember_port(env_port)
+        return _remember_grpc_port(env_port)
     with _BOOT_MUTEX:
-        cached = _cached_port()
+        cached = _cached_grpc_port()
         if cached is not None:
             return cached
         port = _boot_singleton_blocking()
-        return _remember_port(port)
+        return _remember_grpc_port(port)
 
 
-async def _ensure_port_async() -> int:
-    cached = _cached_port()
+async def _ensure_grpc_port_async() -> int:
+    """Ensure we have a gRPC port, booting singleton if necessary."""
+    cached = _cached_grpc_port()
     if cached is not None:
         return cached
-    env_port = _env_port_override()
+    env_port = _env_grpc_port_override()
     if env_port is not None:
-        return _remember_port(env_port)
+        return _remember_grpc_port(env_port)
     async with _ASYNC_BOOT_LOCK:
-        cached = _cached_port()
+        cached = _cached_grpc_port()
         if cached is not None:
             return cached
         loop = asyncio.get_running_loop()
         LOGGER.info("No cached singleton found, booting new instance")
         port = await loop.run_in_executor(None, _boot_singleton_blocking)
-        LOGGER.info("Singleton ready on port %s", port)
-        return _remember_port(port)
+        LOGGER.info("Singleton ready on gRPC port %s", port)
+        return _remember_grpc_port(port)
 
 
 @asynccontextmanager
 async def ensure_singleton() -> AsyncIterator[int]:
-    """Yield the HTTP port for the singleton server, booting it exactly once."""
-    port = await _ensure_port_async()
+    """Yield the gRPC port for the singleton server, booting it exactly once."""
+    port = await _ensure_grpc_port_async()
     yield port
 
 
 def _grpc_target() -> str:
-    explicit = os.environ.get("RAPPEL_GRPC_ADDR")
+    """Get the gRPC target address for the bridge server."""
+    # Check for explicit full address override
+    explicit = os.environ.get("RAPPEL_BRIDGE_GRPC_ADDR")
     if explicit:
         return explicit
-    http_url = os.environ.get("RAPPEL_SERVER_URL")
-    host_from_url = None
-    port_from_url = None
-    if http_url:
-        parsed = urlparse(http_url)
-        host_from_url = parsed.hostname
-        port_from_url = parsed.port
-    host = host_from_url or os.environ.get("RAPPEL_SERVER_HOST", DEFAULT_HOST)
-    port_override = os.environ.get("RAPPEL_GRPC_PORT")
-    if port_override:
-        try:
-            port = int(port_override)
-        except ValueError as exc:  # pragma: no cover
-            raise RuntimeError(f"invalid RAPPEL_GRPC_PORT value: {port_override}") from exc
-    else:
-        http_port = port_from_url if port_from_url is not None else _resolve_port()
-        port = http_port + 1
+
+    # Otherwise, use host + port
+    host = os.environ.get("RAPPEL_BRIDGE_GRPC_HOST", DEFAULT_HOST)
+    port = _resolve_grpc_port()
     return f"{host}:{port}"
 
 

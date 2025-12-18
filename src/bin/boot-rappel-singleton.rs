@@ -2,14 +2,14 @@
 //! Boot Rappel Singleton - Ensures a single server instance is running.
 //!
 //! This binary:
-//! 1. Probes a range of ports to find an existing Rappel server
+//! 1. Probes a range of ports to find an existing Rappel bridge server via gRPC health check
 //! 2. If found, outputs the existing server's port
 //! 3. If not found, spawns a new server and outputs its port
 //!
 //! Usage:
 //!   boot-rappel-singleton [--port-file <path>]
 //!
-//! The port file will contain the HTTP port number on success.
+//! The port file will contain the gRPC port number on success.
 
 use std::{
     env, fs,
@@ -19,7 +19,9 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
-use serde::Deserialize;
+use tonic::transport::Channel;
+use tonic_health::pb::HealthCheckRequest;
+use tonic_health::pb::health_client::HealthClient;
 use tracing::{debug, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -34,14 +36,8 @@ const HEALTH_TIMEOUT: Duration = Duration::from_secs(2);
 /// Startup wait time for new server
 const STARTUP_WAIT: Duration = Duration::from_secs(5);
 
-#[derive(Debug, Deserialize)]
-struct HealthResponse {
-    #[allow(dead_code)]
-    status: String,
-    service: String,
-    http_port: u16,
-    grpc_port: u16,
-}
+/// The gRPC service name we check for health
+const HEALTH_SERVICE_NAME: &str = "rappel.messages.WorkflowService";
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -63,25 +59,24 @@ async fn main() -> Result<()> {
         .map(|c| c.base_port)
         .unwrap_or(rappel::DEFAULT_BASE_PORT);
 
-    info!(base_port, "probing for existing rappel server");
+    info!(
+        base_port,
+        "probing for existing rappel server via gRPC health check"
+    );
 
-    if let Some(health) = probe_existing_server(base_port).await {
-        info!(
-            port = health.http_port,
-            grpc_port = health.grpc_port,
-            "found existing rappel server"
-        );
-        write_port_file(&port_file, health.http_port)?;
+    if let Some(port) = probe_existing_server(base_port).await {
+        info!(port, "found existing rappel server");
+        write_port_file(&port_file, port)?;
         return Ok(());
     }
 
     info!("no existing server found, spawning new instance");
 
     // Spawn new server
-    let http_port = spawn_server(base_port).await?;
+    let grpc_port = spawn_server(base_port).await?;
 
-    info!(port = http_port, "rappel server started");
-    write_port_file(&port_file, http_port)?;
+    info!(port = grpc_port, "rappel server started");
+    write_port_file(&port_file, grpc_port)?;
 
     Ok(())
 }
@@ -97,39 +92,66 @@ fn parse_port_file_arg(args: &[String]) -> Option<PathBuf> {
     None
 }
 
-async fn probe_existing_server(base_port: u16) -> Option<HealthResponse> {
-    let client = reqwest::Client::builder()
-        .timeout(HEALTH_TIMEOUT)
-        .build()
-        .ok()?;
-
+async fn probe_existing_server(base_port: u16) -> Option<u16> {
     for offset in 0..PORT_PROBE_COUNT {
         let port = base_port + offset;
-        let url = format!("http://127.0.0.1:{port}/healthz");
 
-        debug!(port, "probing health endpoint");
+        debug!(port, "probing gRPC health endpoint");
 
-        match client.get(&url).send().await {
-            Ok(response) if response.status().is_success() => {
-                if let Ok(health) = response.json::<HealthResponse>().await {
-                    if health.service == "rappel" {
-                        return Some(health);
-                    }
-                }
-            }
-            Ok(_) => {}
-            Err(e) => {
-                debug!(port, error = %e, "probe failed");
-            }
+        if check_grpc_health(port).await {
+            return Some(port);
         }
     }
 
     None
 }
 
+async fn check_grpc_health(port: u16) -> bool {
+    let addr = format!("http://127.0.0.1:{port}");
+
+    // Try to connect with timeout
+    let channel = match tokio::time::timeout(
+        HEALTH_TIMEOUT,
+        Channel::from_shared(addr).unwrap().connect(),
+    )
+    .await
+    {
+        Ok(Ok(channel)) => channel,
+        Ok(Err(e)) => {
+            debug!(port, error = %e, "failed to connect");
+            return false;
+        }
+        Err(_) => {
+            debug!(port, "connection timed out");
+            return false;
+        }
+    };
+
+    let mut client = HealthClient::new(channel);
+
+    let request = HealthCheckRequest {
+        service: HEALTH_SERVICE_NAME.to_string(),
+    };
+
+    match tokio::time::timeout(HEALTH_TIMEOUT, client.check(request)).await {
+        Ok(Ok(response)) => {
+            let status = response.into_inner().status;
+            // ServingStatus::Serving = 1
+            status == 1
+        }
+        Ok(Err(e)) => {
+            debug!(port, error = %e, "health check failed");
+            false
+        }
+        Err(_) => {
+            debug!(port, "health check timed out");
+            false
+        }
+    }
+}
+
 async fn spawn_server(base_port: u16) -> Result<u16> {
-    let http_addr = format!("127.0.0.1:{base_port}");
-    let grpc_addr = format!("127.0.0.1:{}", base_port + 1);
+    let grpc_addr = format!("127.0.0.1:{base_port}");
 
     // Find the rappel-bridge binary
     let server_bin = find_server_binary()?;
@@ -138,8 +160,7 @@ async fn spawn_server(base_port: u16) -> Result<u16> {
 
     // Spawn the server process
     let mut cmd = Command::new(&server_bin);
-    cmd.env("RAPPEL_HTTP_ADDR", &http_addr)
-        .env("RAPPEL_GRPC_ADDR", &grpc_addr)
+    cmd.env("RAPPEL_BRIDGE_GRPC_ADDR", &grpc_addr)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
@@ -154,20 +175,11 @@ async fn spawn_server(base_port: u16) -> Result<u16> {
     let _child = cmd.spawn().context("failed to spawn rappel-bridge")?;
 
     // Wait for server to start
-    let client = reqwest::Client::builder().timeout(HEALTH_TIMEOUT).build()?;
-
     let deadline = tokio::time::Instant::now() + STARTUP_WAIT;
-    let url = format!("http://127.0.0.1:{base_port}/healthz");
 
     while tokio::time::Instant::now() < deadline {
-        if let Ok(response) = client.get(&url).send().await {
-            if response.status().is_success() {
-                if let Ok(health) = response.json::<HealthResponse>().await {
-                    if health.service == "rappel" {
-                        return Ok(health.http_port);
-                    }
-                }
-            }
+        if check_grpc_health(base_port).await {
+            return Ok(base_port);
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
