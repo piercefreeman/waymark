@@ -60,7 +60,7 @@ class Workflow:
     _ir_lock: ClassVar[RLock] = RLock()
     _workflow_version_id: ClassVar[Optional[str]] = None
 
-    async def run(self) -> Any:
+    async def run(self, *args: Any, **kwargs: Any) -> Any:
         raise NotImplementedError
 
     async def run_action(
