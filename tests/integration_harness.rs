@@ -312,9 +312,10 @@ impl IntegrationHarness {
         info!(addr = %worker_bridge.addr(), "worker bridge started");
 
         // Set up Python environment and run registration script
+        // Use the new environment variable names for the bridge gRPC address
         let env_vars = vec![
-            ("RAPPEL_SERVER_PORT", "9999".to_string()),
-            ("RAPPEL_GRPC_ADDR", grpc_addr.to_string()),
+            ("RAPPEL_BRIDGE_GRPC_PORT", "9999".to_string()),
+            ("RAPPEL_BRIDGE_GRPC_ADDR", grpc_addr.to_string()),
             ("RAPPEL_SKIP_WAIT_FOR_INSTANCE", "1".to_string()),
         ];
         let python_env = run_in_env(config.files, &[], &env_vars, config.entrypoint).await?;
