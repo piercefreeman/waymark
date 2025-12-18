@@ -1519,8 +1519,7 @@ impl DAGConverter {
             .nodes
             .iter()
             .filter(|(_, n)| {
-                n.node_type == "return"
-                    && n.function_name.as_ref() == Some(&fn_def.name)
+                n.node_type == "return" && n.function_name.as_ref() == Some(&fn_def.name)
             })
             .map(|(id, _)| id.clone())
             .collect();
@@ -2574,10 +2573,18 @@ impl DAGConverter {
                     compound_guard.clone(),
                 ));
             }
-            // Connect elif end to join
+            // Connect elif end to join - but NOT if it ends with a return statement.
+            // Return statements should flow to workflow output, not back to join.
             if let Some(elif_end) = elif_last {
-                self.dag
-                    .add_edge(DAGEdge::state_machine(elif_end.clone(), join_id.clone()));
+                let is_return = self
+                    .dag
+                    .nodes
+                    .get(elif_end)
+                    .is_some_and(|n| n.node_type == "return");
+                if !is_return {
+                    self.dag
+                        .add_edge(DAGEdge::state_machine(elif_end.clone(), join_id.clone()));
+                }
             }
         }
 
@@ -2731,12 +2738,20 @@ impl DAGConverter {
         }
         self.dag.add_node(join_node);
 
-        // Connect try body success path to join
+        // Connect try body success path to join - but NOT if it ends with a return statement.
+        // Return statements should flow to workflow output, not back to join.
         if let Some(ref try_last) = try_body_last {
-            self.dag.add_edge(DAGEdge::state_machine_success(
-                try_last.clone(),
-                join_id.clone(),
-            ));
+            let is_return = self
+                .dag
+                .nodes
+                .get(try_last)
+                .is_some_and(|n| n.node_type == "return");
+            if !is_return {
+                self.dag.add_edge(DAGEdge::state_machine_success(
+                    try_last.clone(),
+                    join_id.clone(),
+                ));
+            }
         }
 
         // Convert each except handler and connect from try body with exception types
@@ -2757,9 +2772,17 @@ impl DAGConverter {
                         ));
                     }
 
-                    // Connect handler end to join
-                    self.dag
-                        .add_edge(DAGEdge::state_machine(handler_last, join_id.clone()));
+                    // Connect handler end to join - but NOT if it ends with a return statement.
+                    // Return statements should flow to workflow output, not back to join.
+                    let is_return = self
+                        .dag
+                        .nodes
+                        .get(&handler_last)
+                        .is_some_and(|n| n.node_type == "return");
+                    if !is_return {
+                        self.dag
+                            .add_edge(DAGEdge::state_machine(handler_last, join_id.clone()));
+                    }
                 }
             }
         }
