@@ -202,6 +202,7 @@ impl proto::workflow_service_server::WorkflowService for TestWorkflowService {
                 proto::ScheduleInfo {
                     id: s.id.to_string(),
                     workflow_name: s.workflow_name,
+                    schedule_name: s.schedule_name,
                     schedule_type: schedule_type.into(),
                     cron_expression: s.cron_expression.unwrap_or_default(),
                     interval_seconds: s.interval_seconds.unwrap_or(0),

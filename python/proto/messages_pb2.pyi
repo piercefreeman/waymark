@@ -909,7 +909,12 @@ class RegisterScheduleRequest(google.protobuf.message.Message):
     SCHEDULE_FIELD_NUMBER: builtins.int
     INPUTS_FIELD_NUMBER: builtins.int
     REGISTRATION_FIELD_NUMBER: builtins.int
+    SCHEDULE_NAME_FIELD_NUMBER: builtins.int
     workflow_name: builtins.str
+    schedule_name: builtins.str
+    """Required: unique name for this schedule. Allows multiple schedules per workflow
+    with different inputs. Must be unique within a workflow.
+    """
     @property
     def schedule(self) -> Global___ScheduleDefinition: ...
     @property
@@ -931,6 +936,7 @@ class RegisterScheduleRequest(google.protobuf.message.Message):
         schedule: Global___ScheduleDefinition | None = ...,
         inputs: Global___WorkflowArguments | None = ...,
         registration: Global___WorkflowRegistration | None = ...,
+        schedule_name: builtins.str = ...,
     ) -> None: ...
     def HasField(
         self,
@@ -947,6 +953,8 @@ class RegisterScheduleRequest(google.protobuf.message.Message):
             b"registration",
             "schedule",
             b"schedule",
+            "schedule_name",
+            b"schedule_name",
             "workflow_name",
             b"workflow_name",
         ],
@@ -982,16 +990,28 @@ class UpdateScheduleStatusRequest(google.protobuf.message.Message):
 
     WORKFLOW_NAME_FIELD_NUMBER: builtins.int
     STATUS_FIELD_NUMBER: builtins.int
+    SCHEDULE_NAME_FIELD_NUMBER: builtins.int
     workflow_name: builtins.str
     status: Global___ScheduleStatus.ValueType
+    schedule_name: builtins.str
+    """Required: name of the schedule to update."""
     def __init__(
         self,
         *,
         workflow_name: builtins.str = ...,
         status: Global___ScheduleStatus.ValueType = ...,
+        schedule_name: builtins.str = ...,
     ) -> None: ...
     def ClearField(
-        self, field_name: typing.Literal["status", b"status", "workflow_name", b"workflow_name"]
+        self,
+        field_name: typing.Literal[
+            "schedule_name",
+            b"schedule_name",
+            "status",
+            b"status",
+            "workflow_name",
+            b"workflow_name",
+        ],
     ) -> None: ...
 
 Global___UpdateScheduleStatusRequest: typing_extensions.TypeAlias = UpdateScheduleStatusRequest
@@ -1016,13 +1036,22 @@ class DeleteScheduleRequest(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
     WORKFLOW_NAME_FIELD_NUMBER: builtins.int
+    SCHEDULE_NAME_FIELD_NUMBER: builtins.int
     workflow_name: builtins.str
+    schedule_name: builtins.str
+    """Required: name of the schedule to delete."""
     def __init__(
         self,
         *,
         workflow_name: builtins.str = ...,
+        schedule_name: builtins.str = ...,
     ) -> None: ...
-    def ClearField(self, field_name: typing.Literal["workflow_name", b"workflow_name"]) -> None: ...
+    def ClearField(
+        self,
+        field_name: typing.Literal[
+            "schedule_name", b"schedule_name", "workflow_name", b"workflow_name"
+        ],
+    ) -> None: ...
 
 Global___DeleteScheduleRequest: typing_extensions.TypeAlias = DeleteScheduleRequest
 
@@ -1086,6 +1115,7 @@ class ScheduleInfo(google.protobuf.message.Message):
     LAST_INSTANCE_ID_FIELD_NUMBER: builtins.int
     CREATED_AT_FIELD_NUMBER: builtins.int
     UPDATED_AT_FIELD_NUMBER: builtins.int
+    SCHEDULE_NAME_FIELD_NUMBER: builtins.int
     id: builtins.str
     workflow_name: builtins.str
     schedule_type: Global___ScheduleType.ValueType
@@ -1104,6 +1134,8 @@ class ScheduleInfo(google.protobuf.message.Message):
     """ISO 8601 timestamp"""
     updated_at: builtins.str
     """ISO 8601 timestamp"""
+    schedule_name: builtins.str
+    """Name of this schedule (allows multiple per workflow)"""
     def __init__(
         self,
         *,
@@ -1118,6 +1150,7 @@ class ScheduleInfo(google.protobuf.message.Message):
         last_instance_id: builtins.str = ...,
         created_at: builtins.str = ...,
         updated_at: builtins.str = ...,
+        schedule_name: builtins.str = ...,
     ) -> None: ...
     def ClearField(
         self,
@@ -1136,6 +1169,8 @@ class ScheduleInfo(google.protobuf.message.Message):
             b"last_run_at",
             "next_run_at",
             b"next_run_at",
+            "schedule_name",
+            b"schedule_name",
             "schedule_type",
             b"schedule_type",
             "status",

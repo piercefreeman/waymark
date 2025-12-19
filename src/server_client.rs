@@ -266,10 +266,16 @@ impl proto::workflow_service_server::WorkflowService for WorkflowGrpcService {
 
         let input_payload = inner.inputs.map(|i| i.encode_to_vec());
 
+        // Validate schedule_name is provided
+        if inner.schedule_name.is_empty() {
+            return Err(tonic::Status::invalid_argument("schedule_name is required"));
+        }
+
         let schedule_id = self
             .database
             .upsert_schedule(
                 &inner.workflow_name,
+                &inner.schedule_name,
                 schedule_type,
                 cron_expr,
                 interval_secs,
@@ -281,6 +287,7 @@ impl proto::workflow_service_server::WorkflowService for WorkflowGrpcService {
 
         info!(
             workflow_name = %inner.workflow_name,
+            schedule_name = %inner.schedule_name,
             schedule_type = %schedule_type.as_str(),
             next_run_at = %next_run.to_rfc3339(),
             "registered workflow schedule"
@@ -306,14 +313,20 @@ impl proto::workflow_service_server::WorkflowService for WorkflowGrpcService {
             }
         };
 
+        // Validate schedule_name is provided
+        if inner.schedule_name.is_empty() {
+            return Err(tonic::Status::invalid_argument("schedule_name is required"));
+        }
+
         let success = self
             .database
-            .update_schedule_status(&inner.workflow_name, status_str)
+            .update_schedule_status(&inner.workflow_name, &inner.schedule_name, status_str)
             .await
             .map_err(|e| tonic::Status::internal(format!("database error: {e}")))?;
 
         info!(
             workflow_name = %inner.workflow_name,
+            schedule_name = %inner.schedule_name,
             status = %status_str,
             success = success,
             "updated schedule status"
@@ -330,14 +343,20 @@ impl proto::workflow_service_server::WorkflowService for WorkflowGrpcService {
     ) -> Result<tonic::Response<proto::DeleteScheduleResponse>, tonic::Status> {
         let inner = request.into_inner();
 
+        // Validate schedule_name is provided
+        if inner.schedule_name.is_empty() {
+            return Err(tonic::Status::invalid_argument("schedule_name is required"));
+        }
+
         let success = self
             .database
-            .delete_schedule(&inner.workflow_name)
+            .delete_schedule(&inner.workflow_name, &inner.schedule_name)
             .await
             .map_err(|e| tonic::Status::internal(format!("database error: {e}")))?;
 
         info!(
             workflow_name = %inner.workflow_name,
+            schedule_name = %inner.schedule_name,
             success = success,
             "deleted schedule"
         );
@@ -375,6 +394,7 @@ impl proto::workflow_service_server::WorkflowService for WorkflowGrpcService {
                 proto::ScheduleInfo {
                     id: s.id.to_string(),
                     workflow_name: s.workflow_name,
+                    schedule_name: s.schedule_name,
                     schedule_type: schedule_type.into(),
                     cron_expression: s.cron_expression.unwrap_or_default(),
                     interval_seconds: s.interval_seconds.unwrap_or(0),

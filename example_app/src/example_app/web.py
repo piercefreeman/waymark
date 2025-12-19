@@ -22,6 +22,8 @@ from example_app.workflows import (
     ComputationResult,
     ConditionalBranchWorkflow,
     DurableSleepWorkflow,
+    EarlyReturnLoopResult,
+    EarlyReturnLoopWorkflow,
     ErrorHandlingWorkflow,
     ErrorRequest,
     ErrorResult,
@@ -120,6 +122,22 @@ async def run_sleep_workflow(payload: SleepRequest) -> SleepResult:
 
 
 # =============================================================================
+# Early Return with Loop (if-return followed by for-loop)
+# =============================================================================
+
+
+class EarlyReturnLoopRequest(BaseModel):
+    input_text: str = Field(description="Input text to parse. Use 'no_session:' prefix for early return path, or comma-separated items for loop path.")
+
+
+@app.post("/api/early-return-loop", response_model=EarlyReturnLoopResult)
+async def run_early_return_loop_workflow(payload: EarlyReturnLoopRequest) -> EarlyReturnLoopResult:
+    """Run the early return + loop workflow demonstrating if-return followed by for-loop."""
+    workflow = EarlyReturnLoopWorkflow()
+    return await workflow.run(input_text=payload.input_text)
+
+
+# =============================================================================
 # Scheduled Workflows
 # =============================================================================
 
@@ -131,6 +149,7 @@ WORKFLOW_REGISTRY = {
     "LoopProcessingWorkflow": LoopProcessingWorkflow,
     "ErrorHandlingWorkflow": ErrorHandlingWorkflow,
     "DurableSleepWorkflow": DurableSleepWorkflow,
+    "EarlyReturnLoopWorkflow": EarlyReturnLoopWorkflow,
 }
 
 

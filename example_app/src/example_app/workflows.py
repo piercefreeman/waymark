@@ -456,6 +456,126 @@ class DurableSleepWorkflow(Workflow):
 
 
 # =============================================================================
+# Actions - Early Return with Loop Workflow
+# =============================================================================
+
+
+class ParseResult(BaseModel):
+    """Result from parsing that may or may not have items to process."""
+
+    session_id: str | None
+    items: list[str]
+    new_items: list[str]
+
+
+class ProcessedItemResult(BaseModel):
+    """Result from processing individual items."""
+
+    item_id: str
+    processed: bool
+
+
+class EarlyReturnLoopResult(BaseModel):
+    """Final result from early return + loop workflow."""
+
+    had_session: bool
+    processed_count: int
+    all_items: list[str]
+
+
+@action
+async def parse_input_data(input_text: str) -> ParseResult:
+    """
+    Parse input data and return result with optional session.
+
+    If input starts with 'no_session:', returns None session_id.
+    Otherwise returns a session and parses items from the input.
+    """
+    await asyncio.sleep(0.05)
+
+    if input_text.startswith("no_session:"):
+        return ParseResult(
+            session_id=None,
+            items=[],
+            new_items=[],
+        )
+
+    # Parse items from input (comma separated)
+    items = [s.strip() for s in input_text.split(",") if s.strip()]
+    return ParseResult(
+        session_id="session-123",
+        items=items,
+        new_items=items,  # In real workflow, this might be a subset
+    )
+
+
+@action
+async def process_single_item(item: str, session_id: str) -> ProcessedItemResult:
+    """Process a single item using the session."""
+    await asyncio.sleep(0.05)
+    return ProcessedItemResult(
+        item_id=f"processed-{item}",
+        processed=True,
+    )
+
+
+@action
+async def finalize_processing(items: list[str], processed_count: int) -> EarlyReturnLoopResult:
+    """Finalize the processing results."""
+    await asyncio.sleep(0.05)
+    return EarlyReturnLoopResult(
+        had_session=True,
+        processed_count=processed_count,
+        all_items=items,
+    )
+
+
+@action
+async def build_empty_result() -> EarlyReturnLoopResult:
+    """Build an empty result when no session exists."""
+    return EarlyReturnLoopResult(
+        had_session=False,
+        processed_count=0,
+        all_items=[],
+    )
+
+
+@workflow
+class EarlyReturnLoopWorkflow(Workflow):
+    """
+    Demonstrates the pattern: if-with-early-return followed by for-loop.
+
+    This pattern is common in data processing workflows where:
+    1. First action parses/validates input and returns metadata
+    2. If validation fails (e.g., no session), return early
+    3. Otherwise, loop over items from the result and process each
+    4. Finalize with aggregated results
+
+    This tests the DAG's handling of:
+    - If without else clause where the 'then' branch has a return
+    - Continuation to for-loop when the if condition is false
+    - Loop iteration over result fields
+    """
+
+    async def run(self, input_text: str) -> EarlyReturnLoopResult:
+        # Step 1: Parse the input
+        parse_result = await parse_input_data(input_text)
+
+        # Step 2: Early return if no session
+        if not parse_result.session_id:
+            return await build_empty_result()
+
+        # Step 3: Loop over new items and process each
+        processed_count = 0
+        for item in parse_result.new_items:
+            await process_single_item(item, parse_result.session_id)
+            processed_count = processed_count + 1
+
+        # Step 4: Finalize
+        return await finalize_processing(parse_result.items, processed_count)
+
+
+# =============================================================================
 # Legacy alias for backwards compatibility
 # =============================================================================
 

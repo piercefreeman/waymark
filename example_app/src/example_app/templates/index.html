@@ -232,9 +232,27 @@
       <div class="result" id="sleep-result" hidden></div>
     </section>
 
+    <!-- Early Return with Loop -->
+    <section class="workflow-section">
+      <h3>7. Early Return + Loop Pattern</h3>
+      <p>
+        Demonstrates if-with-early-return followed by for-loop. Common in data processing:
+        parse input, return early if invalid, otherwise loop over items.
+        Use "no_session:" prefix to trigger early return path.
+      </p>
+      <form id="early-return-form">
+        <label for="early-return-input">Input:</label>
+        <input type="text" id="early-return-input" name="input_text" value="apple, banana, cherry" style="width: 16rem;" />
+        <button type="submit">Run Workflow</button>
+      </form>
+      <div class="hint">Try: "apple, banana" (loop path) or "no_session:test" (early return)</div>
+      <div class="status" id="early-return-status"></div>
+      <div class="result" id="early-return-result" hidden></div>
+    </section>
+
     <!-- Scheduled Workflows -->
     <section class="workflow-section">
-      <h3>7. Scheduled Workflows</h3>
+      <h3>8. Scheduled Workflows</h3>
       <p>
         Register a workflow to run automatically on a cron schedule or at fixed intervals.
         Schedules persist across server restarts.
@@ -389,7 +407,18 @@
         (data) => JSON.stringify(data, null, 2)
       );
 
-      // 7. Schedule - toggle between cron and interval inputs
+      // 7. Early Return + Loop
+      runWorkflow(
+        "early-return-form",
+        "/api/early-return-loop",
+        (form) => {
+          const input_text = form.querySelector("#early-return-input").value.trim();
+          return input_text ? { input_text } : null;
+        },
+        (data) => JSON.stringify(data, null, 2)
+      );
+
+      // 8. Schedule - toggle between cron and interval inputs
       const scheduleTypeSelect = document.getElementById("schedule-type");
       const intervalInput = document.getElementById("schedule-interval");
       const cronInput = document.getElementById("schedule-cron");
@@ -404,7 +433,7 @@
         }
       });
 
-      // 7. Schedule - register schedule
+      // 8. Schedule - register schedule
       runWorkflow(
         "schedule-form",
         "/api/schedule",
@@ -428,7 +457,7 @@
         (data) => JSON.stringify(data, null, 2)
       );
 
-      // 7. Schedule actions - pause, resume, delete
+      // 8. Schedule actions - pause, resume, delete
       async function scheduleAction(endpoint, action) {
         const workflow_name = document.getElementById("action-workflow").value;
         const status = document.getElementById("schedule-action-status");
