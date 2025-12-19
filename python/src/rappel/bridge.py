@@ -24,6 +24,7 @@ _CACHED_GRPC_PORT: Optional[int] = None
 _GRPC_TARGET: Optional[str] = None
 _GRPC_CHANNEL: Optional[aio.Channel] = None
 _GRPC_STUB: Optional[pb2_grpc.WorkflowServiceStub] = None
+_GRPC_LOOP: Optional[asyncio.AbstractEventLoop] = None
 _BOOT_MUTEX = Lock()
 _ASYNC_BOOT_LOCK: asyncio.Lock = asyncio.Lock()
 
@@ -163,17 +164,24 @@ def _grpc_target() -> str:
 
 
 async def _workflow_stub() -> pb2_grpc.WorkflowServiceStub:
-    global _GRPC_TARGET, _GRPC_CHANNEL, _GRPC_STUB
+    global _GRPC_TARGET, _GRPC_CHANNEL, _GRPC_STUB, _GRPC_LOOP
     target = _grpc_target()
+    loop = asyncio.get_running_loop()
     channel_to_wait: Optional[aio.Channel] = None
     with _PORT_LOCK:
-        if _GRPC_STUB is not None and _GRPC_TARGET == target:
+        if (
+            _GRPC_STUB is not None
+            and _GRPC_TARGET == target
+            and _GRPC_LOOP is loop
+            and not loop.is_closed()
+        ):
             return _GRPC_STUB
         channel = aio.insecure_channel(target)
         stub = pb2_grpc.WorkflowServiceStub(channel)
         _GRPC_CHANNEL = channel
         _GRPC_STUB = stub
         _GRPC_TARGET = target
+        _GRPC_LOOP = loop
         channel_to_wait = channel
     if channel_to_wait is not None:
         await channel_to_wait.channel_ready()

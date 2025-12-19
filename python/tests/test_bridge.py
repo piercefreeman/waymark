@@ -13,6 +13,49 @@ from rappel import bridge
 from rappel.bridge import RunInstanceResult, run_instance, wait_for_instance
 
 
+class TestWorkflowStub:
+    def test_workflow_stub_is_scoped_to_event_loop(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("RAPPEL_BRIDGE_GRPC_ADDR", "test:123")
+
+        bridge._GRPC_TARGET = None
+        bridge._GRPC_CHANNEL = None
+        bridge._GRPC_STUB = None
+        bridge._GRPC_LOOP = None
+
+        created_channels: list[object] = []
+
+        class FakeChannel:
+            async def channel_ready(self) -> None:
+                return None
+
+        def fake_insecure_channel(_target: str) -> FakeChannel:
+            channel = FakeChannel()
+            created_channels.append(channel)
+            return channel
+
+        class FakeStub:
+            def __init__(self, channel: FakeChannel) -> None:
+                self.channel = channel
+
+        monkeypatch.setattr(bridge.aio, "insecure_channel", fake_insecure_channel)
+        monkeypatch.setattr(bridge.pb2_grpc, "WorkflowServiceStub", FakeStub)
+
+        async def first_loop() -> object:
+            stub_a = await bridge._workflow_stub()
+            stub_b = await bridge._workflow_stub()
+            assert stub_a is stub_b
+            return stub_a
+
+        async def second_loop() -> object:
+            return await bridge._workflow_stub()
+
+        first_stub = asyncio.run(first_loop())
+        second_stub = asyncio.run(second_loop())
+
+        assert first_stub is not second_stub
+        assert len(created_channels) == 2
+
+
 class TestRunInstance:
     """Tests for run_instance function."""
 
