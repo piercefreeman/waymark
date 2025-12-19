@@ -119,6 +119,22 @@ class SleepRequest(BaseModel):
     seconds: int = Field(ge=1, le=10, description="Seconds to sleep (1-10)")
 
 
+class GuardFallbackResult(BaseModel):
+    """Result from the default-else continuation workflow."""
+
+    user: str
+    note_count: int
+    summary: str
+
+
+class GuardFallbackRequest(BaseModel):
+    user: str = Field(
+        min_length=1,
+        max_length=30,
+        description="User to summarize. Use 'empty' to trigger the empty path.",
+    )
+
+
 # =============================================================================
 # Actions - Parallel Workflow
 # =============================================================================
@@ -649,6 +665,56 @@ class EarlyReturnLoopWorkflow(Workflow):
 
         # Step 4: Finalize
         return await finalize_processing(parse_result.items, processed_count)
+
+
+# =============================================================================
+# Actions - Guard Fallback Workflow
+# =============================================================================
+
+
+@action
+async def fetch_recent_notes(user: str) -> list[str]:
+    """Return recent notes or an empty list for the empty path."""
+    await asyncio.sleep(0.05)
+    if user.lower() == "empty":
+        return []
+    return [f"{user}-note-1", f"{user}-note-2"]
+
+
+@action
+async def summarize_notes(notes: list[str]) -> str:
+    """Summarize a list of notes."""
+    await asyncio.sleep(0.05)
+    return " | ".join(notes)
+
+
+@action
+async def build_guard_fallback_result(
+    user: str, note_count: int, summary: str
+) -> GuardFallbackResult:
+    """Build the guard fallback result."""
+    await asyncio.sleep(0)
+    return GuardFallbackResult(
+        user=user,
+        note_count=note_count,
+        summary=summary,
+    )
+
+
+@workflow
+class GuardFallbackWorkflow(Workflow):
+    """
+    Demonstrates an if without else that still continues.
+
+    If the notes list is empty, we skip the summarize action and fall through.
+    """
+
+    async def run(self, user: str) -> GuardFallbackResult:
+        notes = await fetch_recent_notes(user)
+        summary = "no notes found"
+        if notes:
+            summary = await summarize_notes(notes)
+        return await build_guard_fallback_result(user, len(notes), summary)
 
 
 # =============================================================================

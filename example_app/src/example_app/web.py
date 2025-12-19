@@ -22,6 +22,9 @@ from example_app.workflows import (
     ComputationResult,
     ConditionalBranchWorkflow,
     DurableSleepWorkflow,
+    GuardFallbackRequest,
+    GuardFallbackResult,
+    GuardFallbackWorkflow,
     EarlyReturnLoopResult,
     EarlyReturnLoopWorkflow,
     ErrorHandlingWorkflow,
@@ -137,6 +140,20 @@ async def run_sleep_workflow(payload: SleepRequest) -> SleepResult:
 
 
 # =============================================================================
+# Guard Fallback (if without else)
+# =============================================================================
+
+
+@app.post("/api/guard-fallback", response_model=GuardFallbackResult)
+async def run_guard_fallback_workflow(
+    payload: GuardFallbackRequest,
+) -> GuardFallbackResult:
+    """Run the guard fallback workflow demonstrating default continuation."""
+    workflow = GuardFallbackWorkflow()
+    return await workflow.run(user=payload.user)
+
+
+# =============================================================================
 # Early Return with Loop (if-return followed by for-loop)
 # =============================================================================
 
@@ -164,6 +181,7 @@ WORKFLOW_REGISTRY = {
     "LoopProcessingWorkflow": LoopProcessingWorkflow,
     "ErrorHandlingWorkflow": ErrorHandlingWorkflow,
     "DurableSleepWorkflow": DurableSleepWorkflow,
+    "GuardFallbackWorkflow": GuardFallbackWorkflow,
     "EarlyReturnLoopWorkflow": EarlyReturnLoopWorkflow,
 }
 

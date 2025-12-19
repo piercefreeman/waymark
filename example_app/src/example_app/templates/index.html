@@ -250,9 +250,26 @@
       <div class="result" id="sleep-result" hidden></div>
     </section>
 
+    <!-- Guard Fallback -->
+    <section class="workflow-section">
+      <h3>8. Guard Fallback (if without else)</h3>
+      <p>
+        Skip an action when the guard is falsy, then continue to the next step.
+        Use "empty" to simulate no notes returned.
+      </p>
+      <form id="guard-fallback-form">
+        <label for="guard-fallback-user">User:</label>
+        <input type="text" id="guard-fallback-user" name="user" value="alice" maxlength="30" />
+        <button type="submit">Run Guard Fallback</button>
+      </form>
+      <div class="hint">Try: "alice" (notes) or "empty" (fallback path)</div>
+      <div class="status" id="guard-fallback-status"></div>
+      <div class="result" id="guard-fallback-result" hidden></div>
+    </section>
+
     <!-- Early Return with Loop -->
     <section class="workflow-section">
-      <h3>7. Early Return + Loop Pattern</h3>
+      <h3>9. Early Return + Loop Pattern</h3>
       <p>
         Demonstrates if-with-early-return followed by for-loop. Common in data processing:
         parse input, return early if invalid, otherwise loop over items.
@@ -270,7 +287,7 @@
 
     <!-- Scheduled Workflows -->
     <section class="workflow-section">
-      <h3>8. Scheduled Workflows</h3>
+      <h3>10. Scheduled Workflows</h3>
       <p>
         Register a workflow to run automatically on a cron schedule or at fixed intervals.
         Schedules persist across server restarts.
@@ -444,7 +461,18 @@
         (data) => JSON.stringify(data, null, 2)
       );
 
-      // 7. Early Return + Loop
+      // 8. Guard Fallback
+      runWorkflow(
+        "guard-fallback-form",
+        "/api/guard-fallback",
+        (form) => {
+          const user = form.querySelector("#guard-fallback-user").value.trim();
+          return user ? { user } : null;
+        },
+        (data) => JSON.stringify(data, null, 2)
+      );
+
+      // 9. Early Return + Loop
       runWorkflow(
         "early-return-form",
         "/api/early-return-loop",
