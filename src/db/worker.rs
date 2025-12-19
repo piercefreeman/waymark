@@ -1541,19 +1541,21 @@ impl Database {
         schedule_type: ScheduleType,
         cron_expression: Option<&str>,
         interval_seconds: Option<i64>,
+        jitter_seconds: i64,
         input_payload: Option<&[u8]>,
         next_run_at: DateTime<Utc>,
     ) -> DbResult<ScheduleId> {
         let row = sqlx::query(
             r#"
             INSERT INTO workflow_schedules
-                (workflow_name, schedule_name, schedule_type, cron_expression, interval_seconds, input_payload, next_run_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+                (workflow_name, schedule_name, schedule_type, cron_expression, interval_seconds, jitter_seconds, input_payload, next_run_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             ON CONFLICT (workflow_name, schedule_name)
             DO UPDATE SET
                 schedule_type = EXCLUDED.schedule_type,
                 cron_expression = EXCLUDED.cron_expression,
                 interval_seconds = EXCLUDED.interval_seconds,
+                jitter_seconds = EXCLUDED.jitter_seconds,
                 input_payload = EXCLUDED.input_payload,
                 next_run_at = EXCLUDED.next_run_at,
                 status = 'active',
@@ -1566,6 +1568,7 @@ impl Database {
         .bind(schedule_type.as_str())
         .bind(cron_expression)
         .bind(interval_seconds)
+        .bind(jitter_seconds)
         .bind(input_payload)
         .bind(next_run_at)
         .fetch_one(&self.pool)
@@ -1583,7 +1586,7 @@ impl Database {
     ) -> DbResult<Option<WorkflowSchedule>> {
         let schedule = sqlx::query_as::<_, WorkflowSchedule>(
             r#"
-            SELECT id, workflow_name, schedule_name, schedule_type, cron_expression, interval_seconds,
+            SELECT id, workflow_name, schedule_name, schedule_type, cron_expression, interval_seconds, jitter_seconds,
                    input_payload, status, next_run_at, last_run_at, last_instance_id,
                    created_at, updated_at
             FROM workflow_schedules
@@ -1603,7 +1606,7 @@ impl Database {
     pub async fn find_due_schedules(&self, limit: i32) -> DbResult<Vec<WorkflowSchedule>> {
         let schedules = sqlx::query_as::<_, WorkflowSchedule>(
             r#"
-            SELECT id, workflow_name, schedule_name, schedule_type, cron_expression, interval_seconds,
+            SELECT id, workflow_name, schedule_name, schedule_type, cron_expression, interval_seconds, jitter_seconds,
                    input_payload, status, next_run_at, last_run_at, last_instance_id,
                    created_at, updated_at
             FROM workflow_schedules
@@ -1723,7 +1726,7 @@ impl Database {
         let schedules = if let Some(status) = status_filter {
             sqlx::query_as::<_, WorkflowSchedule>(
                 r#"
-                SELECT id, workflow_name, schedule_name, schedule_type, cron_expression, interval_seconds,
+                SELECT id, workflow_name, schedule_name, schedule_type, cron_expression, interval_seconds, jitter_seconds,
                        input_payload, status, next_run_at, last_run_at, last_instance_id,
                        created_at, updated_at
                 FROM workflow_schedules
@@ -1737,7 +1740,7 @@ impl Database {
         } else {
             sqlx::query_as::<_, WorkflowSchedule>(
                 r#"
-                SELECT id, workflow_name, schedule_name, schedule_type, cron_expression, interval_seconds,
+                SELECT id, workflow_name, schedule_name, schedule_type, cron_expression, interval_seconds, jitter_seconds,
                        input_payload, status, next_run_at, last_run_at, last_instance_id,
                        created_at, updated_at
                 FROM workflow_schedules

@@ -31,6 +31,7 @@ class ScheduleInfo:
     schedule_type: ScheduleType
     cron_expression: Optional[str]
     interval_seconds: Optional[int]
+    jitter_seconds: Optional[int]
     status: ScheduleStatus
     next_run_at: Optional[datetime]
     last_run_at: Optional[datetime]
@@ -44,6 +45,7 @@ async def schedule_workflow(
     *,
     schedule_name: str,
     schedule: Union[str, timedelta],
+    jitter: Optional[timedelta] = None,
     inputs: Optional[Dict[str, Any]] = None,
 ) -> str:
     """
@@ -60,6 +62,7 @@ async def schedule_workflow(
                        a workflow.
         schedule: Either a cron expression string (e.g., "0 * * * *" for hourly)
                   or a timedelta for interval-based scheduling.
+        jitter: Optional jitter window to add to each scheduled run.
         inputs: Optional keyword arguments to pass to each scheduled run.
 
     Returns:
@@ -117,6 +120,12 @@ async def schedule_workflow(
         schedule_def.interval_seconds = interval_seconds
     else:
         raise TypeError(f"schedule must be str or timedelta, got {type(schedule)}")
+
+    if jitter is not None:
+        jitter_seconds = int(jitter.total_seconds())
+        if jitter_seconds < 0:
+            raise ValueError("jitter must be non-negative")
+        schedule_def.jitter_seconds = jitter_seconds
 
     # Build the workflow registration payload to ensure the DAG is registered
     # This is required for the schedule to execute - the scheduler needs a
@@ -335,6 +344,7 @@ async def list_schedules(
                 schedule_type=_proto_schedule_type_to_str(s.schedule_type),
                 cron_expression=s.cron_expression if s.cron_expression else None,
                 interval_seconds=s.interval_seconds if s.interval_seconds else None,
+                jitter_seconds=s.jitter_seconds if s.jitter_seconds else None,
                 status=_proto_schedule_status_to_str(s.status),
                 next_run_at=_parse_iso_datetime(s.next_run_at),
                 last_run_at=_parse_iso_datetime(s.last_run_at),

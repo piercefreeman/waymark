@@ -875,17 +875,21 @@ class ScheduleDefinition(google.protobuf.message.Message):
     TYPE_FIELD_NUMBER: builtins.int
     CRON_EXPRESSION_FIELD_NUMBER: builtins.int
     INTERVAL_SECONDS_FIELD_NUMBER: builtins.int
+    JITTER_SECONDS_FIELD_NUMBER: builtins.int
     type: Global___ScheduleType.ValueType
     cron_expression: builtins.str
     """For cron: the cron expression (e.g., "0 * * * *")"""
     interval_seconds: builtins.int
     """For interval: duration in seconds"""
+    jitter_seconds: builtins.int
+    """Optional: jitter window in seconds (random 0..jitter_seconds)"""
     def __init__(
         self,
         *,
         type: Global___ScheduleType.ValueType = ...,
         cron_expression: builtins.str = ...,
         interval_seconds: builtins.int = ...,
+        jitter_seconds: builtins.int = ...,
     ) -> None: ...
     def ClearField(
         self,
@@ -894,6 +898,8 @@ class ScheduleDefinition(google.protobuf.message.Message):
             b"cron_expression",
             "interval_seconds",
             b"interval_seconds",
+            "jitter_seconds",
+            b"jitter_seconds",
             "type",
             b"type",
         ],
@@ -1116,6 +1122,7 @@ class ScheduleInfo(google.protobuf.message.Message):
     CREATED_AT_FIELD_NUMBER: builtins.int
     UPDATED_AT_FIELD_NUMBER: builtins.int
     SCHEDULE_NAME_FIELD_NUMBER: builtins.int
+    JITTER_SECONDS_FIELD_NUMBER: builtins.int
     id: builtins.str
     workflow_name: builtins.str
     schedule_type: Global___ScheduleType.ValueType
@@ -1136,6 +1143,8 @@ class ScheduleInfo(google.protobuf.message.Message):
     """ISO 8601 timestamp"""
     schedule_name: builtins.str
     """Name of this schedule (allows multiple per workflow)"""
+    jitter_seconds: builtins.int
+    """0 if no jitter configured"""
     def __init__(
         self,
         *,
@@ -1151,6 +1160,7 @@ class ScheduleInfo(google.protobuf.message.Message):
         created_at: builtins.str = ...,
         updated_at: builtins.str = ...,
         schedule_name: builtins.str = ...,
+        jitter_seconds: builtins.int = ...,
     ) -> None: ...
     def ClearField(
         self,
@@ -1163,6 +1173,8 @@ class ScheduleInfo(google.protobuf.message.Message):
             b"id",
             "interval_seconds",
             b"interval_seconds",
+            "jitter_seconds",
+            b"jitter_seconds",
             "last_instance_id",
             b"last_instance_id",
             "last_run_at",

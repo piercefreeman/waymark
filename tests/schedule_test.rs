@@ -98,6 +98,7 @@ async fn test_schedule_database_operations() -> Result<()> {
             ScheduleType::Cron,
             Some("0 * * * *"),
             None,
+            0,
             None,
             next_run,
         )
@@ -123,6 +124,7 @@ async fn test_schedule_database_operations() -> Result<()> {
             ScheduleType::Interval,
             None,
             Some(300), // 5 minutes
+            0,
             None,
             next_run,
         )
@@ -202,6 +204,7 @@ async fn test_schedule_database_operations() -> Result<()> {
             ScheduleType::Cron,
             Some("0 0 * * *"),
             None,
+            0,
             None,
             Utc::now() + chrono::Duration::hours(1),
         )
@@ -250,6 +253,7 @@ async fn test_scheduler_creates_instance() -> Result<()> {
             ScheduleType::Interval,
             None,
             Some(60), // 1 minute interval
+            0,
             None,
             past, // Already due!
         )
@@ -389,6 +393,7 @@ async fn test_list_schedules_grpc_endpoint() -> Result<()> {
             ScheduleType::Cron,
             Some("0 0 * * *"),
             None,
+            0,
             None,
             next_run,
         )
@@ -402,6 +407,7 @@ async fn test_list_schedules_grpc_endpoint() -> Result<()> {
             ScheduleType::Interval,
             None,
             Some(300),
+            0,
             None,
             next_run,
         )

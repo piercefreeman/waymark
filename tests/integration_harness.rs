@@ -216,6 +216,7 @@ impl proto::workflow_service_server::WorkflowService for TestWorkflowService {
                         .unwrap_or_default(),
                     created_at: format_opt_datetime(Some(s.created_at)),
                     updated_at: format_opt_datetime(Some(s.updated_at)),
+                    jitter_seconds: s.jitter_seconds,
                 }
             })
             .collect();

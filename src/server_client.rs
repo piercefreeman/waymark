@@ -20,7 +20,7 @@ use crate::{
     ir_printer,
     messages::ast as ir_ast,
     messages::proto,
-    schedule::{next_cron_run, next_interval_run},
+    schedule::{apply_jitter, next_cron_run, next_interval_run},
 };
 
 /// Service name for health checks
@@ -238,6 +238,13 @@ impl proto::workflow_service_server::WorkflowService for WorkflowGrpcService {
             .schedule
             .ok_or_else(|| tonic::Status::invalid_argument("schedule required"))?;
 
+        let jitter_seconds = schedule.jitter_seconds;
+        if jitter_seconds < 0 {
+            return Err(tonic::Status::invalid_argument(
+                "jitter_seconds must be non-negative",
+            ));
+        }
+
         // Validate and compute next_run_at
         let (schedule_type, cron_expr, interval_secs, next_run) = match schedule.r#type() {
             proto::ScheduleType::Cron => {
@@ -247,7 +254,9 @@ impl proto::workflow_service_server::WorkflowService for WorkflowGrpcService {
                         "cron_expression required for cron schedule",
                     ));
                 }
-                let next = next_cron_run(expr).map_err(tonic::Status::invalid_argument)?;
+                let next = next_cron_run(expr)
+                    .and_then(|base| apply_jitter(base, jitter_seconds))
+                    .map_err(tonic::Status::invalid_argument)?;
                 (ScheduleType::Cron, Some(expr.as_str()), None, next)
             }
             proto::ScheduleType::Interval => {
@@ -257,7 +266,8 @@ impl proto::workflow_service_server::WorkflowService for WorkflowGrpcService {
                         "interval_seconds must be positive",
                     ));
                 }
-                let next = next_interval_run(secs, None);
+                let next = apply_jitter(next_interval_run(secs, None), jitter_seconds)
+                    .map_err(tonic::Status::invalid_argument)?;
                 (ScheduleType::Interval, None, Some(secs), next)
             }
             proto::ScheduleType::Unspecified => {
@@ -280,6 +290,7 @@ impl proto::workflow_service_server::WorkflowService for WorkflowGrpcService {
                 schedule_type,
                 cron_expr,
                 interval_secs,
+                jitter_seconds,
                 input_payload.as_deref(),
                 next_run,
             )
@@ -408,6 +419,7 @@ impl proto::workflow_service_server::WorkflowService for WorkflowGrpcService {
                         .unwrap_or_default(),
                     created_at: s.created_at.to_rfc3339(),
                     updated_at: s.updated_at.to_rfc3339(),
+                    jitter_seconds: s.jitter_seconds,
                 }
             })
             .collect();

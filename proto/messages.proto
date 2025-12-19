@@ -186,6 +186,8 @@ message ScheduleDefinition {
   string cron_expression = 2;
   // For interval: duration in seconds
   int64 interval_seconds = 3;
+  // Optional: jitter window in seconds (random 0..jitter_seconds)
+  int64 jitter_seconds = 4;
 }
 
 message RegisterScheduleRequest {
@@ -248,6 +250,7 @@ message ScheduleInfo {
   string created_at = 10;           // ISO 8601 timestamp
   string updated_at = 11;           // ISO 8601 timestamp
   string schedule_name = 12;        // Name of this schedule (allows multiple per workflow)
+  int64 jitter_seconds = 13;        // 0 if no jitter configured
 }
 
 message ListSchedulesResponse {

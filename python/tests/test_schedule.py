@@ -140,6 +140,7 @@ class TestListSchedules:
         assert schedule.workflow_name == "testscheduleworkflow"
         assert schedule.schedule_type == "cron"
         assert schedule.cron_expression == "0 * * * *"
+        assert schedule.jitter_seconds is None
         assert schedule.status == "active"
         assert schedule.last_instance_id == "abc-123"
 
@@ -183,6 +184,7 @@ class TestListSchedules:
         assert schedule.schedule_type == "interval"
         assert schedule.interval_seconds == 300
         assert schedule.cron_expression is None
+        assert schedule.jitter_seconds is None
         assert schedule.status == "paused"
         assert schedule.next_run_at is None
         assert schedule.last_run_at is None
@@ -299,6 +301,27 @@ class TestScheduleWorkflow:
         assert request.schedule_name == "test-inputs"
         assert request.HasField("inputs")
 
+    def test_schedule_workflow_with_jitter(
+        self, monkeypatch: pytest.MonkeyPatch, mock_stub: AsyncMock
+    ) -> None:
+        """Test scheduling a workflow with jitter."""
+        response = pb2.RegisterScheduleResponse(schedule_id="schedule-999")
+        mock_stub.RegisterSchedule.return_value = response
+
+        result = asyncio.run(
+            schedule_workflow(
+                DemoScheduleWorkflow,
+                schedule_name="test-jitter",
+                schedule="0 * * * *",
+                jitter=timedelta(minutes=2),
+            )
+        )
+
+        assert result == "schedule-999"
+        call_args = mock_stub.RegisterSchedule.call_args
+        request = call_args[0][0]
+        assert request.schedule.jitter_seconds == 120
+
     def test_schedule_workflow_invalid_interval(self) -> None:
         """Test that non-positive intervals raise ValueError."""
         with pytest.raises(ValueError, match="Interval must be positive"):
@@ -307,6 +330,18 @@ class TestScheduleWorkflow:
                     DemoScheduleWorkflow,
                     schedule_name="test",
                     schedule=timedelta(seconds=0),
+                )
+            )
+
+    def test_schedule_workflow_negative_jitter(self) -> None:
+        """Test that negative jitter raises ValueError."""
+        with pytest.raises(ValueError, match="jitter must be non-negative"):
+            asyncio.run(
+                schedule_workflow(
+                    DemoScheduleWorkflow,
+                    schedule_name="test",
+                    schedule="0 * * * *",
+                    jitter=timedelta(seconds=-1),
                 )
             )
 

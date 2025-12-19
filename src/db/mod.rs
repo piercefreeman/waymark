@@ -392,6 +392,7 @@ pub struct WorkflowSchedule {
     pub schedule_type: String,
     pub cron_expression: Option<String>,
     pub interval_seconds: Option<i64>,
+    pub jitter_seconds: i64,
     pub input_payload: Option<Vec<u8>>,
     pub status: String,
     pub next_run_at: Option<DateTime<Utc>>,

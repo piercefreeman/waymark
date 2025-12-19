@@ -157,7 +157,7 @@ impl Database {
     pub async fn get_schedule_by_id(&self, id: ScheduleId) -> DbResult<WorkflowSchedule> {
         let schedule = sqlx::query_as::<_, WorkflowSchedule>(
             r#"
-            SELECT id, workflow_name, schedule_name, schedule_type, cron_expression, interval_seconds,
+            SELECT id, workflow_name, schedule_name, schedule_type, cron_expression, interval_seconds, jitter_seconds,
                    input_payload, status, next_run_at, last_run_at, last_instance_id,
                    created_at, updated_at
             FROM workflow_schedules

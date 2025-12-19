@@ -9,6 +9,7 @@
 
 use chrono::{DateTime, Utc};
 use cron::Schedule;
+use rand::Rng;
 use std::str::FromStr;
 
 /// Convert a 5-field Unix cron expression to 6-field format.
@@ -63,6 +64,20 @@ pub fn validate_cron(cron_expr: &str) -> Result<(), String> {
     Schedule::from_str(&normalized)
         .map(|_| ())
         .map_err(|e| format!("Invalid cron expression '{}': {}", cron_expr, e))
+}
+
+/// Apply a random jitter delay (in seconds) to a scheduled time.
+///
+/// If `jitter_seconds` is 0, the base time is returned unchanged.
+pub fn apply_jitter(base: DateTime<Utc>, jitter_seconds: i64) -> Result<DateTime<Utc>, String> {
+    if jitter_seconds < 0 {
+        return Err("jitter_seconds must be non-negative".to_string());
+    }
+    if jitter_seconds == 0 {
+        return Ok(base);
+    }
+    let jitter = rand::thread_rng().gen_range(0..=jitter_seconds);
+    Ok(base + chrono::Duration::seconds(jitter))
 }
 
 #[cfg(test)]
@@ -127,5 +142,20 @@ mod tests {
         // Should be 1 hour after last_run (30 minutes from now)
         let expected = last_run + chrono::Duration::seconds(3600);
         assert_eq!(next, expected);
+    }
+
+    #[test]
+    fn test_apply_jitter_zero() {
+        let base = Utc::now();
+        let jittered = apply_jitter(base, 0).unwrap();
+        assert_eq!(jittered, base);
+    }
+
+    #[test]
+    fn test_apply_jitter_range() {
+        let base = Utc::now();
+        let jittered = apply_jitter(base, 5).unwrap();
+        assert!(jittered >= base);
+        assert!(jittered <= base + chrono::Duration::seconds(5));
     }
 }

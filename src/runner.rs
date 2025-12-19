@@ -60,7 +60,7 @@ use crate::{
     },
     messages::proto,
     parser::ast,
-    schedule::{next_cron_run, next_interval_run},
+    schedule::{apply_jitter, next_cron_run, next_interval_run},
     worker::{ActionDispatchPayload, PythonWorkerPool, RoundTripMetrics},
 };
 
@@ -1494,25 +1494,29 @@ impl DAGRunner {
         &self,
         schedule: &crate::db::WorkflowSchedule,
     ) -> RunnerResult<chrono::DateTime<chrono::Utc>> {
-        match schedule.schedule_type.as_str() {
+        let base = match schedule.schedule_type.as_str() {
             "cron" => {
                 let expr = schedule
                     .cron_expression
                     .as_ref()
                     .ok_or_else(|| RunnerError::Dag("Missing cron expression".into()))?;
-                next_cron_run(expr).map_err(RunnerError::Dag)
+                next_cron_run(expr).map_err(RunnerError::Dag)?
             }
             "interval" => {
                 let secs = schedule
                     .interval_seconds
                     .ok_or_else(|| RunnerError::Dag("Missing interval_seconds".into()))?;
-                Ok(next_interval_run(secs, Some(chrono::Utc::now())))
+                next_interval_run(secs, Some(chrono::Utc::now()))
             }
-            _ => Err(RunnerError::Dag(format!(
-                "Unknown schedule type: {}",
-                schedule.schedule_type
-            ))),
-        }
+            _ => {
+                return Err(RunnerError::Dag(format!(
+                    "Unknown schedule type: {}",
+                    schedule.schedule_type
+                )));
+            }
+        };
+
+        apply_jitter(base, schedule.jitter_seconds).map_err(RunnerError::Dag)
     }
 
     // ========================================================================
