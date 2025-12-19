@@ -9,6 +9,7 @@ use rappel::{
     get_config,
 };
 use serde_json::json;
+use sqlx::postgres::PgPoolOptions;
 use std::collections::{BTreeMap, HashMap};
 use uuid::Uuid;
 
@@ -18,27 +19,53 @@ struct Args {
     /// Workflow version ID to debug
     #[arg(long)]
     version_id: Uuid,
+    /// Database URL override (skips migrations)
+    #[arg(long)]
+    database_url: Option<String>,
+    /// Focus on a single node ID for edge output
+    #[arg(long)]
+    node_id: Option<String>,
 }
 
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
 
-    // Connect to database using centralized config
-    let config = get_config();
-    let database = Database::connect(&config.database_url)
-        .await
-        .expect("failed to connect to database");
-
-    // Load workflow version
-    let version_id = WorkflowVersionId(args.version_id);
-    let workflow_version = database
-        .get_workflow_version(version_id)
+    let workflow_version = if let Some(database_url) = args.database_url.as_ref() {
+        let pool = PgPoolOptions::new()
+            .max_connections(1)
+            .connect(database_url)
+            .await
+            .expect("failed to connect to database");
+        let row: (Vec<u8>,) = sqlx::query_as(
+            r#"
+            SELECT program_proto
+            FROM workflow_versions
+            WHERE id = $1
+            "#,
+        )
+        .bind(args.version_id)
+        .fetch_one(&pool)
         .await
         .expect("failed to load workflow version");
+        row.0
+    } else {
+        // Connect to database using centralized config
+        let config = get_config();
+        let database = Database::connect(&config.database_url)
+            .await
+            .expect("failed to connect to database");
 
-    let program =
-        Program::decode(workflow_version.program_proto.as_slice()).expect("decode program");
+        // Load workflow version
+        let version_id = WorkflowVersionId(args.version_id);
+        let workflow_version = database
+            .get_workflow_version(version_id)
+            .await
+            .expect("failed to load workflow version");
+        workflow_version.program_proto
+    };
+
+    let program = Program::decode(workflow_version.as_slice()).expect("decode program");
     let dag = convert_to_dag(&program);
 
     println!("=== Nodes ===");
@@ -61,8 +88,38 @@ async fn main() {
             .as_ref()
             .map(rappel::ast_printer::print_expr);
         println!(
-            "{} -> {} (loop_back={} guard={:?})",
-            edge.source, edge.target, edge.is_loop_back, guard_str
+            "{} -> {} (loop_back={} is_else={} guard={:?})",
+            edge.source, edge.target, edge.is_loop_back, edge.is_else, guard_str
+        );
+    }
+
+    if let Some(node_id) = args.node_id.as_ref() {
+        println!("\n=== Focus: {node_id} ===");
+        for edge in dag
+            .edges
+            .iter()
+            .filter(|e| e.edge_type == EdgeType::StateMachine)
+            .filter(|e| e.source == *node_id)
+        {
+            let guard_str = edge
+                .guard_expr
+                .as_ref()
+                .map(rappel::ast_printer::print_expr);
+            println!(
+                "{} -> {} (loop_back={} is_else={} guard={:?})",
+                edge.source, edge.target, edge.is_loop_back, edge.is_else, guard_str
+            );
+        }
+        let helper = DAGHelper::new(&dag);
+        let subgraph = analyze_subgraph(node_id, &dag, &helper);
+        println!("Inline nodes: {:?}", subgraph.inline_nodes);
+        println!(
+            "Frontier nodes: {:?}",
+            subgraph
+                .frontier_nodes
+                .iter()
+                .map(|f| (&f.node_id, &f.category))
+                .collect::<Vec<_>>()
         );
     }
 

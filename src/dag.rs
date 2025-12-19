@@ -731,7 +731,9 @@ impl DAGConverter {
 
             // Check if this is a fn_call that needs expansion
             if node.is_fn_call {
-                if let Some(called_fn) = &node.called_function {
+                if let Some(called_fn) = &node.called_function
+                    && self.function_defs.contains_key(called_fn)
+                {
                     // Prevent infinite recursion
                     let call_key = format!("{}:{}", fn_name, old_id);
                     if visited_calls.contains(&call_key) {
@@ -758,13 +760,17 @@ impl DAGConverter {
                         old_id.clone()
                     };
 
-                    if let Some((child_first, child_last)) = self.expand_function_recursive(
+                    let expansion = self.expand_function_recursive(
                         unexpanded,
                         called_fn,
                         target,
                         visited_calls,
                         Some(&child_prefix),
-                    ) {
+                    );
+
+                    visited_calls.remove(&call_key);
+
+                    if let Some((child_first, child_last)) = expansion {
                         // Map this fn_call node to the expansion's first/last nodes
                         // For edge rewiring, we treat fn_call as expanding to child_first...child_last
                         id_map.insert(old_id.clone(), child_first.clone());
@@ -826,10 +832,8 @@ impl DAGConverter {
                             first_real_node = Some(child_first);
                         }
                         last_real_node = Some(child_last);
+                        continue;
                     }
-
-                    visited_calls.remove(&call_key);
-                    continue;
                 }
             }
 
@@ -3977,6 +3981,54 @@ fn main(input: [], output: [result]):
             .collect();
         assert!(action_names.contains("positive_handler"));
         assert!(action_names.contains("negative_handler"));
+    }
+
+    #[test]
+    fn test_dag_conditional_preserves_external_fn_call_nodes() {
+        // External fn_call nodes should remain when no definition exists.
+        let source = r#"fn branch(input: [x], output: [result]):
+    if x > 0:
+        log(value=x)
+        return "logged"
+    return "skipped""#;
+        let program = parse(source).unwrap();
+        let dag = convert_to_dag(&program);
+
+        let fn_call_id = dag
+            .nodes
+            .iter()
+            .find(|(_, node)| node.is_fn_call && node.called_function.as_deref() == Some("log"))
+            .map(|(id, _)| id.clone())
+            .expect("Should keep external fn_call node");
+        let branch_id = dag
+            .nodes
+            .iter()
+            .find(|(_, node)| node.node_type == "branch")
+            .map(|(id, _)| id.clone())
+            .expect("Should have branch node");
+        let return_id = dag
+            .nodes
+            .iter()
+            .find(|(_, node)| node.node_type == "return")
+            .map(|(id, _)| id.clone())
+            .expect("Should have return node");
+
+        let has_branch_edge = dag.edges.iter().any(|edge| {
+            edge.edge_type == EdgeType::StateMachine
+                && edge.source == branch_id
+                && edge.target == fn_call_id
+        });
+        assert!(has_branch_edge, "Branch should connect to fn_call node");
+
+        let has_return_edge = dag.edges.iter().any(|edge| {
+            edge.edge_type == EdgeType::StateMachine
+                && edge.source == fn_call_id
+                && edge.target == return_id
+        });
+        assert!(
+            has_return_edge,
+            "fn_call node should connect to return node"
+        );
     }
 
     // =========================================================================
