@@ -94,6 +94,7 @@ async fn test_schedule_database_operations() -> Result<()> {
     let schedule_id = database
         .upsert_schedule(
             "test_schedule_workflow",
+            "default",
             ScheduleType::Cron,
             Some("0 * * * *"),
             None,
@@ -105,7 +106,7 @@ async fn test_schedule_database_operations() -> Result<()> {
 
     // Verify schedule was created
     let schedule = database
-        .get_schedule_by_name("test_schedule_workflow")
+        .get_schedule_by_name("test_schedule_workflow", "default")
         .await?
         .expect("schedule should exist");
     assert_eq!(schedule.workflow_name, "test_schedule_workflow");
@@ -118,6 +119,7 @@ async fn test_schedule_database_operations() -> Result<()> {
     database
         .upsert_schedule(
             "test_schedule_workflow",
+            "default",
             ScheduleType::Interval,
             None,
             Some(300), // 5 minutes
@@ -127,7 +129,7 @@ async fn test_schedule_database_operations() -> Result<()> {
         .await?;
 
     let schedule = database
-        .get_schedule_by_name("test_schedule_workflow")
+        .get_schedule_by_name("test_schedule_workflow", "default")
         .await?
         .expect("schedule should exist");
     assert_eq!(schedule.schedule_type, "interval");
@@ -135,19 +137,19 @@ async fn test_schedule_database_operations() -> Result<()> {
 
     // Test 3: Pause schedule
     let success = database
-        .update_schedule_status("test_schedule_workflow", "paused")
+        .update_schedule_status("test_schedule_workflow", "default", "paused")
         .await?;
     assert!(success);
 
     let schedule = database
-        .get_schedule_by_name("test_schedule_workflow")
+        .get_schedule_by_name("test_schedule_workflow", "default")
         .await?
         .expect("schedule should exist");
     assert_eq!(schedule.status, "paused");
 
     // Test 4: Resume schedule
     database
-        .update_schedule_status("test_schedule_workflow", "active")
+        .update_schedule_status("test_schedule_workflow", "default", "active")
         .await?;
 
     // Test 5: Find due schedules (schedule not yet due)
@@ -174,18 +176,20 @@ async fn test_schedule_database_operations() -> Result<()> {
         .await?;
 
     let schedule = database
-        .get_schedule_by_name("test_schedule_workflow")
+        .get_schedule_by_name("test_schedule_workflow", "default")
         .await?
         .expect("schedule should exist");
     assert!(schedule.last_run_at.is_some());
     assert_eq!(schedule.last_instance_id, Some(instance_id.0));
 
     // Test 8: Delete schedule
-    let success = database.delete_schedule("test_schedule_workflow").await?;
+    let success = database
+        .delete_schedule("test_schedule_workflow", "default")
+        .await?;
     assert!(success);
 
     let schedule = database
-        .get_schedule_by_name("test_schedule_workflow")
+        .get_schedule_by_name("test_schedule_workflow", "default")
         .await?;
     assert!(schedule.is_none(), "deleted schedule should not be found");
 
@@ -194,6 +198,7 @@ async fn test_schedule_database_operations() -> Result<()> {
     database
         .upsert_schedule(
             "test_schedule_workflow",
+            "default",
             ScheduleType::Cron,
             Some("0 0 * * *"),
             None,
@@ -241,6 +246,7 @@ async fn test_scheduler_creates_instance() -> Result<()> {
     database
         .upsert_schedule(
             "scheduled_workflow",
+            "default",
             ScheduleType::Interval,
             None,
             Some(60), // 1 minute interval
@@ -332,7 +338,7 @@ async fn test_scheduler_creates_instance() -> Result<()> {
 
     // Verify schedule was updated
     let schedule = database
-        .get_schedule_by_name("scheduled_workflow")
+        .get_schedule_by_name("scheduled_workflow", "default")
         .await?
         .expect("schedule should exist");
     assert!(
@@ -379,6 +385,7 @@ async fn test_list_schedules_grpc_endpoint() -> Result<()> {
     database
         .upsert_schedule(
             "cron_workflow",
+            "default",
             ScheduleType::Cron,
             Some("0 0 * * *"),
             None,
@@ -391,6 +398,7 @@ async fn test_list_schedules_grpc_endpoint() -> Result<()> {
     database
         .upsert_schedule(
             "interval_workflow",
+            "default",
             ScheduleType::Interval,
             None,
             Some(300),
@@ -402,7 +410,7 @@ async fn test_list_schedules_grpc_endpoint() -> Result<()> {
 
     // Pause one schedule to test status filtering
     database
-        .update_schedule_status("interval_workflow", "paused")
+        .update_schedule_status("interval_workflow", "default", "paused")
         .await?;
 
     // Start gRPC server

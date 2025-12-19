@@ -243,12 +243,15 @@ class TestScheduleWorkflow:
         response = pb2.RegisterScheduleResponse(schedule_id="schedule-123")
         mock_stub.RegisterSchedule.return_value = response
 
-        result = asyncio.run(schedule_workflow(DemoScheduleWorkflow, schedule="0 * * * *"))
+        result = asyncio.run(
+            schedule_workflow(DemoScheduleWorkflow, schedule_name="test-cron", schedule="0 * * * *")
+        )
 
         assert result == "schedule-123"
         call_args = mock_stub.RegisterSchedule.call_args
         request = call_args[0][0]
         assert request.workflow_name == "demoscheduleworkflow"
+        assert request.schedule_name == "test-cron"
         assert request.schedule.type == pb2.SCHEDULE_TYPE_CRON
         assert request.schedule.cron_expression == "0 * * * *"
 
@@ -259,11 +262,18 @@ class TestScheduleWorkflow:
         response = pb2.RegisterScheduleResponse(schedule_id="schedule-456")
         mock_stub.RegisterSchedule.return_value = response
 
-        result = asyncio.run(schedule_workflow(DemoScheduleWorkflow, schedule=timedelta(minutes=5)))
+        result = asyncio.run(
+            schedule_workflow(
+                DemoScheduleWorkflow,
+                schedule_name="test-interval",
+                schedule=timedelta(minutes=5),
+            )
+        )
 
         assert result == "schedule-456"
         call_args = mock_stub.RegisterSchedule.call_args
         request = call_args[0][0]
+        assert request.schedule_name == "test-interval"
         assert request.schedule.type == pb2.SCHEDULE_TYPE_INTERVAL
         assert request.schedule.interval_seconds == 300
 
@@ -277,6 +287,7 @@ class TestScheduleWorkflow:
         result = asyncio.run(
             schedule_workflow(
                 DemoScheduleWorkflow,
+                schedule_name="test-inputs",
                 schedule="0 0 * * *",
                 inputs={"batch_size": 100},
             )
@@ -285,18 +296,32 @@ class TestScheduleWorkflow:
         assert result == "schedule-789"
         call_args = mock_stub.RegisterSchedule.call_args
         request = call_args[0][0]
+        assert request.schedule_name == "test-inputs"
         assert request.HasField("inputs")
 
     def test_schedule_workflow_invalid_interval(self) -> None:
         """Test that non-positive intervals raise ValueError."""
         with pytest.raises(ValueError, match="Interval must be positive"):
-            asyncio.run(schedule_workflow(DemoScheduleWorkflow, schedule=timedelta(seconds=0)))
+            asyncio.run(
+                schedule_workflow(
+                    DemoScheduleWorkflow,
+                    schedule_name="test",
+                    schedule=timedelta(seconds=0),
+                )
+            )
+
+    def test_schedule_workflow_empty_schedule_name(self) -> None:
+        """Test that empty schedule_name raises ValueError."""
+        with pytest.raises(ValueError, match="schedule_name is required"):
+            asyncio.run(
+                schedule_workflow(DemoScheduleWorkflow, schedule_name="", schedule="0 * * * *")
+            )
 
     def test_schedule_workflow_invalid_type(self) -> None:
         """Test that invalid schedule types raise TypeError."""
         with pytest.raises(TypeError, match="schedule must be str or timedelta"):
             asyncio.run(
-                schedule_workflow(DemoScheduleWorkflow, schedule=123)  # type: ignore
+                schedule_workflow(DemoScheduleWorkflow, schedule_name="test", schedule=123)  # type: ignore
             )
 
 
@@ -326,12 +351,13 @@ class TestPauseSchedule:
         response = pb2.UpdateScheduleStatusResponse(success=True)
         mock_stub.UpdateScheduleStatus.return_value = response
 
-        result = asyncio.run(pause_schedule(DemoScheduleWorkflow))
+        result = asyncio.run(pause_schedule(DemoScheduleWorkflow, schedule_name="test-schedule"))
 
         assert result is True
         call_args = mock_stub.UpdateScheduleStatus.call_args
         request = call_args[0][0]
         assert request.workflow_name == "demoscheduleworkflow"
+        assert request.schedule_name == "test-schedule"
         assert request.status == pb2.SCHEDULE_STATUS_PAUSED
 
     def test_pause_schedule_not_found(
@@ -341,9 +367,14 @@ class TestPauseSchedule:
         response = pb2.UpdateScheduleStatusResponse(success=False)
         mock_stub.UpdateScheduleStatus.return_value = response
 
-        result = asyncio.run(pause_schedule(DemoScheduleWorkflow))
+        result = asyncio.run(pause_schedule(DemoScheduleWorkflow, schedule_name="nonexistent"))
 
         assert result is False
+
+    def test_pause_schedule_empty_name(self) -> None:
+        """Test that empty schedule_name raises ValueError."""
+        with pytest.raises(ValueError, match="schedule_name is required"):
+            asyncio.run(pause_schedule(DemoScheduleWorkflow, schedule_name=""))
 
 
 class TestResumeSchedule:
@@ -372,12 +403,13 @@ class TestResumeSchedule:
         response = pb2.UpdateScheduleStatusResponse(success=True)
         mock_stub.UpdateScheduleStatus.return_value = response
 
-        result = asyncio.run(resume_schedule(DemoScheduleWorkflow))
+        result = asyncio.run(resume_schedule(DemoScheduleWorkflow, schedule_name="test-schedule"))
 
         assert result is True
         call_args = mock_stub.UpdateScheduleStatus.call_args
         request = call_args[0][0]
         assert request.workflow_name == "demoscheduleworkflow"
+        assert request.schedule_name == "test-schedule"
         assert request.status == pb2.SCHEDULE_STATUS_ACTIVE
 
     def test_resume_schedule_not_found(
@@ -387,9 +419,14 @@ class TestResumeSchedule:
         response = pb2.UpdateScheduleStatusResponse(success=False)
         mock_stub.UpdateScheduleStatus.return_value = response
 
-        result = asyncio.run(resume_schedule(DemoScheduleWorkflow))
+        result = asyncio.run(resume_schedule(DemoScheduleWorkflow, schedule_name="nonexistent"))
 
         assert result is False
+
+    def test_resume_schedule_empty_name(self) -> None:
+        """Test that empty schedule_name raises ValueError."""
+        with pytest.raises(ValueError, match="schedule_name is required"):
+            asyncio.run(resume_schedule(DemoScheduleWorkflow, schedule_name=""))
 
 
 class TestDeleteSchedule:
@@ -418,12 +455,13 @@ class TestDeleteSchedule:
         response = pb2.DeleteScheduleResponse(success=True)
         mock_stub.DeleteSchedule.return_value = response
 
-        result = asyncio.run(delete_schedule(DemoScheduleWorkflow))
+        result = asyncio.run(delete_schedule(DemoScheduleWorkflow, schedule_name="test-schedule"))
 
         assert result is True
         call_args = mock_stub.DeleteSchedule.call_args
         request = call_args[0][0]
         assert request.workflow_name == "demoscheduleworkflow"
+        assert request.schedule_name == "test-schedule"
 
     def test_delete_schedule_not_found(
         self, monkeypatch: pytest.MonkeyPatch, mock_stub: AsyncMock
@@ -432,6 +470,11 @@ class TestDeleteSchedule:
         response = pb2.DeleteScheduleResponse(success=False)
         mock_stub.DeleteSchedule.return_value = response
 
-        result = asyncio.run(delete_schedule(DemoScheduleWorkflow))
+        result = asyncio.run(delete_schedule(DemoScheduleWorkflow, schedule_name="nonexistent"))
 
         assert result is False
+
+    def test_delete_schedule_empty_name(self) -> None:
+        """Test that empty schedule_name raises ValueError."""
+        with pytest.raises(ValueError, match="schedule_name is required"):
+            asyncio.run(delete_schedule(DemoScheduleWorkflow, schedule_name=""))

@@ -1486,6 +1486,7 @@ mod tests {
         let schedules = vec![crate::db::WorkflowSchedule {
             id: Uuid::new_v4(),
             workflow_name: "cron_workflow".to_string(),
+            schedule_name: "default".to_string(),
             schedule_type: "cron".to_string(),
             cron_expression: Some("0 * * * *".to_string()),
             interval_seconds: None,
@@ -1512,6 +1513,7 @@ mod tests {
         let schedules = vec![crate::db::WorkflowSchedule {
             id: Uuid::new_v4(),
             workflow_name: "interval_workflow".to_string(),
+            schedule_name: "default".to_string(),
             schedule_type: "interval".to_string(),
             cron_expression: None,
             interval_seconds: Some(3600),
@@ -1538,6 +1540,7 @@ mod tests {
         let schedule = crate::db::WorkflowSchedule {
             id: Uuid::new_v4(),
             workflow_name: "detail_workflow".to_string(),
+            schedule_name: "default".to_string(),
             schedule_type: "cron".to_string(),
             cron_expression: Some("*/5 * * * *".to_string()),
             interval_seconds: None,
@@ -1571,6 +1574,7 @@ mod tests {
         let schedule = crate::db::WorkflowSchedule {
             id: Uuid::new_v4(),
             workflow_name: "paused_workflow".to_string(),
+            schedule_name: "default".to_string(),
             schedule_type: "interval".to_string(),
             cron_expression: None,
             interval_seconds: Some(300),
@@ -1600,6 +1604,7 @@ mod tests {
         let schedule = crate::db::WorkflowSchedule {
             id: schedule_id,
             workflow_name: "invoked_workflow".to_string(),
+            schedule_name: "default".to_string(),
             schedule_type: "cron".to_string(),
             cron_expression: Some("0 0 * * *".to_string()),
             interval_seconds: None,

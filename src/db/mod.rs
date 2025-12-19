@@ -387,6 +387,7 @@ impl ScheduleStatus {
 pub struct WorkflowSchedule {
     pub id: Uuid,
     pub workflow_name: String,
+    pub schedule_name: String,
     pub schedule_type: String,
     pub cron_expression: Option<String>,
     pub interval_seconds: Option<i64>,

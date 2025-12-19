@@ -27,6 +27,7 @@ class ScheduleInfo:
 
     id: str
     workflow_name: str
+    schedule_name: str
     schedule_type: ScheduleType
     cron_expression: Optional[str]
     interval_seconds: Optional[int]
@@ -41,6 +42,7 @@ class ScheduleInfo:
 async def schedule_workflow(
     workflow_cls: Type[Workflow],
     *,
+    schedule_name: str,
     schedule: Union[str, timedelta],
     inputs: Optional[Dict[str, Any]] = None,
 ) -> str:
@@ -53,6 +55,9 @@ async def schedule_workflow(
 
     Args:
         workflow_cls: The Workflow class to schedule.
+        schedule_name: Unique name for this schedule. Allows multiple schedules
+                       per workflow with different inputs. Must be unique within
+                       a workflow.
         schedule: Either a cron expression string (e.g., "0 * * * *" for hourly)
                   or a timedelta for interval-based scheduling.
         inputs: Optional keyword arguments to pass to each scheduled run.
@@ -62,22 +67,41 @@ async def schedule_workflow(
 
     Examples:
         # Run every hour at minute 0
-        await schedule_workflow(MyWorkflow, schedule="0 * * * *")
-
-        # Run every 5 minutes
-        await schedule_workflow(MyWorkflow, schedule=timedelta(minutes=5))
-
-        # Run daily at midnight with inputs
         await schedule_workflow(
             MyWorkflow,
+            schedule_name="hourly-run",
+            schedule="0 * * * *"
+        )
+
+        # Run every 5 minutes
+        await schedule_workflow(
+            MyWorkflow,
+            schedule_name="frequent-check",
+            schedule=timedelta(minutes=5)
+        )
+
+        # Multiple schedules with different inputs
+        await schedule_workflow(
+            MyWorkflow,
+            schedule_name="small-batch",
             schedule="0 0 * * *",
             inputs={"batch_size": 100}
         )
+        await schedule_workflow(
+            MyWorkflow,
+            schedule_name="large-batch",
+            schedule="0 12 * * *",
+            inputs={"batch_size": 1000}
+        )
 
     Raises:
-        ValueError: If the cron expression is invalid or interval is non-positive.
+        ValueError: If the cron expression is invalid, interval is non-positive,
+                    or schedule_name is empty.
         RuntimeError: If the gRPC call fails.
     """
+    if not schedule_name:
+        raise ValueError("schedule_name is required")
+
     workflow_name = workflow_cls.short_name()
 
     # Build schedule definition
@@ -102,6 +126,7 @@ async def schedule_workflow(
     # Build request with both registration and schedule
     request = pb2.RegisterScheduleRequest(
         workflow_name=workflow_name,
+        schedule_name=schedule_name,
         schedule=schedule_def,
         registration=registration,
     )
@@ -122,7 +147,7 @@ async def schedule_workflow(
     return response.schedule_id
 
 
-async def pause_schedule(workflow_cls: Type[Workflow]) -> bool:
+async def pause_schedule(workflow_cls: Type[Workflow], *, schedule_name: str) -> bool:
     """
     Pause a workflow's schedule.
 
@@ -131,12 +156,21 @@ async def pause_schedule(workflow_cls: Type[Workflow]) -> bool:
 
     Args:
         workflow_cls: The Workflow class whose schedule to pause.
+        schedule_name: The name of the schedule to pause.
 
     Returns:
         True if a schedule was found and paused, False otherwise.
+
+    Raises:
+        ValueError: If schedule_name is empty.
+        RuntimeError: If the gRPC call fails.
     """
+    if not schedule_name:
+        raise ValueError("schedule_name is required")
+
     request = pb2.UpdateScheduleStatusRequest(
         workflow_name=workflow_cls.short_name(),
+        schedule_name=schedule_name,
         status=pb2.SCHEDULE_STATUS_PAUSED,
     )
     async with ensure_singleton():
@@ -150,18 +184,27 @@ async def pause_schedule(workflow_cls: Type[Workflow]) -> bool:
     return response.success
 
 
-async def resume_schedule(workflow_cls: Type[Workflow]) -> bool:
+async def resume_schedule(workflow_cls: Type[Workflow], *, schedule_name: str) -> bool:
     """
     Resume a paused workflow schedule.
 
     Args:
         workflow_cls: The Workflow class whose schedule to resume.
+        schedule_name: The name of the schedule to resume.
 
     Returns:
         True if a schedule was found and resumed, False otherwise.
+
+    Raises:
+        ValueError: If schedule_name is empty.
+        RuntimeError: If the gRPC call fails.
     """
+    if not schedule_name:
+        raise ValueError("schedule_name is required")
+
     request = pb2.UpdateScheduleStatusRequest(
         workflow_name=workflow_cls.short_name(),
+        schedule_name=schedule_name,
         status=pb2.SCHEDULE_STATUS_ACTIVE,
     )
     async with ensure_singleton():
@@ -175,7 +218,7 @@ async def resume_schedule(workflow_cls: Type[Workflow]) -> bool:
     return response.success
 
 
-async def delete_schedule(workflow_cls: Type[Workflow]) -> bool:
+async def delete_schedule(workflow_cls: Type[Workflow], *, schedule_name: str) -> bool:
     """
     Delete a workflow's schedule.
 
@@ -184,12 +227,21 @@ async def delete_schedule(workflow_cls: Type[Workflow]) -> bool:
 
     Args:
         workflow_cls: The Workflow class whose schedule to delete.
+        schedule_name: The name of the schedule to delete.
 
     Returns:
         True if a schedule was found and deleted, False otherwise.
+
+    Raises:
+        ValueError: If schedule_name is empty.
+        RuntimeError: If the gRPC call fails.
     """
+    if not schedule_name:
+        raise ValueError("schedule_name is required")
+
     request = pb2.DeleteScheduleRequest(
         workflow_name=workflow_cls.short_name(),
+        schedule_name=schedule_name,
     )
     async with ensure_singleton():
         stub = await _workflow_stub()
@@ -279,6 +331,7 @@ async def list_schedules(
             ScheduleInfo(
                 id=s.id,
                 workflow_name=s.workflow_name,
+                schedule_name=s.schedule_name,
                 schedule_type=_proto_schedule_type_to_str(s.schedule_type),
                 cron_expression=s.cron_expression if s.cron_expression else None,
                 interval_seconds=s.interval_seconds if s.interval_seconds else None,

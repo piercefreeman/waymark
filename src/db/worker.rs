@@ -1529,11 +1529,13 @@ impl Database {
         Ok(row.map(|(id,)| WorkflowVersionId(id)))
     }
 
-    /// Upsert a workflow schedule (insert or update by workflow_name).
+    /// Upsert a workflow schedule (insert or update by workflow_name + schedule_name).
     /// Returns the schedule ID.
+    #[allow(clippy::too_many_arguments)]
     pub async fn upsert_schedule(
         &self,
         workflow_name: &str,
+        schedule_name: &str,
         schedule_type: ScheduleType,
         cron_expression: Option<&str>,
         interval_seconds: Option<i64>,
@@ -1543,9 +1545,9 @@ impl Database {
         let row = sqlx::query(
             r#"
             INSERT INTO workflow_schedules
-                (workflow_name, schedule_type, cron_expression, interval_seconds, input_payload, next_run_at)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            ON CONFLICT (workflow_name)
+                (workflow_name, schedule_name, schedule_type, cron_expression, interval_seconds, input_payload, next_run_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ON CONFLICT (workflow_name, schedule_name)
             DO UPDATE SET
                 schedule_type = EXCLUDED.schedule_type,
                 cron_expression = EXCLUDED.cron_expression,
@@ -1558,6 +1560,7 @@ impl Database {
             "#,
         )
         .bind(workflow_name)
+        .bind(schedule_name)
         .bind(schedule_type.as_str())
         .bind(cron_expression)
         .bind(interval_seconds)
@@ -1570,21 +1573,23 @@ impl Database {
         Ok(ScheduleId(id))
     }
 
-    /// Get a schedule by workflow name.
+    /// Get a schedule by workflow name and schedule name.
     pub async fn get_schedule_by_name(
         &self,
         workflow_name: &str,
+        schedule_name: &str,
     ) -> DbResult<Option<WorkflowSchedule>> {
         let schedule = sqlx::query_as::<_, WorkflowSchedule>(
             r#"
-            SELECT id, workflow_name, schedule_type, cron_expression, interval_seconds,
+            SELECT id, workflow_name, schedule_name, schedule_type, cron_expression, interval_seconds,
                    input_payload, status, next_run_at, last_run_at, last_instance_id,
                    created_at, updated_at
             FROM workflow_schedules
-            WHERE workflow_name = $1 AND status != 'deleted'
+            WHERE workflow_name = $1 AND schedule_name = $2 AND status != 'deleted'
             "#,
         )
         .bind(workflow_name)
+        .bind(schedule_name)
         .fetch_optional(&self.pool)
         .await?;
 
@@ -1596,7 +1601,7 @@ impl Database {
     pub async fn find_due_schedules(&self, limit: i32) -> DbResult<Vec<WorkflowSchedule>> {
         let schedules = sqlx::query_as::<_, WorkflowSchedule>(
             r#"
-            SELECT id, workflow_name, schedule_type, cron_expression, interval_seconds,
+            SELECT id, workflow_name, schedule_name, schedule_type, cron_expression, interval_seconds,
                    input_payload, status, next_run_at, last_run_at, last_instance_id,
                    created_at, updated_at
             FROM workflow_schedules
@@ -1668,16 +1673,18 @@ impl Database {
     pub async fn update_schedule_status(
         &self,
         workflow_name: &str,
+        schedule_name: &str,
         status: &str,
     ) -> DbResult<bool> {
         let result = sqlx::query(
             r#"
             UPDATE workflow_schedules
-            SET status = $2, updated_at = NOW()
-            WHERE workflow_name = $1 AND status != 'deleted'
+            SET status = $3, updated_at = NOW()
+            WHERE workflow_name = $1 AND schedule_name = $2 AND status != 'deleted'
             "#,
         )
         .bind(workflow_name)
+        .bind(schedule_name)
         .bind(status)
         .execute(&self.pool)
         .await?;
@@ -1686,15 +1693,20 @@ impl Database {
     }
 
     /// Delete a schedule (soft delete).
-    pub async fn delete_schedule(&self, workflow_name: &str) -> DbResult<bool> {
+    pub async fn delete_schedule(
+        &self,
+        workflow_name: &str,
+        schedule_name: &str,
+    ) -> DbResult<bool> {
         let result = sqlx::query(
             r#"
             UPDATE workflow_schedules
             SET status = 'deleted', updated_at = NOW()
-            WHERE workflow_name = $1 AND status != 'deleted'
+            WHERE workflow_name = $1 AND schedule_name = $2 AND status != 'deleted'
             "#,
         )
         .bind(workflow_name)
+        .bind(schedule_name)
         .execute(&self.pool)
         .await?;
 
@@ -1709,12 +1721,12 @@ impl Database {
         let schedules = if let Some(status) = status_filter {
             sqlx::query_as::<_, WorkflowSchedule>(
                 r#"
-                SELECT id, workflow_name, schedule_type, cron_expression, interval_seconds,
+                SELECT id, workflow_name, schedule_name, schedule_type, cron_expression, interval_seconds,
                        input_payload, status, next_run_at, last_run_at, last_instance_id,
                        created_at, updated_at
                 FROM workflow_schedules
                 WHERE status = $1
-                ORDER BY workflow_name
+                ORDER BY workflow_name, schedule_name
                 "#,
             )
             .bind(status)
@@ -1723,12 +1735,12 @@ impl Database {
         } else {
             sqlx::query_as::<_, WorkflowSchedule>(
                 r#"
-                SELECT id, workflow_name, schedule_type, cron_expression, interval_seconds,
+                SELECT id, workflow_name, schedule_name, schedule_type, cron_expression, interval_seconds,
                        input_payload, status, next_run_at, last_run_at, last_instance_id,
                        created_at, updated_at
                 FROM workflow_schedules
                 WHERE status != 'deleted'
-                ORDER BY workflow_name
+                ORDER BY workflow_name, schedule_name
                 "#,
             )
             .fetch_all(&self.pool)
