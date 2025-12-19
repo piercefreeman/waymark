@@ -45,34 +45,10 @@ message Block {
 }
 
 // -----------------------------------------------------------------------------
-// Constrained Bodies for Control Flow
+// Control Flow Bodies
 // -----------------------------------------------------------------------------
-// Control flow structures (for, try, if) have stricter constraints than
-// general blocks. These types make the constraints explicit.
-
-// Body constrained to at most ONE action or function call.
-// Used by: TryExcept (try_body, handlers), Conditional branches, ForLoop body
-//
-// Can contain EITHER:
-// 1. A single call (action or function) with optional assignment target
-// 2. Pure data statements (no calls) for data manipulation branches
-//
-// Example (with call):
-//   if score >= 75:
-//       result = @evaluate_high(score=score)
-//
-// Example (pure data):
-//   if item in inventory:
-//       valid_items = valid_items + [item]
-message SingleCallBody {
-  repeated string targets = 1;   // Variables to assign result (supports tuple unpacking)
-  optional Call call = 2;        // The single call (optional - missing = pure data)
-  repeated Statement statements = 3;  // Pure data statements (if no call)
-  Span span = 4;
-}
-
-// Note: DataBody was removed. ForLoop now uses SingleCallBody.
-// For parallel iteration over collections, use SpreadAction.
+// Control flow structures (for, try, if) use full blocks so they can contain
+// arbitrary statements and `return` semantics are unambiguous.
 
 // -----------------------------------------------------------------------------
 // Statements
@@ -134,13 +110,11 @@ message Call {
   }
 }
 
-// For loop: for i, item in enumerate(items): body
-// Body is constrained to at most ONE action or function call per iteration.
-// Use SpreadAction for parallel iteration over collections.
+// For loop: for item in items: ...
 message ForLoop {
   repeated string loop_vars = 1;     // Loop variable(s) for unpacking
   Expr iterable = 2;
-  SingleCallBody body = 3;           // Single call body (one action/fn per iteration)
+  Block block_body = 3;
 }
 
 // Conditional: if/elif/else
@@ -152,32 +126,31 @@ message Conditional {
 
 message IfBranch {
   Expr condition = 1;
-  SingleCallBody body = 2;           // Single call body
-  Span span = 3;
+  Span span = 2;
+  Block block_body = 3;
 }
 
 message ElifBranch {
   Expr condition = 1;
-  SingleCallBody body = 2;           // Single call body
-  Span span = 3;
+  Span span = 2;
+  Block block_body = 3;
 }
 
 message ElseBranch {
-  SingleCallBody body = 1;           // Single call body
-  Span span = 2;
+  Span span = 1;
+  Block block_body = 2;
 }
 
 // Try/except block
-// Both try body and handlers are constrained to single calls.
 message TryExcept {
-  SingleCallBody try_body = 1;       // Single call body
   repeated ExceptHandler handlers = 2;
+  Block try_block = 3;
 }
 
 message ExceptHandler {
   repeated string exception_types = 1;  // Empty = catch all
-  SingleCallBody body = 2;              // Single call body
-  Span span = 3;
+  Span span = 2;
+  Block block_body = 3;
 }
 
 // Return statement

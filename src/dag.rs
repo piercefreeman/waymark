@@ -491,6 +491,25 @@ pub struct DAGConverter {
     var_modifications: HashMap<String, Vec<String>>,
 }
 
+#[derive(Debug, Clone, Default)]
+struct ConvertedSubgraph {
+    entry: Option<String>,
+    exits: Vec<String>,
+    nodes: Vec<String>,
+    is_noop: bool,
+}
+
+impl ConvertedSubgraph {
+    fn noop() -> Self {
+        Self {
+            entry: None,
+            exits: Vec::new(),
+            nodes: Vec::new(),
+            is_noop: true,
+        }
+    }
+}
+
 impl DAGConverter {
     /// Create a new DAG converter
     pub fn new() -> Self {
@@ -1480,19 +1499,20 @@ impl DAGConverter {
         }
 
         // Convert function body
-        let mut prev_node_id = Some(input_id);
+        let mut frontier = vec![input_id.clone()];
         if let Some(body) = &fn_def.body {
             for stmt in &body.statements {
-                let node_ids = self.convert_statement(stmt);
-
-                if let (Some(prev), Some(first)) = (&prev_node_id, node_ids.first()) {
-                    self.dag
-                        .add_edge(DAGEdge::state_machine(prev.clone(), first.clone()));
+                let converted = self.convert_statement(stmt);
+                if converted.is_noop {
+                    continue;
                 }
-
-                if !node_ids.is_empty() {
-                    prev_node_id = Some(node_ids.last().unwrap().clone());
+                if let Some(entry) = &converted.entry {
+                    for prev in &frontier {
+                        self.dag
+                            .add_edge(DAGEdge::state_machine(prev.clone(), entry.clone()));
+                    }
                 }
+                frontier = converted.exits;
             }
         }
 
@@ -1505,8 +1525,8 @@ impl DAGConverter {
             .with_output(io.outputs.clone());
         self.dag.add_node(output_node);
 
-        // Connect last body node to output
-        if let Some(prev) = prev_node_id {
+        // Connect all continuing control-flow exits to the output node.
+        for prev in frontier {
             self.dag
                 .add_edge(DAGEdge::state_machine(prev, output_id.clone()));
         }
@@ -1582,13 +1602,54 @@ impl DAGConverter {
     }
 
     /// Convert a statement to DAG node(s)
-    fn convert_statement(&mut self, stmt: &ast::Statement) -> Vec<String> {
+    fn convert_block(&mut self, block: &ast::Block) -> ConvertedSubgraph {
+        let mut nodes = Vec::new();
+        let mut entry: Option<String> = None;
+        let mut frontier: Option<Vec<String>> = None;
+
+        for stmt in &block.statements {
+            let converted = self.convert_statement(stmt);
+            nodes.extend(converted.nodes.clone());
+
+            if converted.is_noop {
+                continue;
+            }
+
+            if entry.is_none() {
+                entry = converted.entry.clone();
+            }
+
+            if let Some(prev_exits) = &frontier
+                && let Some(next_entry) = &converted.entry
+            {
+                for prev in prev_exits {
+                    self.dag
+                        .add_edge(DAGEdge::state_machine(prev.clone(), next_entry.clone()));
+                }
+            }
+
+            frontier = Some(converted.exits.clone());
+        }
+
+        if entry.is_none() {
+            return ConvertedSubgraph::noop();
+        }
+
+        ConvertedSubgraph {
+            entry,
+            exits: frontier.unwrap_or_default(),
+            nodes,
+            is_noop: false,
+        }
+    }
+
+    fn convert_statement(&mut self, stmt: &ast::Statement) -> ConvertedSubgraph {
         let kind = match &stmt.kind {
             Some(k) => k,
-            None => return vec![],
+            None => return ConvertedSubgraph::noop(),
         };
 
-        match kind {
+        let node_ids = match kind {
             ast::statement::Kind::Assignment(assign) => self.convert_assignment(assign),
             ast::statement::Kind::ActionCall(action) => {
                 // Side-effect only action statement (no target)
@@ -1602,58 +1663,37 @@ impl DAGConverter {
                 // Side-effect only parallel statement (no target)
                 self.convert_parallel_block(parallel)
             }
-            ast::statement::Kind::ForLoop(for_loop) => self.convert_for_loop(for_loop),
-            ast::statement::Kind::Conditional(cond) => self.convert_conditional(cond),
-            ast::statement::Kind::TryExcept(try_except) => self.convert_try_except(try_except),
-            ast::statement::Kind::ReturnStmt(ret) => self.convert_return(ret),
+            ast::statement::Kind::ForLoop(for_loop) => {
+                return self.convert_for_loop(for_loop);
+            }
+            ast::statement::Kind::Conditional(cond) => {
+                return self.convert_conditional(cond);
+            }
+            ast::statement::Kind::TryExcept(try_except) => {
+                return self.convert_try_except(try_except);
+            }
+            ast::statement::Kind::ReturnStmt(ret) => {
+                let ids = self.convert_return(ret);
+                return ConvertedSubgraph {
+                    entry: ids.first().cloned(),
+                    exits: Vec::new(),
+                    nodes: ids,
+                    is_noop: false,
+                };
+            }
             ast::statement::Kind::ExprStmt(expr_stmt) => self.convert_expr_statement(expr_stmt),
-        }
-    }
+        };
 
-    /// Convert a SingleCallBody to DAG node(s).
-    /// SingleCallBody can contain:
-    /// 1. A single call (action or function) with optional target
-    /// 2. Pure data statements (no calls)
-    fn convert_single_call_body(&mut self, body: &ast::SingleCallBody) -> Vec<String> {
-        // If there's a call, convert it
-        if let Some(call) = &body.call {
-            let targets = &body.targets;
-
-            return match &call.kind {
-                Some(ast::call::Kind::Action(action)) => {
-                    self.convert_action_call_with_targets(action, targets)
-                }
-                Some(ast::call::Kind::Function(func)) => {
-                    if !targets.is_empty() {
-                        self.convert_fn_call_assignment(&targets[0], targets, func)
-                    } else {
-                        // Function call without assignment target
-                        let node_id = self.next_id("fn_call");
-                        let label = format!("{}()", func.name);
-                        let kwargs = self.extract_kwargs(&func.kwargs);
-                        let kwarg_exprs = self.extract_kwarg_exprs(&func.kwargs);
-                        let mut node = DAGNode::new(node_id.clone(), "fn_call".to_string(), label)
-                            .with_fn_call(&func.name)
-                            .with_kwargs(kwargs)
-                            .with_kwarg_exprs(kwarg_exprs);
-                        if let Some(ref fn_name) = self.current_function {
-                            node = node.with_function_name(fn_name);
-                        }
-                        self.dag.add_node(node);
-                        vec![node_id]
-                    }
-                }
-                None => vec![],
-            };
+        if node_ids.is_empty() {
+            return ConvertedSubgraph::noop();
         }
 
-        // Otherwise, convert pure data statements
-        let mut result = vec![];
-        for stmt in &body.statements {
-            let node_ids = self.convert_statement(stmt);
-            result.extend(node_ids);
+        ConvertedSubgraph {
+            entry: node_ids.first().cloned(),
+            exits: node_ids.last().cloned().into_iter().collect(),
+            nodes: node_ids,
+            is_noop: false,
         }
-        result
     }
 
     /// Convert an assignment statement
@@ -2208,7 +2248,9 @@ impl DAGConverter {
     ///
     /// This structure uses the same guard evaluation as if/else branches,
     /// requiring no special runtime handling for loops.
-    fn convert_for_loop(&mut self, for_loop: &ast::ForLoop) -> Vec<String> {
+    fn convert_for_loop(&mut self, for_loop: &ast::ForLoop) -> ConvertedSubgraph {
+        let mut nodes: Vec<String> = Vec::new();
+
         let loop_id = self.next_id("loop");
         let loop_vars_str = for_loop.loop_vars.join(", ");
 
@@ -2253,6 +2295,7 @@ impl DAGConverter {
         }
         self.dag.add_node(init_node);
         self.track_var_definition(&loop_i_var, &init_id);
+        nodes.push(init_id.clone());
 
         // ============================================================
         // 2. Create loop_cond node (branch): decision point
@@ -2264,6 +2307,7 @@ impl DAGConverter {
             cond_node = cond_node.with_function_name(fn_name);
         }
         self.dag.add_node(cond_node);
+        nodes.push(cond_id.clone());
 
         // Connect init -> cond
         self.dag
@@ -2304,6 +2348,7 @@ impl DAGConverter {
             extract_node = extract_node.with_function_name(fn_name);
         }
         self.dag.add_node(extract_node);
+        nodes.push(extract_id.clone());
 
         // Track loop variables as defined by extract node
         for loop_var in &for_loop.loop_vars {
@@ -2325,37 +2370,24 @@ impl DAGConverter {
         // ============================================================
         // 4. Convert body nodes
         // ============================================================
-        let mut body_first: Option<String> = None;
-        let mut body_last: Option<String> = None;
         let mut body_targets: Vec<String> = Vec::new();
+        let body_graph = for_loop
+            .block_body
+            .as_ref()
+            .map(|block_body| {
+                Self::collect_assigned_targets(&block_body.statements, &mut body_targets);
+                self.convert_block(block_body)
+            })
+            .unwrap_or_else(ConvertedSubgraph::noop);
+        nodes.extend(body_graph.nodes.clone());
 
-        if let Some(body) = &for_loop.body {
-            // Convert the body using convert_single_call_body
-            let body_node_ids = self.convert_single_call_body(body);
-            if !body_node_ids.is_empty() {
-                body_first = Some(body_node_ids[0].clone());
-                body_last = Some(body_node_ids.last().unwrap().clone());
-            }
-
-            // Collect all targets: both from the call and from assignment statements
-            body_targets = body.targets.clone();
-
-            // Also collect targets from assignment statements in the body
-            for stmt in &body.statements {
-                if let Some(ast::statement::Kind::Assignment(assign)) = &stmt.kind {
-                    for target in &assign.targets {
-                        if !body_targets.contains(target) {
-                            body_targets.push(target.clone());
-                        }
-                    }
-                }
-            }
-        }
-
-        // Connect extract -> body (first node)
-        if let Some(ref first) = body_first {
-            self.dag
-                .add_edge(DAGEdge::state_machine(extract_id.clone(), first.clone()));
+        if body_graph.is_noop {
+            // No body nodes: extract flows directly to incr.
+        } else if let Some(ref body_entry) = body_graph.entry {
+            self.dag.add_edge(DAGEdge::state_machine(
+                extract_id.clone(),
+                body_entry.clone(),
+            ));
         }
 
         // ============================================================
@@ -2392,22 +2424,17 @@ impl DAGConverter {
         }
         self.dag.add_node(incr_node);
         self.track_var_definition(&loop_i_var, &incr_id);
+        nodes.push(incr_id.clone());
 
-        // Connect body (last) -> incr, or extract -> incr if no body.
-        // But NOT if body ends with a return - returns should flow to workflow output.
-        if let Some(ref last) = body_last {
-            let is_return = self
-                .dag
-                .nodes
-                .get(last)
-                .is_some_and(|n| n.node_type == "return");
-            if !is_return {
-                self.dag
-                    .add_edge(DAGEdge::state_machine(last.clone(), incr_id.clone()));
-            }
-        } else {
+        // Connect body exits -> incr, or extract -> incr if no body.
+        if body_graph.is_noop {
             self.dag
                 .add_edge(DAGEdge::state_machine(extract_id.clone(), incr_id.clone()));
+        } else {
+            for exit in &body_graph.exits {
+                self.dag
+                    .add_edge(DAGEdge::state_machine(exit.clone(), incr_id.clone()));
+            }
         }
 
         // ============================================================
@@ -2437,6 +2464,7 @@ impl DAGConverter {
             }
         }
         self.dag.add_node(exit_node);
+        nodes.push(exit_id.clone());
 
         // Connect cond -> exit with break guard
         if let Some(ref guard) = break_guard {
@@ -2451,9 +2479,12 @@ impl DAGConverter {
                 .add_edge(DAGEdge::state_machine(cond_id.clone(), exit_id.clone()));
         }
 
-        // Return: init is the first node, exit is the last node
-        // The caller will connect the previous node to init, and exit to the next node
-        vec![init_id, exit_id]
+        ConvertedSubgraph {
+            entry: Some(init_id),
+            exits: vec![exit_id],
+            nodes,
+            is_noop: false,
+        }
     }
 
     /// Convert a conditional (if/elif/else)
@@ -2469,11 +2500,9 @@ impl DAGConverter {
     /// Becomes:
     ///   predecessor --[guard: x > 0]--> @pos() --> join
     ///               --[guard: not (x > 0)]--> @neg() --> join
-    fn convert_conditional(&mut self, cond: &ast::Conditional) -> Vec<String> {
-        let mut result_nodes = Vec::new();
+    fn convert_conditional(&mut self, cond: &ast::Conditional) -> ConvertedSubgraph {
+        let mut nodes: Vec<String> = Vec::new();
 
-        // We need a "branch" node that serves as the decision point.
-        // This node doesn't execute anything - it just routes based on guards.
         let branch_id = self.next_id("branch");
         let mut branch_node = DAGNode::new(
             branch_id.clone(),
@@ -2484,181 +2513,126 @@ impl DAGConverter {
             branch_node = branch_node.with_function_name(fn_name);
         }
         self.dag.add_node(branch_node);
-        result_nodes.push(branch_id.clone());
+        nodes.push(branch_id.clone());
 
-        let mut then_first: Option<String> = None;
-        let mut then_last: Option<String> = None;
-        let mut else_first: Option<String> = None;
-        let mut else_last: Option<String> = None;
+        let if_branch = cond
+            .if_branch
+            .as_ref()
+            .unwrap_or_else(|| panic!("BUG: conditional missing if_branch"));
+        let if_guard = if_branch
+            .condition
+            .as_ref()
+            .unwrap_or_else(|| panic!("BUG: if branch missing guard expression"))
+            .clone();
 
-        // Get the guard expression for the if branch
-        let guard_expr = cond.if_branch.as_ref().and_then(|b| b.condition.clone());
+        let if_body_graph = if_branch
+            .block_body
+            .as_ref()
+            .map(|block| self.convert_block(block))
+            .unwrap_or_else(ConvertedSubgraph::noop);
+        nodes.extend(if_body_graph.nodes.clone());
 
-        // Track all branches (if, elif*, else) for proper guard composition
-        // Each branch needs a compound guard that is:
-        // - if: guard
-        // - elif: NOT(if_guard) AND NOT(elif1_guard) AND ... AND elif_guard
-        // - else: NOT(if_guard) AND NOT(elif1_guard) AND ... AND NOT(elifN_guard)
-        let mut prior_guards: Vec<ast::Expr> = Vec::new();
+        let mut prior_guards: Vec<ast::Expr> = vec![if_guard.clone()];
+        let mut elif_graphs: Vec<(ast::Expr, ConvertedSubgraph)> = Vec::new();
 
-        // Process then branch (SingleCallBody - exactly one call)
-        if let Some(if_branch) = &cond.if_branch
-            && let Some(body) = &if_branch.body
-        {
-            let node_ids = self.convert_single_call_body(body);
-            if !node_ids.is_empty() {
-                then_first = Some(node_ids[0].clone());
-                then_last = Some(node_ids.last().unwrap().clone());
-                result_nodes.extend(node_ids);
-            }
-        }
-
-        // Track if guard for elif/else composition
-        if let Some(ref guard) = guard_expr {
-            prior_guards.push(guard.clone());
-        }
-
-        // Process elif branches
-        let mut elif_branches_info: Vec<(Option<String>, Option<String>, ast::Expr)> = Vec::new();
         for elif_branch in &cond.elif_branches {
-            if let Some(body) = &elif_branch.body {
-                let node_ids = self.convert_single_call_body(body);
-                let elif_first = node_ids.first().cloned();
-                let elif_last = node_ids.last().cloned();
-                result_nodes.extend(node_ids);
+            let elif_cond = elif_branch
+                .condition
+                .as_ref()
+                .unwrap_or_else(|| panic!("BUG: elif branch missing guard expression"))
+                .clone();
+            let compound_guard = self.build_compound_guard(&prior_guards, Some(&elif_cond));
+            prior_guards.push(elif_cond);
 
-                // Build compound guard: NOT(prior_guard1) AND NOT(prior_guard2) AND ... AND elif_condition
-                let elif_condition = elif_branch.condition.clone();
-                if let Some(elif_cond) = elif_condition {
-                    let compound_guard = self.build_compound_guard(&prior_guards, Some(&elif_cond));
-                    elif_branches_info.push((elif_first, elif_last, compound_guard));
-                    // Add this elif's condition to prior guards for subsequent branches
-                    prior_guards.push(elif_cond);
+            let graph = elif_branch
+                .block_body
+                .as_ref()
+                .map(|block| self.convert_block(block))
+                .unwrap_or_else(ConvertedSubgraph::noop);
+
+            nodes.extend(graph.nodes.clone());
+            elif_graphs.push((compound_guard, graph));
+        }
+
+        // Missing else is an implicit empty else.
+        let else_guard = self.build_compound_guard(&prior_guards, None);
+        let else_graph = cond
+            .else_branch
+            .as_ref()
+            .and_then(|else_branch| {
+                else_branch
+                    .block_body
+                    .as_ref()
+                    .map(|block| self.convert_block(block))
+            })
+            .unwrap_or_else(ConvertedSubgraph::noop);
+        nodes.extend(else_graph.nodes.clone());
+
+        let join_needed = (if_body_graph.is_noop || !if_body_graph.exits.is_empty())
+            || elif_graphs
+                .iter()
+                .any(|(_, graph)| graph.is_noop || !graph.exits.is_empty())
+            || (else_graph.is_noop || !else_graph.exits.is_empty());
+
+        let join_id = if join_needed {
+            let join_id = self.next_id("join");
+            let mut join_node =
+                DAGNode::new(join_id.clone(), "join".to_string(), "join".to_string())
+                    .with_join_required_count(1);
+            if let Some(ref fn_name) = self.current_function {
+                join_node = join_node.with_function_name(fn_name);
+            }
+            self.dag.add_node(join_node);
+            nodes.push(join_id.clone());
+            Some(join_id)
+        } else {
+            None
+        };
+
+        let connect_branch = |converter: &mut Self,
+                              guard: ast::Expr,
+                              graph: &ConvertedSubgraph,
+                              join_id: Option<&String>| {
+            if graph.is_noop {
+                if let Some(join_target) = join_id {
+                    converter.dag.add_edge(DAGEdge::state_machine_with_guard(
+                        branch_id.clone(),
+                        join_target.clone(),
+                        guard,
+                    ));
                 }
+                return;
             }
-        }
 
-        // Process else branch (SingleCallBody - exactly one call)
-        if let Some(else_branch) = &cond.else_branch
-            && let Some(body) = &else_branch.body
-        {
-            let node_ids = self.convert_single_call_body(body);
-            if !node_ids.is_empty() {
-                else_first = Some(node_ids[0].clone());
-                else_last = Some(node_ids.last().unwrap().clone());
-                result_nodes.extend(node_ids);
-            }
-        }
-
-        // Create join node - conditional joins only expect 1 predecessor (branches are mutually exclusive)
-        let join_id = self.next_id("join");
-        let mut join_node = DAGNode::new(join_id.clone(), "join".to_string(), "join".to_string())
-            .with_join_required_count(1);
-        if let Some(ref fn_name) = self.current_function {
-            join_node = join_node.with_function_name(fn_name);
-        }
-        self.dag.add_node(join_node);
-        result_nodes.push(join_id.clone());
-
-        // Connect branch node to then branch with guard
-        if let Some(ref then_target) = then_first {
-            let guard = guard_expr.as_ref().unwrap_or_else(|| {
-                panic!("BUG: if statement 'then' branch has no guard expression")
-            });
-            self.dag.add_edge(DAGEdge::state_machine_with_guard(
-                branch_id.clone(),
-                then_target.clone(),
-                guard.clone(),
-            ));
-        }
-
-        // Connect branch node to elif branches with compound guards
-        for (elif_first, elif_last, compound_guard) in &elif_branches_info {
-            if let Some(elif_target) = elif_first {
-                self.dag.add_edge(DAGEdge::state_machine_with_guard(
+            if let Some(entry) = &graph.entry {
+                converter.dag.add_edge(DAGEdge::state_machine_with_guard(
                     branch_id.clone(),
-                    elif_target.clone(),
-                    compound_guard.clone(),
+                    entry.clone(),
+                    guard,
                 ));
             }
-            // Connect elif end to join - but NOT if it ends with a return statement.
-            // Return statements should flow to workflow output, not back to join.
-            if let Some(elif_end) = elif_last {
-                let is_return = self
-                    .dag
-                    .nodes
-                    .get(elif_end)
-                    .is_some_and(|n| n.node_type == "return");
-                if !is_return {
-                    self.dag
-                        .add_edge(DAGEdge::state_machine(elif_end.clone(), join_id.clone()));
+
+            if let Some(join_target) = join_id {
+                for exit in &graph.exits {
+                    converter
+                        .dag
+                        .add_edge(DAGEdge::state_machine(exit.clone(), join_target.clone()));
                 }
             }
-        }
+        };
 
-        // Connect branch node to else branch with compound negated guard
-        if let Some(ref else_target) = else_first {
-            // Else guard is: NOT(if_guard) AND NOT(elif1_guard) AND ... AND NOT(elifN_guard)
-            let else_guard = self.build_compound_guard(&prior_guards, None);
-            self.dag.add_edge(DAGEdge::state_machine_with_guard(
-                branch_id.clone(),
-                else_target.clone(),
-                else_guard,
-            ));
+        connect_branch(self, if_guard, &if_body_graph, join_id.as_ref());
+        for (guard, graph) in &elif_graphs {
+            connect_branch(self, guard.clone(), graph, join_id.as_ref());
         }
+        connect_branch(self, else_guard, &else_graph, join_id.as_ref());
 
-        // Handle missing branches - connect directly to join
-        if then_first.is_none() {
-            if let Some(ref guard) = guard_expr {
-                self.dag.add_edge(DAGEdge::state_machine_with_guard(
-                    branch_id.clone(),
-                    join_id.clone(),
-                    guard.clone(),
-                ));
-            }
+        ConvertedSubgraph {
+            entry: Some(branch_id),
+            exits: join_id.into_iter().collect(),
+            nodes,
+            is_noop: false,
         }
-        // When there's no else branch (or empty else), we need to create
-        // a "skip" edge from the branch node to the join node with a negated guard.
-        // This ensures that when the if condition is false, execution continues
-        // to the statements after the if block instead of hitting a dead-end.
-        //
-        // Previously this only handled the case where `cond.else_branch.is_some()`
-        // but was missing, which missed the common case of `if` without any `else`.
-        if else_first.is_none() {
-            let else_guard = self.build_compound_guard(&prior_guards, None);
-            self.dag.add_edge(DAGEdge::state_machine_with_guard(
-                branch_id.clone(),
-                join_id.clone(),
-                else_guard,
-            ));
-        }
-
-        // Connect branch ends to join - but NOT if they end with a return statement.
-        // Return statements should flow to workflow output, not back to join.
-        // This is critical for early returns inside conditionals.
-        if let Some(then) = then_last {
-            let is_return = self
-                .dag
-                .nodes
-                .get(&then)
-                .is_some_and(|n| n.node_type == "return");
-            if !is_return {
-                self.dag
-                    .add_edge(DAGEdge::state_machine(then, join_id.clone()));
-            }
-        }
-        if let Some(else_) = else_last {
-            let is_return = self
-                .dag
-                .nodes
-                .get(&else_)
-                .is_some_and(|n| n.node_type == "return");
-            if !is_return {
-                self.dag.add_edge(DAGEdge::state_machine(else_, join_id));
-            }
-        }
-
-        result_nodes
     }
 
     /// Build a compound guard expression from prior guards and an optional current condition.
@@ -2724,86 +2698,106 @@ impl DAGConverter {
     /// Becomes:
     ///   @risky() --[success]--> join
     ///            --[except:NetworkError]--> @fallback() --> join
-    fn convert_try_except(&mut self, try_except: &ast::TryExcept) -> Vec<String> {
-        // Convert try body (SingleCallBody - exactly one call)
-        // This is the action that might throw an exception
-        let mut try_body_first: Option<String> = None;
-        let mut try_body_last: Option<String> = None;
-        if let Some(try_body) = &try_except.try_body {
-            let node_ids = self.convert_single_call_body(try_body);
-            if !node_ids.is_empty() {
-                try_body_first = Some(node_ids[0].clone());
-                try_body_last = Some(node_ids.last().unwrap().clone());
+    fn convert_try_except(&mut self, try_except: &ast::TryExcept) -> ConvertedSubgraph {
+        let mut nodes: Vec<String> = Vec::new();
+
+        let try_graph = try_except
+            .try_block
+            .as_ref()
+            .map(|block| self.convert_block(block))
+            .unwrap_or_else(ConvertedSubgraph::noop);
+
+        if try_graph.is_noop {
+            return ConvertedSubgraph::noop();
+        }
+        nodes.extend(try_graph.nodes.clone());
+
+        // Collect handler graphs up front so we can decide whether a join is needed.
+        let mut handler_graphs: Vec<(Vec<String>, ConvertedSubgraph)> = Vec::new();
+        for handler in &try_except.handlers {
+            let graph = handler
+                .block_body
+                .as_ref()
+                .map(|block| self.convert_block(block))
+                .unwrap_or_else(ConvertedSubgraph::noop);
+            nodes.extend(graph.nodes.clone());
+            handler_graphs.push((handler.exception_types.clone(), graph));
+        }
+
+        let join_needed = !try_graph.exits.is_empty()
+            || handler_graphs
+                .iter()
+                .any(|(_, graph)| graph.is_noop || !graph.exits.is_empty());
+
+        let join_id = if join_needed {
+            let join_id = self.next_id("join");
+            let mut join_node =
+                DAGNode::new(join_id.clone(), "join".to_string(), "join".to_string())
+                    .with_join_required_count(1);
+            if let Some(ref fn_name) = self.current_function {
+                join_node = join_node.with_function_name(fn_name);
             }
-        }
+            self.dag.add_node(join_node);
+            nodes.push(join_id.clone());
+            Some(join_id)
+        } else {
+            None
+        };
 
-        // Create join node - try/except joins only expect 1 predecessor (success or exception path)
-        let join_id = self.next_id("join");
-        let mut join_node = DAGNode::new(join_id.clone(), "join".to_string(), "join".to_string())
-            .with_join_required_count(1);
-        if let Some(ref fn_name) = self.current_function {
-            join_node = join_node.with_function_name(fn_name);
-        }
-        self.dag.add_node(join_node);
-
-        // Connect try body success path to join - but NOT if it ends with a return statement.
-        // Return statements should flow to workflow output, not back to join.
-        if let Some(ref try_last) = try_body_last {
-            let is_return = self
-                .dag
-                .nodes
-                .get(try_last)
-                .is_some_and(|n| n.node_type == "return");
-            if !is_return {
+        // Success path(s): all normal exits of the try body go to the join via "success".
+        if let Some(join_target) = join_id.as_ref() {
+            for try_exit in &try_graph.exits {
                 self.dag.add_edge(DAGEdge::state_machine_success(
-                    try_last.clone(),
-                    join_id.clone(),
+                    try_exit.clone(),
+                    join_target.clone(),
                 ));
             }
         }
 
-        // Convert each except handler and connect from try body with exception types
-        for handler in &try_except.handlers {
-            // Convert handler body (SingleCallBody - exactly one call)
-            if let Some(body) = &handler.body {
-                let node_ids = self.convert_single_call_body(body);
-                if !node_ids.is_empty() {
-                    let handler_first = node_ids[0].clone();
-                    let handler_last = node_ids.last().unwrap().clone();
-
-                    // Edge from try body to handler with exception types
-                    if let Some(ref try_last) = try_body_last {
+        // Exception edges: any failing node inside the try body may route to a handler.
+        // This mirrors Python semantics more closely than only wiring from the last try node.
+        let try_exception_sources = try_graph.nodes.clone();
+        for (exception_types, handler_graph) in &handler_graphs {
+            if handler_graph.is_noop {
+                if let Some(join_target) = join_id.as_ref() {
+                    for source in &try_exception_sources {
                         self.dag.add_edge(DAGEdge::state_machine_with_exception(
-                            try_last.clone(),
-                            handler_first,
-                            handler.exception_types.clone(),
+                            source.clone(),
+                            join_target.clone(),
+                            exception_types.clone(),
                         ));
                     }
+                }
+                continue;
+            }
 
-                    // Connect handler end to join - but NOT if it ends with a return statement.
-                    // Return statements should flow to workflow output, not back to join.
-                    let is_return = self
-                        .dag
-                        .nodes
-                        .get(&handler_last)
-                        .is_some_and(|n| n.node_type == "return");
-                    if !is_return {
-                        self.dag
-                            .add_edge(DAGEdge::state_machine(handler_last, join_id.clone()));
-                    }
+            let Some(handler_entry) = handler_graph.entry.as_ref() else {
+                continue;
+            };
+            for source in &try_exception_sources {
+                self.dag.add_edge(DAGEdge::state_machine_with_exception(
+                    source.clone(),
+                    handler_entry.clone(),
+                    exception_types.clone(),
+                ));
+            }
+
+            if let Some(join_target) = join_id.as_ref() {
+                for handler_exit in &handler_graph.exits {
+                    self.dag.add_edge(DAGEdge::state_machine(
+                        handler_exit.clone(),
+                        join_target.clone(),
+                    ));
                 }
             }
         }
 
-        // Return: first node is the try body's first action, last is the join
-        // We need to return the try body first (for connecting from predecessor)
-        // and the join (for connecting to successor)
-        let mut result_nodes = Vec::new();
-        if let Some(first) = try_body_first {
-            result_nodes.push(first);
+        ConvertedSubgraph {
+            entry: try_graph.entry,
+            exits: join_id.into_iter().collect(),
+            nodes,
+            is_noop: false,
         }
-        result_nodes.push(join_id);
-        result_nodes
     }
 
     /// Convert a return statement
@@ -2889,6 +2883,65 @@ impl DAGConverter {
             .entry(var_name.to_string())
             .or_default()
             .push(node_id.to_string());
+    }
+
+    fn push_unique_target(targets: &mut Vec<String>, target: &str) {
+        if !targets.iter().any(|existing| existing == target) {
+            targets.push(target.to_string());
+        }
+    }
+
+    fn collect_assigned_targets(statements: &[ast::Statement], targets: &mut Vec<String>) {
+        for stmt in statements {
+            let Some(kind) = &stmt.kind else {
+                continue;
+            };
+
+            match kind {
+                ast::statement::Kind::Assignment(assign) => {
+                    for target in &assign.targets {
+                        Self::push_unique_target(targets, target);
+                    }
+                }
+                ast::statement::Kind::Conditional(cond) => {
+                    if let Some(if_branch) = &cond.if_branch {
+                        if let Some(body) = &if_branch.block_body {
+                            Self::collect_assigned_targets(&body.statements, targets);
+                        }
+                    }
+                    for elif_branch in &cond.elif_branches {
+                        if let Some(body) = &elif_branch.block_body {
+                            Self::collect_assigned_targets(&body.statements, targets);
+                        }
+                    }
+                    if let Some(else_branch) = &cond.else_branch {
+                        if let Some(body) = &else_branch.block_body {
+                            Self::collect_assigned_targets(&body.statements, targets);
+                        }
+                    }
+                }
+                ast::statement::Kind::ForLoop(for_loop) => {
+                    if let Some(body) = &for_loop.block_body {
+                        Self::collect_assigned_targets(&body.statements, targets);
+                    }
+                }
+                ast::statement::Kind::TryExcept(try_except) => {
+                    if let Some(body) = &try_except.try_block {
+                        Self::collect_assigned_targets(&body.statements, targets);
+                    }
+                    for handler in &try_except.handlers {
+                        if let Some(body) = &handler.block_body {
+                            Self::collect_assigned_targets(&body.statements, targets);
+                        }
+                    }
+                }
+                ast::statement::Kind::ParallelBlock(_)
+                | ast::statement::Kind::SpreadAction(_)
+                | ast::statement::Kind::ActionCall(_)
+                | ast::statement::Kind::ReturnStmt(_)
+                | ast::statement::Kind::ExprStmt(_) => {}
+            }
+        }
     }
 
     /// Add data flow edges for a specific function
@@ -3189,6 +3242,80 @@ mod tests {
             "Should have branch decision node"
         );
         assert!(node_types.contains("join"), "Should have join node");
+    }
+
+    #[test]
+    fn test_conditional_all_branches_return_has_no_fallthrough() {
+        let source = r#"fn run(input: [], output: [result]):
+    if true:
+        return 1
+    else:
+        return 2
+    result = @after()
+    return result"#;
+
+        let program = parse(source).unwrap();
+        let dag = convert_to_dag(&program);
+
+        let after_node = dag
+            .nodes
+            .values()
+            .find(|n| n.node_type == "action_call" && n.action_name.as_deref() == Some("after"))
+            .expect("expected @after() node");
+
+        let incoming: Vec<_> = dag
+            .get_incoming_edges(&after_node.id)
+            .into_iter()
+            .filter(|e| e.edge_type == EdgeType::StateMachine)
+            .collect();
+        assert!(
+            incoming.is_empty(),
+            "expected no fallthrough edges into @after() when all branches return"
+        );
+
+        let conditional_joins = dag
+            .nodes
+            .values()
+            .filter(|n| n.node_type == "join" && n.label == "join")
+            .count();
+        assert_eq!(
+            conditional_joins, 0,
+            "expected no join node when all conditional branches return"
+        );
+    }
+
+    #[test]
+    fn test_for_loop_body_return_still_allows_empty_iteration_fallthrough() {
+        let source = r#"fn run(input: [items], output: [result]):
+    for item in items:
+        return item
+    result = @after()
+    return result"#;
+
+        let program = parse(source).unwrap();
+        let dag = convert_to_dag(&program);
+
+        let after_node = dag
+            .nodes
+            .values()
+            .find(|n| n.node_type == "action_call" && n.action_name.as_deref() == Some("after"))
+            .expect("expected @after() node");
+
+        let loop_exit = dag
+            .nodes
+            .values()
+            .find(|n| n.node_type == "join" && n.label.starts_with("end for "))
+            .expect("expected loop_exit join node");
+
+        let has_exit_edge = dag.edges.iter().any(|e| {
+            e.edge_type == EdgeType::StateMachine
+                && e.source == loop_exit.id
+                && e.target == after_node.id
+        });
+        assert!(
+            has_exit_edge,
+            "expected loop_exit -> @after() edge for the empty-iteration fallthrough path"
+        );
     }
 
     #[test]
@@ -3792,27 +3919,39 @@ fn main(input: [], output: [result]):
     }
 
     // =========================================================================
-    // SingleCallBody tuple unpacking tests
+    // Block tuple unpacking tests
     // =========================================================================
 
-    /// Helper to create a SingleCallBody with an action call and multiple targets
-    fn make_single_call_body_with_action(
-        targets: Vec<String>,
-        action_name: &str,
-    ) -> ast::SingleCallBody {
-        let action = ast::ActionCall {
-            action_name: action_name.to_string(),
-            kwargs: vec![],
-            policies: vec![],
-            module_name: None,
-        };
-        let call = ast::Call {
-            kind: Some(ast::call::Kind::Action(action)),
-        };
-        ast::SingleCallBody {
-            targets,
-            call: Some(call),
-            statements: vec![],
+    fn make_action_expr(action_name: &str) -> ast::Expr {
+        ast::Expr {
+            kind: Some(ast::expr::Kind::ActionCall(ast::ActionCall {
+                action_name: action_name.to_string(),
+                kwargs: vec![],
+                policies: vec![],
+                module_name: None,
+            })),
+            span: None,
+        }
+    }
+
+    fn make_assignment_stmt(targets: Vec<String>, action_name: &str) -> ast::Statement {
+        ast::Statement {
+            kind: Some(ast::statement::Kind::Assignment(ast::Assignment {
+                targets,
+                value: Some(make_action_expr(action_name)),
+            })),
+            span: None,
+        }
+    }
+
+    fn make_side_effect_action_stmt(action_name: &str) -> ast::Statement {
+        ast::Statement {
+            kind: Some(ast::statement::Kind::ActionCall(ast::ActionCall {
+                action_name: action_name.to_string(),
+                kwargs: vec![],
+                policies: vec![],
+                module_name: None,
+            })),
             span: None,
         }
     }
@@ -3835,12 +3974,15 @@ fn main(input: [], output: [result]):
     }
 
     #[test]
-    fn test_single_call_body_tuple_unpacking_in_if_branch() {
-        // Test: if condition: a, b = @get_pair() followed by @use_pair(a=first, b=second)
-        let if_body = make_single_call_body_with_action(
-            vec!["first".to_string(), "second".to_string()],
-            "get_pair",
-        );
+    fn test_block_body_tuple_unpacking_in_if_branch() {
+        // Test: if condition: first, second = @get_pair() followed by @use_pair(a=first, b=second)
+        let if_body = ast::Block {
+            statements: vec![make_assignment_stmt(
+                vec!["first".to_string(), "second".to_string()],
+                "get_pair",
+            )],
+            span: None,
+        };
 
         let condition = ast::Expr {
             kind: Some(ast::expr::Kind::Literal(ast::Literal {
@@ -3851,8 +3993,8 @@ fn main(input: [], output: [result]):
 
         let if_branch = ast::IfBranch {
             condition: Some(condition),
-            body: Some(if_body),
             span: None,
+            block_body: Some(if_body),
         };
 
         let conditional = ast::Conditional {
@@ -3865,11 +4007,6 @@ fn main(input: [], output: [result]):
             kind: Some(ast::statement::Kind::Conditional(conditional)),
             span: None,
         };
-
-        // Add a downstream action that uses the unpacked variables
-        let mut use_kwargs = std::collections::HashMap::new();
-        use_kwargs.insert("a".to_string(), "$first".to_string());
-        use_kwargs.insert("b".to_string(), "$second".to_string());
 
         let use_action = ast::ActionCall {
             action_name: "use_pair".to_string(),
@@ -3964,26 +4101,34 @@ fn main(input: [], output: [result]):
     }
 
     #[test]
-    fn test_single_call_body_tuple_unpacking_in_try_body() {
-        // Test: try: a, b = @risky_action()
-        let try_body = make_single_call_body_with_action(
-            vec!["result_a".to_string(), "result_b".to_string()],
-            "risky_action",
-        );
-
-        // Simple handler body with single target
-        let handler_body =
-            make_single_call_body_with_action(vec!["recovered".to_string()], "recover");
-
-        let handler = ast::ExceptHandler {
-            exception_types: vec!["Error".to_string()],
-            body: Some(handler_body),
+    fn test_block_body_tuple_unpacking_in_try_body() {
+        // Test: try: result_a, result_b = @risky_action()
+        let try_block = ast::Block {
+            statements: vec![make_assignment_stmt(
+                vec!["result_a".to_string(), "result_b".to_string()],
+                "risky_action",
+            )],
             span: None,
         };
 
+        // Simple handler body with single target: recovered = @recover()
+        let handler_block = ast::Block {
+            statements: vec![make_assignment_stmt(
+                vec!["recovered".to_string()],
+                "recover",
+            )],
+            span: None,
+        };
+
+        let handler = ast::ExceptHandler {
+            exception_types: vec!["Error".to_string()],
+            span: None,
+            block_body: Some(handler_block),
+        };
+
         let try_except = ast::TryExcept {
-            try_body: Some(try_body),
             handlers: vec![handler],
+            try_block: Some(try_block),
         };
 
         let stmt = ast::Statement {
@@ -4031,12 +4176,15 @@ fn main(input: [], output: [result]):
     }
 
     #[test]
-    fn test_single_call_body_tuple_unpacking_in_for_loop() {
-        // Test: for item in items: x, y = @process(item=item)
-        let loop_body = make_single_call_body_with_action(
-            vec!["processed_x".to_string(), "processed_y".to_string()],
-            "process_item",
-        );
+    fn test_block_body_tuple_unpacking_in_for_loop() {
+        // Test: for item in items: processed_x, processed_y = @process_item()
+        let loop_body = ast::Block {
+            statements: vec![make_assignment_stmt(
+                vec!["processed_x".to_string(), "processed_y".to_string()],
+                "process_item",
+            )],
+            span: None,
+        };
 
         let iterable = ast::Expr {
             kind: Some(ast::expr::Kind::Variable(ast::Variable {
@@ -4048,7 +4196,7 @@ fn main(input: [], output: [result]):
         let for_loop = ast::ForLoop {
             loop_vars: vec!["item".to_string()],
             iterable: Some(iterable),
-            body: Some(loop_body),
+            block_body: Some(loop_body),
         };
 
         let stmt = ast::Statement {
@@ -4103,19 +4251,10 @@ fn main(input: [], output: [result]):
     }
 
     #[test]
-    fn test_single_call_body_no_targets() {
-        // Test: if condition: @side_effect_action()  (no assignment)
-        let if_body = ast::SingleCallBody {
-            targets: vec![], // No targets - side effect only
-            call: Some(ast::Call {
-                kind: Some(ast::call::Kind::Action(ast::ActionCall {
-                    action_name: "side_effect".to_string(),
-                    kwargs: vec![],
-                    policies: vec![],
-                    module_name: None,
-                })),
-            }),
-            statements: vec![],
+    fn test_block_body_no_targets() {
+        // Test: if condition: @side_effect()  (no assignment)
+        let if_body = ast::Block {
+            statements: vec![make_side_effect_action_stmt("side_effect")],
             span: None,
         };
 
@@ -4129,8 +4268,8 @@ fn main(input: [], output: [result]):
         let conditional = ast::Conditional {
             if_branch: Some(ast::IfBranch {
                 condition: Some(condition),
-                body: Some(if_body),
                 span: None,
+                block_body: Some(if_body),
             }),
             elif_branches: vec![],
             else_branch: None,
@@ -4169,9 +4308,12 @@ fn main(input: [], output: [result]):
     }
 
     #[test]
-    fn test_single_call_body_single_target() {
+    fn test_block_body_single_target() {
         // Test: if condition: result = @compute()  (single target - common case)
-        let if_body = make_single_call_body_with_action(vec!["result".to_string()], "compute");
+        let if_body = ast::Block {
+            statements: vec![make_assignment_stmt(vec!["result".to_string()], "compute")],
+            span: None,
+        };
 
         let condition = ast::Expr {
             kind: Some(ast::expr::Kind::Literal(ast::Literal {
@@ -4183,8 +4325,8 @@ fn main(input: [], output: [result]):
         let conditional = ast::Conditional {
             if_branch: Some(ast::IfBranch {
                 condition: Some(condition),
-                body: Some(if_body),
                 span: None,
+                block_body: Some(if_body),
             }),
             elif_branches: vec![],
             else_branch: None,
@@ -4219,12 +4361,15 @@ fn main(input: [], output: [result]):
     }
 
     #[test]
-    fn test_single_call_body_three_targets() {
-        // Test edge case: a, b, c = @get_triple()
-        let if_body = make_single_call_body_with_action(
-            vec!["x".to_string(), "y".to_string(), "z".to_string()],
-            "get_triple",
-        );
+    fn test_block_body_three_targets() {
+        // Test edge case: x, y, z = @get_triple()
+        let if_body = ast::Block {
+            statements: vec![make_assignment_stmt(
+                vec!["x".to_string(), "y".to_string(), "z".to_string()],
+                "get_triple",
+            )],
+            span: None,
+        };
 
         let condition = ast::Expr {
             kind: Some(ast::expr::Kind::Literal(ast::Literal {
@@ -4236,8 +4381,8 @@ fn main(input: [], output: [result]):
         let conditional = ast::Conditional {
             if_branch: Some(ast::IfBranch {
                 condition: Some(condition),
-                body: Some(if_body),
                 span: None,
+                block_body: Some(if_body),
             }),
             elif_branches: vec![],
             else_branch: None,

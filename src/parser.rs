@@ -82,10 +82,6 @@ impl<'source> Parser<'source> {
         self.current().token.clone()
     }
 
-    fn peek_nth(&self, n: usize) -> Option<&Token> {
-        self.tokens.get(self.pos + n).map(|t| &t.token)
-    }
-
     fn peek_span(&self) -> Span {
         self.current().span
     }
@@ -273,93 +269,6 @@ impl<'source> Parser<'source> {
         })
     }
 
-    /// Parse a single call body (for control flow: try/except, conditionals)
-    /// Can contain EITHER:
-    /// 1. A single call (action or function), optionally with assignment
-    /// 2. Pure data statements (assignments, expressions)
-    ///
-    /// Grammar: INDENT statement+ DEDENT
-    fn parse_single_call_body(&mut self) -> Result<ast::SingleCallBody, ParseError> {
-        let start_span = self.peek_span();
-        self.expect(&Token::Indent)?;
-
-        let mut statements = Vec::new();
-        let mut targets: Vec<String> = Vec::new();
-        let mut call: Option<ast::Call> = None;
-
-        // Parse statements until dedent
-        while !self.check(&Token::Dedent) && !self.at_end() {
-            // Check for action call (with optional assignment)
-            if self.check(&Token::At)
-                || (matches!(self.peek(), Token::Ident(_)) && self.peek_nth(1) == Some(&Token::Eq))
-                    && self.peek_nth(2) == Some(&Token::At)
-            {
-                // Check if this is "target = @action"
-                if matches!(self.peek(), Token::Ident(_)) && self.peek_nth(1) == Some(&Token::Eq) {
-                    let (name, _) = self.expect_ident()?;
-                    self.expect(&Token::Eq)?;
-                    targets.push(name);
-                }
-
-                if self.check(&Token::At) {
-                    let action = self.parse_action_call()?;
-                    call = Some(ast::Call {
-                        kind: Some(ast::call::Kind::Action(action)),
-                    });
-                    continue;
-                }
-            }
-
-            // Check for function call (with optional assignment)
-            if let Token::Ident(_) = self.peek() {
-                // target = helper(...)
-                if self.peek_nth(1) == Some(&Token::Eq)
-                    && matches!(self.peek_nth(2), Some(Token::Ident(_)))
-                    && self.peek_nth(3) == Some(&Token::LParen)
-                {
-                    let (name, _) = self.expect_ident()?;
-                    self.expect(&Token::Eq)?;
-                    targets.push(name);
-
-                    let expr = self.parse_expr()?;
-                    if let Some(ast::expr::Kind::FunctionCall(func_call)) = expr.kind {
-                        call = Some(ast::Call {
-                            kind: Some(ast::call::Kind::Function(func_call)),
-                        });
-                        continue;
-                    }
-                }
-
-                // Bare helper(...)
-                if self.peek_nth(1) == Some(&Token::LParen) {
-                    let expr = self.parse_expr()?;
-                    if let Some(ast::expr::Kind::FunctionCall(func_call)) = expr.kind {
-                        call = Some(ast::Call {
-                            kind: Some(ast::call::Kind::Function(func_call)),
-                        });
-                        continue;
-                    }
-                }
-            }
-
-            // Check for function call (with optional assignment)
-            // This is complex because identifiers can be many things
-            // For now, just parse as regular statement
-            let stmt = self.parse_statement()?;
-            statements.push(stmt);
-        }
-
-        let end_span = self.peek_span();
-        self.expect(&Token::Dedent)?;
-
-        Ok(ast::SingleCallBody {
-            targets,
-            call,
-            statements,
-            span: self.make_span(start_span, end_span),
-        })
-    }
-
     // -------------------------------------------------------------------------
     // Statement parsing
     // -------------------------------------------------------------------------
@@ -528,13 +437,13 @@ impl<'source> Parser<'source> {
         self.expect(&Token::If)?;
         let if_condition = self.parse_expr()?;
         self.expect(&Token::Colon)?;
-        let if_body = self.parse_single_call_body()?;
+        let if_body = self.parse_block()?;
         let if_end = self.peek_span();
 
         let if_branch = ast::IfBranch {
             condition: Some(if_condition),
-            body: Some(if_body),
             span: self.make_span(if_start, if_end),
+            block_body: Some(if_body),
         };
 
         // Parse elif branches
@@ -544,13 +453,13 @@ impl<'source> Parser<'source> {
             self.advance();
             let elif_condition = self.parse_expr()?;
             self.expect(&Token::Colon)?;
-            let elif_body = self.parse_single_call_body()?;
+            let elif_body = self.parse_block()?;
             let elif_end = self.peek_span();
 
             elif_branches.push(ast::ElifBranch {
                 condition: Some(elif_condition),
-                body: Some(elif_body),
                 span: self.make_span(elif_start, elif_end),
+                block_body: Some(elif_body),
             });
         }
 
@@ -559,12 +468,12 @@ impl<'source> Parser<'source> {
             let else_start = self.peek_span();
             self.advance();
             self.expect(&Token::Colon)?;
-            let else_body = self.parse_single_call_body()?;
+            let else_body = self.parse_block()?;
             let else_end = self.peek_span();
 
             Some(ast::ElseBranch {
-                body: Some(else_body),
                 span: self.make_span(else_start, else_end),
+                block_body: Some(else_body),
             })
         } else {
             None
@@ -594,19 +503,19 @@ impl<'source> Parser<'source> {
         self.expect(&Token::In)?;
         let iterable = self.parse_expr()?;
         self.expect(&Token::Colon)?;
-        let body = self.parse_single_call_body()?;
+        let body = self.parse_block()?;
 
         Ok(ast::ForLoop {
             loop_vars,
             iterable: Some(iterable),
-            body: Some(body),
+            block_body: Some(body),
         })
     }
 
     fn parse_try_except(&mut self) -> Result<ast::TryExcept, ParseError> {
         self.expect(&Token::Try)?;
         self.expect(&Token::Colon)?;
-        let try_body = self.parse_single_call_body()?;
+        let try_body = self.parse_block()?;
 
         let mut handlers = Vec::new();
         while self.check(&Token::Except) {
@@ -621,19 +530,19 @@ impl<'source> Parser<'source> {
             };
 
             self.expect(&Token::Colon)?;
-            let handler_body = self.parse_single_call_body()?;
+            let handler_body = self.parse_block()?;
             let handler_end = self.peek_span();
 
             handlers.push(ast::ExceptHandler {
                 exception_types,
-                body: Some(handler_body),
                 span: self.make_span(handler_start, handler_end),
+                block_body: Some(handler_body),
             });
         }
 
         Ok(ast::TryExcept {
-            try_body: Some(try_body),
             handlers,
+            try_block: Some(try_body),
         })
     }
 
@@ -1396,7 +1305,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_single_call_body_function_call() {
+    fn test_parse_conditional_function_call_bodies() {
         let source = r#"fn helper(input: [value], output: [result]):
     result = @do_work(val=value)
     return result
@@ -1413,24 +1322,43 @@ fn runner(input: [], output: [result]):
         let body = runner.body.as_ref().unwrap();
 
         if let Some(ast::statement::Kind::Conditional(cond)) = &body.statements[0].kind {
-            let if_body = cond.if_branch.as_ref().unwrap().body.as_ref().unwrap();
-            assert!(
-                if_body.call.is_some(),
-                "expected function call in if branch"
-            );
-            if let Some(ast::call::Kind::Function(func)) = &if_body.call.as_ref().unwrap().kind {
-                assert_eq!(func.name, "helper");
-                assert!(if_body.targets.is_empty());
+            let if_body = cond
+                .if_branch
+                .as_ref()
+                .unwrap()
+                .block_body
+                .as_ref()
+                .unwrap();
+            assert_eq!(if_body.statements.len(), 1);
+            if let Some(ast::statement::Kind::ExprStmt(expr_stmt)) = &if_body.statements[0].kind {
+                let expr = expr_stmt.expr.as_ref().unwrap();
+                if let Some(ast::expr::Kind::FunctionCall(call)) = &expr.kind {
+                    assert_eq!(call.name, "helper");
+                } else {
+                    panic!("expected function call in if branch");
+                }
             } else {
-                panic!("expected function call kind");
+                panic!("expected expression statement in if branch");
             }
 
-            let else_body = cond.else_branch.as_ref().unwrap().body.as_ref().unwrap();
-            assert_eq!(else_body.targets, vec!["result"]);
-            if let Some(ast::call::Kind::Function(func)) = &else_body.call.as_ref().unwrap().kind {
-                assert_eq!(func.name, "helper");
+            let else_body = cond
+                .else_branch
+                .as_ref()
+                .unwrap()
+                .block_body
+                .as_ref()
+                .unwrap();
+            assert_eq!(else_body.statements.len(), 1);
+            if let Some(ast::statement::Kind::Assignment(assign)) = &else_body.statements[0].kind {
+                assert_eq!(assign.targets, vec!["result"]);
+                let expr = assign.value.as_ref().unwrap();
+                if let Some(ast::expr::Kind::FunctionCall(call)) = &expr.kind {
+                    assert_eq!(call.name, "helper");
+                } else {
+                    panic!("expected function call assignment in else branch");
+                }
             } else {
-                panic!("expected function call kind");
+                panic!("expected assignment statement in else branch");
             }
         } else {
             panic!("expected conditional");

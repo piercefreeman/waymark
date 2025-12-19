@@ -12,12 +12,49 @@ The tests are organized by category:
 - TestWorkflowHelperMethods: self.method() -> FunctionCall
 """
 
+from __future__ import annotations
+
+from collections.abc import Iterator
 from typing import List, Optional
 
 from proto import ast_pb2 as ir
 
 # Global variable for test_global_statement_raises_error test
 some_var: int = 0
+
+
+def iter_all_statements(program: ir.Program) -> Iterator[ir.Statement]:
+    def iter_block(block: ir.Block) -> Iterator[ir.Statement]:
+        yield from iter_block_statements(block)
+
+    for fn in program.functions:
+        yield from iter_block(fn.body)
+
+
+def iter_block_statements(block: ir.Block) -> Iterator[ir.Statement]:
+    for stmt in block.statements:
+        yield stmt
+
+        if stmt.HasField("conditional"):
+            cond = stmt.conditional
+            if cond.HasField("if_branch") and cond.if_branch.HasField("block_body"):
+                yield from iter_block_statements(cond.if_branch.block_body)
+            for elif_branch in cond.elif_branches:
+                if elif_branch.HasField("block_body"):
+                    yield from iter_block_statements(elif_branch.block_body)
+            if cond.HasField("else_branch") and cond.else_branch.HasField("block_body"):
+                yield from iter_block_statements(cond.else_branch.block_body)
+
+        if stmt.HasField("for_loop") and stmt.for_loop.HasField("block_body"):
+            yield from iter_block_statements(stmt.for_loop.block_body)
+
+        if stmt.HasField("try_except"):
+            te = stmt.try_except
+            if te.HasField("try_block"):
+                yield from iter_block_statements(te.try_block)
+            for handler in te.handlers:
+                if handler.HasField("block_body"):
+                    yield from iter_block_statements(handler.block_body)
 
 
 class TestAsyncioSleepDetection:
@@ -89,23 +126,15 @@ class TestPolicyParsing:
         self, program: ir.Program, action_name: str
     ) -> ir.ActionCall | None:
         """Find an action call by name, searching in all contexts."""
-        for fn in program.functions:
-            for stmt in fn.body.statements:
-                # Direct action call (statement form)
-                if stmt.HasField("action_call"):
-                    if stmt.action_call.action_name == action_name:
-                        return stmt.action_call
-                # Action call in assignment (expression form)
-                elif stmt.HasField("assignment"):
-                    if stmt.assignment.value.HasField("action_call"):
-                        if stmt.assignment.value.action_call.action_name == action_name:
-                            return stmt.assignment.value.action_call
-                # Action in try body
-                elif stmt.HasField("try_except"):
-                    te = stmt.try_except
-                    if te.try_body.HasField("call") and te.try_body.call.HasField("action"):
-                        if te.try_body.call.action.action_name == action_name:
-                            return te.try_body.call.action
+        for stmt in iter_all_statements(program):
+            if stmt.HasField("action_call") and stmt.action_call.action_name == action_name:
+                return stmt.action_call
+            if (
+                stmt.HasField("assignment")
+                and stmt.assignment.value.HasField("action_call")
+                and stmt.assignment.value.action_call.action_name == action_name
+            ):
+                return stmt.assignment.value.action_call
         return None
 
     def test_timeout_policy_with_timedelta(self) -> None:
@@ -381,13 +410,6 @@ class TestForLoopConversion:
                     return stmt.for_loop
         return None
 
-    def _find_implicit_function(self, program: ir.Program, prefix: str) -> ir.FunctionDef | None:
-        """Find an implicit function by name prefix."""
-        for fn in program.functions:
-            if fn.name.startswith(prefix):
-                return fn
-        return None
-
     def test_simple_for_loop_structure(self) -> None:
         """Test: Simple for loop has correct structure."""
         from tests.fixtures_control_flow.for_simple import ForSimpleWorkflow
@@ -412,23 +434,19 @@ class TestForLoopConversion:
         for_loop = self._find_for_loop(program)
         assert for_loop is not None, "Expected for_loop in IR"
 
-        # Body should have a call
-        assert for_loop.body.HasField("call"), "Expected call in for loop body"
+        assert for_loop.HasField("block_body"), "Expected block_body in for loop body"
+        assert len(for_loop.block_body.statements) >= 1, "Expected statements in for loop body"
 
-    def test_multi_action_for_creates_implicit_function(self) -> None:
-        """Test: Multi-action for loop body is wrapped in implicit function."""
+    def test_multi_action_for_keeps_block_body(self) -> None:
+        """Test: Multi-action for loop body is emitted as a block (no implicit wrapping)."""
         from tests.fixtures_control_flow.for_multi_action import ForMultiActionWorkflow
 
         program = ForMultiActionWorkflow.workflow_ir()
 
-        # Should have an implicit function for the multi-action body
-        implicit_fn = self._find_implicit_function(program, "__for_body")
-        assert implicit_fn is not None, "Expected implicit function for multi-action for body"
-
-        # The implicit function should have multiple statements
-        assert len(implicit_fn.body.statements) >= 2, (
-            "Implicit function should have multiple statements"
-        )
+        for_loop = self._find_for_loop(program)
+        assert for_loop is not None, "Expected for_loop in IR"
+        assert for_loop.HasField("block_body"), "Expected block_body in for loop body"
+        assert len(for_loop.block_body.statements) >= 2, "Expected multi-statement loop body"
 
 
 class TestForLoopAccumulatorDetection:
@@ -443,53 +461,31 @@ class TestForLoopAccumulatorDetection:
         return None
 
     def test_single_list_append_accumulator(self) -> None:
-        """Test: Single list.append() is detected as accumulator target."""
+        """Test: list.append() is normalized to explicit assignment."""
         from tests.fixtures_for_loop.for_single_accumulator import ForSingleAccumulatorWorkflow
 
         program = ForSingleAccumulatorWorkflow.workflow_ir()
         for_loop = self._find_for_loop(program)
         assert for_loop is not None, "Expected for_loop in IR"
 
-        # The body should have 'results' as target (from results.append())
-        assert "results" in for_loop.body.targets, (
-            f"Expected 'results' in targets, got: {list(for_loop.body.targets)}"
-        )
+        assert for_loop.HasField("block_body"), "Expected block_body in for loop"
+        assert any(
+            stmt.HasField("assignment") and "results" in stmt.assignment.targets
+            for stmt in for_loop.block_body.statements
+        ), "Expected an assignment to 'results' in loop body"
 
     def test_multi_list_append_in_conditionals(self) -> None:
-        """Test: Accumulators in conditional branches are detected but don't override action targets.
-
-        When the for loop body has both an action call with targets AND conditional
-        appends, the action targets take precedence. This is because the spread pattern
-        uses the action targets to know what the action returns per-iteration.
-
-        The conditional accumulation pattern (different lists based on condition) requires
-        different handling than simple accumulation.
-        """
+        """Test: Conditional logic in loop bodies is preserved (no implicit wrapping)."""
         from tests.fixtures_for_loop.for_multi_accumulator import ForMultiAccumulatorWorkflow
 
         program = ForMultiAccumulatorWorkflow.workflow_ir()
         for_loop = self._find_for_loop(program)
         assert for_loop is not None, "Expected for_loop in IR"
 
-        # The action call is in an implicit function (__for_body_N__) because
-        # the for loop body has conditional logic. Check that function for the targets.
-        for_body_fn = None
-        for fn in program.functions:
-            if fn.name.startswith("__for_body_"):
-                for_body_fn = fn
-                break
-        assert for_body_fn is not None, "Expected implicit for_body function"
-
-        # Find the assignment with is_valid/processed targets in the for_body function
-        found_targets = False
-        for stmt in for_body_fn.body.statements:
-            if stmt.HasField("assignment"):
-                targets = list(stmt.assignment.targets)
-                if "is_valid" in targets or "processed" in targets:
-                    found_targets = True
-                    break
-
-        assert found_targets, "Expected action targets (is_valid, processed) in for_body function"
+        assert for_loop.HasField("block_body"), "Expected block_body in for loop"
+        assert any(stmt.HasField("conditional") for stmt in for_loop.block_body.statements), (
+            "Expected conditional statement in loop body"
+        )
 
     def test_for_with_append_original_fixture(self) -> None:
         """Test: Original for_with_append fixture works correctly."""
@@ -499,86 +495,69 @@ class TestForLoopAccumulatorDetection:
         for_loop = self._find_for_loop(program)
         assert for_loop is not None, "Expected for_loop in IR"
 
-        # The body should have 'results' as target
-        assert "results" in for_loop.body.targets, (
-            f"Expected 'results' in targets, got: {list(for_loop.body.targets)}"
-        )
+        assert for_loop.HasField("block_body"), "Expected block_body in for loop"
+        assert any(
+            stmt.HasField("assignment") and "results" in stmt.assignment.targets
+            for stmt in for_loop.block_body.statements
+        ), "Expected an assignment to 'results' in loop body"
 
     def test_loop_variable_not_detected_as_accumulator(self) -> None:
-        """Test: Loop variables are not incorrectly detected as accumulators."""
+        """Test: Loop body is emitted directly (block-based loops)."""
         from tests.fixtures_for_loop.for_single_accumulator import ForSingleAccumulatorWorkflow
 
         program = ForSingleAccumulatorWorkflow.workflow_ir()
         for_loop = self._find_for_loop(program)
         assert for_loop is not None, "Expected for_loop in IR"
 
-        # 'item' is the loop variable, should NOT be in targets
-        assert "item" not in for_loop.body.targets, (
-            f"Loop variable 'item' should not be in targets, got: {list(for_loop.body.targets)}"
-        )
+        assert for_loop.HasField("block_body"), "Expected block_body-based loops"
 
     def test_in_scope_variable_not_detected_as_accumulator(self) -> None:
-        """Test: Variables defined in loop body are not detected as accumulators."""
+        """Test: Variables defined in loop body stay in the block."""
         from tests.fixtures_for_loop.for_single_accumulator import ForSingleAccumulatorWorkflow
 
         program = ForSingleAccumulatorWorkflow.workflow_ir()
         for_loop = self._find_for_loop(program)
         assert for_loop is not None, "Expected for_loop in IR"
 
-        # 'processed' is defined in the loop body, should NOT be in targets
-        assert "processed" not in for_loop.body.targets, (
-            f"In-scope variable 'processed' should not be in targets, got: {list(for_loop.body.targets)}"
-        )
+        assert for_loop.HasField("block_body"), "Expected block_body in for loop"
 
     def test_accumulator_with_wrapped_body(self) -> None:
-        """Test: Accumulators are detected even when body is wrapped in function."""
+        """Test: Accumulators work without implicit wrapper functions."""
         from tests.fixtures_for_loop.for_with_append import ForWithAppendWorkflow
 
         program = ForWithAppendWorkflow.workflow_ir()
         for_loop = self._find_for_loop(program)
         assert for_loop is not None, "Expected for_loop in IR"
 
-        # Should have an implicit function (multi-action body)
-        has_implicit_fn = any(fn.name.startswith("__for_body") for fn in program.functions)
-        assert has_implicit_fn, "Expected implicit function for multi-action body"
-
-        # Even with wrapped body, 'results' should be detected
-        assert "results" in for_loop.body.targets, (
-            f"Expected 'results' in targets even with wrapped body, got: {list(for_loop.body.targets)}"
+        assert not any(fn.name.startswith("__for_body") for fn in program.functions), (
+            "Did not expect implicit __for_body functions"
         )
+        assert for_loop.HasField("block_body"), "Expected block_body in for loop"
+        assert any(
+            stmt.HasField("assignment") and "results" in stmt.assignment.targets
+            for stmt in for_loop.block_body.statements
+        ), "Expected an assignment to 'results' in loop body"
 
 
 class TestConditionalAccumulatorDetection:
     """Test detection of accumulator patterns in conditionals."""
 
-    def _find_implicit_function(self, program: ir.Program, prefix: str) -> ir.FunctionDef | None:
-        """Find an implicit function by name prefix."""
-        for fn in program.functions:
-            if fn.name.startswith(prefix):
-                return fn
-        return None
-
     def test_if_with_multi_action_body_and_accumulator(self) -> None:
-        """Test: Conditional with multi-action body detects modified variables."""
+        """Test: Conditional branch bodies are blocks (no implicit wrapping)."""
         from tests.fixtures_control_flow.if_with_accumulator import IfWithAccumulatorWorkflow
 
         program = IfWithAccumulatorWorkflow.workflow_ir()
+        conditional = None
+        for stmt in iter_all_statements(program):
+            if stmt.HasField("conditional"):
+                conditional = stmt.conditional
+                break
+        assert conditional is not None, "Expected conditional in IR"
+        assert conditional.if_branch.HasField("block_body"), "Expected block_body in if branch"
 
-        # Should have an implicit function for the multi-action if branch
-        implicit_fn = self._find_implicit_function(program, "__if_then")
-        assert implicit_fn is not None, "Expected implicit function for multi-action if body"
-
-        # The implicit function should have 'results' as both input and output
-        assert "results" in implicit_fn.io.inputs, (
-            f"Expected 'results' in function inputs, got: {list(implicit_fn.io.inputs)}"
+        assert any(stmt.HasField("return_stmt") for stmt in iter_all_statements(program)), (
+            "Expected at least one return statement in workflow IR"
         )
-        assert "results" in implicit_fn.io.outputs, (
-            f"Expected 'results' in function outputs, got: {list(implicit_fn.io.outputs)}"
-        )
-
-        # Should have a return statement
-        has_return = any(stmt.HasField("return_stmt") for stmt in implicit_fn.body.statements)
-        assert has_return, "Expected return statement in implicit function"
 
 
 class TestConditionalConversion:
@@ -590,13 +569,6 @@ class TestConditionalConversion:
             for stmt in fn.body.statements:
                 if stmt.HasField("conditional"):
                     return stmt.conditional
-        return None
-
-    def _find_implicit_function(self, program: ir.Program, prefix: str) -> ir.FunctionDef | None:
-        """Find an implicit function by name prefix."""
-        for fn in program.functions:
-            if fn.name.startswith(prefix):
-                return fn
         return None
 
     def test_simple_if_else_structure(self) -> None:
@@ -611,10 +583,11 @@ class TestConditionalConversion:
         # Should have if_branch with condition
         assert conditional.HasField("if_branch"), "Expected if_branch"
         assert conditional.if_branch.HasField("condition"), "Expected condition expression"
-        assert conditional.if_branch.HasField("body"), "Expected if_branch body"
+        assert conditional.if_branch.HasField("block_body"), "Expected if_branch block body"
 
         # Should have else_branch
         assert conditional.HasField("else_branch"), "Expected else_branch"
+        assert conditional.else_branch.HasField("block_body"), "Expected else_branch block body"
 
     def test_elif_chain_creates_branches(self) -> None:
         """Test: if/elif/elif/else creates proper branch structure."""
@@ -628,19 +601,24 @@ class TestConditionalConversion:
         # Should have elif branches
         assert len(conditional.elif_branches) >= 2, "Expected at least 2 elif branches"
 
-    def test_multi_action_branches_create_implicit_functions(self) -> None:
-        """Test: Multi-action if/else branches are wrapped in implicit functions."""
+    def test_multi_action_branches_keep_block_bodies(self) -> None:
+        """Test: Multi-action if/else branches are emitted as blocks (no implicit wrapping)."""
         from tests.fixtures_control_flow.if_multi_action import IfMultiActionWorkflow
 
         program = IfMultiActionWorkflow.workflow_ir()
 
-        # Should have implicit functions for the branches
-        if_fn = self._find_implicit_function(program, "__if_then")
-        else_fn = self._find_implicit_function(program, "__if_else")
-
-        # At least one should exist (both branches have multi-action)
-        assert if_fn is not None or else_fn is not None, (
-            "Expected implicit function for multi-action branches"
+        conditional = self._find_conditional(program)
+        assert conditional is not None, "Expected conditional in IR"
+        assert conditional.if_branch.HasField("block_body"), "Expected if_branch block body"
+        assert len(conditional.if_branch.block_body.statements) >= 2, (
+            "Expected multi-statement if branch"
+        )
+        assert conditional.else_branch.HasField("block_body"), "Expected else_branch block body"
+        assert len(conditional.else_branch.block_body.statements) >= 2, (
+            "Expected multi-statement else branch"
+        )
+        assert not any(fn.name.startswith("__if_") for fn in program.functions), (
+            "Did not expect implicit __if_* functions"
         )
 
 
@@ -679,7 +657,7 @@ class TestConditionalWithoutElse:
         # Should have if_branch but NO else_branch
         assert conditional.HasField("if_branch"), "Expected if_branch"
         assert not conditional.HasField("else_branch") or not conditional.else_branch.HasField(
-            "body"
+            "block_body"
         ), "Should not have else_branch (or it should be empty)"
 
         # The run function should have statements AFTER the conditional
@@ -716,13 +694,6 @@ class TestTryExceptConversion:
                     return stmt.try_except
         return None
 
-    def _find_implicit_function(self, program: ir.Program, prefix: str) -> ir.FunctionDef | None:
-        """Find an implicit function by name prefix."""
-        for fn in program.functions:
-            if fn.name.startswith(prefix):
-                return fn
-        return None
-
     def test_simple_try_except_structure(self) -> None:
         """Test: Simple try/except has correct structure."""
         from tests.fixtures_control_flow.try_simple import TrySimpleWorkflow
@@ -733,20 +704,24 @@ class TestTryExceptConversion:
         assert try_except is not None, "Expected try_except in IR"
 
         # Should have try body
-        assert try_except.HasField("try_body"), "Expected try_body"
+        assert try_except.HasField("try_block"), "Expected try_block"
 
         # Should have at least one handler
         assert len(try_except.handlers) >= 1, "Expected at least one exception handler"
 
-    def test_multi_action_try_creates_implicit_function(self) -> None:
-        """Test: Multi-action try body is wrapped in implicit function."""
+    def test_multi_action_try_keeps_block_body(self) -> None:
+        """Test: Multi-action try body is emitted as a block (no implicit wrapping)."""
         from tests.fixtures_control_flow.try_multi_action import TryMultiActionWorkflow
 
         program = TryMultiActionWorkflow.workflow_ir()
 
-        # Should have an implicit function for the multi-action try body
-        implicit_fn = self._find_implicit_function(program, "__try_body")
-        assert implicit_fn is not None, "Expected implicit function for multi-action try body"
+        try_except = self._find_try_except(program)
+        assert try_except is not None, "Expected try_except in IR"
+        assert try_except.HasField("try_block"), "Expected try_block"
+        assert len(try_except.try_block.statements) >= 2, "Expected multi-statement try body"
+        assert not any(fn.name.startswith("__try_body") for fn in program.functions), (
+            "Did not expect implicit __try_body* functions"
+        )
 
     def test_multiple_exception_handlers(self) -> None:
         """Test: Multiple except clauses create multiple handlers."""
@@ -1214,7 +1189,11 @@ class TestUnsupportedPatternDetection:
         )
         assert for_loop is not None, "Expected for loop generated from list comprehension"
         assert "user" in for_loop.loop_vars, "Loop variable should match comprehension"
-        assert "active_users" in for_loop.body.targets, "Accumulator target should be propagated"
+        assert for_loop.HasField("block_body"), "Expected block_body in for loop"
+        assert any(
+            stmt.HasField("assignment") and "active_users" in stmt.assignment.targets
+            for stmt in iter_block_statements(for_loop.block_body)
+        ), "Expected accumulator updates for active_users in loop body"
 
     def test_list_comprehension_ifexp_assignment_is_supported(self) -> None:
         """Test: ternary expressions in list comprehensions expand into conditional IR."""
@@ -1234,24 +1213,14 @@ class TestUnsupportedPatternDetection:
             None,
         )
         assert for_loop is not None, "Expected for loop generated from list comprehension"
-        assert "statuses" in for_loop.body.targets, "Accumulator target should be detected"
-
-        for_body_fn = next(
-            (fn for fn in program.functions if fn.name.startswith("__for_body_")),
-            None,
+        assert for_loop.HasField("block_body"), "Expected block_body in for loop"
+        assert any(stmt.HasField("conditional") for stmt in for_loop.block_body.statements), (
+            "Expected conditional derived from ternary expression in loop body"
         )
-        assert for_body_fn is not None, "Expected implicit for_body function for comprehension"
-        conditional_stmt = next(
-            (
-                stmt.conditional
-                for stmt in for_body_fn.body.statements
-                if stmt.HasField("conditional")
-            ),
-            None,
-        )
-        assert conditional_stmt is not None, "Expected conditional derived from ternary expression"
-        assert "statuses" in conditional_stmt.if_branch.body.targets
-        assert conditional_stmt.else_branch.body.targets
+        assert any(
+            stmt.HasField("assignment") and "statuses" in stmt.assignment.targets
+            for stmt in iter_all_statements(program)
+        ), "Expected accumulator updates for statuses"
 
     def test_dict_comprehension_assignment_is_supported(self) -> None:
         """Test: dict comprehension assignments expand into for loop IR."""
@@ -1277,7 +1246,12 @@ class TestUnsupportedPatternDetection:
         )
         assert for_loop is not None, "Expected for loop generated from dict comprehension"
         assert "user" in for_loop.loop_vars
-        assert "active_lookup" in for_loop.body.targets
+        assert for_loop.HasField("block_body"), "Expected block_body in for loop"
+        assert any(
+            stmt.HasField("assignment")
+            and any(target.startswith("active_lookup[") for target in stmt.assignment.targets)
+            for stmt in iter_block_statements(for_loop.block_body)
+        ), "Expected accumulator updates for active_lookup in loop body"
 
     def test_dict_comprehension_tuple_assignment_is_supported(self) -> None:
         """Test: dict comprehension assignments with tuple unpacking expand to IR."""
@@ -1296,7 +1270,12 @@ class TestUnsupportedPatternDetection:
             None,
         )
         assert for_loop is not None
-        assert "mapping" in for_loop.body.targets
+        assert for_loop.HasField("block_body"), "Expected block_body in for loop"
+        assert any(
+            stmt.HasField("assignment")
+            and any(target.startswith("mapping[") for target in stmt.assignment.targets)
+            for stmt in iter_block_statements(for_loop.block_body)
+        ), "Expected accumulator updates for mapping in loop body"
 
     def test_delete_statement_raises_error(self) -> None:
         """Test: del statements raise error with recommendation."""
@@ -2291,33 +2270,21 @@ class TestCallInTryBody:
                 break
 
         assert try_except is not None, "Should have try/except"
-        # The try_body calls an implicit function that contains the action call
-        assert try_except.try_body.HasField("call"), "Try body should have call"
-        assert try_except.try_body.call.HasField("function"), "Call should be a function (implicit)"
-        assert try_except.try_body.call.function.name.startswith("__try_body_"), (
-            f"Should call __try_body_*, got: {try_except.try_body.call.function.name}"
-        )
+        assert try_except.HasField("try_block"), "Try body should have try_block"
 
-        # Find the implicit try_body function and verify it contains the action call
-        try_body_fn = None
-        for fn in program.functions:
-            if fn.name.startswith("__try_body_"):
-                try_body_fn = fn
-                break
-        assert try_body_fn is not None, "Should have implicit try_body function"
-
-        # Check that the implicit function has the action call with correct targets
         found_action = False
-        for stmt in try_body_fn.body.statements:
-            if stmt.HasField("assignment"):
-                if stmt.assignment.value.HasField("action_call"):
-                    if stmt.assignment.value.action_call.action_name == "try_action":
-                        assert list(stmt.assignment.targets) == ["result"], (
-                            f"Expected targets=['result'], got: {list(stmt.assignment.targets)}"
-                        )
-                        found_action = True
-                        break
-        assert found_action, "Should have try_action call in implicit function"
+        for stmt in try_except.try_block.statements:
+            if (
+                stmt.HasField("assignment")
+                and stmt.assignment.value.HasField("action_call")
+                and stmt.assignment.value.action_call.action_name == "try_action"
+            ):
+                assert list(stmt.assignment.targets) == ["result"], (
+                    f"Expected targets=['result'], got: {list(stmt.assignment.targets)}"
+                )
+                found_action = True
+                break
+        assert found_action, "Should have try_action call in try block"
 
 
 class TestPolicyVariations:
@@ -2449,16 +2416,17 @@ class TestSpreadAction:
 
 
 class TestForLoopWithMultipleCalls:
-    """Test for loop body wrapping with multiple calls."""
+    """Test for loop bodies with multiple calls."""
 
-    def test_for_body_wrapped_to_function(self) -> None:
-        """Test: for loop with multiple calls gets wrapped into synthetic function."""
+    def test_for_body_is_block(self) -> None:
+        """Test: for loop with multiple calls stays as a block (no synthetic function)."""
         from tests.fixtures_for_loop.for_multiple_calls import ForMultipleCallsWorkflow
 
         program = ForMultipleCallsWorkflow.workflow_ir()
 
-        # Should have implicit function generated
-        assert len(program.functions) > 1, "Should have implicit function for wrapped body"
+        assert not any(fn.name.startswith("__for_body") for fn in program.functions), (
+            "Did not expect implicit __for_body* functions"
+        )
 
         # Find the for loop
         for_loop = None
@@ -2471,49 +2439,67 @@ class TestForLoopWithMultipleCalls:
 
         assert for_loop is not None, "Should have for loop"
 
-        # The body should be a function call to the wrapper
-        body = for_loop.body
-        assert body.HasField("call"), "Body should have call to wrapper function"
+        assert for_loop.HasField("block_body"), "Expected block_body in for loop"
+        assert len(for_loop.block_body.statements) >= 2, "Expected multi-statement loop body"
 
 
 class TestConditionalWithMultipleCalls:
-    """Test conditional body wrapping with multiple calls."""
+    """Test conditionals with multiple calls."""
 
-    def test_if_body_wrapped_to_function(self) -> None:
-        """Test: if branch with multiple calls gets wrapped into synthetic function."""
+    def test_if_body_is_block(self) -> None:
+        """Test: if branch with multiple calls stays as a block (no synthetic function)."""
         from tests.fixtures_conditional.if_multiple_calls import IfMultipleCallsWorkflow
 
         program = IfMultipleCallsWorkflow.workflow_ir()
 
-        # Should have implicit function generated
-        assert len(program.functions) > 1, "Should have implicit function for wrapped body"
+        assert not any(fn.name.startswith("__if_") for fn in program.functions), (
+            "Did not expect implicit __if_* functions"
+        )
+        conditional = next(
+            (
+                stmt.conditional
+                for stmt in iter_all_statements(program)
+                if stmt.HasField("conditional")
+            ),
+            None,
+        )
+        assert conditional is not None, "Expected conditional in IR"
+        assert conditional.if_branch.HasField("block_body"), "Expected block_body in if branch"
+        assert len(conditional.if_branch.block_body.statements) >= 2, (
+            "Expected multi-statement if branch"
+        )
 
 
 class TestTryExceptWithMultipleCalls:
-    """Test try/except body wrapping with multiple calls."""
+    """Test try/except with multiple calls."""
 
-    def test_try_body_wrapped_to_function(self) -> None:
-        """Test: try body with multiple calls gets wrapped into synthetic function."""
+    def test_try_body_is_block(self) -> None:
+        """Test: try body with multiple calls stays as a block (no synthetic function)."""
         from tests.fixtures_try_except.try_multiple_calls import TryMultipleCallsWorkflow
 
         program = TryMultipleCallsWorkflow.workflow_ir()
 
-        # Should have implicit function generated
-        assert len(program.functions) > 1, "Should have implicit function for wrapped body"
+        assert not any(fn.name.startswith("__try_body_") for fn in program.functions), (
+            "Did not expect implicit __try_body_* functions"
+        )
+        try_except = next(
+            (
+                stmt.try_except
+                for stmt in iter_all_statements(program)
+                if stmt.HasField("try_except")
+            ),
+            None,
+        )
+        assert try_except is not None, "Expected try/except in IR"
+        assert try_except.HasField("try_block"), "Expected try_block"
+        assert len(try_except.try_block.statements) >= 2, "Expected multi-statement try body"
 
 
 class TestTryExceptStatefulOutputs:
-    """Ensure try/except bodies capture and return mutated variables."""
-
-    def _get_function_by_prefix(self, program: ir.Program, prefix: str) -> ir.FunctionDef:
-        for fn in program.functions:
-            if fn.name.startswith(prefix):
-                return fn
-        msg = f"implicit function with prefix {prefix} not found"
-        raise AssertionError(msg)
+    """Ensure try/except bodies emit assignments directly."""
 
     def test_try_body_outputs_and_call_targets(self) -> None:
-        """Try body should surface mutated vars via targets/outputs."""
+        """Try and handler blocks should contain mutated variable assignments."""
         from tests.fixtures_try_except.try_stateful_outputs import TryStatefulOutputsWorkflow
 
         program = TryStatefulOutputsWorkflow.workflow_ir()
@@ -2523,19 +2509,31 @@ class TestTryExceptStatefulOutputs:
             stmt for stmt in run_fn.body.statements if stmt.HasField("try_except")
         ).try_except
 
-        # try body should assign its outputs via SingleCallBody targets
-        assert list(try_stmt.try_body.targets) == ["value", "message"]
+        assert try_stmt.HasField("try_block"), "Expected try_block"
+        try_assign_targets = {
+            target
+            for stmt in try_stmt.try_block.statements
+            if stmt.HasField("assignment")
+            for target in stmt.assignment.targets
+        }
+        assert {"value", "message"} <= try_assign_targets, (
+            f"Expected value/message assigned in try block, got {try_assign_targets}"
+        )
 
-        # implicit try body function should declare inputs/outputs explicitly
-        try_fn = self._get_function_by_prefix(program, "__try_body_")
-        assert set(try_fn.io.inputs) >= {"should_fail", "message"}
-        assert set(try_fn.io.outputs) == {"value", "message"}
-
-        # except handler should also return the mutated variables
         handler = try_stmt.handlers[0]
-        assert set(handler.body.targets) == {"recovered", "message"}
-        handler_fn = self._get_function_by_prefix(program, "__except_handler_")
-        assert set(handler_fn.io.outputs) == {"recovered", "message"}
+        assert handler.HasField("block_body"), "Expected handler block_body"
+        handler_assign_targets = {
+            target
+            for stmt in handler.block_body.statements
+            if stmt.HasField("assignment")
+            for target in stmt.assignment.targets
+        }
+        assert {"recovered", "message"} <= handler_assign_targets, (
+            f"Expected recovered/message assigned in handler, got {handler_assign_targets}"
+        )
+
+        assert not any(fn.name.startswith("__try_body_") for fn in program.functions)
+        assert not any(fn.name.startswith("__except_handler_") for fn in program.functions)
 
         # Final action should receive recovered/message kwargs (no missing inputs)
         build_action = next(

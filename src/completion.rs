@@ -2683,9 +2683,8 @@ fn workflow(input: [items], output: [result]):
         // Test that return inside a try body completes the workflow
         // and doesn't continue to subsequent code.
         //
-        // Note: SingleCallBody in Rappel can only have ONE call or statements.
-        // So we test a try body that only has a return (no action call).
-        // This is a valid pattern when the try body is pure computation.
+        // Note: try/except bodies are general blocks and may include multiple statements.
+        // This test uses a try body that only has a return (no action call).
         let source = r#"
 fn workflow(input: [x], output: [result]):
     value = @get_value(x=x)
