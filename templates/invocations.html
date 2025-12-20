@@ -59,7 +59,7 @@
                             <td class="px-4 py-3 text-zinc-700 dark:text-zinc-300">{{ macros::datetime(timestamp=invocation.created_at) }}</td>
                             <td class="px-4 py-3">{{ macros::status_badge(status=invocation.status) }}</td>
                             <td class="px-4 py-3">
-                                <pre class="font-mono text-xs text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap break-all">{{ invocation.input_preview }}</pre>
+                                <pre class="font-mono text-xs text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap break-all line-clamp-10">{{ invocation.input_preview }}</pre>
                             </td>
                             <td class="px-4 py-3 text-right">
                                 {% if invocation.workflow_version_id %}
