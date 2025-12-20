@@ -112,6 +112,36 @@
 const nodeData = {{ nodes_json | safe }};
 const graphData = {{ graph_data | json_encode | safe }};
 
+function payloadHasException(payloadText) {
+  if (!payloadText) return false;
+  try {
+    const parsed = JSON.parse(payloadText);
+    if (parsed && typeof parsed === 'object' && parsed.error) {
+      return true;
+    }
+  } catch (_err) {
+    // Fall back to a simple marker check for pretty-printed payloads.
+    if (payloadText.includes('"__exception__"')) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function deriveNodeStatus(node) {
+  if (!node) return 'pending';
+  if (node.status === 'failed' || node.status === 'exhausted' || node.status === 'timed_out') {
+    return 'failed';
+  }
+  if (node.last_error) {
+    return 'failed';
+  }
+  if (payloadHasException(node.response_payload)) {
+    return 'failed';
+  }
+  return node.status || 'pending';
+}
+
 /**
  * DAGLayout - Reusable class for rendering DAG visualizations
  * Supports both horizontal and vertical orientations
@@ -405,8 +435,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const nodes = graphData?.nodes || [];
   nodes.forEach(n => {
     if (nodeLookup[n.id]) {
-      n.module = nodeLookup[n.id].module;
-      n.action = nodeLookup[n.id].action;
+      const detailedNode = nodeLookup[n.id];
+      n.module = detailedNode.module;
+      n.action = detailedNode.action;
+      n.status = deriveNodeStatus(detailedNode);
     }
   });
 
