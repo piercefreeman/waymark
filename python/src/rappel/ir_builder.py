@@ -218,6 +218,14 @@ RECOMMENDATIONS = {
         "Yield statements are not supported in workflow code.\n"
         "Workflows must return a complete result, not generate values incrementally."
     ),
+    "unsupported_expression": (
+        "This expression type is not supported in workflow code.\n"
+        "Move the logic into an @action or rewrite using supported expressions."
+    ),
+    "unsupported_literal": (
+        "This literal type is not supported in workflow code.\n"
+        "Convert the value to a supported literal type inside an @action."
+    ),
 }
 
 
@@ -2909,6 +2917,15 @@ def _check_unsupported_expression(expr: ast.AST) -> None:
     line = getattr(expr, "lineno", None)
     col = getattr(expr, "col_offset", None)
 
+    if isinstance(expr, ast.Constant):
+        if _constant_to_literal(expr.value) is None:
+            raise UnsupportedPatternError(
+                f"Unsupported literal type '{type(expr.value).__name__}'",
+                RECOMMENDATIONS["unsupported_literal"],
+                line=line,
+                col=col,
+            )
+
     if isinstance(expr, ast.JoinedStr):
         raise UnsupportedPatternError(
             "F-strings are not supported",
@@ -2962,6 +2979,13 @@ def _check_unsupported_expression(expr: ast.AST) -> None:
         raise UnsupportedPatternError(
             "Yield expressions are not supported",
             RECOMMENDATIONS["yield_statement"],
+            line=line,
+            col=col,
+        )
+    elif isinstance(expr, ast.expr):
+        raise UnsupportedPatternError(
+            f"Unsupported expression type '{type(expr).__name__}'",
+            RECOMMENDATIONS["unsupported_expression"],
             line=line,
             col=col,
         )

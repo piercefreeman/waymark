@@ -41,4 +41,6 @@ class IfWithAccumulatorWorkflow(Workflow):
             # Single action in branch -> not wrapped
             z = await process_low(value)
             results.append(z)
-        return results[0] if results else "empty"
+        if results:
+            return results[0]
+        return "empty"

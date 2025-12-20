@@ -2130,7 +2130,9 @@ class TestMoreBinaryOperators:
 
     def test_power_operator(self) -> None:
         """Test: x ** y power operator."""
-        from rappel import workflow
+        import pytest
+
+        from rappel import UnsupportedPatternError, workflow
         from rappel.workflow import Workflow
 
         @workflow
@@ -2138,8 +2140,8 @@ class TestMoreBinaryOperators:
             async def run(self, x: int, y: int) -> int:
                 return x**y
 
-        program = PowerWorkflow.workflow_ir()
-        assert program is not None
+        with pytest.raises(UnsupportedPatternError):
+            PowerWorkflow.workflow_ir()
 
     def test_floor_division(self) -> None:
         """Test: x // y floor division."""
