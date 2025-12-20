@@ -5,7 +5,7 @@
 
 {% block content %}
 <section class="space-y-4">
-    <a href="/workflow/{{ workflow.id }}" class="text-xs uppercase tracking-[0.4em] text-zinc-500 transition hover:text-zinc-700 dark:hover:text-zinc-300">&larr; Back to workflow detail</a>
+    <a href="/workflows/{{ workflow.id }}" class="text-xs uppercase tracking-[0.4em] text-zinc-500 transition hover:text-zinc-700 dark:hover:text-zinc-300">&larr; Back to workflow detail</a>
     <div class="space-y-2">
         <h1 class="text-3xl font-semibold tracking-tight text-zinc-900 dark:text-white">Run {{ instance.id }}</h1>
         <p class="text-sm text-zinc-600 dark:text-zinc-400">{{ workflow.name }}</p>

@@ -61,6 +61,65 @@ impl Database {
         Ok(instances)
     }
 
+    fn append_invocation_search(query: &mut QueryBuilder<Postgres>, search: Option<&str>) {
+        let Some(value) = search.filter(|value| !value.trim().is_empty()) else {
+            return;
+        };
+
+        query.push(" AND workflow_name ILIKE ");
+        query.push_bind(like_pattern(value));
+    }
+
+    /// Count all workflow invocations for the invocations page.
+    pub async fn count_invocations(&self, search: Option<&str>) -> DbResult<i64> {
+        let mut query = QueryBuilder::<Postgres>::new(
+            r#"
+            SELECT COUNT(*) as count
+            FROM workflow_instances
+            WHERE 1=1
+            "#,
+        );
+
+        Self::append_invocation_search(&mut query, search);
+
+        let row = query.build().fetch_one(&self.pool).await?;
+
+        Ok(row.get::<i64, _>("count"))
+    }
+
+    /// List workflow invocations for the invocations page with pagination and search.
+    pub async fn list_invocations_page(
+        &self,
+        search: Option<&str>,
+        limit: i64,
+        offset: i64,
+    ) -> DbResult<Vec<WorkflowInstance>> {
+        let mut query = QueryBuilder::<Postgres>::new(
+            r#"
+            SELECT id, partition_id, workflow_name, workflow_version_id,
+                   schedule_id, next_action_seq, input_payload, result_payload, status,
+                   created_at, completed_at
+            FROM workflow_instances
+            WHERE 1=1
+            "#,
+        );
+
+        Self::append_invocation_search(&mut query, search);
+
+        query.push(" ORDER BY created_at DESC");
+        query.push(" LIMIT ");
+        query.push_bind(limit);
+        query.push(" OFFSET ");
+        query.push_bind(offset);
+
+        let instances = query
+            .build_query_as::<WorkflowInstance>()
+            .fetch_all(&self.pool)
+            .await?;
+
+        Ok(instances)
+    }
+
     /// Get a workflow instance by ID (for detail view)
     pub async fn get_instance(&self, id: WorkflowInstanceId) -> DbResult<WorkflowInstance> {
         let instance = sqlx::query_as::<_, WorkflowInstance>(
