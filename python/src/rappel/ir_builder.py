@@ -40,13 +40,22 @@ class UnsupportedPatternError(Exception):
         recommendation: str,
         line: Optional[int] = None,
         col: Optional[int] = None,
+        filename: Optional[str] = None,
     ):
         self.message = message
         self.recommendation = recommendation
         self.line = line
         self.col = col
+        self.filename = filename
 
-        location = f" (line {line})" if line else ""
+        location_parts: List[str] = []
+        if filename:
+            location_parts.append(filename)
+        if line:
+            location_parts.append(f"line {line}")
+        if col is not None:
+            location_parts.append(f"col {col}")
+        location = f" ({', '.join(location_parts)})" if location_parts else ""
         full_message = f"{message}{location}\n\nRecommendation: {recommendation}"
         super().__init__(full_message)
 
@@ -308,11 +317,39 @@ def build_workflow_ir(workflow_cls: type["Workflow"]) -> ir.Program:
     program = ir.Program()
     function_defs: Dict[str, ir.FunctionDef] = {}
 
-    def parse_function(fn: Any) -> ast.AST:
-        function_source = textwrap.dedent(inspect.getsource(fn))
-        return ast.parse(function_source)
+    def parse_function(fn: Any) -> tuple[ast.AST, Optional[str], int]:
+        source_lines, start_line = inspect.getsourcelines(fn)
+        function_source = textwrap.dedent("".join(source_lines))
+        filename = inspect.getsourcefile(fn)
+        if filename is None:
+            filename = inspect.getfile(fn)
+        return ast.parse(function_source, filename=filename or "<unknown>"), filename, start_line
 
-    def add_function_def(fn: Any, fn_tree: ast.AST) -> None:
+    def _with_source_location(
+        err: UnsupportedPatternError,
+        filename: Optional[str],
+        start_line: int,
+    ) -> UnsupportedPatternError:
+        line = err.line
+        col = err.col
+        if line is not None:
+            line = start_line + line - 1
+        if col is not None:
+            col = col + 1
+        return UnsupportedPatternError(
+            err.message,
+            err.recommendation,
+            line=line,
+            col=col,
+            filename=filename,
+        )
+
+    def add_function_def(
+        fn: Any,
+        fn_tree: ast.AST,
+        filename: Optional[str],
+        start_line: int,
+    ) -> None:
         fn_module = inspect.getmodule(fn)
         if fn_module is None:
             raise ValueError(f"unable to locate module for function {fn!r}")
@@ -325,13 +362,16 @@ def build_workflow_ir(workflow_cls: type["Workflow"]) -> ir.Program:
             ctx_data.module_functions,
             ctx_data.model_defs,
         )
-        builder.visit(fn_tree)
+        try:
+            builder.visit(fn_tree)
+        except UnsupportedPatternError as err:
+            raise _with_source_location(err, filename, start_line) from err
         if builder.function_def:
             function_defs[builder.function_def.name] = builder.function_def
 
     # Build the main run() function
-    run_tree = parse_function(original_run)
-    add_function_def(original_run, run_tree)
+    run_tree, run_filename, run_start_line = parse_function(original_run)
+    add_function_def(original_run, run_tree, run_filename, run_start_line)
 
     # Include helper methods reachable via self.method() calls
     pending = list(_collect_self_method_calls(run_tree))
@@ -348,8 +388,8 @@ def build_workflow_ir(workflow_cls: type["Workflow"]) -> ir.Program:
         if method is None:
             continue
 
-        method_tree = parse_function(method)
-        add_function_def(method, method_tree)
+        method_tree, method_filename, method_start_line = parse_function(method)
+        add_function_def(method, method_tree, method_filename, method_start_line)
 
         pending.extend(_collect_self_method_calls(method_tree))
 
