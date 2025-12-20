@@ -219,6 +219,9 @@ pub enum RunnerError {
 
     #[error("Channel closed")]
     ChannelClosed,
+
+    #[error("Guard evaluation failed: {0:?}")]
+    GuardEvaluationFailed(Vec<(String, String)>),
 }
 
 pub type RunnerResult<T> = Result<T, RunnerError>;
@@ -2262,6 +2265,7 @@ impl DAGRunner {
     fn filter_successors_with_guards(
         successors: Vec<SuccessorInfo>,
         scope: &Scope,
+        guard_errors: &mut Vec<(String, String)>,
     ) -> Vec<SuccessorInfo> {
         let mut selected = Vec::new();
         let mut else_successors = Vec::new();
@@ -2283,8 +2287,9 @@ impl DAGRunner {
                         selected.push(successor);
                     }
                     GuardResult::Fail => {}
-                    GuardResult::Error(_) => {
+                    GuardResult::Error(error) => {
                         guard_error = true;
+                        guard_errors.push((successor.node_id.clone(), error));
                     }
                 }
                 continue;
@@ -2406,9 +2411,11 @@ impl DAGRunner {
         let mut work_queue: VecDeque<(String, JsonValue)> = VecDeque::new();
 
         // Initialize queue with immediate successors from the starting node
+        let mut guard_errors = Vec::new();
         for successor in Self::filter_successors_with_guards(
             helper.get_ready_successors(node_id, condition_result),
             inline_scope,
+            &mut guard_errors,
         ) {
             work_queue.push_back((successor.node_id, result.clone()));
         }
@@ -2490,9 +2497,11 @@ impl DAGRunner {
                     };
 
                     // Add successors to work queue (instead of recursive call)
+                    let mut guard_errors = Vec::new();
                     for successor in Self::filter_successors_with_guards(
                         helper.get_ready_successors(&current_node_id, None),
                         inline_scope,
+                        &mut guard_errors,
                     ) {
                         work_queue.push_back((successor.node_id, passthrough_result.clone()));
                     }
@@ -2642,6 +2651,15 @@ impl DAGRunner {
         workflow_args.encode_to_vec()
     }
 
+    fn format_guard_errors(guard_errors: &[(String, String)]) -> String {
+        let details = guard_errors
+            .iter()
+            .map(|(node_id, error)| format!("{node_id}: {error}"))
+            .collect::<Vec<_>>()
+            .join("; ");
+        format!("Guard evaluation failed during startup: {details}")
+    }
+
     /// Execute an inline node with in-memory scope (non-durable).
     fn execute_inline_node(node: &DAGNode, scope: &mut Scope) -> RunnerResult<JsonValue> {
         match node.node_type.as_str() {
@@ -2768,6 +2786,31 @@ impl DAGRunner {
                         "successfully started instance"
                     );
                 }
+                Err(RunnerError::GuardEvaluationFailed(guard_errors)) => {
+                    let error_message = Self::format_guard_errors(&guard_errors);
+                    let mut error_payload = HashMap::new();
+                    error_payload.insert(
+                        "error".to_string(),
+                        JsonValue::String(error_message.clone()),
+                    );
+                    let result_payload = Self::serialize_workflow_result(&error_payload);
+                    if let Err(db_err) = db
+                        .fail_instance_with_result(instance_id, Some(&result_payload))
+                        .await
+                    {
+                        error!(
+                            instance_id = %instance.id,
+                            error = %db_err,
+                            "failed to mark instance failed after guard evaluation error"
+                        );
+                    } else {
+                        info!(
+                            instance_id = %instance.id,
+                            error = %error_message,
+                            "marked instance failed after guard evaluation error"
+                        );
+                    }
+                }
                 Err(e) => {
                     error!(
                         instance_id = %instance.id,
@@ -2859,6 +2902,7 @@ impl DAGRunner {
         let mut visited = std::collections::HashSet::new();
         let mut queue = std::collections::VecDeque::new();
         let mut completion_payload: Option<Vec<u8>> = None;
+        let mut guard_errors: Vec<(String, String)> = Vec::new();
 
         // Start from input node's successors
         let initial_successors = helper.get_ready_successors(&input_node.id, None);
@@ -2868,7 +2912,9 @@ impl DAGRunner {
             successors = ?initial_successors.iter().map(|s| &s.node_id).collect::<Vec<_>>(),
             "input node successors"
         );
-        for successor in Self::filter_successors_with_guards(initial_successors, &scope) {
+        for successor in
+            Self::filter_successors_with_guards(initial_successors, &scope, &mut guard_errors)
+        {
             queue.push_back(successor.node_id);
         }
 
@@ -3018,8 +3064,11 @@ impl DAGRunner {
                         inline_successor_count = inline_successors.len(),
                         "continuing to successors after inline execution"
                     );
-                    for successor in Self::filter_successors_with_guards(inline_successors, &scope)
-                    {
+                    for successor in Self::filter_successors_with_guards(
+                        inline_successors,
+                        &scope,
+                        &mut guard_errors,
+                    ) {
                         if !visited.contains(&successor.node_id) {
                             queue.push_back(successor.node_id);
                         }
@@ -3049,6 +3098,10 @@ impl DAGRunner {
                 "completed workflow instance during start_instance"
             );
             return Ok(0);
+        }
+
+        if actions_to_enqueue.is_empty() && !guard_errors.is_empty() {
+            return Err(RunnerError::GuardEvaluationFailed(guard_errors));
         }
 
         // Initialize node_readiness for spread aggregators BEFORE enqueuing actions

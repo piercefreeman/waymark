@@ -171,6 +171,27 @@ impl Database {
         Ok(())
     }
 
+    /// Mark an instance as failed with an optional result payload.
+    pub async fn fail_instance_with_result(
+        &self,
+        id: WorkflowInstanceId,
+        result_payload: Option<&[u8]>,
+    ) -> DbResult<()> {
+        sqlx::query(
+            r#"
+            UPDATE workflow_instances
+            SET status = 'failed', result_payload = $2, completed_at = NOW()
+            WHERE id = $1
+            "#,
+        )
+        .bind(id.0)
+        .bind(result_payload)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
     // ========================================================================
     // Action Queue
     // ========================================================================
