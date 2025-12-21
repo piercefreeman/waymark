@@ -2860,11 +2860,11 @@ impl DAGRunner {
             return Err(RunnerError::Dag("No functions found in DAG".to_string()));
         }
 
-        // Find the entry function - prefer "run" if it exists, otherwise use the first
+        // Find the entry function - prefer "main" if it exists, otherwise use the first
         // non-internal function (internal functions start with "__")
         let entry_fn = function_names
             .iter()
-            .find(|&&name| name == "run")
+            .find(|&&name| name == "main")
             .or_else(|| function_names.iter().find(|&&name| !name.starts_with("__")))
             .or(function_names.first())
             .copied()
@@ -3811,7 +3811,7 @@ mod tests {
         use crate::dag::convert_to_dag;
         use crate::parser::parse;
 
-        let source = r#"fn workflow(input: [], output: [result]):
+        let source = r#"fn main(input: [], output: [result]):
     result = @dummy(flag=True)
     return result"#;
         let program = parse(source).unwrap();
@@ -3885,7 +3885,7 @@ mod tests {
         // nodes via DataFlow edges during workflow start.
         //
         // Workflow structure:
-        //   run_input_1 (input node, declares variable 'n')
+        //   main_input_1 (input node, declares variable 'n')
         //       |
         //       v (StateMachine edge)
         //   parallel_2 (parallel block)
@@ -3898,27 +3898,27 @@ mod tests {
         //   action_5 (summarize_math, uses n AND factorial_value AND fib_value)
         //
         // DataFlow edges:
-        //   run_input_1 --[n]--> action_3
-        //   run_input_1 --[n]--> action_4
-        //   run_input_1 --[n]--> action_5  <-- This is the one that's broken!
+        //   main_input_1 --[n]--> action_3
+        //   main_input_1 --[n]--> action_4
+        //   main_input_1 --[n]--> action_5  <-- This is the one that's broken!
         //   action_3 --[factorial_value]--> action_5
         //   action_4 --[fib_value]--> action_5
 
         let mut dag = DAG {
             nodes: HashMap::new(),
             edges: Vec::new(),
-            entry_node: Some("run_input_1".to_string()),
+            entry_node: Some("main_input_1".to_string()),
         };
 
         // Add input node
         let input_node = DAGNode::new(
-            "run_input_1".to_string(),
+            "main_input_1".to_string(),
             "input".to_string(),
             "".to_string(),
         )
         .with_input(vec!["n".to_string()])
-        .with_function_name("run");
-        dag.nodes.insert("run_input_1".to_string(), input_node);
+        .with_function_name("main");
+        dag.nodes.insert("main_input_1".to_string(), input_node);
 
         // Add action nodes
         let action_5 = DAGNode::new(
@@ -3930,7 +3930,7 @@ mod tests {
 
         // Add DataFlow edge from input node to downstream action for variable 'n'
         dag.edges.push(DAGEdge::data_flow(
-            "run_input_1".to_string(),
+            "main_input_1".to_string(),
             "action_5".to_string(),
             "n",
         ));
@@ -3940,7 +3940,7 @@ mod tests {
         let mut inbox_writes = Vec::new();
 
         DAGRunner::collect_inbox_writes_for_node(
-            "run_input_1",
+            "main_input_1",
             "n",
             &JsonValue::Number(42.into()),
             &dag,
@@ -3957,7 +3957,7 @@ mod tests {
         assert_eq!(inbox_writes[0].target_node_id, "action_5");
         assert_eq!(inbox_writes[0].variable_name, "n");
         assert_eq!(inbox_writes[0].value, JsonValue::Number(42.into()));
-        assert_eq!(inbox_writes[0].source_node_id, "run_input_1");
+        assert_eq!(inbox_writes[0].source_node_id, "main_input_1");
     }
 
     #[test]
@@ -3967,17 +3967,17 @@ mod tests {
         let mut dag = DAG {
             nodes: HashMap::new(),
             edges: Vec::new(),
-            entry_node: Some("run_input_1".to_string()),
+            entry_node: Some("main_input_1".to_string()),
         };
 
         let input_node = DAGNode::new(
-            "run_input_1".to_string(),
+            "main_input_1".to_string(),
             "input".to_string(),
             "".to_string(),
         )
         .with_input(vec!["n".to_string()])
-        .with_function_name("run");
-        dag.nodes.insert("run_input_1".to_string(), input_node);
+        .with_function_name("main");
+        dag.nodes.insert("main_input_1".to_string(), input_node);
 
         let action_node = DAGNode::new(
             "action_2".to_string(),
@@ -3988,7 +3988,7 @@ mod tests {
 
         // DataFlow edge from the input node to the action for variable "n".
         dag.edges.push(DAGEdge::data_flow(
-            "run_input_1".to_string(),
+            "main_input_1".to_string(),
             "action_2".to_string(),
             "n",
         ));
@@ -3998,7 +3998,7 @@ mod tests {
 
         let instance_id = WorkflowInstanceId(Uuid::new_v4());
         let (scope, inbox_writes) =
-            DAGRunner::seed_scope_and_inbox(&initial_inputs, &dag, "run_input_1", instance_id);
+            DAGRunner::seed_scope_and_inbox(&initial_inputs, &dag, "main_input_1", instance_id);
 
         // Scope should preserve numeric types instead of stringifying JSON inputs.
         assert_eq!(
@@ -4012,6 +4012,6 @@ mod tests {
         assert_eq!(inbox_writes[0].target_node_id, "action_2");
         assert_eq!(inbox_writes[0].variable_name, "n");
         assert_eq!(inbox_writes[0].value, JsonValue::Number(7.into()));
-        assert_eq!(inbox_writes[0].source_node_id, "run_input_1");
+        assert_eq!(inbox_writes[0].source_node_id, "main_input_1");
     }
 }

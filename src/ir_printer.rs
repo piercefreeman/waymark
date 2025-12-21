@@ -617,7 +617,7 @@ mod tests {
         println!("=== Pretty-printed IR ===\n{}", output);
 
         // Basic assertions
-        assert!(output.contains("fn run"), "Should contain run function");
+        assert!(output.contains("fn main"), "Should contain main function");
         assert!(
             output.contains("fn __for_body_1__"),
             "Should contain implicit for body function"

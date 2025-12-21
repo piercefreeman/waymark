@@ -558,18 +558,11 @@ impl DAGConverter {
 
         // Phase 2: Expand into single global DAG
         // Find the entry function deterministically based on source order.
-        // Prefer "run", then "main", then "workflow", then first non-internal function.
+        // Prefer "main", then the first non-internal function.
         let entry_fn = program
             .functions
             .iter()
-            .find(|func| func.name == "run")
-            .or_else(|| program.functions.iter().find(|func| func.name == "main"))
-            .or_else(|| {
-                program
-                    .functions
-                    .iter()
-                    .find(|func| func.name == "workflow")
-            })
+            .find(|func| func.name == "main")
             .or_else(|| {
                 program
                     .functions
@@ -578,7 +571,7 @@ impl DAGConverter {
             })
             .or_else(|| program.functions.first())
             .map(|func| func.name.as_str())
-            .unwrap_or("run");
+            .unwrap_or("main");
 
         let mut dag = self.expand_functions(&unexpanded, entry_fn);
         self.remap_exception_targets(&mut dag);
@@ -3391,7 +3384,7 @@ mod tests {
 
     #[test]
     fn test_conditional_all_branches_return_has_no_fallthrough() {
-        let source = r#"fn run(input: [], output: [result]):
+        let source = r#"fn main(input: [], output: [result]):
     if true:
         return 1
     else:
@@ -3431,7 +3424,7 @@ mod tests {
 
     #[test]
     fn test_for_loop_body_return_still_allows_empty_iteration_fallthrough() {
-        let source = r#"fn run(input: [items], output: [result]):
+        let source = r#"fn main(input: [items], output: [result]):
     for item in items:
         return item
     result = @after()
@@ -3469,7 +3462,7 @@ mod tests {
     value = @do_work()
     return value
 
-fn run(input: [], output: [result]):
+fn main(input: [], output: [result]):
     if true:
         helper()
     else:
@@ -3701,7 +3694,7 @@ fn main(input: [], output: [result]):
 
     #[test]
     fn test_try_except_exception_edges_remap_to_expanded_handlers() {
-        let source = r#"fn run(input: [], output: [result]):
+        let source = r#"fn main(input: [], output: [result]):
     try:
         number = @provide_value()
         @explode_custom(value=number)
@@ -4753,7 +4746,7 @@ fn main(input: [], output: [result]):
 
     #[test]
     fn test_fn_call_binds_positional_args_with_dot_access() {
-        let source = r#"fn run(input: [user], output: []):
+        let source = r#"fn main(input: [user], output: []):
     run_internal(user.user_id)
     return
 
@@ -4830,7 +4823,7 @@ fn run_internal(input: [user_id], output: []):
 
     #[test]
     fn test_loop_binding_does_not_flow_to_pre_loop_nodes() {
-        let source = r#"fn run(input: [required_drafts], output: []):
+        let source = r#"fn main(input: [required_drafts], output: []):
     users_response = @get_users(required_drafts=required_drafts)
     for user in users_response.users:
         run_internal(user.required_drafts)
@@ -4847,8 +4840,8 @@ fn run_internal(input: [required_drafts], output: []):
         let input_node = dag
             .nodes
             .values()
-            .find(|n| n.is_input && n.function_name.as_deref() == Some("run"))
-            .expect("Should have run input node");
+            .find(|n| n.is_input && n.function_name.as_deref() == Some("main"))
+            .expect("Should have main input node");
 
         let get_users_node = dag
             .nodes
@@ -5129,7 +5122,7 @@ fn run_internal(input: [required_drafts], output: []):
         //
         // The final_action needs text (from input), step1, step2, and step3.
         // This tests that DataFlow edges are created correctly for all these dependencies.
-        let source = r#"fn run(input: [text], output: [result]):
+        let source = r#"fn main(input: [text], output: [result]):
     step1 = @step_uppercase(text=text)
     step2 = @step_reverse(text=step1)
     step3 = @step_add_stars(text=step2)
@@ -5233,7 +5226,7 @@ fn run_internal(input: [required_drafts], output: []):
         //
         // The loop_exit (join) node should track 'results' as a target since it's
         // modified inside the loop body.
-        let source = r#"fn run(input: [items], output: [final_result]):
+        let source = r#"fn main(input: [items], output: [final_result]):
     results = []
     for item in items:
         results = results + [item]
@@ -5290,7 +5283,7 @@ fn run_internal(input: [required_drafts], output: []):
         //
         // These return nodes are artifacts of how multi-statement bodies are wrapped into
         // synthetic functions. They serve no purpose in the expanded DAG and should be removed.
-        let source = r#"fn run(input: [x], output: [result]):
+        let source = r#"fn main(input: [x], output: [result]):
     try:
         result = @risky_action(x=x)
     except NetworkError:
@@ -5322,12 +5315,12 @@ fn run_internal(input: [required_drafts], output: []):
             return_nodes.len()
         );
 
-        // The only return node should be from the main 'run' function
+        // The only return node should be from the main function
         let return_node = return_nodes[0];
         assert_eq!(
             return_node.function_name.as_deref(),
-            Some("run"),
-            "The only return node should be from the main 'run' function"
+            Some("main"),
+            "The only return node should be from the main function"
         );
 
         // Verify the try/except body actions exist (they should be expanded)
@@ -5390,7 +5383,7 @@ fn __except_handler_6__(input: [results, risky_result], output: [risky_result]):
     risky_result = @fallback_operation(data=results)
     return risky_result
 
-fn run(input: [items, threshold], output: []):
+fn main(input: [items, threshold], output: []):
     count = 0
     results = []
     status_a, status_b = parallel:
@@ -5420,7 +5413,7 @@ fn run(input: [items, threshold], output: []):
 
         let function_names: HashSet<_> =
             program.functions.iter().map(|f| f.name.as_str()).collect();
-        assert!(function_names.contains("run"));
+        assert!(function_names.contains("main"));
         assert!(function_names.contains("__for_body_1__"));
         assert!(function_names.contains("__if_then_2__"));
         assert!(function_names.contains("__if_elif_3__"));
@@ -5973,7 +5966,7 @@ fn run(input: [items, threshold], output: []):
         let program = parse(COMPLETE_FEATURE_WORKFLOW_IR).expect("Should parse");
         let dag = convert_to_dag(&program);
 
-        // After expansion, the main 'run' return node should still exist.
+        // After expansion, the main return node should still exist.
         // Inlined helper returns are preserved to route early-return control flow.
         let return_nodes: Vec<_> = dag
             .nodes
@@ -5984,8 +5977,8 @@ fn run(input: [items, threshold], output: []):
         assert!(
             return_nodes
                 .iter()
-                .any(|n| n.function_name.as_deref() == Some("run")),
-            "Should have return node for main run function. Found: {:?}",
+                .any(|n| n.function_name.as_deref() == Some("main")),
+            "Should have return node for main function. Found: {:?}",
             return_nodes.iter().map(|n| &n.id).collect::<Vec<_>>()
         );
 
@@ -6094,7 +6087,7 @@ fn run(input: [items, threshold], output: []):
     result = @do_work(value=x)
     return result
 
-fn run(input: [items], output: [final]):
+fn main(input: [items], output: [final]):
     for item in items:
         processed = process(x=item)
     final = processed
@@ -6192,7 +6185,7 @@ fn __except_handler__(input: [recovered], output: [recovered]):
     recovered = True
     return recovered
 
-fn run(input: [x], output: []):
+fn main(input: [x], output: []):
     recovered = False
     try:
         result = __try_body__(x=x)
@@ -6211,7 +6204,7 @@ fn run(input: [x], output: []):
             .find(|n| {
                 n.node_type == "assignment"
                     && n.target.as_ref() == Some(&"recovered".to_string())
-                    && n.function_name.as_ref() == Some(&"run".to_string())
+                    && n.function_name.as_ref() == Some(&"main".to_string())
             })
             .expect("should have initial assignment for 'recovered'");
 
@@ -6261,7 +6254,7 @@ fn __except_handler__(input: [recovered], output: [recovered]):
     recovered = True
     return recovered
 
-fn run(input: [x], output: []):
+fn main(input: [x], output: []):
     recovered = False
     try:
         result = __try_body__(x=x)
@@ -6351,7 +6344,7 @@ fn __except_handler__(input: [status, error_msg], output: [status, error_msg]):
     error_msg = "error occurred"
     return [status, error_msg]
 
-fn run(input: [], output: []):
+fn main(input: [], output: []):
     status = "pending"
     error_msg = ""
     attempt_count = 0
@@ -6450,7 +6443,7 @@ fn __outer_except__(input: [outer_flag], output: [outer_flag]):
     outer_flag = True
     return outer_flag
 
-fn run(input: [], output: []):
+fn main(input: [], output: []):
     outer_flag = False
     try:
         inner_flag, result = __outer_try__()
@@ -6473,7 +6466,7 @@ fn run(input: [], output: []):
         let outer_flag_initial = dag.nodes.values().find(|n| {
             n.node_type == "assignment"
                 && n.target.as_ref() == Some(&"outer_flag".to_string())
-                && n.function_name.as_ref() == Some(&"run".to_string())
+                && n.function_name.as_ref() == Some(&"main".to_string())
         });
 
         if let Some(initial) = outer_flag_initial {
@@ -6508,7 +6501,7 @@ fn __except__(input: [flag], output: [flag]):
     flag = True
     return flag
 
-fn run(input: [], output: []):
+fn main(input: [], output: []):
     flag = False
     try:
         result = __try_body__()
@@ -6542,7 +6535,7 @@ fn run(input: [], output: []):
             .find(|n| {
                 n.node_type == "assignment"
                     && n.target.as_ref() == Some(&"flag".to_string())
-                    && n.function_name.as_ref() == Some(&"run".to_string())
+                    && n.function_name.as_ref() == Some(&"main".to_string())
             })
             .expect("should have initial assignment");
 
@@ -6594,7 +6587,7 @@ fn __except__(input: [count], output: []):
     logged = @log_error(count=count)
     return logged
 
-fn run(input: [], output: []):
+fn main(input: [], output: []):
     count = 5
     try:
         result = __try_body__()
@@ -6613,7 +6606,7 @@ fn run(input: [], output: []):
             .find(|n| {
                 n.node_type == "assignment"
                     && n.target.as_ref() == Some(&"count".to_string())
-                    && n.function_name.as_ref() == Some(&"run".to_string())
+                    && n.function_name.as_ref() == Some(&"main".to_string())
             })
             .expect("should have initial count assignment");
 
@@ -6662,7 +6655,7 @@ fn __except__(input: [error_handler], output: []):
     handled = @handle(handler=error_handler)
     return handled
 
-fn run(input: [], output: []):
+fn main(input: [], output: []):
     error_handler = @get_handler()
     try:
         result = __try_body__()
@@ -6715,7 +6708,7 @@ fn __except__(input: [], output: []):
     logged = @log_error()
     return logged
 
-fn run(input: [], output: []):
+fn main(input: [], output: []):
     value = 42
     try:
         result = __try_body__()
@@ -6803,7 +6796,7 @@ fn __except__(input: [flag], output: [flag]):
     flag = True
     return flag
 
-fn run(input: [], output: []):
+fn main(input: [], output: []):
     flag = False
     try:
         result = __try_body__()

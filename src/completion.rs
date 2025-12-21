@@ -1492,7 +1492,7 @@ mod tests {
     fn test_analyze_subgraph_simple_action_to_return() {
         // Simple workflow: action -> return
         let source = r#"
-fn workflow(input: [x], output: [result]):
+fn main(input: [x], output: [result]):
     result = @test_action(value=x)
     return result
 "#;
@@ -1526,7 +1526,7 @@ fn workflow(input: [x], output: [result]):
     fn test_analyze_subgraph_inline_nodes() {
         // Workflow with inline assignment between actions
         let source = r#"
-fn workflow(input: [x], output: [result]):
+fn main(input: [x], output: [result]):
     a = @first_action(value=x)
     b = a + 1
     result = @second_action(value=b)
@@ -1566,7 +1566,7 @@ fn workflow(input: [x], output: [result]):
     fn test_analyze_subgraph_parallel_barrier() {
         // Workflow with parallel block that has a barrier (aggregator)
         let source = r#"
-fn workflow(input: [x], output: [result]):
+fn main(input: [x], output: [result]):
     a, b = parallel:
         @action1(value=x)
         @action2(value=x)
@@ -1598,7 +1598,7 @@ fn workflow(input: [x], output: [result]):
     #[test]
     fn test_is_direct_predecessor() {
         let source = r#"
-fn workflow(input: [x], output: [result]):
+fn main(input: [x], output: [result]):
     result = @test_action(value=x)
     return result
 "#;
@@ -1635,7 +1635,7 @@ fn workflow(input: [x], output: [result]):
     #[test]
     fn test_execute_inline_subgraph_simple() {
         let source = r#"
-fn workflow(input: [x], output: [result]):
+fn main(input: [x], output: [result]):
     result = @test_action(value=x)
     return result
 "#;
@@ -1690,7 +1690,7 @@ fn workflow(input: [x], output: [result]):
         // Test guard evaluation by analyzing a conditional workflow's DAG
         // and checking that guards are correctly evaluated
         let source = r#"
-fn workflow(input: [x], output: [result]):
+fn main(input: [x], output: [result]):
     score = @get_score(value=x)
     if score >= 75:
         result = @high_action(value=score)
@@ -1863,7 +1863,7 @@ fn workflow(input: [x], output: [result]):
         // Create a workflow with a conditional where all branches have failing guards
         // This simulates the scenario where guard evaluation errors block all paths
         let source = r#"
-fn workflow(input: [x], output: [result]):
+fn main(input: [x], output: [result]):
     score = @get_score(value=x)
     if score > 100:
         result = @high_action(value=score)
@@ -1977,7 +1977,7 @@ fn workflow(input: [x], output: [result]):
     fn test_execute_inline_subgraph_with_valid_guards_succeeds() {
         // Create a simple conditional workflow
         let source = r#"
-fn workflow(input: [x], output: [result]):
+fn main(input: [x], output: [result]):
     score = @get_score(value=x)
     if score > 50:
         result = @high_action(value=score)
@@ -2045,7 +2045,7 @@ fn workflow(input: [x], output: [result]):
         // Test: if without else where condition is TRUE
         // Should execute the if body and then continue to the next action
         let source = r#"
-fn workflow(input: [x], output: [result]):
+fn main(input: [x], output: [result]):
     response = @get_items(value=x)
     if response:
         count = @process_items(items=response)
@@ -2115,7 +2115,7 @@ fn workflow(input: [x], output: [result]):
         // This is the bug case! When condition is false, should skip the if body
         // and continue to the finalize action, NOT hit a dead-end.
         let source = r#"
-fn workflow(input: [x], output: [result]):
+fn main(input: [x], output: [result]):
     response = @get_items(value=x)
     if response:
         count = @process_items(items=response)
@@ -2242,7 +2242,7 @@ fn workflow(input: [x], output: [result]):
         // When auth_session_id is present but new_post_ids is empty,
         // the workflow should still continue to validate_posts.
         let source = r#"
-fn workflow(input: [raw_id], output: [result]):
+fn main(input: [raw_id], output: [result]):
     parse_result = @parse_uploaded_post(raw_id=raw_id)
     if not parse_result.auth_session_id:
         return parse_result
@@ -2328,7 +2328,7 @@ fn helper(input: [flag], output: [result]):
     result = @work()
     return result
 
-fn workflow(input: [flag], output: [result]):
+fn main(input: [flag], output: [result]):
     helper(flag=flag)
     result = @final_action()
     return result
@@ -2386,7 +2386,7 @@ fn workflow(input: [flag], output: [result]):
     fn test_early_return_with_for_loop_early_return_taken() {
         // Test the case where early return IS taken (auth_session_id is null)
         let source = r#"
-fn workflow(input: [raw_id], output: [result]):
+fn main(input: [raw_id], output: [result]):
     parse_result = @parse_uploaded_post(raw_id=raw_id)
     if not parse_result.auth_session_id:
         return parse_result
@@ -2467,7 +2467,7 @@ fn workflow(input: [raw_id], output: [result]):
     fn test_early_return_with_for_loop_non_empty_list() {
         // Test the case where early return is NOT taken and for loop has items
         let source = r#"
-fn workflow(input: [raw_id], output: [result]):
+fn main(input: [raw_id], output: [result]):
     parse_result = @parse_uploaded_post(raw_id=raw_id)
     if not parse_result.auth_session_id:
         return parse_result
@@ -2547,7 +2547,7 @@ fn workflow(input: [raw_id], output: [result]):
         // Test that return inside an elif branch completes the workflow
         // and doesn't continue to subsequent code
         let source = r#"
-fn workflow(input: [x], output: [result]):
+fn main(input: [x], output: [result]):
     value = @get_value(x=x)
     if value.status == "high":
         result = @process_high(v=value)
@@ -2625,7 +2625,7 @@ fn workflow(input: [x], output: [result]):
         // Test that return inside a for loop body completes the workflow
         // and doesn't continue to the loop increment or subsequent code
         let source = r#"
-fn workflow(input: [items], output: [result]):
+fn main(input: [items], output: [result]):
     for item in items:
         if item.found:
             return item
@@ -2699,7 +2699,7 @@ fn workflow(input: [items], output: [result]):
         // Test that a direct return in for loop body (not nested in if)
         // completes the workflow and doesn't continue to loop increment
         let source = r#"
-fn workflow(input: [items], output: [result]):
+fn main(input: [items], output: [result]):
     for item in items:
         return item
     final = @finalize(count=0)
@@ -2766,7 +2766,7 @@ fn workflow(input: [items], output: [result]):
         // Note: try/except bodies are general blocks and may include multiple statements.
         // This test uses a try body that only has a return (no action call).
         let source = r#"
-fn workflow(input: [x], output: [result]):
+fn main(input: [x], output: [result]):
     value = @get_value(x=x)
     try:
         return value
@@ -2834,7 +2834,7 @@ fn workflow(input: [x], output: [result]):
         // Test that return inside an except handler completes the workflow
         // and doesn't continue to subsequent code
         let source = r#"
-fn workflow(input: [x], output: [result]):
+fn main(input: [x], output: [result]):
     try:
         value = @risky_action(x=x)
     except NetworkError:

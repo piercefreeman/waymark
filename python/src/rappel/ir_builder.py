@@ -7,8 +7,8 @@ that can be sent to the Rust runtime for execution.
 The IR builder performs deep transformations to convert Python patterns into
 valid Rappel IR structures. Control flow bodies (try, for, if branches) are
 represented as full blocks, so they can contain arbitrary statements and
-`return` behaves consistently with Python (returns from `run()` end the
-workflow).
+`return` behaves consistently with Python (returns from the entry function end
+the workflow).
 
 Validation:
 The IR builder proactively detects unsupported Python patterns and raises
@@ -349,6 +349,7 @@ def build_workflow_ir(workflow_cls: type["Workflow"]) -> ir.Program:
         fn_tree: ast.AST,
         filename: Optional[str],
         start_line: int,
+        override_name: Optional[str] = None,
     ) -> None:
         fn_module = inspect.getmodule(fn)
         if fn_module is None:
@@ -367,11 +368,13 @@ def build_workflow_ir(workflow_cls: type["Workflow"]) -> ir.Program:
         except UnsupportedPatternError as err:
             raise _with_source_location(err, filename, start_line) from err
         if builder.function_def:
+            if override_name:
+                builder.function_def.name = override_name
             function_defs[builder.function_def.name] = builder.function_def
 
-    # Build the main run() function
+    # Build the entry function from run() and map it to main in the IR.
     run_tree, run_filename, run_start_line = parse_function(original_run)
-    add_function_def(original_run, run_tree, run_filename, run_start_line)
+    add_function_def(original_run, run_tree, run_filename, run_start_line, "main")
 
     # Include helper methods reachable via self.method() calls
     pending = list(_collect_self_method_calls(run_tree))

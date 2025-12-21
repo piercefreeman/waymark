@@ -207,7 +207,7 @@ def test_workflow_builds_ir() -> None:
     assert isinstance(program, ir.Program)
     assert len(program.functions) == 1
     func = program.functions[0]
-    assert func.name == "run"
+    assert func.name == "main"
 
 
 def test_workflow_ir_includes_module_name() -> None:

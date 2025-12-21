@@ -634,9 +634,9 @@ class TestConditionalWithoutElse:
         return None
 
     def _find_all_statements(self, program: ir.Program) -> list[ir.Statement]:
-        """Find all statements in the run function."""
+        """Find all statements in the main function."""
         for fn in program.functions:
-            if fn.name == "run":
+            if fn.name == "main":
                 return list(fn.body.statements)
         return []
 
@@ -660,10 +660,10 @@ class TestConditionalWithoutElse:
             "block_body"
         ), "Should not have else_branch (or it should be empty)"
 
-        # The run function should have statements AFTER the conditional
+        # The main function should have statements AFTER the conditional
         # (the finalize action call)
         statements = self._find_all_statements(program)
-        assert len(statements) > 0, "Should have statements in run function"
+        assert len(statements) > 0, "Should have statements in main function"
 
         # Find the conditional's position
         conditional_idx = None
@@ -1200,7 +1200,7 @@ class TestUnsupportedPatternDetection:
 
         program = ListComprehensionAssignmentWorkflow.workflow_ir()
 
-        run_fn = next(fn for fn in program.functions if fn.name == "run")
+        run_fn = next(fn for fn in program.functions if fn.name == "main")
 
         has_initializer = any(
             stmt.HasField("assignment")
@@ -1258,7 +1258,7 @@ class TestUnsupportedPatternDetection:
 
         program = DictComprehensionAssignmentWorkflow.workflow_ir()
 
-        run_fn = next(fn for fn in program.functions if fn.name == "run")
+        run_fn = next(fn for fn in program.functions if fn.name == "main")
         has_initializer = any(
             stmt.HasField("assignment")
             and list(stmt.assignment.targets) == ["active_lookup"]
@@ -2461,7 +2461,7 @@ class TestForLoopWithMultipleCalls:
         # Find the for loop
         for_loop = None
         for fn in program.functions:
-            if fn.name == "run":
+            if fn.name == "main":
                 for stmt in fn.body.statements:
                     if stmt.HasField("for_loop"):
                         for_loop = stmt.for_loop
@@ -2508,8 +2508,8 @@ class TestAwaitActionInIfCondition:
 
         program = IfAwaitActionConditionWorkflow.workflow_ir()
 
-        run_fn = next((fn for fn in program.functions if fn.name == "run"), None)
-        assert run_fn is not None, "Expected run() function"
+        run_fn = next((fn for fn in program.functions if fn.name == "main"), None)
+        assert run_fn is not None, "Expected main() function"
         assert len(run_fn.body.statements) >= 2, "Expected hoisted condition assignment + if"
 
         assign_stmt = run_fn.body.statements[0]
@@ -2560,7 +2560,7 @@ class TestTryExceptStatefulOutputs:
 
         program = TryStatefulOutputsWorkflow.workflow_ir()
 
-        run_fn = next(fn for fn in program.functions if fn.name == "run")
+        run_fn = next(fn for fn in program.functions if fn.name == "main")
         try_stmt = next(
             stmt for stmt in run_fn.body.statements if stmt.HasField("try_except")
         ).try_except
