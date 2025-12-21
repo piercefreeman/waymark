@@ -32,11 +32,13 @@
 //! ```
 
 use std::{
-    collections::HashMap,
+    cmp::Ordering as CmpOrdering,
+    collections::{BinaryHeap, HashMap},
     sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
     },
+    time::{Duration, Instant},
 };
 
 use serde_json::Value as JsonValue;
@@ -565,7 +567,67 @@ pub struct InFlightAction {
     /// Worker index handling this action
     pub worker_idx: usize,
     /// When dispatch started
-    pub dispatched_at: std::time::Instant,
+    pub dispatched_at: Instant,
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+struct TimeoutEntry {
+    deadline: Instant,
+    token: Uuid,
+}
+
+impl Ord for TimeoutEntry {
+    fn cmp(&self, other: &Self) -> CmpOrdering {
+        self.deadline
+            .cmp(&other.deadline)
+            .then_with(|| self.token.as_u128().cmp(&other.token.as_u128()))
+    }
+}
+
+impl PartialOrd for TimeoutEntry {
+    fn partial_cmp(&self, other: &Self) -> Option<CmpOrdering> {
+        Some(self.cmp(other))
+    }
+}
+
+#[derive(Debug, Default)]
+struct InFlightTimeouts {
+    deadlines: HashMap<Uuid, Instant>,
+    heap: BinaryHeap<std::cmp::Reverse<TimeoutEntry>>,
+}
+
+impl InFlightTimeouts {
+    fn insert(&mut self, token: Uuid, deadline: Instant) {
+        self.deadlines.insert(token, deadline);
+        self.heap
+            .push(std::cmp::Reverse(TimeoutEntry { deadline, token }));
+    }
+
+    fn remove(&mut self, token: &Uuid) {
+        self.deadlines.remove(token);
+    }
+
+    fn pop_expired(&mut self, now: Instant) -> Vec<Uuid> {
+        let mut expired = Vec::new();
+        while let Some(std::cmp::Reverse(entry)) = self.heap.peek() {
+            if entry.deadline > now {
+                break;
+            }
+
+            let entry = self.heap.pop().expect("peeked entry exists").0;
+            match self.deadlines.get(&entry.token) {
+                Some(stored_deadline) if *stored_deadline == entry.deadline => {
+                    self.deadlines.remove(&entry.token);
+                    expired.push(entry.token);
+                }
+                _ => {
+                    continue;
+                }
+            }
+        }
+
+        expired
+    }
 }
 
 /// Manages in-flight actions for correlation on completion.
@@ -573,6 +635,7 @@ pub struct InFlightAction {
 pub struct InFlightTracker {
     /// Actions keyed by delivery_token
     actions: HashMap<Uuid, InFlightAction>,
+    timeouts: InFlightTimeouts,
 }
 
 impl InFlightTracker {
@@ -582,24 +645,39 @@ impl InFlightTracker {
 
     /// Add an action to tracking.
     pub fn add(&mut self, action: QueuedAction, worker_idx: usize) {
+        if action.timeout_seconds > 0 {
+            let deadline = Instant::now() + Duration::from_secs(action.timeout_seconds as u64);
+            self.timeouts.insert(action.delivery_token, deadline);
+        }
+
         self.actions.insert(
             action.delivery_token,
             InFlightAction {
                 action,
                 worker_idx,
-                dispatched_at: std::time::Instant::now(),
+                dispatched_at: Instant::now(),
             },
         );
     }
 
     /// Remove and return an action by delivery token.
     pub fn remove(&mut self, delivery_token: &Uuid) -> Option<InFlightAction> {
+        self.timeouts.remove(delivery_token);
         self.actions.remove(delivery_token)
     }
 
     /// Get current count of in-flight actions.
     pub fn count(&self) -> usize {
         self.actions.len()
+    }
+
+    /// Remove actions that exceeded their timeout and return them.
+    pub fn take_timed_out(&mut self, now: Instant) -> Vec<InFlightAction> {
+        let expired_tokens = self.timeouts.pop_expired(now);
+        expired_tokens
+            .into_iter()
+            .filter_map(|token| self.actions.remove(&token))
+            .collect()
     }
 }
 
@@ -1011,6 +1089,11 @@ impl WorkQueueHandler {
                         if let Err(e) = completion_tx.send((in_flight, metrics)).await {
                             error!("Failed to send completion: {}", e);
                         }
+                    } else {
+                        debug!(
+                            delivery_token = %delivery_token,
+                            "received completion for timed-out action"
+                        );
                     }
                 }
                 Err(e) => {
@@ -1030,6 +1113,19 @@ impl WorkQueueHandler {
     /// Get count of in-flight actions.
     pub async fn in_flight_count(&self) -> usize {
         self.in_flight.lock().await.count()
+    }
+
+    pub async fn release_timed_out_slots(&self) -> usize {
+        let now = Instant::now();
+        let mut tracker = self.in_flight.lock().await;
+        let timed_out = tracker.take_timed_out(now);
+        drop(tracker);
+
+        for in_flight in &timed_out {
+            self.slot_tracker.release_slot(in_flight.worker_idx);
+        }
+
+        timed_out.len()
     }
 }
 
@@ -1252,6 +1348,11 @@ impl DAGRunner {
         // Don't fire immediately on first tick
         timeout_check_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
+        let mut in_flight_timeout_interval = tokio::time::interval(
+            tokio::time::Duration::from_millis(self.config.timeout_check_interval_ms),
+        );
+        in_flight_timeout_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
         // Interval for checking scheduled workflows
         let mut schedule_check_interval = tokio::time::interval(
             tokio::time::Duration::from_millis(self.config.schedule_check_interval_ms),
@@ -1371,6 +1472,16 @@ impl DAGRunner {
                                 error!("Failed to fail instances with exhausted actions: {}", e);
                             }
                         }
+                    }
+                }
+
+                _ = in_flight_timeout_interval.tick() => {
+                    let released = self.work_handler.release_timed_out_slots().await;
+                    if released > 0 {
+                        warn!(
+                            timed_out = released,
+                            "released worker slots for timed-out in-flight actions"
+                        );
                     }
                 }
 
@@ -3530,9 +3641,12 @@ mod tests {
         tracker.add(action.clone(), 0);
         assert_eq!(tracker.count(), 1);
 
-        let removed = tracker.remove(&token);
-        assert!(removed.is_some());
+        let timed_out = tracker.take_timed_out(Instant::now() + Duration::from_secs(31));
+        assert_eq!(timed_out.len(), 1);
         assert_eq!(tracker.count(), 0);
+
+        let removed = tracker.remove(&token);
+        assert!(removed.is_none());
     }
 
     #[test]
