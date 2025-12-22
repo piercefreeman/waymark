@@ -210,6 +210,20 @@ impl proto::workflow_service_server::WorkflowService for WorkflowGrpcService {
     ) -> Result<tonic::Response<proto::RegisterScheduleResponse>, tonic::Status> {
         let inner = request.into_inner();
 
+        if inner.schedule_name.is_empty() {
+            return Err(tonic::Status::invalid_argument("schedule_name is required"));
+        }
+
+        if self
+            .database
+            .get_schedule_by_name(&inner.workflow_name, &inner.schedule_name)
+            .await
+            .map_err(|e| tonic::Status::internal(format!("database error: {e}")))?
+            .is_some()
+        {
+            return Err(tonic::Status::already_exists("schedule already exists"));
+        }
+
         // If a workflow registration is provided, register the workflow version first.
         // This ensures the workflow DAG exists when the schedule fires.
         if let Some(ref registration) = inner.registration {
@@ -280,11 +294,6 @@ impl proto::workflow_service_server::WorkflowService for WorkflowGrpcService {
         };
 
         let input_payload = inner.inputs.map(|i| i.encode_to_vec());
-
-        // Validate schedule_name is provided
-        if inner.schedule_name.is_empty() {
-            return Err(tonic::Status::invalid_argument("schedule_name is required"));
-        }
 
         let schedule_id = self
             .database

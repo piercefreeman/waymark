@@ -9,3 +9,10 @@ class ExhaustedRetriesError(Exception):
 
 
 ExhaustedRetries = ExhaustedRetriesError
+
+
+class ScheduleAlreadyExistsError(Exception):
+    """Raised when a schedule name is already registered."""
+
+    def __init__(self, message: str | None = None) -> None:
+        super().__init__(message or "schedule already exists")

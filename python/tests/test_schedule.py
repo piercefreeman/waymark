@@ -5,10 +5,13 @@ from contextlib import asynccontextmanager
 from datetime import timedelta
 from unittest.mock import AsyncMock
 
+import grpc
 import pytest
+from grpc import aio  # type: ignore[attr-defined]
 
 from proto import messages_pb2 as pb2
 from rappel import schedule as schedule_module
+from rappel.exceptions import ScheduleAlreadyExistsError
 from rappel.schedule import (
     ScheduleInfo,
     _parse_iso_datetime,
@@ -357,6 +360,30 @@ class TestScheduleWorkflow:
         with pytest.raises(TypeError, match="schedule must be str or timedelta"):
             asyncio.run(
                 schedule_workflow(DemoScheduleWorkflow, schedule_name="test", schedule=123)  # type: ignore
+            )
+
+    def test_schedule_workflow_already_exists(
+        self, monkeypatch: pytest.MonkeyPatch, mock_stub: AsyncMock
+    ) -> None:
+        """Test schedule_workflow raises ScheduleAlreadyExistsError."""
+
+        class MockAlreadyExistsError(aio.AioRpcError, Exception):
+            def __init__(self) -> None:
+                pass
+
+            def code(self) -> grpc.StatusCode:
+                return grpc.StatusCode.ALREADY_EXISTS
+
+        mock_stub.RegisterSchedule.side_effect = MockAlreadyExistsError()
+
+        with pytest.raises(
+            ScheduleAlreadyExistsError,
+            match="schedule already exists: demoscheduleworkflow/test-dup",
+        ):
+            asyncio.run(
+                schedule_workflow(
+                    DemoScheduleWorkflow, schedule_name="test-dup", schedule="0 * * * *"
+                )
             )
 
 
