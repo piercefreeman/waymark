@@ -2,13 +2,8 @@
 
 import asyncio
 
-from rappel import action, workflow
+from rappel import workflow
 from rappel.workflow import Workflow
-
-
-@action
-async def process(value: int) -> int:
-    return value * 2
 
 
 @workflow
@@ -19,12 +14,12 @@ class GatherUnsupportedVariableWorkflow(Workflow):
     data flow analysis to understand what's in the tasks list.
     """
 
-    async def run(self, count: int) -> list:
+    async def run(self, count: int) -> list[int]:
         # Build up tasks list in a loop - NOT SUPPORTED
         tasks = []
         for i in range(count):
-            tasks.append(process(value=i))
+            tasks.append(i)
 
         # Spread the variable - this should raise an error
         results = await asyncio.gather(*tasks)
-        return list(results)
+        return results

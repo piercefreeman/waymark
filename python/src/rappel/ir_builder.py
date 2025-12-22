@@ -237,6 +237,15 @@ RECOMMENDATIONS = {
     ),
 }
 
+GLOBAL_FUNCTIONS = {
+    "enumerate": ir.GlobalFunction.GLOBAL_FUNCTION_ENUMERATE,
+    "len": ir.GlobalFunction.GLOBAL_FUNCTION_LEN,
+    "range": ir.GlobalFunction.GLOBAL_FUNCTION_RANGE,
+}
+ALLOWED_SYNC_FUNCTIONS = set(GLOBAL_FUNCTIONS)
+
+_CURRENT_ACTION_NAMES: set[str] = set()
+
 
 if TYPE_CHECKING:
     from .workflow import Workflow
@@ -351,11 +360,13 @@ def build_workflow_ir(workflow_cls: type["Workflow"]) -> ir.Program:
         start_line: int,
         override_name: Optional[str] = None,
     ) -> None:
+        global _CURRENT_ACTION_NAMES
         fn_module = inspect.getmodule(fn)
         if fn_module is None:
             raise ValueError(f"unable to locate module for function {fn!r}")
 
         ctx_data = get_module_context(fn_module)
+        _CURRENT_ACTION_NAMES = set(ctx_data.action_defs.keys())
         builder = IRBuilder(
             ctx_data.action_defs,
             ctx,
@@ -403,6 +414,9 @@ def build_workflow_ir(workflow_cls: type["Workflow"]) -> ir.Program:
     # Add all function definitions (run + reachable helper methods)
     for fn_def in function_defs.values():
         program.functions.append(fn_def)
+
+    global _CURRENT_ACTION_NAMES
+    _CURRENT_ACTION_NAMES = set()
 
     return program
 
@@ -2730,6 +2744,9 @@ class IRBuilder(ast.NodeVisitor):
             return None
 
         fn_call = ir.FunctionCall(name=func_name)
+        global_function = _global_function_for_call(func_name, node)
+        if global_function is not None:
+            fn_call.global_function = global_function
 
         # Add positional args
         for arg in node.args:
@@ -2978,6 +2995,9 @@ def _expr_to_ir(expr: ast.AST) -> Optional[ir.Expr]:
                 args=[a for a in args if a],
                 kwargs=kwargs,
             )
+            global_function = _global_function_for_call(func_name, expr.value)
+            if global_function is not None:
+                func_call.global_function = global_function
             result.function_call.CopyFrom(func_call)
             return result
 
@@ -2985,14 +3005,24 @@ def _expr_to_ir(expr: ast.AST) -> Optional[ir.Expr]:
         # Function call
         if not _is_self_method_call(expr):
             func_name = _get_func_name(expr.func) or "unknown"
-            line = expr.lineno if hasattr(expr, "lineno") else None
-            col = expr.col_offset if hasattr(expr, "col_offset") else None
-            raise UnsupportedPatternError(
-                f"Calling synchronous function '{func_name}()' directly is not supported",
-                RECOMMENDATIONS["sync_function_call"],
-                line=line,
-                col=col,
-            )
+            if isinstance(expr.func, ast.Attribute):
+                line = expr.lineno if hasattr(expr, "lineno") else None
+                col = expr.col_offset if hasattr(expr, "col_offset") else None
+                raise UnsupportedPatternError(
+                    f"Calling synchronous function '{func_name}()' directly is not supported",
+                    RECOMMENDATIONS["sync_function_call"],
+                    line=line,
+                    col=col,
+                )
+            if func_name not in ALLOWED_SYNC_FUNCTIONS:
+                line = expr.lineno if hasattr(expr, "lineno") else None
+                col = expr.col_offset if hasattr(expr, "col_offset") else None
+                raise UnsupportedPatternError(
+                    f"Calling synchronous function '{func_name}()' directly is not supported",
+                    RECOMMENDATIONS["sync_function_call"],
+                    line=line,
+                    col=col,
+                )
         func_name = _get_func_name(expr.func)
         if func_name:
             args = [_expr_to_ir(a) for a in expr.args]
@@ -3007,6 +3037,9 @@ def _expr_to_ir(expr: ast.AST) -> Optional[ir.Expr]:
                 args=[a for a in args if a],
                 kwargs=kwargs,
             )
+            global_function = _global_function_for_call(func_name, expr)
+            if global_function is not None:
+                func_call.global_function = global_function
             result.function_call.CopyFrom(func_call)
             return result
 
@@ -3209,3 +3242,12 @@ def _is_self_method_call(node: ast.Call) -> bool:
         and isinstance(func.value, ast.Name)
         and func.value.id == "self"
     )
+
+
+def _global_function_for_call(
+    func_name: str, node: ast.Call
+) -> Optional[ir.GlobalFunction.ValueType]:
+    """Return the GlobalFunction enum value for supported globals."""
+    if _is_self_method_call(node):
+        return None
+    return GLOBAL_FUNCTIONS.get(func_name)

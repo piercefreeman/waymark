@@ -1690,10 +1690,10 @@ class TestExpressionTypes:
 
         @workflow
         class DotWorkflow(Workflow):
-            async def run(self, obj: dict) -> str:
+            async def run(self, obj: dict) -> object:
                 # Use a simple attribute access pattern
                 name = obj.get
-                return str(name)
+                return name
 
         program = DotWorkflow.workflow_ir()
         # Just verify it builds without error
@@ -1947,8 +1947,8 @@ class TestMoreUnsupportedPatterns:
 
         @workflow
         class GeneratorWorkflow(Workflow):
-            async def run(self, items: list[int]) -> int:
-                return sum(x * 2 for x in items)
+            async def run(self, items: list[int]) -> object:
+                return (x * 2 for x in items)
 
         with pytest.raises(UnsupportedPatternError) as exc_info:
             GeneratorWorkflow.workflow_ir()
@@ -2038,6 +2038,10 @@ class TestForLoopEnumerate:
         assert len(for_loop.loop_vars) == 2, "Should have 2 loop vars (i, item)"
         assert "i" in for_loop.loop_vars, "Should have 'i' loop var"
         assert "item" in for_loop.loop_vars, "Should have 'item' loop var"
+        assert (
+            for_loop.iterable.function_call.global_function
+            == ir.GlobalFunction.GLOBAL_FUNCTION_ENUMERATE
+        )
 
 
 class TestExprStmt:
@@ -2874,6 +2878,56 @@ class TestUnsupportedPatternValidation:
         assert "synchronous function" in error.message.lower()
         assert "@action" in error.recommendation
 
+    def test_plain_function_call_raises_error(self) -> None:
+        """Test: plain function calls in workflow code raise UnsupportedPatternError."""
+        from typing import cast
+
+        import pytest
+
+        from rappel import workflow
+        from rappel.ir_builder import UnsupportedPatternError
+        from rappel.workflow import Workflow
+
+        def log_event(value: int) -> None:
+            _ = value
+
+        @workflow
+        class PlainFunctionCallWorkflow(Workflow):
+            async def run(self) -> int:
+                log_event(value=1)
+                return 1
+
+        with pytest.raises(UnsupportedPatternError) as exc_info:
+            PlainFunctionCallWorkflow.workflow_ir()
+
+        error = cast(UnsupportedPatternError, exc_info.value)
+        assert "log_event" in error.message
+        assert "synchronous function" in error.message.lower()
+
+    def test_attribute_function_call_raises_error(self) -> None:
+        """Test: attribute calls like token.upper() raise UnsupportedPatternError."""
+        from typing import cast
+
+        import pytest
+
+        from rappel import workflow
+        from rappel.ir_builder import UnsupportedPatternError
+        from rappel.workflow import Workflow
+
+        @workflow
+        class AttributeFunctionCallWorkflow(Workflow):
+            async def run(self) -> str:
+                token = "alpha"
+                token.upper()
+                return token
+
+        with pytest.raises(UnsupportedPatternError) as exc_info:
+            AttributeFunctionCallWorkflow.workflow_ir()
+
+        error = cast(UnsupportedPatternError, exc_info.value)
+        assert "token.upper" in error.message
+        assert "synchronous function" in error.message.lower()
+
 
 class TestValidPatterns:
     """Test that valid patterns do NOT raise errors."""
@@ -2929,6 +2983,28 @@ class TestValidPatterns:
 
         program = HelperInActionArgWorkflow.workflow_ir()
         assert program is not None
+
+    def test_len_global_function_is_allowed(self) -> None:
+        """Test: len() is allowed and tagged as a global function."""
+        from rappel import workflow
+        from rappel.workflow import Workflow
+
+        @workflow
+        class LenWorkflow(Workflow):
+            async def run(self, items: list[int]) -> int:
+                return len(items)
+
+        program = LenWorkflow.workflow_ir()
+        assert program is not None
+
+        fn_call = None
+        for stmt in program.functions[0].body.statements:
+            if stmt.HasField("assignment") and stmt.assignment.value.HasField("function_call"):
+                fn_call = stmt.assignment.value.function_call
+                break
+
+        assert fn_call is not None, "Expected function_call from len()"
+        assert fn_call.global_function == ir.GlobalFunction.GLOBAL_FUNCTION_LEN
 
 
 class TestPydanticModelSupport:

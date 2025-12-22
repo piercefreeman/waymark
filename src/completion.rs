@@ -1787,6 +1787,7 @@ fn main(input: [x], output: [result]):
                 name: "len".to_string(),
                 args: vec![],
                 kwargs: vec![], // No 'items' kwarg provided
+                global_function: ast::GlobalFunction::Len as i32,
             })),
         };
 

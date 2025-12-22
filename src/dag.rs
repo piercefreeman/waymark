@@ -1624,6 +1624,7 @@ impl DAGConverter {
                             name: "items".to_string(),
                             value: Some(collection_expr.clone()),
                         }],
+                        global_function: ast::GlobalFunction::Len as i32,
                     })),
                     span: None,
                 })),

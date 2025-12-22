@@ -3815,6 +3815,7 @@ mod tests {
                         span: None,
                     }),
                 }],
+                global_function: ast::GlobalFunction::Range as i32,
             })),
             span: None,
         };
@@ -3867,6 +3868,7 @@ mod tests {
                         span: None,
                     }),
                 }],
+                global_function: ast::GlobalFunction::Len as i32,
             })),
             span: None,
         };

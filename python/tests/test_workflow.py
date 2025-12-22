@@ -192,11 +192,16 @@ async def store_value(result: str) -> None:
     raise NotImplementedError
 
 
+@action
+async def uppercase_token(token: str) -> str:
+    return token.upper()
+
+
 @workflow_decorator
 class TestActionWorkflow(Workflow):
     async def run(self) -> str:
         token = await fetch_identifier(identifier="alpha")
-        transformed = token.upper()
+        transformed = await uppercase_token(token=token)
         await store_value(result=transformed)
         return transformed
 

@@ -121,6 +121,15 @@ impl<'source> Parser<'source> {
         }
     }
 
+    fn global_function_for_name(name: &str) -> ast::GlobalFunction {
+        match name {
+            "range" => ast::GlobalFunction::Range,
+            "len" => ast::GlobalFunction::Len,
+            "enumerate" => ast::GlobalFunction::Enumerate,
+            _ => ast::GlobalFunction::Unspecified,
+        }
+    }
+
     fn error(&self, message: String) -> ParseError {
         ParseError {
             message,
@@ -416,6 +425,7 @@ impl<'source> Parser<'source> {
                     if let Some(ast::expr::Kind::Variable(var)) = expr.kind {
                         expr = ast::Expr {
                             kind: Some(ast::expr::Kind::FunctionCall(ast::FunctionCall {
+                                global_function: Self::global_function_for_name(&var.name) as i32,
                                 name: var.name,
                                 args,
                                 kwargs,
@@ -601,6 +611,7 @@ impl<'source> Parser<'source> {
                 self.expect(&Token::RParen)?;
                 calls.push(ast::Call {
                     kind: Some(ast::call::Kind::Function(ast::FunctionCall {
+                        global_function: Self::global_function_for_name(&name) as i32,
                         name,
                         args,
                         kwargs,
@@ -1062,6 +1073,7 @@ impl<'source> Parser<'source> {
                         self.expect(&Token::RParen)?;
                         expr = ast::Expr {
                             kind: Some(ast::expr::Kind::FunctionCall(ast::FunctionCall {
+                                global_function: Self::global_function_for_name(&name) as i32,
                                 name,
                                 args,
                                 kwargs,

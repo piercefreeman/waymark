@@ -17,7 +17,7 @@ async def fetch_b() -> int:
 
 
 @action
-async def combine(values: list[int]) -> int:
+async def combine(values: tuple[int, int]) -> int:
     return sum(values)
 
 
@@ -32,5 +32,5 @@ class GatherNestedWorkflow(Workflow):
             fetch_b(),
         )
         # Fan-in
-        total = await combine(values=list(results))
+        total = await combine(values=results)
         return total

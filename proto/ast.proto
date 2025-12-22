@@ -270,12 +270,21 @@ message DotAccess {
   string attribute = 2;
 }
 
+// Global (built-in) functions supported by the runtime.
+enum GlobalFunction {
+  GLOBAL_FUNCTION_UNSPECIFIED = 0;
+  GLOBAL_FUNCTION_RANGE = 1;
+  GLOBAL_FUNCTION_LEN = 2;
+  GLOBAL_FUNCTION_ENUMERATE = 3;
+}
+
 // Function call: range(10), len(items)
 // Built-in functions can use positional args, user functions use kwargs
 message FunctionCall {
   string name = 1;
   repeated Expr args = 2;        // Positional arguments (for built-ins)
   repeated Kwarg kwargs = 3;     // Keyword arguments
+  GlobalFunction global_function = 4;  // Global function identifier (if applicable)
 }
 
 // Keyword argument: name=value

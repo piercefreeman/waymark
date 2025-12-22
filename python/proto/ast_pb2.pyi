@@ -94,6 +94,29 @@ UNARY_OP_NEG: UnaryOperator.ValueType  # 1
 UNARY_OP_NOT: UnaryOperator.ValueType  # 2
 Global___UnaryOperator: typing_extensions.TypeAlias = UnaryOperator
 
+class _GlobalFunction:
+    ValueType = typing.NewType("ValueType", builtins.int)
+    V: typing_extensions.TypeAlias = ValueType
+
+class _GlobalFunctionEnumTypeWrapper(
+    google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[_GlobalFunction.ValueType],
+    builtins.type,
+):
+    DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor
+    GLOBAL_FUNCTION_UNSPECIFIED: _GlobalFunction.ValueType  # 0
+    GLOBAL_FUNCTION_RANGE: _GlobalFunction.ValueType  # 1
+    GLOBAL_FUNCTION_LEN: _GlobalFunction.ValueType  # 2
+    GLOBAL_FUNCTION_ENUMERATE: _GlobalFunction.ValueType  # 3
+
+class GlobalFunction(_GlobalFunction, metaclass=_GlobalFunctionEnumTypeWrapper):
+    """Global (built-in) functions supported by the runtime."""
+
+GLOBAL_FUNCTION_UNSPECIFIED: GlobalFunction.ValueType  # 0
+GLOBAL_FUNCTION_RANGE: GlobalFunction.ValueType  # 1
+GLOBAL_FUNCTION_LEN: GlobalFunction.ValueType  # 2
+GLOBAL_FUNCTION_ENUMERATE: GlobalFunction.ValueType  # 3
+Global___GlobalFunction: typing_extensions.TypeAlias = GlobalFunction
+
 @typing.final
 class Program(google.protobuf.message.Message):
     """-----------------------------------------------------------------------------
@@ -1253,7 +1276,10 @@ class FunctionCall(google.protobuf.message.Message):
     NAME_FIELD_NUMBER: builtins.int
     ARGS_FIELD_NUMBER: builtins.int
     KWARGS_FIELD_NUMBER: builtins.int
+    GLOBAL_FUNCTION_FIELD_NUMBER: builtins.int
     name: builtins.str
+    global_function: Global___GlobalFunction.ValueType
+    """Global function identifier (if applicable)"""
     @property
     def args(
         self,
@@ -1272,9 +1298,20 @@ class FunctionCall(google.protobuf.message.Message):
         name: builtins.str = ...,
         args: collections.abc.Iterable[Global___Expr] | None = ...,
         kwargs: collections.abc.Iterable[Global___Kwarg] | None = ...,
+        global_function: Global___GlobalFunction.ValueType = ...,
     ) -> None: ...
     def ClearField(
-        self, field_name: typing.Literal["args", b"args", "kwargs", b"kwargs", "name", b"name"]
+        self,
+        field_name: typing.Literal[
+            "args",
+            b"args",
+            "global_function",
+            b"global_function",
+            "kwargs",
+            b"kwargs",
+            "name",
+            b"name",
+        ],
     ) -> None: ...
 
 Global___FunctionCall: typing_extensions.TypeAlias = FunctionCall

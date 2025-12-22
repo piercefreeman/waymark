@@ -92,8 +92,6 @@ const CHAIN_WORKFLOW_MODULE: &str = include_str!("fixtures/chain_workflow.py");
 const LOOP_RETURN_WORKFLOW_MODULE: &str = include_str!("fixtures/integration_loop_return.py");
 const DEAD_END_CONDITIONAL_WORKFLOW_MODULE: &str =
     include_str!("fixtures/integration_dead_end_conditional.py");
-const EXTERNAL_FN_CALL_WORKFLOW_MODULE: &str =
-    include_str!("fixtures/integration_external_fn_call.py");
 
 /// Registration script that imports and runs the workflow.
 /// This triggers the workflow decorator which registers the IR via gRPC.
@@ -1134,67 +1132,6 @@ async fn dead_end_conditional_guard_reaches_followup_action() -> Result<()> {
     assert_eq!(
         message,
         Some("final:0".to_string()),
-        "unexpected workflow result"
-    );
-
-    harness.shutdown().await?;
-    Ok(())
-}
-
-// =============================================================================
-// External Fn Call Conditional Workflow Test
-// =============================================================================
-
-const REGISTER_EXTERNAL_FN_CALL_SCRIPT: &str = r#"
-import asyncio
-import os
-
-from integration_external_fn_call import ExternalFnCallWorkflow
-
-async def main():
-    os.environ.pop("PYTEST_CURRENT_TEST", None)
-    wf = ExternalFnCallWorkflow()
-    result = await wf.run(value=1)
-    print(f"Registration result: {result}")
-
-asyncio.run(main())
-"#;
-
-/// Ensure external function calls in conditionals don't dead-end execution.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[serial]
-async fn external_fn_call_conditional_completes_workflow() -> Result<()> {
-    let _ = tracing_subscriber::fmt::try_init();
-    let _ = dotenvy::dotenv();
-
-    let Some(harness) = IntegrationHarness::new(HarnessConfig {
-        files: &[
-            (
-                "integration_external_fn_call.py",
-                EXTERNAL_FN_CALL_WORKFLOW_MODULE,
-            ),
-            ("register.py", REGISTER_EXTERNAL_FN_CALL_SCRIPT),
-        ],
-        entrypoint: "register.py",
-        workflow_name: "externalfncallworkflow",
-        user_module: "integration_external_fn_call",
-        inputs: &[],
-    })
-    .await?
-    else {
-        return Ok(());
-    };
-
-    harness.dispatch_all().await?;
-
-    let stored_payload = harness
-        .stored_result()
-        .await?
-        .expect("workflow should have a result");
-    let message = parse_result(&stored_payload)?;
-    assert_eq!(
-        message,
-        Some("logged".to_string()),
         "unexpected workflow result"
     );
 

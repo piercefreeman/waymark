@@ -306,11 +306,15 @@ impl ExpressionEvaluator {
         }
 
         // Built-in functions - support both positional and keyword args
-        match call.name.as_str() {
-            "range" => Self::builtin_range(&args, &kwargs),
-            "len" => Self::builtin_len(&args, &kwargs),
-            "enumerate" => Self::builtin_enumerate(&args, &kwargs),
-            _ => Err(EvaluationError::FunctionNotFound(call.name.clone())),
+        match ast::GlobalFunction::try_from(call.global_function)
+            .unwrap_or(ast::GlobalFunction::Unspecified)
+        {
+            ast::GlobalFunction::Range => Self::builtin_range(&args, &kwargs),
+            ast::GlobalFunction::Len => Self::builtin_len(&args, &kwargs),
+            ast::GlobalFunction::Enumerate => Self::builtin_enumerate(&args, &kwargs),
+            ast::GlobalFunction::Unspecified => {
+                Err(EvaluationError::FunctionNotFound(call.name.clone()))
+            }
         }
     }
 
@@ -760,8 +764,18 @@ mod tests {
                         value: Some(v),
                     })
                     .collect(),
+                global_function: global_function_for_name(name) as i32,
             })),
             span: None,
+        }
+    }
+
+    fn global_function_for_name(name: &str) -> ast::GlobalFunction {
+        match name {
+            "range" => ast::GlobalFunction::Range,
+            "len" => ast::GlobalFunction::Len,
+            "enumerate" => ast::GlobalFunction::Enumerate,
+            _ => ast::GlobalFunction::Unspecified,
         }
     }
 

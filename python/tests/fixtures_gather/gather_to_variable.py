@@ -25,10 +25,10 @@ async def fetch_value_3() -> str:
 class GatherToVariableWorkflow(Workflow):
     """Gather results assigned to a single variable (list/tuple)."""
 
-    async def run(self) -> list[str]:
+    async def run(self) -> tuple[str, str, str]:
         results = await asyncio.gather(
             fetch_value_1(),
             fetch_value_2(),
             fetch_value_3(),
         )
-        return list(results)
+        return results

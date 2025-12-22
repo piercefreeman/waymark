@@ -19,9 +19,9 @@ class GatherListCompWorkflow(Workflow):
     This is a common idiom for parallel processing of collections.
     """
 
-    async def run(self, items: list, multiplier: int) -> list:
+    async def run(self, items: list, multiplier: int) -> list[str]:
         # Starred list comprehension - fan out over items
         results = await asyncio.gather(
             *[process_item(item=item, multiplier=multiplier) for item in items]
         )
-        return list(results)
+        return results
