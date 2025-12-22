@@ -64,7 +64,6 @@ jobs:
 
   rust-lint:
     runs-on: ubuntu-latest
-    needs: python-lint
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -82,7 +81,7 @@ jobs:
 
   rust-tests:
     runs-on: ubuntu-latest
-    needs: [python-tests, rust-lint]
+    needs: rust-lint
     timeout-minutes: 10
     services:
       postgres:
@@ -480,7 +479,7 @@ jobs:
 
   build-wheel:
     runs-on: ${{ matrix.os }}
-    needs: [python-tests, rust-tests]
+    needs: [python-lint, rust-lint]
     timeout-minutes: 30
     if: startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' || (github.event_name == 'pull_request' && contains(toJson(github.event.pull_request.labels), 'full-build'))
     strategy:
@@ -547,10 +546,10 @@ jobs:
 
   package-release:
     runs-on: ubuntu-latest
-    needs: [build-wheel]
+    needs: [python-tests, rust-tests, build-wheel]
     timeout-minutes: 20
     environment: pypi
-    if: startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main'
+    if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: read
       id-token: write
