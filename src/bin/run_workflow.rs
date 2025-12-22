@@ -32,7 +32,7 @@ use tracing::{error, info, warn};
 
 use rappel::{
     Database, PythonWorkerConfig, PythonWorkerPool, WorkerBridgeServer, WorkflowInstanceId,
-    WorkflowVersionId, proto,
+    WorkflowVersionId, proto, validate_program,
 };
 
 // ============================================================================
@@ -94,6 +94,14 @@ impl proto::workflow_service_server::WorkflowService for WorkflowService {
         let registration = inner
             .registration
             .ok_or_else(|| tonic::Status::invalid_argument("registration missing"))?;
+
+        let program = rappel::ir_ast::Program::decode(&registration.ir[..])
+            .map_err(|e| tonic::Status::invalid_argument(format!("invalid IR: {e}")))?;
+        if let Err(err) = validate_program(&program) {
+            return Err(tonic::Status::invalid_argument(format!(
+                "invalid IR: {err}"
+            )));
+        }
 
         let version_id = self
             .database

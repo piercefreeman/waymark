@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Literal, Optional
 
 import asyncpg
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
@@ -30,6 +30,9 @@ from example_app.workflows import (
     ErrorHandlingWorkflow,
     ErrorRequest,
     ErrorResult,
+    KwOnlyLocationRequest,
+    KwOnlyLocationResult,
+    KwOnlyLocationWorkflow,
     LoopReturnRequest,
     LoopReturnResult,
     LoopReturnWorkflow,
@@ -40,6 +43,7 @@ from example_app.workflows import (
     SequentialChainWorkflow,
     SleepRequest,
     SleepResult,
+    UndefinedVariableWorkflow,
 )
 
 app = FastAPI(title="Rappel Example")
@@ -154,6 +158,43 @@ async def run_guard_fallback_workflow(
 
 
 # =============================================================================
+# Kw-only Inputs
+# =============================================================================
+
+
+@app.post("/api/kw-only", response_model=KwOnlyLocationResult)
+async def run_kw_only_workflow(
+    payload: KwOnlyLocationRequest,
+) -> KwOnlyLocationResult:
+    """Run the kw-only inputs workflow demonstrating request models."""
+    workflow = KwOnlyLocationWorkflow()
+    return await workflow.run(
+        latitude=payload.latitude,
+        longitude=payload.longitude,
+    )
+
+
+# =============================================================================
+# Undefined Variable Validation
+# =============================================================================
+
+
+class UndefinedVariableRequest(BaseModel):
+    input_text: str = Field(description="Sample input (not used by the workflow).")
+
+
+@app.post("/api/undefined-variable")
+async def run_undefined_variable_workflow(payload: UndefinedVariableRequest) -> dict:
+    """Trigger a workflow that fails validation due to out-of-scope variables."""
+    workflow = UndefinedVariableWorkflow()
+    try:
+        result = await workflow.run(input_text=payload.input_text)
+    except Exception as exc:  # pragma: no cover - example endpoint
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"result": result}
+
+
+# =============================================================================
 # Early Return with Loop (if-return followed by for-loop)
 # =============================================================================
 
@@ -183,6 +224,7 @@ WORKFLOW_REGISTRY = {
     "DurableSleepWorkflow": DurableSleepWorkflow,
     "GuardFallbackWorkflow": GuardFallbackWorkflow,
     "EarlyReturnLoopWorkflow": EarlyReturnLoopWorkflow,
+    "KwOnlyLocationWorkflow": KwOnlyLocationWorkflow,
 }
 
 

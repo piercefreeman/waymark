@@ -27,6 +27,7 @@ pub mod dag;
 pub mod dag_state;
 pub mod db;
 pub mod ir_printer;
+pub mod ir_validation;
 pub mod lexer;
 pub mod messages;
 pub mod parser;
@@ -66,6 +67,7 @@ pub use dag::{DAG, DAGConverter, DAGEdge, DAGNode, EdgeType, convert_to_dag};
 
 // AST Printer
 pub use ast_printer::{AstPrinter, print_expr, print_program, print_statement};
+pub use ir_validation::validate_program;
 
 // DAG State Helper
 pub use dag_state::{DAGHelper, DataFlowTarget, ExecutionMode, SuccessorInfo};

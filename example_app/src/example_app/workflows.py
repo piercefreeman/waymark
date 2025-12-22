@@ -135,6 +135,21 @@ class GuardFallbackRequest(BaseModel):
     )
 
 
+class KwOnlyLocationRequest(BaseModel):
+    latitude: float | None = Field(
+        default=None, description="Optional latitude for the target location."
+    )
+    longitude: float | None = Field(
+        default=None, description="Optional longitude for the target location."
+    )
+
+
+class KwOnlyLocationResult(BaseModel):
+    latitude: float | None
+    longitude: float | None
+    message: str
+
+
 # =============================================================================
 # Actions - Parallel Workflow
 # =============================================================================
@@ -701,6 +716,22 @@ async def build_guard_fallback_result(
     )
 
 
+@action
+async def describe_location(request: KwOnlyLocationRequest) -> KwOnlyLocationResult:
+    """Format a location from kw-only workflow inputs."""
+    if request.latitude is None or request.longitude is None:
+        return KwOnlyLocationResult(
+            latitude=request.latitude,
+            longitude=request.longitude,
+            message="Location inputs are optional; provide both for a precise pin.",
+        )
+    return KwOnlyLocationResult(
+        latitude=request.latitude,
+        longitude=request.longitude,
+        message=f"Resolved location at {request.latitude:.4f}, {request.longitude:.4f}.",
+    )
+
+
 @workflow
 class GuardFallbackWorkflow(Workflow):
     """
@@ -715,6 +746,47 @@ class GuardFallbackWorkflow(Workflow):
         if notes:
             summary = await summarize_notes(notes)
         return await build_guard_fallback_result(user, len(notes), summary)
+
+
+@workflow
+class KwOnlyLocationWorkflow(Workflow):
+    """
+    Demonstrates kw-only inputs flowing into an action request model.
+
+    Provides a safe default if latitude/longitude are omitted.
+    """
+
+    async def run(
+        self,
+        *,
+        latitude: float | None = None,
+        longitude: float | None = None,
+    ) -> KwOnlyLocationResult:
+        return await describe_location(
+            KwOnlyLocationRequest(
+                latitude=latitude,
+                longitude=longitude,
+            )
+        )
+
+
+global_fallback = "external-default"
+
+
+@action
+async def echo_external(value: str) -> str:
+    """Echo a value to demonstrate undefined-variable validation."""
+    return value
+
+
+@workflow
+class UndefinedVariableWorkflow(Workflow):
+    """
+    Demonstrates IR validation of references to out-of-scope variables.
+    """
+
+    async def run(self, input_text: str) -> str:
+        return await echo_external(global_fallback)
 
 
 # =============================================================================

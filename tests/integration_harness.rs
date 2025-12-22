@@ -35,7 +35,7 @@ use tracing::info;
 
 use rappel::{
     DAGRunner, Database, PythonWorkerConfig, PythonWorkerPool, RunnerConfig, WorkerBridgeServer,
-    WorkflowInstanceId, WorkflowVersionId, proto,
+    WorkflowInstanceId, WorkflowVersionId, proto, validate_program,
 };
 
 const SCRIPT_TIMEOUT: Duration = Duration::from_secs(60);
@@ -65,6 +65,14 @@ impl proto::workflow_service_server::WorkflowService for TestWorkflowService {
         let registration = inner
             .registration
             .ok_or_else(|| tonic::Status::invalid_argument("registration missing"))?;
+
+        let program = rappel::ir_ast::Program::decode(&registration.ir[..])
+            .map_err(|e| tonic::Status::invalid_argument(format!("invalid IR: {e}")))?;
+        if let Err(err) = validate_program(&program) {
+            return Err(tonic::Status::invalid_argument(format!(
+                "invalid IR: {err}"
+            )));
+        }
 
         info!(
             workflow_name = %registration.workflow_name,

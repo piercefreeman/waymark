@@ -285,9 +285,44 @@
       <div class="result" id="early-return-result" hidden></div>
     </section>
 
+    <!-- Kw-only Inputs -->
+    <section class="workflow-section">
+      <h3>10. Kw-only Inputs</h3>
+      <p>
+        Demonstrates keyword-only workflow inputs flowing into a request model.
+        Leave fields empty to use defaults.
+      </p>
+      <form id="kw-only-form">
+        <label for="kw-only-latitude">Latitude:</label>
+        <input type="number" id="kw-only-latitude" name="latitude" step="0.0001" value="37.7749" />
+        <label for="kw-only-longitude">Longitude:</label>
+        <input type="number" id="kw-only-longitude" name="longitude" step="0.0001" value="-122.4194" />
+        <button type="submit">Run Kw-only</button>
+      </form>
+      <div class="status" id="kw-only-status"></div>
+      <div class="result" id="kw-only-result" hidden></div>
+    </section>
+
+    <!-- Undefined Variable Validation -->
+    <section class="workflow-section">
+      <h3>11. Undefined Variable Validation</h3>
+      <p>
+        This workflow intentionally references a module-level variable to show
+        IR validation errors before execution.
+      </p>
+      <form id="undefined-variable-form">
+        <label for="undefined-variable-input">Input:</label>
+        <input type="text" id="undefined-variable-input" name="input_text" value="demo payload" />
+        <button type="submit">Run Validation</button>
+      </form>
+      <div class="hint">Expect a validation error surfaced by the workflow runtime.</div>
+      <div class="status" id="undefined-variable-status"></div>
+      <div class="result" id="undefined-variable-result" hidden></div>
+    </section>
+
     <!-- Scheduled Workflows -->
     <section class="workflow-section">
-      <h3>10. Scheduled Workflows</h3>
+      <h3>12. Scheduled Workflows</h3>
       <p>
         Register a workflow to run automatically on a cron schedule or at fixed intervals.
         Schedules persist across server restarts.
@@ -483,8 +518,35 @@
         (data) => JSON.stringify(data, null, 2)
       );
 
+      // 10. Kw-only Inputs
+      runWorkflow(
+        "kw-only-form",
+        "/api/kw-only",
+        (form) => {
+          const latRaw = form.querySelector("#kw-only-latitude").value.trim();
+          const lonRaw = form.querySelector("#kw-only-longitude").value.trim();
+          const latitude = latRaw === "" ? null : Number(latRaw);
+          const longitude = lonRaw === "" ? null : Number(lonRaw);
+          if (latRaw !== "" && !Number.isFinite(latitude)) return null;
+          if (lonRaw !== "" && !Number.isFinite(longitude)) return null;
+          return { latitude, longitude };
+        },
+        (data) => JSON.stringify(data, null, 2)
+      );
 
-      // 8. Schedule - toggle between cron and interval inputs
+      // 11. Undefined Variable Validation
+      runWorkflow(
+        "undefined-variable-form",
+        "/api/undefined-variable",
+        (form) => {
+          const input_text = form.querySelector("#undefined-variable-input").value.trim();
+          return input_text ? { input_text } : null;
+        },
+        (data) => JSON.stringify(data, null, 2)
+      );
+
+
+      // 12. Schedule - toggle between cron and interval inputs
       const scheduleTypeSelect = document.getElementById("schedule-type");
       const intervalInput = document.getElementById("schedule-interval");
       const cronInput = document.getElementById("schedule-cron");
@@ -499,7 +561,7 @@
         }
       });
 
-      // 8. Schedule - register schedule
+      // 12. Schedule - register schedule
       runWorkflow(
         "schedule-form",
         "/api/schedule",
@@ -523,7 +585,7 @@
         (data) => JSON.stringify(data, null, 2)
       );
 
-      // 8. Schedule actions - pause, resume, delete
+      // 12. Schedule actions - pause, resume, delete
       async function scheduleAction(endpoint, action) {
         const workflow_name = document.getElementById("action-workflow").value;
         const status = document.getElementById("schedule-action-status");

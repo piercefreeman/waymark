@@ -119,6 +119,33 @@ class TestAsyncioSleepDetection:
         assert duration.value.literal.int_value == 3
 
 
+class TestVariableReferenceValidation:
+    """Tests for workflow input extraction in IR building."""
+
+    def test_kwonly_inputs_included(self) -> None:
+        from rappel import action, workflow
+        from rappel.workflow import Workflow
+
+        @action
+        async def echo(value: float | None) -> None:
+            return None
+
+        @workflow
+        class KwOnlyWorkflow(Workflow):
+            async def run(
+                self,
+                *,
+                latitude: float | None = None,
+                longitude: float | None = None,
+            ) -> None:
+                await echo(latitude)
+
+        program = KwOnlyWorkflow.workflow_ir()
+        main = next(fn for fn in program.functions if fn.name == "main")
+        assert "latitude" in list(main.io.inputs)
+        assert "longitude" in list(main.io.inputs)
+
+
 class TestPolicyParsing:
     """Test that retry and timeout policies are parsed from run_action calls."""
 

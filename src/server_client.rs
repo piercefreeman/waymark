@@ -13,11 +13,12 @@ use tokio::net::TcpListener;
 use tokio_stream::wrappers::TcpListenerStream;
 use tonic::transport::Server;
 use tonic_health::server::health_reporter;
-use tracing::{error, info};
+use tracing::info;
 
 use crate::{
     db::{Database, ScheduleType},
     ir_printer,
+    ir_validation::validate_program,
     messages::ast as ir_ast,
     messages::proto,
     schedule::{apply_jitter, next_cron_run, next_interval_run},
@@ -90,26 +91,14 @@ impl WorkflowGrpcService {
 }
 
 /// Log a registered workflow's IR in a pretty-printed format
-fn log_workflow_ir(registration: &proto::WorkflowRegistration) {
-    // Try to decode the IR from the registration
-    match ir_ast::Program::decode(&registration.ir[..]) {
-        Ok(program) => {
-            let ir_str = ir_printer::print_program(&program);
-            info!(
-                workflow_name = %registration.workflow_name,
-                ir_hash = %registration.ir_hash,
-                "Registered workflow IR:\n{}",
-                ir_str
-            );
-        }
-        Err(e) => {
-            error!(
-                workflow_name = %registration.workflow_name,
-                error = %e,
-                "Failed to decode workflow IR"
-            );
-        }
-    }
+fn log_workflow_ir(workflow_name: &str, ir_hash: &str, program: &ir_ast::Program) {
+    let ir_str = ir_printer::print_program(program);
+    info!(
+        workflow_name = %workflow_name,
+        ir_hash = %ir_hash,
+        "Registered workflow IR:\n{}",
+        ir_str
+    );
 }
 
 pub(crate) fn sanitize_interval(value: Option<f64>) -> Duration {
@@ -129,8 +118,16 @@ impl proto::workflow_service_server::WorkflowService for WorkflowGrpcService {
             .registration
             .ok_or_else(|| tonic::Status::invalid_argument("registration missing"))?;
 
+        let program = ir_ast::Program::decode(&registration.ir[..])
+            .map_err(|e| tonic::Status::invalid_argument(format!("invalid IR: {e}")))?;
+        if let Err(err) = validate_program(&program) {
+            return Err(tonic::Status::invalid_argument(format!(
+                "invalid IR: {err}"
+            )));
+        }
+
         // Log the registered workflow IR
-        log_workflow_ir(&registration);
+        log_workflow_ir(&registration.workflow_name, &registration.ir_hash, &program);
 
         // Register the workflow version
         let version_id = self
@@ -216,7 +213,14 @@ impl proto::workflow_service_server::WorkflowService for WorkflowGrpcService {
         // If a workflow registration is provided, register the workflow version first.
         // This ensures the workflow DAG exists when the schedule fires.
         if let Some(ref registration) = inner.registration {
-            log_workflow_ir(registration);
+            let program = ir_ast::Program::decode(&registration.ir[..])
+                .map_err(|e| tonic::Status::invalid_argument(format!("invalid IR: {e}")))?;
+            if let Err(err) = validate_program(&program) {
+                return Err(tonic::Status::invalid_argument(format!(
+                    "invalid IR: {err}"
+                )));
+            }
+            log_workflow_ir(&registration.workflow_name, &registration.ir_hash, &program);
             self.database
                 .upsert_workflow_version(
                     &registration.workflow_name,

@@ -724,10 +724,7 @@ class IRBuilder(ast.NodeVisitor):
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> Any:
         """Visit a function definition (the workflow's run method)."""
-        # Extract inputs from function parameters (skip 'self')
-        inputs: List[str] = []
-        for arg in node.args.args[1:]:  # Skip 'self'
-            inputs.append(arg.arg)
+        inputs = self._collect_function_inputs(node)
 
         # Create the function definition
         self.function_def = ir.FunctionDef(
@@ -748,9 +745,7 @@ class IRBuilder(ast.NodeVisitor):
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> Any:
         """Visit an async function definition (the workflow's run method)."""
         # Handle async the same way as sync for IR building
-        inputs: List[str] = []
-        for arg in node.args.args[1:]:  # Skip 'self'
-            inputs.append(arg.arg)
+        inputs = self._collect_function_inputs(node)
 
         self.function_def = ir.FunctionDef(
             name=node.name,
@@ -1387,10 +1382,9 @@ class IRBuilder(ast.NodeVisitor):
             for elem in expr.list.elements:
                 vars_found.update(self._collect_variables_from_expr(elem))
         elif expr.HasField("dict"):
-            for key in expr.dict.keys:
-                vars_found.update(self._collect_variables_from_expr(key))
-            for val in expr.dict.values:
-                vars_found.update(self._collect_variables_from_expr(val))
+            for entry in expr.dict.entries:
+                vars_found.update(self._collect_variables_from_expr(entry.key))
+                vars_found.update(self._collect_variables_from_expr(entry.value))
         elif expr.HasField("index"):
             vars_found.update(self._collect_variables_from_expr(expr.index.value))
             vars_found.update(self._collect_variables_from_expr(expr.index.index))
@@ -1993,6 +1987,35 @@ class IRBuilder(ast.NodeVisitor):
                 return [stmt]
 
         return []
+
+    def _collect_function_inputs(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> List[str]:
+        """Collect workflow inputs from function parameters, including kw-only args."""
+        args: List[str] = []
+        seen: set[str] = set()
+
+        ordered_args = list(node.args.posonlyargs) + list(node.args.args)
+        if ordered_args and ordered_args[0].arg == "self":
+            ordered_args = ordered_args[1:]
+
+        for arg in ordered_args:
+            if arg.arg not in seen:
+                args.append(arg.arg)
+                seen.add(arg.arg)
+
+        if node.args.vararg and node.args.vararg.arg not in seen:
+            args.append(node.args.vararg.arg)
+            seen.add(node.args.vararg.arg)
+
+        for arg in node.args.kwonlyargs:
+            if arg.arg not in seen:
+                args.append(arg.arg)
+                seen.add(arg.arg)
+
+        if node.args.kwarg and node.args.kwarg.arg not in seen:
+            args.append(node.args.kwarg.arg)
+            seen.add(node.args.kwarg.arg)
+
+        return args
 
     def _check_constructor_in_return(self, node: ast.expr) -> None:
         """Check for constructor calls in return statements.
