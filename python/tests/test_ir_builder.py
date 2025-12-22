@@ -2797,6 +2797,83 @@ class TestUnsupportedPatternValidation:
         assert "match" in error.message.lower()
         assert "if/elif/else" in error.recommendation.lower()
 
+    def test_sync_function_call_assignment_raises_error(self) -> None:
+        """Test: assigning a sync function call raises UnsupportedPatternError."""
+        from datetime import datetime
+        from typing import cast
+
+        import pytest
+
+        from rappel import workflow
+        from rappel.ir_builder import UnsupportedPatternError
+        from rappel.workflow import Workflow
+
+        @workflow
+        class SyncCallAssignmentWorkflow(Workflow):
+            async def run(self) -> datetime:
+                timestamp = datetime.now()
+                return timestamp
+
+        with pytest.raises(UnsupportedPatternError) as exc_info:
+            SyncCallAssignmentWorkflow.workflow_ir()
+
+        error = cast(UnsupportedPatternError, exc_info.value)
+        assert "datetime.now" in error.message
+        assert "synchronous function" in error.message.lower()
+        assert "@action" in error.recommendation
+
+    def test_sync_function_call_return_raises_error(self) -> None:
+        """Test: returning a sync function call raises UnsupportedPatternError."""
+        from datetime import datetime
+        from typing import cast
+
+        import pytest
+
+        from rappel import workflow
+        from rappel.ir_builder import UnsupportedPatternError
+        from rappel.workflow import Workflow
+
+        @workflow
+        class SyncCallReturnWorkflow(Workflow):
+            async def run(self) -> datetime:
+                return datetime.now()
+
+        with pytest.raises(UnsupportedPatternError) as exc_info:
+            SyncCallReturnWorkflow.workflow_ir()
+
+        error = cast(UnsupportedPatternError, exc_info.value)
+        assert "datetime.now" in error.message
+        assert "synchronous function" in error.message.lower()
+        assert "@action" in error.recommendation
+
+    def test_sync_function_call_in_action_arg_raises_error(self) -> None:
+        """Test: sync function calls in action args raise UnsupportedPatternError."""
+        from datetime import datetime
+        from typing import cast
+
+        import pytest
+
+        from rappel import action, workflow
+        from rappel.ir_builder import UnsupportedPatternError
+        from rappel.workflow import Workflow
+
+        @action
+        async def record_timestamp(timestamp: datetime) -> datetime:
+            return timestamp
+
+        @workflow
+        class SyncCallActionArgWorkflow(Workflow):
+            async def run(self) -> datetime:
+                return await record_timestamp(timestamp=datetime.now())
+
+        with pytest.raises(UnsupportedPatternError) as exc_info:
+            SyncCallActionArgWorkflow.workflow_ir()
+
+        error = cast(UnsupportedPatternError, exc_info.value)
+        assert "datetime.now" in error.message
+        assert "synchronous function" in error.message.lower()
+        assert "@action" in error.recommendation
+
 
 class TestValidPatterns:
     """Test that valid patterns do NOT raise errors."""
@@ -2831,6 +2908,26 @@ class TestValidPatterns:
 
         # Should not raise
         program = SimpleActionWorkflow.workflow_ir()
+        assert program is not None
+
+    def test_self_method_call_in_action_arg_is_valid(self) -> None:
+        """Test: self.method() inside action args is valid."""
+        from rappel import action, workflow
+        from rappel.workflow import Workflow
+
+        @action
+        async def use_value(value: int) -> int:
+            return value
+
+        @workflow
+        class HelperInActionArgWorkflow(Workflow):
+            def compute(self, base: int) -> int:
+                return base + 1
+
+            async def run(self, base: int) -> int:
+                return await use_value(value=self.compute(base=base))
+
+        program = HelperInActionArgWorkflow.workflow_ir()
         assert program is not None
 
 

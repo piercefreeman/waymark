@@ -2983,6 +2983,16 @@ def _expr_to_ir(expr: ast.AST) -> Optional[ir.Expr]:
 
     if isinstance(expr, ast.Call):
         # Function call
+        if not _is_self_method_call(expr):
+            func_name = _get_func_name(expr.func) or "unknown"
+            line = expr.lineno if hasattr(expr, "lineno") else None
+            col = expr.col_offset if hasattr(expr, "col_offset") else None
+            raise UnsupportedPatternError(
+                f"Calling synchronous function '{func_name}()' directly is not supported",
+                RECOMMENDATIONS["sync_function_call"],
+                line=line,
+                col=col,
+            )
         func_name = _get_func_name(expr.func)
         if func_name:
             args = [_expr_to_ir(a) for a in expr.args]
@@ -3189,3 +3199,13 @@ def _get_func_name(func: ast.expr) -> Optional[str]:
             return name[5:]
         return name
     return None
+
+
+def _is_self_method_call(node: ast.Call) -> bool:
+    """Return True if the call is a direct self.method(...) invocation."""
+    func = node.func
+    return (
+        isinstance(func, ast.Attribute)
+        and isinstance(func.value, ast.Name)
+        and func.value.id == "self"
+    )
