@@ -14,8 +14,8 @@ use chrono::{DateTime, Utc};
 
 use super::{
     ActionId, CompletionRecord, Database, DbError, DbResult, LoopState, NewAction, QueuedAction,
-    ReadinessResult, ScheduleId, ScheduleType, WorkflowInstance, WorkflowInstanceId,
-    WorkflowSchedule, WorkflowVersion, WorkflowVersionId,
+    ReadinessResult, ScheduleId, ScheduleType, WorkerStatusUpdate, WorkflowInstance,
+    WorkflowInstanceId, WorkflowSchedule, WorkflowVersion, WorkflowVersionId,
 };
 
 impl Database {
@@ -1774,5 +1774,52 @@ impl Database {
         };
 
         Ok(schedules)
+    }
+
+    // ========================================================================
+    // Worker Status
+    // ========================================================================
+
+    pub async fn upsert_worker_statuses(
+        &self,
+        pool_id: Uuid,
+        statuses: &[WorkerStatusUpdate],
+    ) -> DbResult<()> {
+        if statuses.is_empty() {
+            return Ok(());
+        }
+
+        let mut tx = self.pool.begin().await?;
+        for status in statuses {
+            sqlx::query(
+                r#"
+                INSERT INTO worker_status (
+                    pool_id,
+                    worker_id,
+                    throughput_per_min,
+                    total_completed,
+                    last_action_at,
+                    updated_at
+                )
+                VALUES ($1, $2, $3, $4, $5, NOW())
+                ON CONFLICT (pool_id, worker_id)
+                DO UPDATE SET
+                    throughput_per_min = EXCLUDED.throughput_per_min,
+                    total_completed = EXCLUDED.total_completed,
+                    last_action_at = EXCLUDED.last_action_at,
+                    updated_at = EXCLUDED.updated_at
+                "#,
+            )
+            .bind(pool_id)
+            .bind(status.worker_id)
+            .bind(status.throughput_per_min)
+            .bind(status.total_completed)
+            .bind(status.last_action_at)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        tx.commit().await?;
+        Ok(())
     }
 }

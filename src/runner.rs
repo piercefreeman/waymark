@@ -56,12 +56,12 @@ use crate::{
     dag_state::{DAGHelper, ExecutionMode, SuccessorInfo},
     db::{
         ActionId, BackoffKind, CompletionRecord, Database, NewAction, QueuedAction, ScheduleId,
-        WorkflowInstanceId, WorkflowVersionId,
+        WorkerStatusUpdate, WorkflowInstanceId, WorkflowVersionId,
     },
     messages::proto,
     parser::ast,
     schedule::{apply_jitter, next_cron_run, next_interval_run},
-    worker::{ActionDispatchPayload, PythonWorkerPool, RoundTripMetrics},
+    worker::{ActionDispatchPayload, PythonWorkerPool, RoundTripMetrics, WorkerThroughputSnapshot},
 };
 
 // ============================================================================
@@ -478,6 +478,8 @@ pub struct WorkerSlotTracker {
     max_slots_per_worker: usize,
     /// Total available slots (cached)
     total_available: AtomicUsize,
+    /// Cursor for round-robin selection
+    cursor: AtomicUsize,
 }
 
 impl WorkerSlotTracker {
@@ -491,6 +493,7 @@ impl WorkerSlotTracker {
             worker_slots,
             max_slots_per_worker,
             total_available: AtomicUsize::new(num_workers * max_slots_per_worker),
+            cursor: AtomicUsize::new(0),
         }
     }
 
@@ -501,17 +504,40 @@ impl WorkerSlotTracker {
 
     /// Try to acquire a slot from any worker. Returns worker index if successful.
     pub fn acquire_slot(&self) -> Option<usize> {
-        for (idx, slots) in self.worker_slots.iter().enumerate() {
-            let current = slots.load(Ordering::SeqCst);
-            if current > 0 {
-                // Try to decrement
-                if slots
-                    .compare_exchange(current, current - 1, Ordering::SeqCst, Ordering::SeqCst)
-                    .is_ok()
-                {
-                    self.total_available.fetch_sub(1, Ordering::SeqCst);
-                    return Some(idx);
+        let worker_count = self.worker_slots.len();
+        if worker_count == 0 {
+            return None;
+        }
+
+        let start = self.cursor.fetch_add(1, Ordering::Relaxed) % worker_count;
+        for _ in 0..worker_count {
+            let mut best_idx = None;
+            let mut best_slots = 0;
+
+            for offset in 0..worker_count {
+                let idx = (start + offset) % worker_count;
+                let current = self.worker_slots[idx].load(Ordering::SeqCst);
+                if current > best_slots {
+                    best_slots = current;
+                    best_idx = Some(idx);
                 }
+            }
+
+            let idx = best_idx?;
+
+            if best_slots == 0 {
+                return None;
+            }
+
+            let slots = &self.worker_slots[idx];
+            if slots
+                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |current| {
+                    if current > 0 { Some(current - 1) } else { None }
+                })
+                .is_ok()
+            {
+                self.total_available.fetch_sub(1, Ordering::SeqCst);
+                return Some(idx);
             }
         }
         None
@@ -757,6 +783,14 @@ impl WorkQueueHandler {
     /// Get the number of available worker slots.
     pub fn available_slots(&self) -> usize {
         self.slot_tracker.available_slots()
+    }
+
+    pub(crate) fn worker_pool_id(&self) -> Uuid {
+        self.worker_pool.pool_id()
+    }
+
+    pub(crate) fn worker_throughput_snapshot(&self) -> Vec<WorkerThroughputSnapshot> {
+        self.worker_pool.throughput_snapshot()
     }
 
     /// Fetch and dispatch a batch of runnable nodes (actions and barriers).
@@ -1074,10 +1108,12 @@ impl WorkQueueHandler {
         let delivery_token = action.delivery_token;
         let in_flight_tracker = Arc::clone(&self.in_flight);
         let slot_tracker = Arc::clone(&self.slot_tracker);
+        let worker_pool = Arc::clone(&self.worker_pool);
 
         tokio::spawn(async move {
             match worker.send_action(dispatch).await {
                 Ok(metrics) => {
+                    worker_pool.record_completion(worker_idx);
                     // Get in-flight info and release slot
                     let in_flight_action = {
                         let mut tracker = in_flight_tracker.lock().await;
@@ -1263,6 +1299,8 @@ pub struct RunnerConfig {
     pub schedule_check_interval_ms: u64,
     /// Maximum schedules to process per check cycle
     pub schedule_check_batch_size: i32,
+    /// Worker status upsert interval (milliseconds)
+    pub worker_status_interval_ms: u64,
 }
 
 impl Default for RunnerConfig {
@@ -1275,6 +1313,7 @@ impl Default for RunnerConfig {
             timeout_check_batch_size: 100,
             schedule_check_interval_ms: 10000, // 10 seconds
             schedule_check_batch_size: 100,
+            worker_status_interval_ms: 10000,
         }
     }
 }
@@ -1358,6 +1397,11 @@ impl DAGRunner {
             tokio::time::Duration::from_millis(self.config.schedule_check_interval_ms),
         );
         schedule_check_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
+        let mut worker_status_interval = tokio::time::interval(tokio::time::Duration::from_millis(
+            self.config.worker_status_interval_ms,
+        ));
+        worker_status_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
         loop {
             tokio::select! {
@@ -1489,6 +1533,31 @@ impl DAGRunner {
                 _ = schedule_check_interval.tick() => {
                     if let Err(e) = self.process_due_schedules().await {
                         error!("Failed to process due schedules: {}", e);
+                    }
+                }
+
+                _ = worker_status_interval.tick() => {
+                    let pool_id = self.work_handler.worker_pool_id();
+                    let snapshots = self.work_handler.worker_throughput_snapshot();
+                    if !snapshots.is_empty() {
+                        let updates: Vec<WorkerStatusUpdate> = snapshots
+                            .into_iter()
+                            .map(|snapshot| WorkerStatusUpdate {
+                                worker_id: snapshot.worker_id as i64,
+                                throughput_per_min: snapshot.throughput_per_min,
+                                total_completed: snapshot.total_completed as i64,
+                                last_action_at: snapshot.last_action_at,
+                            })
+                            .collect();
+
+                        if let Err(err) = self
+                            .completion_handler
+                            .db
+                            .upsert_worker_statuses(pool_id, &updates)
+                            .await
+                        {
+                            error!(?err, "failed to upsert worker status");
+                        }
                     }
                 }
 
@@ -3608,6 +3677,37 @@ mod tests {
         // Should fail now
         assert!(tracker.acquire_slot().is_none());
         assert_eq!(tracker.available_slots(), 0);
+    }
+
+    #[test]
+    fn test_worker_slot_tracker_round_robin() {
+        let tracker = WorkerSlotTracker::new(3, 1);
+
+        let first = tracker.acquire_slot();
+        let second = tracker.acquire_slot();
+        let third = tracker.acquire_slot();
+
+        assert_eq!(first, Some(0));
+        assert_eq!(second, Some(1));
+        assert_eq!(third, Some(2));
+    }
+
+    #[test]
+    fn test_worker_slot_tracker_least_loaded_bias() {
+        let tracker = WorkerSlotTracker::new(3, 2);
+
+        assert_eq!(tracker.acquire_slot(), Some(0));
+        assert_eq!(tracker.acquire_slot(), Some(1));
+        assert_eq!(tracker.acquire_slot(), Some(2));
+        assert_eq!(tracker.acquire_slot(), Some(0));
+
+        assert_eq!(tracker.worker_available(0), 0);
+        assert_eq!(tracker.worker_available(1), 1);
+        assert_eq!(tracker.worker_available(2), 1);
+
+        assert_eq!(tracker.acquire_slot(), Some(1));
+        assert_eq!(tracker.acquire_slot(), Some(2));
+        assert_eq!(tracker.acquire_slot(), None);
     }
 
     #[test]

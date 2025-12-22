@@ -294,6 +294,7 @@ async fn test_scheduler_creates_instance() -> Result<()> {
         timeout_check_batch_size: 100,
         schedule_check_interval_ms: 500, // Fast for testing
         schedule_check_batch_size: 10,
+        worker_status_interval_ms: 1000,
     };
 
     // Create worker pool with 1 worker (minimum required)

@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% import "macros.html" as macros %}
+
+{% block title %}{{ title }}{% endblock title %}
+
+{% block content %}
+<section class="space-y-2">
+    <p class="text-xs uppercase tracking-[0.4em] text-zinc-500">Overview</p>
+    <h1 class="text-3xl font-semibold tracking-tight text-zinc-900 dark:text-white">Workers</h1>
+    <p class="text-sm text-zinc-600 dark:text-zinc-400">Throughput stats for active worker pools.</p>
+</section>
+
+<section class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <form method="GET" action="/workers" class="flex w-full max-w-xl items-center gap-3 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/40 px-3 py-2">
+        <label class="text-xs uppercase tracking-[0.3em] text-zinc-500">Window</label>
+        <input
+            type="number"
+            name="minutes"
+            min="1"
+            value="{{ window_minutes }}"
+            class="w-24 bg-transparent text-sm text-zinc-900 dark:text-white placeholder:text-zinc-400 focus:outline-none"
+        />
+        <span class="text-xs text-zinc-500">minutes</span>
+        <button type="submit" class="ml-auto rounded-lg bg-zinc-900 px-3 py-1 text-xs font-semibold text-white transition hover:bg-zinc-700 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200">Apply</button>
+    </form>
+    <div class="text-xs text-zinc-500 dark:text-zinc-400">
+        Showing workers updated in the last {{ window_minutes }} minute{% if window_minutes != 1 %}s{% endif %}
+    </div>
+</section>
+
+{% if workers | length == 0 %}
+    <div class="rounded-2xl border border-dashed border-zinc-300 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900/40 p-6 text-center text-zinc-600 dark:text-zinc-400">
+        No active workers reported in the selected window.
+    </div>
+{% else %}
+    <div class="rounded-2xl border border-zinc-200 dark:border-zinc-900 bg-white dark:bg-zinc-900/40 overflow-hidden">
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-zinc-200 dark:divide-zinc-800 text-sm">
+                <thead class="bg-zinc-100 dark:bg-zinc-800/60">
+                    <tr>
+                        <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-semibold text-zinc-500 dark:text-zinc-400">Pool</th>
+                        <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-semibold text-zinc-500 dark:text-zinc-400">Worker</th>
+                        <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-semibold text-zinc-500 dark:text-zinc-400">Throughput/min</th>
+                        <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-semibold text-zinc-500 dark:text-zinc-400">Total Completed</th>
+                        <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-semibold text-zinc-500 dark:text-zinc-400">Last Action</th>
+                        <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-semibold text-zinc-500 dark:text-zinc-400">Updated</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-zinc-200 dark:divide-zinc-800">
+                    {% for worker in workers %}
+                        <tr>
+                            <td class="px-4 py-3 font-mono text-xs text-zinc-700 dark:text-zinc-300">{{ worker.pool_id }}</td>
+                            <td class="px-4 py-3 font-mono text-xs text-zinc-700 dark:text-zinc-300">{{ worker.worker_id }}</td>
+                            <td class="px-4 py-3 text-zinc-700 dark:text-zinc-300">{{ worker.throughput_per_min }}</td>
+                            <td class="px-4 py-3 text-zinc-700 dark:text-zinc-300">{{ worker.total_completed }}</td>
+                            <td class="px-4 py-3 text-zinc-700 dark:text-zinc-300">
+                                {% if worker.last_action_at %}
+                                    {{ macros::datetime(timestamp=worker.last_action_at) }}
+                                {% else %}
+                                    <span class="text-zinc-400">(none)</span>
+                                {% endif %}
+                            </td>
+                            <td class="px-4 py-3 text-zinc-700 dark:text-zinc-300">{{ macros::datetime(timestamp=worker.updated_at) }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+{% endif %}
+{% endblock content %}

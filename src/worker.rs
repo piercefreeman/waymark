@@ -38,18 +38,19 @@
 //! - Round-robin selection ensures load distribution even with slow workers
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     env,
     path::PathBuf,
     process::Stdio,
     sync::{
-        Arc,
+        Arc, Mutex as StdMutex,
         atomic::{AtomicU64, AtomicUsize, Ordering},
     },
     time::{Duration, Instant},
 };
 
 use anyhow::{Context, Result as AnyResult, anyhow};
+use chrono::{DateTime, Utc};
 use prost::Message;
 use tokio::{
     process::{Child, Command},
@@ -178,6 +179,103 @@ pub struct RoundTripMetrics {
     pub error_type: Option<String>,
     /// Error message if the action failed
     pub error_message: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct WorkerThroughputSnapshot {
+    pub worker_id: u64,
+    pub throughput_per_min: f64,
+    pub total_completed: u64,
+    pub last_action_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug)]
+struct WorkerThroughputState {
+    worker_id: u64,
+    total_completed: u64,
+    recent_completions: VecDeque<Instant>,
+    last_action_at: Option<DateTime<Utc>>,
+}
+
+impl WorkerThroughputState {
+    fn new(worker_id: u64) -> Self {
+        Self {
+            worker_id,
+            total_completed: 0,
+            recent_completions: VecDeque::new(),
+            last_action_at: None,
+        }
+    }
+
+    fn prune_before(&mut self, cutoff: Instant) {
+        while self
+            .recent_completions
+            .front()
+            .is_some_and(|instant| *instant < cutoff)
+        {
+            self.recent_completions.pop_front();
+        }
+    }
+}
+
+#[derive(Debug)]
+struct WorkerThroughputTracker {
+    window: Duration,
+    workers: Vec<WorkerThroughputState>,
+}
+
+impl WorkerThroughputTracker {
+    fn new(worker_ids: Vec<u64>, window: Duration) -> Self {
+        let workers = worker_ids
+            .into_iter()
+            .map(WorkerThroughputState::new)
+            .collect();
+        Self { window, workers }
+    }
+
+    fn record_completion(&mut self, worker_idx: usize) {
+        let now = Instant::now();
+        let wall_time = Utc::now();
+        self.record_completion_at(worker_idx, now, wall_time);
+    }
+
+    fn record_completion_at(&mut self, worker_idx: usize, when: Instant, wall_time: DateTime<Utc>) {
+        let Some(worker) = self.workers.get_mut(worker_idx) else {
+            return;
+        };
+        let cutoff = when.checked_sub(self.window).unwrap_or(when);
+        worker.prune_before(cutoff);
+        worker.recent_completions.push_back(when);
+        worker.total_completed = worker.total_completed.saturating_add(1);
+        worker.last_action_at = Some(wall_time);
+    }
+
+    fn snapshot(&mut self) -> Vec<WorkerThroughputSnapshot> {
+        self.snapshot_at(Instant::now())
+    }
+
+    fn snapshot_at(&mut self, now: Instant) -> Vec<WorkerThroughputSnapshot> {
+        let window_secs = self.window.as_secs_f64();
+        let cutoff = now.checked_sub(self.window).unwrap_or(now);
+        self.workers
+            .iter_mut()
+            .map(|worker| {
+                worker.prune_before(cutoff);
+                let throughput_per_min = if window_secs > 0.0 {
+                    (worker.recent_completions.len() as f64 / window_secs) * 60.0
+                } else {
+                    0.0
+                };
+
+                WorkerThroughputSnapshot {
+                    worker_id: worker.worker_id,
+                    throughput_per_min,
+                    total_completed: worker.total_completed,
+                    last_action_at: worker.last_action_at,
+                }
+            })
+            .collect()
+    }
 }
 
 /// Payload for dispatching an action to a worker.
@@ -625,6 +723,10 @@ pub struct PythonWorkerPool {
     workers: Vec<Arc<PythonWorker>>,
     /// Cursor for round-robin selection
     cursor: AtomicUsize,
+    /// Pool identifier for reporting
+    pool_id: Uuid,
+    /// Throughput tracker for workers in the pool
+    throughput: StdMutex<WorkerThroughputTracker>,
 }
 
 impl PythonWorkerPool {
@@ -675,9 +777,15 @@ impl PythonWorkerPool {
 
         info!(count = workers.len(), "worker pool ready");
 
+        let worker_ids = workers.iter().map(|worker| worker.worker_id()).collect();
         Ok(Self {
             workers,
             cursor: AtomicUsize::new(0),
+            pool_id: Uuid::new_v4(),
+            throughput: StdMutex::new(WorkerThroughputTracker::new(
+                worker_ids,
+                Duration::from_secs(60),
+            )),
         })
     }
 
@@ -703,6 +811,23 @@ impl PythonWorkerPool {
     /// Get all workers in the pool (for health checks, etc.)
     pub fn workers(&self) -> &[Arc<PythonWorker>] {
         &self.workers
+    }
+
+    pub(crate) fn pool_id(&self) -> Uuid {
+        self.pool_id
+    }
+
+    pub(crate) fn record_completion(&self, worker_idx: usize) {
+        if let Ok(mut tracker) = self.throughput.lock() {
+            tracker.record_completion(worker_idx);
+        }
+    }
+
+    pub(crate) fn throughput_snapshot(&self) -> Vec<WorkerThroughputSnapshot> {
+        if let Ok(mut tracker) = self.throughput.lock() {
+            return tracker.snapshot();
+        }
+        Vec::new()
     }
 
     /// Gracefully shut down all workers in the pool.
@@ -920,5 +1045,35 @@ mod tests {
         // Need to get the pool out of the Arc for shutdown
         // In real code, you'd structure this differently
         bridge.shutdown().await;
+    }
+
+    #[test]
+    fn test_worker_throughput_tracker_window() {
+        let base_wall = Utc::now();
+        let mut tracker = WorkerThroughputTracker::new(vec![1, 2], Duration::from_secs(60));
+        let base = Instant::now();
+
+        tracker.record_completion_at(0, base, base_wall);
+        tracker.record_completion_at(0, base + Duration::from_secs(10), base_wall);
+        tracker.record_completion_at(0, base + Duration::from_secs(50), base_wall);
+        tracker.record_completion_at(0, base + Duration::from_secs(70), base_wall);
+
+        let snapshots = tracker.snapshot_at(base + Duration::from_secs(70));
+        let worker_one = snapshots
+            .iter()
+            .find(|snapshot| snapshot.worker_id == 1)
+            .expect("worker one snapshot");
+        let worker_two = snapshots
+            .iter()
+            .find(|snapshot| snapshot.worker_id == 2)
+            .expect("worker two snapshot");
+
+        assert_eq!(worker_one.total_completed, 4);
+        assert!((worker_one.throughput_per_min - 3.0).abs() < 0.001);
+        assert!(worker_one.last_action_at.is_some());
+
+        assert_eq!(worker_two.total_completed, 0);
+        assert_eq!(worker_two.throughput_per_min, 0.0);
+        assert!(worker_two.last_action_at.is_none());
     }
 }

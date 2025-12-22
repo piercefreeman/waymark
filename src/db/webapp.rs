@@ -4,12 +4,13 @@
 //! They can be slower and more feature-rich than worker operations.
 //! Adding features here will NOT impact worker performance.
 
+use chrono::{DateTime, Utc};
 use sqlx::Row;
 use sqlx::{Postgres, QueryBuilder};
 
 use super::{
-    Database, DbError, DbResult, QueuedAction, ScheduleId, WorkflowInstance, WorkflowInstanceId,
-    WorkflowSchedule, WorkflowVersionId, WorkflowVersionSummary,
+    Database, DbError, DbResult, QueuedAction, ScheduleId, WorkerStatus, WorkflowInstance,
+    WorkflowInstanceId, WorkflowSchedule, WorkflowVersionId, WorkflowVersionSummary,
 };
 
 impl Database {
@@ -388,6 +389,29 @@ impl Database {
         .await?;
 
         Ok(result.rows_affected() > 0)
+    }
+
+    // ========================================================================
+    // Webapp: Worker Status Queries
+    // ========================================================================
+
+    pub async fn list_worker_statuses_recent(
+        &self,
+        since: DateTime<Utc>,
+    ) -> DbResult<Vec<WorkerStatus>> {
+        let workers = sqlx::query_as::<_, WorkerStatus>(
+            r#"
+            SELECT pool_id, worker_id, throughput_per_min, total_completed, last_action_at, updated_at
+            FROM worker_status
+            WHERE updated_at >= $1
+            ORDER BY updated_at DESC, pool_id, worker_id
+            "#,
+        )
+        .bind(since)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(workers)
     }
 }
 

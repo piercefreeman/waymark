@@ -17,6 +17,7 @@ use axum::{
     response::{Html, IntoResponse, Response},
     routing::get,
 };
+use chrono::{Duration as ChronoDuration, Utc};
 use serde::Serialize;
 use tera::{Context as TeraContext, Tera};
 use tokio::net::TcpListener;
@@ -24,7 +25,7 @@ use tracing::{error, info};
 use uuid::Uuid;
 
 use crate::config::WebappConfig;
-use crate::db::{Database, ScheduleId, WorkflowVersionId, WorkflowVersionSummary};
+use crate::db::{Database, ScheduleId, WorkerStatus, WorkflowVersionId, WorkflowVersionSummary};
 
 /// Webapp server handle
 pub struct WebappServer {
@@ -91,6 +92,7 @@ const TEMPLATE_WORKFLOW_RUN: &str = include_str!("../templates/workflow_run.html
 const TEMPLATE_SCHEDULED: &str = include_str!("../templates/scheduled.html");
 const TEMPLATE_SCHEDULE_DETAIL: &str = include_str!("../templates/schedule_detail.html");
 const TEMPLATE_INVOCATIONS: &str = include_str!("../templates/invocations.html");
+const TEMPLATE_WORKERS: &str = include_str!("../templates/workers.html");
 
 /// Initialize Tera templates from embedded strings
 fn init_templates() -> Result<Tera> {
@@ -115,6 +117,8 @@ fn init_templates() -> Result<Tera> {
         .context("failed to add schedule_detail.html template")?;
     tera.add_raw_template("invocations.html", TEMPLATE_INVOCATIONS)
         .context("failed to add invocations.html template")?;
+    tera.add_raw_template("workers.html", TEMPLATE_WORKERS)
+        .context("failed to add workers.html template")?;
 
     tera.autoescape_on(vec![".html", ".tera"]);
     Ok(tera)
@@ -140,6 +144,7 @@ async fn run_server(
     let app = Router::new()
         .route("/", get(list_invocations))
         .route("/invocations", get(list_invocations))
+        .route("/workers", get(list_workers))
         .route("/workflows", get(list_workflows))
         .route("/workflows/:workflow_version_id", get(workflow_detail))
         .route(
@@ -322,6 +327,31 @@ async fn list_invocations(
                 &state.templates,
                 "Unable to load invocations",
                 "We couldn't fetch workflow invocations. Please check the database connection.",
+            ))
+        }
+    }
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct WorkerStatusQuery {
+    minutes: Option<i64>,
+}
+
+async fn list_workers(
+    State(state): State<WebappState>,
+    axum::extract::Query(query): axum::extract::Query<WorkerStatusQuery>,
+) -> impl IntoResponse {
+    let minutes = query.minutes.unwrap_or(5).max(1);
+    let since = Utc::now() - ChronoDuration::minutes(minutes);
+
+    match state.database.list_worker_statuses_recent(since).await {
+        Ok(workers) => Html(render_workers_page(&state.templates, &workers, minutes)),
+        Err(err) => {
+            error!(?err, "failed to load worker status");
+            Html(render_error_page(
+                &state.templates,
+                "Unable to load worker status",
+                "We couldn't fetch worker throughput stats. Please check the database connection.",
             ))
         }
     }
@@ -1019,6 +1049,53 @@ fn render_invocations_page(
     render_template(templates, "invocations.html", &context)
 }
 
+// ========================================================================
+// Worker Status Template Context
+// ========================================================================
+
+#[derive(Serialize)]
+struct WorkersPageContext {
+    title: String,
+    active_tab: String,
+    window_minutes: i64,
+    workers: Vec<WorkerStatusRow>,
+    has_workers: bool,
+}
+
+#[derive(Serialize)]
+struct WorkerStatusRow {
+    pool_id: String,
+    worker_id: i64,
+    throughput_per_min: String,
+    total_completed: i64,
+    last_action_at: Option<String>,
+    updated_at: String,
+}
+
+fn render_workers_page(templates: &Tera, statuses: &[WorkerStatus], window_minutes: i64) -> String {
+    let workers = statuses
+        .iter()
+        .map(|status| WorkerStatusRow {
+            pool_id: status.pool_id.to_string(),
+            worker_id: status.worker_id,
+            throughput_per_min: format!("{:.2}", status.throughput_per_min),
+            total_completed: status.total_completed,
+            last_action_at: status.last_action_at.map(|dt| dt.to_rfc3339()),
+            updated_at: status.updated_at.to_rfc3339(),
+        })
+        .collect();
+
+    let context = WorkersPageContext {
+        title: "Worker Throughput".to_string(),
+        active_tab: "workers".to_string(),
+        window_minutes,
+        workers,
+        has_workers: !statuses.is_empty(),
+    };
+
+    render_template(templates, "workers.html", &context)
+}
+
 // ============================================================================
 // Schedule Template Context
 // ============================================================================
@@ -1657,6 +1734,33 @@ mod tests {
         assert!(html.contains("example_workflow"));
         assert!(html.contains("completed"));
         assert!(html.contains("search"));
+    }
+
+    #[test]
+    fn test_render_workers_page_empty() {
+        let templates = test_templates();
+        let html = render_workers_page(&templates, &[], 5);
+
+        assert!(html.contains("Workers"));
+        assert!(html.contains("No active workers"));
+    }
+
+    #[test]
+    fn test_render_workers_page_with_entries() {
+        let templates = test_templates();
+        let statuses = vec![crate::db::WorkerStatus {
+            pool_id: Uuid::new_v4(),
+            worker_id: 1,
+            throughput_per_min: 2.5,
+            total_completed: 42,
+            last_action_at: Some(chrono::Utc::now()),
+            updated_at: chrono::Utc::now(),
+        }];
+
+        let html = render_workers_page(&templates, &statuses, 5);
+
+        assert!(html.contains("Workers"));
+        assert!(html.contains("42"));
     }
 
     // ========================================================================

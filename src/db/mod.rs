@@ -223,6 +223,25 @@ pub struct WorkflowVersionSummary {
     pub created_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Clone)]
+pub struct WorkerStatusUpdate {
+    pub worker_id: i64,
+    pub throughput_per_min: f64,
+    pub total_completed: i64,
+    pub last_action_at: Option<DateTime<Utc>>,
+}
+
+/// Worker throughput status for webapp reporting.
+#[derive(Debug, Clone, FromRow)]
+pub struct WorkerStatus {
+    pub pool_id: Uuid,
+    pub worker_id: i64,
+    pub throughput_per_min: f64,
+    pub total_completed: i64,
+    pub last_action_at: Option<DateTime<Utc>>,
+    pub updated_at: DateTime<Utc>,
+}
+
 /// A workflow instance (execution)
 #[derive(Debug, Clone, FromRow)]
 pub struct WorkflowInstance {
