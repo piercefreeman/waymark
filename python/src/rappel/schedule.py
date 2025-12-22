@@ -9,11 +9,12 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Literal, Optional, Type, Union
 
-from grpc import aio  # type: ignore[attr-defined]
+from grpc import StatusCode, aio  # type: ignore[attr-defined]
 
 from proto import messages_pb2 as pb2
 
 from .bridge import _workflow_stub, ensure_singleton
+from .exceptions import ScheduleAlreadyExistsError
 from .serialization import build_arguments_from_kwargs
 from .workflow import Workflow
 
@@ -100,6 +101,7 @@ async def schedule_workflow(
     Raises:
         ValueError: If the cron expression is invalid, interval is non-positive,
                     or schedule_name is empty.
+        ScheduleAlreadyExistsError: If a schedule with the same name already exists.
         RuntimeError: If the gRPC call fails.
     """
     if not schedule_name:
@@ -151,6 +153,10 @@ async def schedule_workflow(
     try:
         response = await stub.RegisterSchedule(request, timeout=30.0)
     except aio.AioRpcError as exc:
+        if exc.code() == StatusCode.ALREADY_EXISTS:
+            raise ScheduleAlreadyExistsError(
+                f"schedule already exists: {workflow_name}/{schedule_name}"
+            ) from exc
         raise RuntimeError(f"Failed to register schedule: {exc}") from exc
 
     return response.schedule_id

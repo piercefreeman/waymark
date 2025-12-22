@@ -10,7 +10,11 @@ from .actions import (
     serialize_result_payload,
 )
 from .dependencies import Depend, provide_dependencies
-from .exceptions import ExhaustedRetries, ExhaustedRetriesError
+from .exceptions import (
+    ExhaustedRetries,
+    ExhaustedRetriesError,
+    ScheduleAlreadyExistsError,
+)
 from .ir_builder import UnsupportedPatternError, build_workflow_ir
 from .registry import registry
 from .schedule import (
@@ -45,6 +49,7 @@ __all__ = [
     "bridge",
     "ExhaustedRetries",
     "ExhaustedRetriesError",
+    "ScheduleAlreadyExistsError",
     "UnsupportedPatternError",
     # Schedule functions
     "schedule_workflow",
