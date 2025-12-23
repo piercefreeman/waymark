@@ -2447,7 +2447,9 @@ class IRBuilder(ast.NodeVisitor):
 
         for kw in node.keywords:
             if kw.arg == "attempts" and isinstance(kw.value, ast.Constant):
-                policy.max_retries = kw.value.value
+                # attempts means total executions, max_retries means retries after first attempt
+                # So attempts=1 -> max_retries=0 (no retries), attempts=3 -> max_retries=2
+                policy.max_retries = kw.value.value - 1
             elif kw.arg == "exception_types" and isinstance(kw.value, ast.List):
                 for elt in kw.value.elts:
                     if isinstance(elt, ast.Constant) and isinstance(elt.value, str):

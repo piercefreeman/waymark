@@ -192,7 +192,8 @@ class TestPolicyParsing:
 
         policy = action.policies[0]
         assert policy.HasField("retry"), "Expected retry policy"
-        assert policy.retry.max_retries == 1
+        # attempts=1 means 1 total execution, so max_retries=0 (no retries)
+        assert policy.retry.max_retries == 0
 
     def test_direct_action_call_no_policies(self) -> None:
         """Test: await action() - direct call without run_action wrapper."""
@@ -2404,7 +2405,8 @@ class TestPolicyVariations:
 
         policy = action.policies[0]
         assert policy.HasField("retry"), "Should be retry policy"
-        assert policy.retry.max_retries == 3
+        # attempts=3 means 3 total executions, so max_retries=2
+        assert policy.retry.max_retries == 2
         assert policy.retry.backoff.seconds == 5
 
     def test_retry_with_exception_types(self) -> None:
@@ -2419,7 +2421,8 @@ class TestPolicyVariations:
 
         policy = action.policies[0]
         assert policy.HasField("retry"), "Should be retry policy"
-        assert policy.retry.max_retries == 2
+        # attempts=2 means 2 total executions, so max_retries=1
+        assert policy.retry.max_retries == 1
         assert "ValueError" in policy.retry.exception_types
         assert "KeyError" in policy.retry.exception_types
 
