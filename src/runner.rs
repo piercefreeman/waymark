@@ -2442,6 +2442,7 @@ impl DAGRunner {
         // Store result in inline scope for potential inline successors
         if let Some(node) = dag.nodes.get(node_id)
             && let Some(ref target) = node.target
+            && !(Self::is_exception_binding_node(node) && inline_scope.contains_key(target))
         {
             inline_scope.insert(target.clone(), result.clone());
         }
@@ -2645,10 +2646,15 @@ impl DAGRunner {
                 if is_binding {
                     inline_scope.remove(EXCEPTION_SCOPE_VAR);
                 }
+                let successor_result = if is_binding {
+                    WorkflowValue::Null
+                } else {
+                    inline_result.clone()
+                };
                 // Continue to handler's successors
                 Box::pin(Self::process_successors_with_condition(
                     handler_node_id,
-                    &inline_result,
+                    &successor_result,
                     dag,
                     helper,
                     inline_scope,
@@ -2696,8 +2702,14 @@ impl DAGRunner {
     }
 
     fn is_exception_binding_node(node: &DAGNode) -> bool {
+        if node.id.starts_with("exc_bind") {
+            return true;
+        }
         if node.node_type != "assignment" {
             return false;
+        }
+        if node.label.contains(EXCEPTION_SCOPE_VAR) {
+            return true;
         }
         let Some(assign_expr) = node.assign_expr.as_ref() else {
             return false;

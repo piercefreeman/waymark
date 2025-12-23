@@ -251,18 +251,12 @@ impl ExpressionEvaluator {
                     .ok_or_else(|| EvaluationError::Evaluation(format!("Key '{}' not found", key)))
             }
             (WorkflowValue::Exception { .. }, _) => {
-                let map = Self::exception_to_dict(&obj);
-                match &index {
-                    WorkflowValue::String(key) => map.get(key).cloned().ok_or_else(|| {
-                        EvaluationError::Evaluation(format!("Key '{}' not found", key))
-                    }),
-                    other => {
-                        let key = other.to_key_string();
-                        map.get(&key).cloned().ok_or_else(|| {
-                            EvaluationError::Evaluation(format!("Key '{}' not found", key))
-                        })
-                    }
-                }
+                let key = match &index {
+                    WorkflowValue::String(key) => key.clone(),
+                    other => other.to_key_string(),
+                };
+                Self::exception_field(&obj, &key)
+                    .ok_or_else(|| EvaluationError::Evaluation(format!("Key '{}' not found", key)))
             }
             (WorkflowValue::String(s), WorkflowValue::Int(i)) => {
                 let idx = *i as usize;
@@ -291,19 +285,17 @@ impl ExpressionEvaluator {
             WorkflowValue::Dict(map) => map.get(&dot.attribute).cloned().ok_or_else(|| {
                 EvaluationError::Evaluation(format!("Attribute '{}' not found", dot.attribute))
             }),
-            WorkflowValue::Exception { .. } => {
-                let map = Self::exception_to_dict(&obj);
-                map.get(&dot.attribute).cloned().ok_or_else(|| {
+            WorkflowValue::Exception { .. } => Self::exception_field(&obj, &dot.attribute)
+                .ok_or_else(|| {
                     EvaluationError::Evaluation(format!("Attribute '{}' not found", dot.attribute))
-                })
-            }
+                }),
             _ => Err(EvaluationError::Evaluation(
                 "Dot access on non-object".to_string(),
             )),
         }
     }
 
-    fn exception_to_dict(value: &WorkflowValue) -> HashMap<String, WorkflowValue> {
+    fn exception_field(value: &WorkflowValue, key: &str) -> Option<WorkflowValue> {
         let WorkflowValue::Exception {
             exc_type,
             module,
@@ -312,21 +304,16 @@ impl ExpressionEvaluator {
             values,
         } = value
         else {
-            return HashMap::new();
+            return None;
         };
-        let mut map = HashMap::new();
-        map.insert("type".to_string(), WorkflowValue::String(exc_type.clone()));
-        map.insert("module".to_string(), WorkflowValue::String(module.clone()));
-        map.insert(
-            "message".to_string(),
-            WorkflowValue::String(message.clone()),
-        );
-        map.insert(
-            "traceback".to_string(),
-            WorkflowValue::String(traceback.clone()),
-        );
-        map.insert("values".to_string(), WorkflowValue::Dict(values.clone()));
-        map
+        match key {
+            "type" => Some(WorkflowValue::String(exc_type.clone())),
+            "module" => Some(WorkflowValue::String(module.clone())),
+            "message" => Some(WorkflowValue::String(message.clone())),
+            "traceback" => Some(WorkflowValue::String(traceback.clone())),
+            "values" => Some(WorkflowValue::Dict(values.clone())),
+            _ => values.get(key).cloned(),
+        }
     }
 
     fn eval_function_call(
@@ -1400,6 +1387,42 @@ mod tests {
         let expr = dot_access(variable("response"), "count");
         let result = ExpressionEvaluator::evaluate(&expr, &scope).unwrap();
         assert_eq!(result, WorkflowValue::Int(42));
+    }
+
+    #[test]
+    fn test_eval_exception_fields() {
+        let mut scope = Scope::new();
+        let mut values = HashMap::new();
+        values.insert("code".to_string(), WorkflowValue::Int(418));
+        values.insert(
+            "detail".to_string(),
+            WorkflowValue::String("teapot".to_string()),
+        );
+        scope.insert(
+            "err".to_string(),
+            WorkflowValue::Exception {
+                exc_type: "ExceptionMetadataError".to_string(),
+                module: "example_app".to_string(),
+                message: "Metadata error triggered".to_string(),
+                traceback: "trace".to_string(),
+                values,
+            },
+        );
+
+        let expr = dot_access(variable("err"), "code");
+        let result = ExpressionEvaluator::evaluate(&expr, &scope).unwrap();
+        assert_eq!(result, WorkflowValue::Int(418));
+
+        let expr = index_access(variable("err"), string_literal("detail"));
+        let result = ExpressionEvaluator::evaluate(&expr, &scope).unwrap();
+        assert_eq!(result, WorkflowValue::String("teapot".to_string()));
+
+        let expr = dot_access(variable("err"), "type");
+        let result = ExpressionEvaluator::evaluate(&expr, &scope).unwrap();
+        assert_eq!(
+            result,
+            WorkflowValue::String("ExceptionMetadataError".to_string())
+        );
     }
 
     // ========================================================================

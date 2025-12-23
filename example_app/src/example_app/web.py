@@ -30,6 +30,7 @@ from example_app.workflows import (
     ErrorHandlingWorkflow,
     ErrorRequest,
     ErrorResult,
+    ExceptionMetadataWorkflow,
     KwOnlyLocationRequest,
     KwOnlyLocationResult,
     KwOnlyLocationWorkflow,
@@ -131,6 +132,13 @@ async def run_error_workflow(payload: ErrorRequest) -> ErrorResult:
     return await workflow.run(should_fail=payload.should_fail)
 
 
+@app.post("/api/exception-metadata", response_model=ErrorResult)
+async def run_exception_metadata_workflow(payload: ErrorRequest) -> ErrorResult:
+    """Run the exception metadata workflow demonstrating captured values."""
+    workflow = ExceptionMetadataWorkflow()
+    return await workflow.run(should_fail=payload.should_fail)
+
+
 # =============================================================================
 # Durable Sleep
 # =============================================================================
@@ -221,6 +229,7 @@ WORKFLOW_REGISTRY = {
     "ConditionalBranchWorkflow": ConditionalBranchWorkflow,
     "LoopProcessingWorkflow": LoopProcessingWorkflow,
     "ErrorHandlingWorkflow": ErrorHandlingWorkflow,
+    "ExceptionMetadataWorkflow": ExceptionMetadataWorkflow,
     "DurableSleepWorkflow": DurableSleepWorkflow,
     "GuardFallbackWorkflow": GuardFallbackWorkflow,
     "EarlyReturnLoopWorkflow": EarlyReturnLoopWorkflow,

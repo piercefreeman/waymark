@@ -235,9 +235,26 @@
       <div class="result" id="error-result" hidden></div>
     </section>
 
+    <!-- Exception Metadata -->
+    <section class="workflow-section">
+      <h3>7. Exception Metadata (except as)</h3>
+      <p>
+        Capture exception attributes in the handler and surface them in the workflow result.
+      </p>
+      <form id="exception-metadata-form">
+        <label for="exception-metadata-fail">
+          <input type="checkbox" id="exception-metadata-fail" name="should_fail" checked />
+          Force failure
+        </label>
+        <button type="submit">Run Metadata Test</button>
+      </form>
+      <div class="status" id="exception-metadata-status"></div>
+      <div class="result" id="exception-metadata-result" hidden></div>
+    </section>
+
     <!-- Durable Sleep -->
     <section class="workflow-section">
-      <h3>7. Durable Sleep</h3>
+      <h3>8. Durable Sleep</h3>
       <p>
         Pause workflow execution. Unlike regular sleep, this survives worker restarts.
       </p>
@@ -252,7 +269,7 @@
 
     <!-- Guard Fallback -->
     <section class="workflow-section">
-      <h3>8. Guard Fallback (if without else)</h3>
+      <h3>9. Guard Fallback (if without else)</h3>
       <p>
         Skip an action when the guard is falsy, then continue to the next step.
         Use "empty" to simulate no notes returned.
@@ -269,7 +286,7 @@
 
     <!-- Early Return with Loop -->
     <section class="workflow-section">
-      <h3>9. Early Return + Loop Pattern</h3>
+      <h3>10. Early Return + Loop Pattern</h3>
       <p>
         Demonstrates if-with-early-return followed by for-loop. Common in data processing:
         parse input, return early if invalid, otherwise loop over items.
@@ -287,7 +304,7 @@
 
     <!-- Kw-only Inputs -->
     <section class="workflow-section">
-      <h3>10. Kw-only Inputs</h3>
+      <h3>11. Kw-only Inputs</h3>
       <p>
         Demonstrates keyword-only workflow inputs flowing into a request model.
         Leave fields empty to use defaults.
@@ -305,7 +322,7 @@
 
     <!-- Undefined Variable Validation -->
     <section class="workflow-section">
-      <h3>11. Undefined Variable Validation</h3>
+      <h3>12. Undefined Variable Validation</h3>
       <p>
         This workflow intentionally references a module-level variable to show
         IR validation errors before execution.
@@ -322,7 +339,7 @@
 
     <!-- Scheduled Workflows -->
     <section class="workflow-section">
-      <h3>12. Scheduled Workflows</h3>
+      <h3>13. Scheduled Workflows</h3>
       <p>
         Register a workflow to run automatically on a cron schedule or at fixed intervals.
         Schedules persist across server restarts.
@@ -483,7 +500,18 @@
         (data) => JSON.stringify(data, null, 2)
       );
 
-      // 7. Sleep
+      // 7. Exception Metadata
+      runWorkflow(
+        "exception-metadata-form",
+        "/api/exception-metadata",
+        (form) => {
+          const should_fail = form.querySelector("#exception-metadata-fail").checked;
+          return { should_fail };
+        },
+        (data) => JSON.stringify(data, null, 2)
+      );
+
+      // 8. Sleep
       runWorkflow(
         "sleep-form",
         "/api/sleep",
@@ -496,7 +524,7 @@
         (data) => JSON.stringify(data, null, 2)
       );
 
-      // 8. Guard Fallback
+      // 9. Guard Fallback
       runWorkflow(
         "guard-fallback-form",
         "/api/guard-fallback",
@@ -507,7 +535,7 @@
         (data) => JSON.stringify(data, null, 2)
       );
 
-      // 9. Early Return + Loop
+      // 10. Early Return + Loop
       runWorkflow(
         "early-return-form",
         "/api/early-return-loop",

@@ -97,6 +97,11 @@ class ActionRegistry:
         with self._lock:
             return sorted(self._actions.keys())
 
+    def entries(self) -> list[_ActionEntry]:
+        """Return all registered action entries."""
+        with self._lock:
+            return list(self._actions.values())
+
     def reset(self) -> None:
         """Clear all registered actions."""
         with self._lock:

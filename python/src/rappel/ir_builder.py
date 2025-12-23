@@ -26,6 +26,7 @@ from enum import EnumMeta
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, Set, Union
 
 from proto import ast_pb2 as ir
+from rappel.registry import registry
 
 
 class UnsupportedPatternError(Exception):
@@ -463,6 +464,18 @@ def _discover_action_names(module: Any) -> Dict[str, ActionDefinition]:
                 module_name=action_module or module.__name__,
                 signature=signature,
             )
+    for entry in registry.entries():
+        if entry.module != module.__name__:
+            continue
+        func_name = entry.func.__name__
+        if func_name in names:
+            continue
+        signature = inspect.signature(entry.func)
+        names[func_name] = ActionDefinition(
+            action_name=entry.name,
+            module_name=entry.module,
+            signature=signature,
+        )
     return names
 
 

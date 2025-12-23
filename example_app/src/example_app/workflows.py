@@ -100,6 +100,9 @@ class ErrorResult(BaseModel):
     attempted: bool
     recovered: bool
     message: str
+    error_type: str | None = None
+    error_code: int | None = None
+    error_detail: str | None = None
 
 
 class ErrorRequest(BaseModel):
@@ -333,6 +336,15 @@ class IntentionalError(Exception):
     pass
 
 
+class ExceptionMetadataError(Exception):
+    """Error with attached metadata for exception value capture."""
+
+    def __init__(self, message: str, code: int, detail: str) -> None:
+        super().__init__(message)
+        self.code = code
+        self.detail = detail
+
+
 @action
 async def risky_action(should_fail: bool) -> str:
     """An action that may fail based on input."""
@@ -358,10 +370,22 @@ async def success_action(result: str) -> str:
 
 @action
 async def build_error_result(
-    attempted: bool, recovered: bool, message: str
+    attempted: bool,
+    recovered: bool,
+    message: str,
+    error_type: str | None = None,
+    error_code: int | None = None,
+    error_detail: str | None = None,
 ) -> ErrorResult:
     """Build the error handling result."""
-    return ErrorResult(attempted=attempted, recovered=recovered, message=message)
+    return ErrorResult(
+        attempted=attempted,
+        recovered=recovered,
+        message=message,
+        error_type=error_type,
+        error_code=error_code,
+        error_detail=error_detail,
+    )
 
 
 # =============================================================================
@@ -539,6 +563,49 @@ class ErrorHandlingWorkflow(Workflow):
 
         # Build result in action (constructors aren't supported in return)
         return await build_error_result(True, recovered, message)
+
+
+@action
+async def risky_metadata_action(should_fail: bool) -> str:
+    """Raise an exception with extra metadata to capture."""
+    await asyncio.sleep(0.1)
+    if should_fail:
+        raise ExceptionMetadataError("Metadata error triggered", 418, "teapot")
+    return "Metadata action completed"
+
+
+@workflow
+class ExceptionMetadataWorkflow(Workflow):
+    """Demonstrate capturing exception metadata in the handler."""
+
+    async def run(self, should_fail: bool) -> ErrorResult:
+        recovered = False
+        message = ""
+        error_type = None
+        error_code = None
+        error_detail = None
+
+        try:
+            result = await self.run_action(
+                risky_metadata_action(should_fail),
+                retry=RetryPolicy(attempts=1),
+            )
+            message = await success_action(result)
+        except ExceptionMetadataError as err:
+            recovered = True
+            error_type = "ExceptionMetadataError"
+            error_code = err.code
+            error_detail = err.detail
+            message = await recovery_action("Captured exception metadata")
+
+        return await build_error_result(
+            True,
+            recovered,
+            message,
+            error_type,
+            error_code,
+            error_detail,
+        )
 
 
 @workflow

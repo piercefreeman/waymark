@@ -160,7 +160,18 @@ fn validate_statement(
             }
             for handler in &try_except.handlers {
                 if let Some(body) = handler.block_body.as_ref() {
-                    branch_scopes.push(validate_block(body, &current, fn_name, function_names)?);
+                    let mut handler_scope = current.clone();
+                    if let Some(var) = handler.exception_var.as_ref()
+                        && !var.is_empty()
+                    {
+                        handler_scope.insert(var.clone());
+                    }
+                    branch_scopes.push(validate_block(
+                        body,
+                        &handler_scope,
+                        fn_name,
+                        function_names,
+                    )?);
                 }
             }
             for branch_scope in branch_scopes {

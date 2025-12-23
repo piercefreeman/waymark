@@ -28,6 +28,8 @@ const EXCEPTION_WITH_SUCCESS_WORKFLOW_MODULE: &str =
     include_str!("fixtures/integration_exception_with_success.py");
 const EXCEPTION_VALUES_WORKFLOW_MODULE: &str =
     include_str!("fixtures/integration_exception_values.py");
+const EXCEPTION_METADATA_WORKFLOW_MODULE: &str =
+    include_str!("fixtures/integration_exception_metadata.py");
 const ERROR_HANDLING_WORKFLOW_MODULE: &str = include_str!("fixtures/integration_error_handling.py");
 const EXCEPTION_WITH_SUCCESS_FAILURE_SCRIPT: &str = r#"
 import asyncio
@@ -81,6 +83,20 @@ from integration_exception_values import ExceptionValuesWorkflow
 async def main():
     os.environ.pop("PYTEST_CURRENT_TEST", None)
     wf = ExceptionValuesWorkflow()
+    result = await wf.run()
+    print(f"Registration result: {result}")
+
+asyncio.run(main())
+"#;
+const REGISTER_EXCEPTION_METADATA_SCRIPT: &str = r#"
+import asyncio
+import os
+
+from integration_exception_metadata import ExceptionMetadataWorkflow
+
+async def main():
+    os.environ.pop("PYTEST_CURRENT_TEST", None)
+    wf = ExceptionMetadataWorkflow()
     result = await wf.run()
     print(f"Registration result: {result}")
 
@@ -765,6 +781,44 @@ async fn exception_values_workflow_returns_exception_metadata() -> Result<()> {
     let result_payload = harness.stored_result().await?;
     let result = parse_result(result_payload.as_deref().unwrap_or_default())?;
     assert_eq!(result.as_deref(), Some("CustomError:418"));
+
+    harness.shutdown().await?;
+    Ok(())
+}
+
+/// Tests that exception attribute access (err.code, err.detail) works correctly.
+///
+/// This workflow captures an exception with custom attributes and accesses them
+/// directly in the handler via dot notation (err.type, err.code, err.detail).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[serial]
+async fn exception_metadata_workflow_captures_attributes() -> Result<()> {
+    let _ = tracing_subscriber::fmt::try_init();
+    let _ = dotenvy::dotenv();
+
+    let Some(harness) = IntegrationHarness::new(HarnessConfig {
+        files: &[
+            (
+                "integration_exception_metadata.py",
+                EXCEPTION_METADATA_WORKFLOW_MODULE,
+            ),
+            ("register.py", REGISTER_EXCEPTION_METADATA_SCRIPT),
+        ],
+        entrypoint: "register.py",
+        workflow_name: "exceptionmetadataworkflow",
+        user_module: "integration_exception_metadata",
+        inputs: &[],
+    })
+    .await?
+    else {
+        return Ok(());
+    };
+
+    harness.dispatch_all().await?;
+
+    let result_payload = harness.stored_result().await?;
+    let result = parse_result(result_payload.as_deref().unwrap_or_default())?;
+    assert_eq!(result.as_deref(), Some("MetadataError:418:teapot"));
 
     harness.shutdown().await?;
     Ok(())
