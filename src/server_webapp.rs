@@ -612,6 +612,7 @@ struct WorkflowDetailPageContext {
     title: String,
     active_tab: String,
     workflow: WorkflowDetailMetadata,
+    ir_text: String,
     nodes: Vec<WorkflowNodeContext>,
     has_nodes: bool,
     recent_runs: Vec<WorkflowRunSummary>,
@@ -765,10 +766,13 @@ fn render_workflow_detail_page(
         },
     };
 
+    let ir_text = format_ir_from_proto(&version.program_proto);
+
     let context = WorkflowDetailPageContext {
         title: format!("{} - Workflow Detail", version.workflow_name),
         active_tab: "workflows".to_string(),
         workflow,
+        ir_text,
         has_nodes: !nodes.is_empty(),
         nodes,
         has_runs: !recent_runs.is_empty(),
@@ -1436,6 +1440,21 @@ fn format_binary_payload(bytes: &[u8]) -> String {
 
     // Fall back to byte count for binary data
     format!("({} bytes)", bytes.len())
+}
+
+fn format_ir_from_proto(proto_bytes: &[u8]) -> String {
+    use prost::Message;
+
+    if proto_bytes.is_empty() {
+        return "(empty)".to_string();
+    }
+
+    let program = match crate::messages::ast::Program::decode(proto_bytes) {
+        Ok(program) => program,
+        Err(_) => return "(unable to decode IR)".to_string(),
+    };
+
+    crate::ir_printer::print_program(&program)
 }
 
 #[cfg(test)]
