@@ -3326,15 +3326,39 @@ impl DAGRunner {
         // Build kwargs from node metadata, resolving variable references from inbox
         let payload = Self::build_action_payload_from_inbox(node, inbox)?;
 
+        // Extract retry and timeout settings from policies
+        let mut max_retries = 3i32; // default
+        let backoff_kind = BackoffKind::Exponential;
+        let mut backoff_base_delay_ms = 1000i32;
+        let mut timeout_seconds = 300i32;
+
+        for policy in &node.policies {
+            match &policy.kind {
+                Some(crate::parser::ast::policy_bracket::Kind::Retry(retry)) => {
+                    max_retries = retry.max_retries as i32;
+                    if let Some(ref backoff) = retry.backoff {
+                        // Convert seconds to milliseconds
+                        backoff_base_delay_ms = (backoff.seconds as i32) * 1000;
+                    }
+                }
+                Some(crate::parser::ast::policy_bracket::Kind::Timeout(timeout_policy)) => {
+                    if let Some(ref duration) = timeout_policy.timeout {
+                        timeout_seconds = duration.seconds as i32;
+                    }
+                }
+                None => {}
+            }
+        }
+
         Ok(Some(NewAction {
             instance_id,
             module_name,
             action_name,
             dispatch_payload: payload,
-            timeout_seconds: 300,
-            max_retries: 3,
-            backoff_kind: BackoffKind::Exponential,
-            backoff_base_delay_ms: 1000,
+            timeout_seconds,
+            max_retries,
+            backoff_kind,
+            backoff_base_delay_ms,
             node_id: Some(node.id.clone()),
             node_type: Some("action".to_string()),
         }))
@@ -3491,6 +3515,29 @@ impl DAGRunner {
             .clone()
             .unwrap_or_else(|| "default".to_string());
 
+        // Extract retry and timeout settings from policies
+        let mut max_retries = 3i32; // default
+        let backoff_kind = BackoffKind::Exponential;
+        let mut backoff_base_delay_ms = 1000i32;
+        let mut timeout_seconds = 300i32;
+
+        for policy in &node.policies {
+            match &policy.kind {
+                Some(crate::parser::ast::policy_bracket::Kind::Retry(retry)) => {
+                    max_retries = retry.max_retries as i32;
+                    if let Some(ref backoff) = retry.backoff {
+                        backoff_base_delay_ms = (backoff.seconds as i32) * 1000;
+                    }
+                }
+                Some(crate::parser::ast::policy_bracket::Kind::Timeout(timeout_policy)) => {
+                    if let Some(ref duration) = timeout_policy.timeout {
+                        timeout_seconds = duration.seconds as i32;
+                    }
+                }
+                None => {}
+            }
+        }
+
         let mut actions = Vec::new();
         for (idx, item) in items.into_iter().enumerate() {
             // Create a modified inbox with the loop variable bound to this item
@@ -3508,10 +3555,10 @@ impl DAGRunner {
                 module_name: module_name.clone(),
                 action_name: action_name.clone(),
                 dispatch_payload: payload,
-                timeout_seconds: 300,
-                max_retries: 3,
-                backoff_kind: BackoffKind::Exponential,
-                backoff_base_delay_ms: 1000,
+                timeout_seconds,
+                max_retries,
+                backoff_kind,
+                backoff_base_delay_ms,
                 node_id: Some(spread_node_id),
                 node_type: Some("action".to_string()),
             });

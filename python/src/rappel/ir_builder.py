@@ -22,7 +22,8 @@ import copy
 import inspect
 import textwrap
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Union
+from enum import EnumMeta
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, Set, Union
 
 from proto import ast_pb2 as ir
 
@@ -373,6 +374,7 @@ def build_workflow_ir(workflow_cls: type["Workflow"]) -> ir.Program:
             ctx_data.imported_names,
             ctx_data.module_functions,
             ctx_data.model_defs,
+            fn_module.__dict__,
         )
         try:
             builder.visit(fn_tree)
@@ -727,12 +729,14 @@ class IRBuilder(ast.NodeVisitor):
         imported_names: Optional[Dict[str, ImportedName]] = None,
         module_functions: Optional[Set[str]] = None,
         model_defs: Optional[Dict[str, ModelDefinition]] = None,
+        module_globals: Optional[Mapping[str, Any]] = None,
     ):
         self._action_defs = action_defs
         self._ctx = ctx
         self._imported_names = imported_names or {}
         self._module_functions = module_functions or set()
         self._model_defs = model_defs or {}
+        self._module_globals = module_globals or {}
         self.function_def: Optional[ir.FunctionDef] = None
         self._statements: List[ir.Statement] = []
 
@@ -790,6 +794,9 @@ class IRBuilder(ast.NodeVisitor):
             if expanded is not None:
                 return expanded
             result = self._visit_assign(node)
+            return [result] if result else []
+        elif isinstance(node, ast.AnnAssign):
+            result = self._visit_ann_assign(node)
             return [result] if result else []
         elif isinstance(node, ast.Expr):
             result = self._visit_expr_stmt(node)
@@ -1112,6 +1119,16 @@ class IRBuilder(ast.NodeVisitor):
         statements.extend(self._visit_for(loop_ast))
 
         return statements
+
+    def _visit_ann_assign(self, node: ast.AnnAssign) -> Optional[ir.Statement]:
+        """Convert annotated assignment to IR when a value is present."""
+        if node.value is None:
+            return None
+
+        assign = ast.Assign(targets=[node.target], value=node.value, type_comment=None)
+        ast.copy_location(assign, node)
+        ast.fix_missing_locations(assign)
+        return self._visit_assign(assign)
 
     def _visit_assign(self, node: ast.Assign) -> Optional[ir.Statement]:
         """Convert assignment to IR.
@@ -2447,7 +2464,9 @@ class IRBuilder(ast.NodeVisitor):
 
         for kw in node.keywords:
             if kw.arg == "attempts" and isinstance(kw.value, ast.Constant):
-                policy.max_retries = kw.value.value
+                # attempts means total executions, max_retries means retries after first attempt
+                # So attempts=1 -> max_retries=0 (no retries), attempts=3 -> max_retries=2
+                policy.max_retries = kw.value.value - 1
             elif kw.arg == "exception_types" and isinstance(kw.value, ast.List):
                 for elt in kw.value.elts:
                     if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
@@ -2788,9 +2807,31 @@ class IRBuilder(ast.NodeVisitor):
             return self._convert_model_constructor_to_dict(node, model_name)
         return None
 
+    def _resolve_enum_attribute(self, node: ast.Attribute) -> Optional[ir.Expr]:
+        value = _resolve_enum_attribute_value(node, self._module_globals)
+        if value is None:
+            return None
+        literal = _constant_to_literal(value)
+        if literal is None:
+            line = getattr(node, "lineno", None)
+            col = getattr(node, "col_offset", None)
+            raise UnsupportedPatternError(
+                "Enum value must be a primitive literal",
+                RECOMMENDATIONS["unsupported_literal"],
+                line=line,
+                col=col,
+            )
+        expr = ir.Expr(span=_make_span(node))
+        expr.literal.CopyFrom(literal)
+        return expr
+
     def _expr_to_ir_with_model_coercion(self, node: ast.expr) -> Optional[ir.Expr]:
         """Convert an AST expression to IR, converting model constructors to dicts."""
-        return _expr_to_ir(node, model_converter=self._convert_model_constructor_if_needed)
+        return _expr_to_ir(
+            node,
+            model_converter=self._convert_model_constructor_if_needed,
+            enum_resolver=self._resolve_enum_attribute,
+        )
 
     def _extract_action_call_from_awaitable(self, node: ast.expr) -> Optional[ir.ActionCall]:
         """Extract action call from an awaitable expression."""
@@ -2885,9 +2926,53 @@ def _make_span(node: ast.AST) -> ir.Span:
     )
 
 
+def _attribute_chain(node: ast.Attribute) -> Optional[List[str]]:
+    parts: List[str] = []
+    current: ast.AST = node
+    while isinstance(current, ast.Attribute):
+        parts.append(current.attr)
+        current = current.value
+    if isinstance(current, ast.Name):
+        parts.append(current.id)
+        return list(reversed(parts))
+    return None
+
+
+def _resolve_enum_attribute_value(
+    node: ast.Attribute,
+    module_globals: Mapping[str, Any],
+) -> Optional[Any]:
+    chain = _attribute_chain(node)
+    if not chain or len(chain) < 2:
+        return None
+
+    current = module_globals.get(chain[0])
+    if current is None:
+        return None
+
+    for part in chain[1:-1]:
+        try:
+            current_dict = current.__dict__
+        except AttributeError:
+            return None
+        current = current_dict.get(part)
+        if current is None:
+            return None
+
+    member_name = chain[-1]
+    if isinstance(current, EnumMeta):
+        member = current.__members__.get(member_name)
+        if member is None:
+            return None
+        return member.value
+
+    return None
+
+
 def _expr_to_ir(
     expr: ast.AST,
     model_converter: Optional[Callable[[ast.Call], Optional[ir.Expr]]] = None,
+    enum_resolver: Optional[Callable[[ast.Attribute], Optional[ir.Expr]]] = None,
 ) -> Optional[ir.Expr]:
     """Convert Python AST expression to IR Expr."""
     result = ir.Expr(span=_make_span(expr))
@@ -2908,34 +2993,57 @@ def _expr_to_ir(
             return result
 
     if isinstance(expr, ast.BinOp):
-        left = _expr_to_ir(expr.left, model_converter=model_converter)
-        right = _expr_to_ir(expr.right, model_converter=model_converter)
+        left = _expr_to_ir(
+            expr.left,
+            model_converter=model_converter,
+            enum_resolver=enum_resolver,
+        )
+        right = _expr_to_ir(
+            expr.right,
+            model_converter=model_converter,
+            enum_resolver=enum_resolver,
+        )
         op = _bin_op_to_ir(expr.op)
         if left and right and op:
             result.binary_op.CopyFrom(ir.BinaryOp(left=left, op=op, right=right))
             return result
 
     if isinstance(expr, ast.UnaryOp):
-        operand = _expr_to_ir(expr.operand, model_converter=model_converter)
+        operand = _expr_to_ir(
+            expr.operand,
+            model_converter=model_converter,
+            enum_resolver=enum_resolver,
+        )
         op = _unary_op_to_ir(expr.op)
         if operand and op:
             result.unary_op.CopyFrom(ir.UnaryOp(op=op, operand=operand))
             return result
 
     if isinstance(expr, ast.Compare):
-        left = _expr_to_ir(expr.left, model_converter=model_converter)
+        left = _expr_to_ir(
+            expr.left,
+            model_converter=model_converter,
+            enum_resolver=enum_resolver,
+        )
         if not left:
             return None
         # For simplicity, handle single comparison
         if expr.ops and expr.comparators:
             op = _cmp_op_to_ir(expr.ops[0])
-            right = _expr_to_ir(expr.comparators[0], model_converter=model_converter)
+            right = _expr_to_ir(
+                expr.comparators[0],
+                model_converter=model_converter,
+                enum_resolver=enum_resolver,
+            )
             if op and right:
                 result.binary_op.CopyFrom(ir.BinaryOp(left=left, op=op, right=right))
                 return result
 
     if isinstance(expr, ast.BoolOp):
-        values = [_expr_to_ir(v, model_converter=model_converter) for v in expr.values]
+        values = [
+            _expr_to_ir(v, model_converter=model_converter, enum_resolver=enum_resolver)
+            for v in expr.values
+        ]
         if all(v for v in values):
             op = _bool_op_to_ir(expr.op)
             if op and len(values) >= 2:
@@ -2949,7 +3057,10 @@ def _expr_to_ir(
                 return result_expr
 
     if isinstance(expr, ast.List):
-        elements = [_expr_to_ir(e, model_converter=model_converter) for e in expr.elts]
+        elements = [
+            _expr_to_ir(e, model_converter=model_converter, enum_resolver=enum_resolver)
+            for e in expr.elts
+        ]
         if all(e for e in elements):
             list_expr = ir.ListExpr(elements=[e for e in elements if e])
             result.list.CopyFrom(list_expr)
@@ -2959,17 +3070,33 @@ def _expr_to_ir(
         entries: List[ir.DictEntry] = []
         for k, v in zip(expr.keys, expr.values, strict=False):
             if k:
-                key_expr = _expr_to_ir(k, model_converter=model_converter)
-                value_expr = _expr_to_ir(v, model_converter=model_converter)
+                key_expr = _expr_to_ir(
+                    k,
+                    model_converter=model_converter,
+                    enum_resolver=enum_resolver,
+                )
+                value_expr = _expr_to_ir(
+                    v,
+                    model_converter=model_converter,
+                    enum_resolver=enum_resolver,
+                )
                 if key_expr and value_expr:
                     entries.append(ir.DictEntry(key=key_expr, value=value_expr))
         result.dict.CopyFrom(ir.DictExpr(entries=entries))
         return result
 
     if isinstance(expr, ast.Subscript):
-        obj = _expr_to_ir(expr.value, model_converter=model_converter)
+        obj = _expr_to_ir(
+            expr.value,
+            model_converter=model_converter,
+            enum_resolver=enum_resolver,
+        )
         index = (
-            _expr_to_ir(expr.slice, model_converter=model_converter)
+            _expr_to_ir(
+                expr.slice,
+                model_converter=model_converter,
+                enum_resolver=enum_resolver,
+            )
             if isinstance(expr.slice, ast.AST)
             else None
         )
@@ -2978,7 +3105,15 @@ def _expr_to_ir(
             return result
 
     if isinstance(expr, ast.Attribute):
-        obj = _expr_to_ir(expr.value, model_converter=model_converter)
+        if enum_resolver:
+            resolved = enum_resolver(expr)
+            if resolved:
+                return resolved
+        obj = _expr_to_ir(
+            expr.value,
+            model_converter=model_converter,
+            enum_resolver=enum_resolver,
+        )
         if obj:
             result.dot.CopyFrom(ir.DotAccess(object=obj, attribute=expr.attr))
             return result
@@ -2986,11 +3121,22 @@ def _expr_to_ir(
     if isinstance(expr, ast.Await) and isinstance(expr.value, ast.Call):
         func_name = _get_func_name(expr.value.func)
         if func_name:
-            args = [_expr_to_ir(a, model_converter=model_converter) for a in expr.value.args]
+            args = [
+                _expr_to_ir(
+                    a,
+                    model_converter=model_converter,
+                    enum_resolver=enum_resolver,
+                )
+                for a in expr.value.args
+            ]
             kwargs: List[ir.Kwarg] = []
             for kw in expr.value.keywords:
                 if kw.arg:
-                    kw_expr = _expr_to_ir(kw.value, model_converter=model_converter)
+                    kw_expr = _expr_to_ir(
+                        kw.value,
+                        model_converter=model_converter,
+                        enum_resolver=enum_resolver,
+                    )
                     if kw_expr:
                         kwargs.append(ir.Kwarg(name=kw.arg, value=kw_expr))
             func_call = ir.FunctionCall(
@@ -3028,11 +3174,22 @@ def _expr_to_ir(
                 )
         func_name = _get_func_name(expr.func)
         if func_name:
-            args = [_expr_to_ir(a, model_converter=model_converter) for a in expr.args]
+            args = [
+                _expr_to_ir(
+                    a,
+                    model_converter=model_converter,
+                    enum_resolver=enum_resolver,
+                )
+                for a in expr.args
+            ]
             kwargs: List[ir.Kwarg] = []
             for kw in expr.keywords:
                 if kw.arg:
-                    kw_expr = _expr_to_ir(kw.value, model_converter=model_converter)
+                    kw_expr = _expr_to_ir(
+                        kw.value,
+                        model_converter=model_converter,
+                        enum_resolver=enum_resolver,
+                    )
                     if kw_expr:
                         kwargs.append(ir.Kwarg(name=kw.arg, value=kw_expr))
             func_call = ir.FunctionCall(
@@ -3048,7 +3205,10 @@ def _expr_to_ir(
 
     if isinstance(expr, ast.Tuple):
         # Handle tuple as list for now
-        elements = [_expr_to_ir(e, model_converter=model_converter) for e in expr.elts]
+        elements = [
+            _expr_to_ir(e, model_converter=model_converter, enum_resolver=enum_resolver)
+            for e in expr.elts
+        ]
         if all(e for e in elements):
             list_expr = ir.ListExpr(elements=[e for e in elements if e])
             result.list.CopyFrom(list_expr)

@@ -86,6 +86,8 @@ pub struct DAGNode {
     /// If Some(n), exactly n predecessors must complete before this join fires.
     /// Used for conditional joins where branches are mutually exclusive (only 1 fires).
     pub join_required_count: Option<i32>,
+    /// Policies for action_call nodes (retry, timeout)
+    pub policies: Vec<ast::PolicyBracket>,
 }
 
 impl DAGNode {
@@ -117,6 +119,7 @@ impl DAGNode {
             assign_expr: None,
             kwarg_exprs: None,
             join_required_count: None,
+            policies: vec![],
         }
     }
 
@@ -198,6 +201,12 @@ impl DAGNode {
     /// Builder method to set kwarg expressions for type-aware resolution.
     pub fn with_kwarg_exprs(mut self, kwarg_exprs: HashMap<String, ast::Expr>) -> Self {
         self.kwarg_exprs = Some(kwarg_exprs);
+        self
+    }
+
+    /// Builder method to set policies (for action_call nodes)
+    pub fn with_policies(mut self, policies: Vec<ast::PolicyBracket>) -> Self {
+        self.policies = policies;
         self
     }
 
@@ -1846,7 +1855,8 @@ impl DAGConverter {
         let mut node = DAGNode::new(node_id.clone(), "action_call".to_string(), label)
             .with_action(&action.action_name, action.module_name.as_deref())
             .with_kwargs(kwargs)
-            .with_kwarg_exprs(kwarg_exprs);
+            .with_kwarg_exprs(kwarg_exprs)
+            .with_policies(action.policies.clone());
 
         // Set targets for unpacking (store all targets)
         if !targets.is_empty() {
