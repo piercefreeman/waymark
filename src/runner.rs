@@ -1991,6 +1991,10 @@ impl DAGRunner {
                         )
                         .await?;
                         handler.write_batch(batch).await?;
+                        // Mark the failed action as caught so fail_instances_with_exhausted_actions
+                        // doesn't mark the workflow as failed. This must be AFTER write_batch
+                        // because the action is still 'dispatched' until write_batch completes.
+                        handler.db.mark_action_caught(instance_id, node_id).await?;
                         return Ok(());
                     }
 
@@ -2024,6 +2028,10 @@ impl DAGRunner {
                             )
                             .await?;
                             handler.write_batch(batch).await?;
+                            // Mark the failed action as caught so fail_instances_with_exhausted_actions
+                            // doesn't mark the workflow as failed. This must be AFTER write_batch
+                            // because the action is still 'dispatched' until write_batch completes.
+                            handler.db.mark_action_caught(instance_id, node_id).await?;
                             return Ok(());
                         }
                     }

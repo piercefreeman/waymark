@@ -699,6 +699,30 @@ impl Database {
         Ok(failed_count)
     }
 
+    /// Mark an action as caught (exception was handled by a try-except block).
+    /// This prevents fail_instances_with_exhausted_actions from failing the workflow.
+    pub async fn mark_action_caught(
+        &self,
+        instance_id: WorkflowInstanceId,
+        node_id: &str,
+    ) -> DbResult<()> {
+        sqlx::query(
+            r#"
+            UPDATE action_queue
+            SET status = 'caught'
+            WHERE instance_id = $1
+              AND node_id = $2
+              AND status IN ('exhausted', 'timed_out', 'failed')
+            "#,
+        )
+        .bind(instance_id.0)
+        .bind(node_id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
     // ========================================================================
     // Loop State
     // ========================================================================

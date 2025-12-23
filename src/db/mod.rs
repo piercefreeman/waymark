@@ -137,6 +137,8 @@ pub enum ActionStatus {
     TimedOut,
     /// Terminal status for actions that exhausted all retries due to failures
     Exhausted,
+    /// Terminal status for actions whose exception was caught by a handler
+    Caught,
 }
 
 impl ActionStatus {
@@ -148,6 +150,7 @@ impl ActionStatus {
             Self::Failed => "failed",
             Self::TimedOut => "timed_out",
             Self::Exhausted => "exhausted",
+            Self::Caught => "caught",
         }
     }
 
@@ -159,6 +162,7 @@ impl ActionStatus {
             "failed" => Some(Self::Failed),
             "timed_out" => Some(Self::TimedOut),
             "exhausted" => Some(Self::Exhausted),
+            "caught" => Some(Self::Caught),
             _ => None,
         }
     }
