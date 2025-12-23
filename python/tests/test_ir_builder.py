@@ -146,6 +146,36 @@ class TestVariableReferenceValidation:
         assert "longitude" in list(main.io.inputs)
 
 
+class TestAnnotatedAssignment:
+    """Tests for annotated assignment handling in IR building."""
+
+    def test_ann_assign_generates_assignment(self) -> None:
+        from rappel import action, workflow
+        from rappel.workflow import Workflow
+
+        @action
+        async def echo(value: int | None) -> None:
+            return None
+
+        @workflow
+        class AnnAssignWorkflow(Workflow):
+            async def run(self) -> None:
+                pagination_state: int | None = None
+                await echo(pagination_state)
+
+        program = AnnAssignWorkflow.workflow_ir()
+        assignments = [
+            stmt.assignment for stmt in iter_all_statements(program) if stmt.HasField("assignment")
+        ]
+        matches = [
+            assignment for assignment in assignments if "pagination_state" in assignment.targets
+        ]
+        assert len(matches) == 1, "Expected annotated assignment to create Assignment"
+        value = matches[0].value
+        assert value.HasField("literal")
+        assert value.literal.is_none
+
+
 class TestPolicyParsing:
     """Test that retry and timeout policies are parsed from run_action calls."""
 

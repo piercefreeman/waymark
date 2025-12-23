@@ -791,6 +791,9 @@ class IRBuilder(ast.NodeVisitor):
                 return expanded
             result = self._visit_assign(node)
             return [result] if result else []
+        elif isinstance(node, ast.AnnAssign):
+            result = self._visit_ann_assign(node)
+            return [result] if result else []
         elif isinstance(node, ast.Expr):
             result = self._visit_expr_stmt(node)
             return [result] if result else []
@@ -1112,6 +1115,16 @@ class IRBuilder(ast.NodeVisitor):
         statements.extend(self._visit_for(loop_ast))
 
         return statements
+
+    def _visit_ann_assign(self, node: ast.AnnAssign) -> Optional[ir.Statement]:
+        """Convert annotated assignment to IR when a value is present."""
+        if node.value is None:
+            return None
+
+        assign = ast.Assign(targets=[node.target], value=node.value, type_comment=None)
+        ast.copy_location(assign, node)
+        ast.fix_missing_locations(assign)
+        return self._visit_assign(assign)
 
     def _visit_assign(self, node: ast.Assign) -> Optional[ir.Statement]:
         """Convert assignment to IR.
