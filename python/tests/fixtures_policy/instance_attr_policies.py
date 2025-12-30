@@ -1,7 +1,5 @@
 """Test fixture: Instance attribute policy references."""
 
-from datetime import timedelta
-
 from rappel import action, workflow
 from rappel.workflow import RetryPolicy, Workflow
 
@@ -37,14 +35,10 @@ class InstanceAttrPoliciesWorkflow(Workflow):
 
     async def run(self, value: str) -> str:
         # Use instance attribute retry policy
-        a = await self.run_action(
-            action_with_instance_retry(value=value), retry=self.retry_policy
-        )
+        a = await self.run_action(action_with_instance_retry(value=value), retry=self.retry_policy)
 
         # Use instance attribute timeout
-        b = await self.run_action(
-            action_with_instance_timeout(value=a), timeout=self.timeout_value
-        )
+        b = await self.run_action(action_with_instance_timeout(value=a), timeout=self.timeout_value)
 
         # Use both policies from instance attributes
         c = await self.run_action(

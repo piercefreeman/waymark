@@ -23,7 +23,7 @@ import inspect
 import textwrap
 from dataclasses import dataclass
 from enum import EnumMeta
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, Set, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, NoReturn, Optional, Set, Union
 
 from proto import ast_pb2 as ir
 from rappel.registry import registry
@@ -228,6 +228,14 @@ RECOMMENDATIONS = {
     "yield_statement": (
         "Yield statements are not supported in workflow code.\n"
         "Workflows must return a complete result, not generate values incrementally."
+    ),
+    "continue_statement": (
+        "Continue statements are not supported in workflow code.\n"
+        "Restructure your loop using if/else to skip iterations."
+    ),
+    "unsupported_statement": (
+        "This statement type is not supported in workflow code.\n"
+        "Move the logic into an @action or rewrite using supported statements."
     ),
     "unsupported_expression": (
         "This expression type is not supported in workflow code.\n"
@@ -874,14 +882,21 @@ class IRBuilder(ast.NodeVisitor):
         elif isinstance(node, ast.Pass):
             # Pass statements are fine, they just don't produce IR
             return []
+        elif isinstance(node, ast.Break):
+            return self._visit_break(node)
 
-        # Check for unsupported statement types
+        # Check for unsupported statement types - this MUST raise for any
+        # unhandled statement to avoid silently dropping code
         self._check_unsupported_statement(node)
 
-        return []
+    def _check_unsupported_statement(self, node: ast.stmt) -> NoReturn:
+        """Check for unsupported statement types and raise descriptive errors.
 
-    def _check_unsupported_statement(self, node: ast.stmt) -> None:
-        """Check for unsupported statement types and raise descriptive errors."""
+        This function ALWAYS raises an exception - it never returns normally.
+        Any statement type that reaches this function is either explicitly
+        unsupported (with a specific error message) or unhandled (with a
+        generic catch-all error). This ensures we never silently drop code.
+        """
         line = getattr(node, "lineno", None)
         col = getattr(node, "col_offset", None)
 
@@ -959,6 +974,23 @@ class IRBuilder(ast.NodeVisitor):
             raise UnsupportedPatternError(
                 "Match statements are not supported",
                 RECOMMENDATIONS["match"],
+                line=line,
+                col=col,
+            )
+        elif isinstance(node, ast.Continue):
+            raise UnsupportedPatternError(
+                "Continue statements are not supported",
+                RECOMMENDATIONS["continue_statement"],
+                line=line,
+                col=col,
+            )
+        else:
+            # Catch-all for any unhandled statement types.
+            # This is critical to avoid silently dropping code.
+            stmt_type = type(node).__name__
+            raise UnsupportedPatternError(
+                f"Unhandled statement type: {stmt_type}",
+                RECOMMENDATIONS["unsupported_statement"],
                 line=line,
                 col=col,
             )
@@ -2031,6 +2063,12 @@ class IRBuilder(ast.NodeVisitor):
         # Return with no value
         stmt = ir.Statement(span=_make_span(node))
         stmt.return_stmt.CopyFrom(ir.ReturnStmt())
+        return [stmt]
+
+    def _visit_break(self, node: ast.Break) -> List[ir.Statement]:
+        """Convert break statement to IR."""
+        stmt = ir.Statement(span=_make_span(node))
+        stmt.break_stmt.CopyFrom(ir.BreakStmt())
         return [stmt]
 
     def _visit_aug_assign(self, node: ast.AugAssign) -> List[ir.Statement]:

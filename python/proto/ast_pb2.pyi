@@ -260,6 +260,7 @@ class Statement(google.protobuf.message.Message):
     TRY_EXCEPT_FIELD_NUMBER: builtins.int
     RETURN_STMT_FIELD_NUMBER: builtins.int
     EXPR_STMT_FIELD_NUMBER: builtins.int
+    BREAK_STMT_FIELD_NUMBER: builtins.int
     SPAN_FIELD_NUMBER: builtins.int
     @property
     def assignment(self) -> Global___Assignment: ...
@@ -280,6 +281,8 @@ class Statement(google.protobuf.message.Message):
     @property
     def expr_stmt(self) -> Global___ExprStmt: ...
     @property
+    def break_stmt(self) -> Global___BreakStmt: ...
+    @property
     def span(self) -> Global___Span: ...
     def __init__(
         self,
@@ -293,6 +296,7 @@ class Statement(google.protobuf.message.Message):
         try_except: Global___TryExcept | None = ...,
         return_stmt: Global___ReturnStmt | None = ...,
         expr_stmt: Global___ExprStmt | None = ...,
+        break_stmt: Global___BreakStmt | None = ...,
         span: Global___Span | None = ...,
     ) -> None: ...
     def HasField(
@@ -302,6 +306,8 @@ class Statement(google.protobuf.message.Message):
             b"action_call",
             "assignment",
             b"assignment",
+            "break_stmt",
+            b"break_stmt",
             "conditional",
             b"conditional",
             "expr_stmt",
@@ -329,6 +335,8 @@ class Statement(google.protobuf.message.Message):
             b"action_call",
             "assignment",
             b"assignment",
+            "break_stmt",
+            b"break_stmt",
             "conditional",
             b"conditional",
             "expr_stmt",
@@ -362,11 +370,24 @@ class Statement(google.protobuf.message.Message):
             "try_except",
             "return_stmt",
             "expr_stmt",
+            "break_stmt",
         ]
         | None
     ): ...
 
 Global___Statement: typing_extensions.TypeAlias = Statement
+
+@typing.final
+class BreakStmt(google.protobuf.message.Message):
+    """Break statement (exits innermost loop)"""
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    def __init__(
+        self,
+    ) -> None: ...
+
+Global___BreakStmt: typing_extensions.TypeAlias = BreakStmt
 
 @typing.final
 class Assignment(google.protobuf.message.Message):

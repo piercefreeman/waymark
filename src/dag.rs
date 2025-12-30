@@ -2628,7 +2628,10 @@ impl DAGConverter {
     /// Becomes:
     ///   predecessor --[guard: x > 0]--> @pos() --> join
     ///               --[guard: not (x > 0)]--> @neg() --> join
-    fn convert_conditional(&mut self, cond: &ast::Conditional) -> Result<ConvertedSubgraph, String> {
+    fn convert_conditional(
+        &mut self,
+        cond: &ast::Conditional,
+    ) -> Result<ConvertedSubgraph, String> {
         let mut nodes: Vec<String> = Vec::new();
 
         let branch_id = self.next_id("branch");
@@ -2681,7 +2684,11 @@ impl DAGConverter {
         }
 
         // Missing else is an implicit empty else.
-        let else_graph = match cond.else_branch.as_ref().and_then(|b| b.block_body.as_ref()) {
+        let else_graph = match cond
+            .else_branch
+            .as_ref()
+            .and_then(|b| b.block_body.as_ref())
+        {
             Some(block) => self.convert_block(block)?,
             None => ConvertedSubgraph::noop(),
         };
@@ -2811,7 +2818,10 @@ impl DAGConverter {
 
         // Combine with AND operators
         if parts.is_empty() {
-            Err("build_compound_guard called with no prior conditions and no current condition".to_string())
+            Err(
+                "build_compound_guard called with no prior conditions and no current condition"
+                    .to_string(),
+            )
         } else if parts.len() == 1 {
             Ok(parts.remove(0))
         } else {
@@ -2844,7 +2854,10 @@ impl DAGConverter {
     /// Becomes:
     ///   @risky() --[success]--> join
     ///            --[except:NetworkError]--> @fallback() --> join
-    fn convert_try_except(&mut self, try_except: &ast::TryExcept) -> Result<ConvertedSubgraph, String> {
+    fn convert_try_except(
+        &mut self,
+        try_except: &ast::TryExcept,
+    ) -> Result<ConvertedSubgraph, String> {
         let mut nodes: Vec<String> = Vec::new();
 
         let try_graph = match try_except.try_block.as_ref() {
@@ -3048,9 +3061,11 @@ impl DAGConverter {
 
     /// Convert a break statement
     fn convert_break(&mut self) -> Result<ConvertedSubgraph, String> {
-        let loop_exit = self.loop_exit_stack.last().cloned().ok_or_else(|| {
-            "break statement outside of loop".to_string()
-        })?;
+        let loop_exit = self
+            .loop_exit_stack
+            .last()
+            .cloned()
+            .ok_or_else(|| "break statement outside of loop".to_string())?;
 
         let node_id = self.next_id("break");
         let mut node = DAGNode::new(node_id.clone(), "break".to_string(), "break".to_string());
@@ -3061,7 +3076,8 @@ impl DAGConverter {
         self.dag.add_node(node);
 
         // Wire break directly to loop exit
-        self.dag.add_edge(DAGEdge::state_machine(node_id.clone(), loop_exit));
+        self.dag
+            .add_edge(DAGEdge::state_machine(node_id.clone(), loop_exit));
 
         // Break has no normal exits - it jumps to the loop exit
         Ok(ConvertedSubgraph {
@@ -3508,9 +3524,10 @@ fn validate_output_nodes_have_no_outgoing_edges(dag: &DAG) -> Result<(), String>
 /// Invariant 3: Loop increment nodes should only have:
 /// - loop_back edges to loop_cond (for iteration)
 /// - exception edges to handlers
+///
 /// They should NOT have regular state machine edges to other nodes like join/output
 fn validate_loop_incr_edges(dag: &DAG) -> Result<(), String> {
-    for (id, _node) in &dag.nodes {
+    for id in dag.nodes.keys() {
         // Check if this is a loop_incr node (by naming convention)
         if !id.contains("loop_incr") {
             continue;
@@ -3819,7 +3836,10 @@ mod tests {
         assert!(
             has_break_to_exit_edge,
             "expected break -> loop_exit edge, found edges: {:?}",
-            dag.edges.iter().filter(|e| e.source == break_node.id).collect::<Vec<_>>()
+            dag.edges
+                .iter()
+                .filter(|e| e.source == break_node.id)
+                .collect::<Vec<_>>()
         );
 
         // After action should be reachable from loop_exit
@@ -3854,7 +3874,9 @@ mod tests {
             result
         );
         assert!(
-            result.unwrap_err().contains("break statement outside of loop"),
+            result
+                .unwrap_err()
+                .contains("break statement outside of loop"),
             "expected 'break statement outside of loop' error"
         );
     }
@@ -3889,7 +3911,11 @@ mod tests {
             .values()
             .filter(|n| n.node_type == "join" && n.label.starts_with("end for "))
             .collect();
-        assert_eq!(loop_exits.len(), 2, "expected two loop_exit nodes for nested loops");
+        assert_eq!(
+            loop_exits.len(),
+            2,
+            "expected two loop_exit nodes for nested loops"
+        );
 
         // The break should connect to the inner loop's exit, which should be
         // the one with "y" in its label
@@ -7495,7 +7521,11 @@ fn main(input: [], output: []):
 
         let result = validate_dag(&dag);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("has incoming state machine edge"));
+        assert!(
+            result
+                .unwrap_err()
+                .contains("has incoming state machine edge")
+        );
     }
 
     #[test]

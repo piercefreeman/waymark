@@ -1577,6 +1577,78 @@ class TestUnsupportedPatternDetection:
         assert isinstance(error, UnsupportedPatternError)
         assert "function" in error.message.lower(), "Error should mention function"
 
+    def test_continue_statement_raises_error(self) -> None:
+        """Test: continue statements raise error with recommendation."""
+        import pytest
+
+        from rappel import UnsupportedPatternError, action, workflow
+        from rappel.workflow import Workflow
+
+        @action(name="continue_test_action")
+        async def continue_action(value: int) -> int:
+            return value * 2
+
+        @workflow
+        class ContinueWorkflow(Workflow):
+            async def run(self, items: list[int]) -> int:
+                total = 0
+                for item in items:
+                    if item < 0:
+                        continue
+                    result = await continue_action(value=item)
+                    total = total + result
+                return total
+
+        with pytest.raises(UnsupportedPatternError) as exc_info:
+            ContinueWorkflow.workflow_ir()
+
+        error = exc_info.value
+        assert isinstance(error, UnsupportedPatternError)
+        assert "continue" in error.message.lower(), "Error should mention continue"
+
+
+class TestBreakStatementSupport:
+    """Test that break statements are properly converted to IR."""
+
+    def test_break_in_for_loop(self) -> None:
+        """Test: break statement in a for loop is converted to IR."""
+        from tests.fixtures_for_loop.for_break import ForBreakWorkflow
+
+        program = ForBreakWorkflow.workflow_ir()
+
+        # Find the for loop statement
+        main_fn = None
+        for fn in program.functions:
+            if fn.name == "main":
+                main_fn = fn
+                break
+
+        assert main_fn is not None, "Should have main function"
+
+        # Find the for loop
+        for_loop = None
+        for stmt in main_fn.body.statements:
+            if stmt.HasField("for_loop"):
+                for_loop = stmt.for_loop
+                break
+
+        assert for_loop is not None, "Should have a for loop"
+
+        # Find the break statement in the loop body
+        def find_break_in_block(block: ir.Block) -> bool:
+            for stmt in block.statements:
+                if stmt.HasField("break_stmt"):
+                    return True
+                if stmt.HasField("conditional"):
+                    cond = stmt.conditional
+                    if cond.if_branch.HasField("block_body"):
+                        if find_break_in_block(cond.if_branch.block_body):
+                            return True
+            return False
+
+        has_break = find_break_in_block(for_loop.block_body)
+        assert has_break, "Should find break statement in for loop body"
+
 
 class TestReturnStatements:
     """Test return statement handling."""
