@@ -3427,6 +3427,16 @@ pub fn convert_to_dag(program: &ast::Program) -> Result<DAG, String> {
 /// Invalid DAGs can occur when exception handler remapping fails during
 /// function expansion.
 fn validate_dag(dag: &DAG) -> Result<(), String> {
+    validate_edges_reference_existing_nodes(dag)?;
+    validate_output_nodes_have_no_outgoing_edges(dag)?;
+    validate_loop_incr_edges(dag)?;
+    validate_no_duplicate_state_machine_edges(dag)?;
+    validate_input_nodes_have_no_incoming_edges(dag)?;
+    Ok(())
+}
+
+/// Invariant 1: All edges must reference existing nodes
+fn validate_edges_reference_existing_nodes(dag: &DAG) -> Result<(), String> {
     for edge in &dag.edges {
         if !dag.nodes.contains_key(&edge.source) {
             return Err(format!(
@@ -3439,6 +3449,114 @@ fn validate_dag(dag: &DAG) -> Result<(), String> {
                 "DAG edge references non-existent target node '{}' (from '{}', edge_type={:?}, exception_types={:?})",
                 edge.target, edge.source, edge.edge_type, edge.exception_types
             ));
+        }
+    }
+    Ok(())
+}
+
+/// Invariant 2: The main function's output node should not have outgoing state machine edges
+/// (except exception edges which propagate to outer handlers).
+/// Inlined function output nodes (with prefixes like fn_call_X:) DO have edges to the caller's next node.
+fn validate_output_nodes_have_no_outgoing_edges(dag: &DAG) -> Result<(), String> {
+    for (id, node) in &dag.nodes {
+        // Only check output nodes from the MAIN function (no prefix)
+        // Inlined function outputs (fn_call_X:output_Y) legitimately have edges to caller
+        if node.node_type == "output" && !id.contains(':') {
+            for edge in &dag.edges {
+                if edge.source == *id
+                    && edge.edge_type == EdgeType::StateMachine
+                    && edge.exception_types.is_none()
+                {
+                    return Err(format!(
+                        "Main output node '{}' has non-exception outgoing state machine edge to '{}'",
+                        id, edge.target
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Invariant 3: Loop increment nodes should only have:
+/// - loop_back edges to loop_cond (for iteration)
+/// - exception edges to handlers
+/// They should NOT have regular state machine edges to other nodes like join/output
+fn validate_loop_incr_edges(dag: &DAG) -> Result<(), String> {
+    for (id, _node) in &dag.nodes {
+        // Check if this is a loop_incr node (by naming convention)
+        if !id.contains("loop_incr") {
+            continue;
+        }
+
+        for edge in &dag.edges {
+            if edge.source != *id || edge.edge_type != EdgeType::StateMachine {
+                continue;
+            }
+
+            // Exception edges are always allowed
+            if edge.exception_types.is_some() {
+                continue;
+            }
+
+            // Loop-back edges to loop_cond are allowed
+            if edge.is_loop_back && edge.target.contains("loop_cond") {
+                continue;
+            }
+
+            // Any other state machine edge from loop_incr is suspicious
+            // It likely means the "last node" tracking was wrong during expansion
+            return Err(format!(
+                "Loop increment node '{}' has unexpected state machine edge to '{}'. \
+                 Loop_incr should only have loop_back edges to loop_cond or exception edges. \
+                 This suggests incorrect 'last_real_node' tracking during function expansion.",
+                id, edge.target
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Invariant 4: No duplicate state machine edges (same source, target, and non-exception)
+/// Duplicate exception edges with different types are allowed.
+fn validate_no_duplicate_state_machine_edges(dag: &DAG) -> Result<(), String> {
+    let mut seen: HashSet<String> = HashSet::new();
+
+    for edge in &dag.edges {
+        if edge.edge_type != EdgeType::StateMachine {
+            continue;
+        }
+
+        // For non-exception edges, check for duplicates
+        if edge.exception_types.is_none() {
+            let key = format!(
+                "{}->{}:loop_back={},is_else={},guard={:?}",
+                edge.source, edge.target, edge.is_loop_back, edge.is_else, edge.guard_string
+            );
+            if !seen.insert(key.clone()) {
+                return Err(format!(
+                    "Duplicate state machine edge: {} -> {} (loop_back={}, is_else={})",
+                    edge.source, edge.target, edge.is_loop_back, edge.is_else
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Invariant 5: Input nodes should not have incoming state machine edges
+/// (they are the entry points of functions)
+fn validate_input_nodes_have_no_incoming_edges(dag: &DAG) -> Result<(), String> {
+    for (id, node) in &dag.nodes {
+        if node.is_input {
+            for edge in &dag.edges {
+                if edge.target == *id && edge.edge_type == EdgeType::StateMachine {
+                    return Err(format!(
+                        "Input node '{}' has incoming state machine edge from '{}'",
+                        id, edge.source
+                    ));
+                }
+            }
         }
     }
     Ok(())
@@ -7088,6 +7206,145 @@ fn main(input: [], output: []):
     }
 
     #[test]
+    fn test_validate_dag_catches_loop_incr_with_spurious_edge() {
+        // Invariant 3: loop_incr nodes should only have loop_back edges or exception edges
+        let mut dag = DAG::new();
+
+        dag.add_node(DAGNode::new(
+            "loop_cond_1".to_string(),
+            "branch".to_string(),
+            "loop condition".to_string(),
+        ));
+        dag.add_node(DAGNode::new(
+            "loop_incr_2".to_string(),
+            "assignment".to_string(),
+            "loop increment".to_string(),
+        ));
+        dag.add_node(DAGNode::new(
+            "join_3".to_string(),
+            "join".to_string(),
+            "join".to_string(),
+        ));
+
+        // Valid loop_back edge
+        let mut loop_back_edge =
+            DAGEdge::state_machine("loop_incr_2".to_string(), "loop_cond_1".to_string());
+        loop_back_edge.is_loop_back = true;
+        dag.add_edge(loop_back_edge);
+
+        // Invalid: non-exception, non-loop_back edge from loop_incr to join
+        dag.add_edge(DAGEdge::state_machine(
+            "loop_incr_2".to_string(),
+            "join_3".to_string(),
+        ));
+
+        let result = validate_dag(&dag);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("loop_incr_2"));
+        assert!(err.contains("unexpected state machine edge"));
+    }
+
+    #[test]
+    fn test_validate_dag_allows_loop_incr_with_exception_edge() {
+        // Exception edges from loop_incr are valid (they go to outer handlers)
+        let mut dag = DAG::new();
+
+        dag.add_node(DAGNode::new(
+            "loop_cond_1".to_string(),
+            "branch".to_string(),
+            "loop condition".to_string(),
+        ));
+        dag.add_node(DAGNode::new(
+            "loop_incr_2".to_string(),
+            "assignment".to_string(),
+            "loop increment".to_string(),
+        ));
+        dag.add_node(DAGNode::new(
+            "handler_3".to_string(),
+            "action_call".to_string(),
+            "exception handler".to_string(),
+        ));
+
+        // Valid loop_back edge
+        let mut loop_back_edge =
+            DAGEdge::state_machine("loop_incr_2".to_string(), "loop_cond_1".to_string());
+        loop_back_edge.is_loop_back = true;
+        dag.add_edge(loop_back_edge);
+
+        // Valid exception edge
+        dag.add_edge(DAGEdge::state_machine_with_exception(
+            "loop_incr_2".to_string(),
+            "handler_3".to_string(),
+            vec!["Error".to_string()],
+        ));
+
+        let result = validate_dag(&dag);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_dag_catches_duplicate_state_machine_edges() {
+        // Invariant 4: No duplicate non-exception state machine edges
+        let mut dag = DAG::new();
+
+        dag.add_node(DAGNode::new(
+            "node_1".to_string(),
+            "action_call".to_string(),
+            "test1".to_string(),
+        ));
+        dag.add_node(DAGNode::new(
+            "node_2".to_string(),
+            "action_call".to_string(),
+            "test2".to_string(),
+        ));
+
+        // Add the same edge twice
+        dag.add_edge(DAGEdge::state_machine(
+            "node_1".to_string(),
+            "node_2".to_string(),
+        ));
+        dag.add_edge(DAGEdge::state_machine(
+            "node_1".to_string(),
+            "node_2".to_string(),
+        ));
+
+        let result = validate_dag(&dag);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Duplicate state machine edge"));
+    }
+
+    #[test]
+    fn test_validate_dag_catches_input_with_incoming_edge() {
+        // Invariant 5: Input nodes should not have incoming state machine edges
+        let mut dag = DAG::new();
+
+        let mut input_node = DAGNode::new(
+            "main_input_1".to_string(),
+            "input".to_string(),
+            "input".to_string(),
+        );
+        input_node.is_input = true;
+        dag.add_node(input_node);
+
+        dag.add_node(DAGNode::new(
+            "other_node".to_string(),
+            "action_call".to_string(),
+            "other".to_string(),
+        ));
+
+        // Invalid: edge TO input node
+        dag.add_edge(DAGEdge::state_machine(
+            "other_node".to_string(),
+            "main_input_1".to_string(),
+        ));
+
+        let result = validate_dag(&dag);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("has incoming state machine edge"));
+    }
+
+    #[test]
     fn test_build_call_entry_map_handles_nested_prefixes() {
         // Create a DAG that simulates nested function expansion
         let mut dag = DAG::new();
@@ -7322,6 +7579,266 @@ fn main(input: [], output: []):
                 .any(|s| s.contains("output") || s.contains("return") || s.contains("fallback")),
             "Join should have incoming edge from output/return or fallback node. Got: {:?}",
             valid_sources
+        );
+    }
+}
+
+// ============================================================================
+// Property-Based Tests (using proptest)
+// ============================================================================
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use crate::parse;
+    use proptest::prelude::*;
+
+    // Strategy to generate a simple action name
+    fn action_name() -> impl Strategy<Value = String> {
+        prop::string::string_regex("[a-z][a-z0-9_]{2,10}")
+            .unwrap()
+            .prop_map(|s| s.to_lowercase())
+    }
+
+    // Strategy to generate a variable name
+    fn var_name() -> impl Strategy<Value = String> {
+        prop::string::string_regex("[a-z][a-z0-9_]{1,5}")
+            .unwrap()
+            .prop_map(|s| s.to_lowercase())
+    }
+
+    // Strategy to generate a simple action call statement
+    fn action_statement() -> impl Strategy<Value = String> {
+        (var_name(), action_name()).prop_map(|(var, action)| format!("    {} = @{}()", var, action))
+    }
+
+    // Strategy to generate a for loop with action
+    fn for_loop_with_action() -> impl Strategy<Value = String> {
+        (var_name(), action_name(), 1..5u32).prop_map(|(var, action, count)| {
+            format!(
+                "    for _ in range({}):\n        {} = @{}()",
+                count, var, action
+            )
+        })
+    }
+
+    // Strategy to generate a try/except block with actions
+    fn try_except_block() -> impl Strategy<Value = String> {
+        (var_name(), action_name(), action_name()).prop_map(|(var, try_action, except_action)| {
+            format!(
+                "    try:\n        {} = @{}()\n    except Error:\n        {} = @{}()",
+                var, try_action, var, except_action
+            )
+        })
+    }
+
+    // Strategy to generate a function body with various structures
+    fn function_body() -> impl Strategy<Value = String> {
+        prop_oneof![
+            // Simple action
+            action_statement(),
+            // For loop with action
+            for_loop_with_action(),
+            // Try/except block
+            try_except_block(),
+        ]
+    }
+
+    // Strategy to generate a complete valid program
+    fn simple_program() -> impl Strategy<Value = String> {
+        (function_body(), var_name()).prop_map(|(body, result_var)| {
+            format!(
+                r#"fn main(input: [], output: [result]):
+{}
+    result = {}
+    return result"#,
+                body, result_var
+            )
+        })
+    }
+
+    // Strategy: program with a helper function called from main
+    fn program_with_helper() -> impl Strategy<Value = String> {
+        (action_name(), action_name()).prop_map(|(helper_action, main_action)| {
+            format!(
+                r#"fn helper(input: [], output: [result]):
+    result = @{}()
+    return result
+
+fn main(input: [], output: [final]):
+    h = helper()
+    final = @{}(x=h)
+    return final"#,
+                helper_action, main_action
+            )
+        })
+    }
+
+    // Strategy: program with try/except calling a helper that has a loop
+    fn program_with_try_except_and_loop_helper() -> impl Strategy<Value = String> {
+        (action_name(), action_name(), 1..5u32).prop_map(|(loop_action, fallback_action, count)| {
+            format!(
+                r#"fn loop_helper(input: [], output: [result]):
+    for _ in range({}):
+        x = @{}()
+    result = x
+    return result
+
+fn main(input: [], output: [final]):
+    try:
+        result = loop_helper()
+    except Error:
+        result = @{}()
+    final = result
+    return final"#,
+                count, loop_action, fallback_action
+            )
+        })
+    }
+
+    // Strategy: program with nested try/except
+    fn program_with_nested_try_except() -> impl Strategy<Value = String> {
+        (action_name(), action_name(), action_name()).prop_map(
+            |(inner_action, inner_handler, outer_handler)| {
+                format!(
+                    r#"fn inner_helper(input: [], output: [result]):
+    try:
+        result = @{}()
+    except InnerError:
+        result = @{}()
+    return result
+
+fn main(input: [], output: [final]):
+    try:
+        result = inner_helper()
+    except OuterError:
+        result = @{}()
+    final = result
+    return final"#,
+                    inner_action, inner_handler, outer_handler
+                )
+            },
+        )
+    }
+
+    // Property: All generated programs should produce valid DAGs
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(100))]
+
+        #[test]
+        fn prop_simple_programs_produce_valid_dags(source in simple_program()) {
+            if let Ok(program) = parse(&source) {
+                // DAG conversion should succeed and pass all invariants
+                let result = convert_to_dag(&program);
+                prop_assert!(
+                    result.is_ok(),
+                    "Simple program should produce valid DAG: {:?}\nSource:\n{}",
+                    result.err(),
+                    source
+                );
+            }
+            // If parse fails, that's fine - we're testing DAG generation, not parsing
+        }
+
+        #[test]
+        fn prop_helper_programs_produce_valid_dags(source in program_with_helper()) {
+            if let Ok(program) = parse(&source) {
+                let result = convert_to_dag(&program);
+                prop_assert!(
+                    result.is_ok(),
+                    "Helper program should produce valid DAG: {:?}\nSource:\n{}",
+                    result.err(),
+                    source
+                );
+            }
+        }
+
+        #[test]
+        fn prop_try_except_with_loop_helper_produces_valid_dags(
+            source in program_with_try_except_and_loop_helper()
+        ) {
+            if let Ok(program) = parse(&source) {
+                let result = convert_to_dag(&program);
+                prop_assert!(
+                    result.is_ok(),
+                    "Try/except with loop helper should produce valid DAG: {:?}\nSource:\n{}",
+                    result.err(),
+                    source
+                );
+            }
+        }
+
+        #[test]
+        fn prop_nested_try_except_produces_valid_dags(source in program_with_nested_try_except()) {
+            if let Ok(program) = parse(&source) {
+                let result = convert_to_dag(&program);
+                prop_assert!(
+                    result.is_ok(),
+                    "Nested try/except should produce valid DAG: {:?}\nSource:\n{}",
+                    result.err(),
+                    source
+                );
+            }
+        }
+    }
+
+    // Test that specific patterns that previously caused bugs still work
+    #[test]
+    fn test_loop_in_helper_called_from_try_block() {
+        // This is the pattern that caused the infinite loop bug
+        let source = r#"
+fn loop_helper(input: [], output: [result]):
+    for i in range(10):
+        x = @action()
+    result = @final()
+    return result
+
+fn main(input: [], output: []):
+    try:
+        result = loop_helper()
+    except Error:
+        result = @fallback()
+    return result
+"#;
+        let program = parse(source).unwrap();
+        let result = convert_to_dag(&program);
+        assert!(
+            result.is_ok(),
+            "Loop in helper called from try block should produce valid DAG: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn test_deeply_nested_loops_and_try_except() {
+        let source = r#"
+fn level3(input: [], output: [result]):
+    for _ in range(3):
+        x = @action3()
+    result = x
+    return result
+
+fn level2(input: [], output: [result]):
+    try:
+        for _ in range(2):
+            result = level3()
+    except Error2:
+        result = @fallback2()
+    return result
+
+fn main(input: [], output: []):
+    try:
+        result = level2()
+    except Error1:
+        result = @fallback1()
+    return result
+"#;
+        let program = parse(source).unwrap();
+        let result = convert_to_dag(&program);
+        assert!(
+            result.is_ok(),
+            "Deeply nested loops and try/except should produce valid DAG: {:?}",
+            result.err()
         );
     }
 }
