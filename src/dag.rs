@@ -8070,4 +8070,269 @@ fn main(input: [], output: []):
             result.err()
         );
     }
+
+    #[test]
+    fn test_policies_preserved_through_function_expansion() {
+        // Test that policies on action_call nodes inside helper functions
+        // are preserved when the function is expanded/inlined.
+        //
+        // Pattern:
+        //   fn helper(input: [], output: [result]):
+        //     result = @action() [retry: 2]
+        //     return result
+        //
+        //   fn main(input: [], output: []):
+        //     x = helper()
+        //     return x
+        //
+        // After expansion, the action node should still have retry: 2
+        let source = r#"
+fn helper(input: [], output: [result]):
+    result = @do_work() [retry: 2, backoff: 10s]
+    return result
+
+fn main(input: [], output: [final]):
+    final = helper()
+    return final
+"#;
+        let program = parse(source).unwrap();
+        let dag = convert_to_dag(&program).unwrap();
+
+        // Find the expanded action node
+        let action_node = dag
+            .nodes
+            .values()
+            .find(|n| n.node_type == "action_call" && n.action_name.as_deref() == Some("do_work"))
+            .expect("Should find do_work action node");
+
+        // Verify policies are preserved
+        assert!(
+            !action_node.policies.is_empty(),
+            "Action node should have policies. Node: {:?}",
+            action_node
+        );
+
+        // Check for retry policy with max_retries = 2
+        let has_retry_policy = action_node.policies.iter().any(|p| {
+            matches!(
+                &p.kind,
+                Some(crate::parser::ast::policy_bracket::Kind::Retry(retry)) if retry.max_retries == 2
+            )
+        });
+        assert!(
+            has_retry_policy,
+            "Action should have retry policy with max_retries=2. Policies: {:?}",
+            action_node.policies
+        );
+    }
+
+    #[test]
+    fn test_policies_preserved_from_protobuf() {
+        // Test that policies on action_call nodes are preserved when
+        // loading from protobuf (like Python IR does).
+        use crate::parser::ast;
+        use prost::Message;
+
+        // Build a minimal program with an action that has policies
+        // Create retry policy with max_retries = 2
+        let retry_policy = ast::RetryPolicy {
+            max_retries: 2,
+            backoff: Some(ast::Duration { seconds: 10 }),
+            ..Default::default()
+        };
+
+        let policy = ast::PolicyBracket {
+            kind: Some(ast::policy_bracket::Kind::Retry(retry_policy)),
+        };
+
+        let action_call = ast::ActionCall {
+            action_name: "do_work".to_string(),
+            policies: vec![policy],
+            ..Default::default()
+        };
+
+        let expr = ast::Expr {
+            kind: Some(ast::expr::Kind::ActionCall(action_call)),
+            ..Default::default()
+        };
+
+        let assignment = ast::Assignment {
+            targets: vec!["result".to_string()],
+            value: Some(expr),
+        };
+
+        let assign_stmt = ast::Statement {
+            kind: Some(ast::statement::Kind::Assignment(assignment)),
+            ..Default::default()
+        };
+
+        let var = ast::Variable {
+            name: "result".to_string(),
+        };
+
+        let var_expr = ast::Expr {
+            kind: Some(ast::expr::Kind::Variable(var)),
+            ..Default::default()
+        };
+
+        let return_stmt_inner = ast::ReturnStmt {
+            value: Some(var_expr),
+        };
+
+        let return_stmt = ast::Statement {
+            kind: Some(ast::statement::Kind::ReturnStmt(return_stmt_inner)),
+            ..Default::default()
+        };
+
+        let block = ast::Block {
+            statements: vec![assign_stmt, return_stmt],
+            span: None,
+        };
+
+        let io_decl = ast::IoDecl {
+            outputs: vec!["result".to_string()],
+            ..Default::default()
+        };
+
+        let func = ast::FunctionDef {
+            name: "main".to_string(),
+            io: Some(io_decl),
+            body: Some(block),
+            ..Default::default()
+        };
+
+        let program = ast::Program {
+            functions: vec![func],
+        };
+
+        // Serialize to protobuf
+        let proto_bytes = program.encode_to_vec();
+
+        // Decode back (like Rust runner would)
+        let decoded_program = ast::Program::decode(&proto_bytes[..]).unwrap();
+
+        // Verify policies are in decoded program
+        let decoded_action = &decoded_program.functions[0]
+            .body
+            .as_ref()
+            .unwrap()
+            .statements[0];
+        if let Some(ast::statement::Kind::Assignment(ref assign)) = decoded_action.kind {
+            if let Some(ref expr) = assign.value {
+                if let Some(ast::expr::Kind::ActionCall(ref ac)) = expr.kind {
+                    assert_eq!(
+                        ac.policies.len(),
+                        1,
+                        "Should have 1 policy after proto decode"
+                    );
+                    if let Some(ast::policy_bracket::Kind::Retry(ref r)) = ac.policies[0].kind {
+                        assert_eq!(
+                            r.max_retries, 2,
+                            "max_retries should be 2 after proto decode"
+                        );
+                    } else {
+                        panic!("Expected retry policy");
+                    }
+                }
+            }
+        }
+
+        // Now convert to DAG
+        let dag = convert_to_dag(&decoded_program).unwrap();
+
+        // Find the action node
+        let action_node = dag
+            .nodes
+            .values()
+            .find(|n| n.action_name.as_deref() == Some("do_work"))
+            .expect("Should find do_work action");
+
+        assert!(
+            !action_node.policies.is_empty(),
+            "Action node should have policies after DAG conversion. Node: {:?}",
+            action_node
+        );
+
+        let has_retry = action_node.policies.iter().any(|p| {
+            matches!(
+                &p.kind,
+                Some(ast::policy_bracket::Kind::Retry(r)) if r.max_retries == 2
+            )
+        });
+        assert!(has_retry, "Should have retry policy with max_retries=2");
+    }
+
+    #[test]
+    fn test_policies_preserved_through_nested_function_calls() {
+        // Test that policies on action_call nodes inside helper functions
+        // that are called from another function are preserved.
+        //
+        // Pattern (like ReloadCommentsRappel):
+        //   fn handle_comment_crawl(input: [], output: [result]):
+        //     result = @perform_crawl() [retry: 2]
+        //     return result
+        //
+        //   fn run_inner(input: [], output: [result]):
+        //     result = handle_comment_crawl()
+        //     return result
+        //
+        //   fn main(input: [], output: []):
+        //     x = run_inner()
+        //     return x
+        //
+        // After expansion, the action node should still have retry: 2
+        let source = r#"
+fn handle_comment_crawl(input: [], output: [result]):
+    result = @perform_crawl() [retry: 2, backoff: 10s]
+    return result
+
+fn run_inner(input: [], output: [result]):
+    result = handle_comment_crawl()
+    return result
+
+fn main(input: [], output: [final]):
+    final = run_inner()
+    return final
+"#;
+        let program = parse(source).unwrap();
+        let dag = convert_to_dag(&program).unwrap();
+
+        // Find the expanded action node (should have prefix from nested expansion)
+        let action_nodes: Vec<_> = dag
+            .nodes
+            .values()
+            .filter(|n| n.action_name.as_deref() == Some("perform_crawl"))
+            .collect();
+
+        assert!(
+            !action_nodes.is_empty(),
+            "Should find perform_crawl action nodes"
+        );
+
+        for action_node in action_nodes {
+            println!(
+                "Found action node: {} with {} policies",
+                action_node.id,
+                action_node.policies.len()
+            );
+            assert!(
+                !action_node.policies.is_empty(),
+                "Action node {} should have policies. Node: {:?}",
+                action_node.id,
+                action_node
+            );
+
+            let has_retry_policy = action_node.policies.iter().any(|p| {
+                matches!(
+                    &p.kind,
+                    Some(crate::parser::ast::policy_bracket::Kind::Retry(retry)) if retry.max_retries == 2
+                )
+            });
+            assert!(
+                has_retry_policy,
+                "Action {} should have retry policy with max_retries=2. Policies: {:?}",
+                action_node.id, action_node.policies
+            );
+        }
+    }
 }

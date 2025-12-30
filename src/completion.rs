@@ -179,6 +179,18 @@ pub struct ReadinessIncrement {
 
     /// Scheduled time for durable sleep actions.
     pub scheduled_at: Option<chrono::DateTime<chrono::Utc>>,
+
+    /// Timeout in seconds for action execution.
+    pub timeout_seconds: i32,
+
+    /// Maximum number of retries for the action.
+    pub max_retries: i32,
+
+    /// Backoff strategy for retries.
+    pub backoff_kind: crate::db::BackoffKind,
+
+    /// Base delay in milliseconds for backoff.
+    pub backoff_base_delay_ms: i32,
 }
 
 /// Type of node for the action queue.
@@ -231,6 +243,54 @@ impl CompletionResult {
             ..Default::default()
         }
     }
+}
+
+// ============================================================================
+// Policy Extraction
+// ============================================================================
+
+/// Extracted policy values from a DAGNode for action enqueuing.
+#[derive(Debug, Clone)]
+pub struct ExtractedPolicies {
+    pub timeout_seconds: i32,
+    pub max_retries: i32,
+    pub backoff_kind: crate::db::BackoffKind,
+    pub backoff_base_delay_ms: i32,
+}
+
+impl Default for ExtractedPolicies {
+    fn default() -> Self {
+        Self {
+            timeout_seconds: 300,
+            max_retries: 3,
+            backoff_kind: crate::db::BackoffKind::Exponential,
+            backoff_base_delay_ms: 1000,
+        }
+    }
+}
+
+/// Extract policy values from a DAGNode's policies.
+pub fn extract_policies_from_node(node: &DAGNode) -> ExtractedPolicies {
+    let mut policies = ExtractedPolicies::default();
+
+    for policy in &node.policies {
+        match &policy.kind {
+            Some(ast::policy_bracket::Kind::Retry(retry)) => {
+                policies.max_retries = retry.max_retries as i32;
+                if let Some(ref backoff) = retry.backoff {
+                    policies.backoff_base_delay_ms = (backoff.seconds as i32) * 1000;
+                }
+            }
+            Some(ast::policy_bracket::Kind::Timeout(timeout_policy)) => {
+                if let Some(ref duration) = timeout_policy.timeout {
+                    policies.timeout_seconds = duration.seconds as i32;
+                }
+            }
+            None => {}
+        }
+    }
+
+    policies
 }
 
 // ============================================================================
@@ -882,6 +942,9 @@ pub fn execute_inline_subgraph(
                         plan.readiness_resets.push(frontier.node_id.clone());
                     }
 
+                    // Extract retry/timeout policies from the node
+                    let policies = extract_policies_from_node(frontier_node);
+
                     plan.readiness_increments.push(ReadinessIncrement {
                         node_id: frontier.node_id.clone(),
                         required_count: frontier.required_count,
@@ -890,6 +953,10 @@ pub fn execute_inline_subgraph(
                         action_name: frontier_node.action_name.clone(),
                         dispatch_payload: Some(dispatch_payload),
                         scheduled_at,
+                        timeout_seconds: policies.timeout_seconds,
+                        max_retries: policies.max_retries,
+                        backoff_kind: policies.backoff_kind,
+                        backoff_base_delay_ms: policies.backoff_base_delay_ms,
                     });
                 }
                 FrontierCategory::Barrier => {
@@ -922,6 +989,8 @@ pub fn execute_inline_subgraph(
                         plan.readiness_resets.push(frontier.node_id.clone());
                     }
 
+                    // Barriers use default policy values (internal nodes)
+                    let default_policies = ExtractedPolicies::default();
                     plan.readiness_increments.push(ReadinessIncrement {
                         node_id: frontier.node_id.clone(),
                         required_count: frontier.required_count,
@@ -930,6 +999,10 @@ pub fn execute_inline_subgraph(
                         action_name: None,
                         dispatch_payload: None,
                         scheduled_at: None,
+                        timeout_seconds: default_policies.timeout_seconds,
+                        max_retries: default_policies.max_retries,
+                        backoff_kind: default_policies.backoff_kind,
+                        backoff_base_delay_ms: default_policies.backoff_base_delay_ms,
                     });
                 }
                 FrontierCategory::Output => {

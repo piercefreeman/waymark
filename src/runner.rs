@@ -3405,9 +3405,21 @@ impl DAGRunner {
         let mut backoff_base_delay_ms = 1000i32;
         let mut timeout_seconds = 300i32;
 
+        debug!(
+            node_id = %node.id,
+            action_name = %action_name,
+            policies_count = node.policies.len(),
+            "creating action from node - checking policies"
+        );
+
         for policy in &node.policies {
             match &policy.kind {
                 Some(crate::parser::ast::policy_bracket::Kind::Retry(retry)) => {
+                    debug!(
+                        node_id = %node.id,
+                        max_retries = retry.max_retries,
+                        "found retry policy on node"
+                    );
                     max_retries = retry.max_retries as i32;
                     if let Some(ref backoff) = retry.backoff {
                         // Convert seconds to milliseconds
@@ -3422,6 +3434,13 @@ impl DAGRunner {
                 None => {}
             }
         }
+
+        debug!(
+            node_id = %node.id,
+            action_name = %action_name,
+            final_max_retries = max_retries,
+            "action created with max_retries"
+        );
 
         Ok(Some(NewAction {
             instance_id,

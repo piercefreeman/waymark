@@ -1576,10 +1576,10 @@ impl Database {
                 .bind(increment.module_name.as_deref().unwrap_or("__internal__"))
                 .bind(increment.action_name.as_deref().unwrap_or("__barrier__"))
                 .bind(increment.dispatch_payload.as_deref().unwrap_or(&[]))
-                .bind(300) // timeout_seconds
-                .bind(3) // max_retries
-                .bind("exponential")
-                .bind(1000) // backoff_base_delay_ms
+                .bind(increment.timeout_seconds)
+                .bind(increment.max_retries)
+                .bind(increment.backoff_kind.as_str())
+                .bind(increment.backoff_base_delay_ms)
                 .bind(&increment.node_id)
                 .bind(increment.node_type.as_str())
                 .bind(increment.scheduled_at)
