@@ -65,9 +65,13 @@ message Statement {
     TryExcept try_except = 7;
     ReturnStmt return_stmt = 8;
     ExprStmt expr_stmt = 9;
+    BreakStmt break_stmt = 11;
   }
   Span span = 10;
 }
+
+// Break statement (exits innermost loop)
+message BreakStmt {}
 
 // Variable assignment: x = expr
 message Assignment {

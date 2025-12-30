@@ -524,6 +524,8 @@ pub struct DAGConverter {
     current_scope_vars: HashMap<String, String>,
     /// var_name -> list of modifying node ids
     var_modifications: HashMap<String, Vec<String>>,
+    /// Stack of loop exit node IDs for break statements
+    loop_exit_stack: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -555,6 +557,7 @@ impl DAGConverter {
             function_defs: HashMap::new(),
             current_scope_vars: HashMap::new(),
             var_modifications: HashMap::new(),
+            loop_exit_stack: Vec::new(),
         }
     }
 
@@ -1764,6 +1767,9 @@ impl DAGConverter {
                     is_noop: false,
                 });
             }
+            ast::statement::Kind::BreakStmt(_) => {
+                return self.convert_break();
+            }
             ast::statement::Kind::ExprStmt(expr_stmt) => self.convert_expr_statement(expr_stmt),
         };
 
@@ -2487,6 +2493,10 @@ impl DAGConverter {
         // ============================================================
         // 4. Convert body nodes
         // ============================================================
+        // Pre-generate exit_id so break statements can wire to it
+        let exit_id = self.next_id("loop_exit");
+        self.loop_exit_stack.push(exit_id.clone());
+
         let mut body_targets: Vec<String> = Vec::new();
         let body_graph = match for_loop.block_body.as_ref() {
             Some(block_body) => {
@@ -2495,6 +2505,8 @@ impl DAGConverter {
             }
             None => ConvertedSubgraph::noop(),
         };
+
+        self.loop_exit_stack.pop();
         nodes.extend(body_graph.nodes.clone());
 
         if body_graph.is_noop {
@@ -2565,7 +2577,7 @@ impl DAGConverter {
         // ============================================================
         // loop_exit only has one predecessor (loop_cond with break guard), so it
         // can be treated as inline when the loop body has no actions.
-        let exit_id = self.next_id("loop_exit");
+        // Note: exit_id was pre-generated before the body so break statements can wire to it.
         let exit_label = format!("end for {}", loop_vars_str);
         let mut exit_node = DAGNode::new(exit_id.clone(), "join".to_string(), exit_label)
             .with_join_required_count(1);
@@ -3034,6 +3046,32 @@ impl DAGConverter {
         vec![node_id]
     }
 
+    /// Convert a break statement
+    fn convert_break(&mut self) -> Result<ConvertedSubgraph, String> {
+        let loop_exit = self.loop_exit_stack.last().cloned().ok_or_else(|| {
+            "break statement outside of loop".to_string()
+        })?;
+
+        let node_id = self.next_id("break");
+        let mut node = DAGNode::new(node_id.clone(), "break".to_string(), "break".to_string());
+
+        if let Some(ref fn_name) = self.current_function {
+            node = node.with_function_name(fn_name);
+        }
+        self.dag.add_node(node);
+
+        // Wire break directly to loop exit
+        self.dag.add_edge(DAGEdge::state_machine(node_id.clone(), loop_exit));
+
+        // Break has no normal exits - it jumps to the loop exit
+        Ok(ConvertedSubgraph {
+            entry: Some(node_id.clone()),
+            exits: Vec::new(),
+            nodes: vec![node_id],
+            is_noop: false,
+        })
+    }
+
     /// Convert an expression statement
     fn convert_expr_statement(&mut self, expr_stmt: &ast::ExprStmt) -> Vec<String> {
         let expr = match &expr_stmt.expr {
@@ -3143,6 +3181,7 @@ impl DAGConverter {
                 | ast::statement::Kind::SpreadAction(_)
                 | ast::statement::Kind::ActionCall(_)
                 | ast::statement::Kind::ReturnStmt(_)
+                | ast::statement::Kind::BreakStmt(_)
                 | ast::statement::Kind::ExprStmt(_) => {}
             }
         }
@@ -3740,6 +3779,133 @@ mod tests {
         assert!(
             has_exit_edge,
             "expected loop_exit -> @after() edge for the empty-iteration fallthrough path"
+        );
+    }
+
+    #[test]
+    fn test_break_statement_in_for_loop() {
+        // Test that break statement wires to the loop exit
+        let source = r#"fn main(input: [items], output: [result]):
+    for item in items:
+        if item.found:
+            break
+        x = @process(i=item)
+    result = @after()
+    return result"#;
+
+        let program = parse(source).unwrap();
+        let dag = convert_to_dag(&program).unwrap();
+
+        // Find the break node
+        let break_node = dag
+            .nodes
+            .values()
+            .find(|n| n.node_type == "break")
+            .expect("expected break node");
+
+        // Find the loop_exit node
+        let loop_exit = dag
+            .nodes
+            .values()
+            .find(|n| n.node_type == "join" && n.label.starts_with("end for "))
+            .expect("expected loop_exit join node");
+
+        // Break should have a state machine edge to loop_exit
+        let has_break_to_exit_edge = dag.edges.iter().any(|e| {
+            e.edge_type == EdgeType::StateMachine
+                && e.source == break_node.id
+                && e.target == loop_exit.id
+        });
+        assert!(
+            has_break_to_exit_edge,
+            "expected break -> loop_exit edge, found edges: {:?}",
+            dag.edges.iter().filter(|e| e.source == break_node.id).collect::<Vec<_>>()
+        );
+
+        // After action should be reachable from loop_exit
+        let after_node = dag
+            .nodes
+            .values()
+            .find(|n| n.node_type == "action_call" && n.action_name.as_deref() == Some("after"))
+            .expect("expected @after() node");
+
+        let has_exit_to_after_edge = dag.edges.iter().any(|e| {
+            e.edge_type == EdgeType::StateMachine
+                && e.source == loop_exit.id
+                && e.target == after_node.id
+        });
+        assert!(
+            has_exit_to_after_edge,
+            "expected loop_exit -> @after() edge for continuation after break"
+        );
+    }
+
+    #[test]
+    fn test_break_outside_loop_fails() {
+        // Test that break statement outside a loop returns an error
+        let source = r#"fn main(input: [], output: []):
+    break"#;
+
+        let program = parse(source).unwrap();
+        let result = convert_to_dag(&program);
+        assert!(
+            result.is_err(),
+            "expected error for break outside loop, got: {:?}",
+            result
+        );
+        assert!(
+            result.unwrap_err().contains("break statement outside of loop"),
+            "expected 'break statement outside of loop' error"
+        );
+    }
+
+    #[test]
+    fn test_break_in_nested_loop() {
+        // Test that break in nested loop only exits the innermost loop
+        let source = r#"fn main(input: [outer, inner], output: [result]):
+    for x in outer:
+        for y in inner:
+            if y.found:
+                break
+            a = @inner_action(y=y)
+        b = @outer_action(x=x)
+    result = @after()
+    return result"#;
+
+        let program = parse(source).unwrap();
+        let dag = convert_to_dag(&program).unwrap();
+
+        // Find all break nodes (should be one)
+        let break_nodes: Vec<_> = dag
+            .nodes
+            .values()
+            .filter(|n| n.node_type == "break")
+            .collect();
+        assert_eq!(break_nodes.len(), 1, "expected exactly one break node");
+
+        // Find all loop_exit nodes (should be two, one for each loop)
+        let loop_exits: Vec<_> = dag
+            .nodes
+            .values()
+            .filter(|n| n.node_type == "join" && n.label.starts_with("end for "))
+            .collect();
+        assert_eq!(loop_exits.len(), 2, "expected two loop_exit nodes for nested loops");
+
+        // The break should connect to the inner loop's exit, which should be
+        // the one with "y" in its label
+        let inner_loop_exit = loop_exits
+            .iter()
+            .find(|n| n.label.contains("y"))
+            .expect("expected inner loop exit for 'y'");
+
+        let has_break_to_inner_exit = dag.edges.iter().any(|e| {
+            e.edge_type == EdgeType::StateMachine
+                && e.source == break_nodes[0].id
+                && e.target == inner_loop_exit.id
+        });
+        assert!(
+            has_break_to_inner_exit,
+            "break should connect to inner loop's exit, not outer"
         );
     }
 

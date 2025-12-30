@@ -290,6 +290,10 @@ impl<'source> Parser<'source> {
             Token::For => Some(ast::statement::Kind::ForLoop(self.parse_for_loop()?)),
             Token::Try => Some(ast::statement::Kind::TryExcept(self.parse_try_except()?)),
             Token::Return => Some(ast::statement::Kind::ReturnStmt(self.parse_return()?)),
+            Token::Break => {
+                self.advance(); // Consume 'break'
+                Some(ast::statement::Kind::BreakStmt(ast::BreakStmt {}))
+            }
             Token::Spread => Some(ast::statement::Kind::SpreadAction(
                 self.parse_spread_action()?,
             )),
@@ -576,6 +580,7 @@ impl<'source> Parser<'source> {
                 | Token::For
                 | Token::Try
                 | Token::Return
+                | Token::Break
                 | Token::Spread
                 | Token::Parallel
                 | Token::Fn => None,

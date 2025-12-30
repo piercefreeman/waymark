@@ -74,6 +74,8 @@ pub enum Token {
     As,
     #[token("return")]
     Return,
+    #[token("break")]
+    Break,
     #[token("and")]
     And,
     #[token("or")]
@@ -201,6 +203,7 @@ impl fmt::Display for Token {
             Token::Except => write!(f, "except"),
             Token::As => write!(f, "as"),
             Token::Return => write!(f, "return"),
+            Token::Break => write!(f, "break"),
             Token::And => write!(f, "and"),
             Token::Or => write!(f, "or"),
             Token::Not => write!(f, "not"),
