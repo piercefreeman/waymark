@@ -328,6 +328,9 @@ def build_workflow_ir(workflow_cls: type["Workflow"]) -> ir.Program:
     program = ir.Program()
     function_defs: Dict[str, ir.FunctionDef] = {}
 
+    # Extract instance attributes from __init__ for policy resolution
+    instance_attrs = _extract_instance_attrs(workflow_cls)
+
     def parse_function(fn: Any) -> tuple[ast.AST, Optional[str], int]:
         source_lines, start_line = inspect.getsourcelines(fn)
         function_source = textwrap.dedent("".join(source_lines))
@@ -376,6 +379,7 @@ def build_workflow_ir(workflow_cls: type["Workflow"]) -> ir.Program:
             ctx_data.module_functions,
             ctx_data.model_defs,
             fn_module.__dict__,
+            instance_attrs,
         )
         try:
             builder.visit(fn_tree)
@@ -448,6 +452,47 @@ def _find_workflow_method(workflow_cls: type["Workflow"], name: str) -> Optional
         if inspect.isfunction(value):
             return value
     return None
+
+
+def _extract_instance_attrs(workflow_cls: type["Workflow"]) -> Dict[str, ast.expr]:
+    """Extract self.attr = value assignments from the workflow's __init__ method.
+
+    Parses the __init__ method to find assignments like:
+        self.retry_policy = RetryPolicy(attempts=3)
+        self.timeout = 30
+
+    Returns a dict mapping attribute names to their AST value nodes.
+    """
+    init_method = _find_workflow_method(workflow_cls, "__init__")
+    if init_method is None:
+        return {}
+
+    try:
+        source_lines, _ = inspect.getsourcelines(init_method)
+        source = textwrap.dedent("".join(source_lines))
+        tree = ast.parse(source)
+    except (OSError, TypeError, SyntaxError):
+        return {}
+
+    attrs: Dict[str, ast.expr] = {}
+
+    # Walk the __init__ body looking for self.attr = value assignments
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        # Only handle single-target assignments
+        if len(node.targets) != 1:
+            continue
+        target = node.targets[0]
+        # Check for self.attr pattern
+        if (
+            isinstance(target, ast.Attribute)
+            and isinstance(target.value, ast.Name)
+            and target.value.id == "self"
+        ):
+            attrs[target.attr] = node.value
+
+    return attrs
 
 
 def _discover_action_names(module: Any) -> Dict[str, ActionDefinition]:
@@ -743,6 +788,7 @@ class IRBuilder(ast.NodeVisitor):
         module_functions: Optional[Set[str]] = None,
         model_defs: Optional[Dict[str, ModelDefinition]] = None,
         module_globals: Optional[Mapping[str, Any]] = None,
+        instance_attrs: Optional[Dict[str, ast.expr]] = None,
     ):
         self._action_defs = action_defs
         self._ctx = ctx
@@ -750,6 +796,7 @@ class IRBuilder(ast.NodeVisitor):
         self._module_functions = module_functions or set()
         self._model_defs = model_defs or {}
         self._module_globals = module_globals or {}
+        self._instance_attrs = instance_attrs or {}
         self.function_def: Optional[ir.FunctionDef] = None
         self._statements: List[ir.Statement] = []
 
@@ -2461,7 +2508,19 @@ class IRBuilder(ast.NodeVisitor):
         - RetryPolicy(attempts=3)
         - RetryPolicy(attempts=3, exception_types=["ValueError"])
         - RetryPolicy(attempts=3, backoff_seconds=5)
+        - self.retry_policy (instance attribute reference)
         """
+        # Handle self.attr pattern - look up in instance attrs
+        if (
+            isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "self"
+        ):
+            attr_name = node.attr
+            if attr_name in self._instance_attrs:
+                return self._parse_retry_policy(self._instance_attrs[attr_name])
+            return None
+
         if not isinstance(node, ast.Call):
             return None
 
@@ -2499,7 +2558,19 @@ class IRBuilder(ast.NodeVisitor):
         - timeout=30.5 (float seconds)
         - timeout=timedelta(seconds=30)
         - timeout=timedelta(minutes=2)
+        - self.timeout (instance attribute reference)
         """
+        # Handle self.attr pattern - look up in instance attrs
+        if (
+            isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "self"
+        ):
+            attr_name = node.attr
+            if attr_name in self._instance_attrs:
+                return self._parse_timeout_policy(self._instance_attrs[attr_name])
+            return None
+
         policy = ir.TimeoutPolicy()
 
         # Direct numeric value (seconds)
