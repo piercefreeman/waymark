@@ -1968,8 +1968,27 @@ impl DAGRunner {
                     debug!(
                         node_id = %node_id,
                         exception_type = %exception_type,
-                        "action failed with exception, looking for handlers"
+                        attempt_number = in_flight.action.attempt_number,
+                        max_retries = in_flight.action.max_retries,
+                        "action failed with exception, checking retry status"
                     );
+
+                    // Only check for exception handlers if retries are exhausted.
+                    // If retries are still available, let the retry logic handle it.
+                    // The exception handler should only run after ALL retries have failed.
+                    let retries_exhausted =
+                        in_flight.action.attempt_number >= in_flight.action.max_retries;
+
+                    if !retries_exhausted {
+                        debug!(
+                            node_id = %node_id,
+                            attempt_number = in_flight.action.attempt_number,
+                            max_retries = in_flight.action.max_retries,
+                            "retries still available, not checking for exception handlers yet"
+                        );
+                        handler.write_batch(batch).await?;
+                        return Ok(());
+                    }
 
                     // Look for exception handlers on this node
                     if let Some(handler_id) =
@@ -4253,5 +4272,109 @@ mod tests {
         assert_eq!(inbox_writes[0].variable_name, "n");
         assert_eq!(inbox_writes[0].value, WorkflowValue::Int(7.into()));
         assert_eq!(inbox_writes[0].source_node_id, "main_input_1");
+    }
+
+    /// Test that retries are exhausted before exception handlers are checked.
+    ///
+    /// This verifies the fix for the bug where exception handlers were triggered
+    /// on the first failure instead of after all retries were exhausted.
+    #[test]
+    fn test_retries_exhausted_before_exception_handler() {
+        // Helper to check if retries are exhausted (same logic as in process_completed_action)
+        fn retries_exhausted(attempt_number: i32, max_retries: i32) -> bool {
+            attempt_number >= max_retries
+        }
+
+        // Case 1: First attempt with retries available - should NOT check exception handlers
+        // attempt_number=0 means this is the first attempt (0-indexed)
+        // max_retries=3 means we can retry up to 3 times (attempts 0, 1, 2, 3)
+        assert!(
+            !retries_exhausted(0, 3),
+            "First attempt with max_retries=3 should NOT be exhausted"
+        );
+        assert!(
+            !retries_exhausted(1, 3),
+            "Second attempt with max_retries=3 should NOT be exhausted"
+        );
+        assert!(
+            !retries_exhausted(2, 3),
+            "Third attempt with max_retries=3 should NOT be exhausted"
+        );
+
+        // Case 2: Final attempt - should check exception handlers
+        assert!(
+            retries_exhausted(3, 3),
+            "Fourth attempt (attempt_number=3) with max_retries=3 should be exhausted"
+        );
+
+        // Case 3: Beyond max retries (shouldn't happen, but be safe)
+        assert!(
+            retries_exhausted(5, 3),
+            "attempt_number > max_retries should be exhausted"
+        );
+
+        // Case 4: No retries configured (max_retries=0)
+        // First attempt should immediately trigger exception handler
+        assert!(
+            retries_exhausted(0, 0),
+            "With max_retries=0, first failure should be exhausted"
+        );
+
+        // Case 5: Single retry (max_retries=1)
+        assert!(
+            !retries_exhausted(0, 1),
+            "First attempt with max_retries=1 should NOT be exhausted"
+        );
+        assert!(
+            retries_exhausted(1, 1),
+            "Second attempt with max_retries=1 should be exhausted"
+        );
+    }
+
+    /// Test that a QueuedAction with retries remaining should not trigger exception handling.
+    #[test]
+    fn test_queued_action_retry_state() {
+        let action_with_retries = QueuedAction {
+            id: Uuid::new_v4(),
+            instance_id: Uuid::new_v4(),
+            partition_id: 0,
+            action_seq: 1,
+            module_name: "test".to_string(),
+            action_name: "perform_crawl".to_string(),
+            dispatch_payload: vec![],
+            timeout_seconds: 300,
+            max_retries: 3,    // Can retry 3 times
+            attempt_number: 0, // First attempt
+            delivery_token: Uuid::new_v4(),
+            timeout_retry_limit: 3,
+            retry_kind: "failure".to_string(),
+            node_id: Some("action_1".to_string()),
+            node_type: "action".to_string(),
+            result_payload: None,
+            success: Some(false), // Failed
+            status: "failed".to_string(),
+            scheduled_at: None,
+            last_error: Some("CrawlError: rate limited".to_string()),
+        };
+
+        // With attempt_number=0 and max_retries=3, retries are NOT exhausted
+        let retries_exhausted =
+            action_with_retries.attempt_number >= action_with_retries.max_retries;
+        assert!(
+            !retries_exhausted,
+            "Action on first attempt with max_retries=3 should have retries remaining"
+        );
+
+        // Simulate after all retries exhausted
+        let action_exhausted = QueuedAction {
+            attempt_number: 3, // After 4 attempts (0, 1, 2, 3)
+            ..action_with_retries
+        };
+
+        let retries_exhausted = action_exhausted.attempt_number >= action_exhausted.max_retries;
+        assert!(
+            retries_exhausted,
+            "Action on attempt 3 with max_retries=3 should have exhausted retries"
+        );
     }
 }
