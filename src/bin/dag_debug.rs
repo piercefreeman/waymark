@@ -130,6 +130,14 @@ async fn main() {
         );
     }
 
+    println!("\n=== Exception Edges ===");
+    for edge in dag.edges.iter().filter(|e| e.exception_types.is_some()) {
+        println!(
+            "{} -> {} (types={:?})",
+            edge.source, edge.target, edge.exception_types
+        );
+    }
+
     println!("\n=== Data Flow Edges ===");
     for edge in dag
         .edges

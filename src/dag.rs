@@ -741,6 +741,9 @@ impl DAGConverter {
         // Track first and last "real" nodes (excluding input for inlined functions)
         let mut first_real_node: Option<String> = None;
         let mut last_real_node: Option<String> = None;
+        // Track output/return nodes specifically - these are the true "last" nodes
+        // even if topological order puts loop_incr nodes later (due to loop_back edges being skipped)
+        let mut output_return_node: Option<String> = None;
 
         // Clone nodes
         for old_id in &ordered_nodes {
@@ -951,6 +954,12 @@ impl DAGConverter {
             }
             last_real_node = Some(new_id.clone());
 
+            // Track output/return nodes as the canonical "last" nodes for this function.
+            // These are the true exit points, even if topo order places them before loop_incr nodes.
+            if node.node_type == "output" || node.node_type == "return" {
+                output_return_node = Some(new_id.clone());
+            }
+
             target.add_node(cloned);
         }
 
@@ -1021,8 +1030,12 @@ impl DAGConverter {
             target.add_edge(cloned_edge);
         }
 
-        // Return first and last real nodes for parent to wire up
-        match (first_real_node, last_real_node) {
+        // Return first and last real nodes for parent to wire up.
+        // Prefer output/return nodes as "last" since they are the canonical exit points.
+        // This is important when loops are present: loop_incr nodes may appear last in
+        // topo order (because loop_back edges are skipped), but they are NOT the exit point.
+        let canonical_last = output_return_node.or(last_real_node);
+        match (first_real_node, canonical_last) {
             (Some(first), Some(last)) => Some((first, last)),
             _ => None,
         }
@@ -7220,6 +7233,95 @@ fn main(input: [], output: [final]):
         assert!(
             !outer_error_edges.is_empty(),
             "Should have exception edges for OuterError"
+        );
+    }
+
+    #[test]
+    fn test_try_except_with_loop_inside_fn_call_no_spurious_edges() {
+        // Regression test: when a function with a for loop is called inside a try block,
+        // the success edge from the fn_call to the join should be remapped to the LAST
+        // node of the expansion (the output node), NOT to internal nodes like loop_incr.
+        //
+        // Pattern:
+        //   fn run_inner():
+        //     for _ in range(5):
+        //       x = @action()
+        //     result = @final()
+        //     return result
+        //
+        //   fn main():
+        //     try:
+        //       result = run_inner()
+        //     except Error:
+        //       result = @fallback()
+        //     return result
+        //
+        // Bug: The success edge from run_inner's expansion was incorrectly going from
+        // loop_incr to join, causing every loop iteration to trigger the outer join.
+        let source = r#"
+fn run_inner(input: [], output: [result]):
+    for _ in range(5):
+        x = @loop_action()
+    result = @final_action()
+    return result
+
+fn main(input: [], output: []):
+    try:
+        result = run_inner()
+    except Error:
+        result = @fallback()
+    return result
+"#;
+        let program = parse(source).unwrap();
+        let dag = convert_to_dag(&program).expect("should convert");
+
+        // Find the join node (after the try/except)
+        let join_nodes: Vec<_> = dag
+            .nodes
+            .iter()
+            .filter(|(_, n)| n.node_type == "join" && n.function_name.as_deref() == Some("main"))
+            .collect();
+        assert!(!join_nodes.is_empty(), "Should have a join node in main");
+        let join_id = join_nodes[0].0;
+
+        // Check edges TO the join
+        let edges_to_join: Vec<_> = dag
+            .edges
+            .iter()
+            .filter(|e| &e.target == join_id && e.edge_type == EdgeType::StateMachine)
+            .collect();
+
+        // There should be edges from:
+        // 1. The fallback action (handler exit)
+        // 2. The output node of run_inner (success path)
+        // There should NOT be edges from internal loop nodes like loop_incr
+
+        for edge in &edges_to_join {
+            // No edge should come from a loop_incr node
+            assert!(
+                !edge.source.contains("loop_incr"),
+                "Join should not have incoming edge from loop_incr node: {} -> {}",
+                edge.source,
+                edge.target
+            );
+            // No edge should come from a loop_cond node
+            assert!(
+                !edge.source.contains("loop_cond"),
+                "Join should not have incoming edge from loop_cond node: {} -> {}",
+                edge.source,
+                edge.target
+            );
+        }
+
+        // Either output or return node should go to join for success path
+        // (or it could be the handler exit, which is also valid)
+        let valid_sources: Vec<_> = edges_to_join.iter().map(|e| e.source.as_str()).collect();
+        assert!(
+            valid_sources
+                .iter()
+                .any(|s| s.contains("output") || s.contains("return") || s.contains("fallback")),
+            "Join should have incoming edge from output/return or fallback node. Got: {:?}",
+            valid_sources
         );
     }
 }
