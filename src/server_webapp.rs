@@ -272,11 +272,19 @@ async fn workflow_run_detail(
         .await
         .unwrap_or_default();
 
+    // Load action logs for this instance
+    let action_logs = state
+        .database
+        .get_instance_action_logs(crate::db::WorkflowInstanceId(instance_id))
+        .await
+        .unwrap_or_default();
+
     Html(render_workflow_run_page(
         &state.templates,
         &version,
         &instance,
         &actions,
+        &action_logs,
     ))
 }
 
@@ -794,6 +802,8 @@ struct WorkflowRunPageContext {
     graph_data: ExecutionGraphData,
     /// JSON-encoded node data for client-side use (avoids HTML entity escaping)
     nodes_json: String,
+    /// JSON-encoded action logs for client-side use (keyed by action_id)
+    action_logs_json: String,
 }
 
 /// Graph data for execution visualization (includes status)
@@ -827,6 +837,8 @@ struct InstanceContext {
 #[derive(Serialize)]
 struct NodeExecutionContext {
     id: String,
+    /// The action queue ID (for looking up execution logs)
+    action_id: String,
     module: String,
     action: String,
     status: String,
@@ -846,11 +858,35 @@ struct NodeExecutionContext {
     last_error: Option<String>,
 }
 
+/// Context for action execution log entries (shows retry history)
+#[derive(Serialize)]
+struct ActionLogContext {
+    /// Unique log ID for stable sorting
+    id: String,
+    /// The action ID this log belongs to
+    action_id: String,
+    /// Attempt number (0-indexed)
+    attempt_number: i32,
+    /// When this attempt was dispatched (with milliseconds for precise sorting)
+    dispatched_at: String,
+    /// When this attempt completed (if completed)
+    completed_at: Option<String>,
+    /// Whether this attempt succeeded
+    success: Option<bool>,
+    /// Duration in milliseconds
+    duration_ms: Option<i64>,
+    /// Error message if failed
+    error_message: Option<String>,
+    /// Result payload (formatted as JSON string)
+    result_payload: Option<String>,
+}
+
 fn render_workflow_run_page(
     templates: &Tera,
     version: &crate::db::WorkflowVersion,
     instance: &crate::db::WorkflowInstance,
     actions: &[crate::db::QueuedAction],
+    action_logs: &[crate::db::ActionLog],
 ) -> String {
     let workflow = WorkflowDetailMetadata {
         id: version.id.to_string(),
@@ -939,6 +975,7 @@ fn render_workflow_run_page(
         .iter()
         .map(|a| NodeExecutionContext {
             id: a.node_id.clone().unwrap_or_else(|| a.id.to_string()),
+            action_id: a.id.to_string(),
             module: a.module_name.clone(),
             action: a.action_name.clone(),
             status: a.status.clone(),
@@ -962,6 +999,37 @@ fn render_workflow_run_page(
     // Serialize nodes to JSON for client-side use (avoids HTML entity escaping issues)
     let nodes_json = serde_json::to_string(&nodes).unwrap_or_else(|_| "[]".to_string());
 
+    // Build action logs map: action_id -> Vec<ActionLogContext>
+    let mut logs_by_action: std::collections::HashMap<String, Vec<ActionLogContext>> =
+        std::collections::HashMap::new();
+    for log in action_logs {
+        let log_ctx = ActionLogContext {
+            id: log.id.to_string(),
+            action_id: log.action_id.to_string(),
+            attempt_number: log.attempt_number,
+            dispatched_at: log
+                .dispatched_at
+                .format("%Y-%m-%d %H:%M:%S%.3f UTC")
+                .to_string(),
+            completed_at: log
+                .completed_at
+                .map(|dt| dt.format("%Y-%m-%d %H:%M:%S%.3f UTC").to_string()),
+            success: log.success,
+            duration_ms: log.duration_ms,
+            error_message: log.error_message.clone(),
+            result_payload: log
+                .result_payload
+                .as_ref()
+                .map(|p| format_binary_payload(p)),
+        };
+        logs_by_action
+            .entry(log.action_id.to_string())
+            .or_default()
+            .push(log_ctx);
+    }
+    let action_logs_json =
+        serde_json::to_string(&logs_by_action).unwrap_or_else(|_| "{}".to_string());
+
     let context = WorkflowRunPageContext {
         title: format!("Run {} - {}", instance.id, version.workflow_name),
         active_tab: "workflows".to_string(),
@@ -970,6 +1038,7 @@ fn render_workflow_run_page(
         nodes,
         graph_data,
         nodes_json,
+        action_logs_json,
     };
 
     render_template(templates, "workflow_run.html", &context)
@@ -1358,7 +1427,10 @@ fn decode_dag_from_proto(proto_bytes: &[u8]) -> Vec<SimpleDagNode> {
     };
 
     // Convert to DAG using the existing converter
-    let dag = crate::dag::convert_to_dag(&program);
+    let dag = match crate::dag::convert_to_dag(&program) {
+        Ok(d) => d,
+        Err(_) => return vec![],
+    };
 
     dag.nodes
         .values()
@@ -1637,8 +1709,10 @@ mod tests {
         };
 
         let actions: Vec<crate::db::QueuedAction> = vec![];
+        let action_logs: Vec<crate::db::ActionLog> = vec![];
 
-        let html = render_workflow_run_page(&templates, &version, &instance, &actions);
+        let html =
+            render_workflow_run_page(&templates, &version, &instance, &actions, &action_logs);
 
         assert!(html.contains("test_workflow"));
         assert!(html.contains("completed"));
@@ -1699,8 +1773,10 @@ mod tests {
             scheduled_at: None,
             last_error: None,
         }];
+        let action_logs: Vec<crate::db::ActionLog> = vec![];
 
-        let html = render_workflow_run_page(&templates, &version, &instance, &actions);
+        let html =
+            render_workflow_run_page(&templates, &version, &instance, &actions, &action_logs);
 
         assert!(html.contains("action_workflow"));
         assert!(html.contains("running"));

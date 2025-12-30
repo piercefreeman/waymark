@@ -1578,6 +1578,92 @@ class TestUnsupportedPatternDetection:
         assert "function" in error.message.lower(), "Error should mention function"
 
 
+class TestBreakStatementSupport:
+    """Test that break statements are properly converted to IR."""
+
+    def test_break_in_for_loop(self) -> None:
+        """Test: break statement in a for loop is converted to IR."""
+        from tests.fixtures_for_loop.for_break import ForBreakWorkflow
+
+        program = ForBreakWorkflow.workflow_ir()
+
+        # Find the for loop statement
+        main_fn = None
+        for fn in program.functions:
+            if fn.name == "main":
+                main_fn = fn
+                break
+
+        assert main_fn is not None, "Should have main function"
+
+        # Find the for loop
+        for_loop = None
+        for stmt in main_fn.body.statements:
+            if stmt.HasField("for_loop"):
+                for_loop = stmt.for_loop
+                break
+
+        assert for_loop is not None, "Should have a for loop"
+
+        # Find the break statement in the loop body
+        def find_break_in_block(block: ir.Block) -> bool:
+            for stmt in block.statements:
+                if stmt.HasField("break_stmt"):
+                    return True
+                if stmt.HasField("conditional"):
+                    cond = stmt.conditional
+                    if cond.if_branch.HasField("block_body"):
+                        if find_break_in_block(cond.if_branch.block_body):
+                            return True
+            return False
+
+        has_break = find_break_in_block(for_loop.block_body)
+        assert has_break, "Should find break statement in for loop body"
+
+
+class TestContinueStatementSupport:
+    """Test that continue statements are properly converted to IR."""
+
+    def test_continue_in_for_loop(self) -> None:
+        """Test: continue statement in a for loop is converted to IR."""
+        from tests.fixtures_for_loop.for_continue import ForContinueWorkflow
+
+        program = ForContinueWorkflow.workflow_ir()
+
+        # Find the for loop statement
+        main_fn = None
+        for fn in program.functions:
+            if fn.name == "main":
+                main_fn = fn
+                break
+
+        assert main_fn is not None, "Should have main function"
+
+        # Find the for loop
+        for_loop = None
+        for stmt in main_fn.body.statements:
+            if stmt.HasField("for_loop"):
+                for_loop = stmt.for_loop
+                break
+
+        assert for_loop is not None, "Should have a for loop"
+
+        # Find the continue statement in the loop body
+        def find_continue_in_block(block: ir.Block) -> bool:
+            for stmt in block.statements:
+                if stmt.HasField("continue_stmt"):
+                    return True
+                if stmt.HasField("conditional"):
+                    cond = stmt.conditional
+                    if cond.if_branch.HasField("block_body"):
+                        if find_continue_in_block(cond.if_branch.block_body):
+                            return True
+            return False
+
+        has_continue = find_continue_in_block(for_loop.block_body)
+        assert has_continue, "Should find continue statement in for loop body"
+
+
 class TestReturnStatements:
     """Test return statement handling."""
 
@@ -2542,6 +2628,80 @@ class TestPolicyVariations:
         policy = action.policies[0]
         assert policy.HasField("timeout"), "Should be timeout policy"
         assert policy.timeout.timeout.seconds == 86400  # 1 day
+
+
+class TestInstanceAttrPolicies:
+    """Test policies stored as instance attributes and referenced via self.attr."""
+
+    def _find_action_by_name(self, program: ir.Program, action_name: str) -> ir.ActionCall | None:
+        """Find an action call by name."""
+        for fn in program.functions:
+            for stmt in fn.body.statements:
+                if stmt.HasField("action_call"):
+                    if stmt.action_call.action_name == action_name:
+                        return stmt.action_call
+                elif stmt.HasField("assignment"):
+                    if stmt.assignment.value.HasField("action_call"):
+                        if stmt.assignment.value.action_call.action_name == action_name:
+                            return stmt.assignment.value.action_call
+        return None
+
+    def test_retry_policy_from_instance_attr(self) -> None:
+        """Test: retry=self.retry_policy resolves to RetryPolicy from __init__."""
+        from tests.fixtures_policy.instance_attr_policies import InstanceAttrPoliciesWorkflow
+
+        program = InstanceAttrPoliciesWorkflow.workflow_ir()
+
+        action = self._find_action_by_name(program, "action_with_instance_retry")
+        assert action is not None, "Should find action_with_instance_retry"
+        assert len(action.policies) == 1, "Should have 1 policy"
+
+        policy = action.policies[0]
+        assert policy.HasField("retry"), "Should be retry policy"
+        # attempts=3 means 3 total executions, so max_retries=2
+        assert policy.retry.max_retries == 2
+        assert policy.retry.backoff.seconds == 10
+
+    def test_timeout_from_instance_attr(self) -> None:
+        """Test: timeout=self.timeout_value resolves to integer from __init__."""
+        from tests.fixtures_policy.instance_attr_policies import InstanceAttrPoliciesWorkflow
+
+        program = InstanceAttrPoliciesWorkflow.workflow_ir()
+
+        action = self._find_action_by_name(program, "action_with_instance_timeout")
+        assert action is not None, "Should find action_with_instance_timeout"
+        assert len(action.policies) == 1, "Should have 1 policy"
+
+        policy = action.policies[0]
+        assert policy.HasField("timeout"), "Should be timeout policy"
+        assert policy.timeout.timeout.seconds == 120
+
+    def test_both_policies_from_instance_attrs(self) -> None:
+        """Test: both retry and timeout from instance attributes."""
+        from tests.fixtures_policy.instance_attr_policies import InstanceAttrPoliciesWorkflow
+
+        program = InstanceAttrPoliciesWorkflow.workflow_ir()
+
+        action = self._find_action_by_name(program, "action_with_both_policies")
+        assert action is not None, "Should find action_with_both_policies"
+        assert len(action.policies) == 2, "Should have 2 policies"
+
+        # Find retry and timeout policies
+        retry_policy = None
+        timeout_policy = None
+        for policy in action.policies:
+            if policy.HasField("retry"):
+                retry_policy = policy.retry
+            elif policy.HasField("timeout"):
+                timeout_policy = policy.timeout
+
+        assert retry_policy is not None, "Should have retry policy"
+        assert timeout_policy is not None, "Should have timeout policy"
+
+        # fast_retry has attempts=2, so max_retries=1
+        assert retry_policy.max_retries == 1
+        # timeout_value = 120
+        assert timeout_policy.timeout.seconds == 120
 
 
 class TestSpreadAction:

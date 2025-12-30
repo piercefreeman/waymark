@@ -92,6 +92,8 @@ impl AstPrinter {
             Some(ast::statement::Kind::TryExcept(try_except)) => self.print_try_except(try_except),
             Some(ast::statement::Kind::ReturnStmt(ret)) => self.print_return(ret),
             Some(ast::statement::Kind::ExprStmt(expr_stmt)) => self.print_expr_statement(expr_stmt),
+            Some(ast::statement::Kind::BreakStmt(_)) => "break".to_string(),
+            Some(ast::statement::Kind::ContinueStmt(_)) => "continue".to_string(),
             None => String::new(),
         }
     }

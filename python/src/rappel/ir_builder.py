@@ -23,7 +23,7 @@ import inspect
 import textwrap
 from dataclasses import dataclass
 from enum import EnumMeta
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, Optional, Set, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, NoReturn, Optional, Set, Union
 
 from proto import ast_pb2 as ir
 from rappel.registry import registry
@@ -229,6 +229,14 @@ RECOMMENDATIONS = {
         "Yield statements are not supported in workflow code.\n"
         "Workflows must return a complete result, not generate values incrementally."
     ),
+    "continue_statement": (
+        "Continue statements are not supported in workflow code.\n"
+        "Restructure your loop using if/else to skip iterations."
+    ),
+    "unsupported_statement": (
+        "This statement type is not supported in workflow code.\n"
+        "Move the logic into an @action or rewrite using supported statements."
+    ),
     "unsupported_expression": (
         "This expression type is not supported in workflow code.\n"
         "Move the logic into an @action or rewrite using supported expressions."
@@ -328,6 +336,9 @@ def build_workflow_ir(workflow_cls: type["Workflow"]) -> ir.Program:
     program = ir.Program()
     function_defs: Dict[str, ir.FunctionDef] = {}
 
+    # Extract instance attributes from __init__ for policy resolution
+    instance_attrs = _extract_instance_attrs(workflow_cls)
+
     def parse_function(fn: Any) -> tuple[ast.AST, Optional[str], int]:
         source_lines, start_line = inspect.getsourcelines(fn)
         function_source = textwrap.dedent("".join(source_lines))
@@ -376,6 +387,7 @@ def build_workflow_ir(workflow_cls: type["Workflow"]) -> ir.Program:
             ctx_data.module_functions,
             ctx_data.model_defs,
             fn_module.__dict__,
+            instance_attrs,
         )
         try:
             builder.visit(fn_tree)
@@ -448,6 +460,47 @@ def _find_workflow_method(workflow_cls: type["Workflow"], name: str) -> Optional
         if inspect.isfunction(value):
             return value
     return None
+
+
+def _extract_instance_attrs(workflow_cls: type["Workflow"]) -> Dict[str, ast.expr]:
+    """Extract self.attr = value assignments from the workflow's __init__ method.
+
+    Parses the __init__ method to find assignments like:
+        self.retry_policy = RetryPolicy(attempts=3)
+        self.timeout = 30
+
+    Returns a dict mapping attribute names to their AST value nodes.
+    """
+    init_method = _find_workflow_method(workflow_cls, "__init__")
+    if init_method is None:
+        return {}
+
+    try:
+        source_lines, _ = inspect.getsourcelines(init_method)
+        source = textwrap.dedent("".join(source_lines))
+        tree = ast.parse(source)
+    except (OSError, TypeError, SyntaxError):
+        return {}
+
+    attrs: Dict[str, ast.expr] = {}
+
+    # Walk the __init__ body looking for self.attr = value assignments
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        # Only handle single-target assignments
+        if len(node.targets) != 1:
+            continue
+        target = node.targets[0]
+        # Check for self.attr pattern
+        if (
+            isinstance(target, ast.Attribute)
+            and isinstance(target.value, ast.Name)
+            and target.value.id == "self"
+        ):
+            attrs[target.attr] = node.value
+
+    return attrs
 
 
 def _discover_action_names(module: Any) -> Dict[str, ActionDefinition]:
@@ -743,6 +796,7 @@ class IRBuilder(ast.NodeVisitor):
         module_functions: Optional[Set[str]] = None,
         model_defs: Optional[Dict[str, ModelDefinition]] = None,
         module_globals: Optional[Mapping[str, Any]] = None,
+        instance_attrs: Optional[Dict[str, ast.expr]] = None,
     ):
         self._action_defs = action_defs
         self._ctx = ctx
@@ -750,6 +804,7 @@ class IRBuilder(ast.NodeVisitor):
         self._module_functions = module_functions or set()
         self._model_defs = model_defs or {}
         self._module_globals = module_globals or {}
+        self._instance_attrs = instance_attrs or {}
         self.function_def: Optional[ir.FunctionDef] = None
         self._statements: List[ir.Statement] = []
 
@@ -827,14 +882,23 @@ class IRBuilder(ast.NodeVisitor):
         elif isinstance(node, ast.Pass):
             # Pass statements are fine, they just don't produce IR
             return []
+        elif isinstance(node, ast.Break):
+            return self._visit_break(node)
+        elif isinstance(node, ast.Continue):
+            return self._visit_continue(node)
 
-        # Check for unsupported statement types
+        # Check for unsupported statement types - this MUST raise for any
+        # unhandled statement to avoid silently dropping code
         self._check_unsupported_statement(node)
 
-        return []
+    def _check_unsupported_statement(self, node: ast.stmt) -> NoReturn:
+        """Check for unsupported statement types and raise descriptive errors.
 
-    def _check_unsupported_statement(self, node: ast.stmt) -> None:
-        """Check for unsupported statement types and raise descriptive errors."""
+        This function ALWAYS raises an exception - it never returns normally.
+        Any statement type that reaches this function is either explicitly
+        unsupported (with a specific error message) or unhandled (with a
+        generic catch-all error). This ensures we never silently drop code.
+        """
         line = getattr(node, "lineno", None)
         col = getattr(node, "col_offset", None)
 
@@ -912,6 +976,16 @@ class IRBuilder(ast.NodeVisitor):
             raise UnsupportedPatternError(
                 "Match statements are not supported",
                 RECOMMENDATIONS["match"],
+                line=line,
+                col=col,
+            )
+        else:
+            # Catch-all for any unhandled statement types.
+            # This is critical to avoid silently dropping code.
+            stmt_type = type(node).__name__
+            raise UnsupportedPatternError(
+                f"Unhandled statement type: {stmt_type}",
+                RECOMMENDATIONS["unsupported_statement"],
                 line=line,
                 col=col,
             )
@@ -1986,6 +2060,18 @@ class IRBuilder(ast.NodeVisitor):
         stmt.return_stmt.CopyFrom(ir.ReturnStmt())
         return [stmt]
 
+    def _visit_break(self, node: ast.Break) -> List[ir.Statement]:
+        """Convert break statement to IR."""
+        stmt = ir.Statement(span=_make_span(node))
+        stmt.break_stmt.CopyFrom(ir.BreakStmt())
+        return [stmt]
+
+    def _visit_continue(self, node: ast.Continue) -> List[ir.Statement]:
+        """Convert continue statement to IR."""
+        stmt = ir.Statement(span=_make_span(node))
+        stmt.continue_stmt.CopyFrom(ir.ContinueStmt())
+        return [stmt]
+
     def _visit_aug_assign(self, node: ast.AugAssign) -> List[ir.Statement]:
         """Convert augmented assignment (+=, -=, etc.) to IR."""
         # For now, we can represent this as a regular assignment with binary op
@@ -2461,7 +2547,19 @@ class IRBuilder(ast.NodeVisitor):
         - RetryPolicy(attempts=3)
         - RetryPolicy(attempts=3, exception_types=["ValueError"])
         - RetryPolicy(attempts=3, backoff_seconds=5)
+        - self.retry_policy (instance attribute reference)
         """
+        # Handle self.attr pattern - look up in instance attrs
+        if (
+            isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "self"
+        ):
+            attr_name = node.attr
+            if attr_name in self._instance_attrs:
+                return self._parse_retry_policy(self._instance_attrs[attr_name])
+            return None
+
         if not isinstance(node, ast.Call):
             return None
 
@@ -2499,7 +2597,19 @@ class IRBuilder(ast.NodeVisitor):
         - timeout=30.5 (float seconds)
         - timeout=timedelta(seconds=30)
         - timeout=timedelta(minutes=2)
+        - self.timeout (instance attribute reference)
         """
+        # Handle self.attr pattern - look up in instance attrs
+        if (
+            isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "self"
+        ):
+            attr_name = node.attr
+            if attr_name in self._instance_attrs:
+                return self._parse_timeout_policy(self._instance_attrs[attr_name])
+            return None
+
         policy = ir.TimeoutPolicy()
 
         # Direct numeric value (seconds)

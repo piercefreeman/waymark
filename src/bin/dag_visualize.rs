@@ -130,7 +130,8 @@ fn main() -> Result<()> {
     let program = parse(&ir_text).context("Failed to parse IR text")?;
 
     // Convert to DAG
-    let dag = convert_to_dag(&program);
+    let dag =
+        convert_to_dag(&program).map_err(|e| anyhow::anyhow!("Failed to convert to DAG: {}", e))?;
 
     // Build visualization data
     let mut nodes: Vec<NodeData> = dag

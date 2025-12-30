@@ -524,6 +524,10 @@ pub struct DAGConverter {
     current_scope_vars: HashMap<String, String>,
     /// var_name -> list of modifying node ids
     var_modifications: HashMap<String, Vec<String>>,
+    /// Stack of loop exit node IDs for break statements
+    loop_exit_stack: Vec<String>,
+    /// Stack of loop increment node IDs for continue statements
+    loop_incr_stack: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -555,6 +559,8 @@ impl DAGConverter {
             function_defs: HashMap::new(),
             current_scope_vars: HashMap::new(),
             var_modifications: HashMap::new(),
+            loop_exit_stack: Vec::new(),
+            loop_incr_stack: Vec::new(),
         }
     }
 
@@ -563,9 +569,12 @@ impl DAGConverter {
     /// This is a two-phase process:
     /// 1. Build DAG with isolated function subgraphs + fn_call pointer nodes
     /// 2. Expand all function calls into a single global DAG rooted at the entry function
-    pub fn convert(&mut self, program: &ast::Program) -> DAG {
+    ///
+    /// Returns an error if the resulting DAG is invalid (e.g., edges pointing to
+    /// non-existent nodes, which can happen if exception handler remapping fails).
+    pub fn convert(&mut self, program: &ast::Program) -> Result<DAG, String> {
         // Phase 1: Build with function pointers
-        let unexpanded = self.convert_with_pointers(program);
+        let unexpanded = self.convert_with_pointers(program)?;
 
         // Phase 2: Expand into single global DAG
         // Find the entry function deterministically based on source order.
@@ -584,17 +593,21 @@ impl DAGConverter {
             .map(|func| func.name.as_str())
             .unwrap_or("main");
 
-        let mut dag = self.expand_functions(&unexpanded, entry_fn);
+        let mut dag = self.expand_functions(&unexpanded, entry_fn)?;
         self.remap_exception_targets(&mut dag);
         self.add_global_data_flow_edges(&mut dag);
-        dag
+
+        // Validate the DAG before returning
+        validate_dag(&dag)?;
+
+        Ok(dag)
     }
 
     /// Phase 1: Convert a Rappel program to a DAG with isolated function subgraphs.
     ///
     /// Each function becomes its own subgraph with input/output boundary nodes.
     /// Function calls create "fn_call" pointer nodes that reference the called function.
-    fn convert_with_pointers(&mut self, program: &ast::Program) -> DAG {
+    fn convert_with_pointers(&mut self, program: &ast::Program) -> Result<DAG, String> {
         self.dag = DAG::new();
         self.node_counter = 0;
         self.function_defs.clear();
@@ -606,10 +619,10 @@ impl DAGConverter {
 
         // Second pass: convert each function into an isolated subgraph
         for func in &program.functions {
-            self.convert_function(func);
+            self.convert_function(func)?;
         }
 
-        std::mem::take(&mut self.dag)
+        Ok(std::mem::take(&mut self.dag))
     }
 
     /// Remap exception edges that still point at fn_call placeholders to the
@@ -646,14 +659,24 @@ impl DAGConverter {
     }
 
     /// Build a mapping from fn_call node ids to the first node of their expansion.
+    /// Handles nested expansions by capturing ALL prefix levels.
+    /// E.g., for node `fn_call_22:fn_call_12:action_5`, we add:
+    /// - `fn_call_22` -> first node with that prefix
+    /// - `fn_call_22:fn_call_12` -> first node with that prefix
     fn build_call_entry_map(dag: &DAG) -> HashMap<String, String> {
         let mut map = HashMap::new();
 
         for id in dag.nodes.keys() {
-            if let Some((call_id, _)) = id.split_once(':') {
-                // Pick a stable representative for the expanded subgraph.
-                map.entry(call_id.to_string())
-                    .and_modify(|existing| {
+            // Extract all possible prefixes from the node ID
+            // For "fn_call_22:fn_call_12:action_5", we get:
+            // - "fn_call_22"
+            // - "fn_call_22:fn_call_12"
+            let parts: Vec<&str> = id.split(':').collect();
+            for i in 1..parts.len() {
+                let prefix = parts[..i].join(":");
+                // Pick a stable representative (lexicographically smallest) for each prefix
+                map.entry(prefix)
+                    .and_modify(|existing: &mut String| {
                         if id < existing {
                             *existing = id.clone();
                         }
@@ -672,7 +695,7 @@ impl DAGConverter {
     /// - Try/except: ALL nodes within expansion get exception edges to handlers
     /// - If/else: Only the LAST node of expansion connects to the join node
     /// - For loop: The LAST node of expansion connects back to loop head
-    fn expand_functions(&self, unexpanded: &DAG, entry_fn: &str) -> DAG {
+    fn expand_functions(&self, unexpanded: &DAG, entry_fn: &str) -> Result<DAG, String> {
         let mut expanded = DAG::new();
         let mut visited_calls: HashSet<String> = HashSet::new();
 
@@ -682,9 +705,9 @@ impl DAGConverter {
             &mut expanded,
             &mut visited_calls,
             None, // No ID remapping for entry function
-        );
+        )?;
 
-        expanded
+        Ok(expanded)
     }
 
     /// Recursively expand a function into the target DAG.
@@ -700,11 +723,11 @@ impl DAGConverter {
         target: &mut DAG,
         visited_calls: &mut HashSet<String>,
         id_prefix: Option<&str>,
-    ) -> Option<(String, String)> {
+    ) -> Result<Option<(String, String)>, String> {
         // Get all nodes for this function
         let fn_nodes = unexpanded.get_nodes_for_function(fn_name);
         if fn_nodes.is_empty() {
-            return None;
+            return Ok(None);
         }
 
         // Find input and output nodes
@@ -724,6 +747,9 @@ impl DAGConverter {
         // Track first and last "real" nodes (excluding input for inlined functions)
         let mut first_real_node: Option<String> = None;
         let mut last_real_node: Option<String> = None;
+        // Track output/return nodes specifically - these are the true "last" nodes
+        // even if topological order puts loop_incr nodes later (due to loop_back edges being skipped)
+        let mut output_return_node: Option<String> = None;
 
         // Clone nodes
         for old_id in &ordered_nodes {
@@ -745,10 +771,10 @@ impl DAGConverter {
                     // Prevent infinite recursion
                     let call_key = format!("{}:{}", fn_name, old_id);
                     if visited_calls.contains(&call_key) {
-                        panic!(
+                        return Err(format!(
                             "Recursive function call detected: {} -> {}",
                             fn_name, called_fn
-                        );
+                        ));
                     }
                     visited_calls.insert(call_key.clone());
 
@@ -774,7 +800,7 @@ impl DAGConverter {
                         target,
                         visited_calls,
                         Some(&child_prefix),
-                    );
+                    )?;
 
                     visited_calls.remove(&call_key);
 
@@ -872,7 +898,16 @@ impl DAGConverter {
                                 for exc_edge in &exception_edges {
                                     let mut new_edge = exc_edge.clone();
                                     new_edge.source = expanded_node_id.clone();
-                                    // Target is already the exception handler (outside expansion)
+                                    // Remap target if it was also part of this function's expansion
+                                    // (nested try/except case). Check fn_node_ids since id_map may
+                                    // not be complete yet due to processing order.
+                                    if fn_node_ids.contains(&exc_edge.target) {
+                                        // Target is within this function, apply the same prefix
+                                        if let Some(prefix) = id_prefix {
+                                            new_edge.target =
+                                                format!("{}:{}", prefix, exc_edge.target);
+                                        }
+                                    }
                                     target.add_edge(new_edge);
                                 }
                             }
@@ -924,6 +959,12 @@ impl DAGConverter {
                 first_real_node = Some(new_id.clone());
             }
             last_real_node = Some(new_id.clone());
+
+            // Track output/return nodes as the canonical "last" nodes for this function.
+            // These are the true exit points, even if topo order places them before loop_incr nodes.
+            if node.node_type == "output" || node.node_type == "return" {
+                output_return_node = Some(new_id.clone());
+            }
 
             target.add_node(cloned);
         }
@@ -995,11 +1036,15 @@ impl DAGConverter {
             target.add_edge(cloned_edge);
         }
 
-        // Return first and last real nodes for parent to wire up
-        match (first_real_node, last_real_node) {
+        // Return first and last real nodes for parent to wire up.
+        // Prefer output/return nodes as "last" since they are the canonical exit points.
+        // This is important when loops are present: loop_incr nodes may appear last in
+        // topo order (because loop_back edges are skipped), but they are NOT the exit point.
+        let canonical_last = output_return_node.or(last_real_node);
+        Ok(match (first_real_node, canonical_last) {
             (Some(first), Some(last)) => Some((first, last)),
             _ => None,
-        }
+        })
     }
 
     /// Get topological order of nodes using state machine edges
@@ -1515,7 +1560,7 @@ impl DAGConverter {
     }
 
     /// Convert a function definition into an isolated subgraph
-    fn convert_function(&mut self, fn_def: &ast::FunctionDef) {
+    fn convert_function(&mut self, fn_def: &ast::FunctionDef) -> Result<(), String> {
         self.current_function = Some(fn_def.name.clone());
         self.current_scope_vars.clear();
         self.var_modifications.clear();
@@ -1544,7 +1589,7 @@ impl DAGConverter {
         let mut frontier = vec![input_id.clone()];
         if let Some(body) = &fn_def.body {
             for stmt in &body.statements {
-                let converted = self.convert_statement(stmt);
+                let converted = self.convert_statement(stmt)?;
                 if converted.is_noop {
                     continue;
                 }
@@ -1603,6 +1648,7 @@ impl DAGConverter {
         self.add_data_flow_edges_for_function(&fn_def.name);
 
         self.current_function = None;
+        Ok(())
     }
 
     /// Generate the next unique node ID
@@ -1645,13 +1691,13 @@ impl DAGConverter {
     }
 
     /// Convert a statement to DAG node(s)
-    fn convert_block(&mut self, block: &ast::Block) -> ConvertedSubgraph {
+    fn convert_block(&mut self, block: &ast::Block) -> Result<ConvertedSubgraph, String> {
         let mut nodes = Vec::new();
         let mut entry: Option<String> = None;
         let mut frontier: Option<Vec<String>> = None;
 
         for stmt in &block.statements {
-            let converted = self.convert_statement(stmt);
+            let converted = self.convert_statement(stmt)?;
             nodes.extend(converted.nodes.clone());
 
             if converted.is_noop {
@@ -1675,21 +1721,21 @@ impl DAGConverter {
         }
 
         if entry.is_none() {
-            return ConvertedSubgraph::noop();
+            return Ok(ConvertedSubgraph::noop());
         }
 
-        ConvertedSubgraph {
+        Ok(ConvertedSubgraph {
             entry,
             exits: frontier.unwrap_or_default(),
             nodes,
             is_noop: false,
-        }
+        })
     }
 
-    fn convert_statement(&mut self, stmt: &ast::Statement) -> ConvertedSubgraph {
+    fn convert_statement(&mut self, stmt: &ast::Statement) -> Result<ConvertedSubgraph, String> {
         let kind = match &stmt.kind {
             Some(k) => k,
-            None => return ConvertedSubgraph::noop(),
+            None => return Ok(ConvertedSubgraph::noop()),
         };
 
         let node_ids = match kind {
@@ -1717,26 +1763,32 @@ impl DAGConverter {
             }
             ast::statement::Kind::ReturnStmt(ret) => {
                 let ids = self.convert_return(ret);
-                return ConvertedSubgraph {
+                return Ok(ConvertedSubgraph {
                     entry: ids.first().cloned(),
                     exits: Vec::new(),
                     nodes: ids,
                     is_noop: false,
-                };
+                });
+            }
+            ast::statement::Kind::BreakStmt(_) => {
+                return self.convert_break();
+            }
+            ast::statement::Kind::ContinueStmt(_) => {
+                return self.convert_continue();
             }
             ast::statement::Kind::ExprStmt(expr_stmt) => self.convert_expr_statement(expr_stmt),
         };
 
         if node_ids.is_empty() {
-            return ConvertedSubgraph::noop();
+            return Ok(ConvertedSubgraph::noop());
         }
 
-        ConvertedSubgraph {
+        Ok(ConvertedSubgraph {
             entry: node_ids.first().cloned(),
             exits: node_ids.last().cloned().into_iter().collect(),
             nodes: node_ids,
             is_noop: false,
-        }
+        })
     }
 
     /// Convert an assignment statement
@@ -2325,7 +2377,7 @@ impl DAGConverter {
     ///
     /// This structure uses the same guard evaluation as if/else branches,
     /// requiring no special runtime handling for loops.
-    fn convert_for_loop(&mut self, for_loop: &ast::ForLoop) -> ConvertedSubgraph {
+    fn convert_for_loop(&mut self, for_loop: &ast::ForLoop) -> Result<ConvertedSubgraph, String> {
         let mut nodes: Vec<String> = Vec::new();
 
         let loop_id = self.next_id("loop");
@@ -2397,12 +2449,12 @@ impl DAGConverter {
         let extract_id = self.next_id("loop_extract");
 
         // Build the index expression: collection[__loop_i]
-        let coll = collection_expr.as_ref().unwrap_or_else(|| {
-            panic!(
-                "BUG: for-loop collection expression is None for loop '{}'",
+        let coll = collection_expr.as_ref().ok_or_else(|| {
+            format!(
+                "for-loop collection expression is None for loop '{}'",
                 loop_vars_str
             )
-        });
+        })?;
         let index_expr = ast::Expr {
             span: None,
             kind: Some(ast::expr::Kind::Index(Box::new(ast::IndexAccess {
@@ -2447,15 +2499,25 @@ impl DAGConverter {
         // ============================================================
         // 4. Convert body nodes
         // ============================================================
+        // Pre-generate exit_id so break statements can wire to it
+        let exit_id = self.next_id("loop_exit");
+        self.loop_exit_stack.push(exit_id.clone());
+
+        // Pre-generate incr_id so continue statements can wire to it
+        let incr_id = self.next_id("loop_incr");
+        self.loop_incr_stack.push(incr_id.clone());
+
         let mut body_targets: Vec<String> = Vec::new();
-        let body_graph = for_loop
-            .block_body
-            .as_ref()
-            .map(|block_body| {
+        let body_graph = match for_loop.block_body.as_ref() {
+            Some(block_body) => {
                 Self::collect_assigned_targets(&block_body.statements, &mut body_targets);
-                self.convert_block(block_body)
-            })
-            .unwrap_or_else(ConvertedSubgraph::noop);
+                self.convert_block(block_body)?
+            }
+            None => ConvertedSubgraph::noop(),
+        };
+
+        self.loop_incr_stack.pop();
+        self.loop_exit_stack.pop();
         nodes.extend(body_graph.nodes.clone());
 
         if body_graph.is_noop {
@@ -2470,7 +2532,7 @@ impl DAGConverter {
         // ============================================================
         // 5. Create loop_incr node: __loop_i = __loop_i + 1
         // ============================================================
-        let incr_id = self.next_id("loop_incr");
+        // Note: incr_id was pre-generated above so continue statements can wire to it
         let incr_label = format!("{} = {} + 1", loop_i_var, loop_i_var);
 
         // Build expression: __loop_i + 1
@@ -2526,7 +2588,7 @@ impl DAGConverter {
         // ============================================================
         // loop_exit only has one predecessor (loop_cond with break guard), so it
         // can be treated as inline when the loop body has no actions.
-        let exit_id = self.next_id("loop_exit");
+        // Note: exit_id was pre-generated before the body so break statements can wire to it.
         let exit_label = format!("end for {}", loop_vars_str);
         let mut exit_node = DAGNode::new(exit_id.clone(), "join".to_string(), exit_label)
             .with_join_required_count(1);
@@ -2556,12 +2618,12 @@ impl DAGConverter {
                 .add_edge(DAGEdge::state_machine(cond_id.clone(), exit_id.clone()));
         }
 
-        ConvertedSubgraph {
+        Ok(ConvertedSubgraph {
             entry: Some(init_id),
             exits: vec![exit_id],
             nodes,
             is_noop: false,
-        }
+        })
     }
 
     /// Convert a conditional (if/elif/else)
@@ -2577,7 +2639,10 @@ impl DAGConverter {
     /// Becomes:
     ///   predecessor --[guard: x > 0]--> @pos() --> join
     ///               --[guard: not (x > 0)]--> @neg() --> join
-    fn convert_conditional(&mut self, cond: &ast::Conditional) -> ConvertedSubgraph {
+    fn convert_conditional(
+        &mut self,
+        cond: &ast::Conditional,
+    ) -> Result<ConvertedSubgraph, String> {
         let mut nodes: Vec<String> = Vec::new();
 
         let branch_id = self.next_id("branch");
@@ -2595,18 +2660,17 @@ impl DAGConverter {
         let if_branch = cond
             .if_branch
             .as_ref()
-            .unwrap_or_else(|| panic!("BUG: conditional missing if_branch"));
+            .ok_or_else(|| "conditional missing if_branch".to_string())?;
         let if_guard = if_branch
             .condition
             .as_ref()
-            .unwrap_or_else(|| panic!("BUG: if branch missing guard expression"))
+            .ok_or_else(|| "if branch missing guard expression".to_string())?
             .clone();
 
-        let if_body_graph = if_branch
-            .block_body
-            .as_ref()
-            .map(|block| self.convert_block(block))
-            .unwrap_or_else(ConvertedSubgraph::noop);
+        let if_body_graph = match if_branch.block_body.as_ref() {
+            Some(block) => self.convert_block(block)?,
+            None => ConvertedSubgraph::noop(),
+        };
         nodes.extend(if_body_graph.nodes.clone());
 
         let mut prior_guards: Vec<ast::Expr> = vec![if_guard.clone()];
@@ -2616,32 +2680,29 @@ impl DAGConverter {
             let elif_cond = elif_branch
                 .condition
                 .as_ref()
-                .unwrap_or_else(|| panic!("BUG: elif branch missing guard expression"))
+                .ok_or_else(|| "elif branch missing guard expression".to_string())?
                 .clone();
-            let compound_guard = self.build_compound_guard(&prior_guards, Some(&elif_cond));
+            let compound_guard = self.build_compound_guard(&prior_guards, Some(&elif_cond))?;
             prior_guards.push(elif_cond);
 
-            let graph = elif_branch
-                .block_body
-                .as_ref()
-                .map(|block| self.convert_block(block))
-                .unwrap_or_else(ConvertedSubgraph::noop);
+            let graph = match elif_branch.block_body.as_ref() {
+                Some(block) => self.convert_block(block)?,
+                None => ConvertedSubgraph::noop(),
+            };
 
             nodes.extend(graph.nodes.clone());
             elif_graphs.push((compound_guard, graph));
         }
 
         // Missing else is an implicit empty else.
-        let else_graph = cond
+        let else_graph = match cond
             .else_branch
             .as_ref()
-            .and_then(|else_branch| {
-                else_branch
-                    .block_body
-                    .as_ref()
-                    .map(|block| self.convert_block(block))
-            })
-            .unwrap_or_else(ConvertedSubgraph::noop);
+            .and_then(|b| b.block_body.as_ref())
+        {
+            Some(block) => self.convert_block(block)?,
+            None => ConvertedSubgraph::noop(),
+        };
         nodes.extend(else_graph.nodes.clone());
 
         let join_needed = (if_body_graph.is_noop || !if_body_graph.exits.is_empty())
@@ -2732,12 +2793,12 @@ impl DAGConverter {
         }
         connect_else_branch(self, &else_graph, join_id.as_ref());
 
-        ConvertedSubgraph {
+        Ok(ConvertedSubgraph {
             entry: Some(branch_id),
             exits: join_id.into_iter().collect(),
             nodes,
             is_noop: false,
-        }
+        })
     }
 
     /// Build a compound guard expression from prior guards and an optional current condition.
@@ -2748,7 +2809,7 @@ impl DAGConverter {
         &self,
         prior_guards: &[ast::Expr],
         current_condition: Option<&ast::Expr>,
-    ) -> ast::Expr {
+    ) -> Result<ast::Expr, String> {
         // Start with negated prior guards
         let mut parts: Vec<ast::Expr> = prior_guards
             .iter()
@@ -2768,11 +2829,12 @@ impl DAGConverter {
 
         // Combine with AND operators
         if parts.is_empty() {
-            panic!(
-                "BUG: build_elif_guard called with no prior conditions and no current condition"
-            );
+            Err(
+                "build_compound_guard called with no prior conditions and no current condition"
+                    .to_string(),
+            )
         } else if parts.len() == 1 {
-            parts.remove(0)
+            Ok(parts.remove(0))
         } else {
             // Build left-associative AND chain: ((a AND b) AND c) AND d
             let mut result = parts.remove(0);
@@ -2786,7 +2848,7 @@ impl DAGConverter {
                     }))),
                 };
             }
-            result
+            Ok(result)
         }
     }
 
@@ -2803,28 +2865,29 @@ impl DAGConverter {
     /// Becomes:
     ///   @risky() --[success]--> join
     ///            --[except:NetworkError]--> @fallback() --> join
-    fn convert_try_except(&mut self, try_except: &ast::TryExcept) -> ConvertedSubgraph {
+    fn convert_try_except(
+        &mut self,
+        try_except: &ast::TryExcept,
+    ) -> Result<ConvertedSubgraph, String> {
         let mut nodes: Vec<String> = Vec::new();
 
-        let try_graph = try_except
-            .try_block
-            .as_ref()
-            .map(|block| self.convert_block(block))
-            .unwrap_or_else(ConvertedSubgraph::noop);
+        let try_graph = match try_except.try_block.as_ref() {
+            Some(block) => self.convert_block(block)?,
+            None => ConvertedSubgraph::noop(),
+        };
 
         if try_graph.is_noop {
-            return ConvertedSubgraph::noop();
+            return Ok(ConvertedSubgraph::noop());
         }
         nodes.extend(try_graph.nodes.clone());
 
         // Collect handler graphs up front so we can decide whether a join is needed.
         let mut handler_graphs: Vec<(Vec<String>, ConvertedSubgraph)> = Vec::new();
         for handler in &try_except.handlers {
-            let mut graph = handler
-                .block_body
-                .as_ref()
-                .map(|block| self.convert_block(block))
-                .unwrap_or_else(ConvertedSubgraph::noop);
+            let mut graph = match handler.block_body.as_ref() {
+                Some(block) => self.convert_block(block)?,
+                None => ConvertedSubgraph::noop(),
+            };
             tracing::debug!(
                 handler_entry = ?graph.entry,
                 handler_exits = ?graph.exits,
@@ -2915,12 +2978,12 @@ impl DAGConverter {
             }
         }
 
-        ConvertedSubgraph {
+        Ok(ConvertedSubgraph {
             entry: try_graph.entry,
             exits: join_id.into_iter().collect(),
             nodes,
             is_noop: false,
-        }
+        })
     }
 
     fn prepend_exception_binding(
@@ -3005,6 +3068,68 @@ impl DAGConverter {
         }
 
         vec![node_id]
+    }
+
+    /// Convert a break statement
+    fn convert_break(&mut self) -> Result<ConvertedSubgraph, String> {
+        let loop_exit = self
+            .loop_exit_stack
+            .last()
+            .cloned()
+            .ok_or_else(|| "break statement outside of loop".to_string())?;
+
+        let node_id = self.next_id("break");
+        let mut node = DAGNode::new(node_id.clone(), "break".to_string(), "break".to_string());
+
+        if let Some(ref fn_name) = self.current_function {
+            node = node.with_function_name(fn_name);
+        }
+        self.dag.add_node(node);
+
+        // Wire break directly to loop exit
+        self.dag
+            .add_edge(DAGEdge::state_machine(node_id.clone(), loop_exit));
+
+        // Break has no normal exits - it jumps to the loop exit
+        Ok(ConvertedSubgraph {
+            entry: Some(node_id.clone()),
+            exits: Vec::new(),
+            nodes: vec![node_id],
+            is_noop: false,
+        })
+    }
+
+    /// Convert a continue statement
+    fn convert_continue(&mut self) -> Result<ConvertedSubgraph, String> {
+        let loop_incr = self
+            .loop_incr_stack
+            .last()
+            .cloned()
+            .ok_or_else(|| "continue statement outside of loop".to_string())?;
+
+        let node_id = self.next_id("continue");
+        let mut node = DAGNode::new(
+            node_id.clone(),
+            "continue".to_string(),
+            "continue".to_string(),
+        );
+
+        if let Some(ref fn_name) = self.current_function {
+            node = node.with_function_name(fn_name);
+        }
+        self.dag.add_node(node);
+
+        // Wire continue directly to loop increment (skip rest of body, go to next iteration)
+        self.dag
+            .add_edge(DAGEdge::state_machine(node_id.clone(), loop_incr));
+
+        // Continue has no normal exits - it jumps to the loop increment
+        Ok(ConvertedSubgraph {
+            entry: Some(node_id.clone()),
+            exits: Vec::new(),
+            nodes: vec![node_id],
+            is_noop: false,
+        })
     }
 
     /// Convert an expression statement
@@ -3116,6 +3241,8 @@ impl DAGConverter {
                 | ast::statement::Kind::SpreadAction(_)
                 | ast::statement::Kind::ActionCall(_)
                 | ast::statement::Kind::ReturnStmt(_)
+                | ast::statement::Kind::BreakStmt(_)
+                | ast::statement::Kind::ContinueStmt(_)
                 | ast::statement::Kind::ExprStmt(_) => {}
             }
         }
@@ -3373,10 +3500,155 @@ impl Default for DAGConverter {
     }
 }
 
-/// Convenience function to convert a program to a DAG
-pub fn convert_to_dag(program: &ast::Program) -> DAG {
+/// Convenience function to convert a program to a DAG.
+///
+/// Returns an error if the resulting DAG is invalid (e.g., edges pointing to
+/// non-existent nodes).
+pub fn convert_to_dag(program: &ast::Program) -> Result<DAG, String> {
     let mut converter = DAGConverter::new();
     converter.convert(program)
+}
+
+/// Validate that a DAG has no structural errors.
+///
+/// This checks that all edges reference nodes that exist in the DAG.
+/// Invalid DAGs can occur when exception handler remapping fails during
+/// function expansion.
+fn validate_dag(dag: &DAG) -> Result<(), String> {
+    validate_edges_reference_existing_nodes(dag)?;
+    validate_output_nodes_have_no_outgoing_edges(dag)?;
+    validate_loop_incr_edges(dag)?;
+    validate_no_duplicate_state_machine_edges(dag)?;
+    validate_input_nodes_have_no_incoming_edges(dag)?;
+    Ok(())
+}
+
+/// Invariant 1: All edges must reference existing nodes
+fn validate_edges_reference_existing_nodes(dag: &DAG) -> Result<(), String> {
+    for edge in &dag.edges {
+        if !dag.nodes.contains_key(&edge.source) {
+            return Err(format!(
+                "DAG edge references non-existent source node '{}' -> '{}'",
+                edge.source, edge.target
+            ));
+        }
+        if !dag.nodes.contains_key(&edge.target) {
+            return Err(format!(
+                "DAG edge references non-existent target node '{}' (from '{}', edge_type={:?}, exception_types={:?})",
+                edge.target, edge.source, edge.edge_type, edge.exception_types
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Invariant 2: The main function's output node should not have outgoing state machine edges
+/// (except exception edges which propagate to outer handlers).
+/// Inlined function output nodes (with prefixes like fn_call_X:) DO have edges to the caller's next node.
+fn validate_output_nodes_have_no_outgoing_edges(dag: &DAG) -> Result<(), String> {
+    for (id, node) in &dag.nodes {
+        // Only check output nodes from the MAIN function (no prefix)
+        // Inlined function outputs (fn_call_X:output_Y) legitimately have edges to caller
+        if node.node_type == "output" && !id.contains(':') {
+            for edge in &dag.edges {
+                if edge.source == *id
+                    && edge.edge_type == EdgeType::StateMachine
+                    && edge.exception_types.is_none()
+                {
+                    return Err(format!(
+                        "Main output node '{}' has non-exception outgoing state machine edge to '{}'",
+                        id, edge.target
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Invariant 3: Loop increment nodes should only have:
+/// - loop_back edges to loop_cond (for iteration)
+/// - exception edges to handlers
+///
+/// They should NOT have regular state machine edges to other nodes like join/output
+fn validate_loop_incr_edges(dag: &DAG) -> Result<(), String> {
+    for id in dag.nodes.keys() {
+        // Check if this is a loop_incr node (by naming convention)
+        if !id.contains("loop_incr") {
+            continue;
+        }
+
+        for edge in &dag.edges {
+            if edge.source != *id || edge.edge_type != EdgeType::StateMachine {
+                continue;
+            }
+
+            // Exception edges are always allowed
+            if edge.exception_types.is_some() {
+                continue;
+            }
+
+            // Loop-back edges to loop_cond are allowed
+            if edge.is_loop_back && edge.target.contains("loop_cond") {
+                continue;
+            }
+
+            // Any other state machine edge from loop_incr is suspicious
+            // It likely means the "last node" tracking was wrong during expansion
+            return Err(format!(
+                "Loop increment node '{}' has unexpected state machine edge to '{}'. \
+                 Loop_incr should only have loop_back edges to loop_cond or exception edges. \
+                 This suggests incorrect 'last_real_node' tracking during function expansion.",
+                id, edge.target
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Invariant 4: No duplicate state machine edges (same source, target, and non-exception)
+/// Duplicate exception edges with different types are allowed.
+fn validate_no_duplicate_state_machine_edges(dag: &DAG) -> Result<(), String> {
+    let mut seen: HashSet<String> = HashSet::new();
+
+    for edge in &dag.edges {
+        if edge.edge_type != EdgeType::StateMachine {
+            continue;
+        }
+
+        // For non-exception edges, check for duplicates
+        if edge.exception_types.is_none() {
+            let key = format!(
+                "{}->{}:loop_back={},is_else={},guard={:?}",
+                edge.source, edge.target, edge.is_loop_back, edge.is_else, edge.guard_string
+            );
+            if !seen.insert(key.clone()) {
+                return Err(format!(
+                    "Duplicate state machine edge: {} -> {} (loop_back={}, is_else={})",
+                    edge.source, edge.target, edge.is_loop_back, edge.is_else
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Invariant 5: Input nodes should not have incoming state machine edges
+/// (they are the entry points of functions)
+fn validate_input_nodes_have_no_incoming_edges(dag: &DAG) -> Result<(), String> {
+    for (id, node) in &dag.nodes {
+        if node.is_input {
+            for edge in &dag.edges {
+                if edge.target == *id && edge.edge_type == EdgeType::StateMachine {
+                    return Err(format!(
+                        "Input node '{}' has incoming state machine edge from '{}'",
+                        id, edge.source
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 // ============================================================================
@@ -3394,7 +3666,7 @@ mod tests {
     y = x + 1
     return y"#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         assert!(!dag.nodes.is_empty());
         // Should have input, output, assignment, and return nodes
@@ -3408,7 +3680,7 @@ mod tests {
     z = y + 1
     return z"#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // Should have nodes for each statement plus input/output
         assert!(dag.nodes.len() >= 4);
@@ -3422,7 +3694,7 @@ mod tests {
     result = a + b
     return result"#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // Should have function boundary nodes
         let node_ids: Vec<_> = dag.nodes.keys().collect();
@@ -3435,7 +3707,7 @@ mod tests {
     response = @fetch_url(url=url)
     return response"#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // Check that action call node exists
         let node_types: HashSet<_> = dag.nodes.values().map(|n| n.node_type.as_str()).collect();
@@ -3450,7 +3722,7 @@ mod tests {
         result = process(x=item)
     return results"#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // In normalized loop structure, for loops are decomposed into:
         // - loop_init (assignment): initialize index
@@ -3487,7 +3759,7 @@ mod tests {
         result = "negative"
     return result"#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // In the flat DAG structure, conditionals use a "branch" node as the decision point
         let node_types: HashSet<_> = dag.nodes.values().map(|n| n.node_type.as_str()).collect();
@@ -3509,7 +3781,7 @@ mod tests {
     return result"#;
 
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         let after_node = dag
             .nodes
@@ -3547,7 +3819,7 @@ mod tests {
     return result"#;
 
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         let after_node = dag
             .nodes
@@ -3573,6 +3845,142 @@ mod tests {
     }
 
     #[test]
+    fn test_break_statement_in_for_loop() {
+        // Test that break statement wires to the loop exit
+        let source = r#"fn main(input: [items], output: [result]):
+    for item in items:
+        if item.found:
+            break
+        x = @process(i=item)
+    result = @after()
+    return result"#;
+
+        let program = parse(source).unwrap();
+        let dag = convert_to_dag(&program).unwrap();
+
+        // Find the break node
+        let break_node = dag
+            .nodes
+            .values()
+            .find(|n| n.node_type == "break")
+            .expect("expected break node");
+
+        // Find the loop_exit node
+        let loop_exit = dag
+            .nodes
+            .values()
+            .find(|n| n.node_type == "join" && n.label.starts_with("end for "))
+            .expect("expected loop_exit join node");
+
+        // Break should have a state machine edge to loop_exit
+        let has_break_to_exit_edge = dag.edges.iter().any(|e| {
+            e.edge_type == EdgeType::StateMachine
+                && e.source == break_node.id
+                && e.target == loop_exit.id
+        });
+        assert!(
+            has_break_to_exit_edge,
+            "expected break -> loop_exit edge, found edges: {:?}",
+            dag.edges
+                .iter()
+                .filter(|e| e.source == break_node.id)
+                .collect::<Vec<_>>()
+        );
+
+        // After action should be reachable from loop_exit
+        let after_node = dag
+            .nodes
+            .values()
+            .find(|n| n.node_type == "action_call" && n.action_name.as_deref() == Some("after"))
+            .expect("expected @after() node");
+
+        let has_exit_to_after_edge = dag.edges.iter().any(|e| {
+            e.edge_type == EdgeType::StateMachine
+                && e.source == loop_exit.id
+                && e.target == after_node.id
+        });
+        assert!(
+            has_exit_to_after_edge,
+            "expected loop_exit -> @after() edge for continuation after break"
+        );
+    }
+
+    #[test]
+    fn test_break_outside_loop_fails() {
+        // Test that break statement outside a loop returns an error
+        let source = r#"fn main(input: [], output: []):
+    break"#;
+
+        let program = parse(source).unwrap();
+        let result = convert_to_dag(&program);
+        assert!(
+            result.is_err(),
+            "expected error for break outside loop, got: {:?}",
+            result
+        );
+        assert!(
+            result
+                .unwrap_err()
+                .contains("break statement outside of loop"),
+            "expected 'break statement outside of loop' error"
+        );
+    }
+
+    #[test]
+    fn test_break_in_nested_loop() {
+        // Test that break in nested loop only exits the innermost loop
+        let source = r#"fn main(input: [outer, inner], output: [result]):
+    for x in outer:
+        for y in inner:
+            if y.found:
+                break
+            a = @inner_action(y=y)
+        b = @outer_action(x=x)
+    result = @after()
+    return result"#;
+
+        let program = parse(source).unwrap();
+        let dag = convert_to_dag(&program).unwrap();
+
+        // Find all break nodes (should be one)
+        let break_nodes: Vec<_> = dag
+            .nodes
+            .values()
+            .filter(|n| n.node_type == "break")
+            .collect();
+        assert_eq!(break_nodes.len(), 1, "expected exactly one break node");
+
+        // Find all loop_exit nodes (should be two, one for each loop)
+        let loop_exits: Vec<_> = dag
+            .nodes
+            .values()
+            .filter(|n| n.node_type == "join" && n.label.starts_with("end for "))
+            .collect();
+        assert_eq!(
+            loop_exits.len(),
+            2,
+            "expected two loop_exit nodes for nested loops"
+        );
+
+        // The break should connect to the inner loop's exit, which should be
+        // the one with "y" in its label
+        let inner_loop_exit = loop_exits
+            .iter()
+            .find(|n| n.label.contains("y"))
+            .expect("expected inner loop exit for 'y'");
+
+        let has_break_to_inner_exit = dag.edges.iter().any(|e| {
+            e.edge_type == EdgeType::StateMachine
+                && e.source == break_nodes[0].id
+                && e.target == inner_loop_exit.id
+        });
+        assert!(
+            has_break_to_inner_exit,
+            "break should connect to inner loop's exit, not outer"
+        );
+    }
+
+    #[test]
     fn test_dag_inlines_function_call_in_conditional_branch() {
         let source = r#"fn helper(input: [], output: [value]):
     value = @do_work()
@@ -3586,7 +3994,7 @@ fn main(input: [], output: [result]):
     return result"#;
 
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // Helper action should be present after inlining the function call in the conditional branch
         let action_names: HashSet<_> = dag
@@ -3610,7 +4018,7 @@ fn main(input: [], output: [result]):
     y = x + 1
     return y"#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // Should have state machine edges
         let state_machine_edges = dag.get_state_machine_edges();
@@ -3651,7 +4059,7 @@ fn main(input: [], output: [result]):
     results = spread items:item -> @fetch(id=item)
     return results"#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // Should have aggregator node
         let node_types: HashSet<_> = dag.nodes.values().map(|n| n.node_type.as_str()).collect();
@@ -3667,7 +4075,7 @@ fn main(input: [], output: [result]):
     return result"#;
 
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         let labels: Vec<_> = dag
             .nodes
@@ -3698,7 +4106,7 @@ fn main(input: [a], output: [result]):
     result = helper(x=a)
     return result"#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // The expanded DAG should be rooted at main
         // Helper's body should be inlined (once we implement expansion)
@@ -3715,7 +4123,7 @@ fn main(input: [a], output: [result]):
     y = x * 2
     return y"#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // Find input and output nodes
         let input_nodes: Vec<_> = dag.nodes.values().filter(|n| n.is_input).collect();
@@ -3738,7 +4146,7 @@ fn main(input: [], output: [result]):
     result = helper(x=10)
     return result"#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // fn_call nodes should be expanded (replaced by helper's body)
         let fn_call_nodes: Vec<_> = dag.nodes.values().filter(|n| n.is_fn_call).collect();
@@ -3770,7 +4178,7 @@ fn main(input: [], output: [result]):
         result = "error"
     return result"#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // In the flat DAG structure, try/except doesn't have container nodes.
         // Instead, we have:
@@ -3819,7 +4227,7 @@ fn main(input: [], output: [result]):
     return result"#;
 
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // Every exception edge should point to a node that exists in the expanded DAG.
         for edge in dag.edges.iter().filter(|e| e.exception_types.is_some()) {
@@ -3859,7 +4267,7 @@ fn main(input: [], output: [result]):
         @fetch_user(id=3)
     return results"#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // Check that parallel and aggregator nodes exist
         let node_types: HashSet<_> = dag.nodes.values().map(|n| n.node_type.as_str()).collect();
@@ -3877,7 +4285,7 @@ fn main(input: [], output: [result]):
     summary = @summarize(factorial=factorial_value, fib=fib_value)
     return summary"#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // The aggregator node should have the targets for unpacking
         let aggregator_node = dag
@@ -3940,7 +4348,7 @@ fn main(input: [], output: [result]):
         let program = parse(source).unwrap();
 
         let mut converter = DAGConverter::new();
-        let dag = converter.convert(&program);
+        let dag = converter.convert(&program).unwrap();
 
         assert!(!dag.nodes.is_empty());
     }
@@ -3953,7 +4361,7 @@ fn main(input: [], output: [result]):
     z = y + 1
     return z"#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // Should have nodes and edges
         assert!(!dag.nodes.is_empty());
@@ -3967,7 +4375,7 @@ fn main(input: [], output: [result]):
     y = x * 2
     return y"#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // Should handle all constructs without error
         assert!(!dag.nodes.is_empty());
@@ -3986,7 +4394,7 @@ fn main(input: [], output: [result]):
     z = x + 2
     return z"#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // Get data flow edges for variable 'x'
         let data_flow_edges = dag.get_data_flow_edges();
@@ -4033,7 +4441,7 @@ fn main(input: [], output: [result]):
     z = y + 2
     return z"#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         let sm_edges = dag.get_state_machine_edges();
 
@@ -4053,7 +4461,7 @@ fn main(input: [], output: [result]):
         results = results + [item]
     return results"#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // In normalized structure, loop variables are tracked in the loop_extract assignment node
         // The extract label is: "{loop_vars} = {collection}[{index_var}]"
@@ -4086,7 +4494,7 @@ fn main(input: [], output: [result]):
     results = spread items:item -> @fetch(id=item)
     return results"#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // Find the aggregator node
         let agg_node = dag
@@ -4108,7 +4516,7 @@ fn main(input: [], output: [result]):
         result = "negative"
     return result"#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // In the flat DAG structure, conditionals have:
         // - A "branch" node (decision point)
@@ -4154,7 +4562,7 @@ fn main(input: [], output: [result]):
         result = @negative_handler(x=x)
     return result"#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // Should have action_call nodes for each branch
         let action_nodes: Vec<_> = dag
@@ -4186,7 +4594,7 @@ fn main(input: [], output: [result]):
         return "logged"
     return "skipped""#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         let fn_call_id = dag
             .nodes
@@ -4352,7 +4760,7 @@ fn main(input: [], output: [result]):
             functions: vec![func],
         };
 
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // Find the action node
         let action_node = dag
@@ -4450,7 +4858,7 @@ fn main(input: [], output: [result]):
             functions: vec![func],
         };
 
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // Find the risky_action node (in try body)
         let try_action = dag
@@ -4518,7 +4926,7 @@ fn main(input: [], output: [result]):
             functions: vec![func],
         };
 
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // In normalized loop structure, find the action node for process_item
         let action_node = dag.nodes.values().find(|n| {
@@ -4594,7 +5002,7 @@ fn main(input: [], output: [result]):
             functions: vec![func],
         };
 
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // Find the action node
         let action_node = dag
@@ -4651,7 +5059,7 @@ fn main(input: [], output: [result]):
             functions: vec![func],
         };
 
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         let action_node = dag
             .nodes
@@ -4707,7 +5115,7 @@ fn main(input: [], output: [result]):
             functions: vec![func],
         };
 
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         let action_node = dag
             .nodes
@@ -4743,7 +5151,7 @@ fn main(input: [], output: [result]):
     summary = @summarize(input_number=n, factorial=factorial_value, fib=fib_value)
     return summary"#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // Find the summarize action node
         let summarize_node = dag
@@ -4798,7 +5206,7 @@ fn main(input: [], output: [result]):
     summary = @summarize(factorial=factorial_value, fib=fib_value)
     return summary"#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // Find the summarize action node
         let summarize_node = dag
@@ -4872,7 +5280,7 @@ fn run_internal(input: [user_id], output: []):
     return"#;
 
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         let bind_node = dag
             .nodes
@@ -4952,7 +5360,7 @@ fn run_internal(input: [required_drafts], output: []):
     return"#;
 
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         let input_node = dag
             .nodes
@@ -5010,7 +5418,7 @@ fn run_internal(input: [required_drafts], output: []):
     summary = @summarize(factorial=factorial_value, fib=fib_value)
     return summary"#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         println!("\n=== DAG NODES ===");
         for (id, node) in dag.nodes.iter() {
@@ -5138,7 +5546,7 @@ fn run_internal(input: [required_drafts], output: []):
         let program = crate::ast::Program::decode(&data[..]).expect("Failed to decode protobuf");
 
         // Convert to DAG
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // Print the DAG structure for debugging
         println!("\n=== NODES ===");
@@ -5246,7 +5654,7 @@ fn run_internal(input: [required_drafts], output: []):
     _return_tmp = @build_chain_result(original=text, step1=step1, step2=step2, step3=step3)
     return _return_tmp"#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // Find the final action node (build_chain_result)
         let final_action = dag
@@ -5350,7 +5758,7 @@ fn run_internal(input: [required_drafts], output: []):
     final_result = @use_results(data=results)
     return final_result"#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // Verify the normalized loop structure exists
         let back_edges: Vec<_> = dag.edges.iter().filter(|e| e.is_loop_back).collect();
@@ -5407,7 +5815,7 @@ fn run_internal(input: [required_drafts], output: []):
         result = @fallback_action(x=x)
     return result"#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // Count return nodes - there should only be ONE (the main function's return)
         let return_nodes: Vec<_> = dag
@@ -5542,7 +5950,7 @@ fn main(input: [items, threshold], output: []):
     #[test]
     fn test_complete_workflow_dag_has_all_action_calls() {
         let program = parse(COMPLETE_FEATURE_WORKFLOW_IR).expect("Should parse");
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // Collect all action names in the DAG
         let action_names: HashSet<_> = dag
@@ -5579,7 +5987,7 @@ fn main(input: [items, threshold], output: []):
     #[test]
     fn test_complete_workflow_conditional_branches_inlined() {
         let program = parse(COMPLETE_FEATURE_WORKFLOW_IR).expect("Should parse");
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // The conditional branches should have action_call nodes, not just expression nodes
         let action_names: HashSet<_> = dag
@@ -5629,7 +6037,7 @@ fn main(input: [items, threshold], output: []):
     #[test]
     fn test_complete_workflow_for_loop_body_inlined() {
         let program = parse(COMPLETE_FEATURE_WORKFLOW_IR).expect("Should parse");
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // The for loop body should have the validate_item action
         let validate_item_nodes: Vec<_> = dag
@@ -5682,7 +6090,7 @@ fn main(input: [items, threshold], output: []):
     #[test]
     fn test_complete_workflow_try_except_bodies_inlined() {
         let program = parse(COMPLETE_FEATURE_WORKFLOW_IR).expect("Should parse");
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // Both risky_operation and fallback_operation should be present
         let action_names: HashSet<_> = dag
@@ -5727,7 +6135,7 @@ fn main(input: [items, threshold], output: []):
     #[test]
     fn test_complete_workflow_no_dangling_edges() {
         let program = parse(COMPLETE_FEATURE_WORKFLOW_IR).expect("Should parse");
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // Every edge should reference nodes that exist in the DAG
         for edge in &dag.edges {
@@ -5749,7 +6157,7 @@ fn main(input: [items, threshold], output: []):
     #[test]
     fn test_complete_workflow_data_flow_to_aggregate_results() {
         let program = parse(COMPLETE_FEATURE_WORKFLOW_IR).expect("Should parse");
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // Find the aggregate_results action
         let aggregate_node = dag
@@ -5797,7 +6205,7 @@ fn main(input: [items, threshold], output: []):
     #[test]
     fn test_complete_workflow_final_status_defined_by_branches() {
         let program = parse(COMPLETE_FEATURE_WORKFLOW_IR).expect("Should parse");
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // Find all nodes that define final_status (should be the 3 branch actions)
         let final_status_producers: Vec<_> = dag
@@ -5837,7 +6245,7 @@ fn main(input: [items, threshold], output: []):
     #[test]
     fn test_complete_workflow_no_expression_nodes_for_branches() {
         let program = parse(COMPLETE_FEATURE_WORKFLOW_IR).expect("Should parse");
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // There should be NO generic "expression" nodes that are actually branch bodies
         // Branch bodies should be expanded to their actual content (action_call nodes)
@@ -5874,7 +6282,7 @@ fn main(input: [items, threshold], output: []):
     #[test]
     fn test_complete_workflow_parallel_structure() {
         let program = parse(COMPLETE_FEATURE_WORKFLOW_IR).expect("Should parse");
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // Should have parallel entry node
         let parallel_nodes: Vec<_> = dag
@@ -5914,7 +6322,7 @@ fn main(input: [items, threshold], output: []):
     #[test]
     fn test_complete_workflow_spread_structure() {
         let program = parse(COMPLETE_FEATURE_WORKFLOW_IR).expect("Should parse");
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // Should have spread action for process_item
         let spread_nodes: Vec<_> = dag
@@ -5945,7 +6353,7 @@ fn main(input: [items, threshold], output: []):
     #[test]
     fn test_complete_workflow_for_loop_structure() {
         let program = parse(COMPLETE_FEATURE_WORKFLOW_IR).expect("Should parse");
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // Normalized for loop should have these components:
         // 1. loop_init (assignment): __loop_*_i = 0
@@ -5998,7 +6406,7 @@ fn main(input: [items, threshold], output: []):
     #[test]
     fn test_complete_workflow_try_except_structure() {
         let program = parse(COMPLETE_FEATURE_WORKFLOW_IR).expect("Should parse");
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // Find the risky_operation and fallback_operation nodes
         let risky_node = dag
@@ -6081,7 +6489,7 @@ fn main(input: [items, threshold], output: []):
     #[test]
     fn test_complete_workflow_return_node_is_singular() {
         let program = parse(COMPLETE_FEATURE_WORKFLOW_IR).expect("Should parse");
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // After expansion, the main return node should still exist.
         // Inlined helper returns are preserved to route early-return control flow.
@@ -6111,7 +6519,7 @@ fn main(input: [items, threshold], output: []):
     #[test]
     fn test_complete_workflow_no_fn_call_nodes_after_expansion() {
         let program = parse(COMPLETE_FEATURE_WORKFLOW_IR).expect("Should parse");
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // All fn_call nodes to internal synthetic functions should be expanded
         let fn_call_nodes: Vec<_> = dag.nodes.values().filter(|n| n.is_fn_call).collect();
@@ -6137,7 +6545,7 @@ fn main(input: [items, threshold], output: []):
     #[test]
     fn test_complete_workflow_input_variables_flow_to_users() {
         let program = parse(COMPLETE_FEATURE_WORKFLOW_IR).expect("Should parse");
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // Find the input node
         let input_node = dag
@@ -6211,7 +6619,7 @@ fn main(input: [items], output: [final]):
     return final"#;
 
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // Find the loop_incr node (it defines __loop_*_i)
         let loop_incr_node = dag
@@ -6312,7 +6720,7 @@ fn main(input: [x], output: []):
     return final
 "#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // Find the initial assignment node for 'recovered'
         let initial_assign = dag
@@ -6381,7 +6789,7 @@ fn main(input: [x], output: []):
     return final
 "#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // Find the exception handler's assignment node for 'recovered'
         let handler_assign = dag
@@ -6473,7 +6881,7 @@ fn main(input: [], output: []):
     return result
 "#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // Find the report action node
         let report_action = dag
@@ -6570,7 +6978,7 @@ fn main(input: [], output: []):
     return final
 "#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // Find the final_action node
         let final_action = dag
@@ -6628,7 +7036,7 @@ fn main(input: [], output: []):
     return out
 "#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // Get all state machine edges
         let state_machine_edges: Vec<_> = dag.get_state_machine_edges();
@@ -6714,7 +7122,7 @@ fn main(input: [], output: []):
     return final
 "#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // Find the initial count assignment and final_action
         let initial_assign = dag
@@ -6781,7 +7189,7 @@ fn main(input: [], output: []):
     return result
 "#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // Find the action that defines error_handler
         let _get_handler_action = dag
@@ -6835,7 +7243,7 @@ fn main(input: [], output: []):
     return final
 "#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // Find all join nodes
         let join_nodes: Vec<_> = dag
@@ -6923,7 +7331,7 @@ fn main(input: [], output: []):
     return final
 "#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         let final_action = dag
             .nodes
@@ -6948,5 +7356,983 @@ fn main(input: [], output: []):
              (from initial and from exception handler). Found: {:?}",
             flag_edges.iter().map(|e| &e.source).collect::<Vec<_>>()
         );
+    }
+
+    // ========================================================================
+    // DAG Validation Tests
+    // ========================================================================
+
+    #[test]
+    fn test_validate_dag_catches_dangling_edge_target() {
+        // Manually construct a DAG with a dangling edge target
+        let mut dag = DAG::new();
+        dag.add_node(DAGNode::new(
+            "node_1".to_string(),
+            "action_call".to_string(),
+            "test".to_string(),
+        ));
+        dag.add_edge(DAGEdge::state_machine(
+            "node_1".to_string(),
+            "nonexistent_node".to_string(),
+        ));
+
+        let result = validate_dag(&dag);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .contains("non-existent target node 'nonexistent_node'")
+        );
+    }
+
+    #[test]
+    fn test_validate_dag_catches_dangling_edge_source() {
+        // Manually construct a DAG with a dangling edge source
+        let mut dag = DAG::new();
+        dag.add_node(DAGNode::new(
+            "node_1".to_string(),
+            "action_call".to_string(),
+            "test".to_string(),
+        ));
+        dag.add_edge(DAGEdge::state_machine(
+            "nonexistent_source".to_string(),
+            "node_1".to_string(),
+        ));
+
+        let result = validate_dag(&dag);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .contains("non-existent source node 'nonexistent_source'")
+        );
+    }
+
+    #[test]
+    fn test_validate_dag_passes_valid_dag() {
+        let mut dag = DAG::new();
+        dag.add_node(DAGNode::new(
+            "node_1".to_string(),
+            "action_call".to_string(),
+            "test1".to_string(),
+        ));
+        dag.add_node(DAGNode::new(
+            "node_2".to_string(),
+            "action_call".to_string(),
+            "test2".to_string(),
+        ));
+        dag.add_edge(DAGEdge::state_machine(
+            "node_1".to_string(),
+            "node_2".to_string(),
+        ));
+
+        let result = validate_dag(&dag);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_dag_catches_loop_incr_with_spurious_edge() {
+        // Invariant 3: loop_incr nodes should only have loop_back edges or exception edges
+        let mut dag = DAG::new();
+
+        dag.add_node(DAGNode::new(
+            "loop_cond_1".to_string(),
+            "branch".to_string(),
+            "loop condition".to_string(),
+        ));
+        dag.add_node(DAGNode::new(
+            "loop_incr_2".to_string(),
+            "assignment".to_string(),
+            "loop increment".to_string(),
+        ));
+        dag.add_node(DAGNode::new(
+            "join_3".to_string(),
+            "join".to_string(),
+            "join".to_string(),
+        ));
+
+        // Valid loop_back edge
+        let mut loop_back_edge =
+            DAGEdge::state_machine("loop_incr_2".to_string(), "loop_cond_1".to_string());
+        loop_back_edge.is_loop_back = true;
+        dag.add_edge(loop_back_edge);
+
+        // Invalid: non-exception, non-loop_back edge from loop_incr to join
+        dag.add_edge(DAGEdge::state_machine(
+            "loop_incr_2".to_string(),
+            "join_3".to_string(),
+        ));
+
+        let result = validate_dag(&dag);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("loop_incr_2"));
+        assert!(err.contains("unexpected state machine edge"));
+    }
+
+    #[test]
+    fn test_validate_dag_allows_loop_incr_with_exception_edge() {
+        // Exception edges from loop_incr are valid (they go to outer handlers)
+        let mut dag = DAG::new();
+
+        dag.add_node(DAGNode::new(
+            "loop_cond_1".to_string(),
+            "branch".to_string(),
+            "loop condition".to_string(),
+        ));
+        dag.add_node(DAGNode::new(
+            "loop_incr_2".to_string(),
+            "assignment".to_string(),
+            "loop increment".to_string(),
+        ));
+        dag.add_node(DAGNode::new(
+            "handler_3".to_string(),
+            "action_call".to_string(),
+            "exception handler".to_string(),
+        ));
+
+        // Valid loop_back edge
+        let mut loop_back_edge =
+            DAGEdge::state_machine("loop_incr_2".to_string(), "loop_cond_1".to_string());
+        loop_back_edge.is_loop_back = true;
+        dag.add_edge(loop_back_edge);
+
+        // Valid exception edge
+        dag.add_edge(DAGEdge::state_machine_with_exception(
+            "loop_incr_2".to_string(),
+            "handler_3".to_string(),
+            vec!["Error".to_string()],
+        ));
+
+        let result = validate_dag(&dag);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_dag_catches_duplicate_state_machine_edges() {
+        // Invariant 4: No duplicate non-exception state machine edges
+        let mut dag = DAG::new();
+
+        dag.add_node(DAGNode::new(
+            "node_1".to_string(),
+            "action_call".to_string(),
+            "test1".to_string(),
+        ));
+        dag.add_node(DAGNode::new(
+            "node_2".to_string(),
+            "action_call".to_string(),
+            "test2".to_string(),
+        ));
+
+        // Add the same edge twice
+        dag.add_edge(DAGEdge::state_machine(
+            "node_1".to_string(),
+            "node_2".to_string(),
+        ));
+        dag.add_edge(DAGEdge::state_machine(
+            "node_1".to_string(),
+            "node_2".to_string(),
+        ));
+
+        let result = validate_dag(&dag);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Duplicate state machine edge"));
+    }
+
+    #[test]
+    fn test_validate_dag_catches_input_with_incoming_edge() {
+        // Invariant 5: Input nodes should not have incoming state machine edges
+        let mut dag = DAG::new();
+
+        let mut input_node = DAGNode::new(
+            "main_input_1".to_string(),
+            "input".to_string(),
+            "input".to_string(),
+        );
+        input_node.is_input = true;
+        dag.add_node(input_node);
+
+        dag.add_node(DAGNode::new(
+            "other_node".to_string(),
+            "action_call".to_string(),
+            "other".to_string(),
+        ));
+
+        // Invalid: edge TO input node
+        dag.add_edge(DAGEdge::state_machine(
+            "other_node".to_string(),
+            "main_input_1".to_string(),
+        ));
+
+        let result = validate_dag(&dag);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .contains("has incoming state machine edge")
+        );
+    }
+
+    #[test]
+    fn test_build_call_entry_map_handles_nested_prefixes() {
+        // Create a DAG that simulates nested function expansion
+        let mut dag = DAG::new();
+
+        // Simulate: main -> fn_call_22 (__outer_try__) -> fn_call_12 (__handler__)
+        // After expansion, we'd have nodes like:
+        // - fn_call_22:action_1
+        // - fn_call_22:fn_call_12:action_2
+        dag.add_node(DAGNode::new(
+            "fn_call_22:action_1".to_string(),
+            "action_call".to_string(),
+            "outer_action".to_string(),
+        ));
+        dag.add_node(DAGNode::new(
+            "fn_call_22:fn_call_12:action_2".to_string(),
+            "action_call".to_string(),
+            "handler_action".to_string(),
+        ));
+        dag.add_node(DAGNode::new(
+            "fn_call_22:fn_call_12:return_3".to_string(),
+            "return".to_string(),
+            "return".to_string(),
+        ));
+
+        let map = DAGConverter::build_call_entry_map(&dag);
+
+        // Should have mapping for fn_call_22
+        assert!(
+            map.contains_key("fn_call_22"),
+            "Should have mapping for fn_call_22"
+        );
+
+        // Should also have mapping for nested fn_call_22:fn_call_12
+        assert!(
+            map.contains_key("fn_call_22:fn_call_12"),
+            "Should have mapping for nested fn_call_22:fn_call_12"
+        );
+
+        // The mapping should point to actual nodes
+        let fn_call_22_entry = map.get("fn_call_22").unwrap();
+        assert!(
+            dag.nodes.contains_key(fn_call_22_entry),
+            "fn_call_22 mapping should point to existing node"
+        );
+
+        let nested_entry = map.get("fn_call_22:fn_call_12").unwrap();
+        assert!(
+            dag.nodes.contains_key(nested_entry),
+            "fn_call_22:fn_call_12 mapping should point to existing node"
+        );
+    }
+
+    #[test]
+    fn test_nested_try_except_exception_edges_properly_remapped() {
+        // This test verifies that exception edges in nested try/except blocks
+        // are properly remapped to point to the expanded handler nodes.
+        //
+        // Pattern:
+        //   def main():
+        //     try:                           # outer try
+        //       inner_result = outer_try()   # calls __outer_try__
+        //     except OuterError:
+        //       handle_outer()
+        //
+        //   def __outer_try__():
+        //     try:                           # inner try (nested)
+        //       result = inner_try()         # calls __inner_try__
+        //     except InnerError:
+        //       handle_inner()               # exception handler IN SAME FUNCTION
+        //     return result
+        let source = r#"
+fn __inner_try__(input: [], output: [result]):
+    result = @risky_inner()
+    return result
+
+fn __outer_try__(input: [], output: [result]):
+    try:
+        result = __inner_try__()
+    except InnerError:
+        result = @handle_inner()
+    return result
+
+fn main(input: [], output: [final]):
+    try:
+        result = __outer_try__()
+    except OuterError:
+        result = @handle_outer()
+    final = @finish(r=result)
+    return final
+"#;
+        let program = parse(source).unwrap();
+
+        // This should not panic - the DAG should be valid
+        let dag = convert_to_dag(&program).unwrap();
+
+        // Find all exception edges
+        let exception_edges: Vec<_> = dag
+            .edges
+            .iter()
+            .filter(|e| e.exception_types.is_some())
+            .collect();
+
+        // Verify all exception edges point to existing nodes
+        for edge in &exception_edges {
+            assert!(
+                dag.nodes.contains_key(&edge.source),
+                "Exception edge source '{}' should exist",
+                edge.source
+            );
+            assert!(
+                dag.nodes.contains_key(&edge.target),
+                "Exception edge target '{}' should exist (from source '{}')",
+                edge.target,
+                edge.source
+            );
+        }
+
+        // Verify we have exception edges for both InnerError and OuterError
+        let inner_error_edges: Vec<_> = exception_edges
+            .iter()
+            .filter(|e| {
+                e.exception_types
+                    .as_ref()
+                    .map(|t| t.contains(&"InnerError".to_string()))
+                    .unwrap_or(false)
+            })
+            .collect();
+
+        let outer_error_edges: Vec<_> = exception_edges
+            .iter()
+            .filter(|e| {
+                e.exception_types
+                    .as_ref()
+                    .map(|t| t.contains(&"OuterError".to_string()))
+                    .unwrap_or(false)
+            })
+            .collect();
+
+        assert!(
+            !inner_error_edges.is_empty(),
+            "Should have exception edges for InnerError"
+        );
+        assert!(
+            !outer_error_edges.is_empty(),
+            "Should have exception edges for OuterError"
+        );
+    }
+
+    #[test]
+    fn test_try_except_with_loop_inside_fn_call_no_spurious_edges() {
+        // Regression test: when a function with a for loop is called inside a try block,
+        // the success edge from the fn_call to the join should be remapped to the LAST
+        // node of the expansion (the output node), NOT to internal nodes like loop_incr.
+        //
+        // Pattern:
+        //   fn run_inner():
+        //     for _ in range(5):
+        //       x = @action()
+        //     result = @final()
+        //     return result
+        //
+        //   fn main():
+        //     try:
+        //       result = run_inner()
+        //     except Error:
+        //       result = @fallback()
+        //     return result
+        //
+        // Bug: The success edge from run_inner's expansion was incorrectly going from
+        // loop_incr to join, causing every loop iteration to trigger the outer join.
+        let source = r#"
+fn run_inner(input: [], output: [result]):
+    for _ in range(5):
+        x = @loop_action()
+    result = @final_action()
+    return result
+
+fn main(input: [], output: []):
+    try:
+        result = run_inner()
+    except Error:
+        result = @fallback()
+    return result
+"#;
+        let program = parse(source).unwrap();
+        let dag = convert_to_dag(&program).expect("should convert");
+
+        // Find the join node (after the try/except)
+        let join_nodes: Vec<_> = dag
+            .nodes
+            .iter()
+            .filter(|(_, n)| n.node_type == "join" && n.function_name.as_deref() == Some("main"))
+            .collect();
+        assert!(!join_nodes.is_empty(), "Should have a join node in main");
+        let join_id = join_nodes[0].0;
+
+        // Check edges TO the join
+        let edges_to_join: Vec<_> = dag
+            .edges
+            .iter()
+            .filter(|e| &e.target == join_id && e.edge_type == EdgeType::StateMachine)
+            .collect();
+
+        // There should be edges from:
+        // 1. The fallback action (handler exit)
+        // 2. The output node of run_inner (success path)
+        // There should NOT be edges from internal loop nodes like loop_incr
+
+        for edge in &edges_to_join {
+            // No edge should come from a loop_incr node
+            assert!(
+                !edge.source.contains("loop_incr"),
+                "Join should not have incoming edge from loop_incr node: {} -> {}",
+                edge.source,
+                edge.target
+            );
+            // No edge should come from a loop_cond node
+            assert!(
+                !edge.source.contains("loop_cond"),
+                "Join should not have incoming edge from loop_cond node: {} -> {}",
+                edge.source,
+                edge.target
+            );
+        }
+
+        // Either output or return node should go to join for success path
+        // (or it could be the handler exit, which is also valid)
+        let valid_sources: Vec<_> = edges_to_join.iter().map(|e| e.source.as_str()).collect();
+        assert!(
+            valid_sources
+                .iter()
+                .any(|s| s.contains("output") || s.contains("return") || s.contains("fallback")),
+            "Join should have incoming edge from output/return or fallback node. Got: {:?}",
+            valid_sources
+        );
+    }
+}
+
+// ============================================================================
+// Property-Based Tests (using proptest)
+// ============================================================================
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use crate::parse;
+    use proptest::prelude::*;
+
+    // Strategy to generate a simple action name
+    fn action_name() -> impl Strategy<Value = String> {
+        prop::string::string_regex("[a-z][a-z0-9_]{2,10}")
+            .unwrap()
+            .prop_map(|s| s.to_lowercase())
+    }
+
+    // Strategy to generate a variable name
+    fn var_name() -> impl Strategy<Value = String> {
+        prop::string::string_regex("[a-z][a-z0-9_]{1,5}")
+            .unwrap()
+            .prop_map(|s| s.to_lowercase())
+    }
+
+    // Strategy to generate a simple action call statement
+    fn action_statement() -> impl Strategy<Value = String> {
+        (var_name(), action_name()).prop_map(|(var, action)| format!("    {} = @{}()", var, action))
+    }
+
+    // Strategy to generate a for loop with action
+    fn for_loop_with_action() -> impl Strategy<Value = String> {
+        (var_name(), action_name(), 1..5u32).prop_map(|(var, action, count)| {
+            format!(
+                "    for _ in range({}):\n        {} = @{}()",
+                count, var, action
+            )
+        })
+    }
+
+    // Strategy to generate a try/except block with actions
+    fn try_except_block() -> impl Strategy<Value = String> {
+        (var_name(), action_name(), action_name()).prop_map(|(var, try_action, except_action)| {
+            format!(
+                "    try:\n        {} = @{}()\n    except Error:\n        {} = @{}()",
+                var, try_action, var, except_action
+            )
+        })
+    }
+
+    // Strategy to generate a function body with various structures
+    fn function_body() -> impl Strategy<Value = String> {
+        prop_oneof![
+            // Simple action
+            action_statement(),
+            // For loop with action
+            for_loop_with_action(),
+            // Try/except block
+            try_except_block(),
+        ]
+    }
+
+    // Strategy to generate a complete valid program
+    fn simple_program() -> impl Strategy<Value = String> {
+        (function_body(), var_name()).prop_map(|(body, result_var)| {
+            format!(
+                r#"fn main(input: [], output: [result]):
+{}
+    result = {}
+    return result"#,
+                body, result_var
+            )
+        })
+    }
+
+    // Strategy: program with a helper function called from main
+    fn program_with_helper() -> impl Strategy<Value = String> {
+        (action_name(), action_name()).prop_map(|(helper_action, main_action)| {
+            format!(
+                r#"fn helper(input: [], output: [result]):
+    result = @{}()
+    return result
+
+fn main(input: [], output: [final]):
+    h = helper()
+    final = @{}(x=h)
+    return final"#,
+                helper_action, main_action
+            )
+        })
+    }
+
+    // Strategy: program with try/except calling a helper that has a loop
+    fn program_with_try_except_and_loop_helper() -> impl Strategy<Value = String> {
+        (action_name(), action_name(), 1..5u32).prop_map(|(loop_action, fallback_action, count)| {
+            format!(
+                r#"fn loop_helper(input: [], output: [result]):
+    for _ in range({}):
+        x = @{}()
+    result = x
+    return result
+
+fn main(input: [], output: [final]):
+    try:
+        result = loop_helper()
+    except Error:
+        result = @{}()
+    final = result
+    return final"#,
+                count, loop_action, fallback_action
+            )
+        })
+    }
+
+    // Strategy: program with nested try/except
+    fn program_with_nested_try_except() -> impl Strategy<Value = String> {
+        (action_name(), action_name(), action_name()).prop_map(
+            |(inner_action, inner_handler, outer_handler)| {
+                format!(
+                    r#"fn inner_helper(input: [], output: [result]):
+    try:
+        result = @{}()
+    except InnerError:
+        result = @{}()
+    return result
+
+fn main(input: [], output: [final]):
+    try:
+        result = inner_helper()
+    except OuterError:
+        result = @{}()
+    final = result
+    return final"#,
+                    inner_action, inner_handler, outer_handler
+                )
+            },
+        )
+    }
+
+    // Property: All generated programs should produce valid DAGs
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(100))]
+
+        #[test]
+        fn prop_simple_programs_produce_valid_dags(source in simple_program()) {
+            if let Ok(program) = parse(&source) {
+                // DAG conversion should succeed and pass all invariants
+                let result = convert_to_dag(&program);
+                prop_assert!(
+                    result.is_ok(),
+                    "Simple program should produce valid DAG: {:?}\nSource:\n{}",
+                    result.err(),
+                    source
+                );
+            }
+            // If parse fails, that's fine - we're testing DAG generation, not parsing
+        }
+
+        #[test]
+        fn prop_helper_programs_produce_valid_dags(source in program_with_helper()) {
+            if let Ok(program) = parse(&source) {
+                let result = convert_to_dag(&program);
+                prop_assert!(
+                    result.is_ok(),
+                    "Helper program should produce valid DAG: {:?}\nSource:\n{}",
+                    result.err(),
+                    source
+                );
+            }
+        }
+
+        #[test]
+        fn prop_try_except_with_loop_helper_produces_valid_dags(
+            source in program_with_try_except_and_loop_helper()
+        ) {
+            if let Ok(program) = parse(&source) {
+                let result = convert_to_dag(&program);
+                prop_assert!(
+                    result.is_ok(),
+                    "Try/except with loop helper should produce valid DAG: {:?}\nSource:\n{}",
+                    result.err(),
+                    source
+                );
+            }
+        }
+
+        #[test]
+        fn prop_nested_try_except_produces_valid_dags(source in program_with_nested_try_except()) {
+            if let Ok(program) = parse(&source) {
+                let result = convert_to_dag(&program);
+                prop_assert!(
+                    result.is_ok(),
+                    "Nested try/except should produce valid DAG: {:?}\nSource:\n{}",
+                    result.err(),
+                    source
+                );
+            }
+        }
+    }
+
+    // Test that specific patterns that previously caused bugs still work
+    #[test]
+    fn test_loop_in_helper_called_from_try_block() {
+        // This is the pattern that caused the infinite loop bug
+        let source = r#"
+fn loop_helper(input: [], output: [result]):
+    for i in range(10):
+        x = @action()
+    result = @final()
+    return result
+
+fn main(input: [], output: []):
+    try:
+        result = loop_helper()
+    except Error:
+        result = @fallback()
+    return result
+"#;
+        let program = parse(source).unwrap();
+        let result = convert_to_dag(&program);
+        assert!(
+            result.is_ok(),
+            "Loop in helper called from try block should produce valid DAG: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn test_deeply_nested_loops_and_try_except() {
+        let source = r#"
+fn level3(input: [], output: [result]):
+    for _ in range(3):
+        x = @action3()
+    result = x
+    return result
+
+fn level2(input: [], output: [result]):
+    try:
+        for _ in range(2):
+            result = level3()
+    except Error2:
+        result = @fallback2()
+    return result
+
+fn main(input: [], output: []):
+    try:
+        result = level2()
+    except Error1:
+        result = @fallback1()
+    return result
+"#;
+        let program = parse(source).unwrap();
+        let result = convert_to_dag(&program);
+        assert!(
+            result.is_ok(),
+            "Deeply nested loops and try/except should produce valid DAG: {:?}",
+            result.err()
+        );
+    }
+
+    #[test]
+    fn test_policies_preserved_through_function_expansion() {
+        // Test that policies on action_call nodes inside helper functions
+        // are preserved when the function is expanded/inlined.
+        //
+        // Pattern:
+        //   fn helper(input: [], output: [result]):
+        //     result = @action() [retry: 2]
+        //     return result
+        //
+        //   fn main(input: [], output: []):
+        //     x = helper()
+        //     return x
+        //
+        // After expansion, the action node should still have retry: 2
+        let source = r#"
+fn helper(input: [], output: [result]):
+    result = @do_work() [retry: 2, backoff: 10s]
+    return result
+
+fn main(input: [], output: [final]):
+    final = helper()
+    return final
+"#;
+        let program = parse(source).unwrap();
+        let dag = convert_to_dag(&program).unwrap();
+
+        // Find the expanded action node
+        let action_node = dag
+            .nodes
+            .values()
+            .find(|n| n.node_type == "action_call" && n.action_name.as_deref() == Some("do_work"))
+            .expect("Should find do_work action node");
+
+        // Verify policies are preserved
+        assert!(
+            !action_node.policies.is_empty(),
+            "Action node should have policies. Node: {:?}",
+            action_node
+        );
+
+        // Check for retry policy with max_retries = 2
+        let has_retry_policy = action_node.policies.iter().any(|p| {
+            matches!(
+                &p.kind,
+                Some(crate::parser::ast::policy_bracket::Kind::Retry(retry)) if retry.max_retries == 2
+            )
+        });
+        assert!(
+            has_retry_policy,
+            "Action should have retry policy with max_retries=2. Policies: {:?}",
+            action_node.policies
+        );
+    }
+
+    #[test]
+    fn test_policies_preserved_from_protobuf() {
+        // Test that policies on action_call nodes are preserved when
+        // loading from protobuf (like Python IR does).
+        use crate::parser::ast;
+        use prost::Message;
+
+        // Build a minimal program with an action that has policies
+        // Create retry policy with max_retries = 2
+        let retry_policy = ast::RetryPolicy {
+            max_retries: 2,
+            backoff: Some(ast::Duration { seconds: 10 }),
+            ..Default::default()
+        };
+
+        let policy = ast::PolicyBracket {
+            kind: Some(ast::policy_bracket::Kind::Retry(retry_policy)),
+        };
+
+        let action_call = ast::ActionCall {
+            action_name: "do_work".to_string(),
+            policies: vec![policy],
+            ..Default::default()
+        };
+
+        let expr = ast::Expr {
+            kind: Some(ast::expr::Kind::ActionCall(action_call)),
+            ..Default::default()
+        };
+
+        let assignment = ast::Assignment {
+            targets: vec!["result".to_string()],
+            value: Some(expr),
+        };
+
+        let assign_stmt = ast::Statement {
+            kind: Some(ast::statement::Kind::Assignment(assignment)),
+            ..Default::default()
+        };
+
+        let var = ast::Variable {
+            name: "result".to_string(),
+        };
+
+        let var_expr = ast::Expr {
+            kind: Some(ast::expr::Kind::Variable(var)),
+            ..Default::default()
+        };
+
+        let return_stmt_inner = ast::ReturnStmt {
+            value: Some(var_expr),
+        };
+
+        let return_stmt = ast::Statement {
+            kind: Some(ast::statement::Kind::ReturnStmt(return_stmt_inner)),
+            ..Default::default()
+        };
+
+        let block = ast::Block {
+            statements: vec![assign_stmt, return_stmt],
+            span: None,
+        };
+
+        let io_decl = ast::IoDecl {
+            outputs: vec!["result".to_string()],
+            ..Default::default()
+        };
+
+        let func = ast::FunctionDef {
+            name: "main".to_string(),
+            io: Some(io_decl),
+            body: Some(block),
+            ..Default::default()
+        };
+
+        let program = ast::Program {
+            functions: vec![func],
+        };
+
+        // Serialize to protobuf
+        let proto_bytes = program.encode_to_vec();
+
+        // Decode back (like Rust runner would)
+        let decoded_program = ast::Program::decode(&proto_bytes[..]).unwrap();
+
+        // Verify policies are in decoded program
+        let decoded_action = &decoded_program.functions[0]
+            .body
+            .as_ref()
+            .unwrap()
+            .statements[0];
+        if let Some(ast::statement::Kind::Assignment(ref assign)) = decoded_action.kind {
+            if let Some(ref expr) = assign.value {
+                if let Some(ast::expr::Kind::ActionCall(ref ac)) = expr.kind {
+                    assert_eq!(
+                        ac.policies.len(),
+                        1,
+                        "Should have 1 policy after proto decode"
+                    );
+                    if let Some(ast::policy_bracket::Kind::Retry(ref r)) = ac.policies[0].kind {
+                        assert_eq!(
+                            r.max_retries, 2,
+                            "max_retries should be 2 after proto decode"
+                        );
+                    } else {
+                        panic!("Expected retry policy");
+                    }
+                }
+            }
+        }
+
+        // Now convert to DAG
+        let dag = convert_to_dag(&decoded_program).unwrap();
+
+        // Find the action node
+        let action_node = dag
+            .nodes
+            .values()
+            .find(|n| n.action_name.as_deref() == Some("do_work"))
+            .expect("Should find do_work action");
+
+        assert!(
+            !action_node.policies.is_empty(),
+            "Action node should have policies after DAG conversion. Node: {:?}",
+            action_node
+        );
+
+        let has_retry = action_node.policies.iter().any(|p| {
+            matches!(
+                &p.kind,
+                Some(ast::policy_bracket::Kind::Retry(r)) if r.max_retries == 2
+            )
+        });
+        assert!(has_retry, "Should have retry policy with max_retries=2");
+    }
+
+    #[test]
+    fn test_policies_preserved_through_nested_function_calls() {
+        // Test that policies on action_call nodes inside helper functions
+        // that are called from another function are preserved.
+        //
+        // Pattern (like ReloadCommentsRappel):
+        //   fn handle_comment_crawl(input: [], output: [result]):
+        //     result = @perform_crawl() [retry: 2]
+        //     return result
+        //
+        //   fn run_inner(input: [], output: [result]):
+        //     result = handle_comment_crawl()
+        //     return result
+        //
+        //   fn main(input: [], output: []):
+        //     x = run_inner()
+        //     return x
+        //
+        // After expansion, the action node should still have retry: 2
+        let source = r#"
+fn handle_comment_crawl(input: [], output: [result]):
+    result = @perform_crawl() [retry: 2, backoff: 10s]
+    return result
+
+fn run_inner(input: [], output: [result]):
+    result = handle_comment_crawl()
+    return result
+
+fn main(input: [], output: [final]):
+    final = run_inner()
+    return final
+"#;
+        let program = parse(source).unwrap();
+        let dag = convert_to_dag(&program).unwrap();
+
+        // Find the expanded action node (should have prefix from nested expansion)
+        let action_nodes: Vec<_> = dag
+            .nodes
+            .values()
+            .filter(|n| n.action_name.as_deref() == Some("perform_crawl"))
+            .collect();
+
+        assert!(
+            !action_nodes.is_empty(),
+            "Should find perform_crawl action nodes"
+        );
+
+        for action_node in action_nodes {
+            println!(
+                "Found action node: {} with {} policies",
+                action_node.id,
+                action_node.policies.len()
+            );
+            assert!(
+                !action_node.policies.is_empty(),
+                "Action node {} should have policies. Node: {:?}",
+                action_node.id,
+                action_node
+            );
+
+            let has_retry_policy = action_node.policies.iter().any(|p| {
+                matches!(
+                    &p.kind,
+                    Some(crate::parser::ast::policy_bracket::Kind::Retry(retry)) if retry.max_retries == 2
+                )
+            });
+            assert!(
+                has_retry_policy,
+                "Action {} should have retry policy with max_retries=2. Policies: {:?}",
+                action_node.id, action_node.policies
+            );
+        }
     }
 }

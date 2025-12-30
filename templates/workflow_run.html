@@ -100,7 +100,31 @@
                     <p class="text-xs uppercase tracking-[0.4em] text-zinc-500">Response</p>
                     <pre id="detail-response" class="mt-2 max-h-64 overflow-auto whitespace-pre-wrap rounded-xl bg-zinc-200/70 dark:bg-zinc-950/70 p-3 text-xs text-zinc-800 dark:text-zinc-200 font-mono"></pre>
                 </div>
+                <!-- Execution History section (shows all run attempts) -->
+                <div id="detail-history" class="hidden">
+                    <p class="text-xs uppercase tracking-[0.4em] text-zinc-500 mb-2">Execution History</p>
+                    <div id="detail-history-content" class="space-y-2 max-h-48 overflow-auto">
+                        <!-- History rows will be injected here -->
+                    </div>
+                </div>
             </div>
+        </div>
+    </div>
+</section>
+
+<!-- Full Execution Timeline -->
+<section class="space-y-3">
+    <div>
+        <p class="text-xs uppercase tracking-[0.4em] text-zinc-500">Timeline</p>
+        <h2 class="text-2xl font-semibold text-zinc-900 dark:text-white">Execution Log</h2>
+        <p class="text-sm text-zinc-600 dark:text-zinc-400">Chronological history of all action executions</p>
+    </div>
+    <div id="timeline-container" class="rounded-2xl border border-zinc-200 dark:border-zinc-900 bg-zinc-100 dark:bg-zinc-900/40 p-5">
+        <div id="timeline-empty" class="text-center py-8 text-zinc-600 dark:text-zinc-400">
+            <p class="text-sm">No execution logs recorded yet</p>
+        </div>
+        <div id="timeline-content" class="hidden space-y-2">
+            <!-- Timeline entries will be injected here -->
         </div>
     </div>
 </section>
@@ -111,6 +135,8 @@
 // Pass node data as JSON to avoid HTML entity escaping issues
 const nodeData = {{ nodes_json | safe }};
 const graphData = {{ graph_data | json_encode | safe }};
+// Action logs keyed by action_id (UUID string)
+const actionLogs = {{ action_logs_json | safe }};
 
 function payloadHasException(payloadText) {
   if (!payloadText) return false;
@@ -537,12 +563,222 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
       retryInfoEl.classList.add('hidden');
     }
+
+    // Update execution history section
+    const historyEl = document.getElementById('detail-history');
+    const historyContentEl = document.getElementById('detail-history-content');
+    const logs = actionLogs[node.action_id] || [];
+
+    if (logs.length > 0) {
+      historyEl.classList.remove('hidden');
+      historyContentEl.innerHTML = '';
+
+      logs.forEach((log, idx) => {
+        const row = document.createElement('div');
+        row.className = 'rounded-lg p-2 text-xs ' + (isDark ? 'bg-zinc-800' : 'bg-zinc-200/70');
+
+        // Status indicator
+        let statusColor, statusText;
+        if (log.success === true) {
+          statusColor = isDark ? 'text-emerald-400' : 'text-emerald-600';
+          statusText = 'Success';
+        } else if (log.success === false) {
+          statusColor = isDark ? 'text-red-400' : 'text-red-600';
+          statusText = 'Failed';
+        } else {
+          statusColor = isDark ? 'text-amber-400' : 'text-amber-600';
+          statusText = 'Running';
+        }
+
+        // Duration display
+        let durationText = '-';
+        if (log.duration_ms !== null && log.duration_ms !== undefined) {
+          if (log.duration_ms < 1000) {
+            durationText = log.duration_ms + 'ms';
+          } else {
+            durationText = (log.duration_ms / 1000).toFixed(2) + 's';
+          }
+        }
+
+        row.innerHTML = `
+          <div class="flex items-center justify-between gap-2">
+            <span class="font-semibold ${isDark ? 'text-zinc-200' : 'text-zinc-800'}">Attempt ${log.attempt_number + 1}</span>
+            <span class="font-semibold ${statusColor}">${statusText}</span>
+          </div>
+          <div class="mt-1 grid grid-cols-2 gap-x-4 ${isDark ? 'text-zinc-400' : 'text-zinc-600'}">
+            <div>Started: <span class="${isDark ? 'text-zinc-300' : 'text-zinc-700'}">${log.dispatched_at}</span></div>
+            <div>Duration: <span class="${isDark ? 'text-zinc-300' : 'text-zinc-700'}">${durationText}</span></div>
+          </div>
+          ${log.error_message ? `<div class="mt-1 text-red-500 dark:text-red-400 truncate" title="${log.error_message}">${log.error_message}</div>` : ''}
+        `;
+
+        historyContentEl.appendChild(row);
+      });
+    } else {
+      historyEl.classList.add('hidden');
+    }
   }
 
   // Select first node by default
   if (nodes.length > 0) {
     selectNode(nodes[0].id);
   }
+
+  // Render the full execution timeline
+  renderTimeline();
 });
+
+function renderTimeline() {
+  const timelineEmpty = document.getElementById('timeline-empty');
+  const timelineContent = document.getElementById('timeline-content');
+  if (!timelineEmpty || !timelineContent) return;
+
+  // Build action_id -> action info lookup from nodeData
+  const actionInfoLookup = {};
+  nodeData.forEach(n => {
+    actionInfoLookup[n.action_id] = {
+      nodeId: n.id,
+      action: n.action,
+      module: n.module
+    };
+  });
+
+  // Flatten all logs from actionLogs (keyed by action_id) into a single array
+  const allLogs = [];
+  for (const [actionId, logs] of Object.entries(actionLogs)) {
+    const info = actionInfoLookup[actionId] || { nodeId: actionId, action: 'Unknown', module: '' };
+    logs.forEach(log => {
+      allLogs.push({
+        ...log,
+        nodeId: info.nodeId,
+        actionName: info.action,
+        moduleName: info.module
+      });
+    });
+  }
+
+  // Sort by dispatched_at chronologically, with id as tiebreaker for stable ordering
+  allLogs.sort((a, b) => {
+    const dateA = new Date(a.dispatched_at);
+    const dateB = new Date(b.dispatched_at);
+    if (dateA - dateB !== 0) {
+      return dateA - dateB;
+    }
+    // Use id as tiebreaker for consistent ordering when timestamps match
+    return a.id.localeCompare(b.id);
+  });
+
+  if (allLogs.length === 0) {
+    timelineEmpty.classList.remove('hidden');
+    timelineContent.classList.add('hidden');
+    return;
+  }
+
+  timelineEmpty.classList.add('hidden');
+  timelineContent.classList.remove('hidden');
+  timelineContent.innerHTML = '';
+
+  const isDark = document.documentElement.classList.contains('dark');
+
+  allLogs.forEach((log, idx) => {
+    const row = document.createElement('div');
+    row.className = 'rounded-lg ' + (isDark ? 'bg-zinc-800/50' : 'bg-zinc-200/50') + ' transition-colors overflow-hidden';
+
+    // Status indicator
+    let statusColor, statusBg, statusText;
+    if (log.success === true) {
+      statusColor = isDark ? 'text-emerald-400' : 'text-emerald-600';
+      statusBg = isDark ? 'bg-emerald-900/50' : 'bg-emerald-100';
+      statusText = 'Success';
+    } else if (log.success === false) {
+      statusColor = isDark ? 'text-red-400' : 'text-red-600';
+      statusBg = isDark ? 'bg-red-900/50' : 'bg-red-100';
+      statusText = 'Failed';
+    } else {
+      statusColor = isDark ? 'text-amber-400' : 'text-amber-600';
+      statusBg = isDark ? 'bg-amber-900/50' : 'bg-amber-100';
+      statusText = 'Running';
+    }
+
+    // Duration display
+    let durationText = '-';
+    if (log.duration_ms !== null && log.duration_ms !== undefined) {
+      if (log.duration_ms < 1000) {
+        durationText = log.duration_ms + 'ms';
+      } else {
+        durationText = (log.duration_ms / 1000).toFixed(2) + 's';
+      }
+    }
+
+    // Timeline dot and line
+    const isLast = idx === allLogs.length - 1;
+
+    // Check if there's content to show (result_payload or error_message)
+    const hasDetails = log.result_payload || log.error_message;
+    const expandId = `timeline-expand-${idx}`;
+
+    row.innerHTML = `
+      <div class="flex items-start gap-4 p-3 ${hasDetails ? 'cursor-pointer hover:' + (isDark ? 'bg-zinc-800' : 'bg-zinc-200') : ''}" ${hasDetails ? `onclick="toggleTimelineExpand('${expandId}')"` : ''}>
+        <div class="flex flex-col items-center pt-1">
+          <div class="w-3 h-3 rounded-full ${statusBg} border-2 ${log.success === true ? 'border-emerald-500' : log.success === false ? 'border-red-500' : 'border-amber-500'}"></div>
+          ${!isLast ? `<div class="w-0.5 h-full min-h-[24px] mt-1 ${isDark ? 'bg-zinc-700' : 'bg-zinc-300'}"></div>` : ''}
+        </div>
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center justify-between gap-2 mb-1">
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="font-semibold ${isDark ? 'text-zinc-200' : 'text-zinc-800'} truncate">${log.actionName}</span>
+              <span class="text-xs ${isDark ? 'text-zinc-500' : 'text-zinc-500'} font-mono">${log.moduleName}</span>
+              <span class="text-xs px-1.5 py-0.5 rounded ${statusBg} ${statusColor} font-medium">${statusText}</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="text-xs ${isDark ? 'text-zinc-500' : 'text-zinc-500'} whitespace-nowrap">Attempt ${log.attempt_number + 1}</span>
+              ${hasDetails ? `<svg class="w-4 h-4 ${isDark ? 'text-zinc-500' : 'text-zinc-400'} transition-transform" id="${expandId}-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>` : ''}
+            </div>
+          </div>
+          <div class="flex items-center gap-4 text-xs ${isDark ? 'text-zinc-400' : 'text-zinc-600'}">
+            <span>Started: <span class="${isDark ? 'text-zinc-300' : 'text-zinc-700'}">${log.dispatched_at}</span></span>
+            <span>Duration: <span class="${isDark ? 'text-zinc-300' : 'text-zinc-700'}">${durationText}</span></span>
+          </div>
+          ${log.error_message && !log.result_payload ? `<div class="mt-1 text-xs text-red-500 dark:text-red-400 truncate" title="${escapeHtml(log.error_message)}">${escapeHtml(log.error_message)}</div>` : ''}
+        </div>
+      </div>
+      ${hasDetails ? `
+      <div id="${expandId}" class="hidden border-t ${isDark ? 'border-zinc-700' : 'border-zinc-300'} px-3 py-3 ml-7">
+        ${log.error_message ? `
+        <div class="mb-3">
+          <p class="text-xs uppercase tracking-[0.4em] text-red-500 dark:text-red-400 mb-1">Error</p>
+          <pre class="text-xs ${isDark ? 'text-red-300 bg-red-900/20' : 'text-red-700 bg-red-100'} p-2 rounded-lg whitespace-pre-wrap break-words font-mono overflow-x-auto max-h-32">${escapeHtml(log.error_message)}</pre>
+        </div>
+        ` : ''}
+        ${log.result_payload ? `
+        <div>
+          <p class="text-xs uppercase tracking-[0.4em] ${isDark ? 'text-zinc-500' : 'text-zinc-500'} mb-1">${log.success === false ? 'Exception' : 'Result'}</p>
+          <pre class="text-xs ${isDark ? 'text-zinc-300 bg-zinc-900/70' : 'text-zinc-700 bg-zinc-100'} p-2 rounded-lg whitespace-pre-wrap break-words font-mono overflow-x-auto max-h-64">${escapeHtml(log.result_payload)}</pre>
+        </div>
+        ` : ''}
+      </div>
+      ` : ''}
+    `;
+
+    timelineContent.appendChild(row);
+  });
+}
+
+function toggleTimelineExpand(id) {
+  const content = document.getElementById(id);
+  const icon = document.getElementById(id + '-icon');
+  if (content) {
+    content.classList.toggle('hidden');
+    if (icon) {
+      icon.classList.toggle('rotate-180');
+    }
+  }
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
 </script>
 {% endblock scripts %}

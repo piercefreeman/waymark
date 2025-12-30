@@ -73,7 +73,7 @@ async fn main() {
     };
 
     let program = Program::decode(workflow_version.as_slice()).expect("decode program");
-    let dag = convert_to_dag(&program);
+    let dag = convert_to_dag(&program).expect("convert to DAG");
 
     println!("=== Nodes ===");
     let nodes: BTreeMap<_, _> = dag.nodes.iter().collect();
@@ -127,6 +127,14 @@ async fn main() {
                 .iter()
                 .map(|f| (&f.node_id, &f.category))
                 .collect::<Vec<_>>()
+        );
+    }
+
+    println!("\n=== Exception Edges ===");
+    for edge in dag.edges.iter().filter(|e| e.exception_types.is_some()) {
+        println!(
+            "{} -> {} (types={:?})",
+            edge.source, edge.target, edge.exception_types
         );
     }
 

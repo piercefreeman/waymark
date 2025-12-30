@@ -730,7 +730,7 @@ mod tests {
     y = x + 1
     return y"#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
         let helper = DAGHelper::new(&dag);
 
         let input_node = helper.find_input_node("test");
@@ -748,7 +748,7 @@ mod tests {
     y = x + 1
     return y"#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
         let helper = DAGHelper::new(&dag);
 
         let input_node = helper.find_input_node("test").unwrap();
@@ -764,7 +764,7 @@ mod tests {
     y = @fetch(id=x)
     return y"#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
         let helper = DAGHelper::new(&dag);
 
         // Find the action call node
@@ -786,7 +786,7 @@ mod tests {
     z = y + 2
     return z"#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
         let helper = DAGHelper::new(&dag);
 
         let input_node = helper.find_input_node("test").unwrap();
@@ -802,7 +802,7 @@ mod tests {
     y = @fetch(id=x)
     return y"#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
         let helper = DAGHelper::new(&dag);
 
         let action_node_id = dag
@@ -821,7 +821,7 @@ mod tests {
     results = spread items:item -> @fetch(id=item)
     return results"#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
         let helper = DAGHelper::new(&dag);
 
         // Find the spread action node
@@ -845,7 +845,7 @@ mod tests {
     result = a + b
     return result"#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
         let helper = DAGHelper::new(&dag);
 
         let names = helper.get_function_names();
@@ -861,7 +861,7 @@ mod tests {
         result = "negative"
     return result"#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
         let helper = DAGHelper::new(&dag);
 
         // Find the branch node (replaces old "if" container node)
@@ -894,7 +894,7 @@ mod tests {
     z = y + 2
     return z"#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
         let helper = DAGHelper::new(&dag);
 
         let order = helper.get_execution_order("test");
@@ -924,7 +924,7 @@ mod tests {
         @fetch_c(id=3)
     return results"#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
         let helper = DAGHelper::new(&dag);
 
         // Find the parallel node
@@ -956,7 +956,7 @@ mod tests {
         result = @error_handler(x=x)
     return result"#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
 
         // In the flat DAG structure, there's no "try" container node.
         // Instead, the try body action (@risky_action) has exception edges
@@ -1024,7 +1024,7 @@ mod tests {
         result = "negative"
     return result"#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
         let helper = DAGHelper::new(&dag);
 
         // Find the branch node (replaces old "if" container node)
@@ -1048,7 +1048,7 @@ mod tests {
         x = item + 1
     return results"#;
         let program = parse(source).unwrap();
-        let dag = convert_to_dag(&program);
+        let dag = convert_to_dag(&program).unwrap();
         let helper = DAGHelper::new(&dag);
 
         // Find back-edges

@@ -329,6 +329,21 @@ pub struct LoopState {
     pub updated_at: DateTime<Utc>,
 }
 
+/// Action execution log entry (for tracking each run attempt)
+#[derive(Debug, Clone, FromRow)]
+pub struct ActionLog {
+    pub id: Uuid,
+    pub action_id: Uuid,
+    pub instance_id: Uuid,
+    pub attempt_number: i32,
+    pub dispatched_at: DateTime<Utc>,
+    pub completed_at: Option<DateTime<Utc>>,
+    pub success: Option<bool>,
+    pub result_payload: Option<Vec<u8>>,
+    pub error_message: Option<String>,
+    pub duration_ms: Option<i64>,
+}
+
 // ============================================================================
 // Workflow Schedules
 // ============================================================================

@@ -183,6 +183,12 @@ fn validate_statement(
                 validate_expr(value, &current, fn_name, function_names)?;
             }
         }
+        Kind::BreakStmt(_) => {
+            // Break has no expression to validate
+        }
+        Kind::ContinueStmt(_) => {
+            // Continue has no expression to validate
+        }
     }
 
     Ok(current)

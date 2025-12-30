@@ -249,7 +249,8 @@ impl Database {
     /// 2. Locks them with FOR UPDATE SKIP LOCKED (non-blocking)
     /// 3. Updates their status to 'dispatched'
     /// 4. Sets deadline and delivery token
-    /// 5. Returns the actions for execution
+    /// 5. Creates action log entries for tracking run history
+    /// 6. Returns the actions for execution
     pub async fn dispatch_actions(&self, limit: i32) -> DbResult<Vec<QueuedAction>> {
         let start = std::time::Instant::now();
         let rows = sqlx::query(
@@ -262,34 +263,46 @@ impl Database {
                 ORDER BY scheduled_at, action_seq
                 FOR UPDATE SKIP LOCKED
                 LIMIT $1
+            ),
+            updated AS (
+                UPDATE action_queue aq
+                SET status = 'dispatched',
+                    dispatched_at = NOW(),
+                    deadline_at = CASE
+                        WHEN timeout_seconds > 0
+                        THEN NOW() + (timeout_seconds || ' seconds')::interval
+                        ELSE NULL
+                    END,
+                    delivery_token = gen_random_uuid()
+                FROM next_actions
+                WHERE aq.id = next_actions.id
+                RETURNING
+                    aq.id,
+                    aq.instance_id,
+                    aq.partition_id,
+                    aq.action_seq,
+                    aq.module_name,
+                    aq.action_name,
+                    aq.dispatch_payload,
+                    aq.timeout_seconds,
+                    aq.max_retries,
+                    aq.attempt_number,
+                    aq.delivery_token,
+                    aq.timeout_retry_limit,
+                    aq.retry_kind,
+                    aq.node_id,
+                    COALESCE(aq.node_type, 'action') as node_type,
+                    aq.dispatched_at
+            ),
+            log_insert AS (
+                INSERT INTO action_logs (action_id, instance_id, attempt_number, dispatched_at)
+                SELECT id, instance_id, attempt_number, dispatched_at
+                FROM updated
             )
-            UPDATE action_queue aq
-            SET status = 'dispatched',
-                dispatched_at = NOW(),
-                deadline_at = CASE
-                    WHEN timeout_seconds > 0
-                    THEN NOW() + (timeout_seconds || ' seconds')::interval
-                    ELSE NULL
-                END,
-                delivery_token = gen_random_uuid()
-            FROM next_actions
-            WHERE aq.id = next_actions.id
-            RETURNING
-                aq.id,
-                aq.instance_id,
-                aq.partition_id,
-                aq.action_seq,
-                aq.module_name,
-                aq.action_name,
-                aq.dispatch_payload,
-                aq.timeout_seconds,
-                aq.max_retries,
-                aq.attempt_number,
-                aq.delivery_token,
-                aq.timeout_retry_limit,
-                aq.retry_kind,
-                aq.node_id,
-                COALESCE(aq.node_type, 'action') as node_type
+            SELECT id, instance_id, partition_id, action_seq, module_name, action_name,
+                   dispatch_payload, timeout_seconds, max_retries, attempt_number,
+                   delivery_token, timeout_retry_limit, retry_kind, node_id, node_type
+            FROM updated
             "#,
         )
         .bind(limit)
@@ -359,34 +372,46 @@ impl Database {
                 ORDER BY scheduled_at, action_seq
                 FOR UPDATE SKIP LOCKED
                 LIMIT $1
+            ),
+            updated AS (
+                UPDATE action_queue aq
+                SET status = 'dispatched',
+                    dispatched_at = NOW(),
+                    deadline_at = CASE
+                        WHEN timeout_seconds > 0
+                        THEN NOW() + (timeout_seconds || ' seconds')::interval
+                        ELSE NULL
+                    END,
+                    delivery_token = gen_random_uuid()
+                FROM next_actions
+                WHERE aq.id = next_actions.id
+                RETURNING
+                    aq.id,
+                    aq.instance_id,
+                    aq.partition_id,
+                    aq.action_seq,
+                    aq.module_name,
+                    aq.action_name,
+                    aq.dispatch_payload,
+                    aq.timeout_seconds,
+                    aq.max_retries,
+                    aq.attempt_number,
+                    aq.delivery_token,
+                    aq.timeout_retry_limit,
+                    aq.retry_kind,
+                    aq.node_id,
+                    COALESCE(aq.node_type, 'action') as node_type,
+                    aq.dispatched_at
+            ),
+            log_insert AS (
+                INSERT INTO action_logs (action_id, instance_id, attempt_number, dispatched_at)
+                SELECT id, instance_id, attempt_number, dispatched_at
+                FROM updated
             )
-            UPDATE action_queue aq
-            SET status = 'dispatched',
-                dispatched_at = NOW(),
-                deadline_at = CASE
-                    WHEN timeout_seconds > 0
-                    THEN NOW() + (timeout_seconds || ' seconds')::interval
-                    ELSE NULL
-                END,
-                delivery_token = gen_random_uuid()
-            FROM next_actions
-            WHERE aq.id = next_actions.id
-            RETURNING
-                aq.id,
-                aq.instance_id,
-                aq.partition_id,
-                aq.action_seq,
-                aq.module_name,
-                aq.action_name,
-                aq.dispatch_payload,
-                aq.timeout_seconds,
-                aq.max_retries,
-                aq.attempt_number,
-                aq.delivery_token,
-                aq.timeout_retry_limit,
-                aq.retry_kind,
-                aq.node_id,
-                COALESCE(aq.node_type, 'action') as node_type
+            SELECT id, instance_id, partition_id, action_seq, module_name, action_name,
+                   dispatch_payload, timeout_seconds, max_retries, attempt_number,
+                   delivery_token, timeout_retry_limit, retry_kind, node_id, node_type
+            FROM updated
             "#,
         )
         .bind(limit)
@@ -436,29 +461,41 @@ impl Database {
                 ORDER BY scheduled_at, action_seq
                 FOR UPDATE SKIP LOCKED
                 LIMIT $1
+            ),
+            updated AS (
+                UPDATE action_queue aq
+                SET status = 'dispatched',
+                    dispatched_at = NOW(),
+                    delivery_token = gen_random_uuid()
+                FROM next_barriers
+                WHERE aq.id = next_barriers.id
+                RETURNING
+                    aq.id,
+                    aq.instance_id,
+                    aq.partition_id,
+                    aq.action_seq,
+                    aq.module_name,
+                    aq.action_name,
+                    aq.dispatch_payload,
+                    aq.timeout_seconds,
+                    aq.max_retries,
+                    aq.attempt_number,
+                    aq.delivery_token,
+                    aq.timeout_retry_limit,
+                    aq.retry_kind,
+                    aq.node_id,
+                    aq.node_type,
+                    aq.dispatched_at
+            ),
+            log_insert AS (
+                INSERT INTO action_logs (action_id, instance_id, attempt_number, dispatched_at)
+                SELECT id, instance_id, attempt_number, dispatched_at
+                FROM updated
             )
-            UPDATE action_queue aq
-            SET status = 'dispatched',
-                dispatched_at = NOW(),
-                delivery_token = gen_random_uuid()
-            FROM next_barriers
-            WHERE aq.id = next_barriers.id
-            RETURNING
-                aq.id,
-                aq.instance_id,
-                aq.partition_id,
-                aq.action_seq,
-                aq.module_name,
-                aq.action_name,
-                aq.dispatch_payload,
-                aq.timeout_seconds,
-                aq.max_retries,
-                aq.attempt_number,
-                aq.delivery_token,
-                aq.timeout_retry_limit,
-                aq.retry_kind,
-                aq.node_id,
-                aq.node_type
+            SELECT id, instance_id, partition_id, action_seq, module_name, action_name,
+                   dispatch_payload, timeout_seconds, max_retries, attempt_number,
+                   delivery_token, timeout_retry_limit, retry_kind, node_id, node_type
+            FROM updated
             "#,
         )
         .bind(limit)
@@ -498,16 +535,32 @@ impl Database {
     ///
     /// Uses delivery_token for idempotent completion - if the token doesn't match,
     /// the action was already completed by another worker or timed out.
+    /// Also updates the action log entry with completion information.
     pub async fn complete_action(&self, record: CompletionRecord) -> DbResult<bool> {
         let result = sqlx::query(
             r#"
-            UPDATE action_queue
-            SET status = CASE WHEN $2 THEN 'completed' ELSE 'failed' END,
-                success = $2,
-                result_payload = $3,
-                last_error = $4,
-                completed_at = NOW()
-            WHERE id = $1 AND delivery_token = $5 AND status = 'dispatched'
+            WITH updated AS (
+                UPDATE action_queue
+                SET status = CASE WHEN $2 THEN 'completed' ELSE 'failed' END,
+                    success = $2,
+                    result_payload = $3,
+                    last_error = $4,
+                    completed_at = NOW()
+                WHERE id = $1 AND delivery_token = $5 AND status = 'dispatched'
+                RETURNING id, attempt_number, dispatched_at
+            ),
+            log_update AS (
+                UPDATE action_logs
+                SET completed_at = NOW(),
+                    success = $2,
+                    result_payload = $3,
+                    error_message = $4,
+                    duration_ms = EXTRACT(EPOCH FROM (NOW() - updated.dispatched_at)) * 1000
+                FROM updated
+                WHERE action_logs.action_id = updated.id
+                  AND action_logs.attempt_number = updated.attempt_number
+            )
+            SELECT COUNT(*) FROM updated
             "#,
         )
         .bind(record.action_id.0)
@@ -515,10 +568,11 @@ impl Database {
         .bind(&record.result_payload)
         .bind(&record.error_message)
         .bind(record.delivery_token)
-        .execute(&self.pool)
+        .fetch_one(&self.pool)
         .await?;
 
-        Ok(result.rows_affected() > 0)
+        let count: i64 = result.get(0);
+        Ok(count > 0)
     }
 
     /// Mark timed-out actions as failed.
@@ -526,6 +580,7 @@ impl Database {
     /// This finds dispatched actions past their deadline and marks them as 'failed'
     /// with retry_kind='timeout'. The actual retry/requeue logic is handled by
     /// `requeue_failed_actions`, which processes both timeout and explicit failures.
+    /// Also updates the action log entries with timeout information.
     ///
     /// Uses SKIP LOCKED for multi-host safety.
     ///
@@ -541,22 +596,36 @@ impl Database {
                   AND deadline_at < NOW()
                 FOR UPDATE SKIP LOCKED
                 LIMIT $1
+            ),
+            updated AS (
+                UPDATE action_queue aq
+                SET status = 'failed',
+                    retry_kind = 'timeout',
+                    -- Clear deadline and delivery token so old workers can't complete
+                    deadline_at = NULL,
+                    delivery_token = NULL
+                FROM overdue
+                WHERE aq.id = overdue.id
+                RETURNING aq.id, aq.attempt_number, aq.dispatched_at
+            ),
+            log_update AS (
+                UPDATE action_logs
+                SET completed_at = NOW(),
+                    success = FALSE,
+                    error_message = 'Action timed out',
+                    duration_ms = EXTRACT(EPOCH FROM (NOW() - updated.dispatched_at)) * 1000
+                FROM updated
+                WHERE action_logs.action_id = updated.id
+                  AND action_logs.attempt_number = updated.attempt_number
             )
-            UPDATE action_queue aq
-            SET status = 'failed',
-                retry_kind = 'timeout',
-                -- Clear deadline and delivery token so old workers can't complete
-                deadline_at = NULL,
-                delivery_token = NULL
-            FROM overdue
-            WHERE aq.id = overdue.id
+            SELECT COUNT(*) FROM updated
             "#,
         )
         .bind(limit)
-        .execute(&self.pool)
+        .fetch_one(&self.pool)
         .await?;
 
-        let count = result.rows_affected() as i64;
+        let count: i64 = result.get(0);
         if count > 0 {
             tracing::info!(count = count, "marked timed-out actions as failed");
         }
@@ -1347,18 +1416,34 @@ impl Database {
         let mut result = CompletionResult::default();
 
         // 1. Mark the completed action as complete (idempotent guard)
+        // Also update the action log entry with completion information
         if let Some(action_id) = plan.completed_action_id
             && let Some(delivery_token) = plan.delivery_token
         {
-            let rows = sqlx::query(
+            let row = sqlx::query(
                 r#"
-                UPDATE action_queue
-                SET status = CASE WHEN $2 THEN 'completed' ELSE 'failed' END,
-                    success = $2,
-                    result_payload = $3,
-                    last_error = $4,
-                    completed_at = NOW()
-                WHERE id = $1 AND delivery_token = $5 AND status = 'dispatched'
+                WITH updated AS (
+                    UPDATE action_queue
+                    SET status = CASE WHEN $2 THEN 'completed' ELSE 'failed' END,
+                        success = $2,
+                        result_payload = $3,
+                        last_error = $4,
+                        completed_at = NOW()
+                    WHERE id = $1 AND delivery_token = $5 AND status = 'dispatched'
+                    RETURNING id, attempt_number, dispatched_at
+                ),
+                log_update AS (
+                    UPDATE action_logs
+                    SET completed_at = NOW(),
+                        success = $2,
+                        result_payload = $3,
+                        error_message = $4,
+                        duration_ms = EXTRACT(EPOCH FROM (NOW() - updated.dispatched_at)) * 1000
+                    FROM updated
+                    WHERE action_logs.action_id = updated.id
+                      AND action_logs.attempt_number = updated.attempt_number
+                )
+                SELECT COUNT(*) FROM updated
                 "#,
             )
             .bind(action_id.0)
@@ -1366,10 +1451,11 @@ impl Database {
             .bind(&plan.result_payload)
             .bind(&plan.error_message)
             .bind(delivery_token)
-            .execute(&mut *tx)
+            .fetch_one(&mut *tx)
             .await?;
 
-            if rows.rows_affected() == 0 {
+            let count: i64 = row.get(0);
+            if count == 0 {
                 // Stale or duplicate completion - roll back
                 tx.rollback().await?;
                 return Ok(CompletionResult::stale());
@@ -1490,10 +1576,10 @@ impl Database {
                 .bind(increment.module_name.as_deref().unwrap_or("__internal__"))
                 .bind(increment.action_name.as_deref().unwrap_or("__barrier__"))
                 .bind(increment.dispatch_payload.as_deref().unwrap_or(&[]))
-                .bind(300) // timeout_seconds
-                .bind(3) // max_retries
-                .bind("exponential")
-                .bind(1000) // backoff_base_delay_ms
+                .bind(increment.timeout_seconds)
+                .bind(increment.max_retries)
+                .bind(increment.backoff_kind.as_str())
+                .bind(increment.backoff_base_delay_ms)
                 .bind(&increment.node_id)
                 .bind(increment.node_type.as_str())
                 .bind(increment.scheduled_at)
