@@ -699,25 +699,8 @@ fn render_workflow_detail_page(
         })
         .collect();
 
-    let graph_data = WorkflowGraphData {
-        nodes: dag
-            .iter()
-            .map(|node| WorkflowGraphNode {
-                id: node.id.clone(),
-                action: if node.action.is_empty() {
-                    "action".to_string()
-                } else {
-                    node.action.clone()
-                },
-                module: if node.module.is_empty() {
-                    "workflow".to_string()
-                } else {
-                    node.module.clone()
-                },
-                depends_on: node.depends_on.clone(),
-            })
-            .collect(),
-    };
+    // Build graph data, filtering out internal nodes
+    let graph_data = build_filtered_workflow_graph(&dag);
 
     // Create a map of node sequence to action name from the DAG
     // In the DAG, nodes are ordered by their topological order which corresponds to execution sequence
@@ -946,30 +929,8 @@ fn render_workflow_run_page(
         .filter_map(|a| a.node_id.clone().map(|id| (id, a.status.clone())))
         .collect();
 
-    // Build execution graph data with status info
-    let graph_data = ExecutionGraphData {
-        nodes: dag
-            .iter()
-            .map(|node| ExecutionGraphNode {
-                id: node.id.clone(),
-                action: if node.action.is_empty() {
-                    "action".to_string()
-                } else {
-                    node.action.clone()
-                },
-                module: if node.module.is_empty() {
-                    "__internal__".to_string()
-                } else {
-                    node.module.clone()
-                },
-                depends_on: node.depends_on.clone(),
-                status: action_status
-                    .get(&node.id)
-                    .cloned()
-                    .unwrap_or_else(|| "pending".to_string()),
-            })
-            .collect(),
-    };
+    // Build execution graph data with status info, filtering out internal nodes
+    let graph_data = build_filtered_execution_graph(&dag, &action_status);
 
     let nodes: Vec<NodeExecutionContext> = actions
         .iter()
@@ -1463,6 +1424,158 @@ fn decode_dag_from_proto(proto_bytes: &[u8]) -> Vec<SimpleDagNode> {
             }
         })
         .collect()
+}
+
+/// Build the workflow graph data, filtering out internal nodes and collapsing edges.
+///
+/// Internal nodes (those with empty module) are hidden from the visualization,
+/// but their edges are preserved by connecting their predecessors directly to
+/// their successors. Handles cycles safely.
+fn build_filtered_workflow_graph(dag: &[SimpleDagNode]) -> WorkflowGraphData {
+    let (internal_nodes, depends_on_map) = build_node_maps(dag);
+    let collapsed = collapse_internal_nodes(&internal_nodes, &depends_on_map);
+
+    WorkflowGraphData {
+        nodes: dag
+            .iter()
+            .filter(|node| !internal_nodes.contains(&node.id))
+            .map(|node| WorkflowGraphNode {
+                id: node.id.clone(),
+                action: if node.action.is_empty() {
+                    "action".to_string()
+                } else {
+                    node.action.clone()
+                },
+                module: node.module.clone(),
+                depends_on: collapsed.get(&node.id).cloned().unwrap_or_default(),
+            })
+            .collect(),
+    }
+}
+
+/// Build the execution graph data, filtering out internal nodes and collapsing edges.
+///
+/// Internal nodes (those with empty module) are hidden from the visualization,
+/// but their edges are preserved by connecting their predecessors directly to
+/// their successors. Handles cycles safely.
+fn build_filtered_execution_graph(
+    dag: &[SimpleDagNode],
+    action_status: &std::collections::HashMap<String, String>,
+) -> ExecutionGraphData {
+    let (internal_nodes, depends_on_map) = build_node_maps(dag);
+    let collapsed = collapse_internal_nodes(&internal_nodes, &depends_on_map);
+
+    ExecutionGraphData {
+        nodes: dag
+            .iter()
+            .filter(|node| !internal_nodes.contains(&node.id))
+            .map(|node| ExecutionGraphNode {
+                id: node.id.clone(),
+                action: if node.action.is_empty() {
+                    "action".to_string()
+                } else {
+                    node.action.clone()
+                },
+                module: node.module.clone(),
+                depends_on: collapsed.get(&node.id).cloned().unwrap_or_default(),
+                status: action_status
+                    .get(&node.id)
+                    .cloned()
+                    .unwrap_or_else(|| "pending".to_string()),
+            })
+            .collect(),
+    }
+}
+
+/// Build lookup maps for node filtering.
+fn build_node_maps(
+    dag: &[SimpleDagNode],
+) -> (
+    std::collections::HashSet<String>,
+    std::collections::HashMap<String, Vec<String>>,
+) {
+    let internal_nodes: std::collections::HashSet<String> = dag
+        .iter()
+        .filter(|node| node.module.is_empty())
+        .map(|node| node.id.clone())
+        .collect();
+
+    let depends_on_map: std::collections::HashMap<String, Vec<String>> = dag
+        .iter()
+        .map(|node| (node.id.clone(), node.depends_on.clone()))
+        .collect();
+
+    (internal_nodes, depends_on_map)
+}
+
+/// Collapse internal nodes by computing effective dependencies for each non-internal node.
+/// Uses DFS with cycle detection to handle graphs with cycles safely.
+fn collapse_internal_nodes(
+    internal_nodes: &std::collections::HashSet<String>,
+    depends_on_map: &std::collections::HashMap<String, Vec<String>>,
+) -> std::collections::HashMap<String, Vec<String>> {
+    let mut result: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+    let mut cache: std::collections::HashMap<String, std::collections::HashSet<String>> =
+        std::collections::HashMap::new();
+
+    // For each non-internal node, compute its effective dependencies
+    for node_id in depends_on_map.keys() {
+        if !internal_nodes.contains(node_id) {
+            let effective_deps = compute_effective_deps(
+                node_id,
+                internal_nodes,
+                depends_on_map,
+                &mut cache,
+                &mut std::collections::HashSet::new(),
+            );
+            result.insert(node_id.clone(), effective_deps.into_iter().collect());
+        }
+    }
+
+    result
+}
+
+/// Recursively compute effective dependencies for a node, skipping internal nodes.
+/// Uses a visiting set to detect and break cycles.
+fn compute_effective_deps(
+    node_id: &str,
+    internal_nodes: &std::collections::HashSet<String>,
+    depends_on_map: &std::collections::HashMap<String, Vec<String>>,
+    cache: &mut std::collections::HashMap<String, std::collections::HashSet<String>>,
+    visiting: &mut std::collections::HashSet<String>,
+) -> std::collections::HashSet<String> {
+    // Check cache first
+    if let Some(cached) = cache.get(node_id) {
+        return cached.clone();
+    }
+
+    // Cycle detection: if we're already visiting this node, return empty to break cycle
+    if visiting.contains(node_id) {
+        return std::collections::HashSet::new();
+    }
+
+    visiting.insert(node_id.to_string());
+
+    let mut effective: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    if let Some(deps) = depends_on_map.get(node_id) {
+        for dep in deps {
+            if internal_nodes.contains(dep) {
+                // Internal node: recursively get its effective deps
+                let transitive =
+                    compute_effective_deps(dep, internal_nodes, depends_on_map, cache, visiting);
+                effective.extend(transitive);
+            } else {
+                // Non-internal node: add directly
+                effective.insert(dep.clone());
+            }
+        }
+    }
+
+    visiting.remove(node_id);
+    cache.insert(node_id.to_string(), effective.clone());
+    effective
 }
 
 fn format_dependencies(items: &[String]) -> String {

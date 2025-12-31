@@ -1190,6 +1190,100 @@ class TestWorkflowHelperMethods:
 
         assert fc.kwargs[0].name == "value", "Expected 'value' kwarg"
 
+    def test_helper_method_default_args_filled_in(self) -> None:
+        """Test: self.method(required_arg=x) fills in defaults for omitted optional args."""
+        from tests.fixtures_workflow.workflow_default_args import WorkflowWithDefaultArgs
+
+        program = WorkflowWithDefaultArgs.workflow_ir()
+
+        fc = self._find_function_call_in_assignments(program, "helper_with_defaults")
+        assert fc is not None, "Expected helper_with_defaults as FunctionCall"
+
+        # Should have 3 kwargs: required_arg (provided) + optional_arg (default) + optional_str (default)
+        kwarg_names = {kw.name for kw in fc.kwargs}
+        assert "required_arg" in kwarg_names, "Expected 'required_arg' kwarg"
+        assert "optional_arg" in kwarg_names, "Expected 'optional_arg' kwarg (default filled in)"
+        assert "optional_str" in kwarg_names, "Expected 'optional_str' kwarg (default filled in)"
+
+        # Verify default values
+        for kw in fc.kwargs:
+            if kw.name == "required_arg":
+                assert kw.value.HasField("variable"), "Expected variable reference for required_arg"
+                assert kw.value.variable.name == "value", "Expected reference to 'value'"
+            elif kw.name == "optional_arg":
+                assert kw.value.HasField("literal"), "Expected literal for optional_arg"
+                assert kw.value.literal.is_none, "Expected None literal for optional_arg"
+            elif kw.name == "optional_str":
+                assert kw.value.HasField("literal"), "Expected literal for optional_str"
+                assert kw.value.literal.string_value == "default", "Expected 'default' string"
+
+    def test_helper_method_int_default_filled_in(self) -> None:
+        """Test: int default values are filled in correctly."""
+        from tests.fixtures_workflow.workflow_default_args import WorkflowWithDefaultArgs
+
+        program = WorkflowWithDefaultArgs.workflow_ir()
+
+        fc = self._find_function_call_in_assignments(program, "helper_with_int_default")
+        assert fc is not None, "Expected helper_with_int_default as FunctionCall"
+
+        kwarg_names = {kw.name for kw in fc.kwargs}
+        assert "value" in kwarg_names, "Expected 'value' kwarg"
+        assert "multiplier" in kwarg_names, "Expected 'multiplier' kwarg (default filled in)"
+
+        for kw in fc.kwargs:
+            if kw.name == "multiplier":
+                assert kw.value.HasField("literal"), "Expected literal for multiplier"
+                assert kw.value.literal.int_value == 10, "Expected multiplier=10"
+
+    def test_helper_method_chained_calls_have_defaults(self) -> None:
+        """Test: Multiple function calls in sequence all have defaults filled in."""
+        from tests.fixtures_workflow.workflow_default_args import WorkflowWithNestedCalls
+
+        program = WorkflowWithNestedCalls.workflow_ir()
+
+        # get_multiplier() should have base=2 filled in
+        fc = self._find_function_call_in_assignments(program, "get_multiplier")
+        assert fc is not None, "Expected get_multiplier as FunctionCall"
+
+        kwarg_names = {kw.name for kw in fc.kwargs}
+        assert "base" in kwarg_names, "Expected 'base' kwarg (default filled in)"
+
+        for kw in fc.kwargs:
+            if kw.name == "base":
+                assert kw.value.HasField("literal"), "Expected literal for base"
+                assert kw.value.literal.int_value == 2, "Expected base=2"
+
+    def test_truly_nested_function_call_defaults(self) -> None:
+        """Test: Function calls as arguments to other calls have defaults filled in."""
+        from tests.fixtures_workflow.workflow_default_args import WorkflowWithTrulyNestedCalls
+
+        program = WorkflowWithTrulyNestedCalls.workflow_ir()
+
+        # Find the apply_offset call
+        fc = self._find_function_call_in_assignments(program, "apply_offset")
+        assert fc is not None, "Expected apply_offset as FunctionCall"
+
+        # Check that offset kwarg contains a nested function call
+        offset_kwarg = None
+        for kw in fc.kwargs:
+            if kw.name == "offset":
+                offset_kwarg = kw
+                break
+        assert offset_kwarg is not None, "Expected 'offset' kwarg"
+        assert offset_kwarg.value.HasField("function_call"), "Expected nested function call"
+
+        # The nested get_offset() call should have delta=5 filled in
+        nested_fc = offset_kwarg.value.function_call
+        assert nested_fc.name == "get_offset", "Expected get_offset call"
+
+        kwarg_names = {kw.name for kw in nested_fc.kwargs}
+        assert "delta" in kwarg_names, "Expected 'delta' kwarg (default filled in)"
+
+        for kw in nested_fc.kwargs:
+            if kw.name == "delta":
+                assert kw.value.HasField("literal"), "Expected literal for delta"
+                assert kw.value.literal.int_value == 5, "Expected delta=5"
+
 
 class TestUnsupportedPatternDetection:
     """Test that unsupported patterns raise UnsupportedPatternError with recommendations."""

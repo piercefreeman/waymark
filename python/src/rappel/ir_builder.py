@@ -271,6 +271,22 @@ class ActionDefinition:
 
 
 @dataclass
+class FunctionParameter:
+    """A function parameter with optional default value."""
+
+    name: str
+    has_default: bool
+    default_value: Any = None  # The actual Python value if has_default is True
+
+
+@dataclass
+class FunctionSignatureInfo:
+    """Signature info for a workflow function, used to fill in default arguments."""
+
+    parameters: List[FunctionParameter]
+
+
+@dataclass
 class ModuleContext:
     """Cached IRBuilder context derived from a module."""
 
@@ -288,10 +304,14 @@ class TransformContext:
     implicit_fn_counter: int = 0
     # Implicit functions generated during transformation
     implicit_functions: List[ir.FunctionDef] = None  # type: ignore
+    # Function signatures for workflow methods (used to fill in default arguments)
+    function_signatures: Dict[str, FunctionSignatureInfo] = None  # type: ignore
 
     def __post_init__(self) -> None:
         if self.implicit_functions is None:
             self.implicit_functions = []
+        if self.function_signatures is None:
+            self.function_signatures = {}
 
     def next_implicit_fn_name(self, prefix: str = "implicit") -> str:
         """Generate a unique implicit function name."""
@@ -398,11 +418,15 @@ def build_workflow_ir(workflow_cls: type["Workflow"]) -> ir.Program:
                 builder.function_def.name = override_name
             function_defs[builder.function_def.name] = builder.function_def
 
-    # Build the entry function from run() and map it to main in the IR.
+    # Discover all reachable helper methods first so we can pre-collect their signatures.
+    # This is needed because when we process a function that calls another function,
+    # we need to know the callee's signature to fill in default arguments.
     run_tree, run_filename, run_start_line = parse_function(original_run)
-    add_function_def(original_run, run_tree, run_filename, run_start_line, "main")
 
-    # Include helper methods reachable via self.method() calls
+    # Collect all reachable methods and their trees
+    methods_to_process: List[tuple[Any, ast.AST, Optional[str], int, Optional[str]]] = [
+        (original_run, run_tree, run_filename, run_start_line, "main")
+    ]
     pending = list(_collect_self_method_calls(run_tree))
     visited: Set[str] = set()
     skip_methods = {"run_action"}
@@ -418,9 +442,32 @@ def build_workflow_ir(workflow_cls: type["Workflow"]) -> ir.Program:
             continue
 
         method_tree, method_filename, method_start_line = parse_function(method)
-        add_function_def(method, method_tree, method_filename, method_start_line)
-
+        methods_to_process.append((method, method_tree, method_filename, method_start_line, None))
         pending.extend(_collect_self_method_calls(method_tree))
+
+    # Pre-collect signatures for all methods before processing IR.
+    # This ensures that when we encounter a function call, we can fill in default args.
+    for fn, _fn_tree, _filename, _start_line, override_name in methods_to_process:
+        fn_name = override_name if override_name else fn.__name__
+        sig = inspect.signature(fn)
+        params: List[FunctionParameter] = []
+        for param_name, param in sig.parameters.items():
+            if param_name == "self":
+                continue
+            has_default = param.default is not inspect.Parameter.empty
+            default_value = param.default if has_default else None
+            params.append(
+                FunctionParameter(
+                    name=param_name,
+                    has_default=has_default,
+                    default_value=default_value,
+                )
+            )
+        ctx.function_signatures[fn_name] = FunctionSignatureInfo(parameters=params)
+
+    # Now process all functions with signatures already available
+    for fn, fn_tree, filename, start_line, override_name in methods_to_process:
+        add_function_def(fn, fn_tree, filename, start_line, override_name)
 
     # Add implicit functions first (they may be called by the main function)
     for implicit_fn in ctx.implicit_functions:
@@ -2905,6 +2952,9 @@ class IRBuilder(ast.NodeVisitor):
                 if expr:
                     fn_call.kwargs.append(ir.Kwarg(name=kw.arg, value=expr))
 
+        # Fill in missing kwargs with default values from function signature
+        self._fill_default_kwargs_for_expr(fn_call)
+
         return fn_call
 
     def _get_func_name(self, node: ast.expr) -> Optional[str]:
@@ -2952,11 +3002,84 @@ class IRBuilder(ast.NodeVisitor):
 
     def _expr_to_ir_with_model_coercion(self, node: ast.expr) -> Optional[ir.Expr]:
         """Convert an AST expression to IR, converting model constructors to dicts."""
-        return _expr_to_ir(
+        result = _expr_to_ir(
             node,
             model_converter=self._convert_model_constructor_if_needed,
             enum_resolver=self._resolve_enum_attribute,
         )
+        # Post-process to fill in default kwargs for function calls (recursively)
+        if result is not None:
+            self._fill_default_kwargs_recursive(result)
+        return result
+
+    def _fill_default_kwargs_recursive(self, expr: ir.Expr) -> None:
+        """Recursively fill in default kwargs for all function calls in an expression."""
+        if expr.HasField("function_call"):
+            self._fill_default_kwargs_for_expr(expr.function_call)
+            # Recurse into function call args and kwargs
+            for arg in expr.function_call.args:
+                self._fill_default_kwargs_recursive(arg)
+            for kwarg in expr.function_call.kwargs:
+                if kwarg.value:
+                    self._fill_default_kwargs_recursive(kwarg.value)
+        elif expr.HasField("binary_op"):
+            if expr.binary_op.left:
+                self._fill_default_kwargs_recursive(expr.binary_op.left)
+            if expr.binary_op.right:
+                self._fill_default_kwargs_recursive(expr.binary_op.right)
+        elif expr.HasField("unary_op"):
+            if expr.unary_op.operand:
+                self._fill_default_kwargs_recursive(expr.unary_op.operand)
+        elif expr.HasField("list"):
+            for elem in expr.list.elements:
+                self._fill_default_kwargs_recursive(elem)
+        elif expr.HasField("dict"):
+            for entry in expr.dict.entries:
+                if entry.key:
+                    self._fill_default_kwargs_recursive(entry.key)
+                if entry.value:
+                    self._fill_default_kwargs_recursive(entry.value)
+        elif expr.HasField("index"):
+            if expr.index.object:
+                self._fill_default_kwargs_recursive(expr.index.object)
+            if expr.index.index:
+                self._fill_default_kwargs_recursive(expr.index.index)
+        elif expr.HasField("dot"):
+            if expr.dot.object:
+                self._fill_default_kwargs_recursive(expr.dot.object)
+
+    def _fill_default_kwargs_for_expr(self, fn_call: ir.FunctionCall) -> None:
+        """Fill in missing kwargs with default values from the function signature."""
+        sig_info = self._ctx.function_signatures.get(fn_call.name)
+        if sig_info is None:
+            return
+
+        # Track which parameters are already provided
+        provided_by_position: Set[str] = set()
+        provided_by_kwarg: Set[str] = set()
+
+        # Positional args map to parameters in order
+        for idx, _arg in enumerate(fn_call.args):
+            if idx < len(sig_info.parameters):
+                provided_by_position.add(sig_info.parameters[idx].name)
+
+        # Kwargs are named
+        for kwarg in fn_call.kwargs:
+            provided_by_kwarg.add(kwarg.name)
+
+        # Add defaults for missing parameters
+        for param in sig_info.parameters:
+            if param.name in provided_by_position or param.name in provided_by_kwarg:
+                continue
+            if not param.has_default:
+                continue
+
+            # Convert the default value to an IR expression
+            literal = _constant_to_literal(param.default_value)
+            if literal is not None:
+                expr = ir.Expr()
+                expr.literal.CopyFrom(literal)
+                fn_call.kwargs.append(ir.Kwarg(name=param.name, value=expr))
 
     def _extract_action_call_from_awaitable(self, node: ast.expr) -> Optional[ir.ActionCall]:
         """Extract action call from an awaitable expression."""

@@ -51,17 +51,15 @@ impl IrPrinter {
     }
 
     /// Print a block of statements with proper indentation.
+    /// Each statement is responsible for its own leading indentation.
     fn print_block(&mut self, block: &ast::Block) -> String {
         self.indent_level += 1;
-        let mut lines = Vec::new();
+        let mut parts = Vec::new();
         for stmt in &block.statements {
-            let stmt_str = self.print_statement(stmt);
-            for line in stmt_str.lines() {
-                lines.push(format!("{}{}", self.current_indent(), line));
-            }
+            parts.push(self.print_statement(stmt));
         }
         self.indent_level -= 1;
-        lines.join("\n")
+        parts.join("\n")
     }
 
     /// Get the current indentation string.
@@ -83,32 +81,39 @@ impl IrPrinter {
             Some(ast::statement::Kind::TryExcept(try_except)) => self.print_try_except(try_except),
             Some(ast::statement::Kind::ReturnStmt(ret)) => self.print_return(ret),
             Some(ast::statement::Kind::ExprStmt(expr_stmt)) => self.print_expr_statement(expr_stmt),
-            Some(ast::statement::Kind::BreakStmt(_)) => "break".to_string(),
-            Some(ast::statement::Kind::ContinueStmt(_)) => "continue".to_string(),
+            Some(ast::statement::Kind::BreakStmt(_)) => {
+                format!("{}break", self.current_indent())
+            }
+            Some(ast::statement::Kind::ContinueStmt(_)) => {
+                format!("{}continue", self.current_indent())
+            }
             None => String::new(),
         }
     }
 
     /// Print an assignment statement.
     fn print_assignment(&mut self, assign: &ast::Assignment) -> String {
+        let indent = self.current_indent();
         let targets = assign.targets.join(", ");
         let value = assign
             .value
             .as_ref()
             .map(|v| self.print_expr(v))
             .unwrap_or_default();
-        format!("{} = {}", targets, value)
+        format!("{}{} = {}", indent, targets, value)
     }
 
     /// Print an action call (statement form - no target).
     fn print_action_call(&mut self, action: &ast::ActionCall) -> String {
+        let indent = self.current_indent();
         let kwargs = self.print_kwargs(&action.kwargs);
         let policies = self.print_policies(&action.policies);
-        format!("@{}({}){}", action.action_name, kwargs, policies)
+        format!("{}@{}({}){}", indent, action.action_name, kwargs, policies)
     }
 
     /// Print a spread action (statement form - no target).
     fn print_spread_action(&mut self, spread: &ast::SpreadAction) -> String {
+        let indent = self.current_indent();
         let collection = spread
             .collection
             .as_ref()
@@ -124,12 +129,16 @@ impl IrPrinter {
             })
             .unwrap_or_default();
 
-        format!("spread {}:{} -> {}", collection, spread.loop_var, action)
+        format!(
+            "{}spread {}:{} -> {}",
+            indent, collection, spread.loop_var, action
+        )
     }
 
     /// Print a parallel block (statement form - no target).
     fn print_parallel_block(&mut self, parallel: &ast::ParallelBlock) -> String {
-        let header = "parallel:".to_string();
+        let indent = self.current_indent();
+        let header = format!("{}parallel:", indent);
 
         self.indent_level += 1;
         let mut call_lines = Vec::new();
@@ -159,6 +168,7 @@ impl IrPrinter {
 
     /// Print a for loop.
     fn print_for_loop(&mut self, for_loop: &ast::ForLoop) -> String {
+        let indent = self.current_indent();
         let loop_vars = for_loop.loop_vars.join(", ");
         let iterable = for_loop
             .iterable
@@ -171,11 +181,12 @@ impl IrPrinter {
             .map(|b| self.print_block(b))
             .unwrap_or_default();
 
-        format!("for {} in {}:\n{}", loop_vars, iterable, body)
+        format!("{}for {} in {}:\n{}", indent, loop_vars, iterable, body)
     }
 
     /// Print a conditional (if/elif/else).
     fn print_conditional(&mut self, cond: &ast::Conditional) -> String {
+        let indent = self.current_indent();
         let mut result = String::new();
 
         // Print if branch
@@ -190,7 +201,7 @@ impl IrPrinter {
                 .as_ref()
                 .map(|b| self.print_block(b))
                 .unwrap_or_default();
-            result.push_str(&format!("if {}:\n{}", condition, body));
+            result.push_str(&format!("{}if {}:\n{}", indent, condition, body));
         }
 
         // Print elif branches
@@ -205,7 +216,7 @@ impl IrPrinter {
                 .as_ref()
                 .map(|b| self.print_block(b))
                 .unwrap_or_default();
-            result.push_str(&format!("\nelif {}:\n{}", condition, body));
+            result.push_str(&format!("\n{}elif {}:\n{}", indent, condition, body));
         }
 
         // Print else branch
@@ -215,7 +226,7 @@ impl IrPrinter {
                 .as_ref()
                 .map(|b| self.print_block(b))
                 .unwrap_or_default();
-            result.push_str(&format!("\nelse:\n{}", body));
+            result.push_str(&format!("\n{}else:\n{}", indent, body));
         }
 
         result
@@ -223,6 +234,7 @@ impl IrPrinter {
 
     /// Print a try/except block.
     fn print_try_except(&mut self, try_except: &ast::TryExcept) -> String {
+        let indent = self.current_indent();
         let mut result = String::new();
 
         // Print try block
@@ -231,7 +243,7 @@ impl IrPrinter {
             .as_ref()
             .map(|b| self.print_block(b))
             .unwrap_or_default();
-        result.push_str(&format!("try:\n{}", try_body));
+        result.push_str(&format!("{}try:\n{}", indent, try_body));
 
         // Print except handlers
         for handler in &try_except.handlers {
@@ -252,10 +264,7 @@ impl IrPrinter {
                 .unwrap_or_default();
             result.push_str(&format!(
                 "\n{}except{}{}:\n{}",
-                self.current_indent(),
-                exc_types,
-                exc_binding,
-                body
+                indent, exc_types, exc_binding, body
             ));
         }
 
@@ -264,20 +273,23 @@ impl IrPrinter {
 
     /// Print a return statement.
     fn print_return(&mut self, ret: &ast::ReturnStmt) -> String {
+        let indent = self.current_indent();
         if let Some(ref value) = ret.value {
-            format!("return {}", self.print_expr(value))
+            format!("{}return {}", indent, self.print_expr(value))
         } else {
-            "return".to_string()
+            format!("{}return", indent)
         }
     }
 
     /// Print an expression statement.
     fn print_expr_statement(&mut self, expr_stmt: &ast::ExprStmt) -> String {
-        expr_stmt
+        let indent = self.current_indent();
+        let expr = expr_stmt
             .expr
             .as_ref()
             .map(|e| self.print_expr(e))
-            .unwrap_or_default()
+            .unwrap_or_default();
+        format!("{}{}", indent, expr)
     }
 
     /// Print an expression.
@@ -445,6 +457,7 @@ impl IrPrinter {
     }
 
     /// Print a dict expression.
+    /// Uses multi-line format when there are 2+ entries for readability.
     fn print_dict(&mut self, dict: &ast::DictExpr) -> String {
         let entries: Vec<String> = dict
             .entries
@@ -463,7 +476,24 @@ impl IrPrinter {
                 format!("{}: {}", key, value)
             })
             .collect();
-        format!("{{{}}}", entries.join(", "))
+
+        if entries.len() <= 1 {
+            // Single entry or empty: keep on one line
+            format!("{{{}}}", entries.join(", "))
+        } else {
+            // Multiple entries: one per line for readability
+            let inner_indent = format!("{}{}", self.current_indent(), self.indent_str);
+            let closing_indent = self.current_indent();
+            let formatted_entries: Vec<String> = entries
+                .iter()
+                .map(|e| format!("{}{}", inner_indent, e))
+                .collect();
+            format!(
+                "{{\n{}\n{}}}",
+                formatted_entries.join(",\n"),
+                closing_indent
+            )
+        }
     }
 
     /// Print an index access.

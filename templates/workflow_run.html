@@ -289,6 +289,11 @@ class DAGLayout {
       levels[depth].push(node);
     });
 
+    // Sort nodes within each level by ID for stable layout across refreshes
+    levels.forEach(level => {
+      if (level) level.sort((a, b) => a.id.localeCompare(b.id));
+    });
+
     const normalizedLevels = Array.from({ length: levels.length }, (_, i) => levels[i] || []);
     const { nodeHeight, padding, gap, rowGap, orientation } = this.options;
 
