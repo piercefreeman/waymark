@@ -1242,14 +1242,29 @@ impl DAGRunner {
         let (completion_tx, mut completion_rx) =
             mpsc::channel::<(InFlightAction, RoundTripMetrics)>(1000);
 
-        // Timeout maintenance loop.
-        let timeout_runner = Arc::clone(&self);
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(
-                timeout_runner.config.timeout_check_interval_ms,
-            ));
+        let make_interval = |ms: u64, name: &'static str| {
+            let clamped = ms.max(1);
+            if clamped != ms {
+                warn!(
+                    interval_ms = ms,
+                    interval_name = name,
+                    "interval must be >= 1ms; clamping"
+                );
+            }
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(clamped));
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            interval
+        };
 
+        // Timeout maintenance loop.
+        // Note: We spawn these tasks but don't monitor their JoinHandles in the select.
+        // They will exit cleanly when shutdown is notified via the Notify.
+        let timeout_runner = Arc::clone(&self);
+        let _timeout_handle = tokio::spawn(async move {
+            let mut interval = make_interval(
+                timeout_runner.config.timeout_check_interval_ms,
+                "timeout_check",
+            );
             loop {
                 tokio::select! {
                     _ = timeout_runner.shutdown.notified() => break,
@@ -1304,12 +1319,11 @@ impl DAGRunner {
 
         // In-flight timeout release loop.
         let in_flight_runner = Arc::clone(&self);
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(
+        let _in_flight_handle = tokio::spawn(async move {
+            let mut interval = make_interval(
                 in_flight_runner.config.timeout_check_interval_ms,
-            ));
-            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-
+                "in_flight_timeout_check",
+            );
             loop {
                 tokio::select! {
                     _ = in_flight_runner.shutdown.notified() => break,
@@ -1328,12 +1342,11 @@ impl DAGRunner {
 
         // Schedule check loop.
         let schedule_runner = Arc::clone(&self);
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(
+        let _schedule_handle = tokio::spawn(async move {
+            let mut interval = make_interval(
                 schedule_runner.config.schedule_check_interval_ms,
-            ));
-            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-
+                "schedule_check",
+            );
             loop {
                 tokio::select! {
                     _ = schedule_runner.shutdown.notified() => break,
@@ -1348,12 +1361,11 @@ impl DAGRunner {
 
         // Worker status update loop.
         let status_runner = Arc::clone(&self);
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(
+        let _status_handle = tokio::spawn(async move {
+            let mut interval = make_interval(
                 status_runner.config.worker_status_interval_ms,
-            ));
-            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-
+                "worker_status",
+            );
             loop {
                 tokio::select! {
                     _ = status_runner.shutdown.notified() => break,
@@ -1385,19 +1397,16 @@ impl DAGRunner {
             }
         });
 
-        // Poll + dispatch loop.
+        // Poll + dispatch loop - uses sleep() like original for consistent timing behavior
         let poll_runner = Arc::clone(&self);
         let poll_tx = completion_tx.clone();
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(
-                poll_runner.config.poll_interval_ms,
-            ));
-            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-
+        drop(completion_tx); // Explicitly drop unused sender
+        let poll_interval = tokio::time::Duration::from_millis(poll_runner.config.poll_interval_ms);
+        let _poll_handle = tokio::spawn(async move {
             loop {
                 tokio::select! {
                     _ = poll_runner.shutdown.notified() => break,
-                    _ = interval.tick() => {
+                    _ = tokio::time::sleep(poll_interval) => {
                         if let Err(e) = poll_runner.start_unstarted_instances().await {
                             error!("Failed to start unstarted instances: {}", e);
                         }
@@ -1425,6 +1434,11 @@ impl DAGRunner {
 
         loop {
             tokio::select! {
+                // Use biased selection to prioritize shutdown check.
+                // This prevents race condition where a task exits due to shutdown
+                // but its JoinHandle is selected before the shutdown branch.
+                biased;
+
                 _ = self.shutdown.notified() => {
                     info!("Runner shutdown requested");
                     break;
