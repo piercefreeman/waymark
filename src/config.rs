@@ -9,6 +9,11 @@
 //! - `RAPPEL_CONCURRENT_PER_WORKER`: Max concurrent actions per worker (default: 10)
 //! - `RAPPEL_POLL_INTERVAL_MS`: Dispatcher poll interval (default: 100)
 //! - `RAPPEL_BATCH_SIZE`: Actions to dispatch per poll (default: worker_count * concurrent_per_worker)
+//! - `RAPPEL_TIMEOUT_CHECK_INTERVAL_MS`: Timeout maintenance interval (default: 1000)
+//! - `RAPPEL_TIMEOUT_CHECK_BATCH_SIZE`: Max actions per timeout maintenance cycle (default: 100)
+//! - `RAPPEL_SCHEDULE_CHECK_INTERVAL_MS`: Schedule polling interval (default: 10000)
+//! - `RAPPEL_SCHEDULE_CHECK_BATCH_SIZE`: Max schedules per check cycle (default: 100)
+//! - `RAPPEL_WORKER_STATUS_INTERVAL_MS`: Worker status upsert interval (default: 10000)
 //! - `RAPPEL_USER_MODULE`: Python module to preload in workers (optional)
 //! - `RAPPEL_MAX_ACTION_LIFECYCLE`: Max actions per worker before recycling (default: None, no limit)
 //! - `RAPPEL_WEBAPP_ENABLED`: Enable webapp dashboard (default: false)
@@ -58,6 +63,21 @@ pub struct Config {
 
     /// Number of actions to dispatch per poll cycle
     pub batch_size: i32,
+
+    /// Timeout check interval (milliseconds)
+    pub timeout_check_interval_ms: u64,
+
+    /// Maximum actions to process per timeout check cycle
+    pub timeout_check_batch_size: i32,
+
+    /// Schedule check interval (milliseconds)
+    pub schedule_check_interval_ms: u64,
+
+    /// Maximum schedules to process per check cycle
+    pub schedule_check_batch_size: i32,
+
+    /// Worker status upsert interval (milliseconds)
+    pub worker_status_interval_ms: u64,
 
     /// Python module to preload in workers
     pub user_module: Option<String>,
@@ -163,6 +183,31 @@ impl Config {
             .ok()
             .and_then(|s| s.parse().ok());
 
+        let timeout_check_interval_ms = env::var("RAPPEL_TIMEOUT_CHECK_INTERVAL_MS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(1000);
+
+        let timeout_check_batch_size = env::var("RAPPEL_TIMEOUT_CHECK_BATCH_SIZE")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(100);
+
+        let schedule_check_interval_ms = env::var("RAPPEL_SCHEDULE_CHECK_INTERVAL_MS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(10000);
+
+        let schedule_check_batch_size = env::var("RAPPEL_SCHEDULE_CHECK_BATCH_SIZE")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(100);
+
+        let worker_status_interval_ms = env::var("RAPPEL_WORKER_STATUS_INTERVAL_MS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(10000);
+
         let webapp = WebappConfig::from_env();
 
         Ok(Self {
@@ -174,6 +219,11 @@ impl Config {
             concurrent_per_worker,
             poll_interval_ms,
             batch_size,
+            timeout_check_interval_ms,
+            timeout_check_batch_size,
+            schedule_check_interval_ms,
+            schedule_check_batch_size,
+            worker_status_interval_ms,
             user_module,
             max_action_lifecycle,
             webapp,
@@ -194,6 +244,11 @@ impl Config {
             concurrent_per_worker,
             poll_interval_ms: 50,
             batch_size: (worker_count * concurrent_per_worker) as i32,
+            timeout_check_interval_ms: 1000,
+            timeout_check_batch_size: 100,
+            schedule_check_interval_ms: 10000,
+            schedule_check_batch_size: 100,
+            worker_status_interval_ms: 10000,
             user_module: None,
             max_action_lifecycle: None,
             webapp: WebappConfig::default(),

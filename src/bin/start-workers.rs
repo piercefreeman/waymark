@@ -48,6 +48,11 @@ async fn main() -> Result<()> {
         concurrent_per_worker = config.concurrent_per_worker,
         batch_size = config.batch_size,
         poll_interval_ms = config.poll_interval_ms,
+        timeout_check_interval_ms = config.timeout_check_interval_ms,
+        timeout_check_batch_size = config.timeout_check_batch_size,
+        schedule_check_interval_ms = config.schedule_check_interval_ms,
+        schedule_check_batch_size = config.schedule_check_batch_size,
+        worker_status_interval_ms = config.worker_status_interval_ms,
         user_module = ?config.user_module,
         max_action_lifecycle = ?config.max_action_lifecycle,
         "starting worker pool"
@@ -90,9 +95,11 @@ async fn main() -> Result<()> {
         batch_size: config.batch_size as usize,
         max_slots_per_worker: config.concurrent_per_worker,
         poll_interval_ms: config.poll_interval_ms,
-        timeout_check_interval_ms: 1000,
-        timeout_check_batch_size: 100,
-        ..Default::default()
+        timeout_check_interval_ms: config.timeout_check_interval_ms,
+        timeout_check_batch_size: config.timeout_check_batch_size,
+        schedule_check_interval_ms: config.schedule_check_interval_ms,
+        schedule_check_batch_size: config.schedule_check_batch_size,
+        worker_status_interval_ms: config.worker_status_interval_ms,
     };
 
     let runner = Arc::new(DAGRunner::new(

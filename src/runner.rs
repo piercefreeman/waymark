@@ -1235,45 +1235,200 @@ impl DAGRunner {
     }
 
     /// Run the main execution loop.
-    pub async fn run(&self) -> RunnerResult<()> {
+    pub async fn run(self: Arc<Self>) -> RunnerResult<()> {
         info!("Starting DAG runner");
 
         // Channel for completion results
         let (completion_tx, mut completion_rx) =
             mpsc::channel::<(InFlightAction, RoundTripMetrics)>(1000);
 
-        // Interval for checking timed-out actions
-        let mut timeout_check_interval = tokio::time::interval(tokio::time::Duration::from_millis(
-            self.config.timeout_check_interval_ms,
-        ));
-        // Don't fire immediately on first tick
-        timeout_check_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        // Timeout maintenance loop.
+        let timeout_runner = Arc::clone(&self);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(
+                timeout_runner.config.timeout_check_interval_ms,
+            ));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
-        let mut in_flight_timeout_interval = tokio::time::interval(
-            tokio::time::Duration::from_millis(self.config.timeout_check_interval_ms),
-        );
-        in_flight_timeout_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                tokio::select! {
+                    _ = timeout_runner.shutdown.notified() => break,
+                    _ = interval.tick() => {
+                        let batch_size = timeout_runner.config.timeout_check_batch_size;
+                        let mut should_continue = true;
 
-        // Interval for checking scheduled workflows
-        let mut schedule_check_interval = tokio::time::interval(
-            tokio::time::Duration::from_millis(self.config.schedule_check_interval_ms),
-        );
-        schedule_check_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                        while should_continue {
+                            should_continue = false;
 
-        let mut worker_status_interval = tokio::time::interval(tokio::time::Duration::from_millis(
-            self.config.worker_status_interval_ms,
-        ));
-        worker_status_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                            // Phase 1: Mark timed-out actions as failed (with retry_kind='timeout')
+                            match timeout_runner.completion_handler.db.mark_timed_out_actions(batch_size).await {
+                                Ok(count) => {
+                                    if count >= batch_size as i64 {
+                                        should_continue = true;
+                                    }
+                                }
+                                Err(e) => {
+                                    error!("Failed to mark timed-out actions: {}", e);
+                                }
+                            }
+
+                            // Phase 2: Requeue all failed actions (both timeouts and explicit failures)
+                            match timeout_runner.completion_handler.db.requeue_failed_actions(batch_size).await {
+                                Ok((requeued, permanently_failed)) => {
+                                    let total = requeued + permanently_failed;
+                                    if total >= batch_size as i64 {
+                                        should_continue = true;
+                                    }
+                                }
+                                Err(e) => {
+                                    error!("Failed to requeue failed actions: {}", e);
+                                }
+                            }
+
+                            // Phase 3: Fail workflow instances that have actions which exhausted retries
+                            match timeout_runner.completion_handler.db.fail_instances_with_exhausted_actions(batch_size).await {
+                                Ok(failed_instances) => {
+                                    if failed_instances >= batch_size as i64 {
+                                        should_continue = true;
+                                    }
+                                }
+                                Err(e) => {
+                                    error!("Failed to fail instances with exhausted actions: {}", e);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        // In-flight timeout release loop.
+        let in_flight_runner = Arc::clone(&self);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(
+                in_flight_runner.config.timeout_check_interval_ms,
+            ));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
+            loop {
+                tokio::select! {
+                    _ = in_flight_runner.shutdown.notified() => break,
+                    _ = interval.tick() => {
+                        let released = in_flight_runner.work_handler.release_timed_out_slots().await;
+                        if released > 0 {
+                            warn!(
+                                timed_out = released,
+                                "released worker slots for timed-out in-flight actions"
+                            );
+                        }
+                    }
+                }
+            }
+        });
+
+        // Schedule check loop.
+        let schedule_runner = Arc::clone(&self);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(
+                schedule_runner.config.schedule_check_interval_ms,
+            ));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
+            loop {
+                tokio::select! {
+                    _ = schedule_runner.shutdown.notified() => break,
+                    _ = interval.tick() => {
+                        if let Err(e) = schedule_runner.process_due_schedules().await {
+                            error!("Failed to process due schedules: {}", e);
+                        }
+                    }
+                }
+            }
+        });
+
+        // Worker status update loop.
+        let status_runner = Arc::clone(&self);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(
+                status_runner.config.worker_status_interval_ms,
+            ));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
+            loop {
+                tokio::select! {
+                    _ = status_runner.shutdown.notified() => break,
+                    _ = interval.tick() => {
+                        let pool_id = status_runner.work_handler.worker_pool_id();
+                        let snapshots = status_runner.work_handler.worker_throughput_snapshot();
+                        if !snapshots.is_empty() {
+                            let updates: Vec<WorkerStatusUpdate> = snapshots
+                                .into_iter()
+                                .map(|snapshot| WorkerStatusUpdate {
+                                    worker_id: snapshot.worker_id as i64,
+                                    throughput_per_min: snapshot.throughput_per_min,
+                                    total_completed: snapshot.total_completed as i64,
+                                    last_action_at: snapshot.last_action_at,
+                                })
+                                .collect();
+
+                            if let Err(err) = status_runner
+                                .completion_handler
+                                .db
+                                .upsert_worker_statuses(pool_id, &updates)
+                                .await
+                            {
+                                error!(?err, "failed to upsert worker status");
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        // Poll + dispatch loop.
+        let poll_runner = Arc::clone(&self);
+        let poll_tx = completion_tx.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(
+                poll_runner.config.poll_interval_ms,
+            ));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
+            loop {
+                tokio::select! {
+                    _ = poll_runner.shutdown.notified() => break,
+                    _ = interval.tick() => {
+                        if let Err(e) = poll_runner.start_unstarted_instances().await {
+                            error!("Failed to start unstarted instances: {}", e);
+                        }
+
+                        if poll_runner.work_handler.available_slots() == 0 {
+                            continue;
+                        }
+
+                        match poll_runner.work_handler.fetch_and_dispatch(
+                            poll_runner.config.batch_size,
+                            poll_tx.clone(),
+                        ).await {
+                            Ok(count) if count > 0 => {
+                                debug!("Dispatched {} actions", count);
+                            }
+                            Ok(_) => {}
+                            Err(e) => {
+                                error!("Failed to fetch/dispatch actions: {}", e);
+                            }
+                        }
+                    }
+                }
+            }
+        });
 
         loop {
             tokio::select! {
-                // Check for shutdown
                 _ = self.shutdown.notified() => {
                     info!("Runner shutdown requested");
                     break;
                 }
-
-                // Process completions using unified readiness model
                 Some((in_flight, metrics)) = completion_rx.recv() => {
                     let handler = self.completion_handler.clone();
                     let dag_cache = Arc::clone(&self.dag_cache);
@@ -1317,137 +1472,6 @@ impl DAGRunner {
                             }
                         }
                     });
-                }
-
-                // Check for timed-out and failed actions periodically.
-                // Uses SKIP LOCKED so multiple runner instances can safely run this concurrently.
-                //
-                // Two-phase approach:
-                // 1. mark_timed_out_actions: Marks overdue dispatched actions as 'failed' with retry_kind='timeout'
-                // 2. requeue_failed_actions: Handles ALL failed actions (both timeouts and explicit failures),
-                //    applying backoff logic and retry limits in one place
-                //
-                // If we process a full batch, we immediately re-run without waiting for the
-                // next interval tick. This allows us to quickly drain large backlogs (e.g.,
-                // 10k actions that all timed out simultaneously) without being throttled by
-                // the sleep interval.
-                _ = timeout_check_interval.tick() => {
-                    let batch_size = self.config.timeout_check_batch_size;
-                    let mut should_continue = true;
-
-                    while should_continue {
-                        should_continue = false;
-
-                        // Phase 1: Mark timed-out actions as failed (with retry_kind='timeout')
-                        match self.completion_handler.db.mark_timed_out_actions(batch_size).await {
-                            Ok(count) => {
-                                // If we hit the batch limit, there may be more to process
-                                if count >= batch_size as i64 {
-                                    should_continue = true;
-                                }
-                            }
-                            Err(e) => {
-                                error!("Failed to mark timed-out actions: {}", e);
-                            }
-                        }
-
-                        // Phase 2: Requeue all failed actions (both timeouts and explicit failures)
-                        // This is the single place where retry/backoff logic is applied
-                        match self.completion_handler.db.requeue_failed_actions(batch_size).await {
-                            Ok((requeued, permanently_failed)) => {
-                                let total = requeued + permanently_failed;
-                                // If we hit the batch limit, there may be more to process
-                                if total >= batch_size as i64 {
-                                    should_continue = true;
-                                }
-                            }
-                            Err(e) => {
-                                error!("Failed to requeue failed actions: {}", e);
-                            }
-                        }
-
-                        // Phase 3: Fail workflow instances that have actions which exhausted retries
-                        // This propagates permanent action failures to the workflow level
-                        match self.completion_handler.db.fail_instances_with_exhausted_actions(batch_size).await {
-                            Ok(failed_instances) => {
-                                if failed_instances >= batch_size as i64 {
-                                    should_continue = true;
-                                }
-                            }
-                            Err(e) => {
-                                error!("Failed to fail instances with exhausted actions: {}", e);
-                            }
-                        }
-                    }
-                }
-
-                _ = in_flight_timeout_interval.tick() => {
-                    let released = self.work_handler.release_timed_out_slots().await;
-                    if released > 0 {
-                        warn!(
-                            timed_out = released,
-                            "released worker slots for timed-out in-flight actions"
-                        );
-                    }
-                }
-
-                // Check for due scheduled workflows
-                _ = schedule_check_interval.tick() => {
-                    if let Err(e) = self.process_due_schedules().await {
-                        error!("Failed to process due schedules: {}", e);
-                    }
-                }
-
-                _ = worker_status_interval.tick() => {
-                    let pool_id = self.work_handler.worker_pool_id();
-                    let snapshots = self.work_handler.worker_throughput_snapshot();
-                    if !snapshots.is_empty() {
-                        let updates: Vec<WorkerStatusUpdate> = snapshots
-                            .into_iter()
-                            .map(|snapshot| WorkerStatusUpdate {
-                                worker_id: snapshot.worker_id as i64,
-                                throughput_per_min: snapshot.throughput_per_min,
-                                total_completed: snapshot.total_completed as i64,
-                                last_action_at: snapshot.last_action_at,
-                            })
-                            .collect();
-
-                        if let Err(err) = self
-                            .completion_handler
-                            .db
-                            .upsert_worker_statuses(pool_id, &updates)
-                            .await
-                        {
-                            error!(?err, "failed to upsert worker status");
-                        }
-                    }
-                }
-
-                // Fetch and dispatch work (delegated to WorkQueueHandler)
-                _ = tokio::time::sleep(tokio::time::Duration::from_millis(self.config.poll_interval_ms)) => {
-                    // First, check for and start any unstarted instances
-                    if let Err(e) = self.start_unstarted_instances().await {
-                        error!("Failed to start unstarted instances: {}", e);
-                    }
-
-                    if self.work_handler.available_slots() == 0 {
-                        continue;
-                    }
-
-                    match self.work_handler.fetch_and_dispatch(
-                        self.config.batch_size,
-                        completion_tx.clone(),
-                    ).await {
-                        Ok(count) if count > 0 => {
-                            debug!("Dispatched {} actions", count);
-                        }
-                        Ok(_) => {
-                            // No work available
-                        }
-                        Err(e) => {
-                            error!("Failed to fetch/dispatch actions: {}", e);
-                        }
-                    }
                 }
             }
         }
@@ -2845,7 +2869,7 @@ impl DAGRunner {
 
     /// Request shutdown.
     pub fn shutdown(&self) {
-        self.shutdown.notify_one();
+        self.shutdown.notify_waiters();
     }
 
     /// Register a DAG for a workflow version (for testing or warm-up).
