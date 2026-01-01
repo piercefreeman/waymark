@@ -1932,4 +1932,98 @@ impl Database {
         tx.commit().await?;
         Ok(())
     }
+
+    // ========================================================================
+    // Garbage Collection
+    // ========================================================================
+
+    /// Garbage collect old completed/failed workflow instances and their associated data.
+    ///
+    /// This function cleans up instances that have been in a terminal state (completed or failed)
+    /// for longer than the specified retention period. It also cleans up all associated data:
+    /// - action_queue entries
+    /// - action_logs entries
+    /// - instance_context entries
+    /// - loop_state entries
+    /// - node_readiness entries
+    /// - node_inputs entries
+    ///
+    /// Uses FOR UPDATE SKIP LOCKED for multi-host safety - multiple runners can run GC
+    /// concurrently without blocking each other.
+    ///
+    /// Returns the number of instances that were garbage collected.
+    pub async fn garbage_collect_instances(
+        &self,
+        retention_seconds: i64,
+        limit: i32,
+    ) -> DbResult<i64> {
+        // Find and lock instances to delete using SKIP LOCKED
+        // This allows multiple workers to run GC concurrently without blocking
+        let result = sqlx::query(
+            r#"
+            WITH instances_to_delete AS (
+                SELECT id
+                FROM workflow_instances
+                WHERE status IN ('completed', 'failed')
+                  AND completed_at IS NOT NULL
+                  AND completed_at < NOW() - ($1 || ' seconds')::interval
+                ORDER BY completed_at
+                FOR UPDATE SKIP LOCKED
+                LIMIT $2
+            ),
+            -- Delete action_logs first (references action_queue)
+            deleted_logs AS (
+                DELETE FROM action_logs
+                WHERE instance_id IN (SELECT id FROM instances_to_delete)
+            ),
+            -- Delete action_queue entries
+            deleted_actions AS (
+                DELETE FROM action_queue
+                WHERE instance_id IN (SELECT id FROM instances_to_delete)
+            ),
+            -- Delete instance_context entries
+            deleted_context AS (
+                DELETE FROM instance_context
+                WHERE instance_id IN (SELECT id FROM instances_to_delete)
+            ),
+            -- Delete loop_state entries
+            deleted_loop_state AS (
+                DELETE FROM loop_state
+                WHERE instance_id IN (SELECT id FROM instances_to_delete)
+            ),
+            -- Delete node_readiness entries
+            deleted_readiness AS (
+                DELETE FROM node_readiness
+                WHERE instance_id IN (SELECT id FROM instances_to_delete)
+            ),
+            -- Delete node_inputs entries
+            deleted_inputs AS (
+                DELETE FROM node_inputs
+                WHERE instance_id IN (SELECT id FROM instances_to_delete)
+            ),
+            -- Finally delete the instances themselves
+            deleted_instances AS (
+                DELETE FROM workflow_instances
+                WHERE id IN (SELECT id FROM instances_to_delete)
+                RETURNING id
+            )
+            SELECT COUNT(*) FROM deleted_instances
+            "#,
+        )
+        .bind(retention_seconds)
+        .bind(limit)
+        .fetch_one(&self.pool)
+        .await?;
+
+        let count: i64 = result.get(0);
+        if count > 0 {
+            tracing::info!(
+                count = count,
+                retention_seconds = retention_seconds,
+                "garbage_collect_instances"
+            );
+        }
+
+        Ok(count)
+    }
 }

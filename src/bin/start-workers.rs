@@ -100,6 +100,9 @@ async fn main() -> Result<()> {
         schedule_check_interval_ms: config.schedule_check_interval_ms,
         schedule_check_batch_size: config.schedule_check_batch_size,
         worker_status_interval_ms: config.worker_status_interval_ms,
+        gc_interval_ms: config.gc.interval_ms,
+        gc_retention_seconds: config.gc.retention_seconds,
+        gc_batch_size: config.gc.batch_size,
     };
 
     let runner = Arc::new(DAGRunner::new(

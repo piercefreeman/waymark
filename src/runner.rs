@@ -1163,6 +1163,12 @@ pub struct RunnerConfig {
     pub schedule_check_batch_size: i32,
     /// Worker status upsert interval (milliseconds)
     pub worker_status_interval_ms: u64,
+    /// Garbage collection interval (milliseconds). If None, GC is disabled.
+    pub gc_interval_ms: Option<u64>,
+    /// Minimum age in seconds for completed/failed instances before cleanup.
+    pub gc_retention_seconds: i64,
+    /// Batch size for garbage collection operations.
+    pub gc_batch_size: i32,
 }
 
 impl Default for RunnerConfig {
@@ -1176,6 +1182,9 @@ impl Default for RunnerConfig {
             schedule_check_interval_ms: 10000, // 10 seconds
             schedule_check_batch_size: 100,
             worker_status_interval_ms: 10000,
+            gc_interval_ms: None,
+            gc_retention_seconds: 86400, // 24 hours
+            gc_batch_size: 100,
         }
     }
 }
@@ -1396,6 +1405,45 @@ impl DAGRunner {
                 }
             }
         });
+
+        // Garbage collection loop (only if GC is enabled).
+        if let Some(gc_interval_ms) = self.config.gc_interval_ms {
+            let gc_runner = Arc::clone(&self);
+            let _gc_handle = tokio::spawn(async move {
+                let mut interval = make_interval(gc_interval_ms, "gc");
+                loop {
+                    tokio::select! {
+                        _ = gc_runner.shutdown.notified() => break,
+                        _ = interval.tick() => {
+                            let retention_seconds = gc_runner.config.gc_retention_seconds;
+                            let batch_size = gc_runner.config.gc_batch_size;
+                            let mut should_continue = true;
+
+                            while should_continue {
+                                should_continue = false;
+
+                                match gc_runner
+                                    .completion_handler
+                                    .db
+                                    .garbage_collect_instances(retention_seconds, batch_size)
+                                    .await
+                                {
+                                    Ok(count) => {
+                                        if count >= batch_size as i64 {
+                                            // More work may be available, continue batching
+                                            should_continue = true;
+                                        }
+                                    }
+                                    Err(err) => {
+                                        error!(?err, "failed to garbage collect instances");
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
 
         // Poll + dispatch loop - uses sleep() like original for consistent timing behavior
         let poll_runner = Arc::clone(&self);
