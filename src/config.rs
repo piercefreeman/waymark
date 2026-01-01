@@ -18,6 +18,8 @@
 //! - `RAPPEL_MAX_ACTION_LIFECYCLE`: Max actions per worker before recycling (default: None, no limit)
 //! - `RAPPEL_WEBAPP_ENABLED`: Enable webapp dashboard (default: false)
 //! - `RAPPEL_WEBAPP_ADDR`: Webapp bind address (default: 0.0.0.0:24119)
+//! - `RAPPEL_GC_INTERVAL_MS`: Garbage collection interval in milliseconds (default: None, disabled)
+//! - `RAPPEL_GC_RETENTION_SECONDS`: Minimum age of completed/failed instances before cleanup (default: 86400 = 24 hours)
 
 use std::{
     env,
@@ -88,6 +90,9 @@ pub struct Config {
 
     /// Webapp configuration
     pub webapp: WebappConfig,
+
+    /// Garbage collection configuration
+    pub gc: GcConfig,
 }
 
 /// Webapp server configuration
@@ -97,6 +102,59 @@ pub struct WebappConfig {
     pub enabled: bool,
     /// Address to bind to (host:port)
     pub addr: SocketAddr,
+}
+
+/// Garbage collection configuration
+#[derive(Debug, Clone)]
+pub struct GcConfig {
+    /// Garbage collection interval in milliseconds.
+    /// If None, garbage collection is disabled.
+    pub interval_ms: Option<u64>,
+    /// Minimum age in seconds for completed/failed instances before cleanup.
+    /// Default is 86400 (24 hours).
+    pub retention_seconds: i64,
+    /// Batch size for garbage collection operations.
+    pub batch_size: i32,
+}
+
+impl Default for GcConfig {
+    fn default() -> Self {
+        Self {
+            interval_ms: None,
+            retention_seconds: 86400, // 24 hours
+            batch_size: 100,
+        }
+    }
+}
+
+impl GcConfig {
+    /// Load configuration from environment variables
+    fn from_env() -> Self {
+        let interval_ms = env::var("RAPPEL_GC_INTERVAL_MS")
+            .ok()
+            .and_then(|s| s.parse().ok());
+
+        let retention_seconds = env::var("RAPPEL_GC_RETENTION_SECONDS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(86400);
+
+        let batch_size = env::var("RAPPEL_GC_BATCH_SIZE")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(100);
+
+        Self {
+            interval_ms,
+            retention_seconds,
+            batch_size,
+        }
+    }
+
+    /// Check if garbage collection is enabled
+    pub fn is_enabled(&self) -> bool {
+        self.interval_ms.is_some() && self.interval_ms.unwrap() > 0
+    }
 }
 
 impl Default for WebappConfig {
@@ -209,6 +267,7 @@ impl Config {
             .unwrap_or(10000);
 
         let webapp = WebappConfig::from_env();
+        let gc = GcConfig::from_env();
 
         Ok(Self {
             database_url,
@@ -227,6 +286,7 @@ impl Config {
             user_module,
             max_action_lifecycle,
             webapp,
+            gc,
         })
     }
 
@@ -252,6 +312,7 @@ impl Config {
             user_module: None,
             max_action_lifecycle: None,
             webapp: WebappConfig::default(),
+            gc: GcConfig::default(),
         }
     }
 }
