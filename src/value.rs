@@ -20,6 +20,9 @@ pub enum WorkflowValue {
         message: String,
         traceback: String,
         values: HashMap<String, WorkflowValue>,
+        /// Exception class hierarchy (MRO) for proper except matching.
+        /// e.g., for KeyError: ["KeyError", "LookupError", "Exception", "BaseException"]
+        type_hierarchy: Vec<String>,
     },
 }
 
@@ -87,6 +90,7 @@ impl WorkflowValue {
                     message: exc.message.clone(),
                     traceback: exc.traceback.clone(),
                     values,
+                    type_hierarchy: exc.type_hierarchy.clone(),
                 }
             }
             None => WorkflowValue::Null,
@@ -136,6 +140,7 @@ impl WorkflowValue {
                 message,
                 traceback,
                 values,
+                type_hierarchy,
             } => {
                 let entries = values
                     .iter()
@@ -150,6 +155,7 @@ impl WorkflowValue {
                     message: message.clone(),
                     traceback: traceback.clone(),
                     values: Some(proto::WorkflowDictArgument { entries }),
+                    type_hierarchy: type_hierarchy.clone(),
                 })
             }
         };
@@ -216,6 +222,7 @@ impl WorkflowValue {
                 message,
                 traceback,
                 values,
+                type_hierarchy,
             } => {
                 let values_json: serde_json::Map<String, JsonValue> = values
                     .iter()
@@ -227,6 +234,7 @@ impl WorkflowValue {
                     "message": message,
                     "traceback": traceback,
                     "values": JsonValue::Object(values_json),
+                    "type_hierarchy": type_hierarchy,
                 });
                 serde_json::json!({
                     "__exception__": exc_obj
@@ -308,12 +316,14 @@ impl WorkflowValue {
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
                 let values = Self::exception_values_from_json(exc_obj);
+                let type_hierarchy = Self::exception_hierarchy_from_json(exc_obj);
                 Some(WorkflowValue::Exception {
                     exc_type: exc_type.to_string(),
                     module: module.to_string(),
                     message: message.to_string(),
                     traceback: traceback.to_string(),
                     values,
+                    type_hierarchy,
                 })
             }
             Some(JsonValue::Bool(true)) => {
@@ -322,12 +332,14 @@ impl WorkflowValue {
                 let message = obj.get("message").and_then(|v| v.as_str()).unwrap_or("");
                 let traceback = obj.get("traceback").and_then(|v| v.as_str()).unwrap_or("");
                 let values = Self::exception_values_from_json(obj);
+                let type_hierarchy = Self::exception_hierarchy_from_json(obj);
                 Some(WorkflowValue::Exception {
                     exc_type: exc_type.to_string(),
                     module: module.to_string(),
                     message: message.to_string(),
                     traceback: traceback.to_string(),
                     values,
+                    type_hierarchy,
                 })
             }
             _ => None,
@@ -345,6 +357,16 @@ impl WorkflowValue {
             values.insert(key.clone(), WorkflowValue::from_json(value));
         }
         values
+    }
+
+    fn exception_hierarchy_from_json(obj: &serde_json::Map<String, JsonValue>) -> Vec<String> {
+        match obj.get("type_hierarchy") {
+            Some(JsonValue::Array(arr)) => arr
+                .iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect(),
+            _ => vec![],
+        }
     }
 }
 
@@ -368,6 +390,7 @@ impl PartialEq for WorkflowValue {
                     message: amsg,
                     traceback: atb,
                     values: avals,
+                    type_hierarchy: ahier,
                 },
                 WorkflowValue::Exception {
                     exc_type: bt,
@@ -375,8 +398,16 @@ impl PartialEq for WorkflowValue {
                     message: bmsg,
                     traceback: btb,
                     values: bvals,
+                    type_hierarchy: bhier,
                 },
-            ) => at == bt && am == bm && amsg == bmsg && atb == btb && avals == bvals,
+            ) => {
+                at == bt
+                    && am == bm
+                    && amsg == bmsg
+                    && atb == btb
+                    && avals == bvals
+                    && ahier == bhier
+            }
             _ => false,
         }
     }

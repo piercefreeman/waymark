@@ -302,6 +302,7 @@ impl ExpressionEvaluator {
             message,
             traceback,
             values,
+            ..
         } = value
         else {
             return None;
@@ -1406,6 +1407,11 @@ mod tests {
                 message: "Metadata error triggered".to_string(),
                 traceback: "trace".to_string(),
                 values,
+                type_hierarchy: vec![
+                    "ExceptionMetadataError".to_string(),
+                    "Exception".to_string(),
+                    "BaseException".to_string(),
+                ],
             },
         );
 

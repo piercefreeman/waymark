@@ -118,6 +118,10 @@ message WorkflowErrorValue {
   string message = 3;
   string traceback = 4;
   WorkflowDictArgument values = 5;
+  // Exception class hierarchy (MRO) for proper except matching.
+  // e.g., for KeyError: ["KeyError", "LookupError", "Exception", "BaseException"]
+  // This allows `except LookupError:` to catch KeyError.
+  repeated string type_hierarchy = 6;
 }
 
 message WorkflowListArgument {

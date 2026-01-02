@@ -109,6 +109,12 @@ def _to_argument_value(value: Any) -> pb2.WorkflowArgumentValue:
         argument.exception.message = str(value)
         tb_text = "".join(traceback.format_exception(type(value), value, value.__traceback__))
         argument.exception.traceback = tb_text
+        # Include the exception class hierarchy (MRO) for proper except matching.
+        # This allows `except LookupError:` to catch KeyError, etc.
+        for cls in value.__class__.__mro__:
+            if cls is object:
+                continue  # Skip 'object' as it's not useful for exception matching
+            argument.exception.type_hierarchy.append(cls.__name__)
         values = _serialize_exception_values(value)
         for key, item in values.items():
             entry = argument.exception.values.entries.add()

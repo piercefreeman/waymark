@@ -649,12 +649,22 @@ class WorkflowErrorValue(google.protobuf.message.Message):
     MESSAGE_FIELD_NUMBER: builtins.int
     TRACEBACK_FIELD_NUMBER: builtins.int
     VALUES_FIELD_NUMBER: builtins.int
+    TYPE_HIERARCHY_FIELD_NUMBER: builtins.int
     type: builtins.str
     module: builtins.str
     message: builtins.str
     traceback: builtins.str
     @property
     def values(self) -> Global___WorkflowDictArgument: ...
+    @property
+    def type_hierarchy(
+        self,
+    ) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[builtins.str]:
+        """Exception class hierarchy (MRO) for proper except matching.
+        e.g., for KeyError: ["KeyError", "LookupError", "Exception", "BaseException"]
+        This allows `except LookupError:` to catch KeyError.
+        """
+
     def __init__(
         self,
         *,
@@ -663,6 +673,7 @@ class WorkflowErrorValue(google.protobuf.message.Message):
         message: builtins.str = ...,
         traceback: builtins.str = ...,
         values: Global___WorkflowDictArgument | None = ...,
+        type_hierarchy: collections.abc.Iterable[builtins.str] | None = ...,
     ) -> None: ...
     def HasField(self, field_name: typing.Literal["values", b"values"]) -> builtins.bool: ...
     def ClearField(
@@ -676,6 +687,8 @@ class WorkflowErrorValue(google.protobuf.message.Message):
             b"traceback",
             "type",
             b"type",
+            "type_hierarchy",
+            b"type_hierarchy",
             "values",
             b"values",
         ],

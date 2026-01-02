@@ -330,16 +330,28 @@ impl DAGEdge {
         }
     }
 
-    /// Create a state machine edge for exception handling
+    /// Create a state machine edge for exception handling.
+    ///
+    /// In Python semantics, `except Exception:` catches all "normal" exceptions,
+    /// so we normalize it to a catch-all (empty exception_types) in the IR.
+    /// This simplifies runtime exception matching.
     pub fn state_machine_with_exception(
         source: String,
         target: String,
         exception_types: Vec<String>,
     ) -> Self {
-        let condition = if exception_types.is_empty() {
+        // Normalize: treat `except Exception:` as catch-all since Exception
+        // is the base class for all normal exceptions in Python
+        let normalized_types = if exception_types.len() == 1 && exception_types[0] == "Exception" {
+            vec![] // Convert to catch-all
+        } else {
+            exception_types
+        };
+
+        let condition = if normalized_types.is_empty() {
             "except:*".to_string()
         } else {
-            format!("except:{}", exception_types.join(","))
+            format!("except:{}", normalized_types.join(","))
         };
         Self {
             source,
@@ -349,7 +361,7 @@ impl DAGEdge {
             variable: None,
             guard_expr: None,
             is_else: false,
-            exception_types: Some(exception_types),
+            exception_types: Some(normalized_types),
             is_loop_back: false,
             guard_string: None,
         }
@@ -7808,6 +7820,180 @@ fn main(input: [], output: []):
                 .any(|s| s.contains("output") || s.contains("return") || s.contains("fallback")),
             "Join should have incoming edge from output/return or fallback node. Got: {:?}",
             valid_sources
+        );
+    }
+
+    #[test]
+    fn test_exception_edges_propagated_through_user_function_calls() {
+        // Test that when a user-defined function is called inside a try/except block,
+        // exception edges are propagated to all action nodes inside the function.
+        //
+        // Pattern:
+        //   fn run_inner():
+        //     result = @risky_action()
+        //     return result
+        //
+        //   fn main():
+        //     try:
+        //       result = run_inner()
+        //     except Exception:
+        //       result = @fallback()
+        //     return result
+        //
+        // The @risky_action inside run_inner should have exception edges to @fallback
+        let source = r#"
+fn run_inner(input: [], output: [result]):
+    result = @risky_action()
+    return result
+
+fn main(input: [], output: []):
+    try:
+        result = run_inner()
+    except Exception:
+        result = @fallback()
+    return result
+"#;
+        let program = parse(source).unwrap();
+        let dag = convert_to_dag(&program).expect("should convert");
+
+        // Find the risky_action node (it should be inside the expanded run_inner)
+        let risky_action_nodes: Vec<_> = dag
+            .nodes
+            .iter()
+            .filter(|(_, n)| {
+                n.node_type == "action_call" && n.action_name.as_deref() == Some("risky_action")
+            })
+            .collect();
+        assert!(
+            !risky_action_nodes.is_empty(),
+            "Should have risky_action node"
+        );
+        let risky_action_id = risky_action_nodes[0].0;
+
+        // Find the fallback action node (the exception handler)
+        let fallback_nodes: Vec<_> = dag
+            .nodes
+            .iter()
+            .filter(|(_, n)| {
+                n.node_type == "action_call" && n.action_name.as_deref() == Some("fallback")
+            })
+            .collect();
+        assert!(!fallback_nodes.is_empty(), "Should have fallback node");
+        let fallback_id = fallback_nodes[0].0;
+
+        // There should be an exception edge from risky_action to fallback
+        let exception_edges_from_risky: Vec<_> = dag
+            .edges
+            .iter()
+            .filter(|e| &e.source == risky_action_id && e.exception_types.is_some())
+            .collect();
+
+        assert!(
+            !exception_edges_from_risky.is_empty(),
+            "risky_action should have exception edges. Node ID: {}",
+            risky_action_id
+        );
+
+        // The exception edge should target the fallback handler
+        let targets_fallback = exception_edges_from_risky
+            .iter()
+            .any(|e| &e.target == fallback_id);
+        assert!(
+            targets_fallback,
+            "risky_action should have exception edge to fallback. Exception edges: {:?}",
+            exception_edges_from_risky
+                .iter()
+                .map(|e| format!("{} -> {}", e.source, e.target))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_exception_edges_propagated_through_nested_function_calls() {
+        // Test that exception edges propagate through multiple levels of function calls.
+        //
+        // Pattern:
+        //   fn inner_most():
+        //     result = @risky_action()
+        //     return result
+        //
+        //   fn middle():
+        //     result = inner_most()
+        //     return result
+        //
+        //   fn main():
+        //     try:
+        //       result = middle()
+        //     except Exception:
+        //       result = @fallback()
+        //     return result
+        let source = r#"
+fn inner_most(input: [], output: [result]):
+    result = @risky_action()
+    return result
+
+fn middle(input: [], output: [result]):
+    result = inner_most()
+    return result
+
+fn main(input: [], output: []):
+    try:
+        result = middle()
+    except Exception:
+        result = @fallback()
+    return result
+"#;
+        let program = parse(source).unwrap();
+        let dag = convert_to_dag(&program).expect("should convert");
+
+        // Find the risky_action node
+        let risky_action_nodes: Vec<_> = dag
+            .nodes
+            .iter()
+            .filter(|(_, n)| {
+                n.node_type == "action_call" && n.action_name.as_deref() == Some("risky_action")
+            })
+            .collect();
+        assert!(
+            !risky_action_nodes.is_empty(),
+            "Should have risky_action node"
+        );
+        let risky_action_id = risky_action_nodes[0].0;
+
+        // Find the fallback action node
+        let fallback_nodes: Vec<_> = dag
+            .nodes
+            .iter()
+            .filter(|(_, n)| {
+                n.node_type == "action_call" && n.action_name.as_deref() == Some("fallback")
+            })
+            .collect();
+        assert!(!fallback_nodes.is_empty(), "Should have fallback node");
+        let fallback_id = fallback_nodes[0].0;
+
+        // There should be an exception edge from risky_action to fallback
+        let exception_edges_from_risky: Vec<_> = dag
+            .edges
+            .iter()
+            .filter(|e| &e.source == risky_action_id && e.exception_types.is_some())
+            .collect();
+
+        assert!(
+            !exception_edges_from_risky.is_empty(),
+            "risky_action should have exception edges even through nested function calls. Node ID: {}",
+            risky_action_id
+        );
+
+        let targets_fallback = exception_edges_from_risky
+            .iter()
+            .any(|e| &e.target == fallback_id);
+        assert!(
+            targets_fallback,
+            "risky_action should have exception edge to fallback through nested calls. Exception edges: {:?}",
+            exception_edges_from_risky
+                .iter()
+                .map(|e| format!("{} -> {}", e.source, e.target))
+                .collect::<Vec<_>>()
         );
     }
 }

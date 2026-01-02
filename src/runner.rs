@@ -2036,7 +2036,7 @@ impl DAGRunner {
 
             // Check if this exception should be caught
             if let Some(ref exc_value) = maybe_exception
-                && let Some(exception_type) = Self::is_exception_result(exc_value)
+                && let Some((exception_type, type_hierarchy)) = Self::is_exception_result(exc_value)
             {
                 // Get DAG for this workflow instance
                 if let Some(dag) = dag_cache.get_dag_for_instance(instance_id).await? {
@@ -2054,6 +2054,7 @@ impl DAGRunner {
                     debug!(
                         node_id = %node_id,
                         exception_type = %exception_type,
+                        type_hierarchy = ?type_hierarchy,
                         attempt_number = in_flight.action.attempt_number,
                         max_retries = in_flight.action.max_retries,
                         "action failed with exception, checking retry status"
@@ -2077,9 +2078,12 @@ impl DAGRunner {
                     }
 
                     // Look for exception handlers on this node
-                    if let Some(handler_id) =
-                        Self::get_exception_handlers_from_node(&dag, base_node_id, &exception_type)
-                    {
+                    if let Some(handler_id) = Self::get_exception_handlers_from_node(
+                        &dag,
+                        base_node_id,
+                        &exception_type,
+                        &type_hierarchy,
+                    ) {
                         debug!(
                             node_id = %node_id,
                             handler_id = %handler_id,
@@ -2116,6 +2120,7 @@ impl DAGRunner {
                             &dag,
                             &fn_call_id,
                             &exception_type,
+                            &type_hierarchy,
                         ) {
                             debug!(
                                 fn_call_id = %fn_call_id,
@@ -2321,9 +2326,14 @@ impl DAGRunner {
     }
 
     /// Check if a result represents an exception.
-    fn is_exception_result(result: &WorkflowValue) -> Option<String> {
+    /// Returns the exception type and the full type hierarchy (MRO) if it is an exception.
+    fn is_exception_result(result: &WorkflowValue) -> Option<(String, Vec<String>)> {
         match result {
-            WorkflowValue::Exception { exc_type, .. } => Some(exc_type.clone()),
+            WorkflowValue::Exception {
+                exc_type,
+                type_hierarchy,
+                ..
+            } => Some((exc_type.clone(), type_hierarchy.clone())),
             _ => None,
         }
     }
@@ -2348,12 +2358,25 @@ impl DAGRunner {
     }
 
     /// Get exception handlers from a node's outgoing edges.
+    ///
+    /// Handler matching priority:
+    /// 1. Exact match on the exception type itself
+    /// 2. Match on any superclass in the type hierarchy (e.g., `except LookupError:` catches KeyError)
+    /// 3. Catch-all handler (empty exception_types, from `except:` or `except Exception:`)
+    ///
+    /// The type_hierarchy contains the MRO (Method Resolution Order) from Python,
+    /// e.g., for KeyError: ["KeyError", "LookupError", "Exception", "BaseException"]
+    ///
+    /// Note: `except Exception:` is normalized to catch-all in the DAG construction,
+    /// so we don't need special handling for it here.
     fn get_exception_handlers_from_node(
         dag: &DAG,
         node_id: &str,
         exception_type: &str,
+        type_hierarchy: &[String],
     ) -> Option<String> {
         let mut catch_all_handler = None;
+        let mut superclass_handler: Option<(String, usize)> = None; // (handler_id, hierarchy_index)
 
         for edge in &dag.edges {
             if edge.source != node_id {
@@ -2361,16 +2384,36 @@ impl DAGRunner {
             }
             if let Some(ref exc_types) = edge.exception_types {
                 if exc_types.is_empty() {
-                    // Catch-all handler
+                    // Catch-all handler (bare except: or except Exception:)
                     catch_all_handler = Some(edge.target.clone());
                 } else if exc_types.iter().any(|t| t == exception_type) {
-                    // Specific handler matches
+                    // Exact match on the exception type - return immediately
                     return Some(edge.target.clone());
+                } else {
+                    // Check if any handler type matches a superclass in the hierarchy
+                    // Pick the most specific match (lowest index in hierarchy)
+                    for handler_type in exc_types {
+                        if let Some(pos) = type_hierarchy.iter().position(|t| t == handler_type) {
+                            match &superclass_handler {
+                                None => {
+                                    superclass_handler = Some((edge.target.clone(), pos));
+                                }
+                                Some((_, existing_pos)) if pos < *existing_pos => {
+                                    // This handler is more specific (closer in the hierarchy)
+                                    superclass_handler = Some((edge.target.clone(), pos));
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
                 }
             }
         }
 
-        catch_all_handler
+        // Priority: superclass match > catch-all
+        superclass_handler
+            .map(|(handler, _)| handler)
+            .or(catch_all_handler)
     }
 
     /// Evaluate a guard expression for the runner's scope type.
@@ -2479,17 +2522,21 @@ impl DAGRunner {
         condition_result: Option<bool>,
     ) -> RunnerResult<()> {
         // Check if result is an exception
-        if let Some(exception_type) = Self::is_exception_result(result) {
+        if let Some((exception_type, type_hierarchy)) = Self::is_exception_result(result) {
             debug!(
                 node_id = %node_id,
                 exception_type = %exception_type,
+                type_hierarchy = ?type_hierarchy,
                 "result is an exception, looking for exception handlers"
             );
 
             // Look for exception handlers on this node
-            if let Some(handler_id) =
-                Self::get_exception_handlers_from_node(dag, node_id, &exception_type)
-            {
+            if let Some(handler_id) = Self::get_exception_handlers_from_node(
+                dag,
+                node_id,
+                &exception_type,
+                &type_hierarchy,
+            ) {
                 debug!(
                     node_id = %node_id,
                     handler_id = %handler_id,
@@ -2519,9 +2566,12 @@ impl DAGRunner {
                     "node is inside try body function, checking fn_call for handlers"
                 );
                 // Look for exception handlers on the enclosing fn_call
-                if let Some(handler_id) =
-                    Self::get_exception_handlers_from_node(dag, &fn_call_id, &exception_type)
-                {
+                if let Some(handler_id) = Self::get_exception_handlers_from_node(
+                    dag,
+                    &fn_call_id,
+                    &exception_type,
+                    &type_hierarchy,
+                ) {
                     debug!(
                         fn_call_id = %fn_call_id,
                         handler_id = %handler_id,
@@ -3779,10 +3829,10 @@ mod tests {
             "message": "boom"
         }));
 
-        assert_eq!(
-            DAGRunner::is_exception_result(&payload),
-            Some("ValueError".to_string())
-        );
+        let result = DAGRunner::is_exception_result(&payload);
+        assert!(result.is_some());
+        let (exc_type, _type_hierarchy) = result.unwrap();
+        assert_eq!(exc_type, "ValueError");
     }
 
     #[test]
@@ -3796,9 +3846,31 @@ mod tests {
             }
         }));
 
+        let result = DAGRunner::is_exception_result(&payload);
+        assert!(result.is_some());
+        let (exc_type, _type_hierarchy) = result.unwrap();
+        assert_eq!(exc_type, "ValueError");
+    }
+
+    #[test]
+    fn test_is_exception_result_returns_type_hierarchy() {
+        let payload = WorkflowValue::from_json(&json!({
+            "__exception__": {
+                "type": "KeyError",
+                "module": "builtins",
+                "message": "key not found",
+                "traceback": "Traceback...",
+                "type_hierarchy": ["KeyError", "LookupError", "Exception", "BaseException"]
+            }
+        }));
+
+        let result = DAGRunner::is_exception_result(&payload);
+        assert!(result.is_some());
+        let (exc_type, type_hierarchy) = result.unwrap();
+        assert_eq!(exc_type, "KeyError");
         assert_eq!(
-            DAGRunner::is_exception_result(&payload),
-            Some("ValueError".to_string())
+            type_hierarchy,
+            vec!["KeyError", "LookupError", "Exception", "BaseException"]
         );
     }
 
@@ -4480,6 +4552,304 @@ mod tests {
         assert!(
             retries_exhausted,
             "Action on attempt 3 with max_retries=3 should have exhausted retries"
+        );
+    }
+
+    #[test]
+    fn test_exception_handler_matching_exception_normalized_to_catch_all() {
+        // Test that `except Exception:` is normalized to catch-all in the DAG
+        // and catches all exception types
+        use crate::dag::{DAG, DAGEdge, DAGNode};
+
+        let mut dag = DAG::new();
+
+        dag.add_node(DAGNode::new(
+            "action_1".to_string(),
+            "action_call".to_string(),
+            "@risky()".to_string(),
+        ));
+        dag.add_node(DAGNode::new(
+            "handler_1".to_string(),
+            "action_call".to_string(),
+            "@fallback()".to_string(),
+        ));
+
+        // Add exception edge with "Exception" type - should be normalized to catch-all
+        let edge = DAGEdge::state_machine_with_exception(
+            "action_1".to_string(),
+            "handler_1".to_string(),
+            vec!["Exception".to_string()],
+        );
+
+        // Verify normalization happened
+        assert!(
+            edge.exception_types.as_ref().unwrap().is_empty(),
+            "Exception should be normalized to empty (catch-all)"
+        );
+
+        dag.add_edge(edge);
+
+        // Test that any exception type is caught (empty type_hierarchy since catch-all doesn't need it)
+        let handler = DAGRunner::get_exception_handlers_from_node(
+            &dag,
+            "action_1",
+            "ValueError",
+            &[
+                "ValueError".to_string(),
+                "Exception".to_string(),
+                "BaseException".to_string(),
+            ],
+        );
+        assert_eq!(
+            handler,
+            Some("handler_1".to_string()),
+            "Normalized Exception handler should catch ValueError"
+        );
+
+        let handler = DAGRunner::get_exception_handlers_from_node(
+            &dag,
+            "action_1",
+            "TimeoutError",
+            &[
+                "TimeoutError".to_string(),
+                "Exception".to_string(),
+                "BaseException".to_string(),
+            ],
+        );
+        assert_eq!(
+            handler,
+            Some("handler_1".to_string()),
+            "Normalized Exception handler should catch TimeoutError"
+        );
+    }
+
+    #[test]
+    fn test_exception_handler_matching_exact_match_takes_priority() {
+        // Test that specific exception types match before catch-all
+        use crate::dag::{DAG, DAGEdge, DAGNode};
+
+        let mut dag = DAG::new();
+
+        dag.add_node(DAGNode::new(
+            "action_1".to_string(),
+            "action_call".to_string(),
+            "@risky()".to_string(),
+        ));
+        dag.add_node(DAGNode::new(
+            "specific_handler".to_string(),
+            "action_call".to_string(),
+            "@handle_value_error()".to_string(),
+        ));
+        dag.add_node(DAGNode::new(
+            "catch_all_handler".to_string(),
+            "action_call".to_string(),
+            "@handle_exception()".to_string(),
+        ));
+
+        // Add specific handler for ValueError
+        dag.add_edge(DAGEdge::state_machine_with_exception(
+            "action_1".to_string(),
+            "specific_handler".to_string(),
+            vec!["ValueError".to_string()],
+        ));
+
+        // Add catch-all handler (simulating `except Exception:` which is normalized)
+        dag.add_edge(DAGEdge::state_machine_with_exception(
+            "action_1".to_string(),
+            "catch_all_handler".to_string(),
+            vec![], // Already normalized catch-all
+        ));
+
+        // ValueError should go to specific handler
+        let handler = DAGRunner::get_exception_handlers_from_node(
+            &dag,
+            "action_1",
+            "ValueError",
+            &[
+                "ValueError".to_string(),
+                "Exception".to_string(),
+                "BaseException".to_string(),
+            ],
+        );
+        assert_eq!(
+            handler,
+            Some("specific_handler".to_string()),
+            "ValueError should match specific handler"
+        );
+
+        // Other exceptions should go to catch-all handler
+        let handler = DAGRunner::get_exception_handlers_from_node(
+            &dag,
+            "action_1",
+            "TypeError",
+            &[
+                "TypeError".to_string(),
+                "Exception".to_string(),
+                "BaseException".to_string(),
+            ],
+        );
+        assert_eq!(
+            handler,
+            Some("catch_all_handler".to_string()),
+            "TypeError should fall back to catch-all handler"
+        );
+    }
+
+    #[test]
+    fn test_exception_handler_matching_catch_all() {
+        // Test that bare `except:` works as catch-all
+        use crate::dag::{DAG, DAGEdge, DAGNode};
+
+        let mut dag = DAG::new();
+
+        dag.add_node(DAGNode::new(
+            "action_1".to_string(),
+            "action_call".to_string(),
+            "@risky()".to_string(),
+        ));
+        dag.add_node(DAGNode::new(
+            "catch_all_handler".to_string(),
+            "action_call".to_string(),
+            "@handle_all()".to_string(),
+        ));
+
+        // Add catch-all handler (empty exception_types)
+        dag.add_edge(DAGEdge::state_machine_with_exception(
+            "action_1".to_string(),
+            "catch_all_handler".to_string(),
+            vec![], // Empty = catch all
+        ));
+
+        // Any exception should be caught
+        let handler = DAGRunner::get_exception_handlers_from_node(
+            &dag,
+            "action_1",
+            "ValueError",
+            &[
+                "ValueError".to_string(),
+                "Exception".to_string(),
+                "BaseException".to_string(),
+            ],
+        );
+        assert_eq!(
+            handler,
+            Some("catch_all_handler".to_string()),
+            "Catch-all should catch ValueError"
+        );
+
+        let handler = DAGRunner::get_exception_handlers_from_node(
+            &dag,
+            "action_1",
+            "AnyCustomError",
+            &[
+                "AnyCustomError".to_string(),
+                "Exception".to_string(),
+                "BaseException".to_string(),
+            ],
+        );
+        assert_eq!(
+            handler,
+            Some("catch_all_handler".to_string()),
+            "Catch-all should catch any exception"
+        );
+    }
+
+    #[test]
+    fn test_exception_handler_matching_superclass_hierarchy() {
+        // Test that exception handlers match superclasses in the type hierarchy
+        // e.g., `except LookupError:` should catch KeyError
+        use crate::dag::{DAG, DAGEdge, DAGNode};
+
+        let mut dag = DAG::new();
+
+        dag.add_node(DAGNode::new(
+            "action_1".to_string(),
+            "action_call".to_string(),
+            "@risky()".to_string(),
+        ));
+        dag.add_node(DAGNode::new(
+            "lookup_handler".to_string(),
+            "action_call".to_string(),
+            "@handle_lookup()".to_string(),
+        ));
+        dag.add_node(DAGNode::new(
+            "catch_all_handler".to_string(),
+            "action_call".to_string(),
+            "@handle_all()".to_string(),
+        ));
+
+        // Add handler for LookupError (superclass of KeyError)
+        dag.add_edge(DAGEdge::state_machine_with_exception(
+            "action_1".to_string(),
+            "lookup_handler".to_string(),
+            vec!["LookupError".to_string()],
+        ));
+
+        // Add catch-all handler
+        dag.add_edge(DAGEdge::state_machine_with_exception(
+            "action_1".to_string(),
+            "catch_all_handler".to_string(),
+            vec![],
+        ));
+
+        // KeyError has hierarchy: KeyError -> LookupError -> Exception -> BaseException
+        let key_error_hierarchy = vec![
+            "KeyError".to_string(),
+            "LookupError".to_string(),
+            "Exception".to_string(),
+            "BaseException".to_string(),
+        ];
+
+        // KeyError should be caught by LookupError handler (via superclass matching)
+        let handler = DAGRunner::get_exception_handlers_from_node(
+            &dag,
+            "action_1",
+            "KeyError",
+            &key_error_hierarchy,
+        );
+        assert_eq!(
+            handler,
+            Some("lookup_handler".to_string()),
+            "KeyError should be caught by LookupError handler via hierarchy"
+        );
+
+        // IndexError also inherits from LookupError
+        let index_error_hierarchy = vec![
+            "IndexError".to_string(),
+            "LookupError".to_string(),
+            "Exception".to_string(),
+            "BaseException".to_string(),
+        ];
+
+        let handler = DAGRunner::get_exception_handlers_from_node(
+            &dag,
+            "action_1",
+            "IndexError",
+            &index_error_hierarchy,
+        );
+        assert_eq!(
+            handler,
+            Some("lookup_handler".to_string()),
+            "IndexError should be caught by LookupError handler via hierarchy"
+        );
+
+        // ValueError does not inherit from LookupError, should fall to catch-all
+        let value_error_hierarchy = vec![
+            "ValueError".to_string(),
+            "Exception".to_string(),
+            "BaseException".to_string(),
+        ];
+
+        let handler = DAGRunner::get_exception_handlers_from_node(
+            &dag,
+            "action_1",
+            "ValueError",
+            &value_error_hierarchy,
+        );
+        assert_eq!(
+            handler,
+            Some("catch_all_handler".to_string()),
+            "ValueError should fall to catch-all (not LookupError)"
         );
     }
 }
