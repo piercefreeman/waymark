@@ -34,6 +34,9 @@ from example_app.workflows import (
     KwOnlyLocationRequest,
     KwOnlyLocationResult,
     KwOnlyLocationWorkflow,
+    LoopExceptionRequest,
+    LoopExceptionResult,
+    LoopExceptionWorkflow,
     LoopReturnRequest,
     LoopReturnResult,
     LoopReturnWorkflow,
@@ -49,7 +52,9 @@ from example_app.workflows import (
 
 app = FastAPI(title="Rappel Example")
 
-templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "templates"))
+templates = Jinja2Templates(
+    directory=str(Path(__file__).resolve().parent / "templates")
+)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -118,6 +123,25 @@ async def run_loop_return_workflow(payload: LoopReturnRequest) -> LoopReturnResu
     """Run the early-return workflow demonstrating return inside a for-loop."""
     workflow = LoopReturnWorkflow()
     return await workflow.run(items=payload.items, needle=payload.needle)
+
+
+# =============================================================================
+# Loop with Exception Handling
+# =============================================================================
+
+
+@app.post("/api/loop-exception", response_model=LoopExceptionResult)
+async def run_loop_exception_workflow(
+    payload: LoopExceptionRequest,
+) -> LoopExceptionResult:
+    """
+    Run the loop exception workflow demonstrating exception handling inside a for loop.
+
+    Items starting with 'bad' will fail. The workflow catches the exception,
+    increments an error counter, and continues to the next item.
+    """
+    workflow = LoopExceptionWorkflow()
+    return await workflow.run(items=payload.items)
 
 
 # =============================================================================
@@ -208,11 +232,15 @@ async def run_undefined_variable_workflow(payload: UndefinedVariableRequest) -> 
 
 
 class EarlyReturnLoopRequest(BaseModel):
-    input_text: str = Field(description="Input text to parse. Use 'no_session:' prefix for early return path, or comma-separated items for loop path.")
+    input_text: str = Field(
+        description="Input text to parse. Use 'no_session:' prefix for early return path, or comma-separated items for loop path."
+    )
 
 
 @app.post("/api/early-return-loop", response_model=EarlyReturnLoopResult)
-async def run_early_return_loop_workflow(payload: EarlyReturnLoopRequest) -> EarlyReturnLoopResult:
+async def run_early_return_loop_workflow(
+    payload: EarlyReturnLoopRequest,
+) -> EarlyReturnLoopResult:
     """Run the early return + loop workflow demonstrating if-return followed by for-loop."""
     workflow = EarlyReturnLoopWorkflow()
     return await workflow.run(input_text=payload.input_text)
@@ -228,6 +256,7 @@ WORKFLOW_REGISTRY = {
     "SequentialChainWorkflow": SequentialChainWorkflow,
     "ConditionalBranchWorkflow": ConditionalBranchWorkflow,
     "LoopProcessingWorkflow": LoopProcessingWorkflow,
+    "LoopExceptionWorkflow": LoopExceptionWorkflow,
     "ErrorHandlingWorkflow": ErrorHandlingWorkflow,
     "ExceptionMetadataWorkflow": ExceptionMetadataWorkflow,
     "DurableSleepWorkflow": DurableSleepWorkflow,
@@ -241,7 +270,8 @@ class ScheduleRequest(BaseModel):
     workflow_name: str = Field(description="Name of the workflow to schedule")
     schedule_type: Literal["cron", "interval"] = Field(description="Type of schedule")
     cron_expression: Optional[str] = Field(
-        default=None, description="Cron expression (e.g., '*/5 * * * *' for every 5 minutes)"
+        default=None,
+        description="Cron expression (e.g., '*/5 * * * *' for every 5 minutes)",
     )
     interval_seconds: Optional[int] = Field(
         default=None, ge=10, description="Interval in seconds (minimum 10)"
@@ -305,7 +335,9 @@ async def register_schedule(payload: ScheduleRequest) -> ScheduleResponse:
 
 
 @app.post("/api/schedule/pause", response_model=ScheduleActionResponse)
-async def pause_workflow_schedule(payload: ScheduleActionRequest) -> ScheduleActionResponse:
+async def pause_workflow_schedule(
+    payload: ScheduleActionRequest,
+) -> ScheduleActionResponse:
     """Pause a workflow's schedule."""
     workflow_cls = WORKFLOW_REGISTRY.get(payload.workflow_name)
     if not workflow_cls:
@@ -330,7 +362,9 @@ async def pause_workflow_schedule(payload: ScheduleActionRequest) -> ScheduleAct
 
 
 @app.post("/api/schedule/resume", response_model=ScheduleActionResponse)
-async def resume_workflow_schedule(payload: ScheduleActionRequest) -> ScheduleActionResponse:
+async def resume_workflow_schedule(
+    payload: ScheduleActionRequest,
+) -> ScheduleActionResponse:
     """Resume a paused workflow schedule."""
     workflow_cls = WORKFLOW_REGISTRY.get(payload.workflow_name)
     if not workflow_cls:
@@ -355,7 +389,9 @@ async def resume_workflow_schedule(payload: ScheduleActionRequest) -> ScheduleAc
 
 
 @app.post("/api/schedule/delete", response_model=ScheduleActionResponse)
-async def delete_workflow_schedule(payload: ScheduleActionRequest) -> ScheduleActionResponse:
+async def delete_workflow_schedule(
+    payload: ScheduleActionRequest,
+) -> ScheduleActionResponse:
     """Delete a workflow's schedule."""
     workflow_cls = WORKFLOW_REGISTRY.get(payload.workflow_name)
     if not workflow_cls:
@@ -394,7 +430,9 @@ async def reset_database() -> ResetResponse:
     """Reset workflow-related tables for a clean slate. Development use only."""
     database_url = os.environ.get("RAPPEL_DATABASE_URL")
     if not database_url:
-        return ResetResponse(success=False, message="RAPPEL_DATABASE_URL not configured")
+        return ResetResponse(
+            success=False, message="RAPPEL_DATABASE_URL not configured"
+        )
 
     try:
         conn = await asyncpg.connect(database_url)

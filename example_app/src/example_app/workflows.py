@@ -12,7 +12,6 @@ This module contains example workflows demonstrating:
 """
 
 import asyncio
-from datetime import timedelta
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -402,9 +401,7 @@ async def get_timestamp() -> str:
 
 
 @action
-async def format_sleep_result(
-    started: str, resumed: str, seconds: int
-) -> SleepResult:
+async def format_sleep_result(started: str, resumed: str, seconds: int) -> SleepResult:
     """Format the sleep workflow result."""
     return SleepResult(
         started_at=started,
@@ -694,7 +691,9 @@ async def process_single_item(item: str, session_id: str) -> ProcessedItemResult
 
 
 @action
-async def finalize_processing(items: list[str], processed_count: int) -> EarlyReturnLoopResult:
+async def finalize_processing(
+    items: list[str], processed_count: int
+) -> EarlyReturnLoopResult:
     """Finalize the processing results."""
     await asyncio.sleep(0.05)
     return EarlyReturnLoopResult(
@@ -854,6 +853,107 @@ class UndefinedVariableWorkflow(Workflow):
 
     async def run(self, input_text: str) -> str:
         return await echo_external(global_fallback)
+
+
+# =============================================================================
+# Actions - Loop with Exception Handling Workflow
+# =============================================================================
+
+
+class ItemProcessingError(Exception):
+    """Exception raised when item processing fails."""
+
+    pass
+
+
+class LoopExceptionResult(BaseModel):
+    """Result from the loop exception handling workflow."""
+
+    items: list[str]
+    processed: list[str]
+    error_count: int
+    message: str
+
+
+class LoopExceptionRequest(BaseModel):
+    items: list[str] = Field(
+        min_length=1,
+        max_length=10,
+        description="Items to process. Items starting with 'bad' will fail.",
+    )
+
+
+@action
+async def process_item_may_fail(item: str) -> str:
+    """
+    Process an item - fails for items starting with 'bad'.
+
+    This simulates an action that may fail for certain inputs,
+    demonstrating exception handling inside a for loop.
+    """
+    await asyncio.sleep(0.05)
+    if item.lower().startswith("bad"):
+        raise ItemProcessingError(f"Failed to process item: {item}")
+    return f"processed:{item}"
+
+
+@action
+async def build_loop_exception_result(
+    items: list[str],
+    processed: list[str],
+    error_count: int,
+) -> LoopExceptionResult:
+    """Build the final result with processed items and error count."""
+    if error_count == 0:
+        message = f"All {len(processed)} items processed successfully"
+    elif error_count == len(items):
+        message = f"All {error_count} items failed processing"
+    else:
+        message = f"Processed {len(processed)} items, {error_count} failures"
+    return LoopExceptionResult(
+        items=items,
+        processed=processed,
+        error_count=error_count,
+        message=message,
+    )
+
+
+@workflow
+class LoopExceptionWorkflow(Workflow):
+    """
+    Demonstrates exception handling inside a for loop.
+
+    This workflow processes a list of items where some may fail.
+    When an item fails:
+    1. The exception is caught
+    2. An error counter is incremented
+    3. The loop continues to the next item
+
+    This is a common pattern for batch processing where you want to
+    continue processing remaining items even if some fail.
+
+    Example inputs:
+    - ["good1", "good2", "good3"] - All succeed, error_count=0
+    - ["good1", "bad", "good2"] - One failure, error_count=1
+    - ["bad1", "bad2"] - All fail, error_count=2
+    """
+
+    async def run(self, items: list[str]) -> LoopExceptionResult:
+        processed: list[str] = []
+        error_count = 0
+
+        for item in items:
+            try:
+                result = await self.run_action(
+                    process_item_may_fail(item),
+                    retry=RetryPolicy(attempts=1),  # No retries, fail immediately
+                )
+                processed.append(result)
+            except ItemProcessingError:
+                # Increment error count and continue to next item
+                error_count = error_count + 1
+
+        return await build_loop_exception_result(items, processed, error_count)
 
 
 # =============================================================================
