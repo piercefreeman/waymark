@@ -2816,9 +2816,10 @@ class IRBuilder(ast.NodeVisitor):
 
         Handles patterns like:
             [action(x=item) for item in collection]
+            [self.run_action(action(x=item), retry=..., timeout=...) for item in collection]
 
         The comprehension must have exactly one generator with no conditions,
-        and the element must be an action call.
+        and the element must be an action call (optionally wrapped in run_action).
 
         Args:
             listcomp: The ListComp AST node
@@ -2874,7 +2875,7 @@ class IRBuilder(ast.NodeVisitor):
                 col=col,
             )
 
-        # The element must be an action call
+        # The element must be a call (either action call or run_action wrapper)
         if not isinstance(listcomp.elt, ast.Call):
             line = getattr(listcomp, "lineno", None)
             col = getattr(listcomp, "col_offset", None)
@@ -2885,13 +2886,27 @@ class IRBuilder(ast.NodeVisitor):
                 col=col,
             )
 
-        action_call = self._extract_action_call_from_call(listcomp.elt)
+        # Check for self.run_action(...) wrapper pattern
+        action_call: Optional[ir.ActionCall] = None
+        if self._is_run_action_call(listcomp.elt):
+            # Extract the inner action call from run_action's first argument
+            if listcomp.elt.args:
+                inner_call = listcomp.elt.args[0]
+                if isinstance(inner_call, ast.Call):
+                    action_call = self._extract_action_call_from_call(inner_call)
+                    if action_call:
+                        # Extract policies (retry, timeout) from run_action kwargs
+                        self._extract_policies_from_run_action(listcomp.elt, action_call)
+        else:
+            # Direct action call
+            action_call = self._extract_action_call_from_call(listcomp.elt)
+
         if not action_call:
             line = getattr(listcomp, "lineno", None)
             col = getattr(listcomp, "col_offset", None)
             raise UnsupportedPatternError(
                 "Spread pattern element must be an @action call",
-                "Ensure the function is decorated with @action",
+                "Ensure the function is decorated with @action, or use self.run_action(action(...), ...)",
                 line=line,
                 col=col,
             )
