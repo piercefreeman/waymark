@@ -315,20 +315,21 @@ async fn test_scheduler_creates_instance() -> Result<()> {
     });
 
     // Wait for the scheduler to process the due schedule
-    let mut instance_created = false;
+    // We wait for last_run_at to be set, not just for the instance to exist,
+    // because mark_schedule_executed is called after create_instance
+    let mut schedule_executed = false;
     for _ in 0..20 {
         // Wait up to 2 seconds
         tokio::time::sleep(Duration::from_millis(100)).await;
 
-        let count: (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM workflow_instances WHERE workflow_name = $1")
-                .bind("scheduled_workflow")
-                .fetch_one(database.pool())
-                .await?;
+        let schedule = database
+            .get_schedule_by_name("scheduled_workflow", "default")
+            .await?
+            .expect("schedule should exist");
 
-        if count.0 > 0 {
-            instance_created = true;
-            info!(count = count.0, "scheduler created instance");
+        if schedule.last_run_at.is_some() {
+            schedule_executed = true;
+            info!("scheduler executed schedule");
             break;
         }
     }
@@ -338,8 +339,8 @@ async fn test_scheduler_creates_instance() -> Result<()> {
     let _ = runner_handle.await;
 
     assert!(
-        instance_created,
-        "scheduler should have created an instance for the due schedule"
+        schedule_executed,
+        "scheduler should have executed the due schedule"
     );
 
     // Verify schedule was updated
