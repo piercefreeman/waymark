@@ -2821,6 +2821,58 @@ class TestSpreadAction:
 
         assert spread_found, "Expected spread expression from asyncio.gather(*[...])"
 
+    def test_spread_pattern_with_run_action(self) -> None:
+        """Test: asyncio.gather(*[self.run_action(action(x), retry=..., timeout=...) for x in items]).
+
+        This tests the pattern where run_action wraps the action call to add
+        retry and timeout policies in a spread pattern.
+        """
+        from tests.fixtures_gather.gather_run_action_spread import (
+            GatherRunActionSpreadWorkflow,
+        )
+
+        program = GatherRunActionSpreadWorkflow.workflow_ir()
+
+        # Find the SpreadExpr in the IR
+        spread_found = False
+        spread_expr = None
+        for fn in program.functions:
+            for stmt in fn.body.statements:
+                if stmt.HasField("assignment"):
+                    if stmt.assignment.value.HasField("spread_expr"):
+                        spread_found = True
+                        spread_expr = stmt.assignment.value.spread_expr
+
+        assert spread_found, (
+            "Expected spread expression from asyncio.gather(*[self.run_action(...)])"
+        )
+        assert spread_expr is not None
+
+        # Verify the spread structure
+        assert spread_expr.loop_var == "item"
+        assert spread_expr.action.action_name == "process_item"
+
+        # Verify that policies were extracted from run_action
+        assert len(spread_expr.action.policies) == 2, (
+            f"Expected 2 policies (retry + timeout), got {len(spread_expr.action.policies)}"
+        )
+
+        # Check for retry policy
+        retry_found = False
+        timeout_found = False
+        for policy_bracket in spread_expr.action.policies:
+            if policy_bracket.HasField("retry"):
+                retry_found = True
+                # RetryPolicy(attempts=3) -> max_retries=2
+                assert policy_bracket.retry.max_retries == 2
+            if policy_bracket.HasField("timeout"):
+                timeout_found = True
+                # timedelta(seconds=30) -> 30 seconds
+                assert policy_bracket.timeout.timeout.seconds == 30
+
+        assert retry_found, "Expected retry policy from run_action"
+        assert timeout_found, "Expected timeout policy from run_action"
+
 
 class TestForLoopWithMultipleCalls:
     """Test for loop bodies with multiple calls."""

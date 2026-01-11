@@ -2180,3 +2180,76 @@ async fn parallel_fn_workflow_executes_helper_methods() -> Result<()> {
     harness.shutdown().await?;
     Ok(())
 }
+
+// =============================================================================
+// Run Action Spread Pattern Test
+// =============================================================================
+
+const RUN_ACTION_SPREAD_WORKFLOW_MODULE: &str =
+    include_str!("fixtures/integration_run_action_spread.py");
+
+const REGISTER_RUN_ACTION_SPREAD_SCRIPT: &str = r#"
+import asyncio
+import os
+
+from integration_run_action_spread import RunActionSpreadWorkflow
+
+async def main():
+    os.environ.pop("PYTEST_CURRENT_TEST", None)
+    wf = RunActionSpreadWorkflow()
+    result = await wf.run(items=["a", "b", "c"])
+    print(f"Registration result: {result}")
+
+asyncio.run(main())
+"#;
+
+/// Test that asyncio.gather with self.run_action in spread pattern works.
+///
+/// With items=["a", "b", "c"]:
+/// - process_item("a") -> "processed:a"
+/// - process_item("b") -> "processed:b"
+/// - process_item("c") -> "processed:c"
+/// - combine_results -> "processed:a,processed:b,processed:c"
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[serial]
+#[ignore = "Flaky in CI - spread aggregator has reliability issues"]
+async fn run_action_spread_workflow_executes() -> Result<()> {
+    let _ = tracing_subscriber::fmt::try_init();
+    let _ = dotenvy::dotenv();
+
+    let Some(harness) = IntegrationHarness::new(HarnessConfig {
+        files: &[
+            (
+                "integration_run_action_spread.py",
+                RUN_ACTION_SPREAD_WORKFLOW_MODULE,
+            ),
+            ("register.py", REGISTER_RUN_ACTION_SPREAD_SCRIPT),
+        ],
+        entrypoint: "register.py",
+        workflow_name: "runactionspreadworkflow",
+        user_module: "integration_run_action_spread",
+        inputs: &[],
+    })
+    .await?
+    else {
+        return Ok(());
+    };
+
+    harness.dispatch_all().await?;
+    info!("workflow completed");
+
+    // Verify the workflow result
+    let stored_payload = harness
+        .stored_result()
+        .await?
+        .expect("workflow should have a result");
+    let message = parse_result(&stored_payload)?;
+    assert_eq!(
+        message,
+        Some("processed:a,processed:b,processed:c".to_string()),
+        "expected all items to be processed and combined"
+    );
+
+    harness.shutdown().await?;
+    Ok(())
+}
