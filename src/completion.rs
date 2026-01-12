@@ -103,8 +103,14 @@ pub struct CompletionPlan {
     /// Readiness resets for loop re-triggering.
     pub readiness_resets: Vec<String>,
 
+    /// Readiness initializations for frontier nodes.
+    pub readiness_inits: Vec<ReadinessInit>,
+
     /// Readiness increments for frontier nodes.
     pub readiness_increments: Vec<ReadinessIncrement>,
+
+    /// Barriers to enqueue immediately (no readiness tracking).
+    pub barrier_enqueues: Vec<String>,
 
     /// Workflow instance completion (if output node reached).
     pub instance_completion: Option<InstanceCompletion>,
@@ -122,7 +128,9 @@ impl CompletionPlan {
             error_message: None,
             inbox_writes: Vec::new(),
             readiness_resets: Vec::new(),
+            readiness_inits: Vec::new(),
             readiness_increments: Vec::new(),
+            barrier_enqueues: Vec::new(),
             instance_completion: None,
         }
     }
@@ -191,6 +199,12 @@ pub struct ReadinessIncrement {
 
     /// Base delay in milliseconds for backoff.
     pub backoff_base_delay_ms: i32,
+}
+
+#[derive(Debug, Clone)]
+pub struct ReadinessInit {
+    pub node_id: String,
+    pub required_count: i32,
 }
 
 /// Type of node for the action queue.
@@ -1440,7 +1454,7 @@ fn handle_spread_frontier(
     action_inbox: &HashMap<String, WorkflowValue>,
     instance_id: WorkflowInstanceId,
     _completed_node_id: &str,
-    dag: &DAG,
+    _dag: &DAG,
     plan: &mut CompletionPlan,
 ) -> Result<(), CompletionError> {
     // Get spread metadata from the node
@@ -1488,14 +1502,7 @@ fn handle_spread_frontier(
         .unwrap_or_else(|| "_spread_result".to_string());
 
     if items.is_empty() {
-        // Empty collection - no actions to create.
-        // Instead of enqueueing the aggregator as a barrier, we inline its completion
-        // by finding its downstream frontiers and adding them directly to the plan.
-        // This treats empty spread + aggregator as a single inline passthrough.
-
-        let helper = DAGHelper::new(dag);
-
-        // Write the empty result to the aggregator's inbox (for data flow)
+        // Empty collection: write empty result and enqueue the aggregator as a barrier.
         plan.inbox_writes.push(InboxWrite {
             instance_id,
             target_node_id: aggregator_id.clone(),
@@ -1505,128 +1512,7 @@ fn handle_spread_frontier(
             spread_index: None,
         });
 
-        // Also add the empty result to inline scope for downstream data flow
-        // The aggregator's target variables need to be available to successors
-        if let Some(agg_node) = dag.nodes.get(aggregator_id) {
-            // Write the aggregated result to successor nodes via DataFlow edges
-            let empty_result = WorkflowValue::List(vec![]);
-            let writes = collect_data_flow_writes(
-                aggregator_id,
-                &{
-                    let mut scope = HashMap::new();
-                    scope.insert(result_var.clone(), empty_result.clone());
-                    // Also add under the aggregator's target names if different
-                    if let Some(ref targets) = agg_node.targets {
-                        for target in targets {
-                            scope.insert(target.clone(), empty_result.clone());
-                        }
-                    }
-                    if let Some(ref target) = agg_node.target {
-                        scope.insert(target.clone(), empty_result.clone());
-                    }
-                    scope
-                },
-                dag,
-                instance_id,
-            );
-            plan.inbox_writes.extend(writes);
-        }
-
-        // Find the aggregator's downstream frontiers
-        let subgraph = analyze_subgraph(aggregator_id, dag, &helper);
-
-        info!(
-            frontier_node_id = %frontier.node_id,
-            aggregator_id = %aggregator_id,
-            downstream_frontiers = subgraph.frontier_nodes.len(),
-            inline_nodes = subgraph.inline_nodes.len(),
-            "spread has empty collection, inlining aggregator completion"
-        );
-
-        // Add ReadinessIncrements for the aggregator's downstream frontiers
-        for downstream_frontier in &subgraph.frontier_nodes {
-            let downstream_node = match dag.nodes.get(&downstream_frontier.node_id) {
-                Some(n) => n,
-                None => continue,
-            };
-
-            // Collect DataFlow writes from aggregator to this frontier
-            let empty_scope: HashMap<String, WorkflowValue> = {
-                let mut scope = HashMap::new();
-                scope.insert(result_var.clone(), WorkflowValue::List(vec![]));
-                if let Some(agg_node) = dag.nodes.get(aggregator_id) {
-                    if let Some(ref targets) = agg_node.targets {
-                        for target in targets {
-                            scope.insert(target.clone(), WorkflowValue::List(vec![]));
-                        }
-                    }
-                    if let Some(ref target) = agg_node.target {
-                        scope.insert(target.clone(), WorkflowValue::List(vec![]));
-                    }
-                }
-                scope
-            };
-            let writes = collect_data_flow_writes(
-                &downstream_frontier.node_id,
-                &empty_scope,
-                dag,
-                instance_id,
-            );
-            plan.inbox_writes.extend(writes);
-
-            match downstream_frontier.category {
-                FrontierCategory::Action => {
-                    // For action frontiers, we need to build dispatch payload
-                    // But we don't have the full inbox - this is a simplified path
-                    let policies = extract_policies_from_node(downstream_node);
-                    plan.readiness_increments.push(ReadinessIncrement {
-                        node_id: downstream_frontier.node_id.clone(),
-                        required_count: downstream_frontier.required_count,
-                        node_type: NodeType::Action,
-                        module_name: downstream_node.module_name.clone(),
-                        action_name: downstream_node.action_name.clone(),
-                        dispatch_payload: None, // Will be built when action is ready
-                        scheduled_at: None,
-                        timeout_seconds: policies.timeout_seconds,
-                        max_retries: policies.max_retries,
-                        backoff_kind: policies.backoff_kind,
-                        backoff_base_delay_ms: policies.backoff_base_delay_ms,
-                    });
-                }
-                FrontierCategory::Barrier => {
-                    plan.readiness_increments.push(ReadinessIncrement {
-                        node_id: downstream_frontier.node_id.clone(),
-                        required_count: downstream_frontier.required_count,
-                        node_type: NodeType::Barrier,
-                        module_name: None,
-                        action_name: None,
-                        dispatch_payload: None,
-                        scheduled_at: None,
-                        timeout_seconds: 300,
-                        max_retries: 0,
-                        backoff_kind: crate::db::BackoffKind::None,
-                        backoff_base_delay_ms: 0,
-                    });
-                }
-                FrontierCategory::Output => {
-                    // Output node reached - workflow should complete
-                    // The output handling will be done by the normal completion logic
-                    plan.readiness_increments.push(ReadinessIncrement {
-                        node_id: downstream_frontier.node_id.clone(),
-                        required_count: downstream_frontier.required_count,
-                        node_type: NodeType::Barrier, // Outputs are treated as barriers
-                        module_name: None,
-                        action_name: None,
-                        dispatch_payload: None,
-                        scheduled_at: None,
-                        timeout_seconds: 300,
-                        max_retries: 0,
-                        backoff_kind: crate::db::BackoffKind::None,
-                        backoff_base_delay_ms: 0,
-                    });
-                }
-            }
-        }
+        plan.barrier_enqueues.push(aggregator_id.clone());
 
         return Ok(());
     }
@@ -1667,21 +1553,9 @@ fn handle_spread_frontier(
         });
     }
 
-    // Initialize the aggregator's required_count based on the number of items
-    // This is done by adding a special readiness increment for the aggregator
-    // The aggregator will become ready when all spread actions complete
-    plan.readiness_increments.push(ReadinessIncrement {
+    plan.readiness_inits.push(ReadinessInit {
         node_id: aggregator_id.clone(),
         required_count: item_count as i32,
-        node_type: NodeType::Barrier,
-        module_name: None,
-        action_name: None,
-        dispatch_payload: None,
-        scheduled_at: None,
-        timeout_seconds: 300,
-        max_retries: 0,
-        backoff_kind: crate::db::BackoffKind::None,
-        backoff_base_delay_ms: 0,
     });
 
     Ok(())
@@ -2028,7 +1902,9 @@ fn main(input: [x], output: [result]):
         let plan = CompletionPlan::new("test_node".to_string());
         assert_eq!(plan.completed_node_id, "test_node");
         assert!(plan.inbox_writes.is_empty());
+        assert!(plan.readiness_inits.is_empty());
         assert!(plan.readiness_increments.is_empty());
+        assert!(plan.barrier_enqueues.is_empty());
         assert!(plan.instance_completion.is_none());
     }
 
@@ -2330,7 +2206,10 @@ fn main(input: [x], output: [result]):
         // Should have at least one readiness increment for the next action
         // (unless the subgraph structure means we go directly to output)
         assert!(
-            !plan.readiness_increments.is_empty() || plan.instance_completion.is_some(),
+            !plan.readiness_increments.is_empty()
+                || !plan.readiness_inits.is_empty()
+                || !plan.barrier_enqueues.is_empty()
+                || plan.instance_completion.is_some(),
             "Should have readiness increments or instance completion"
         );
     }
@@ -2403,7 +2282,9 @@ fn main(input: [x], output: [result]):
         let plan = result.unwrap();
         // Should have readiness increment for process_items (the if body action)
         assert!(
-            !plan.readiness_increments.is_empty(),
+            !plan.readiness_increments.is_empty()
+                || !plan.readiness_inits.is_empty()
+                || !plan.barrier_enqueues.is_empty(),
             "Should have readiness increments for the if body action"
         );
     }
@@ -2492,7 +2373,10 @@ fn main(input: [x], output: [result]):
         let plan = result.unwrap();
         // Should have readiness increment for finalize action (skipping process_items)
         assert!(
-            !plan.readiness_increments.is_empty() || plan.instance_completion.is_some(),
+            !plan.readiness_increments.is_empty()
+                || !plan.readiness_inits.is_empty()
+                || !plan.barrier_enqueues.is_empty()
+                || plan.instance_completion.is_some(),
             "Should have readiness increments for finalize action or workflow completion"
         );
 
@@ -2598,7 +2482,10 @@ fn main(input: [raw_id], output: [result]):
 
         // Should have a path to validate_posts
         assert!(
-            !plan.readiness_increments.is_empty() || plan.instance_completion.is_some(),
+            !plan.readiness_increments.is_empty()
+                || !plan.readiness_inits.is_empty()
+                || !plan.barrier_enqueues.is_empty()
+                || plan.instance_completion.is_some(),
             "Should have readiness increments for validate_posts or workflow completion"
         );
 
@@ -2743,7 +2630,10 @@ fn main(input: [raw_id], output: [result]):
         //
         // The key is that we shouldn't go through the for loop body (process_post)
         assert!(
-            plan.instance_completion.is_some() || !plan.readiness_increments.is_empty(),
+            plan.instance_completion.is_some()
+                || !plan.readiness_increments.is_empty()
+                || !plan.readiness_inits.is_empty()
+                || !plan.barrier_enqueues.is_empty(),
             "Should have instance completion or readiness increments for early return path"
         );
 
@@ -2821,7 +2711,9 @@ fn main(input: [raw_id], output: [result]):
 
         // Should proceed to process_post action (inside the loop)
         assert!(
-            !plan.readiness_increments.is_empty(),
+            !plan.readiness_increments.is_empty()
+                || !plan.readiness_inits.is_empty()
+                || !plan.barrier_enqueues.is_empty(),
             "Should have readiness increments for process_post action"
         );
 

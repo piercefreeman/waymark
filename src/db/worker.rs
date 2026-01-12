@@ -1507,6 +1507,25 @@ impl Database {
             .await?;
         }
 
+        // 2.75. Initialize readiness for frontier nodes (before increments)
+        for init in &plan.readiness_inits {
+            sqlx::query(
+                r#"
+                INSERT INTO node_readiness (instance_id, node_id, required_count, completed_count)
+                VALUES ($1, $2, $3, 0)
+                ON CONFLICT (instance_id, node_id)
+                DO UPDATE SET required_count = EXCLUDED.required_count,
+                              completed_count = 0,
+                              updated_at = NOW()
+                "#,
+            )
+            .bind(instance_id.0)
+            .bind(&init.node_id)
+            .bind(init.required_count)
+            .execute(&mut *tx)
+            .await?;
+        }
+
         // 3. Increment readiness for frontier nodes, enqueue if ready
         for increment in &plan.readiness_increments {
             let row = sqlx::query(
@@ -1599,6 +1618,47 @@ impl Database {
             }
         }
 
+        // 3.5. Enqueue barriers directly (no readiness tracking)
+        for node_id in &plan.barrier_enqueues {
+            let seq_row = sqlx::query(
+                r#"
+                UPDATE workflow_instances
+                SET next_action_seq = next_action_seq + 1
+                WHERE id = $1
+                RETURNING next_action_seq - 1
+                "#,
+            )
+            .bind(instance_id.0)
+            .fetch_one(&mut *tx)
+            .await?;
+            let action_seq: i32 = seq_row.get(0);
+
+            sqlx::query(
+                r#"
+                INSERT INTO action_queue
+                    (instance_id, action_seq, module_name, action_name,
+                     dispatch_payload, timeout_seconds, max_retries,
+                     backoff_kind, backoff_base_delay_ms, node_id, node_type,
+                     scheduled_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'barrier', NOW())
+                "#,
+            )
+            .bind(instance_id.0)
+            .bind(action_seq)
+            .bind("__internal__")
+            .bind("__barrier__")
+            .bind(Vec::<u8>::new())
+            .bind(300)
+            .bind(3)
+            .bind("exponential")
+            .bind(1000)
+            .bind(node_id)
+            .execute(&mut *tx)
+            .await?;
+
+            result.newly_ready_nodes.push(node_id.clone());
+        }
+
         // 4. Complete workflow instance if output node was reached
         if let Some(completion) = &plan.instance_completion {
             let rows = sqlx::query(
@@ -1631,7 +1691,9 @@ impl Database {
         tracing::info!(
             elapsed_ms = start.elapsed().as_millis() as u64,
             inbox_writes = plan.inbox_writes.len(),
+            readiness_inits = plan.readiness_inits.len(),
             readiness_increments = plan.readiness_increments.len(),
+            barrier_enqueues = plan.barrier_enqueues.len(),
             "execute_completion_plan"
         );
 

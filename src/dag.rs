@@ -964,6 +964,18 @@ impl DAGConverter {
             let mut cloned = node.clone();
             cloned.id = new_id.clone();
             cloned.node_uuid = Uuid::new_v4();
+            if let Some(prefix) = id_prefix {
+                if let Some(ref agg_id) = cloned.aggregates_to
+                    && fn_node_ids.contains(agg_id)
+                {
+                    cloned.aggregates_to = Some(format!("{}:{}", prefix, agg_id));
+                }
+                if let Some(ref agg_from) = cloned.aggregates_from
+                    && fn_node_ids.contains(agg_from)
+                {
+                    cloned.aggregates_from = Some(format!("{}:{}", prefix, agg_from));
+                }
+            }
 
             id_map.insert(old_id.clone(), new_id.clone());
 
