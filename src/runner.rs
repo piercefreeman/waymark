@@ -36,7 +36,7 @@ use std::{
     collections::{BinaryHeap, HashMap},
     sync::{
         Arc,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -1211,6 +1211,7 @@ pub struct DAGRunner {
     instance_contexts: Arc<RwLock<HashMap<Uuid, Scope>>>,
     /// Shutdown signal
     shutdown: Arc<tokio::sync::Notify>,
+    shutdown_flag: Arc<AtomicBool>,
 }
 
 impl DAGRunner {
@@ -1244,6 +1245,7 @@ impl DAGRunner {
             dag_cache,
             instance_contexts: Arc::new(RwLock::new(HashMap::new())),
             shutdown: Arc::new(tokio::sync::Notify::new()),
+            shutdown_flag: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -1279,6 +1281,9 @@ impl DAGRunner {
                 "timeout_check",
             );
             loop {
+                if timeout_runner.shutdown_flag.load(Ordering::Acquire) {
+                    break;
+                }
                 tokio::select! {
                     _ = timeout_runner.shutdown.notified() => break,
                     _ = interval.tick() => {
@@ -1338,6 +1343,9 @@ impl DAGRunner {
                 "in_flight_timeout_check",
             );
             loop {
+                if in_flight_runner.shutdown_flag.load(Ordering::Acquire) {
+                    break;
+                }
                 tokio::select! {
                     _ = in_flight_runner.shutdown.notified() => break,
                     _ = interval.tick() => {
@@ -1361,6 +1369,9 @@ impl DAGRunner {
                 "schedule_check",
             );
             loop {
+                if schedule_runner.shutdown_flag.load(Ordering::Acquire) {
+                    break;
+                }
                 tokio::select! {
                     _ = schedule_runner.shutdown.notified() => break,
                     _ = interval.tick() => {
@@ -1380,6 +1391,9 @@ impl DAGRunner {
                 "worker_status",
             );
             loop {
+                if status_runner.shutdown_flag.load(Ordering::Acquire) {
+                    break;
+                }
                 tokio::select! {
                     _ = status_runner.shutdown.notified() => break,
                     _ = interval.tick() => {
@@ -1416,6 +1430,9 @@ impl DAGRunner {
             let _gc_handle = tokio::spawn(async move {
                 let mut interval = make_interval(gc_interval_ms, "gc");
                 loop {
+                    if gc_runner.shutdown_flag.load(Ordering::Acquire) {
+                        break;
+                    }
                     tokio::select! {
                         _ = gc_runner.shutdown.notified() => break,
                         _ = interval.tick() => {
@@ -1456,6 +1473,9 @@ impl DAGRunner {
         let poll_interval = tokio::time::Duration::from_millis(poll_runner.config.poll_interval_ms);
         let _poll_handle = tokio::spawn(async move {
             loop {
+                if poll_runner.shutdown_flag.load(Ordering::Acquire) {
+                    break;
+                }
                 tokio::select! {
                     _ = poll_runner.shutdown.notified() => break,
                     _ = tokio::time::sleep(poll_interval) => {
@@ -1485,6 +1505,10 @@ impl DAGRunner {
         });
 
         loop {
+            if self.shutdown_flag.load(Ordering::Acquire) {
+                info!("Runner shutdown requested");
+                break;
+            }
             tokio::select! {
                 // Use biased selection to prioritize shutdown check.
                 // This prevents race condition where a task exits due to shutdown
@@ -3121,6 +3145,7 @@ impl DAGRunner {
 
     /// Request shutdown.
     pub fn shutdown(&self) {
+        self.shutdown_flag.store(true, Ordering::Release);
         self.shutdown.notify_waiters();
     }
 

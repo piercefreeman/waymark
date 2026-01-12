@@ -24,7 +24,7 @@ use tempfile::TempDir;
 use tokio::{
     net::TcpListener,
     process::Command,
-    sync::oneshot,
+    sync::{OnceCell, oneshot},
     task::JoinHandle,
     time::{Duration, timeout},
 };
@@ -38,6 +38,7 @@ use rappel::{
 };
 
 const SCRIPT_TIMEOUT: Duration = Duration::from_secs(60);
+static PY_ENV_READY: OnceCell<()> = OnceCell::const_new();
 
 // ============================================================================
 // Test gRPC Service for Workflow Registration
@@ -298,26 +299,21 @@ pub struct IntegrationHarness {
 impl IntegrationHarness {
     /// Create a new test harness with the given configuration.
     ///
-    /// Returns `None` if RAPPEL_DATABASE_URL is not set (skips test).
+    /// Returns an error if RAPPEL_DATABASE_URL is not set.
     pub async fn new(config: HarnessConfig<'_>) -> Result<Option<Self>> {
         Self::new_internal(config, true).await
     }
 
     /// Create a new test harness without starting the workflow instance.
     ///
-    /// Returns `None` if RAPPEL_DATABASE_URL is not set (skips test).
+    /// Returns an error if RAPPEL_DATABASE_URL is not set.
     pub async fn new_without_start(config: HarnessConfig<'_>) -> Result<Option<Self>> {
         Self::new_internal(config, false).await
     }
 
     async fn new_internal(config: HarnessConfig<'_>, start_instance: bool) -> Result<Option<Self>> {
-        let database_url = match env::var("RAPPEL_DATABASE_URL") {
-            Ok(url) => url,
-            Err(_) => {
-                eprintln!("skipping integration test: RAPPEL_DATABASE_URL not set");
-                return Ok(None);
-            }
-        };
+        let database_url = env::var("RAPPEL_DATABASE_URL")
+            .context("RAPPEL_DATABASE_URL is required for integration tests")?;
 
         // Connect to database
         let database = Arc::new(Database::connect(&database_url).await?);
@@ -532,6 +528,13 @@ impl IntegrationHarness {
         // Drop runner to release its Arc reference to worker_pool
         drop(self.runner);
 
+        // Give runner background tasks a moment to observe shutdown and drop references.
+        let mut attempts = 0;
+        while Arc::strong_count(&self.worker_pool) > 1 && attempts < 50 {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            attempts += 1;
+        }
+
         // Try to get ownership of worker_pool for clean shutdown
         match Arc::try_unwrap(self.worker_pool) {
             Ok(pool) => {
@@ -606,20 +609,23 @@ pub async fn run_in_env(
         fs::write(&path, contents.trim_start())?;
     }
 
-    // Set up pyproject.toml with editable install to avoid wheel caching issues
     let repo_python = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("python")
         .canonicalize()?;
 
-    // Build extra dependencies (excluding rappel which we handle via editable install)
-    let extra_deps_toml = requirements
-        .iter()
-        .map(|dep| format!(r#""{dep}""#))
-        .collect::<Vec<_>>()
-        .join(",\n    ");
+    PY_ENV_READY
+        .get_or_try_init(|| async { run_shell(repo_python.as_path(), "uv sync", &[], None).await })
+        .await?;
 
-    let pyproject = format!(
-        r#"[project]
+    if !requirements.is_empty() {
+        let extra_deps_toml = requirements
+            .iter()
+            .map(|dep| format!(r#""{dep}""#))
+            .collect::<Vec<_>>()
+            .join(",\n    ");
+
+        let pyproject = format!(
+            r#"[project]
 name = "rappel-integration"
 version = "0.1.0"
 requires-python = ">=3.12"
@@ -631,15 +637,16 @@ dependencies = [
 [tool.uv.sources]
 rappel = {{ path = "{}", editable = true }}
 "#,
-        repo_python.display()
-    );
-    fs::write(env_dir.path().join("pyproject.toml"), pyproject)?;
+            repo_python.display()
+        );
+        fs::write(env_dir.path().join("pyproject.toml"), pyproject)?;
 
-    // Run uv sync - editable install means no wheel caching
-    run_shell(env_dir.path(), "uv sync", &[], None).await?;
+        run_shell(env_dir.path(), "uv sync", &[], None).await?;
+    }
 
     // Build PYTHONPATH
     let mut python_paths = vec![
+        env_dir.path().to_path_buf(),
         repo_python.join("src"),
         repo_python.join("proto"),
         repo_python.clone(),
@@ -656,9 +663,17 @@ rappel = {{ path = "{}", editable = true }}
     run_envs.push(("PYTHONPATH", pythonpath));
 
     // Run the entrypoint
+    let run_command = if requirements.is_empty() {
+        format!(
+            "uv run --project {} python {entrypoint}",
+            repo_python.display()
+        )
+    } else {
+        format!("uv run python {entrypoint}")
+    };
     run_shell(
         env_dir.path(),
-        &format!("uv run python {entrypoint}"),
+        &run_command,
         &run_envs,
         Some(SCRIPT_TIMEOUT),
     )
