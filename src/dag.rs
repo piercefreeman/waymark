@@ -76,8 +76,8 @@ pub struct DAGNode {
     pub is_spread: bool,
     /// Loop variable name for spread actions (e.g., "item" in "spread items:item -> @action()")
     pub spread_loop_var: Option<String>,
-    /// Collection variable being spread over (e.g., "items" in "spread items:item -> @action()")
-    pub spread_collection: Option<String>,
+    /// AST expression for the spread collection (e.g., "items" in "spread items:item -> @action()")
+    pub spread_collection_expr: Option<ast::Expr>,
     /// Node ID of the aggregator that collects results from this spread action
     pub aggregates_to: Option<String>,
     /// Guard expression for conditional nodes (if/elif). Evaluated at runtime to determine branch.
@@ -115,7 +115,7 @@ impl DAGNode {
             targets: None,
             is_spread: false,
             spread_loop_var: None,
-            spread_collection: None,
+            spread_collection_expr: None,
             aggregates_to: None,
             guard_expr: None,
             assign_expr: None,
@@ -213,10 +213,10 @@ impl DAGNode {
     }
 
     /// Builder method to mark as spread action
-    pub fn with_spread(mut self, loop_var: &str, collection: &str) -> Self {
+    pub fn with_spread(mut self, loop_var: &str, collection_expr: ast::Expr) -> Self {
         self.is_spread = true;
         self.spread_loop_var = Some(loop_var.to_string());
-        self.spread_collection = Some(collection.to_string());
+        self.spread_collection_expr = Some(collection_expr);
         self
     }
 
@@ -884,8 +884,8 @@ impl DAGConverter {
                                     if action_node.node_type == "action_call" {
                                         action_node.is_spread = true;
                                         action_node.spread_loop_var = node.spread_loop_var.clone();
-                                        action_node.spread_collection =
-                                            node.spread_collection.clone();
+                                        action_node.spread_collection_expr =
+                                            node.spread_collection_expr.clone();
                                         action_node.aggregates_to = node.aggregates_to.clone();
                                     }
                                 }
@@ -2080,11 +2080,11 @@ impl DAGConverter {
         let kwargs = self.extract_kwargs(&action.kwargs);
         let kwarg_exprs = self.extract_kwarg_exprs(&action.kwargs);
 
-        // Get the collection expression as a string
-        let collection_str = spread
+        // Get the collection expression (deref the Box)
+        let collection_expr = spread
             .collection
             .as_ref()
-            .map(|c| self.expr_to_string(c))
+            .map(|b| (**b).clone())
             .unwrap_or_default();
 
         // Use internal variable name for spread results flowing to aggregator
@@ -2098,7 +2098,7 @@ impl DAGConverter {
                 .with_action(&action.action_name, action.module_name.as_deref())
                 .with_kwargs(kwargs)
                 .with_kwarg_exprs(kwarg_exprs)
-                .with_spread(&spread.loop_var, &collection_str)
+                .with_spread(&spread.loop_var, collection_expr)
                 .with_target(&spread_result_var)
                 .with_aggregates_to(&agg_id);
         if let Some(ref fn_name) = self.current_function {
@@ -2165,12 +2165,8 @@ impl DAGConverter {
         let kwargs = self.extract_kwargs(&action.kwargs);
         let kwarg_exprs = self.extract_kwarg_exprs(&action.kwargs);
 
-        // Get the collection expression as a string (e.g., "$items" or "range(5)")
-        let collection_str = spread
-            .collection
-            .as_ref()
-            .map(|c| self.expr_to_string(c))
-            .unwrap_or_default();
+        // Get the collection expression (SpreadAction has Option<Expr>, not Box<Expr>)
+        let collection_expr = spread.collection.clone().unwrap_or_default();
 
         // Use internal variable name for spread results flowing to aggregator
         let spread_result_var = "_spread_result".to_string();
@@ -2183,7 +2179,7 @@ impl DAGConverter {
                 .with_action(&action.action_name, action.module_name.as_deref())
                 .with_kwargs(kwargs)
                 .with_kwarg_exprs(kwarg_exprs)
-                .with_spread(&spread.loop_var, &collection_str)
+                .with_spread(&spread.loop_var, collection_expr)
                 .with_target(&spread_result_var) // Set target so results flow to aggregator
                 .with_aggregates_to(&agg_id);
         if let Some(ref fn_name) = self.current_function {
@@ -6572,23 +6568,24 @@ fn main(input: [items, threshold], output: []):
         );
 
         // Check that the spread action can access 'items'
-        // The spread action stores its collection in spread_collection field
+        // The spread action stores its collection in spread_collection_expr field
         let spread_node = dag
             .nodes
             .values()
             .find(|n| n.is_spread)
             .expect("Should have spread node");
 
-        // The spread_collection should reference 'items'
-        let spread_collection = spread_node.spread_collection.as_ref();
+        // The spread_collection_expr should reference 'items'
+        let spread_collection_expr = spread_node.spread_collection_expr.as_ref();
         assert!(
-            spread_collection.is_some(),
-            "Spread node should have spread_collection"
+            spread_collection_expr.is_some(),
+            "Spread node should have spread_collection_expr"
         );
+        // Check that the expression references 'items' variable
         assert!(
-            spread_collection.unwrap().contains("items"),
+            DAGConverter::expr_uses_var(spread_collection_expr.unwrap(), "items"),
             "Spread collection should reference 'items'. Got: {:?}",
-            spread_collection
+            spread_collection_expr
         );
 
         // Additionally, check that data flow edges exist from input to nodes that use

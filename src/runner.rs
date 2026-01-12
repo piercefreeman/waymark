@@ -3841,21 +3841,19 @@ impl DAGRunner {
             .as_ref()
             .ok_or_else(|| RunnerError::Dag("Spread node missing loop_var".to_string()))?;
 
-        let collection_str = node
-            .spread_collection
-            .as_ref()
-            .ok_or_else(|| RunnerError::Dag("Spread node missing collection".to_string()))?;
+        let collection_expr = node.spread_collection_expr.as_ref().ok_or_else(|| {
+            RunnerError::Dag("Spread node missing collection expression".to_string())
+        })?;
 
-        // Evaluate the collection expression
-        let collection =
-            Self::resolve_kwarg_value_from_inbox("spread_collection", collection_str, None, inbox)?;
+        // Evaluate the collection expression using the expression evaluator
+        let collection = ExpressionEvaluator::evaluate(collection_expr, inbox)?;
 
         let items = match &collection {
             WorkflowValue::List(arr) | WorkflowValue::Tuple(arr) => arr.clone(),
             _ => {
                 return Err(EvaluationError::Evaluation(format!(
-                    "Spread collection '{}' is not a list or tuple: {:?}",
-                    collection_str, collection
+                    "Spread collection is not a list or tuple: {:?}",
+                    collection
                 ))
                 .into());
             }
@@ -3864,7 +3862,6 @@ impl DAGRunner {
         debug!(
             node_id = %node.id,
             loop_var = %loop_var,
-            collection = %collection_str,
             item_count = items.len(),
             "expanding spread action"
         );
