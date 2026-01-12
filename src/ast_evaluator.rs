@@ -346,10 +346,12 @@ impl ExpressionEvaluator {
             ast::GlobalFunction::Range => Self::builtin_range(&args, &kwargs),
             ast::GlobalFunction::Len => Self::builtin_len(&args, &kwargs),
             ast::GlobalFunction::Enumerate => Self::builtin_enumerate(&args, &kwargs),
+            ast::GlobalFunction::Isexception => Self::builtin_isexception(&args, &kwargs),
             ast::GlobalFunction::Unspecified => match call.name.as_str() {
                 "range" => Self::builtin_range(&args, &kwargs),
                 "len" => Self::builtin_len(&args, &kwargs),
                 "enumerate" => Self::builtin_enumerate(&args, &kwargs),
+                "isexception" => Self::builtin_isexception(&args, &kwargs),
                 _ => Err(EvaluationError::FunctionNotFound(call.name.clone())),
             },
         }
@@ -660,6 +662,64 @@ impl ExpressionEvaluator {
 
         Ok(WorkflowValue::List(result))
     }
+
+    fn builtin_isexception(
+        args: &[WorkflowValue],
+        kwargs: &HashMap<String, WorkflowValue>,
+    ) -> EvaluationResult<WorkflowValue> {
+        // isexception(value, exception_type)
+        // Returns True if value is an exception that is an instance of exception_type
+        // (either exact match or a subclass).
+        let value = if !args.is_empty() {
+            &args[0]
+        } else {
+            kwargs.get("value").ok_or_else(|| {
+                EvaluationError::Evaluation("isexception() requires 'value' argument".to_string())
+            })?
+        };
+
+        let exc_type_arg = if args.len() >= 2 {
+            &args[1]
+        } else {
+            kwargs.get("exception_type").ok_or_else(|| {
+                EvaluationError::Evaluation(
+                    "isexception() requires 'exception_type' argument".to_string(),
+                )
+            })?
+        };
+
+        // Extract the exception type name(s) to check against
+        let exc_types_to_check: Vec<String> = match exc_type_arg {
+            WorkflowValue::String(s) => vec![s.clone()],
+            WorkflowValue::List(types) => types
+                .iter()
+                .map(|t| match t {
+                    WorkflowValue::String(s) => Ok(s.clone()),
+                    _ => Err(EvaluationError::Evaluation(
+                        "isexception() exception_type list must contain strings".to_string(),
+                    )),
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+            _ => {
+                return Err(EvaluationError::Evaluation(
+                    "isexception() exception_type must be a string or list of strings".to_string(),
+                ));
+            }
+        };
+
+        // Check if value is an exception and matches any of the given types
+        let result = match value {
+            WorkflowValue::Exception { type_hierarchy, .. } => {
+                // Check if any of the exception's types (including parent classes) match
+                exc_types_to_check
+                    .iter()
+                    .any(|check_type| type_hierarchy.contains(check_type))
+            }
+            _ => false,
+        };
+
+        Ok(WorkflowValue::Bool(result))
+    }
 }
 
 // ============================================================================
@@ -830,6 +890,7 @@ mod tests {
             "range" => ast::GlobalFunction::Range,
             "len" => ast::GlobalFunction::Len,
             "enumerate" => ast::GlobalFunction::Enumerate,
+            "isexception" => ast::GlobalFunction::Isexception,
             _ => ast::GlobalFunction::Unspecified,
         }
     }
@@ -1636,5 +1697,184 @@ mod tests {
         );
         let result = ExpressionEvaluator::evaluate(&expr, &scope).unwrap();
         assert_eq!(result, WorkflowValue::Bool(false));
+    }
+
+    // ========================================================================
+    // isexception() Tests
+    // ========================================================================
+
+    #[test]
+    fn test_isexception_exact_match() {
+        let mut scope = Scope::new();
+        scope.insert(
+            "err".to_string(),
+            WorkflowValue::Exception {
+                exc_type: "ValueError".to_string(),
+                module: "builtins".to_string(),
+                message: "invalid value".to_string(),
+                traceback: "".to_string(),
+                values: HashMap::new(),
+                type_hierarchy: vec![
+                    "ValueError".to_string(),
+                    "Exception".to_string(),
+                    "BaseException".to_string(),
+                ],
+            },
+        );
+
+        let expr = function_call(
+            "isexception",
+            vec![
+                ("value", variable("err")),
+                ("exception_type", string_literal("ValueError")),
+            ],
+        );
+        let result = ExpressionEvaluator::evaluate(&expr, &scope).unwrap();
+        assert_eq!(result, WorkflowValue::Bool(true));
+    }
+
+    #[test]
+    fn test_isexception_parent_match() {
+        // Test that KeyError matches LookupError (its parent class)
+        let mut scope = Scope::new();
+        scope.insert(
+            "err".to_string(),
+            WorkflowValue::Exception {
+                exc_type: "KeyError".to_string(),
+                module: "builtins".to_string(),
+                message: "key not found".to_string(),
+                traceback: "".to_string(),
+                values: HashMap::new(),
+                type_hierarchy: vec![
+                    "KeyError".to_string(),
+                    "LookupError".to_string(),
+                    "Exception".to_string(),
+                    "BaseException".to_string(),
+                ],
+            },
+        );
+
+        let expr = function_call(
+            "isexception",
+            vec![
+                ("value", variable("err")),
+                ("exception_type", string_literal("LookupError")),
+            ],
+        );
+        let result = ExpressionEvaluator::evaluate(&expr, &scope).unwrap();
+        assert_eq!(result, WorkflowValue::Bool(true));
+    }
+
+    #[test]
+    fn test_isexception_no_match() {
+        let mut scope = Scope::new();
+        scope.insert(
+            "err".to_string(),
+            WorkflowValue::Exception {
+                exc_type: "ValueError".to_string(),
+                module: "builtins".to_string(),
+                message: "invalid value".to_string(),
+                traceback: "".to_string(),
+                values: HashMap::new(),
+                type_hierarchy: vec![
+                    "ValueError".to_string(),
+                    "Exception".to_string(),
+                    "BaseException".to_string(),
+                ],
+            },
+        );
+
+        let expr = function_call(
+            "isexception",
+            vec![
+                ("value", variable("err")),
+                ("exception_type", string_literal("KeyError")),
+            ],
+        );
+        let result = ExpressionEvaluator::evaluate(&expr, &scope).unwrap();
+        assert_eq!(result, WorkflowValue::Bool(false));
+    }
+
+    #[test]
+    fn test_isexception_non_exception_value() {
+        let mut scope = Scope::new();
+        scope.insert("val".to_string(), WorkflowValue::Int(42));
+
+        let expr = function_call(
+            "isexception",
+            vec![
+                ("value", variable("val")),
+                ("exception_type", string_literal("ValueError")),
+            ],
+        );
+        let result = ExpressionEvaluator::evaluate(&expr, &scope).unwrap();
+        assert_eq!(result, WorkflowValue::Bool(false));
+    }
+
+    #[test]
+    fn test_isexception_with_list_of_types() {
+        let mut scope = Scope::new();
+        scope.insert(
+            "err".to_string(),
+            WorkflowValue::Exception {
+                exc_type: "ValueError".to_string(),
+                module: "builtins".to_string(),
+                message: "invalid value".to_string(),
+                traceback: "".to_string(),
+                values: HashMap::new(),
+                type_hierarchy: vec![
+                    "ValueError".to_string(),
+                    "Exception".to_string(),
+                    "BaseException".to_string(),
+                ],
+            },
+        );
+
+        let expr = function_call(
+            "isexception",
+            vec![
+                ("value", variable("err")),
+                (
+                    "exception_type",
+                    list_expr(vec![
+                        string_literal("KeyError"),
+                        string_literal("ValueError"),
+                    ]),
+                ),
+            ],
+        );
+        let result = ExpressionEvaluator::evaluate(&expr, &scope).unwrap();
+        assert_eq!(result, WorkflowValue::Bool(true));
+    }
+
+    #[test]
+    fn test_isexception_base_exception_match() {
+        // Test that any exception matches Exception (the base class)
+        let mut scope = Scope::new();
+        scope.insert(
+            "err".to_string(),
+            WorkflowValue::Exception {
+                exc_type: "CustomError".to_string(),
+                module: "mymodule".to_string(),
+                message: "custom error".to_string(),
+                traceback: "".to_string(),
+                values: HashMap::new(),
+                type_hierarchy: vec![
+                    "CustomError".to_string(),
+                    "Exception".to_string(),
+                    "BaseException".to_string(),
+                ],
+            },
+        );
+
+        let expr = function_call(
+            "isexception",
+            vec![
+                ("value", variable("err")),
+                ("exception_type", string_literal("Exception")),
+            ],
+        );
+        let result = ExpressionEvaluator::evaluate(&expr, &scope).unwrap();
+        assert_eq!(result, WorkflowValue::Bool(true));
     }
 }

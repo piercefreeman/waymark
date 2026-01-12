@@ -126,6 +126,7 @@ impl<'source> Parser<'source> {
             "range" => ast::GlobalFunction::Range,
             "len" => ast::GlobalFunction::Len,
             "enumerate" => ast::GlobalFunction::Enumerate,
+            "isexception" => ast::GlobalFunction::Isexception,
             _ => ast::GlobalFunction::Unspecified,
         }
     }
@@ -1754,6 +1755,52 @@ fn runner(input: [], output: [result]):
             }
         } else {
             panic!("expected assignment");
+        }
+    }
+
+    #[test]
+    fn test_parse_isexception_in_conditional() {
+        let source = r#"fn handle_error(input: [err], output: [result]):
+    if isexception(err, "ValueError"):
+        result = @handle_value_error(err=err)
+    elif isexception(err, "KeyError"):
+        result = @handle_key_error(err=err)
+    else:
+        result = @handle_generic_error(err=err)
+    return result"#;
+
+        let program = parse(source).unwrap();
+        let func = &program.functions[0];
+        let body = func.body.as_ref().unwrap();
+
+        // Check that the conditional parsed correctly
+        if let Some(ast::statement::Kind::Conditional(cond)) = &body.statements[0].kind {
+            let if_branch = cond.if_branch.as_ref().unwrap();
+            // The condition should be a function call to isexception
+            if let Some(ast::expr::Kind::FunctionCall(call)) =
+                &if_branch.condition.as_ref().unwrap().kind
+            {
+                assert_eq!(call.name, "isexception");
+                assert_eq!(
+                    call.global_function,
+                    ast::GlobalFunction::Isexception as i32
+                );
+                assert_eq!(call.args.len(), 2);
+            } else {
+                panic!("expected function call in if condition");
+            }
+
+            // Check elif branch
+            assert_eq!(cond.elif_branches.len(), 1);
+            if let Some(ast::expr::Kind::FunctionCall(call)) =
+                &cond.elif_branches[0].condition.as_ref().unwrap().kind
+            {
+                assert_eq!(call.name, "isexception");
+            } else {
+                panic!("expected function call in elif condition");
+            }
+        } else {
+            panic!("expected conditional statement");
         }
     }
 }

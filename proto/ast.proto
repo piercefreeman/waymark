@@ -285,6 +285,7 @@ enum GlobalFunction {
   GLOBAL_FUNCTION_RANGE = 1;
   GLOBAL_FUNCTION_LEN = 2;
   GLOBAL_FUNCTION_ENUMERATE = 3;
+  GLOBAL_FUNCTION_ISEXCEPTION = 4;
 }
 
 // Function call: range(10), len(items)
