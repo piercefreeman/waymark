@@ -157,6 +157,15 @@ async fn run_server(
         .route("/scheduled/:schedule_id/resume", post(resume_schedule))
         .route("/scheduled/:schedule_id/delete", post(delete_schedule))
         .route("/healthz", get(healthz))
+        // API endpoints for column filter dropdowns
+        .route(
+            "/api/invocations/filter-values/:column",
+            get(get_invocation_filter_values),
+        )
+        .route(
+            "/api/scheduled/filter-values/:column",
+            get(get_schedule_filter_values),
+        )
         .with_state(state);
 
     axum::serve(listener, app)
@@ -528,6 +537,65 @@ async fn delete_schedule(
 }
 
 // ============================================================================
+// API Handlers: Filter Values
+// ============================================================================
+
+async fn get_invocation_filter_values(
+    State(state): State<WebappState>,
+    Path(column): Path<String>,
+) -> impl IntoResponse {
+    let result = match column.as_str() {
+        "workflow" => state.database.get_distinct_invocation_workflows().await,
+        "status" => state.database.get_distinct_invocation_statuses().await,
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(FilterValuesResponse { values: vec![] }),
+            );
+        }
+    };
+
+    match result {
+        Ok(values) => (StatusCode::OK, Json(FilterValuesResponse { values })),
+        Err(err) => {
+            error!(?err, %column, "failed to fetch invocation filter values");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(FilterValuesResponse { values: vec![] }),
+            )
+        }
+    }
+}
+
+async fn get_schedule_filter_values(
+    State(state): State<WebappState>,
+    Path(column): Path<String>,
+) -> impl IntoResponse {
+    let result = match column.as_str() {
+        "workflow" => state.database.get_distinct_schedule_workflows().await,
+        "status" => state.database.get_distinct_schedule_statuses().await,
+        "schedule_type" => state.database.get_distinct_schedule_types().await,
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(FilterValuesResponse { values: vec![] }),
+            );
+        }
+    };
+
+    match result {
+        Ok(values) => (StatusCode::OK, Json(FilterValuesResponse { values })),
+        Err(err) => {
+            error!(?err, %column, "failed to fetch schedule filter values");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(FilterValuesResponse { values: vec![] }),
+            )
+        }
+    }
+}
+
+// ============================================================================
 // Response Types
 // ============================================================================
 
@@ -535,6 +603,11 @@ async fn delete_schedule(
 struct HealthResponse {
     status: &'static str,
     service: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+struct FilterValuesResponse {
+    values: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -1138,7 +1211,7 @@ fn render_workers_page(templates: &Tera, statuses: &[WorkerStatus], window_minut
 struct ScheduledPageContext {
     title: String,
     active_tab: String,
-    schedule_groups: Vec<ScheduleGroup>,
+    schedules: Vec<ScheduleBrief>,
     current_page: i64,
     total_pages: i64,
     has_pagination: bool,
@@ -1147,16 +1220,11 @@ struct ScheduledPageContext {
 }
 
 #[derive(Serialize)]
-struct ScheduleGroup {
-    schedule_type: String,
-    schedules: Vec<ScheduleBrief>,
-}
-
-#[derive(Serialize)]
 struct ScheduleBrief {
     id: String,
     schedule_name: String,
     workflow_name: String,
+    schedule_type: String,
     status: String,
     schedule_expression: String,
     next_run_at: Option<String>,
@@ -1171,52 +1239,32 @@ fn render_scheduled_page(
     search_query: Option<String>,
     total_count: i64,
 ) -> String {
-    // Group schedules by type
-    let mut cron_schedules = Vec::new();
-    let mut interval_schedules = Vec::new();
+    let schedule_briefs: Vec<ScheduleBrief> = schedules
+        .iter()
+        .map(|s| {
+            let schedule_expression = if s.schedule_type == "cron" {
+                s.cron_expression.clone().unwrap_or_default()
+            } else {
+                format_interval(s.interval_seconds)
+            };
 
-    for s in schedules {
-        let schedule_expression = if s.schedule_type == "cron" {
-            s.cron_expression.clone().unwrap_or_default()
-        } else {
-            format_interval(s.interval_seconds)
-        };
-
-        let brief = ScheduleBrief {
-            id: s.id.to_string(),
-            schedule_name: s.schedule_name.clone(),
-            workflow_name: s.workflow_name.clone(),
-            status: s.status.clone(),
-            schedule_expression,
-            next_run_at: s.next_run_at.map(|dt| dt.to_rfc3339()),
-            last_run_at: s.last_run_at.map(|dt| dt.to_rfc3339()),
-        };
-
-        if s.schedule_type == "cron" {
-            cron_schedules.push(brief);
-        } else {
-            interval_schedules.push(brief);
-        }
-    }
-
-    let mut schedule_groups = Vec::new();
-    if !cron_schedules.is_empty() {
-        schedule_groups.push(ScheduleGroup {
-            schedule_type: "cron".to_string(),
-            schedules: cron_schedules,
-        });
-    }
-    if !interval_schedules.is_empty() {
-        schedule_groups.push(ScheduleGroup {
-            schedule_type: "interval".to_string(),
-            schedules: interval_schedules,
-        });
-    }
+            ScheduleBrief {
+                id: s.id.to_string(),
+                schedule_name: s.schedule_name.clone(),
+                workflow_name: s.workflow_name.clone(),
+                schedule_type: s.schedule_type.clone(),
+                status: s.status.clone(),
+                schedule_expression,
+                next_run_at: s.next_run_at.map(|dt| dt.to_rfc3339()),
+                last_run_at: s.last_run_at.map(|dt| dt.to_rfc3339()),
+            }
+        })
+        .collect();
 
     let context = ScheduledPageContext {
         title: "Scheduled Workflows".to_string(),
         active_tab: "scheduled".to_string(),
-        schedule_groups,
+        schedules: schedule_briefs,
         current_page,
         total_pages,
         has_pagination: total_pages > 1,
@@ -2041,7 +2089,7 @@ mod tests {
         assert!(html.contains("Scheduled Workflows"));
         assert!(html.contains("cron_schedule"));
         assert!(html.contains("0 * * * *"));
-        assert!(html.contains("Cron")); // group title
+        assert!(html.contains("cron")); // schedule type badge
     }
 
     #[test]
@@ -2069,7 +2117,7 @@ mod tests {
         assert!(html.contains("Scheduled Workflows"));
         assert!(html.contains("interval_schedule"));
         assert!(html.contains("every hour"));
-        assert!(html.contains("Interval")); // group title
+        assert!(html.contains("interval")); // schedule type badge
     }
 
     #[test]

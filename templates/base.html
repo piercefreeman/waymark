@@ -196,6 +196,183 @@
                 }
             }, 60000);
         })();
+
+        /**
+         * Column Filter Dropdowns
+         * Handles clickable column headers with multi-select checkboxes
+         * Selected values are wrapped in parentheses with OR and added to the search query
+         */
+        (function() {
+            let activeDropdown = null;
+
+            function getSearchInput() {
+                return document.querySelector('input[name="q"]');
+            }
+
+            function getCurrentSearch() {
+                const input = getSearchInput();
+                return input ? input.value.trim() : '';
+            }
+
+            function setSearchAndSubmit(value) {
+                const input = getSearchInput();
+                if (input) {
+                    input.value = value;
+                    input.closest('form').submit();
+                }
+            }
+
+            function closeDropdown() {
+                if (activeDropdown) {
+                    activeDropdown.remove();
+                    activeDropdown = null;
+                }
+            }
+
+            async function fetchFilterValues(endpoint, column) {
+                const url = `${endpoint}/${column}`;
+                const response = await fetch(url);
+                if (!response.ok) throw new Error('Failed to fetch filter values');
+                const data = await response.json();
+                return data.values;
+            }
+
+            function buildSearchWithSelections(currentSearch, selectedValues) {
+                if (selectedValues.length === 0) {
+                    return currentSearch;
+                }
+
+                // Build the filter part: (value1 OR value2 OR value3)
+                let filterPart;
+                if (selectedValues.length === 1) {
+                    filterPart = selectedValues[0];
+                } else {
+                    filterPart = '(' + selectedValues.join(' OR ') + ')';
+                }
+
+                // If there's an existing search, AND it with the new filter
+                if (currentSearch) {
+                    return currentSearch + ' AND ' + filterPart;
+                }
+
+                return filterPart;
+            }
+
+            function createDropdown(button, values) {
+                closeDropdown();
+
+                const rect = button.getBoundingClientRect();
+                const column = button.dataset.column;
+
+                const dropdown = document.createElement('div');
+                dropdown.className = 'fixed z-50 w-64 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 shadow-lg';
+                dropdown.style.top = `${rect.bottom + 4}px`;
+                dropdown.style.left = `${rect.left}px`;
+
+                const content = document.createElement('div');
+                content.className = 'p-2 max-h-64 overflow-y-auto';
+
+                if (values.length === 0) {
+                    content.innerHTML = '<p class="text-sm text-zinc-500 dark:text-zinc-400 p-2">No values found</p>';
+                } else {
+                    values.forEach(value => {
+                        const label = document.createElement('label');
+                        label.className = 'flex items-center gap-2 px-2 py-1.5 rounded hover:bg-zinc-100 dark:hover:bg-zinc-700 cursor-pointer text-sm text-zinc-700 dark:text-zinc-300';
+
+                        const checkbox = document.createElement('input');
+                        checkbox.type = 'checkbox';
+                        checkbox.value = value;
+                        checkbox.className = 'rounded border-zinc-300 dark:border-zinc-600 text-indigo-600 focus:ring-indigo-500';
+
+                        label.appendChild(checkbox);
+                        label.appendChild(document.createTextNode(value));
+                        content.appendChild(label);
+                    });
+                }
+
+                const footer = document.createElement('div');
+                footer.className = 'border-t border-zinc-200 dark:border-zinc-700 p-2 flex justify-end gap-2';
+
+                const cancelBtn = document.createElement('button');
+                cancelBtn.type = 'button';
+                cancelBtn.className = 'px-3 py-1 text-xs font-medium text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white';
+                cancelBtn.textContent = 'Cancel';
+                cancelBtn.addEventListener('click', closeDropdown);
+
+                const applyBtn = document.createElement('button');
+                applyBtn.type = 'button';
+                applyBtn.className = 'px-3 py-1 text-xs font-semibold bg-indigo-600 text-white rounded hover:bg-indigo-500';
+                applyBtn.textContent = 'Apply';
+                applyBtn.addEventListener('click', () => {
+                    const checked = Array.from(content.querySelectorAll('input:checked')).map(cb => cb.value);
+                    if (checked.length > 0) {
+                        const newSearch = buildSearchWithSelections(getCurrentSearch(), checked);
+                        setSearchAndSubmit(newSearch);
+                    } else {
+                        closeDropdown();
+                    }
+                });
+
+                footer.appendChild(cancelBtn);
+                footer.appendChild(applyBtn);
+
+                dropdown.appendChild(content);
+                dropdown.appendChild(footer);
+                document.body.appendChild(dropdown);
+
+                activeDropdown = dropdown;
+            }
+
+            async function handleFilterClick(event) {
+                event.preventDefault();
+                event.stopPropagation();
+
+                const button = event.currentTarget;
+                const endpoint = button.dataset.endpoint;
+                const column = button.dataset.column;
+
+                // Toggle off if clicking the same button
+                if (activeDropdown && activeDropdown.dataset.column === column) {
+                    closeDropdown();
+                    return;
+                }
+
+                try {
+                    button.style.opacity = '0.5';
+                    const values = await fetchFilterValues(endpoint, column);
+                    button.style.opacity = '';
+                    createDropdown(button, values);
+                    activeDropdown.dataset.column = column;
+                } catch (err) {
+                    button.style.opacity = '';
+                    console.error('Failed to load filter values:', err);
+                }
+            }
+
+            function init() {
+                document.querySelectorAll('.column-filter-btn').forEach(btn => {
+                    btn.addEventListener('click', handleFilterClick);
+                });
+
+                // Close dropdown when clicking outside
+                document.addEventListener('click', (e) => {
+                    if (activeDropdown && !activeDropdown.contains(e.target) && !e.target.closest('.column-filter-btn')) {
+                        closeDropdown();
+                    }
+                });
+
+                // Close on escape
+                document.addEventListener('keydown', (e) => {
+                    if (e.key === 'Escape') closeDropdown();
+                });
+            }
+
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', init);
+            } else {
+                init();
+            }
+        })();
     </script>
 </body>
 </html>

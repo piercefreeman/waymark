@@ -65,12 +65,47 @@ impl Database {
     }
 
     fn append_invocation_search(query: &mut QueryBuilder<Postgres>, search: Option<&str>) {
-        let Some(value) = search.filter(|value| !value.trim().is_empty()) else {
-            return;
-        };
+        let input = search.unwrap_or_default();
+        let tokens = tokenize_search(input);
+        let tokens = normalize_search_tokens(tokens);
 
-        query.push(" AND workflow_name ILIKE ");
-        query.push_bind(like_pattern(value));
+        if tokens.is_empty() {
+            return;
+        }
+
+        // Check if we have any actual search terms
+        let has_terms = tokens.iter().any(|t| matches!(t, SearchToken::Term(_)));
+        if !has_terms {
+            return;
+        }
+
+        query.push(" AND (");
+        for token in &tokens {
+            match token {
+                SearchToken::Term(value) => {
+                    // Each term searches across workflow_name and status
+                    query.push("(");
+                    query.push("workflow_name ILIKE ");
+                    query.push_bind(like_pattern(value));
+                    query.push(" OR status ILIKE ");
+                    query.push_bind(like_pattern(value));
+                    query.push(")");
+                }
+                SearchToken::And => {
+                    query.push(" AND ");
+                }
+                SearchToken::Or => {
+                    query.push(" OR ");
+                }
+                SearchToken::OpenParen => {
+                    query.push("(");
+                }
+                SearchToken::CloseParen => {
+                    query.push(")");
+                }
+            }
+        }
+        query.push(")");
     }
 
     /// Count all workflow invocations for the invocations page.
@@ -281,28 +316,47 @@ impl Database {
     // ========================================================================
 
     fn append_schedule_search(query: &mut QueryBuilder<Postgres>, search: Option<&str>) {
-        let terms = parse_schedule_search(search.unwrap_or_default());
-        if terms.is_empty() {
+        let input = search.unwrap_or_default();
+        let tokens = tokenize_search(input);
+        let tokens = normalize_search_tokens(tokens);
+
+        if tokens.is_empty() {
+            return;
+        }
+
+        // Check if we have any actual search terms
+        let has_terms = tokens.iter().any(|t| matches!(t, SearchToken::Term(_)));
+        if !has_terms {
             return;
         }
 
         query.push(" AND (");
-        for (idx, term) in terms.iter().enumerate() {
-            if idx > 0 {
-                match term.operator {
-                    SearchOperator::And => query.push(" AND "),
-                    SearchOperator::Or => query.push(" OR "),
-                };
+        for token in &tokens {
+            match token {
+                SearchToken::Term(value) => {
+                    // Each term searches across multiple columns
+                    query.push("(");
+                    query.push("workflow_name ILIKE ");
+                    query.push_bind(like_pattern(value));
+                    query.push(" OR schedule_name ILIKE ");
+                    query.push_bind(like_pattern(value));
+                    query.push(" OR id::text ILIKE ");
+                    query.push_bind(like_pattern(value));
+                    query.push(")");
+                }
+                SearchToken::And => {
+                    query.push(" AND ");
+                }
+                SearchToken::Or => {
+                    query.push(" OR ");
+                }
+                SearchToken::OpenParen => {
+                    query.push("(");
+                }
+                SearchToken::CloseParen => {
+                    query.push(")");
+                }
             }
-
-            query.push("(");
-            query.push("workflow_name ILIKE ");
-            query.push_bind(like_pattern(&term.value));
-            query.push(" OR schedule_name ILIKE ");
-            query.push_bind(like_pattern(&term.value));
-            query.push(" OR id::text ILIKE ");
-            query.push_bind(like_pattern(&term.value));
-            query.push(")");
         }
         query.push(")");
     }
@@ -479,67 +533,151 @@ impl Database {
 
         Ok(workers)
     }
-}
 
-#[derive(Clone, Copy)]
-enum SearchOperator {
-    And,
-    Or,
-}
+    // ========================================================================
+    // Webapp: Filter Value Queries (for dropdown column filters)
+    // ========================================================================
 
-struct SearchTerm {
-    operator: SearchOperator,
-    value: String,
-}
+    /// Get distinct workflow names for invocations filter dropdown
+    pub async fn get_distinct_invocation_workflows(&self) -> DbResult<Vec<String>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT DISTINCT workflow_name
+            FROM workflow_instances
+            ORDER BY workflow_name
+            LIMIT 100
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
 
-fn parse_schedule_search(input: &str) -> Vec<SearchTerm> {
-    let tokens = tokenize_search(input);
-    let mut terms = Vec::new();
-    let mut pending_operator = None;
-    let mut saw_term = false;
-
-    for (token, quoted) in tokens {
-        if token.is_empty() {
-            continue;
-        }
-
-        if !quoted {
-            let token_lower = token.to_ascii_lowercase();
-            if token_lower == "and" {
-                pending_operator = Some(SearchOperator::And);
-                continue;
-            }
-            if token_lower == "or" {
-                pending_operator = Some(SearchOperator::Or);
-                continue;
-            }
-        }
-
-        let operator = if saw_term {
-            pending_operator.unwrap_or(SearchOperator::And)
-        } else {
-            SearchOperator::And
-        };
-        terms.push(SearchTerm {
-            operator,
-            value: token,
-        });
-        saw_term = true;
-        pending_operator = None;
+        Ok(rows
+            .iter()
+            .map(|r| r.get::<String, _>("workflow_name"))
+            .collect())
     }
 
-    terms
+    /// Get distinct statuses for invocations filter dropdown
+    pub async fn get_distinct_invocation_statuses(&self) -> DbResult<Vec<String>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT DISTINCT status
+            FROM workflow_instances
+            ORDER BY status
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows.iter().map(|r| r.get::<String, _>("status")).collect())
+    }
+
+    /// Get distinct workflow names for schedules filter dropdown
+    pub async fn get_distinct_schedule_workflows(&self) -> DbResult<Vec<String>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT DISTINCT workflow_name
+            FROM workflow_schedules
+            WHERE status != 'deleted'
+            ORDER BY workflow_name
+            LIMIT 100
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .iter()
+            .map(|r| r.get::<String, _>("workflow_name"))
+            .collect())
+    }
+
+    /// Get distinct statuses for schedules filter dropdown
+    pub async fn get_distinct_schedule_statuses(&self) -> DbResult<Vec<String>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT DISTINCT status
+            FROM workflow_schedules
+            WHERE status != 'deleted'
+            ORDER BY status
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows.iter().map(|r| r.get::<String, _>("status")).collect())
+    }
+
+    /// Get distinct schedule types for schedules filter dropdown
+    pub async fn get_distinct_schedule_types(&self) -> DbResult<Vec<String>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT DISTINCT schedule_type
+            FROM workflow_schedules
+            WHERE status != 'deleted'
+            ORDER BY schedule_type
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .iter()
+            .map(|r| r.get::<String, _>("schedule_type"))
+            .collect())
+    }
 }
 
-fn tokenize_search(input: &str) -> Vec<(String, bool)> {
+/// Represents a token in a search expression
+#[derive(Clone, Debug)]
+enum SearchToken {
+    /// A search term (value to search for)
+    Term(String),
+    /// AND operator
+    And,
+    /// OR operator
+    Or,
+    /// Opening parenthesis
+    OpenParen,
+    /// Closing parenthesis
+    CloseParen,
+}
+
+/// Tokenize search input into a list of tokens, supporting:
+/// - Quoted strings: "hello world" or 'hello world'
+/// - AND/OR operators (case-insensitive)
+/// - Parentheses for grouping: (term1 OR term2)
+fn tokenize_search(input: &str) -> Vec<SearchToken> {
     let mut tokens = Vec::new();
     let mut current = String::new();
     let mut current_quote: Option<char> = None;
-    let mut current_quoted = false;
+
+    let flush_current = |current: &mut String, tokens: &mut Vec<SearchToken>| {
+        if current.is_empty() {
+            return;
+        }
+        let token_lower = current.to_ascii_lowercase();
+        let token = if token_lower == "and" {
+            SearchToken::And
+        } else if token_lower == "or" {
+            SearchToken::Or
+        } else {
+            SearchToken::Term(std::mem::take(current))
+        };
+        if !matches!(token, SearchToken::Term(ref s) if s.is_empty()) {
+            tokens.push(token);
+        }
+        current.clear();
+    };
 
     for ch in input.chars() {
+        // Handle quoted strings
         if let Some(quote) = current_quote {
             if ch == quote {
+                // End of quoted string - flush as a term (don't interpret AND/OR)
+                if !current.is_empty() {
+                    tokens.push(SearchToken::Term(std::mem::take(&mut current)));
+                }
                 current_quote = None;
             } else {
                 current.push(ch);
@@ -547,31 +685,361 @@ fn tokenize_search(input: &str) -> Vec<(String, bool)> {
             continue;
         }
 
+        // Start of quoted string
         if ch == '"' || ch == '\'' {
+            // Flush any pending unquoted content first
+            flush_current(&mut current, &mut tokens);
             current_quote = Some(ch);
-            current_quoted = true;
             continue;
         }
 
+        // Parentheses
+        if ch == '(' {
+            flush_current(&mut current, &mut tokens);
+            tokens.push(SearchToken::OpenParen);
+            continue;
+        }
+        if ch == ')' {
+            flush_current(&mut current, &mut tokens);
+            tokens.push(SearchToken::CloseParen);
+            continue;
+        }
+
+        // Whitespace separates tokens
         if ch.is_whitespace() {
-            if !current.is_empty() {
-                tokens.push((current.clone(), current_quoted));
-                current.clear();
-                current_quoted = false;
-            }
+            flush_current(&mut current, &mut tokens);
             continue;
         }
 
         current.push(ch);
     }
 
-    if !current.is_empty() {
-        tokens.push((current, current_quoted));
-    }
+    // Flush remaining content
+    flush_current(&mut current, &mut tokens);
 
     tokens
 }
 
+/// Parse search tokens into a structured format for SQL generation.
+/// Returns a list of tokens with implicit AND operators inserted where needed.
+fn normalize_search_tokens(tokens: Vec<SearchToken>) -> Vec<SearchToken> {
+    let mut result = Vec::new();
+    let mut prev_needs_operator = false;
+
+    for token in tokens {
+        match &token {
+            SearchToken::Term(_) | SearchToken::OpenParen => {
+                // Insert implicit AND if previous token was a term or close paren
+                if prev_needs_operator {
+                    result.push(SearchToken::And);
+                }
+                result.push(token);
+                prev_needs_operator = matches!(result.last(), Some(SearchToken::Term(_)));
+            }
+            SearchToken::CloseParen => {
+                result.push(token);
+                prev_needs_operator = true;
+            }
+            SearchToken::And | SearchToken::Or => {
+                // Only add operator if we have something before it
+                if !result.is_empty() {
+                    result.push(token);
+                    prev_needs_operator = false;
+                }
+            }
+        }
+    }
+
+    result
+}
+
 fn like_pattern(value: &str) -> String {
     format!("%{}%", value.trim())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Helper to extract term values from tokens
+    fn term_values(tokens: &[SearchToken]) -> Vec<&str> {
+        tokens
+            .iter()
+            .filter_map(|t| match t {
+                SearchToken::Term(s) => Some(s.as_str()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    // Helper to format tokens for debugging
+    fn format_tokens(tokens: &[SearchToken]) -> String {
+        tokens
+            .iter()
+            .map(|t| match t {
+                SearchToken::Term(s) => format!("Term({})", s),
+                SearchToken::And => "AND".to_string(),
+                SearchToken::Or => "OR".to_string(),
+                SearchToken::OpenParen => "(".to_string(),
+                SearchToken::CloseParen => ")".to_string(),
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    // ==================== tokenize_search tests ====================
+
+    #[test]
+    fn test_tokenize_simple_term() {
+        let tokens = tokenize_search("hello");
+        assert_eq!(term_values(&tokens), vec!["hello"]);
+    }
+
+    #[test]
+    fn test_tokenize_multiple_terms() {
+        let tokens = tokenize_search("hello world");
+        assert_eq!(term_values(&tokens), vec!["hello", "world"]);
+    }
+
+    #[test]
+    fn test_tokenize_and_operator() {
+        let tokens = tokenize_search("hello AND world");
+        assert_eq!(format_tokens(&tokens), "Term(hello) AND Term(world)");
+    }
+
+    #[test]
+    fn test_tokenize_or_operator() {
+        let tokens = tokenize_search("hello OR world");
+        assert_eq!(format_tokens(&tokens), "Term(hello) OR Term(world)");
+    }
+
+    #[test]
+    fn test_tokenize_operators_case_insensitive() {
+        let tokens = tokenize_search("hello and world or foo");
+        assert_eq!(
+            format_tokens(&tokens),
+            "Term(hello) AND Term(world) OR Term(foo)"
+        );
+    }
+
+    #[test]
+    fn test_tokenize_double_quoted_string() {
+        let tokens = tokenize_search("\"hello world\"");
+        assert_eq!(term_values(&tokens), vec!["hello world"]);
+    }
+
+    #[test]
+    fn test_tokenize_single_quoted_string() {
+        let tokens = tokenize_search("'hello world'");
+        assert_eq!(term_values(&tokens), vec!["hello world"]);
+    }
+
+    #[test]
+    fn test_tokenize_quoted_and_not_interpreted() {
+        // "AND" in quotes should be treated as a term, not operator
+        let tokens = tokenize_search("\"AND\"");
+        assert_eq!(term_values(&tokens), vec!["AND"]);
+    }
+
+    #[test]
+    fn test_tokenize_quoted_or_not_interpreted() {
+        let tokens = tokenize_search("'OR'");
+        assert_eq!(term_values(&tokens), vec!["OR"]);
+    }
+
+    #[test]
+    fn test_tokenize_mixed_quoted_and_unquoted() {
+        let tokens = tokenize_search("hello \"world foo\" bar");
+        assert_eq!(term_values(&tokens), vec!["hello", "world foo", "bar"]);
+    }
+
+    #[test]
+    fn test_tokenize_parentheses_simple() {
+        let tokens = tokenize_search("(hello)");
+        assert_eq!(format_tokens(&tokens), "( Term(hello) )");
+    }
+
+    #[test]
+    fn test_tokenize_parentheses_with_or() {
+        let tokens = tokenize_search("(running OR completed)");
+        assert_eq!(
+            format_tokens(&tokens),
+            "( Term(running) OR Term(completed) )"
+        );
+    }
+
+    #[test]
+    fn test_tokenize_parentheses_complex() {
+        let tokens = tokenize_search("(running OR completed) AND workflow");
+        assert_eq!(
+            format_tokens(&tokens),
+            "( Term(running) OR Term(completed) ) AND Term(workflow)"
+        );
+    }
+
+    #[test]
+    fn test_tokenize_nested_parentheses() {
+        let tokens = tokenize_search("((a OR b) AND c)");
+        assert_eq!(
+            format_tokens(&tokens),
+            "( ( Term(a) OR Term(b) ) AND Term(c) )"
+        );
+    }
+
+    #[test]
+    fn test_tokenize_parentheses_no_spaces() {
+        let tokens = tokenize_search("(hello)AND(world)");
+        assert_eq!(
+            format_tokens(&tokens),
+            "( Term(hello) ) AND ( Term(world) )"
+        );
+    }
+
+    #[test]
+    fn test_tokenize_empty_string() {
+        let tokens = tokenize_search("");
+        assert!(tokens.is_empty());
+    }
+
+    #[test]
+    fn test_tokenize_whitespace_only() {
+        let tokens = tokenize_search("   ");
+        assert!(tokens.is_empty());
+    }
+
+    #[test]
+    fn test_tokenize_extra_whitespace() {
+        let tokens = tokenize_search("  hello   world  ");
+        assert_eq!(term_values(&tokens), vec!["hello", "world"]);
+    }
+
+    // ==================== normalize_search_tokens tests ====================
+
+    #[test]
+    fn test_normalize_implicit_and() {
+        // "hello world" should become "hello AND world"
+        let tokens = tokenize_search("hello world");
+        let normalized = normalize_search_tokens(tokens);
+        assert_eq!(format_tokens(&normalized), "Term(hello) AND Term(world)");
+    }
+
+    #[test]
+    fn test_normalize_explicit_and_unchanged() {
+        let tokens = tokenize_search("hello AND world");
+        let normalized = normalize_search_tokens(tokens);
+        assert_eq!(format_tokens(&normalized), "Term(hello) AND Term(world)");
+    }
+
+    #[test]
+    fn test_normalize_or_preserved() {
+        let tokens = tokenize_search("hello OR world");
+        let normalized = normalize_search_tokens(tokens);
+        assert_eq!(format_tokens(&normalized), "Term(hello) OR Term(world)");
+    }
+
+    #[test]
+    fn test_normalize_paren_followed_by_term() {
+        // "(a) b" should become "(a) AND b"
+        let tokens = tokenize_search("(a) b");
+        let normalized = normalize_search_tokens(tokens);
+        assert_eq!(format_tokens(&normalized), "( Term(a) ) AND Term(b)");
+    }
+
+    #[test]
+    fn test_normalize_term_followed_by_paren() {
+        // "a (b)" should become "a AND (b)"
+        let tokens = tokenize_search("a (b)");
+        let normalized = normalize_search_tokens(tokens);
+        assert_eq!(format_tokens(&normalized), "Term(a) AND ( Term(b) )");
+    }
+
+    #[test]
+    fn test_normalize_complex_expression() {
+        // "(running OR completed) workflow" -> "(running OR completed) AND workflow"
+        let tokens = tokenize_search("(running OR completed) workflow");
+        let normalized = normalize_search_tokens(tokens);
+        assert_eq!(
+            format_tokens(&normalized),
+            "( Term(running) OR Term(completed) ) AND Term(workflow)"
+        );
+    }
+
+    #[test]
+    fn test_normalize_leading_operator_ignored() {
+        // "AND hello" - leading AND should be ignored
+        let tokens = tokenize_search("AND hello");
+        let normalized = normalize_search_tokens(tokens);
+        assert_eq!(format_tokens(&normalized), "Term(hello)");
+    }
+
+    #[test]
+    fn test_normalize_trailing_operator_kept() {
+        // "hello AND" - trailing AND is kept (will be harmless in SQL)
+        let tokens = tokenize_search("hello AND");
+        let normalized = normalize_search_tokens(tokens);
+        assert_eq!(format_tokens(&normalized), "Term(hello) AND");
+    }
+
+    // ==================== Integration tests for full search flow ====================
+
+    #[test]
+    fn test_search_flow_simple() {
+        let tokens = tokenize_search("running");
+        let normalized = normalize_search_tokens(tokens);
+        assert_eq!(term_values(&normalized), vec!["running"]);
+    }
+
+    #[test]
+    fn test_search_flow_or_filter() {
+        // Typical dropdown selection: "running OR completed"
+        let tokens = tokenize_search("running OR completed");
+        let normalized = normalize_search_tokens(tokens);
+        assert_eq!(
+            format_tokens(&normalized),
+            "Term(running) OR Term(completed)"
+        );
+    }
+
+    #[test]
+    fn test_search_flow_grouped_or_with_and() {
+        // Typical combined filter: "(running OR completed) AND my_workflow"
+        let tokens = tokenize_search("(running OR completed) AND my_workflow");
+        let normalized = normalize_search_tokens(tokens);
+        assert_eq!(
+            format_tokens(&normalized),
+            "( Term(running) OR Term(completed) ) AND Term(my_workflow)"
+        );
+    }
+
+    #[test]
+    fn test_search_flow_multiple_groups() {
+        // "(a OR b) AND (c OR d)"
+        let tokens = tokenize_search("(a OR b) AND (c OR d)");
+        let normalized = normalize_search_tokens(tokens);
+        assert_eq!(
+            format_tokens(&normalized),
+            "( Term(a) OR Term(b) ) AND ( Term(c) OR Term(d) )"
+        );
+    }
+
+    #[test]
+    fn test_search_flow_quoted_phrase_in_group() {
+        let tokens = tokenize_search("(\"hello world\" OR foo)");
+        let normalized = normalize_search_tokens(tokens);
+        assert_eq!(
+            format_tokens(&normalized),
+            "( Term(hello world) OR Term(foo) )"
+        );
+    }
+
+    #[test]
+    fn test_search_flow_real_world_status_filter() {
+        // User selects running and failed from dropdown, then types workflow name
+        let tokens = tokenize_search("(running OR failed) AND my_important_workflow");
+        let normalized = normalize_search_tokens(tokens);
+        assert_eq!(
+            format_tokens(&normalized),
+            "( Term(running) OR Term(failed) ) AND Term(my_important_workflow)"
+        );
+    }
 }
