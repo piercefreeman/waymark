@@ -2283,7 +2283,7 @@ from integration_loop_exception import LoopExceptionWorkflow
 async def main():
     os.environ.pop("PYTEST_CURRENT_TEST", None)
     wf = LoopExceptionWorkflow()
-    result = await wf.run()
+    result = await wf.run(items=["good1", "bad", "good2"])
     print(f"Registration result: {result}")
 
 asyncio.run(main())

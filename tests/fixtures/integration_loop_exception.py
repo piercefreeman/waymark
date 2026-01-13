@@ -51,8 +51,7 @@ class LoopExceptionWorkflow(Workflow):
     - "good2" is never processed
     """
 
-    async def run(self) -> dict:
-        items = ["good1", "bad", "good2"]
+    async def run(self, items: list[str]) -> dict:
         results = []
         error_count = 0
 

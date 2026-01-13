@@ -1987,7 +1987,7 @@ impl DAGRunner {
     async fn process_completion_task(
         handler: WorkCompletionHandler,
         dag_cache: Arc<DAGCache>,
-        _instance_contexts: Arc<RwLock<HashMap<Uuid, Scope>>>,
+        instance_contexts: Arc<RwLock<HashMap<Uuid, Scope>>>,
         in_flight: InFlightAction,
         metrics: RoundTripMetrics,
         instance_id: WorkflowInstanceId,
@@ -2116,6 +2116,12 @@ impl DAGRunner {
                         // the exception handler's data flow predecessors.
                         let mut inline_scope: Scope = HashMap::new();
 
+                        if let Some(initial_scope) =
+                            instance_contexts.read().await.get(&instance_id.0).cloned()
+                        {
+                            inline_scope.extend(initial_scope);
+                        }
+
                         // Read from action's inbox (has loop variables)
                         let action_inbox = handler.db.read_inbox(instance_id, base_node_id).await?;
                         for (k, v) in action_inbox {
@@ -2200,6 +2206,12 @@ impl DAGRunner {
                             // We gather from: the action's inbox, the handler's inbox, and
                             // the exception handler's data flow predecessors.
                             let mut inline_scope: Scope = HashMap::new();
+
+                            if let Some(initial_scope) =
+                                instance_contexts.read().await.get(&instance_id.0).cloned()
+                            {
+                                inline_scope.extend(initial_scope);
+                            }
 
                             // Read from action's inbox (has loop variables)
                             let action_inbox =
