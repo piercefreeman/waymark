@@ -2252,7 +2252,8 @@ mod tests {
     #[test]
     fn test_render_invocations_page_with_search_query() {
         let templates = test_templates();
-        let html = render_invocations_page(&templates, &[], 1, 1, Some("test query".to_string()), 0);
+        let html =
+            render_invocations_page(&templates, &[], 1, 1, Some("test query".to_string()), 0);
 
         assert!(html.contains("Invocations"));
         assert!(html.contains("test query")); // search query should appear in the form
