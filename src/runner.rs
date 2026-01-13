@@ -1362,8 +1362,22 @@ impl DAGRunner {
                 tokio::select! {
                     _ = schedule_runner.shutdown.notified() => break,
                     _ = interval.tick() => {
-                        if let Err(e) = schedule_runner.process_due_schedules().await {
-                            error!("Failed to process due schedules: {}", e);
+                        let batch_size = schedule_runner.config.schedule_check_batch_size as usize;
+                        let mut should_continue = true;
+
+                        // Keep processing until we've drained all due schedules
+                        while should_continue {
+                            should_continue = false;
+                            match schedule_runner.process_due_schedules().await {
+                                Ok(count) => {
+                                    if count >= batch_size {
+                                        should_continue = true;
+                                    }
+                                }
+                                Err(e) => {
+                                    error!("Failed to process due schedules: {}", e);
+                                }
+                            }
                         }
                     }
                 }
@@ -1466,24 +1480,46 @@ impl DAGRunner {
                 tokio::select! {
                     _ = poll_runner.shutdown.notified() => break,
                     _ = tokio::time::sleep(poll_interval) => {
-                        if let Err(e) = poll_runner.start_unstarted_instances().await {
-                            error!("Failed to start unstarted instances: {}", e);
-                        }
+                        let batch_size = poll_runner.config.batch_size;
+                        let mut should_continue = true;
 
-                        if poll_runner.work_handler.available_slots() == 0 {
-                            continue;
-                        }
+                        // Keep processing until we've drained work or hit capacity
+                        while should_continue {
+                            should_continue = false;
 
-                        match poll_runner.work_handler.fetch_and_dispatch(
-                            poll_runner.config.batch_size,
-                            poll_tx.clone(),
-                        ).await {
-                            Ok(count) if count > 0 => {
-                                debug!("Dispatched {} actions", count);
+                            // Start unstarted instances - if we hit batch size, loop immediately
+                            match poll_runner.start_unstarted_instances().await {
+                                Ok(count) => {
+                                    if count >= batch_size {
+                                        should_continue = true;
+                                    }
+                                }
+                                Err(e) => {
+                                    error!("Failed to start unstarted instances: {}", e);
+                                }
                             }
-                            Ok(_) => {}
-                            Err(e) => {
-                                error!("Failed to fetch/dispatch actions: {}", e);
+
+                            // Skip dispatch if no slots available
+                            if poll_runner.work_handler.available_slots() == 0 {
+                                continue;
+                            }
+
+                            // Dispatch actions - if we hit batch size, loop immediately
+                            match poll_runner.work_handler.fetch_and_dispatch(
+                                batch_size,
+                                poll_tx.clone(),
+                            ).await {
+                                Ok(count) => {
+                                    if count > 0 {
+                                        debug!("Dispatched {} actions", count);
+                                    }
+                                    if count >= batch_size {
+                                        should_continue = true;
+                                    }
+                                }
+                                Err(e) => {
+                                    error!("Failed to fetch/dispatch actions: {}", e);
+                                }
                             }
                         }
                     }
@@ -1557,7 +1593,9 @@ impl DAGRunner {
     }
 
     /// Process due scheduled workflows by creating new instances.
-    async fn process_due_schedules(&self) -> RunnerResult<()> {
+    ///
+    /// Returns the number of schedules that were processed.
+    async fn process_due_schedules(&self) -> RunnerResult<usize> {
         let batch_size = self.config.schedule_check_batch_size;
 
         // Find due schedules (uses SKIP LOCKED for multi-runner safety)
@@ -1567,6 +1605,7 @@ impl DAGRunner {
             .find_due_schedules(batch_size)
             .await
             .map_err(|e| RunnerError::Dag(format!("Failed to find due schedules: {}", e)))?;
+        let count = schedules.len();
 
         for schedule in schedules {
             // Get the latest version for this workflow
@@ -1630,7 +1669,7 @@ impl DAGRunner {
                 })?;
         }
 
-        Ok(())
+        Ok(count)
     }
 
     /// Compute the next run time based on schedule type.
@@ -3097,9 +3136,13 @@ impl DAGRunner {
     ///
     /// Finds instances that are in 'running' state but have no actions queued yet,
     /// and starts them by parsing their input and creating the initial actions.
-    async fn start_unstarted_instances(&self) -> RunnerResult<()> {
+    ///
+    /// Returns the number of instances that were processed.
+    async fn start_unstarted_instances(&self) -> RunnerResult<usize> {
         let db = &self.completion_handler.db;
-        let instances = db.find_unstarted_instances(10).await?;
+        // Use the same batch size as dispatch to ensure we can keep up with workflow creation rate
+        let instances = db.find_unstarted_instances(self.config.batch_size as i32).await?;
+        let count = instances.len();
 
         for instance in instances {
             let instance_id = WorkflowInstanceId(instance.id);
@@ -3181,7 +3224,7 @@ impl DAGRunner {
             }
         }
 
-        Ok(())
+        Ok(count)
     }
 
     /// Start a workflow instance by enqueuing its initial action(s).
