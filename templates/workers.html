@@ -53,7 +53,7 @@
                         <tr>
                             <td class="px-4 py-3 font-mono text-xs text-zinc-700 dark:text-zinc-300">{{ worker.pool_id }}</td>
                             <td class="px-4 py-3 font-mono text-xs text-zinc-700 dark:text-zinc-300">{{ worker.worker_id }}</td>
-                            <td class="px-4 py-3 text-zinc-700 dark:text-zinc-300">{{ worker.throughput_per_min | round(precision=1) }}</td>
+                            <td class="px-4 py-3 text-zinc-700 dark:text-zinc-300">{{ worker.throughput_per_min }}</td>
                             <td class="px-4 py-3 text-zinc-700 dark:text-zinc-300">{{ worker.total_completed }}</td>
                             <td class="px-4 py-3 text-zinc-700 dark:text-zinc-300">
                                 {% if worker.median_dequeue_ms %}

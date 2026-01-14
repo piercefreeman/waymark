@@ -1177,6 +1177,8 @@ struct WorkerStatusRow {
     total_completed: i64,
     last_action_at: Option<String>,
     updated_at: String,
+    median_dequeue_ms: Option<i64>,
+    median_handling_ms: Option<i64>,
 }
 
 fn render_workers_page(templates: &Tera, statuses: &[WorkerStatus], window_minutes: i64) -> String {
@@ -1189,6 +1191,8 @@ fn render_workers_page(templates: &Tera, statuses: &[WorkerStatus], window_minut
             total_completed: status.total_completed,
             last_action_at: status.last_action_at.map(|dt| dt.to_rfc3339()),
             updated_at: status.updated_at.to_rfc3339(),
+            median_dequeue_ms: status.median_dequeue_ms,
+            median_handling_ms: status.median_handling_ms,
         })
         .collect();
 
