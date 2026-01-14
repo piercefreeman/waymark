@@ -143,13 +143,15 @@ impl proto::workflow_service_server::WorkflowService for WorkflowGrpcService {
 
         // Create an instance with initial context if provided
         let initial_input = registration.initial_context.map(|ctx| ctx.encode_to_vec());
+        let priority = registration.priority.unwrap_or(0);
         let instance_id = self
             .database
-            .create_instance(
+            .create_instance_with_priority(
                 &registration.workflow_name,
                 version_id,
                 initial_input.as_deref(),
                 None,
+                priority,
             )
             .await
             .map_err(|e| tonic::Status::internal(format!("database error: {e}")))?;
@@ -294,6 +296,7 @@ impl proto::workflow_service_server::WorkflowService for WorkflowGrpcService {
         };
 
         let input_payload = inner.inputs.map(|i| i.encode_to_vec());
+        let priority = inner.priority.unwrap_or(0);
 
         let schedule_id = self
             .database
@@ -306,6 +309,7 @@ impl proto::workflow_service_server::WorkflowService for WorkflowGrpcService {
                 jitter_seconds,
                 input_payload.as_deref(),
                 next_run,
+                priority,
             )
             .await
             .map_err(|e| tonic::Status::internal(format!("database error: {e}")))?;

@@ -773,6 +773,7 @@ class WorkflowRegistration(google.protobuf.message.Message):
     IR_HASH_FIELD_NUMBER: builtins.int
     INITIAL_CONTEXT_FIELD_NUMBER: builtins.int
     CONCURRENT_FIELD_NUMBER: builtins.int
+    PRIORITY_FIELD_NUMBER: builtins.int
     workflow_name: builtins.str
     ir: builtins.bytes
     """Serialized IR program (from ast.proto)"""
@@ -780,6 +781,8 @@ class WorkflowRegistration(google.protobuf.message.Message):
     """Hash of the IR for versioning"""
     concurrent: builtins.bool
     """Whether multiple instances can run"""
+    priority: builtins.int
+    """Priority for queue ordering (higher values are processed first, default 0)"""
     @property
     def initial_context(self) -> Global___WorkflowArguments: ...
     def __init__(
@@ -790,13 +793,24 @@ class WorkflowRegistration(google.protobuf.message.Message):
         ir_hash: builtins.str = ...,
         initial_context: Global___WorkflowArguments | None = ...,
         concurrent: builtins.bool = ...,
+        priority: builtins.int | None = ...,
     ) -> None: ...
     def HasField(
-        self, field_name: typing.Literal["initial_context", b"initial_context"]
+        self,
+        field_name: typing.Literal[
+            "_priority",
+            b"_priority",
+            "initial_context",
+            b"initial_context",
+            "priority",
+            b"priority",
+        ],
     ) -> builtins.bool: ...
     def ClearField(
         self,
         field_name: typing.Literal[
+            "_priority",
+            b"_priority",
             "concurrent",
             b"concurrent",
             "initial_context",
@@ -805,10 +819,15 @@ class WorkflowRegistration(google.protobuf.message.Message):
             b"ir",
             "ir_hash",
             b"ir_hash",
+            "priority",
+            b"priority",
             "workflow_name",
             b"workflow_name",
         ],
     ) -> None: ...
+    def WhichOneof(
+        self, oneof_group: typing.Literal["_priority", b"_priority"]
+    ) -> typing.Literal["priority"] | None: ...
 
 Global___WorkflowRegistration: typing_extensions.TypeAlias = WorkflowRegistration
 
@@ -943,11 +962,14 @@ class RegisterScheduleRequest(google.protobuf.message.Message):
     INPUTS_FIELD_NUMBER: builtins.int
     REGISTRATION_FIELD_NUMBER: builtins.int
     SCHEDULE_NAME_FIELD_NUMBER: builtins.int
+    PRIORITY_FIELD_NUMBER: builtins.int
     workflow_name: builtins.str
     schedule_name: builtins.str
     """Required: unique name for this schedule. Allows multiple schedules per workflow
     with different inputs. Must be unique within a workflow.
     """
+    priority: builtins.int
+    """Priority for queue ordering (higher values are processed first, default 0)"""
     @property
     def schedule(self) -> Global___ScheduleDefinition: ...
     @property
@@ -970,18 +992,32 @@ class RegisterScheduleRequest(google.protobuf.message.Message):
         inputs: Global___WorkflowArguments | None = ...,
         registration: Global___WorkflowRegistration | None = ...,
         schedule_name: builtins.str = ...,
+        priority: builtins.int | None = ...,
     ) -> None: ...
     def HasField(
         self,
         field_name: typing.Literal[
-            "inputs", b"inputs", "registration", b"registration", "schedule", b"schedule"
+            "_priority",
+            b"_priority",
+            "inputs",
+            b"inputs",
+            "priority",
+            b"priority",
+            "registration",
+            b"registration",
+            "schedule",
+            b"schedule",
         ],
     ) -> builtins.bool: ...
     def ClearField(
         self,
         field_name: typing.Literal[
+            "_priority",
+            b"_priority",
             "inputs",
             b"inputs",
+            "priority",
+            b"priority",
             "registration",
             b"registration",
             "schedule",
@@ -992,6 +1028,9 @@ class RegisterScheduleRequest(google.protobuf.message.Message):
             b"workflow_name",
         ],
     ) -> None: ...
+    def WhichOneof(
+        self, oneof_group: typing.Literal["_priority", b"_priority"]
+    ) -> typing.Literal["priority"] | None: ...
 
 Global___RegisterScheduleRequest: typing_extensions.TypeAlias = RegisterScheduleRequest
 

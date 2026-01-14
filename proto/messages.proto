@@ -148,6 +148,8 @@ message WorkflowRegistration {
   string ir_hash = 3;                // Hash of the IR for versioning
   WorkflowArguments initial_context = 4;
   bool concurrent = 5;               // Whether multiple instances can run
+  // Priority for queue ordering (higher values are processed first, default 0)
+  optional int32 priority = 6;
 }
 
 message RegisterWorkflowRequest {
@@ -208,6 +210,8 @@ message RegisterScheduleRequest {
   // Required: unique name for this schedule. Allows multiple schedules per workflow
   // with different inputs. Must be unique within a workflow.
   string schedule_name = 5;
+  // Priority for queue ordering (higher values are processed first, default 0)
+  optional int32 priority = 6;
 }
 
 message RegisterScheduleResponse {

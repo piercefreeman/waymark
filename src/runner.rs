@@ -1664,15 +1664,16 @@ impl DAGRunner {
                 }
             };
 
-            // Create workflow instance with scheduled inputs
+            // Create workflow instance with scheduled inputs and priority
             let instance_id = self
                 .completion_handler
                 .db
-                .create_instance(
+                .create_instance_with_priority(
                     &schedule.workflow_name,
                     version_id,
                     schedule.input_payload.as_deref(),
                     Some(ScheduleId(schedule.id)),
+                    schedule.priority,
                 )
                 .await
                 .map_err(|e| RunnerError::Dag(format!("Failed to create instance: {}", e)))?;

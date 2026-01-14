@@ -49,7 +49,7 @@ impl Database {
             r#"
             SELECT id, partition_id, workflow_name, workflow_version_id,
                    schedule_id, next_action_seq, input_payload, result_payload, status,
-                   created_at, completed_at
+                   created_at, completed_at, priority
             FROM workflow_instances
             WHERE workflow_version_id = $1
             ORDER BY created_at DESC
@@ -136,7 +136,7 @@ impl Database {
             r#"
             SELECT id, partition_id, workflow_name, workflow_version_id,
                    schedule_id, next_action_seq, input_payload, result_payload, status,
-                   created_at, completed_at
+                   created_at, completed_at, priority
             FROM workflow_instances
             WHERE 1=1
             "#,
@@ -164,7 +164,7 @@ impl Database {
             r#"
             SELECT id, partition_id, workflow_name, workflow_version_id,
                    schedule_id, next_action_seq, input_payload, result_payload, status,
-                   created_at, completed_at
+                   created_at, completed_at, priority
             FROM workflow_instances
             WHERE id = $1
             "#,
@@ -257,7 +257,9 @@ impl Database {
             r#"
             SELECT id, action_id, instance_id, attempt_number,
                    dispatched_at, completed_at, success,
-                   result_payload, error_message, duration_ms
+                   result_payload, error_message, duration_ms,
+                   pool_id, worker_id, enqueued_at,
+                   module_name, action_name, node_id, dispatch_payload
             FROM action_logs
             WHERE action_id = $1
             ORDER BY attempt_number
@@ -279,7 +281,9 @@ impl Database {
             r#"
             SELECT id, action_id, instance_id, attempt_number,
                    dispatched_at, completed_at, success,
-                   result_payload, error_message, duration_ms
+                   result_payload, error_message, duration_ms,
+                   pool_id, worker_id, enqueued_at,
+                   module_name, action_name, node_id, dispatch_payload
             FROM action_logs
             WHERE instance_id = $1
             ORDER BY dispatched_at, attempt_number, id
@@ -298,7 +302,9 @@ impl Database {
             r#"
             SELECT id, action_id, instance_id, attempt_number,
                    dispatched_at, completed_at, success,
-                   result_payload, error_message, duration_ms
+                   result_payload, error_message, duration_ms,
+                   pool_id, worker_id, enqueued_at,
+                   module_name, action_name, node_id, dispatch_payload
             FROM action_logs
             ORDER BY dispatched_at DESC
             LIMIT $1
@@ -442,7 +448,7 @@ impl Database {
             r#"
             SELECT id, partition_id, workflow_name, workflow_version_id,
                    schedule_id, next_action_seq, input_payload, result_payload, status,
-                   created_at, completed_at
+                   created_at, completed_at, priority
             FROM workflow_instances
             WHERE schedule_id = $1
             ORDER BY created_at DESC

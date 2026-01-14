@@ -101,6 +101,7 @@ async fn test_schedule_database_operations() -> Result<()> {
             0,
             None,
             next_run,
+            0, // priority
         )
         .await?;
     info!(%schedule_id, "created cron schedule");
@@ -127,6 +128,7 @@ async fn test_schedule_database_operations() -> Result<()> {
             0,
             None,
             next_run,
+            0, // priority
         )
         .await?;
 
@@ -207,6 +209,7 @@ async fn test_schedule_database_operations() -> Result<()> {
             0,
             None,
             Utc::now() + chrono::Duration::hours(1),
+            0, // priority
         )
         .await?;
 
@@ -256,6 +259,7 @@ async fn test_scheduler_creates_instance() -> Result<()> {
             0,
             None,
             past, // Already due!
+            0,    // priority
         )
         .await?;
     info!("created due schedule");
@@ -399,6 +403,7 @@ async fn test_list_schedules_grpc_endpoint() -> Result<()> {
             0,
             None,
             next_run,
+            0, // priority
         )
         .await?;
     info!("created cron schedule");
@@ -413,6 +418,7 @@ async fn test_list_schedules_grpc_endpoint() -> Result<()> {
             0,
             None,
             next_run,
+            0, // priority
         )
         .await?;
     info!("created interval schedule");

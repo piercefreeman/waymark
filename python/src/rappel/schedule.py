@@ -47,6 +47,7 @@ async def schedule_workflow(
     schedule: Union[str, timedelta],
     jitter: Optional[timedelta] = None,
     inputs: Optional[Dict[str, Any]] = None,
+    priority: Optional[int] = None,
 ) -> str:
     """
     Register a schedule for a workflow.
@@ -64,6 +65,8 @@ async def schedule_workflow(
                   or a timedelta for interval-based scheduling.
         jitter: Optional jitter window to add to each scheduled run.
         inputs: Optional keyword arguments to pass to each scheduled run.
+        priority: Optional priority for queue ordering. Higher values are
+                  processed first. Default is 0.
 
     Returns:
         The schedule ID.
@@ -95,6 +98,14 @@ async def schedule_workflow(
             schedule_name="large-batch",
             schedule="0 12 * * *",
             inputs={"batch_size": 1000}
+        )
+
+        # High priority schedule
+        await schedule_workflow(
+            CriticalWorkflow,
+            schedule_name="critical-job",
+            schedule="*/5 * * * *",
+            priority=100
         )
 
     Raises:
@@ -144,6 +155,9 @@ async def schedule_workflow(
     initial_context = workflow_cls._build_initial_context((), inputs or {})
     if initial_context.arguments:
         request.inputs.CopyFrom(initial_context)
+
+    if priority is not None:
+        request.priority = priority
 
     # Send to server
     async with ensure_singleton():

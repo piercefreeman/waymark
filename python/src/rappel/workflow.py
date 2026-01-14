@@ -60,7 +60,9 @@ class Workflow:
     _ir_lock: ClassVar[RLock] = RLock()
     _workflow_version_id: ClassVar[Optional[str]] = None
 
-    async def run(self, *args: Any, _blocking: bool = True, **kwargs: Any) -> Any:
+    async def run(
+        self, *args: Any, _blocking: bool = True, _priority: Optional[int] = None, **kwargs: Any
+    ) -> Any:
         raise NotImplementedError
 
     @classmethod
@@ -127,7 +129,9 @@ class Workflow:
 
     @classmethod
     def _build_registration_payload(
-        cls, initial_context: Optional[pb2.WorkflowArguments] = None
+        cls,
+        initial_context: Optional[pb2.WorkflowArguments] = None,
+        priority: Optional[int] = None,
     ) -> pb2.WorkflowRegistration:
         """Build a registration payload with the serialized IR."""
         program = cls.workflow_ir()
@@ -145,6 +149,9 @@ class Workflow:
 
         if initial_context:
             message.initial_context.CopyFrom(initial_context)
+
+        if priority is not None:
+            message.priority = priority
 
         return message
 
@@ -188,14 +195,20 @@ def workflow(cls: type[TWorkflow]) -> type[TWorkflow]:
         raise TypeError("workflow run() must be defined with 'async def'")
 
     @wraps(run_impl)
-    async def run_public(self: Workflow, *args: Any, _blocking: bool = True, **kwargs: Any) -> Any:
+    async def run_public(
+        self: Workflow,
+        *args: Any,
+        _blocking: bool = True,
+        _priority: Optional[int] = None,
+        **kwargs: Any,
+    ) -> Any:
         if _running_under_pytest():
             cls.workflow_ir()
             return await run_impl(self, *args, **kwargs)
 
         initial_context = cls._build_initial_context(args, kwargs)
 
-        payload = cls._build_registration_payload(initial_context)
+        payload = cls._build_registration_payload(initial_context, priority=_priority)
         run_result = await bridge.run_instance(payload.SerializeToString())
         cls._workflow_version_id = run_result.workflow_version_id
 

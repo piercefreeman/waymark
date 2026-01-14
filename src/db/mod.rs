@@ -268,6 +268,8 @@ pub struct WorkflowInstance {
     pub status: String,
     pub created_at: DateTime<Utc>,
     pub completed_at: Option<DateTime<Utc>>,
+    /// Priority for queue ordering (higher values are processed first)
+    pub priority: i32,
 }
 
 /// An action ready for dispatch (returned from dispatch_actions)
@@ -360,6 +362,14 @@ pub struct ActionLog {
     pub worker_id: Option<i64>,
     /// When the action was originally enqueued (copied from action_queue at dispatch)
     pub enqueued_at: Option<DateTime<Utc>>,
+    /// Module name (copied from action_queue for UI display after deletion)
+    pub module_name: Option<String>,
+    /// Action name (copied from action_queue for UI display after deletion)
+    pub action_name: Option<String>,
+    /// Node ID in the DAG (copied from action_queue for UI display after deletion)
+    pub node_id: Option<String>,
+    /// Request payload (copied from action_queue for UI display after deletion)
+    pub dispatch_payload: Option<Vec<u8>>,
 }
 
 // ============================================================================
@@ -456,6 +466,8 @@ pub struct WorkflowSchedule {
     pub last_instance_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// Priority for queue ordering (higher values are processed first)
+    pub priority: i32,
 }
 
 // ============================================================================
