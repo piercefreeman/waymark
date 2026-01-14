@@ -552,18 +552,22 @@ impl Database {
     /// On failure: Updates status to 'failed' so retry logic can process it
     pub async fn complete_action(&self, record: CompletionRecord) -> DbResult<bool> {
         let result = if record.success {
-            // Success: DELETE from queue immediately, INSERT log
+            // Success: DELETE from queue immediately, INSERT log with full context
             sqlx::query(
                 r#"
                 WITH deleted AS (
                     DELETE FROM action_queue
                     WHERE id = $1 AND delivery_token = $2 AND status = 'dispatched'
-                    RETURNING id, instance_id, attempt_number, dispatched_at
+                    RETURNING id, instance_id, attempt_number, dispatched_at,
+                              module_name, action_name, node_id, dispatch_payload
                 ),
                 log_insert AS (
-                    INSERT INTO action_logs (action_id, instance_id, attempt_number, dispatched_at, completed_at, success, result_payload, duration_ms)
+                    INSERT INTO action_logs (action_id, instance_id, attempt_number, dispatched_at,
+                                            completed_at, success, result_payload, duration_ms,
+                                            module_name, action_name, node_id, dispatch_payload)
                     SELECT id, instance_id, attempt_number, dispatched_at, NOW(), true, $3,
-                           EXTRACT(EPOCH FROM (NOW() - dispatched_at)) * 1000
+                           EXTRACT(EPOCH FROM (NOW() - dispatched_at)) * 1000,
+                           module_name, action_name, node_id, dispatch_payload
                     FROM deleted
                 )
                 SELECT COUNT(*) FROM deleted
@@ -575,7 +579,7 @@ impl Database {
             .fetch_one(&self.pool)
             .await?
         } else {
-            // Failure: UPDATE status so retry logic can process, INSERT log
+            // Failure: UPDATE status so retry logic can process, INSERT log with full context
             sqlx::query(
                 r#"
                 WITH updated AS (
@@ -586,12 +590,16 @@ impl Database {
                         last_error = $4,
                         completed_at = NOW()
                     WHERE id = $1 AND delivery_token = $5 AND status = 'dispatched'
-                    RETURNING id, instance_id, attempt_number, dispatched_at
+                    RETURNING id, instance_id, attempt_number, dispatched_at,
+                              module_name, action_name, node_id, dispatch_payload
                 ),
                 log_insert AS (
-                    INSERT INTO action_logs (action_id, instance_id, attempt_number, dispatched_at, completed_at, success, result_payload, error_message, duration_ms)
+                    INSERT INTO action_logs (action_id, instance_id, attempt_number, dispatched_at,
+                                            completed_at, success, result_payload, error_message, duration_ms,
+                                            module_name, action_name, node_id, dispatch_payload)
                     SELECT id, instance_id, attempt_number, dispatched_at, NOW(), false, $3, $4,
-                           EXTRACT(EPOCH FROM (NOW() - dispatched_at)) * 1000
+                           EXTRACT(EPOCH FROM (NOW() - dispatched_at)) * 1000,
+                           module_name, action_name, node_id, dispatch_payload
                     FROM updated
                 )
                 SELECT COUNT(*) FROM updated
@@ -641,12 +649,16 @@ impl Database {
                     delivery_token = NULL
                 FROM overdue
                 WHERE aq.id = overdue.id
-                RETURNING aq.id, aq.instance_id, aq.attempt_number, aq.dispatched_at
+                RETURNING aq.id, aq.instance_id, aq.attempt_number, aq.dispatched_at,
+                          aq.module_name, aq.action_name, aq.node_id, aq.dispatch_payload
             ),
             log_insert AS (
-                INSERT INTO action_logs (action_id, instance_id, attempt_number, dispatched_at, completed_at, success, error_message, duration_ms)
+                INSERT INTO action_logs (action_id, instance_id, attempt_number, dispatched_at,
+                                        completed_at, success, error_message, duration_ms,
+                                        module_name, action_name, node_id, dispatch_payload)
                 SELECT id, instance_id, attempt_number, dispatched_at, NOW(), false, 'Action timed out',
-                       EXTRACT(EPOCH FROM (NOW() - dispatched_at)) * 1000
+                       EXTRACT(EPOCH FROM (NOW() - dispatched_at)) * 1000,
+                       module_name, action_name, node_id, dispatch_payload
                 FROM updated
             )
             SELECT COUNT(*) FROM updated
@@ -1466,18 +1478,22 @@ impl Database {
             && let Some(delivery_token) = plan.delivery_token
         {
             let row = if plan.success {
-                // Success: DELETE from queue immediately, INSERT log
+                // Success: DELETE from queue immediately, INSERT log with full context
                 sqlx::query(
                     r#"
                     WITH deleted AS (
                         DELETE FROM action_queue
                         WHERE id = $1 AND delivery_token = $2 AND status = 'dispatched'
-                        RETURNING id, instance_id, attempt_number, dispatched_at
+                        RETURNING id, instance_id, attempt_number, dispatched_at,
+                                  module_name, action_name, node_id, dispatch_payload
                     ),
                     log_insert AS (
-                        INSERT INTO action_logs (action_id, instance_id, attempt_number, dispatched_at, completed_at, success, result_payload, duration_ms)
+                        INSERT INTO action_logs (action_id, instance_id, attempt_number, dispatched_at,
+                                                completed_at, success, result_payload, duration_ms,
+                                                module_name, action_name, node_id, dispatch_payload)
                         SELECT id, instance_id, attempt_number, dispatched_at, NOW(), true, $3,
-                               EXTRACT(EPOCH FROM (NOW() - dispatched_at)) * 1000
+                               EXTRACT(EPOCH FROM (NOW() - dispatched_at)) * 1000,
+                               module_name, action_name, node_id, dispatch_payload
                         FROM deleted
                     )
                     SELECT COUNT(*) FROM deleted
@@ -1489,7 +1505,7 @@ impl Database {
                 .fetch_one(&mut *tx)
                 .await?
             } else {
-                // Failure: UPDATE status so retry logic can process, INSERT log
+                // Failure: UPDATE status so retry logic can process, INSERT log with full context
                 sqlx::query(
                     r#"
                     WITH updated AS (
@@ -1500,12 +1516,16 @@ impl Database {
                             last_error = $4,
                             completed_at = NOW()
                         WHERE id = $1 AND delivery_token = $5 AND status = 'dispatched'
-                        RETURNING id, instance_id, attempt_number, dispatched_at
+                        RETURNING id, instance_id, attempt_number, dispatched_at,
+                                  module_name, action_name, node_id, dispatch_payload
                     ),
                     log_insert AS (
-                        INSERT INTO action_logs (action_id, instance_id, attempt_number, dispatched_at, completed_at, success, result_payload, error_message, duration_ms)
+                        INSERT INTO action_logs (action_id, instance_id, attempt_number, dispatched_at,
+                                                completed_at, success, result_payload, error_message, duration_ms,
+                                                module_name, action_name, node_id, dispatch_payload)
                         SELECT id, instance_id, attempt_number, dispatched_at, NOW(), false, $3, $4,
-                               EXTRACT(EPOCH FROM (NOW() - dispatched_at)) * 1000
+                               EXTRACT(EPOCH FROM (NOW() - dispatched_at)) * 1000,
+                               module_name, action_name, node_id, dispatch_payload
                         FROM updated
                     )
                     SELECT COUNT(*) FROM updated

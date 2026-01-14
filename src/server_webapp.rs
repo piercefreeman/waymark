@@ -996,39 +996,95 @@ fn render_workflow_run_page(
         result_payload: format_payload(&instance.result_payload),
     };
 
-    // Build a map of node_id -> status from the executed actions
-    let action_status: std::collections::HashMap<String, String> = actions
+    // Build nodes from action_queue if available, otherwise from action_logs
+    // (completed actions are deleted from action_queue but kept in action_logs)
+    let nodes: Vec<NodeExecutionContext> = if !actions.is_empty() {
+        // Build from action_queue (active/in-progress workflows)
+        actions
+            .iter()
+            .map(|a| NodeExecutionContext {
+                id: a.node_id.clone().unwrap_or_else(|| a.id.to_string()),
+                action_id: a.id.to_string(),
+                module: a.module_name.clone(),
+                action: a.action_name.clone(),
+                status: a.status.clone(),
+                request_payload: format_binary_payload(&a.dispatch_payload),
+                response_payload: a
+                    .result_payload
+                    .as_ref()
+                    .map(|p| format_binary_payload(p))
+                    .unwrap_or_else(|| "(pending)".to_string()),
+                attempt_number: a.attempt_number,
+                max_retries: a.max_retries,
+                timeout_retry_limit: a.timeout_retry_limit,
+                retry_kind: a.retry_kind.clone(),
+                scheduled_at: a
+                    .scheduled_at
+                    .map(|dt| dt.format("%Y-%m-%d %H:%M:%S UTC").to_string()),
+                last_error: a.last_error.clone(),
+            })
+            .collect()
+    } else {
+        // Build from action_logs (completed workflows where actions were deleted)
+        // Group by action_id to get the latest attempt for each action
+        let mut latest_by_action: std::collections::HashMap<String, &crate::db::ActionLog> =
+            std::collections::HashMap::new();
+        for log in action_logs.iter() {
+            let key = log.action_id.to_string();
+            if let Some(existing) = latest_by_action.get(&key) {
+                if log.attempt_number > existing.attempt_number {
+                    latest_by_action.insert(key, log);
+                }
+            } else {
+                latest_by_action.insert(key, log);
+            }
+        }
+
+        latest_by_action
+            .values()
+            .map(|log| NodeExecutionContext {
+                id: log
+                    .node_id
+                    .clone()
+                    .unwrap_or_else(|| log.action_id.to_string()),
+                action_id: log.action_id.to_string(),
+                module: log.module_name.clone().unwrap_or_default(),
+                action: log.action_name.clone().unwrap_or_default(),
+                status: if log.success == Some(true) {
+                    "completed".to_string()
+                } else if log.success == Some(false) {
+                    "failed".to_string()
+                } else {
+                    "unknown".to_string()
+                },
+                request_payload: log
+                    .dispatch_payload
+                    .as_ref()
+                    .map(|p| format_binary_payload(p))
+                    .unwrap_or_else(|| "(not recorded)".to_string()),
+                response_payload: log
+                    .result_payload
+                    .as_ref()
+                    .map(|p| format_binary_payload(p))
+                    .unwrap_or_else(|| "(not recorded)".to_string()),
+                attempt_number: log.attempt_number,
+                max_retries: 0,
+                timeout_retry_limit: 0,
+                retry_kind: String::new(),
+                scheduled_at: None,
+                last_error: log.error_message.clone(),
+            })
+            .collect()
+    };
+
+    // Build a map of node_id -> status from the nodes
+    let action_status: std::collections::HashMap<String, String> = nodes
         .iter()
-        .filter_map(|a| a.node_id.clone().map(|id| (id, a.status.clone())))
+        .map(|n| (n.id.clone(), n.status.clone()))
         .collect();
 
     // Build execution graph data with status info, filtering out internal nodes
     let graph_data = build_filtered_execution_graph(&dag, &action_status);
-
-    let nodes: Vec<NodeExecutionContext> = actions
-        .iter()
-        .map(|a| NodeExecutionContext {
-            id: a.node_id.clone().unwrap_or_else(|| a.id.to_string()),
-            action_id: a.id.to_string(),
-            module: a.module_name.clone(),
-            action: a.action_name.clone(),
-            status: a.status.clone(),
-            request_payload: format_binary_payload(&a.dispatch_payload),
-            response_payload: a
-                .result_payload
-                .as_ref()
-                .map(|p| format_binary_payload(p))
-                .unwrap_or_else(|| "(pending)".to_string()),
-            attempt_number: a.attempt_number,
-            max_retries: a.max_retries,
-            timeout_retry_limit: a.timeout_retry_limit,
-            retry_kind: a.retry_kind.clone(),
-            scheduled_at: a
-                .scheduled_at
-                .map(|dt| dt.format("%Y-%m-%d %H:%M:%S UTC").to_string()),
-            last_error: a.last_error.clone(),
-        })
-        .collect();
 
     // Serialize nodes to JSON for client-side use (avoids HTML entity escaping issues)
     let nodes_json = serde_json::to_string(&nodes).unwrap_or_else(|_| "[]".to_string());

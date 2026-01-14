@@ -257,7 +257,9 @@ impl Database {
             r#"
             SELECT id, action_id, instance_id, attempt_number,
                    dispatched_at, completed_at, success,
-                   result_payload, error_message, duration_ms
+                   result_payload, error_message, duration_ms,
+                   pool_id, worker_id, enqueued_at,
+                   module_name, action_name, node_id, dispatch_payload
             FROM action_logs
             WHERE action_id = $1
             ORDER BY attempt_number
@@ -279,7 +281,9 @@ impl Database {
             r#"
             SELECT id, action_id, instance_id, attempt_number,
                    dispatched_at, completed_at, success,
-                   result_payload, error_message, duration_ms
+                   result_payload, error_message, duration_ms,
+                   pool_id, worker_id, enqueued_at,
+                   module_name, action_name, node_id, dispatch_payload
             FROM action_logs
             WHERE instance_id = $1
             ORDER BY dispatched_at, attempt_number, id
@@ -298,7 +302,9 @@ impl Database {
             r#"
             SELECT id, action_id, instance_id, attempt_number,
                    dispatched_at, completed_at, success,
-                   result_payload, error_message, duration_ms
+                   result_payload, error_message, duration_ms,
+                   pool_id, worker_id, enqueued_at,
+                   module_name, action_name, node_id, dispatch_payload
             FROM action_logs
             ORDER BY dispatched_at DESC
             LIMIT $1
