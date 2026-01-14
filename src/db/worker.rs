@@ -921,11 +921,10 @@ impl Database {
     // Node Inputs (Inbox Pattern)
     // ========================================================================
 
-    /// Write a value to a node's inbox (O(1) upsert, no locks).
+    /// Write a value to a node's inbox (O(1) insert, append-only).
     ///
     /// When Node A completes, it calls this for each downstream node that needs the value.
-    /// Uses UPSERT to overwrite existing values for the same (target, variable, spread_index),
-    /// preventing unbounded inbox growth during loops.
+    /// The inbox is append-only; reads pick the latest value per variable.
     pub async fn append_to_inbox(
         &self,
         instance_id: WorkflowInstanceId,
@@ -939,8 +938,6 @@ impl Database {
             r#"
             INSERT INTO node_inputs (instance_id, target_node_id, variable_name, value, source_node_id, spread_index)
             VALUES ($1, $2, $3, $4, $5, $6)
-            ON CONFLICT (instance_id, target_node_id, variable_name, COALESCE(spread_index, -1))
-            DO UPDATE SET value = EXCLUDED.value, source_node_id = EXCLUDED.source_node_id, created_at = NOW()
             "#,
         )
         .bind(instance_id.0)
@@ -957,19 +954,20 @@ impl Database {
 
     /// Read all pending inputs for a node (single query).
     ///
-    /// Returns a map of variable_name -> value.
-    /// For spread results, returns the values as a list ordered by spread_index.
+    /// Returns a map of variable_name -> latest value (non-spread only).
     pub async fn read_inbox(
         &self,
         instance_id: WorkflowInstanceId,
         target_node_id: &str,
     ) -> DbResult<std::collections::HashMap<String, serde_json::Value>> {
-        let rows: Vec<(String, serde_json::Value, Option<i32>)> = sqlx::query_as(
+        let rows: Vec<(String, serde_json::Value)> = sqlx::query_as(
             r#"
-            SELECT variable_name, value, spread_index
+            SELECT DISTINCT ON (variable_name) variable_name, value
             FROM node_inputs
-            WHERE instance_id = $1 AND target_node_id = $2
-            ORDER BY spread_index NULLS FIRST, created_at
+            WHERE instance_id = $1
+              AND target_node_id = $2
+              AND spread_index IS NULL
+            ORDER BY variable_name, created_at DESC
             "#,
         )
         .bind(instance_id.0)
@@ -978,7 +976,7 @@ impl Database {
         .await?;
 
         let mut result = std::collections::HashMap::new();
-        for (var_name, value, _spread_index) in rows {
+        for (var_name, value) in rows {
             result.insert(var_name, value);
         }
         Ok(result)
@@ -986,7 +984,7 @@ impl Database {
 
     /// Read spread/parallel results for an aggregator node.
     ///
-    /// Returns list of (spread_index, value) tuples for ordering.
+    /// Returns latest (spread_index, value) tuples for ordering.
     pub async fn read_inbox_for_aggregator(
         &self,
         instance_id: WorkflowInstanceId,
@@ -994,10 +992,12 @@ impl Database {
     ) -> DbResult<Vec<(i32, serde_json::Value)>> {
         let rows: Vec<(i32, serde_json::Value)> = sqlx::query_as(
             r#"
-            SELECT spread_index, value
+            SELECT DISTINCT ON (spread_index) spread_index, value
             FROM node_inputs
-            WHERE instance_id = $1 AND target_node_id = $2 AND spread_index IS NOT NULL
-            ORDER BY spread_index
+            WHERE instance_id = $1
+              AND target_node_id = $2
+              AND spread_index IS NOT NULL
+            ORDER BY spread_index, created_at DESC
             "#,
         )
         .bind(instance_id.0)
@@ -1370,14 +1370,15 @@ impl Database {
 
         let node_ids_vec: Vec<&str> = node_ids.iter().map(|s| s.as_str()).collect();
 
-        // With UPSERT, each (target_node_id, variable_name, spread_index) is unique,
-        // so we just need a simple SELECT. Non-spread variables (spread_index IS NULL)
-        // are also unique due to the COALESCE(-1) in the unique index.
+        // Append-only inbox; pick latest non-spread value per variable.
         let rows: Vec<(String, String, serde_json::Value)> = sqlx::query_as(
             r#"
-            SELECT target_node_id, variable_name, value
+            SELECT DISTINCT ON (target_node_id, variable_name) target_node_id, variable_name, value
             FROM node_inputs
-            WHERE instance_id = $1 AND target_node_id = ANY($2)
+            WHERE instance_id = $1
+              AND target_node_id = ANY($2)
+              AND spread_index IS NULL
+            ORDER BY target_node_id, variable_name, created_at DESC
             "#,
         )
         .bind(instance_id.0)
@@ -1424,12 +1425,12 @@ impl Database {
 
         let rows: Vec<(String, i32, serde_json::Value)> = sqlx::query_as(
             r#"
-            SELECT target_node_id, spread_index, value
+            SELECT DISTINCT ON (target_node_id, spread_index) target_node_id, spread_index, value
             FROM node_inputs
             WHERE instance_id = $1
               AND target_node_id = ANY($2)
               AND spread_index IS NOT NULL
-            ORDER BY target_node_id, spread_index
+            ORDER BY target_node_id, spread_index, created_at DESC
             "#,
         )
         .bind(instance_id.0)
@@ -1564,8 +1565,6 @@ impl Database {
                 INSERT INTO node_inputs
                     (instance_id, target_node_id, variable_name, value, source_node_id, spread_index)
                 VALUES ($1, $2, $3, $4, $5, $6)
-                ON CONFLICT (instance_id, target_node_id, variable_name, COALESCE(spread_index, -1))
-                DO UPDATE SET value = EXCLUDED.value, source_node_id = EXCLUDED.source_node_id, created_at = NOW()
                 "#,
             )
             .bind(instance_id.0)
