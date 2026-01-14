@@ -266,12 +266,18 @@ impl Database {
     /// 2. Locks them with FOR UPDATE SKIP LOCKED (non-blocking)
     /// 3. Updates their status to 'dispatched'
     /// 4. Sets deadline and delivery token
-    /// 5. Creates action log entries for tracking run history
-    /// 6. Returns the actions for execution
+    /// 5. Returns the actions for execution
+    /// 6. Creates action log entries for tracking run history (non-blocking)
     ///
     /// Actions are ordered by priority (higher first), then by scheduled_at, then by action_seq.
     pub async fn dispatch_actions(&self, limit: i32) -> DbResult<Vec<QueuedAction>> {
         let start = std::time::Instant::now();
+
+        // Use a transaction to ensure atomicity of dispatch + log creation
+        let mut tx = self.pool.begin().await?;
+
+        // Step 1: Select, lock, and update actions in a single CTE
+        // Note: log_insert is moved outside the CTE to reduce critical path latency
         let rows = sqlx::query(
             r#"
             WITH next_actions AS (
@@ -282,54 +288,44 @@ impl Database {
                 ORDER BY priority DESC, scheduled_at, action_seq
                 FOR UPDATE SKIP LOCKED
                 LIMIT $1
-            ),
-            updated AS (
-                UPDATE action_queue aq
-                SET status = 'dispatched',
-                    dispatched_at = NOW(),
-                    deadline_at = CASE
-                        WHEN timeout_seconds > 0
-                        THEN NOW() + (timeout_seconds || ' seconds')::interval
-                        ELSE NULL
-                    END,
-                    delivery_token = gen_random_uuid()
-                FROM next_actions
-                WHERE aq.id = next_actions.id
-                RETURNING
-                    aq.id,
-                    aq.instance_id,
-                    aq.partition_id,
-                    aq.action_seq,
-                    aq.module_name,
-                    aq.action_name,
-                    aq.dispatch_payload,
-                    aq.timeout_seconds,
-                    aq.max_retries,
-                    aq.attempt_number,
-                    aq.delivery_token,
-                    aq.timeout_retry_limit,
-                    aq.retry_kind,
-                    aq.node_id,
-                    COALESCE(aq.node_type, 'action') as node_type,
-                    aq.dispatched_at
-            ),
-            log_insert AS (
-                INSERT INTO action_logs (action_id, instance_id, attempt_number, dispatched_at)
-                SELECT id, instance_id, attempt_number, dispatched_at
-                FROM updated
             )
-            SELECT id, instance_id, partition_id, action_seq, module_name, action_name,
-                   dispatch_payload, timeout_seconds, max_retries, attempt_number,
-                   delivery_token, timeout_retry_limit, retry_kind, node_id, node_type
-            FROM updated
+            UPDATE action_queue aq
+            SET status = 'dispatched',
+                dispatched_at = NOW(),
+                deadline_at = CASE
+                    WHEN timeout_seconds > 0
+                    THEN NOW() + (timeout_seconds || ' seconds')::interval
+                    ELSE NULL
+                END,
+                delivery_token = gen_random_uuid()
+            FROM next_actions
+            WHERE aq.id = next_actions.id
+            RETURNING
+                aq.id,
+                aq.instance_id,
+                aq.partition_id,
+                aq.action_seq,
+                aq.module_name,
+                aq.action_name,
+                aq.dispatch_payload,
+                aq.timeout_seconds,
+                aq.max_retries,
+                aq.attempt_number,
+                aq.delivery_token,
+                aq.timeout_retry_limit,
+                aq.retry_kind,
+                aq.node_id,
+                COALESCE(aq.node_type, 'action') as node_type,
+                aq.dispatched_at
             "#,
         )
         .bind(limit)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await?;
 
+        // Parse results - logs are created on completion, not dispatch
         let actions: Vec<QueuedAction> = rows
-            .into_iter()
+            .iter()
             .map(|row| QueuedAction {
                 id: row.get("id"),
                 instance_id: row.get("instance_id"),
@@ -353,6 +349,8 @@ impl Database {
                 last_error: None,
             })
             .collect();
+
+        tx.commit().await?;
 
         let count = actions.len();
         if count > 0 {
@@ -422,12 +420,8 @@ impl Database {
                     aq.node_id,
                     COALESCE(aq.node_type, 'action') as node_type,
                     aq.dispatched_at
-            ),
-            log_insert AS (
-                INSERT INTO action_logs (action_id, instance_id, attempt_number, dispatched_at)
-                SELECT id, instance_id, attempt_number, dispatched_at
-                FROM updated
             )
+            -- Logs are created on completion, not dispatch
             SELECT id, instance_id, partition_id, action_seq, module_name, action_name,
                    dispatch_payload, timeout_seconds, max_retries, attempt_number,
                    delivery_token, timeout_retry_limit, retry_kind, node_id, node_type
@@ -507,12 +501,8 @@ impl Database {
                     aq.node_id,
                     aq.node_type,
                     aq.dispatched_at
-            ),
-            log_insert AS (
-                INSERT INTO action_logs (action_id, instance_id, attempt_number, dispatched_at)
-                SELECT id, instance_id, attempt_number, dispatched_at
-                FROM updated
             )
+            -- Logs are created on completion, not dispatch
             SELECT id, instance_id, partition_id, action_seq, module_name, action_name,
                    dispatch_payload, timeout_seconds, max_retries, attempt_number,
                    delivery_token, timeout_retry_limit, retry_kind, node_id, node_type
@@ -557,40 +547,64 @@ impl Database {
     /// Uses delivery_token for idempotent completion - if the token doesn't match,
     /// the action was already completed by another worker or timed out.
     /// Also updates the action log entry with completion information.
+    ///
+    /// On success: Deletes the action from action_queue immediately (action_logs has history)
+    /// On failure: Updates status to 'failed' so retry logic can process it
     pub async fn complete_action(&self, record: CompletionRecord) -> DbResult<bool> {
-        let result = sqlx::query(
-            r#"
-            WITH updated AS (
-                UPDATE action_queue
-                SET status = CASE WHEN $2 THEN 'completed' ELSE 'failed' END,
-                    success = $2,
-                    result_payload = $3,
-                    last_error = $4,
-                    completed_at = NOW()
-                WHERE id = $1 AND delivery_token = $5 AND status = 'dispatched'
-                RETURNING id, attempt_number, dispatched_at
-            ),
-            log_update AS (
-                UPDATE action_logs
-                SET completed_at = NOW(),
-                    success = $2,
-                    result_payload = $3,
-                    error_message = $4,
-                    duration_ms = EXTRACT(EPOCH FROM (NOW() - updated.dispatched_at)) * 1000
-                FROM updated
-                WHERE action_logs.action_id = updated.id
-                  AND action_logs.attempt_number = updated.attempt_number
+        let result = if record.success {
+            // Success: DELETE from queue immediately, INSERT log
+            sqlx::query(
+                r#"
+                WITH deleted AS (
+                    DELETE FROM action_queue
+                    WHERE id = $1 AND delivery_token = $2 AND status = 'dispatched'
+                    RETURNING id, instance_id, attempt_number, dispatched_at
+                ),
+                log_insert AS (
+                    INSERT INTO action_logs (action_id, instance_id, attempt_number, dispatched_at, completed_at, success, result_payload, duration_ms)
+                    SELECT id, instance_id, attempt_number, dispatched_at, NOW(), true, $3,
+                           EXTRACT(EPOCH FROM (NOW() - dispatched_at)) * 1000
+                    FROM deleted
+                )
+                SELECT COUNT(*) FROM deleted
+                "#,
             )
-            SELECT COUNT(*) FROM updated
-            "#,
-        )
-        .bind(record.action_id.0)
-        .bind(record.success)
-        .bind(&record.result_payload)
-        .bind(&record.error_message)
-        .bind(record.delivery_token)
-        .fetch_one(&self.pool)
-        .await?;
+            .bind(record.action_id.0)
+            .bind(record.delivery_token)
+            .bind(&record.result_payload)
+            .fetch_one(&self.pool)
+            .await?
+        } else {
+            // Failure: UPDATE status so retry logic can process, INSERT log
+            sqlx::query(
+                r#"
+                WITH updated AS (
+                    UPDATE action_queue
+                    SET status = 'failed',
+                        success = false,
+                        result_payload = $3,
+                        last_error = $4,
+                        completed_at = NOW()
+                    WHERE id = $1 AND delivery_token = $5 AND status = 'dispatched'
+                    RETURNING id, instance_id, attempt_number, dispatched_at
+                ),
+                log_insert AS (
+                    INSERT INTO action_logs (action_id, instance_id, attempt_number, dispatched_at, completed_at, success, result_payload, error_message, duration_ms)
+                    SELECT id, instance_id, attempt_number, dispatched_at, NOW(), false, $3, $4,
+                           EXTRACT(EPOCH FROM (NOW() - dispatched_at)) * 1000
+                    FROM updated
+                )
+                SELECT COUNT(*) FROM updated
+                "#,
+            )
+            .bind(record.action_id.0)
+            .bind(record.delivery_token)
+            .bind(&record.result_payload)
+            .bind(&record.error_message)
+            .bind(record.delivery_token)
+            .fetch_one(&self.pool)
+            .await?
+        };
 
         let count: i64 = result.get(0);
         Ok(count > 0)
@@ -601,7 +615,7 @@ impl Database {
     /// This finds dispatched actions past their deadline and marks them as 'failed'
     /// with retry_kind='timeout'. The actual retry/requeue logic is handled by
     /// `requeue_failed_actions`, which processes both timeout and explicit failures.
-    /// Also updates the action log entries with timeout information.
+    /// Also inserts action log entries with timeout information.
     ///
     /// Uses SKIP LOCKED for multi-host safety.
     ///
@@ -627,17 +641,13 @@ impl Database {
                     delivery_token = NULL
                 FROM overdue
                 WHERE aq.id = overdue.id
-                RETURNING aq.id, aq.attempt_number, aq.dispatched_at
+                RETURNING aq.id, aq.instance_id, aq.attempt_number, aq.dispatched_at
             ),
-            log_update AS (
-                UPDATE action_logs
-                SET completed_at = NOW(),
-                    success = FALSE,
-                    error_message = 'Action timed out',
-                    duration_ms = EXTRACT(EPOCH FROM (NOW() - updated.dispatched_at)) * 1000
+            log_insert AS (
+                INSERT INTO action_logs (action_id, instance_id, attempt_number, dispatched_at, completed_at, success, error_message, duration_ms)
+                SELECT id, instance_id, attempt_number, dispatched_at, NOW(), false, 'Action timed out',
+                       EXTRACT(EPOCH FROM (NOW() - dispatched_at)) * 1000
                 FROM updated
-                WHERE action_logs.action_id = updated.id
-                  AND action_logs.attempt_number = updated.attempt_number
             )
             SELECT COUNT(*) FROM updated
             "#,
@@ -1450,42 +1460,65 @@ impl Database {
 
         // 1. Mark the completed action as complete (idempotent guard)
         // Also update the action log entry with completion information
+        // On success: DELETE from queue immediately (action_logs has history)
+        // On failure: UPDATE status to 'failed' so retry logic can process it
         if let Some(action_id) = plan.completed_action_id
             && let Some(delivery_token) = plan.delivery_token
         {
-            let row = sqlx::query(
-                r#"
-                WITH updated AS (
-                    UPDATE action_queue
-                    SET status = CASE WHEN $2 THEN 'completed' ELSE 'failed' END,
-                        success = $2,
-                        result_payload = $3,
-                        last_error = $4,
-                        completed_at = NOW()
-                    WHERE id = $1 AND delivery_token = $5 AND status = 'dispatched'
-                    RETURNING id, attempt_number, dispatched_at
-                ),
-                log_update AS (
-                    UPDATE action_logs
-                    SET completed_at = NOW(),
-                        success = $2,
-                        result_payload = $3,
-                        error_message = $4,
-                        duration_ms = EXTRACT(EPOCH FROM (NOW() - updated.dispatched_at)) * 1000
-                    FROM updated
-                    WHERE action_logs.action_id = updated.id
-                      AND action_logs.attempt_number = updated.attempt_number
+            let row = if plan.success {
+                // Success: DELETE from queue immediately, INSERT log
+                sqlx::query(
+                    r#"
+                    WITH deleted AS (
+                        DELETE FROM action_queue
+                        WHERE id = $1 AND delivery_token = $2 AND status = 'dispatched'
+                        RETURNING id, instance_id, attempt_number, dispatched_at
+                    ),
+                    log_insert AS (
+                        INSERT INTO action_logs (action_id, instance_id, attempt_number, dispatched_at, completed_at, success, result_payload, duration_ms)
+                        SELECT id, instance_id, attempt_number, dispatched_at, NOW(), true, $3,
+                               EXTRACT(EPOCH FROM (NOW() - dispatched_at)) * 1000
+                        FROM deleted
+                    )
+                    SELECT COUNT(*) FROM deleted
+                    "#,
                 )
-                SELECT COUNT(*) FROM updated
-                "#,
-            )
-            .bind(action_id.0)
-            .bind(plan.success)
-            .bind(&plan.result_payload)
-            .bind(&plan.error_message)
-            .bind(delivery_token)
-            .fetch_one(&mut *tx)
-            .await?;
+                .bind(action_id.0)
+                .bind(delivery_token)
+                .bind(&plan.result_payload)
+                .fetch_one(&mut *tx)
+                .await?
+            } else {
+                // Failure: UPDATE status so retry logic can process, INSERT log
+                sqlx::query(
+                    r#"
+                    WITH updated AS (
+                        UPDATE action_queue
+                        SET status = 'failed',
+                            success = false,
+                            result_payload = $3,
+                            last_error = $4,
+                            completed_at = NOW()
+                        WHERE id = $1 AND delivery_token = $5 AND status = 'dispatched'
+                        RETURNING id, instance_id, attempt_number, dispatched_at
+                    ),
+                    log_insert AS (
+                        INSERT INTO action_logs (action_id, instance_id, attempt_number, dispatched_at, completed_at, success, result_payload, error_message, duration_ms)
+                        SELECT id, instance_id, attempt_number, dispatched_at, NOW(), false, $3, $4,
+                               EXTRACT(EPOCH FROM (NOW() - dispatched_at)) * 1000
+                        FROM updated
+                    )
+                    SELECT COUNT(*) FROM updated
+                    "#,
+                )
+                .bind(action_id.0)
+                .bind(delivery_token)
+                .bind(&plan.result_payload)
+                .bind(&plan.error_message)
+                .bind(delivery_token)
+                .fetch_one(&mut *tx)
+                .await?
+            };
 
             let count: i64 = row.get(0);
             if count == 0 {
@@ -2061,65 +2094,78 @@ impl Database {
         retention_seconds: i64,
         limit: i32,
     ) -> DbResult<i64> {
-        // Find and lock instances to delete using SKIP LOCKED
-        // This allows multiple workers to run GC concurrently without blocking
-        let result = sqlx::query(
+        // Use a transaction with separate queries instead of a single CTE.
+        // This is more efficient because:
+        // 1. The IDs are collected once and passed as an array to each DELETE
+        // 2. Each DELETE can use the instance_id index efficiently
+        // 3. No repeated subquery materialization
+        let mut tx = self.pool.begin().await?;
+
+        // Step 1: Select and lock instances to delete, returning their IDs
+        let ids: Vec<Uuid> = sqlx::query_scalar(
             r#"
-            WITH instances_to_delete AS (
-                SELECT id
-                FROM workflow_instances
-                WHERE status IN ('completed', 'failed')
-                  AND completed_at IS NOT NULL
-                  AND completed_at < NOW() - ($1 || ' seconds')::interval
-                ORDER BY completed_at
-                FOR UPDATE SKIP LOCKED
-                LIMIT $2
-            ),
-            -- Delete action_logs first (references action_queue)
-            deleted_logs AS (
-                DELETE FROM action_logs
-                WHERE instance_id IN (SELECT id FROM instances_to_delete)
-            ),
-            -- Delete action_queue entries
-            deleted_actions AS (
-                DELETE FROM action_queue
-                WHERE instance_id IN (SELECT id FROM instances_to_delete)
-            ),
-            -- Delete instance_context entries
-            deleted_context AS (
-                DELETE FROM instance_context
-                WHERE instance_id IN (SELECT id FROM instances_to_delete)
-            ),
-            -- Delete loop_state entries
-            deleted_loop_state AS (
-                DELETE FROM loop_state
-                WHERE instance_id IN (SELECT id FROM instances_to_delete)
-            ),
-            -- Delete node_readiness entries
-            deleted_readiness AS (
-                DELETE FROM node_readiness
-                WHERE instance_id IN (SELECT id FROM instances_to_delete)
-            ),
-            -- Delete node_inputs entries
-            deleted_inputs AS (
-                DELETE FROM node_inputs
-                WHERE instance_id IN (SELECT id FROM instances_to_delete)
-            ),
-            -- Finally delete the instances themselves
-            deleted_instances AS (
-                DELETE FROM workflow_instances
-                WHERE id IN (SELECT id FROM instances_to_delete)
-                RETURNING id
-            )
-            SELECT COUNT(*) FROM deleted_instances
+            SELECT id
+            FROM workflow_instances
+            WHERE status IN ('completed', 'failed')
+              AND completed_at IS NOT NULL
+              AND completed_at < NOW() - ($1 || ' seconds')::interval
+            ORDER BY completed_at
+            FOR UPDATE SKIP LOCKED
+            LIMIT $2
             "#,
         )
         .bind(retention_seconds)
         .bind(limit)
-        .fetch_one(&self.pool)
+        .fetch_all(&mut *tx)
         .await?;
 
-        let count: i64 = result.get(0);
+        if ids.is_empty() {
+            tx.commit().await?;
+            return Ok(0);
+        }
+
+        let count = ids.len() as i64;
+
+        // Step 2: Delete from child tables using the collected IDs
+        // Delete action_logs first (references action_queue)
+        sqlx::query("DELETE FROM action_logs WHERE instance_id = ANY($1)")
+            .bind(&ids)
+            .execute(&mut *tx)
+            .await?;
+
+        sqlx::query("DELETE FROM action_queue WHERE instance_id = ANY($1)")
+            .bind(&ids)
+            .execute(&mut *tx)
+            .await?;
+
+        sqlx::query("DELETE FROM instance_context WHERE instance_id = ANY($1)")
+            .bind(&ids)
+            .execute(&mut *tx)
+            .await?;
+
+        sqlx::query("DELETE FROM loop_state WHERE instance_id = ANY($1)")
+            .bind(&ids)
+            .execute(&mut *tx)
+            .await?;
+
+        sqlx::query("DELETE FROM node_readiness WHERE instance_id = ANY($1)")
+            .bind(&ids)
+            .execute(&mut *tx)
+            .await?;
+
+        sqlx::query("DELETE FROM node_inputs WHERE instance_id = ANY($1)")
+            .bind(&ids)
+            .execute(&mut *tx)
+            .await?;
+
+        // Step 3: Finally delete the instances themselves
+        sqlx::query("DELETE FROM workflow_instances WHERE id = ANY($1)")
+            .bind(&ids)
+            .execute(&mut *tx)
+            .await?;
+
+        tx.commit().await?;
+
         if count > 0 {
             tracing::info!(
                 count = count,
