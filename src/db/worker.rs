@@ -1147,38 +1147,20 @@ impl Database {
     ) -> DbResult<ReadinessResult> {
         let mut tx = self.pool.begin().await?;
 
-        // Write all inbox entries (batched for performance)
-        if !inbox_writes.is_empty() {
-            let instance_ids: Vec<Uuid> = inbox_writes.iter().map(|_| instance_id.0).collect();
-            let target_node_ids: Vec<&str> = inbox_writes
-                .iter()
-                .map(|(t, _, _, _, _)| t.as_str())
-                .collect();
-            let variable_names: Vec<&str> = inbox_writes
-                .iter()
-                .map(|(_, v, _, _, _)| v.as_str())
-                .collect();
-            let values: Vec<&serde_json::Value> =
-                inbox_writes.iter().map(|(_, _, val, _, _)| val).collect();
-            let source_node_ids: Vec<&str> = inbox_writes
-                .iter()
-                .map(|(_, _, _, s, _)| s.as_str())
-                .collect();
-            let spread_indices: Vec<Option<i32>> =
-                inbox_writes.iter().map(|(_, _, _, _, sp)| *sp).collect();
-
+        // Write all inbox entries
+        for (target_node_id, variable_name, value, source_node_id, spread_index) in inbox_writes {
             sqlx::query(
                 r#"
                 INSERT INTO node_inputs (instance_id, target_node_id, variable_name, value, source_node_id, spread_index)
-                SELECT * FROM UNNEST($1::uuid[], $2::text[], $3::text[], $4::jsonb[], $5::text[], $6::int[])
+                VALUES ($1, $2, $3, $4, $5, $6)
                 "#,
             )
-            .bind(&instance_ids)
-            .bind(&target_node_ids)
-            .bind(&variable_names)
-            .bind(&values)
-            .bind(&source_node_ids)
-            .bind(&spread_indices)
+            .bind(instance_id.0)
+            .bind(target_node_id)
+            .bind(variable_name)
+            .bind(value)
+            .bind(source_node_id)
+            .bind(spread_index)
             .execute(&mut *tx)
             .await?;
         }
@@ -1566,61 +1548,32 @@ impl Database {
             }
         }
 
-        // 2. Write inbox entries for all frontier nodes (batched for performance)
-        if !plan.inbox_writes.is_empty() {
-            // Debug logging for specific variable (keep existing behavior)
-            for write in &plan.inbox_writes {
-                if write.variable_name == "__loop_loop_8_i" {
-                    debug!(
-                        target_node_id = %write.target_node_id,
-                        variable_name = %write.variable_name,
-                        value = ?write.value,
-                        source_node_id = %write.source_node_id,
-                        "DB writing __loop_loop_8_i to inbox"
-                    );
-                }
+        // 2. Write inbox entries for all frontier nodes
+        for write in &plan.inbox_writes {
+            if write.variable_name == "__loop_loop_8_i" {
+                debug!(
+                    target_node_id = %write.target_node_id,
+                    variable_name = %write.variable_name,
+                    value = ?write.value,
+                    source_node_id = %write.source_node_id,
+                    "DB writing __loop_loop_8_i to inbox"
+                );
             }
-
-            // Batch insert using UNNEST - single round-trip for all rows
-            let instance_ids: Vec<Uuid> = plan.inbox_writes.iter().map(|_| instance_id.0).collect();
-            let target_node_ids: Vec<&str> = plan
-                .inbox_writes
-                .iter()
-                .map(|w| w.target_node_id.as_str())
-                .collect();
-            let variable_names: Vec<&str> = plan
-                .inbox_writes
-                .iter()
-                .map(|w| w.variable_name.as_str())
-                .collect();
-            let values: Vec<serde_json::Value> = plan
-                .inbox_writes
-                .iter()
-                .map(|w| w.value.to_json())
-                .collect();
-            let source_node_ids: Vec<&str> = plan
-                .inbox_writes
-                .iter()
-                .map(|w| w.source_node_id.as_str())
-                .collect();
-            let spread_indices: Vec<Option<i32>> =
-                plan.inbox_writes.iter().map(|w| w.spread_index).collect();
-
             sqlx::query(
                 r#"
                 INSERT INTO node_inputs
                     (instance_id, target_node_id, variable_name, value, source_node_id, spread_index)
-                SELECT * FROM UNNEST($1::uuid[], $2::text[], $3::text[], $4::jsonb[], $5::text[], $6::int[])
+                VALUES ($1, $2, $3, $4, $5, $6)
                 ON CONFLICT (instance_id, target_node_id, variable_name, COALESCE(spread_index, -1))
                 DO UPDATE SET value = EXCLUDED.value, source_node_id = EXCLUDED.source_node_id, created_at = NOW()
                 "#,
             )
-            .bind(&instance_ids)
-            .bind(&target_node_ids)
-            .bind(&variable_names)
-            .bind(&values)
-            .bind(&source_node_ids)
-            .bind(&spread_indices)
+            .bind(instance_id.0)
+            .bind(&write.target_node_id)
+            .bind(&write.variable_name)
+            .bind(write.value.to_json())
+            .bind(&write.source_node_id)
+            .bind(write.spread_index)
             .execute(&mut *tx)
             .await?;
         }
