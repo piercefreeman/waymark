@@ -4,7 +4,7 @@
 //! by webapp features. All operations here are on the critical path for
 //! workflow execution.
 
-use sqlx::Row;
+use sqlx::{Postgres, QueryBuilder, Row};
 use tracing::debug;
 use uuid::Uuid;
 
@@ -13,8 +13,8 @@ use crate::completion::{CompletionPlan, CompletionResult};
 use chrono::{DateTime, Utc};
 
 use super::{
-    ActionId, CompletionRecord, Database, DbError, DbResult, LoopState, NewAction, QueuedAction,
-    ReadinessResult, ScheduleId, ScheduleType, WorkerStatusUpdate, WorkflowInstance,
+    ActionId, BackoffKind, CompletionRecord, Database, DbError, DbResult, LoopState, NewAction,
+    QueuedAction, ReadinessResult, ScheduleId, ScheduleType, WorkerStatusUpdate, WorkflowInstance,
     WorkflowInstanceId, WorkflowSchedule, WorkflowVersion, WorkflowVersionId,
 };
 
@@ -1147,22 +1147,20 @@ impl Database {
     ) -> DbResult<ReadinessResult> {
         let mut tx = self.pool.begin().await?;
 
-        // Write all inbox entries
-        for (target_node_id, variable_name, value, source_node_id, spread_index) in inbox_writes {
-            sqlx::query(
-                r#"
-                INSERT INTO node_inputs (instance_id, target_node_id, variable_name, value, source_node_id, spread_index)
-                VALUES ($1, $2, $3, $4, $5, $6)
-                "#,
-            )
-            .bind(instance_id.0)
-            .bind(target_node_id)
-            .bind(variable_name)
-            .bind(value)
-            .bind(source_node_id)
-            .bind(spread_index)
-            .execute(&mut *tx)
-            .await?;
+        // Write all inbox entries in a single insert.
+        if !inbox_writes.is_empty() {
+            let mut builder = QueryBuilder::<Postgres>::new(
+                "INSERT INTO node_inputs (instance_id, target_node_id, variable_name, value, source_node_id, spread_index)",
+            );
+            builder.push_values(inbox_writes, |mut row, write| {
+                row.push_bind(instance_id.0)
+                    .push_bind(&write.0)
+                    .push_bind(&write.1)
+                    .push_bind(&write.2)
+                    .push_bind(&write.3)
+                    .push_bind(write.4);
+            });
+            builder.build().execute(&mut *tx).await?;
         }
 
         // Atomically increment readiness counter (init-on-first-use)
@@ -1560,21 +1558,20 @@ impl Database {
                     "DB writing __loop_loop_8_i to inbox"
                 );
             }
-            sqlx::query(
-                r#"
-                INSERT INTO node_inputs
-                    (instance_id, target_node_id, variable_name, value, source_node_id, spread_index)
-                VALUES ($1, $2, $3, $4, $5, $6)
-                "#,
-            )
-            .bind(instance_id.0)
-            .bind(&write.target_node_id)
-            .bind(&write.variable_name)
-            .bind(write.value.to_json())
-            .bind(&write.source_node_id)
-            .bind(write.spread_index)
-            .execute(&mut *tx)
-            .await?;
+        }
+        if !plan.inbox_writes.is_empty() {
+            let mut builder = QueryBuilder::<Postgres>::new(
+                "INSERT INTO node_inputs (instance_id, target_node_id, variable_name, value, source_node_id, spread_index)",
+            );
+            builder.push_values(&plan.inbox_writes, |mut row, write| {
+                row.push_bind(instance_id.0)
+                    .push_bind(&write.target_node_id)
+                    .push_bind(&write.variable_name)
+                    .push_bind(write.value.to_json())
+                    .push_bind(&write.source_node_id)
+                    .push_bind(write.spread_index);
+            });
+            builder.build().execute(&mut *tx).await?;
         }
 
         // 2.5. Reset readiness for loop re-triggering (before increments)
@@ -1610,6 +1607,22 @@ impl Database {
             .execute(&mut *tx)
             .await?;
         }
+
+        #[derive(Debug)]
+        struct PendingEnqueue {
+            node_id: String,
+            module_name: String,
+            action_name: String,
+            dispatch_payload: Vec<u8>,
+            timeout_seconds: i32,
+            max_retries: i32,
+            backoff_kind: BackoffKind,
+            backoff_base_delay_ms: i32,
+            node_type: crate::completion::NodeType,
+            scheduled_at: Option<DateTime<Utc>>,
+        }
+
+        let mut pending_enqueues: Vec<PendingEnqueue> = Vec::new();
 
         // 3. Increment readiness for frontier nodes, enqueue if ready
         for increment in &plan.readiness_increments {
@@ -1652,100 +1665,92 @@ impl Database {
 
             // If this increment made the node ready, enqueue it
             if is_immediately_ready {
-                // Get the next action_seq for this instance
-                let seq_row = sqlx::query(
-                    r#"
-                    UPDATE workflow_instances
-                    SET next_action_seq = next_action_seq + 1
-                    WHERE id = $1
-                    RETURNING next_action_seq - 1
-                    "#,
-                )
-                .bind(instance_id.0)
-                .fetch_one(&mut *tx)
-                .await?;
-                let action_seq: i32 = seq_row.get(0);
-
-                // Enqueue the node based on its type
-                sqlx::query(
-                    r#"
-                    INSERT INTO action_queue
-                        (instance_id, action_seq, module_name, action_name,
-                         dispatch_payload, timeout_seconds, max_retries,
-                         backoff_kind, backoff_base_delay_ms, node_id, node_type,
-                         scheduled_at, priority)
-                    SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, COALESCE($12, NOW()), wi.priority
-                    FROM workflow_instances wi
-                    WHERE wi.id = $1
-                    "#,
-                )
-                .bind(instance_id.0)
-                .bind(action_seq)
-                .bind(increment.module_name.as_deref().unwrap_or("__internal__"))
-                .bind(increment.action_name.as_deref().unwrap_or("__barrier__"))
-                .bind(increment.dispatch_payload.as_deref().unwrap_or(&[]))
-                .bind(increment.timeout_seconds)
-                .bind(increment.max_retries)
-                .bind(increment.backoff_kind.as_str())
-                .bind(increment.backoff_base_delay_ms)
-                .bind(&increment.node_id)
-                .bind(increment.node_type.as_str())
-                .bind(increment.scheduled_at)
-                .execute(&mut *tx)
-                .await?;
-
-                result.newly_ready_nodes.push(increment.node_id.clone());
+                pending_enqueues.push(PendingEnqueue {
+                    node_id: increment.node_id.clone(),
+                    module_name: increment
+                        .module_name
+                        .clone()
+                        .unwrap_or_else(|| "__internal__".to_string()),
+                    action_name: increment
+                        .action_name
+                        .clone()
+                        .unwrap_or_else(|| "__barrier__".to_string()),
+                    dispatch_payload: increment.dispatch_payload.clone().unwrap_or_default(),
+                    timeout_seconds: increment.timeout_seconds,
+                    max_retries: increment.max_retries,
+                    backoff_kind: increment.backoff_kind,
+                    backoff_base_delay_ms: increment.backoff_base_delay_ms,
+                    node_type: increment.node_type,
+                    scheduled_at: increment.scheduled_at,
+                });
 
                 debug!(
                     node_id = %increment.node_id,
                     node_type = %increment.node_type.as_str(),
-                    action_seq = action_seq,
-                    "enqueued ready node"
+                    "ready node scheduled for enqueue"
                 );
             }
         }
 
         // 3.5. Enqueue barriers directly (no readiness tracking)
         for node_id in &plan.barrier_enqueues {
-            let seq_row = sqlx::query(
+            pending_enqueues.push(PendingEnqueue {
+                node_id: node_id.clone(),
+                module_name: "__internal__".to_string(),
+                action_name: "__barrier__".to_string(),
+                dispatch_payload: Vec::new(),
+                timeout_seconds: 300,
+                max_retries: 3,
+                backoff_kind: BackoffKind::Exponential,
+                backoff_base_delay_ms: 1000,
+                node_type: crate::completion::NodeType::Barrier,
+                scheduled_at: Some(Utc::now()),
+            });
+        }
+
+        if !pending_enqueues.is_empty() {
+            let row = sqlx::query(
                 r#"
                 UPDATE workflow_instances
-                SET next_action_seq = next_action_seq + 1
+                SET next_action_seq = next_action_seq + $2
                 WHERE id = $1
-                RETURNING next_action_seq - 1
+                RETURNING next_action_seq - $2, priority
                 "#,
             )
             .bind(instance_id.0)
+            .bind(pending_enqueues.len() as i32)
             .fetch_one(&mut *tx)
             .await?;
-            let action_seq: i32 = seq_row.get(0);
+            let mut next_action_seq: i32 = row.get(0);
+            let priority: i32 = row.get(1);
+            let default_scheduled_at = Utc::now();
 
-            sqlx::query(
-                r#"
-                INSERT INTO action_queue
-                    (instance_id, action_seq, module_name, action_name,
-                     dispatch_payload, timeout_seconds, max_retries,
-                     backoff_kind, backoff_base_delay_ms, node_id, node_type,
-                     scheduled_at, priority)
-                SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'barrier', NOW(), wi.priority
-                FROM workflow_instances wi
-                WHERE wi.id = $1
-                "#,
-            )
-            .bind(instance_id.0)
-            .bind(action_seq)
-            .bind("__internal__")
-            .bind("__barrier__")
-            .bind(Vec::<u8>::new())
-            .bind(300)
-            .bind(3)
-            .bind("exponential")
-            .bind(1000)
-            .bind(node_id)
-            .execute(&mut *tx)
-            .await?;
+            let mut builder = QueryBuilder::<Postgres>::new(
+                "INSERT INTO action_queue (instance_id, action_seq, module_name, action_name, dispatch_payload, timeout_seconds, max_retries, backoff_kind, backoff_base_delay_ms, node_id, node_type, scheduled_at, priority)",
+            );
+            builder.push_values(&pending_enqueues, |mut row, enqueue| {
+                let action_seq = next_action_seq;
+                next_action_seq += 1;
+                let scheduled_at = enqueue.scheduled_at.unwrap_or(default_scheduled_at);
+                row.push_bind(instance_id.0)
+                    .push_bind(action_seq)
+                    .push_bind(&enqueue.module_name)
+                    .push_bind(&enqueue.action_name)
+                    .push_bind(&enqueue.dispatch_payload)
+                    .push_bind(enqueue.timeout_seconds)
+                    .push_bind(enqueue.max_retries)
+                    .push_bind(enqueue.backoff_kind.as_str())
+                    .push_bind(enqueue.backoff_base_delay_ms)
+                    .push_bind(&enqueue.node_id)
+                    .push_bind(enqueue.node_type.as_str())
+                    .push_bind(scheduled_at)
+                    .push_bind(priority);
+            });
+            builder.build().execute(&mut *tx).await?;
 
-            result.newly_ready_nodes.push(node_id.clone());
+            for enqueue in &pending_enqueues {
+                result.newly_ready_nodes.push(enqueue.node_id.clone());
+            }
         }
 
         // 4. Complete workflow instance if output node was reached
