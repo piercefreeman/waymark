@@ -233,9 +233,11 @@ impl Database {
             INSERT INTO action_queue (
                 instance_id, action_seq, module_name, action_name,
                 dispatch_payload, timeout_seconds, max_retries,
-                backoff_kind, backoff_base_delay_ms, node_id, node_type
+                backoff_kind, backoff_base_delay_ms, node_id, node_type, priority
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11, 'action'))
+            SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11, 'action'), wi.priority
+            FROM workflow_instances wi
+            WHERE wi.id = $1
             RETURNING id
             "#,
         )
@@ -267,20 +269,18 @@ impl Database {
     /// 5. Creates action log entries for tracking run history
     /// 6. Returns the actions for execution
     ///
-    /// Actions are ordered by their workflow instance's priority (higher first),
-    /// then by scheduled_at, then by action_seq.
+    /// Actions are ordered by priority (higher first), then by scheduled_at, then by action_seq.
     pub async fn dispatch_actions(&self, limit: i32) -> DbResult<Vec<QueuedAction>> {
         let start = std::time::Instant::now();
         let rows = sqlx::query(
             r#"
             WITH next_actions AS (
-                SELECT aq.id
-                FROM action_queue aq
-                JOIN workflow_instances wi ON wi.id = aq.instance_id
-                WHERE aq.status = 'queued'
-                  AND aq.scheduled_at <= NOW()
-                ORDER BY wi.priority DESC, aq.scheduled_at, aq.action_seq
-                FOR UPDATE OF aq SKIP LOCKED
+                SELECT id
+                FROM action_queue
+                WHERE status = 'queued'
+                  AND scheduled_at <= NOW()
+                ORDER BY priority DESC, scheduled_at, action_seq
+                FOR UPDATE SKIP LOCKED
                 LIMIT $1
             ),
             updated AS (
@@ -379,19 +379,18 @@ impl Database {
 
     /// Dispatch only action nodes (not barriers).
     /// Use this when you want to send work to external workers only.
-    /// Orders by workflow instance priority (higher first).
+    /// Orders by priority (higher first).
     pub async fn dispatch_actions_only(&self, limit: i32) -> DbResult<Vec<QueuedAction>> {
         let rows = sqlx::query(
             r#"
             WITH next_actions AS (
-                SELECT aq.id
-                FROM action_queue aq
-                JOIN workflow_instances wi ON wi.id = aq.instance_id
-                WHERE aq.status = 'queued'
-                  AND aq.scheduled_at <= NOW()
-                  AND (aq.node_type = 'action' OR aq.node_type IS NULL)
-                ORDER BY wi.priority DESC, aq.scheduled_at, aq.action_seq
-                FOR UPDATE OF aq SKIP LOCKED
+                SELECT id
+                FROM action_queue
+                WHERE status = 'queued'
+                  AND scheduled_at <= NOW()
+                  AND (node_type = 'action' OR node_type IS NULL)
+                ORDER BY priority DESC, scheduled_at, action_seq
+                FOR UPDATE SKIP LOCKED
                 LIMIT $1
             ),
             updated AS (
@@ -470,19 +469,18 @@ impl Database {
 
     /// Dispatch only barrier nodes.
     /// Use this when you want to process aggregators separately.
-    /// Orders by workflow instance priority (higher first).
+    /// Orders by priority (higher first).
     pub async fn dispatch_barriers_only(&self, limit: i32) -> DbResult<Vec<QueuedAction>> {
         let rows = sqlx::query(
             r#"
             WITH next_barriers AS (
-                SELECT aq.id
-                FROM action_queue aq
-                JOIN workflow_instances wi ON wi.id = aq.instance_id
-                WHERE aq.status = 'queued'
-                  AND aq.scheduled_at <= NOW()
-                  AND aq.node_type = 'barrier'
-                ORDER BY wi.priority DESC, aq.scheduled_at, aq.action_seq
-                FOR UPDATE OF aq SKIP LOCKED
+                SELECT id
+                FROM action_queue
+                WHERE status = 'queued'
+                  AND scheduled_at <= NOW()
+                  AND node_type = 'barrier'
+                ORDER BY priority DESC, scheduled_at, action_seq
+                FOR UPDATE SKIP LOCKED
                 LIMIT $1
             ),
             updated AS (
@@ -1196,8 +1194,10 @@ impl Database {
                 INSERT INTO action_queue
                     (instance_id, action_seq, module_name, action_name,
                      dispatch_payload, timeout_seconds, max_retries,
-                     backoff_kind, backoff_base_delay_ms, node_id, node_type, scheduled_at)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'barrier', NOW())
+                     backoff_kind, backoff_base_delay_ms, node_id, node_type, scheduled_at, priority)
+                SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'barrier', NOW(), wi.priority
+                FROM workflow_instances wi
+                WHERE wi.id = $1
                 "#,
             )
             .bind(instance_id.0)
@@ -1621,8 +1621,10 @@ impl Database {
                         (instance_id, action_seq, module_name, action_name,
                          dispatch_payload, timeout_seconds, max_retries,
                          backoff_kind, backoff_base_delay_ms, node_id, node_type,
-                         scheduled_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, COALESCE($12, NOW()))
+                         scheduled_at, priority)
+                    SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, COALESCE($12, NOW()), wi.priority
+                    FROM workflow_instances wi
+                    WHERE wi.id = $1
                     "#,
                 )
                 .bind(instance_id.0)
@@ -1672,8 +1674,10 @@ impl Database {
                     (instance_id, action_seq, module_name, action_name,
                      dispatch_payload, timeout_seconds, max_retries,
                      backoff_kind, backoff_base_delay_ms, node_id, node_type,
-                     scheduled_at)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'barrier', NOW())
+                     scheduled_at, priority)
+                SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'barrier', NOW(), wi.priority
+                FROM workflow_instances wi
+                WHERE wi.id = $1
                 "#,
             )
             .bind(instance_id.0)

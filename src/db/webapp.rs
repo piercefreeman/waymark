@@ -49,7 +49,7 @@ impl Database {
             r#"
             SELECT id, partition_id, workflow_name, workflow_version_id,
                    schedule_id, next_action_seq, input_payload, result_payload, status,
-                   created_at, completed_at
+                   created_at, completed_at, priority
             FROM workflow_instances
             WHERE workflow_version_id = $1
             ORDER BY created_at DESC
@@ -136,7 +136,7 @@ impl Database {
             r#"
             SELECT id, partition_id, workflow_name, workflow_version_id,
                    schedule_id, next_action_seq, input_payload, result_payload, status,
-                   created_at, completed_at
+                   created_at, completed_at, priority
             FROM workflow_instances
             WHERE 1=1
             "#,
@@ -164,7 +164,7 @@ impl Database {
             r#"
             SELECT id, partition_id, workflow_name, workflow_version_id,
                    schedule_id, next_action_seq, input_payload, result_payload, status,
-                   created_at, completed_at
+                   created_at, completed_at, priority
             FROM workflow_instances
             WHERE id = $1
             "#,
@@ -442,7 +442,7 @@ impl Database {
             r#"
             SELECT id, partition_id, workflow_name, workflow_version_id,
                    schedule_id, next_action_seq, input_payload, result_payload, status,
-                   created_at, completed_at
+                   created_at, completed_at, priority
             FROM workflow_instances
             WHERE schedule_id = $1
             ORDER BY created_at DESC
