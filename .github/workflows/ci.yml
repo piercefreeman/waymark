@@ -311,7 +311,7 @@ jobs:
       - name: Run benchmarks on PR branch
         env:
           RAPPEL_DATABASE_URL: postgresql://mountaineer:mountaineer@localhost:5432/mountaineer_daemons
-        run: uv run scripts/run_benchmarks.py single --format json --output benchmark-pr.json
+        run: uv run scripts/run_benchmarks.py suite --format json --output benchmark-pr.json
 
       - name: Save benchmark code diff
         run: git diff origin/main -- src/benchmark/ > benchmark-diff.txt || true
@@ -371,7 +371,7 @@ jobs:
       - name: Run benchmarks on main branch
         env:
           RAPPEL_DATABASE_URL: postgresql://mountaineer:mountaineer@localhost:5432/mountaineer_daemons
-        run: uv run scripts/run_benchmarks.py single --format json --output benchmark-main.json
+        run: uv run scripts/run_benchmarks.py suite --format json --output benchmark-main.json
 
       - name: Upload main benchmark results
         uses: actions/upload-artifact@v4
