@@ -1051,8 +1051,8 @@ mod tests {
 
         // Verify workers have sequential IDs
         let workers = pool.workers_snapshot().await;
-        assert_eq!(workers[0].worker_id(), 1);
-        assert_eq!(workers[1].worker_id(), 2);
+        assert_eq!(workers[0].worker_id(), 0);
+        assert_eq!(workers[1].worker_id(), 1);
 
         pool.shutdown().await.expect("shutdown pool");
         bridge.shutdown().await;
@@ -1079,10 +1079,10 @@ mod tests {
         let w3 = pool.get_worker(idx3).await;
         let w4 = pool.get_worker(idx4).await;
 
-        assert_eq!(w1.worker_id(), 1);
-        assert_eq!(w2.worker_id(), 2);
-        assert_eq!(w3.worker_id(), 3);
-        assert_eq!(w4.worker_id(), 1); // Wrapped
+        assert_eq!(w1.worker_id(), 0);
+        assert_eq!(w2.worker_id(), 1);
+        assert_eq!(w3.worker_id(), 2);
+        assert_eq!(w4.worker_id(), 0); // Wrapped
 
         pool.shutdown().await.expect("shutdown pool");
         bridge.shutdown().await;
@@ -1178,7 +1178,7 @@ mod tests {
     #[test]
     fn test_worker_throughput_tracker_window() {
         let base_wall = Utc::now();
-        let mut tracker = WorkerThroughputTracker::new(vec![1, 2], Duration::from_secs(60));
+        let mut tracker = WorkerThroughputTracker::new(vec![0, 1], Duration::from_secs(60));
         let base = Instant::now();
 
         tracker.record_completion_at(0, base, base_wall);
@@ -1189,12 +1189,12 @@ mod tests {
         let snapshots = tracker.snapshot_at(base + Duration::from_secs(70));
         let worker_one = snapshots
             .iter()
-            .find(|snapshot| snapshot.worker_id == 1)
-            .expect("worker one snapshot");
+            .find(|snapshot| snapshot.worker_id == 0)
+            .expect("worker zero snapshot");
         let worker_two = snapshots
             .iter()
-            .find(|snapshot| snapshot.worker_id == 2)
-            .expect("worker two snapshot");
+            .find(|snapshot| snapshot.worker_id == 1)
+            .expect("worker one snapshot");
 
         assert_eq!(worker_one.total_completed, 4);
         assert!((worker_one.throughput_per_min - 3.0).abs() < 0.001);
@@ -1220,7 +1220,7 @@ mod tests {
 
         // Get initial worker ID
         let initial_worker_id = pool.get_worker(0).await.worker_id();
-        assert_eq!(initial_worker_id, 1);
+        assert_eq!(initial_worker_id, 0);
 
         // Send first action - count becomes 1
         let dispatch1 = ActionDispatchPayload {
@@ -1278,8 +1278,8 @@ mod tests {
             "Worker should have been recycled after reaching lifecycle limit"
         );
 
-        // The new worker should have ID 2 (second worker spawned)
-        assert_eq!(worker_id_after_recycle, 2);
+        // The new worker should have ID 1 (second worker spawned)
+        assert_eq!(worker_id_after_recycle, 1);
 
         // Verify the new worker works correctly
         let dispatch3 = ActionDispatchPayload {

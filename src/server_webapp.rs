@@ -2072,7 +2072,7 @@ mod tests {
         let templates = test_templates();
         let statuses = vec![crate::db::WorkerStatus {
             pool_id: Uuid::new_v4(),
-            worker_id: 1,
+            worker_id: 0,
             throughput_per_min: 2.5,
             total_completed: 42,
             last_action_at: Some(chrono::Utc::now()),

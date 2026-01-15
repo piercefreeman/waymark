@@ -258,7 +258,7 @@ impl WorkerBridgeServer {
         Ok(Arc::new(Self {
             addr,
             state,
-            next_worker_id: AtomicU64::new(1),
+            next_worker_id: AtomicU64::new(0),
             shutdown_tx: Mutex::new(Some(shutdown_tx)),
             server_handle: Mutex::new(Some(server)),
         }))
@@ -317,9 +317,9 @@ mod tests {
         let (id1, _) = server.reserve_worker().await;
         let (id2, _) = server.reserve_worker().await;
         let (id3, _) = server.reserve_worker().await;
-        assert_eq!(id1, 1);
-        assert_eq!(id2, 2);
-        assert_eq!(id3, 3);
+        assert_eq!(id1, 0);
+        assert_eq!(id2, 1);
+        assert_eq!(id3, 2);
         server.shutdown().await;
     }
 }

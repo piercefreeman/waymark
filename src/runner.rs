@@ -459,6 +459,8 @@ pub struct InFlightAction {
     pub action: QueuedAction,
     /// Worker index handling this action
     pub worker_idx: usize,
+    /// Worker ID handling this action
+    pub worker_id: u64,
     /// When dispatch started
     pub dispatched_at: Instant,
 }
@@ -537,7 +539,7 @@ impl InFlightTracker {
     }
 
     /// Add an action to tracking.
-    pub fn add(&mut self, action: QueuedAction, worker_idx: usize) {
+    pub fn add(&mut self, action: QueuedAction, worker_idx: usize, worker_id: u64) {
         if action.timeout_seconds > 0 {
             let deadline = Instant::now() + Duration::from_secs(action.timeout_seconds as u64);
             self.timeouts.insert(action.delivery_token, deadline);
@@ -548,6 +550,7 @@ impl InFlightTracker {
             InFlightAction {
                 action,
                 worker_idx,
+                worker_id,
                 dispatched_at: Instant::now(),
             },
         );
@@ -1025,12 +1028,6 @@ impl WorkQueueHandler {
             }
         };
 
-        // Track in-flight
-        {
-            let mut in_flight = self.in_flight.lock().await;
-            in_flight.add(action.clone(), worker_idx);
-        }
-
         // Build dispatch payload - convert JSON to WorkflowArguments
         let kwargs = json_bytes_to_workflow_args(&action.dispatch_payload);
 
@@ -1049,6 +1046,13 @@ impl WorkQueueHandler {
 
         // Get worker and send
         let worker = self.worker_pool.get_worker(worker_idx).await;
+        let worker_id = worker.worker_id();
+
+        // Track in-flight
+        {
+            let mut in_flight = self.in_flight.lock().await;
+            in_flight.add(action.clone(), worker_idx, worker_id);
+        }
         let delivery_token = action.delivery_token;
         let in_flight_tracker = Arc::clone(&self.in_flight);
         let slot_tracker = Arc::clone(&self.slot_tracker);
@@ -2163,7 +2167,7 @@ impl DAGRunner {
                     let instance_id = in_flight.action.instance_id;
                     // Capture worker tracking info for action logs
                     let pool_id = self.work_handler.worker_pool_id();
-                    let worker_id = in_flight.worker_idx as i64;
+                    let worker_id = in_flight.worker_id as i64;
                     let runner_metrics = self.metrics.clone();
 
                     tokio::spawn(async move {
@@ -4889,7 +4893,7 @@ mod tests {
             last_error: None,
         };
 
-        tracker.add(action.clone(), 0);
+        tracker.add(action.clone(), 0, 1);
         assert_eq!(tracker.count(), 1);
 
         let timed_out = tracker.take_timed_out(Instant::now() + Duration::from_secs(31));
