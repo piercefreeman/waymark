@@ -81,7 +81,8 @@ pub use ast_evaluator::{EvaluationError, EvaluationResult, ExpressionEvaluator, 
 // Runner
 pub use runner::{
     CompletionBatch, DAGRunner, InFlightTracker, InboxWrite, RunnerConfig, RunnerError,
-    RunnerResult, WorkCompletionHandler, WorkQueueHandler, WorkerSlotTracker,
+    RunnerMetricsSnapshot, RunnerResult, WorkCompletionHandler, WorkQueueHandler,
+    WorkerSlotTracker,
 };
 
 // Completion (unified readiness model)

@@ -996,10 +996,12 @@ fn render_workflow_run_page(
         result_payload: format_payload(&instance.result_payload),
     };
 
-    // Build nodes from action_queue if available, otherwise from action_logs
-    // (completed actions are deleted from action_queue but kept in action_logs)
-    let nodes: Vec<NodeExecutionContext> = if !actions.is_empty() {
-        // Build from action_queue (active/in-progress workflows)
+    // Build nodes from action_queue if available, otherwise from action_logs.
+    // Completed/failed instances prefer logs for full attempt history.
+    let use_logs =
+        matches!(instance.status.as_str(), "completed" | "failed") && !action_logs.is_empty();
+    let nodes: Vec<NodeExecutionContext> = if !use_logs && !actions.is_empty() {
+        // Build from action_queue (active/in-progress workflows or recent completions)
         actions
             .iter()
             .map(|a| NodeExecutionContext {
@@ -1025,7 +1027,7 @@ fn render_workflow_run_page(
             })
             .collect()
     } else {
-        // Build from action_logs (completed workflows where actions were deleted)
+        // Build from action_logs (completed workflows or when queue is empty)
         // Group by action_id to get the latest attempt for each action
         let mut latest_by_action: std::collections::HashMap<String, &crate::db::ActionLog> =
             std::collections::HashMap::new();

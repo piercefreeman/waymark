@@ -211,6 +211,34 @@ async def compute_hash_for_index(index: int, complexity: int) -> str:
 
 
 @action
+async def noop_int(value: int) -> int:
+    """Return the input value without extra work."""
+    return value
+
+
+@action
+async def noop_tag(value: int, tag: str) -> dict[str, Any]:
+    """Tag a value without extra work."""
+    return {"value": value, "tag": tag}
+
+
+@action
+async def noop_tag_from_value(value: int) -> dict[str, Any]:
+    """Tag a value based on parity without extra work."""
+    if value % 2 == 0:
+        tag = "even"
+    else:
+        tag = "odd"
+    return {"value": value, "tag": tag}
+
+
+@action
+async def noop_combine(items: list[dict[str, Any]]) -> dict[str, Any]:
+    """Summarize items with minimal work."""
+    return {"count": len(items)}
+
+
+@action
 async def analyze_hash(hash_value: str) -> dict[str, Any]:
     """Analyze a hash and return statistics."""
     # Count leading zeros (simple analysis)
@@ -351,3 +379,50 @@ class BenchmarkPureFanOutWorkflow(Workflow):
             "total_processed": len(hash_results),
             "final_hash": final_hash,
         }
+
+
+@workflow
+class BenchmarkQueueNoopWorkflow(Workflow):
+    """
+    Queue stress benchmark with minimal action work.
+
+    This workflow exercises:
+    1. Fan-out/fan-in barriers
+    2. Sequential loop with conditional branches
+    3. Additional fan-out aggregation
+
+    Args:
+        indices: List of indices to process (determines loop_size)
+        complexity: Accepted for API parity, not used
+    """
+
+    async def run(
+        self,
+        indices: list[int],
+        complexity: int = 0,
+    ) -> dict[str, Any]:
+        _ = complexity
+
+        # Fan-out: noop actions in parallel
+        stage1 = await asyncio.gather(*[
+            noop_int(value=i)
+            for i in indices
+        ])
+
+        # Sequential loop with conditional branch
+        processed = []
+        for value in stage1:
+            if value % 2 == 0:
+                result = await noop_int(value=value)
+            else:
+                result = await noop_int(value=value)
+            processed.append(result)
+
+        # Fan-out: tag values and fan-in summary
+        tagged = await asyncio.gather(*[
+            noop_tag_from_value(value=value)
+            for value in processed
+        ])
+
+        summary = await noop_combine(items=tagged)
+        return summary

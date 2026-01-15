@@ -22,10 +22,11 @@ use tokio::{net::TcpListener, process::Command, sync::oneshot, task::JoinHandle}
 use tokio_stream::wrappers::TcpListenerStream;
 use tonic::transport::Server;
 use tracing::{error, info};
+use tracing_subscriber::prelude::*;
 
 use rappel::{
-    Database, PythonWorkerConfig, PythonWorkerPool, WorkerBridgeServer, WorkflowInstanceId,
-    WorkflowValue, WorkflowVersionId, proto, validate_program,
+    Database, PythonWorkerConfig, PythonWorkerPool, RunnerMetricsSnapshot, WorkerBridgeServer,
+    WorkflowInstanceId, WorkflowValue, WorkflowVersionId, proto, validate_program,
 };
 
 const BENCHMARK_WORKFLOW_MODULE: &str = include_str!("../../tests/fixtures/benchmark_workflow.py");
@@ -43,6 +44,9 @@ enum BenchmarkType {
     /// Pure fan-out - all actions run in parallel
     /// Tests maximum action completion parallelism
     FanOut,
+    /// Queue stress with noop actions and complex control flow
+    /// Tests queueing and result handling overhead
+    QueueNoop,
 }
 
 impl std::fmt::Display for BenchmarkType {
@@ -50,6 +54,7 @@ impl std::fmt::Display for BenchmarkType {
         match self {
             BenchmarkType::ForLoop => write!(f, "for-loop"),
             BenchmarkType::FanOut => write!(f, "fan-out"),
+            BenchmarkType::QueueNoop => write!(f, "queue-noop"),
         }
     }
 }
@@ -92,6 +97,10 @@ struct Args {
     /// Timeout in seconds
     #[arg(long, default_value = "300")]
     timeout: u64,
+
+    /// Write runner metrics to a JSON file (enables metrics collection)
+    #[arg(long)]
+    metrics_json: Option<PathBuf>,
 }
 
 // ============================================================================
@@ -112,6 +121,45 @@ struct BenchmarkOutput {
     avg_round_trip_ms: f64,
     /// P95 round-trip time in milliseconds
     p95_round_trip_ms: f64,
+}
+
+#[derive(Serialize, Debug)]
+struct RunnerMetricsSummary {
+    host: Option<u32>,
+    fetch_and_dispatch_calls: u64,
+    fetch_and_dispatch_total_us: u64,
+    fetch_and_dispatch_avg_us: f64,
+    fetch_and_dispatch_db_us: u64,
+    fetch_and_dispatch_db_avg_us: f64,
+    fetch_and_dispatch_dispatch_us: u64,
+    fetch_and_dispatch_dispatch_avg_us: f64,
+    fetch_and_dispatch_dispatched: u64,
+    fetch_and_dispatch_actions: u64,
+    fetch_and_dispatch_barriers: u64,
+    fetch_and_dispatch_sleeps: u64,
+    start_unstarted_calls: u64,
+    start_unstarted_total_us: u64,
+    start_unstarted_avg_us: f64,
+    start_unstarted_instances: u64,
+    process_completion_calls: u64,
+    process_completion_total_us: u64,
+    process_completion_avg_us: f64,
+    process_completion_subgraph_us: u64,
+    process_completion_subgraph_avg_us: f64,
+    process_completion_inbox_us: u64,
+    process_completion_inbox_avg_us: f64,
+    process_completion_inline_us: u64,
+    process_completion_inline_avg_us: f64,
+    process_completion_db_us: u64,
+    process_completion_db_avg_us: f64,
+    process_completion_newly_ready: u64,
+    process_completion_workflow_completed: u64,
+}
+
+#[derive(Serialize, Debug)]
+struct RunnerMetricsReport {
+    total: RunnerMetricsSummary,
+    per_host: Vec<RunnerMetricsSummary>,
 }
 
 // ============================================================================
@@ -265,6 +313,7 @@ async fn setup_python_env(
     let (workflow_class, workflow_name) = match benchmark_type {
         BenchmarkType::ForLoop => ("BenchmarkFanOutWorkflow", "benchmarkfanoutworkflow"),
         BenchmarkType::FanOut => ("BenchmarkPureFanOutWorkflow", "benchmarkpurefanoutworkflow"),
+        BenchmarkType::QueueNoop => ("BenchmarkQueueNoopWorkflow", "benchmarkqueuenoopworkflow"),
     };
 
     let register_script = format!(
@@ -328,6 +377,9 @@ dependencies = [
         ("PYTHONPATH", pythonpath),
         ("RAPPEL_SERVER_PORT", "9999".to_string()),
         ("RAPPEL_GRPC_ADDR", grpc_addr.to_string()),
+        ("RAPPEL_BRIDGE_GRPC_ADDR", grpc_addr.to_string()),
+        ("RAPPEL_BRIDGE_GRPC_HOST", grpc_addr.ip().to_string()),
+        ("RAPPEL_BRIDGE_GRPC_PORT", grpc_addr.port().to_string()),
         ("RAPPEL_SKIP_WAIT_FOR_INSTANCE", "1".to_string()),
     ];
 
@@ -379,11 +431,10 @@ async fn run_shell_with_env(
 /// Returns action count and metrics collection.
 async fn wait_for_completion(
     database: &Arc<Database>,
-    instance_ids: &[rappel::WorkflowInstanceId],
+    expected_count: u64,
     timeout: Duration,
 ) -> Result<u64> {
     let start = std::time::Instant::now();
-    let expected_count = instance_ids.len();
     let mut last_log = std::time::Instant::now();
 
     loop {
@@ -399,12 +450,13 @@ async fn wait_for_completion(
         .fetch_one(database.pool())
         .await?;
 
-        if completed as usize >= expected_count {
+        if completed as u64 >= expected_count {
             // All instances finished - get final action count
-            let action_count: i64 =
-                sqlx::query_scalar("SELECT COUNT(*) FROM action_queue WHERE status = 'completed'")
-                    .fetch_one(database.pool())
-                    .await?;
+            let action_count: i64 = sqlx::query_scalar(
+                "SELECT (SELECT COUNT(*) FROM action_logs) + (SELECT COUNT(*) FROM action_log_queue) + (SELECT COUNT(*) FROM action_queue WHERE status = 'completed')",
+            )
+            .fetch_one(database.pool())
+            .await?;
 
             // Check for failures
             let failed: i64 = sqlx::query_scalar(
@@ -431,11 +483,12 @@ async fn wait_for_completion(
         }
 
         if last_log.elapsed() > Duration::from_secs(1) {
-            let completed_actions: i64 =
-                sqlx::query_scalar("SELECT COUNT(*) FROM action_queue WHERE status = 'completed'")
-                    .fetch_one(database.pool())
-                    .await
-                    .unwrap_or(0);
+            let completed_actions: i64 = sqlx::query_scalar(
+                "SELECT (SELECT COUNT(*) FROM action_logs) + (SELECT COUNT(*) FROM action_log_queue) + (SELECT COUNT(*) FROM action_queue WHERE status = 'completed')",
+            )
+            .fetch_one(database.pool())
+            .await
+            .unwrap_or(0);
             info!(
                 completed_instances = completed,
                 total_instances = expected_count,
@@ -449,11 +502,114 @@ async fn wait_for_completion(
     }
 
     // Timeout - return what we have
-    let action_count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM action_queue WHERE status = 'completed'")
-            .fetch_one(database.pool())
-            .await?;
+    let action_count: i64 = sqlx::query_scalar(
+        "SELECT (SELECT COUNT(*) FROM action_logs) + (SELECT COUNT(*) FROM action_log_queue) + (SELECT COUNT(*) FROM action_queue WHERE status = 'completed')",
+    )
+    .fetch_one(database.pool())
+    .await?;
     Ok(action_count as u64)
+}
+
+fn build_input_payload(inputs: &HashMap<String, WorkflowValue>) -> Vec<u8> {
+    let arguments = inputs
+        .iter()
+        .map(|(key, value)| proto::WorkflowArgument {
+            key: key.clone(),
+            value: Some(value.to_proto()),
+        })
+        .collect();
+    proto::WorkflowArguments { arguments }.encode_to_vec()
+}
+
+fn avg_us(total_us: u64, count: u64) -> f64 {
+    if count == 0 {
+        0.0
+    } else {
+        total_us as f64 / count as f64
+    }
+}
+
+fn summarize_metrics(snapshot: &RunnerMetricsSnapshot, host: Option<u32>) -> RunnerMetricsSummary {
+    RunnerMetricsSummary {
+        host,
+        fetch_and_dispatch_calls: snapshot.fetch_and_dispatch_calls,
+        fetch_and_dispatch_total_us: snapshot.fetch_and_dispatch_total_us,
+        fetch_and_dispatch_avg_us: avg_us(
+            snapshot.fetch_and_dispatch_total_us,
+            snapshot.fetch_and_dispatch_calls,
+        ),
+        fetch_and_dispatch_db_us: snapshot.fetch_and_dispatch_db_us,
+        fetch_and_dispatch_db_avg_us: avg_us(
+            snapshot.fetch_and_dispatch_db_us,
+            snapshot.fetch_and_dispatch_calls,
+        ),
+        fetch_and_dispatch_dispatch_us: snapshot.fetch_and_dispatch_dispatch_us,
+        fetch_and_dispatch_dispatch_avg_us: avg_us(
+            snapshot.fetch_and_dispatch_dispatch_us,
+            snapshot.fetch_and_dispatch_calls,
+        ),
+        fetch_and_dispatch_dispatched: snapshot.fetch_and_dispatch_dispatched,
+        fetch_and_dispatch_actions: snapshot.fetch_and_dispatch_actions,
+        fetch_and_dispatch_barriers: snapshot.fetch_and_dispatch_barriers,
+        fetch_and_dispatch_sleeps: snapshot.fetch_and_dispatch_sleeps,
+        start_unstarted_calls: snapshot.start_unstarted_calls,
+        start_unstarted_total_us: snapshot.start_unstarted_total_us,
+        start_unstarted_avg_us: avg_us(
+            snapshot.start_unstarted_total_us,
+            snapshot.start_unstarted_calls,
+        ),
+        start_unstarted_instances: snapshot.start_unstarted_instances,
+        process_completion_calls: snapshot.process_completion_calls,
+        process_completion_total_us: snapshot.process_completion_total_us,
+        process_completion_avg_us: avg_us(
+            snapshot.process_completion_total_us,
+            snapshot.process_completion_calls,
+        ),
+        process_completion_subgraph_us: snapshot.process_completion_subgraph_us,
+        process_completion_subgraph_avg_us: avg_us(
+            snapshot.process_completion_subgraph_us,
+            snapshot.process_completion_calls,
+        ),
+        process_completion_inbox_us: snapshot.process_completion_inbox_us,
+        process_completion_inbox_avg_us: avg_us(
+            snapshot.process_completion_inbox_us,
+            snapshot.process_completion_calls,
+        ),
+        process_completion_inline_us: snapshot.process_completion_inline_us,
+        process_completion_inline_avg_us: avg_us(
+            snapshot.process_completion_inline_us,
+            snapshot.process_completion_calls,
+        ),
+        process_completion_db_us: snapshot.process_completion_db_us,
+        process_completion_db_avg_us: avg_us(
+            snapshot.process_completion_db_us,
+            snapshot.process_completion_calls,
+        ),
+        process_completion_newly_ready: snapshot.process_completion_newly_ready,
+        process_completion_workflow_completed: snapshot.process_completion_workflow_completed,
+    }
+}
+
+fn merge_metrics(acc: &mut RunnerMetricsSnapshot, next: &RunnerMetricsSnapshot) {
+    acc.fetch_and_dispatch_calls += next.fetch_and_dispatch_calls;
+    acc.fetch_and_dispatch_total_us += next.fetch_and_dispatch_total_us;
+    acc.fetch_and_dispatch_db_us += next.fetch_and_dispatch_db_us;
+    acc.fetch_and_dispatch_dispatch_us += next.fetch_and_dispatch_dispatch_us;
+    acc.fetch_and_dispatch_dispatched += next.fetch_and_dispatch_dispatched;
+    acc.fetch_and_dispatch_actions += next.fetch_and_dispatch_actions;
+    acc.fetch_and_dispatch_barriers += next.fetch_and_dispatch_barriers;
+    acc.fetch_and_dispatch_sleeps += next.fetch_and_dispatch_sleeps;
+    acc.start_unstarted_calls += next.start_unstarted_calls;
+    acc.start_unstarted_total_us += next.start_unstarted_total_us;
+    acc.start_unstarted_instances += next.start_unstarted_instances;
+    acc.process_completion_calls += next.process_completion_calls;
+    acc.process_completion_total_us += next.process_completion_total_us;
+    acc.process_completion_subgraph_us += next.process_completion_subgraph_us;
+    acc.process_completion_inbox_us += next.process_completion_inbox_us;
+    acc.process_completion_inline_us += next.process_completion_inline_us;
+    acc.process_completion_db_us += next.process_completion_db_us;
+    acc.process_completion_newly_ready += next.process_completion_newly_ready;
+    acc.process_completion_workflow_completed += next.process_completion_workflow_completed;
 }
 
 // ============================================================================
@@ -465,15 +621,35 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     // Initialize logging - respects RUST_LOG env var for filtering
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive("hyper=warn".parse().unwrap())
-                .add_directive("h2=warn".parse().unwrap())
-                .add_directive("tower=warn".parse().unwrap())
-                .add_directive("tonic=warn".parse().unwrap()),
-        )
-        .init();
+    let _trace_guard = if let Ok(trace_path) = env::var("RAPPEL_TRACE_FILE") {
+        let (chrome_layer, guard) = tracing_chrome::ChromeLayerBuilder::new()
+            .file(trace_path)
+            .build();
+        tracing_subscriber::registry()
+            .with(
+                tracing_subscriber::EnvFilter::from_default_env()
+                    .add_directive("hyper=warn".parse().unwrap())
+                    .add_directive("h2=warn".parse().unwrap())
+                    .add_directive("tower=warn".parse().unwrap())
+                    .add_directive("tonic=warn".parse().unwrap()),
+            )
+            .with(tracing_subscriber::fmt::layer())
+            .with(chrome_layer)
+            .try_init()?;
+        Some(guard)
+    } else {
+        tracing_subscriber::registry()
+            .with(
+                tracing_subscriber::EnvFilter::from_default_env()
+                    .add_directive("hyper=warn".parse().unwrap())
+                    .add_directive("h2=warn".parse().unwrap())
+                    .add_directive("tower=warn".parse().unwrap())
+                    .add_directive("tonic=warn".parse().unwrap()),
+            )
+            .with(tracing_subscriber::fmt::layer())
+            .try_init()?;
+        None
+    };
 
     // Connect to database
     let database_url = env::var("RAPPEL_DATABASE_URL").unwrap_or_else(|_| {
@@ -484,7 +660,9 @@ async fn main() -> Result<()> {
     info!(%database_url, pool_size, "database connected");
 
     // Clean up database
-    sqlx::query("TRUNCATE action_queue, instance_context, loop_state, workflow_instances, workflow_versions CASCADE")
+    sqlx::query(
+        "TRUNCATE action_log_queue, action_logs, action_queue, instance_context, loop_state, workflow_instances, workflow_versions CASCADE",
+    )
         .execute(database.pool())
         .await?;
 
@@ -525,25 +703,6 @@ async fn main() -> Result<()> {
         .map(|i| WorkflowInstanceId(i.id))
         .context("no instance found")?;
 
-    // Create additional instances if requested
-    let mut instance_ids = vec![first_instance_id];
-    for _ in 1..args.instances {
-        let instance_id = database
-            .create_instance(&workflow_name, version_id, None, None)
-            .await?;
-        instance_ids.push(instance_id);
-    }
-    info!(count = instance_ids.len(), "workflow instances created");
-
-    // Common worker configuration
-    let worker_script = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("python")
-        .join(".venv")
-        .join("bin")
-        .join("rappel-worker");
-
-    let python_env_path = python_env.path().to_path_buf();
-
     // Prepare initial inputs for the workflow
     let mut initial_inputs = HashMap::new();
     let indices: Vec<serde_json::Value> = (0..args.loop_size)
@@ -559,6 +718,52 @@ async fn main() -> Result<()> {
         .iter()
         .map(|(key, value)| (key.clone(), WorkflowValue::from_json(value)))
         .collect();
+
+    let input_payload = build_input_payload(&workflow_inputs);
+
+    if args.instances == 0 {
+        return Err(anyhow!("instances must be >= 1"));
+    }
+
+    sqlx::query("UPDATE workflow_instances SET input_payload = $1 WHERE id = $2")
+        .bind(input_payload.as_slice())
+        .bind(first_instance_id.0)
+        .execute(database.pool())
+        .await?;
+
+    let extra_instances = i64::from(args.instances) - 1;
+    if extra_instances > 0 {
+        sqlx::query(
+            r#"
+            WITH new_instances AS (
+                INSERT INTO workflow_instances (workflow_name, workflow_version_id, input_payload, schedule_id, priority)
+                SELECT $1, $2, $3, NULL, 0
+                FROM generate_series(1, $4)
+                RETURNING id
+            )
+            INSERT INTO instance_context (instance_id)
+            SELECT id FROM new_instances
+            "#,
+        )
+        .bind(&workflow_name)
+        .bind(version_id.0)
+        .bind(input_payload.as_slice())
+        .bind(extra_instances)
+        .execute(database.pool())
+        .await?;
+    }
+
+    let expected_instances = args.instances as u64;
+    info!(count = expected_instances, "workflow instances created");
+
+    // Common worker configuration
+    let worker_script = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("python")
+        .join(".venv")
+        .join("bin")
+        .join("rappel-worker");
+
+    let python_env_path = python_env.path().to_path_buf();
 
     // Create multiple simulated hosts, each with its own runner + worker pool
     let mut hosts: Vec<(
@@ -587,10 +792,15 @@ async fn main() -> Result<()> {
 
         let runner_config = rappel::RunnerConfig {
             batch_size: 64,
+            enable_metrics: args.metrics_json.is_some(),
             max_slots_per_worker: 10,
             poll_interval_ms: 10,
             timeout_check_interval_ms: 1000,
             timeout_check_batch_size: 100,
+            action_log_flush_interval_ms: 200,
+            action_log_flush_batch_size: 1000,
+            completion_batch_size: 200,
+            completion_flush_interval_ms: 10,
             ..Default::default()
         };
 
@@ -599,15 +809,6 @@ async fn main() -> Result<()> {
             Arc::clone(&database),
             Arc::clone(&worker_pool),
         ));
-
-        // Start instances from the first host only (they'll be picked up by all hosts via DB)
-        if host_id == 0 {
-            for instance_id in &instance_ids {
-                runner
-                    .start_instance(*instance_id, workflow_inputs.clone())
-                    .await?;
-            }
-        }
 
         // Spawn the runner in its own tokio task
         let runner_clone = Arc::clone(&runner);
@@ -627,13 +828,42 @@ async fn main() -> Result<()> {
         total_workers = total_workers,
         "all hosts ready"
     );
-    info!(count = instance_ids.len(), "workflow instances started");
+    info!(count = expected_instances, "workflow instances ready");
 
     // Wait for completion by monitoring workflow instance status
     let timeout = Duration::from_secs(args.timeout);
     let start = Instant::now();
-    let total = wait_for_completion(&database, &instance_ids, timeout).await?;
+    let total = wait_for_completion(&database, expected_instances, timeout).await?;
     let elapsed = start.elapsed();
+
+    if let Some(path) = &args.metrics_json {
+        let mut per_host = Vec::new();
+        let mut total_metrics = RunnerMetricsSnapshot::default();
+        let mut has_metrics = false;
+
+        for (idx, (runner, _, _)) in hosts.iter().enumerate() {
+            if let Some(snapshot) = runner.metrics_snapshot() {
+                per_host.push(summarize_metrics(&snapshot, Some(idx as u32)));
+                if !has_metrics {
+                    total_metrics = snapshot;
+                    has_metrics = true;
+                } else {
+                    merge_metrics(&mut total_metrics, &snapshot);
+                }
+            }
+        }
+
+        if has_metrics {
+            let report = RunnerMetricsReport {
+                total: summarize_metrics(&total_metrics, None),
+                per_host,
+            };
+            fs::write(path, serde_json::to_string_pretty(&report)?)?;
+            info!(path = %path.display(), "runner metrics written");
+        } else {
+            info!("runner metrics requested but metrics collection is disabled");
+        }
+    }
 
     // Shutdown all runners
     for (runner, _, _) in &hosts {

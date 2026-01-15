@@ -93,6 +93,7 @@ async fn main() -> Result<()> {
     // Configure and create DAG runner
     let runner_config = RunnerConfig {
         batch_size: config.batch_size as usize,
+        enable_metrics: false,
         max_slots_per_worker: config.concurrent_per_worker,
         poll_interval_ms: config.poll_interval_ms,
         timeout_check_interval_ms: config.timeout_check_interval_ms,
@@ -100,6 +101,10 @@ async fn main() -> Result<()> {
         schedule_check_interval_ms: config.schedule_check_interval_ms,
         schedule_check_batch_size: config.schedule_check_batch_size,
         worker_status_interval_ms: config.worker_status_interval_ms,
+        action_log_flush_interval_ms: 200,
+        action_log_flush_batch_size: 1000,
+        completion_batch_size: 1,
+        completion_flush_interval_ms: 1,
         gc_interval_ms: config.gc.interval_ms,
         gc_retention_seconds: config.gc.retention_seconds,
         gc_batch_size: config.gc.batch_size,

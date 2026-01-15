@@ -553,7 +553,7 @@ def cli():
     "--benchmark",
     "-b",
     default="for-loop",
-    type=click.Choice(["for-loop", "fan-out"]),
+    type=click.Choice(["for-loop", "fan-out", "queue-noop"]),
     help="Benchmark type",
 )
 @click.option(
@@ -649,7 +649,9 @@ def parse_benchmark_config(config_str: str) -> dict[str, dict[str, int]]:
 @click.option("--instances", default="1,2,4,8", help="Comma-separated list of instance counts")
 @click.option("--workers-per-host", default=4, help="Number of Python workers per host")
 @click.option(
-    "--benchmarks", default="for-loop,fan-out", help="Comma-separated list of benchmark types"
+    "--benchmarks",
+    default="for-loop,fan-out",
+    help="Comma-separated list of benchmark types",
 )
 @click.option("--loop-size", default=16, help="Default number of actions to spawn per workflow")
 @click.option(
