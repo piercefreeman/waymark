@@ -1114,23 +1114,34 @@ impl Database {
     }
 
     /// Mark inbox updated_at for a set of instances after inbox writes.
-    pub async fn touch_inbox_updated_at(&self, instance_ids: &[Uuid]) -> DbResult<()> {
+    pub async fn touch_inbox_updated_at(
+        &self,
+        instance_ids: &[Uuid],
+    ) -> DbResult<HashMap<Uuid, DateTime<Utc>>> {
         if instance_ids.is_empty() {
-            return Ok(());
+            return Ok(HashMap::new());
         }
 
-        sqlx::query(
+        let rows = sqlx::query(
             r#"
             UPDATE workflow_instances
             SET inbox_updated_at = NOW()
             WHERE id = ANY($1)
+            RETURNING id, inbox_updated_at
             "#,
         )
         .bind(instance_ids)
-        .execute(&self.pool)
+        .fetch_all(&self.pool)
         .await?;
 
-        Ok(())
+        let mut updated = HashMap::with_capacity(rows.len());
+        for row in rows {
+            let id: Uuid = row.get(0);
+            let updated_at: DateTime<Utc> = row.get(1);
+            updated.insert(id, updated_at);
+        }
+
+        Ok(updated)
     }
 
     /// Read all pending inputs for a node (single query).
@@ -1952,48 +1963,49 @@ impl Database {
         let mut tracked_increments: Vec<BatchReadinessIncrement> = Vec::new();
         let mut barrier_enqueues: Vec<BatchBarrierEnqueue> = Vec::new();
         let mut instance_completions: Vec<BatchInstanceCompletion> = Vec::new();
+        let mut inbox_updated_at: HashMap<Uuid, DateTime<Utc>> = HashMap::new();
 
-        for plan in batch_plans {
+        for plan in batch_plans.iter_mut() {
             if !is_fresh[plan.index] {
                 continue;
             }
 
-            inbox_writes.extend(plan.inbox_writes);
-            for node_id in plan.readiness_resets {
+            inbox_writes.append(&mut plan.inbox_writes);
+            for node_id in plan.readiness_resets.drain(..) {
                 readiness_resets.push(BatchReadinessReset {
                     instance_id: plan.instance_id,
                     node_id,
                 });
             }
-            for init in plan.readiness_inits {
+            for init in plan.readiness_inits.drain(..) {
                 readiness_inits.push(BatchReadinessInit {
                     instance_id: plan.instance_id,
                     node_id: init.node_id,
                     required_count: init.required_count,
                 });
             }
-            for increment in plan.direct_increments {
+            for increment in plan.direct_increments.drain(..) {
                 direct_increments.push(BatchReadinessIncrement {
                     instance_id: plan.instance_id,
                     plan_index: plan.index,
                     increment,
                 });
             }
-            for increment in plan.tracked_increments {
+            for increment in plan.tracked_increments.drain(..) {
                 tracked_increments.push(BatchReadinessIncrement {
                     instance_id: plan.instance_id,
                     plan_index: plan.index,
                     increment,
                 });
             }
-            for node_id in plan.barrier_enqueues {
+            for node_id in plan.barrier_enqueues.drain(..) {
                 barrier_enqueues.push(BatchBarrierEnqueue {
                     instance_id: plan.instance_id,
                     plan_index: plan.index,
                     node_id,
                 });
             }
-            if let Some(completion) = plan.instance_completion {
+            if let Some(completion) = plan.instance_completion.take() {
                 instance_completions.push(BatchInstanceCompletion {
                     instance_id: completion.instance_id,
                     plan_index: plan.index,
@@ -2060,16 +2072,22 @@ impl Database {
             .await?;
 
             let touch_ids: Vec<Uuid> = touch_instance_ids.into_iter().collect();
-            sqlx::query(
+            let rows = sqlx::query(
                 r#"
                 UPDATE workflow_instances
                 SET inbox_updated_at = NOW()
                 WHERE id = ANY($1)
+                RETURNING id, inbox_updated_at
                 "#,
             )
             .bind(&touch_ids)
-            .execute(&mut *tx)
+            .fetch_all(&mut *tx)
             .await?;
+            for row in rows {
+                let id: Uuid = row.get(0);
+                let updated_at: DateTime<Utc> = row.get(1);
+                inbox_updated_at.insert(id, updated_at);
+            }
             timings.inbox_insert_us = step_start.elapsed().as_micros() as u64;
         }
 
@@ -2495,6 +2513,14 @@ impl Database {
             timings.instance_complete_us = step_start.elapsed().as_micros() as u64;
         }
 
+        if !inbox_updated_at.is_empty() {
+            for plan in &batch_plans {
+                if let Some(updated_at) = inbox_updated_at.get(&plan.instance_id.0) {
+                    results[plan.index].inbox_updated_at = Some(*updated_at);
+                }
+            }
+        }
+
         tx.commit().await?;
         timings.total_us = total_start.elapsed().as_micros() as u64;
 
@@ -2694,16 +2720,21 @@ impl Database {
             });
             builder.build().execute(&mut *tx).await?;
 
-            sqlx::query(
+            let row = sqlx::query(
                 r#"
                 UPDATE workflow_instances
                 SET inbox_updated_at = NOW()
                 WHERE id = $1
+                RETURNING inbox_updated_at
                 "#,
             )
             .bind(instance_id.0)
-            .execute(&mut *tx)
+            .fetch_optional(&mut *tx)
             .await?;
+            if let Some(row) = row {
+                let updated_at: DateTime<Utc> = row.get(0);
+                result.inbox_updated_at = Some(updated_at);
+            }
         }
 
         // 2.5. Reset readiness for loop re-triggering (before increments)

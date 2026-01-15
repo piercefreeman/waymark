@@ -7,6 +7,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use tracing::{debug, info, warn};
 
+use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use crate::ast_evaluator::{EvaluationError, ExpressionEvaluator};
@@ -265,6 +266,9 @@ pub struct CompletionResult {
 
     /// Whether the workflow completed.
     pub workflow_completed: bool,
+
+    /// Latest inbox update timestamp when inbox writes occurred.
+    pub inbox_updated_at: Option<DateTime<Utc>>,
 }
 
 impl CompletionResult {

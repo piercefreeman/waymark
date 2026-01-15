@@ -883,8 +883,14 @@ impl WorkQueueHandler {
         let db_us = db_start.elapsed().as_micros() as u64;
 
         if !result.was_stale {
-            self.apply_inbox_writes_to_cache(instance_id, &inbox_writes)
-                .await;
+            if !inbox_writes.is_empty() {
+                let updated_at = match result.inbox_updated_at {
+                    Some(updated_at) => updated_at,
+                    None => self.db.get_inbox_updated_at(instance_id).await?,
+                };
+                self.apply_inbox_writes_to_cache(instance_id, &inbox_writes, updated_at)
+                    .await;
+            }
             if result.workflow_completed {
                 self.clear_inbox_cache(instance_id).await;
             }
@@ -981,8 +987,14 @@ impl WorkQueueHandler {
         let result = self.db.execute_completion_plan(instance_id, plan).await?;
 
         if !result.was_stale {
-            self.apply_inbox_writes_to_cache(instance_id, &inbox_writes)
-                .await;
+            if !inbox_writes.is_empty() {
+                let updated_at = match result.inbox_updated_at {
+                    Some(updated_at) => updated_at,
+                    None => self.db.get_inbox_updated_at(instance_id).await?,
+                };
+                self.apply_inbox_writes_to_cache(instance_id, &inbox_writes, updated_at)
+                    .await;
+            }
             if result.workflow_completed {
                 self.clear_inbox_cache(instance_id).await;
             }
@@ -1103,6 +1115,7 @@ impl WorkQueueHandler {
         &self,
         instance_id: WorkflowInstanceId,
         inbox_writes: &[crate::completion::InboxWrite],
+        inbox_updated_at: DateTime<Utc>,
     ) {
         if inbox_writes.is_empty() {
             return;
@@ -1113,9 +1126,9 @@ impl WorkQueueHandler {
             .entry(instance_id.0)
             .or_insert_with(|| InstanceInboxCache {
                 values: HashMap::new(),
-                updated_at: Utc::now(),
+                updated_at: inbox_updated_at,
             });
-        instance_cache.updated_at = Utc::now();
+        instance_cache.updated_at = inbox_updated_at;
         for write in inbox_writes {
             if write.spread_index.is_some() {
                 continue;
@@ -1157,7 +1170,10 @@ impl WorkCompletionHandler {
     }
 
     /// Write a completion batch to the database in a single transaction.
-    pub async fn write_batch(&self, batch: CompletionBatch) -> RunnerResult<()> {
+    pub async fn write_batch(
+        &self,
+        batch: CompletionBatch,
+    ) -> RunnerResult<HashMap<Uuid, DateTime<Utc>>> {
         // Complete actions
         for completion in batch.completions {
             self.db.complete_action(completion).await?;
@@ -1179,7 +1195,7 @@ impl WorkCompletionHandler {
                 .await?;
         }
         let touch_ids: Vec<Uuid> = inbox_instance_ids.into_iter().collect();
-        self.db.touch_inbox_updated_at(&touch_ids).await?;
+        let updated_at_by_instance = self.db.touch_inbox_updated_at(&touch_ids).await?;
 
         // Enqueue new actions
         for new_action in batch.new_actions {
@@ -1205,7 +1221,7 @@ impl WorkCompletionHandler {
                 .await?;
         }
 
-        Ok(())
+        Ok(updated_at_by_instance)
     }
 }
 
@@ -2465,7 +2481,19 @@ impl DAGRunner {
         let db_ms = db_start.elapsed().as_micros() as u64;
 
         if !result.was_stale {
-            Self::apply_inbox_writes_to_cache(instance_inboxes, instance_id, &inbox_writes).await;
+            if !inbox_writes.is_empty() {
+                let updated_at = match result.inbox_updated_at {
+                    Some(updated_at) => updated_at,
+                    None => db.get_inbox_updated_at(instance_id).await?,
+                };
+                Self::apply_inbox_writes_to_cache(
+                    instance_inboxes,
+                    instance_id,
+                    &inbox_writes,
+                    updated_at,
+                )
+                .await;
+            }
             if result.workflow_completed {
                 Self::clear_inbox_cache(instance_inboxes, instance_id).await;
             }
@@ -2723,7 +2751,7 @@ impl DAGRunner {
                     let node_id = match in_flight.action.node_id.as_deref() {
                         Some(id) => id,
                         None => {
-                            handler.write_batch(batch).await?;
+                            let _ = handler.write_batch(batch).await?;
                             return Ok(());
                         }
                     };
@@ -3868,6 +3896,7 @@ impl DAGRunner {
         instance_inboxes: &Arc<RwLock<HashMap<Uuid, InstanceInboxCache>>>,
         instance_id: WorkflowInstanceId,
         inbox_writes: &[crate::completion::InboxWrite],
+        inbox_updated_at: DateTime<Utc>,
     ) {
         if inbox_writes.is_empty() {
             return;
@@ -3878,9 +3907,9 @@ impl DAGRunner {
             .entry(instance_id.0)
             .or_insert_with(|| InstanceInboxCache {
                 values: HashMap::new(),
-                updated_at: Utc::now(),
+                updated_at: inbox_updated_at,
             });
-        instance_cache.updated_at = Utc::now();
+        instance_cache.updated_at = inbox_updated_at;
         for write in inbox_writes {
             if write.spread_index.is_some() {
                 continue;
@@ -3898,6 +3927,7 @@ impl DAGRunner {
         instance_inboxes: &Arc<RwLock<HashMap<Uuid, InstanceInboxCache>>>,
         instance_id: WorkflowInstanceId,
         inbox_writes: &[InboxWrite],
+        inbox_updated_at: DateTime<Utc>,
     ) {
         if inbox_writes.is_empty() {
             return;
@@ -3908,9 +3938,9 @@ impl DAGRunner {
             .entry(instance_id.0)
             .or_insert_with(|| InstanceInboxCache {
                 values: HashMap::new(),
-                updated_at: Utc::now(),
+                updated_at: inbox_updated_at,
             });
-        instance_cache.updated_at = Utc::now();
+        instance_cache.updated_at = inbox_updated_at;
         for write in inbox_writes {
             if write.spread_index.is_some() {
                 continue;
@@ -3941,8 +3971,20 @@ impl DAGRunner {
         let inbox_writes = batch.inbox_writes.clone();
         let completed = batch.instance_completion.is_some();
 
-        handler.write_batch(batch).await?;
-        Self::apply_batch_inbox_writes_to_cache(instance_inboxes, instance_id, &inbox_writes).await;
+        let updated_at_by_instance = handler.write_batch(batch).await?;
+        if !inbox_writes.is_empty() {
+            let updated_at = match updated_at_by_instance.get(&instance_id.0) {
+                Some(updated_at) => *updated_at,
+                None => handler.db.get_inbox_updated_at(instance_id).await?,
+            };
+            Self::apply_batch_inbox_writes_to_cache(
+                instance_inboxes,
+                instance_id,
+                &inbox_writes,
+                updated_at,
+            )
+            .await;
+        }
         if completed {
             Self::clear_inbox_cache(instance_inboxes, instance_id).await;
         }
@@ -4089,8 +4131,19 @@ impl DAGRunner {
             };
             for ((instance_id, writes), result) in inbox_writes.into_iter().zip(results) {
                 if !result.was_stale {
-                    Self::apply_inbox_writes_to_cache(&self.instance_inboxes, instance_id, &writes)
+                    if !writes.is_empty() {
+                        let updated_at = match result.inbox_updated_at {
+                            Some(updated_at) => updated_at,
+                            None => db.get_inbox_updated_at(instance_id).await?,
+                        };
+                        Self::apply_inbox_writes_to_cache(
+                            &self.instance_inboxes,
+                            instance_id,
+                            &writes,
+                            updated_at,
+                        )
                         .await;
+                    }
                     if result.workflow_completed {
                         Self::clear_inbox_cache(&self.instance_inboxes, instance_id).await;
                     }
@@ -4128,7 +4181,19 @@ impl DAGRunner {
         let result = db
             .execute_completion_plan(instance_id, start_plan.plan)
             .await?;
-        Self::apply_inbox_writes_to_cache(&self.instance_inboxes, instance_id, &inbox_writes).await;
+        if !inbox_writes.is_empty() {
+            let updated_at = match result.inbox_updated_at {
+                Some(updated_at) => updated_at,
+                None => db.get_inbox_updated_at(instance_id).await?,
+            };
+            Self::apply_inbox_writes_to_cache(
+                &self.instance_inboxes,
+                instance_id,
+                &inbox_writes,
+                updated_at,
+            )
+            .await;
+        }
         if result.workflow_completed {
             Self::clear_inbox_cache(&self.instance_inboxes, instance_id).await;
         }
