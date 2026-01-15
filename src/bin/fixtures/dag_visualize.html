@@ -224,9 +224,9 @@
         }
 
         .edge-data {
-            stroke: #9333ea;
-            stroke-width: 1.5;
-            stroke-dasharray: 5, 5;
+            stroke: #a855f7;
+            stroke-width: 2;
+            stroke-dasharray: 6, 4;
             fill: none;
             opacity: 0;
             transition: opacity 0.2s ease;
@@ -234,7 +234,19 @@
         }
 
         .edge-data.visible {
-            opacity: 0.7;
+            opacity: 1;
+        }
+
+        .edge-label {
+            font-family: 'SF Mono', monospace;
+            font-size: 10px;
+            fill: #c084fc;
+            font-weight: 500;
+            transition: opacity 0.2s ease;
+        }
+
+        .edge-label.visible {
+            opacity: 1 !important;
         }
 
         .edge-loop-back {
@@ -281,12 +293,12 @@
         }
 
         .legend-color.data {
-            background: #9333ea;
+            background: #a855f7;
             background: repeating-linear-gradient(
                 90deg,
-                #9333ea,
-                #9333ea 5px,
-                transparent 5px,
+                #a855f7,
+                #a855f7 6px,
+                transparent 6px,
                 transparent 10px
             );
         }
@@ -408,7 +420,7 @@
                                 <polygon points="0 0, 10 3.5, 0 7" fill="#4b5563"/>
                             </marker>
                             <marker id="arrowhead-data" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-                                <polygon points="0 0, 10 3.5, 0 7" fill="#9333ea"/>
+                                <polygon points="0 0, 10 3.5, 0 7" fill="#a855f7"/>
                             </marker>
                         </defs>
                     </svg>
@@ -471,7 +483,7 @@
     </div>
 
     <script>
-        const data = {"python_source":"\"\"\"\nBenchmark workflow for stress testing the Rappel runtime.\n\nThis workflow is designed to saturate the host CPU and test throughput:\n1. Fan-out: Spawns many parallel action calls\n2. CPU-intensive: Each action performs non-trivial computation\n3. Fan-in: Aggregates results from all parallel branches\n4. Nested parallelism: Multiple layers of fan-out/fan-in\n\nConfigurable parameters:\n- fan_out_width: Number of parallel branches at each level\n- computation_depth: CPU work per action (iterations)\n- nesting_levels: Depth of nested fan-out/fan-in patterns\n\"\"\"\n\nimport asyncio\nimport hashlib\nfrom typing import Any\n\nfrom rappel import action, workflow\nfrom rappel.workflow import Workflow\n\n\n# =============================================================================\n# CPU-Intensive Actions\n# =============================================================================\n\n\n@action\nasync def hash_chain(seed: str, iterations: int) -> str:\n    \"\"\"\n    Perform a chain of SHA-256 hashes.\n\n    This is CPU-intensive and cannot be optimized away.\n    Each iteration depends on the previous, preventing parallelization.\n    \"\"\"\n    result = seed.encode()\n    for _ in range(iterations):\n        result = hashlib.sha256(result).digest()\n    return result.hex()\n\n\n@action\nasync def prime_sieve(limit: int) -> int:\n    \"\"\"\n    Count primes up to limit using Sieve of Eratosthenes.\n\n    CPU-intensive with memory pressure.\n    \"\"\"\n    if limit < 2:\n        return 0\n\n    sieve = [True] * (limit + 1)\n    sieve[0] = sieve[1] = False\n\n    for i in range(2, int(limit ** 0.5) + 1):\n        if sieve[i]:\n            for j in range(i * i, limit + 1, i):\n                sieve[j] = False\n\n    return sum(sieve)\n\n\n@action\nasync def matrix_multiply(size: int, seed: int) -> int:\n    \"\"\"\n    Perform matrix multiplication on randomly seeded matrices.\n\n    O(n^3) complexity - very CPU intensive for larger sizes.\n    Returns a checksum of the result matrix.\n    \"\"\"\n    # Simple PRNG for reproducible \"random\" matrices\n    def lcg(x: int) -> int:\n        return (1103515245 * x + 12345) & 0x7FFFFFFF\n\n    # Generate matrices\n    state = seed\n    a: list[list[int]] = []\n    b: list[list[int]] = []\n\n    for i in range(size):\n        row_a: list[int] = []\n        row_b: list[int] = []\n        for j in range(size):\n            state = lcg(state)\n            row_a.append(state % 100)\n            state = lcg(state)\n            row_b.append(state % 100)\n        a.append(row_a)\n        b.append(row_b)\n\n    # Multiply\n    c: list[list[int]] = [[0] * size for _ in range(size)]\n    for i in range(size):\n        for j in range(size):\n            for k in range(size):\n                c[i][j] += a[i][k] * b[k][j]\n\n    # Checksum\n    checksum = 0\n    for row in c:\n        for val in row:\n            checksum ^= val\n    return checksum\n\n\n@action\nasync def fibonacci_memo(n: int) -> int:\n    \"\"\"\n    Compute nth Fibonacci number with memoization.\n\n    Tests memory allocation patterns with large dict.\n    \"\"\"\n    memo: dict[int, int] = {0: 0, 1: 1}\n\n    def fib(x: int) -> int:\n        if x in memo:\n            return memo[x]\n        memo[x] = fib(x - 1) + fib(x - 2)\n        return memo[x]\n\n    return fib(n)\n\n\n@action\nasync def string_processing(text: str, rounds: int) -> str:\n    \"\"\"\n    Perform multiple rounds of string transformations.\n\n    Tests string allocation and manipulation performance.\n    \"\"\"\n    result = text\n    for _ in range(rounds):\n        # Reverse\n        result = result[::-1]\n        # Uppercase/lowercase alternating\n        chars = []\n        for i, c in enumerate(result):\n            chars.append(c.upper() if i % 2 == 0 else c.lower())\n        result = \"\".join(chars)\n        # Hash and append\n        h = hashlib.md5(result.encode()).hexdigest()[:8]\n        result = result + h\n    return result[-64:]  # Return last 64 chars to bound output size\n\n\n# =============================================================================\n# Aggregation Actions\n# =============================================================================\n\n\n@action\nasync def aggregate_hashes(hashes: list[str]) -> str:\n    \"\"\"Combine multiple hashes into a single result.\"\"\"\n    combined = \"\".join(hashes)\n    return hashlib.sha256(combined.encode()).hexdigest()\n\n\n@action\nasync def aggregate_counts(counts: list[int]) -> dict[str, Any]:\n    \"\"\"Aggregate numeric results with statistics.\"\"\"\n    if not counts:\n        return {\"sum\": 0, \"count\": 0, \"min\": 0, \"max\": 0, \"avg\": 0.0}\n\n    return {\n        \"sum\": sum(counts),\n        \"count\": len(counts),\n        \"min\": min(counts),\n        \"max\": max(counts),\n        \"avg\": sum(counts) / len(counts),\n    }\n\n\n@action\nasync def final_summary(\n    hash_result: str,\n    prime_stats: dict[str, Any],\n    matrix_checksum: int,\n    fib_value: int,\n    string_result: str,\n) -> dict[str, Any]:\n    \"\"\"Create final benchmark summary.\"\"\"\n    return {\n        \"hash_aggregate\": hash_result,\n        \"prime_statistics\": prime_stats,\n        \"matrix_checksum\": matrix_checksum,\n        \"fibonacci_result\": fib_value,\n        \"string_sample\": string_result,\n        \"benchmark_complete\": True,\n    }\n\n\n# =============================================================================\n# Additional Actions for Complex Workflow\n# =============================================================================\n\n\n@action\nasync def compute_hash_for_index(index: int, iterations: int) -> str:\n    \"\"\"Compute a hash chain for a given index.\"\"\"\n    seed = (\"benchmark_seed_\" + str(index)).encode()\n    result = seed\n    for _ in range(iterations):\n        result = hashlib.sha256(result).digest()\n    return result.hex()\n\n\n@action\nasync def analyze_hash(hash_value: str) -> dict[str, Any]:\n    \"\"\"Analyze a hash and return statistics.\"\"\"\n    # Count leading zeros (simple analysis)\n    leading_zeros = 0\n    for c in hash_value:\n        if c == \"0\":\n            leading_zeros += 1\n        else:\n            break\n\n    # Compute numeric value of first 8 chars\n    prefix_value = int(hash_value[:8], 16)\n\n    return {\n        \"hash\": hash_value,\n        \"leading_zeros\": leading_zeros,\n        \"prefix_value\": prefix_value,\n        \"is_special\": leading_zeros >= 2,\n    }\n\n\n@action\nasync def process_special_hash(analysis: dict[str, Any]) -> str:\n    \"\"\"Process a hash that was marked as special.\"\"\"\n    return \"SPECIAL:\" + analysis[\"hash\"][:16]\n\n\n@action\nasync def process_normal_hash(analysis: dict[str, Any]) -> str:\n    \"\"\"Process a hash that was not special.\"\"\"\n    return \"NORMAL:\" + analysis[\"hash\"][:16]\n\n\n@action\nasync def combine_results(results: list[str]) -> dict[str, Any]:\n    \"\"\"Combine all processed results into a final summary.\"\"\"\n    special_count = sum(1 for r in results if r.startswith(\"SPECIAL:\"))\n    normal_count = sum(1 for r in results if r.startswith(\"NORMAL:\"))\n\n    # Create a combined hash of all results\n    combined = \"\".join(results)\n    final_hash = hashlib.sha256(combined.encode()).hexdigest()\n\n    return {\n        \"total_processed\": len(results),\n        \"special_count\": special_count,\n        \"normal_count\": normal_count,\n        \"final_hash\": final_hash,\n    }\n\n\n# =============================================================================\n# Benchmark Workflows\n# =============================================================================\n\n\n@workflow\nclass BenchmarkFanOutWorkflow(Workflow):\n    \"\"\"\n    Fan-out/fan-in benchmark with conditional processing.\n\n    This workflow demonstrates:\n    1. Spread over a range (parallel fan-out)\n    2. Sequential processing with conditional branching\n    3. Final aggregation (fan-in)\n\n    Args:\n        count: Number of parallel hash computations\n        iterations: Number of hash iterations per computation\n    \"\"\"\n\n    async def run(\n        self,\n        indices: list[int],\n        iterations: int = 100,\n    ) -> dict[str, Any]:\n        # Fan-out: compute hashes in parallel over the range\n        hashes = await asyncio.gather(*[\n            compute_hash_for_index(index=i, iterations=iterations)\n            for i in indices\n        ])\n\n        # Process each hash sequentially with conditional logic\n        processed = []\n        for hash_value in hashes:\n            # Analyze the hash\n            analysis = await analyze_hash(hash_value)\n\n            # Conditional processing based on analysis\n            if analysis[\"is_special\"]:\n                result = await process_special_hash(analysis)\n            else:\n                result = await process_normal_hash(analysis)\n\n            processed.append(result)\n\n        # Fan-in: combine all results\n        summary = await combine_results(processed)\n        return summary\n","ir_text":"fn __if_then_1__(input: [], output: []):\n    result = @process_special_hash(analysis=analysis)\n\nfn __if_else_2__(input: [], output: []):\n    result = @process_normal_hash(analysis=analysis)\n\nfn __for_body_3__(input: [hash_value, processed], output: [processed]):\n    analysis = @analyze_hash(hash_value=hash_value)\n    if analysis[\"is_special\"]:\n            __if_then_1__()\n    else:\n            __if_else_2__()\n    processed = (processed + [result])\n    return processed\n\nfn run(input: [indices, iterations], output: []):\n    hashes = spread indices:i -> @compute_hash_for_index(index=i, iterations=iterations)\n    processed = []\n    for hash_value in hashes:\n            processed = __for_body_3__(hash_value=hash_value, processed=processed)\n    summary = @combine_results(results=processed)\n    return summary","dag":{"nodes":[{"id":"action_21","node_type":"action_call","label":"@combine_results() -> summary","action_name":"combine_results","targets":["summary"],"is_input":false,"is_output":false,"is_loop_head":false,"is_aggregator":false,"is_spread":false},{"id":"aggregator_18","node_type":"aggregator","label":"aggregate -> hashes","targets":["hashes"],"is_input":false,"is_output":false,"is_loop_head":false,"is_aggregator":true,"is_spread":false},{"id":"assign_19","node_type":"assignment","label":"processed = ...","targets":["processed"],"is_input":false,"is_output":false,"is_loop_head":false,"is_aggregator":false,"is_spread":false},{"id":"for_loop_20","node_type":"for_loop","label":"for hash_value in $hashes","guard_expr":"(__loop_for_loop_20_i < len(hashes))","is_input":false,"is_output":false,"is_loop_head":true,"is_aggregator":false,"is_spread":false},{"id":"return_22","node_type":"return","label":"return","is_input":false,"is_output":false,"is_loop_head":false,"is_aggregator":false,"is_spread":false},{"id":"run_input_16","node_type":"input","label":"input: [indices, iterations]","is_input":true,"is_output":false,"is_loop_head":false,"is_aggregator":false,"is_spread":false},{"id":"run_output_23","node_type":"output","label":"output: []","is_input":false,"is_output":true,"is_loop_head":false,"is_aggregator":false,"is_spread":false},{"id":"spread_action_17","node_type":"action_call","label":"@compute_hash_for_index() [spread over i]","action_name":"compute_hash_for_index","targets":["_spread_result"],"is_input":false,"is_output":false,"is_loop_head":false,"is_aggregator":false,"is_spread":true}],"edges":[{"source":"spread_action_17","target":"aggregator_18","edge_type":"control_flow","is_loop_back":false},{"source":"run_input_16","target":"spread_action_17","edge_type":"control_flow","is_loop_back":false},{"source":"aggregator_18","target":"assign_19","edge_type":"control_flow","is_loop_back":false},{"source":"assign_19","target":"for_loop_20","edge_type":"control_flow","is_loop_back":false},{"source":"for_loop_20","target":"action_21","edge_type":"control_flow","is_loop_back":false},{"source":"action_21","target":"return_22","edge_type":"control_flow","is_loop_back":false},{"source":"return_22","target":"run_output_23","edge_type":"control_flow","is_loop_back":false},{"source":"assign_19","target":"action_21","edge_type":"data_flow","variable":"processed","is_loop_back":false},{"source":"action_21","target":"return_22","edge_type":"data_flow","variable":"summary","is_loop_back":false},{"source":"spread_action_17","target":"aggregator_18","edge_type":"data_flow","variable":"_spread_result","is_loop_back":false},{"source":"for_loop_20","target":"action_21","edge_type":"data_flow","variable":"processed","is_loop_back":false},{"source":"run_input_16","target":"spread_action_17","edge_type":"data_flow","variable":"iterations","is_loop_back":false},{"source":"aggregator_18","target":"for_loop_20","edge_type":"data_flow","variable":"hashes","is_loop_back":false}]}};
+        const data = __JSON_DATA__;
 
         // Display Python source
         document.getElementById('python-source').textContent = data.python_source;
@@ -530,6 +542,7 @@
 
         // Layout parameters
         const padding = 40;
+        const topPadding = 150;  // Extra space at top for data flow arcs
         const columnGap = 260;
         const rowGap = 100;
         const nodeWidth = 180;
@@ -543,14 +556,14 @@
         levels.forEach((levelNodes, depth) => {
             levelNodes.forEach((node, index) => {
                 const x = padding + depth * columnGap;
-                const y = padding + index * rowGap;
+                const y = topPadding + index * rowGap;
                 positions.set(node.id, { x, y, cx: x + nodeWidth / 2, cy: y + nodeHeight / 2 });
                 maxX = Math.max(maxX, x + nodeWidth);
                 maxY = Math.max(maxY, y + nodeHeight);
             });
         });
 
-        // Set SVG size
+        // Set SVG size (extra space at top for data flow arcs)
         svg.setAttribute('width', maxX + padding);
         svg.setAttribute('height', maxY + padding);
         container.style.minWidth = (maxX + padding) + 'px';
@@ -559,27 +572,53 @@
         // Draw edges
         const edgeElements = new Map();
 
+        // Track data flow edge indices for vertical offset
+        const dataFlowIndex = new Map();
+
         edges.forEach((edge, idx) => {
             const start = positions.get(edge.source);
             const end = positions.get(edge.target);
             if (!start || !end) return;
 
             const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            const isDataFlow = edge.edge_type === 'data_flow';
 
             // Calculate path
             let d;
-            if (edge.is_loop_back) {
-                // Loop back: curve around
+            if (isDataFlow) {
+                // Data flow edges: arc ABOVE the graph with variable heights
+                const edgeKey = `${edge.source}->${edge.target}`;
+                let offsetIdx = dataFlowIndex.get(edge.target) || 0;
+                dataFlowIndex.set(edge.target, offsetIdx + 1);
+
+                // Calculate arc height based on horizontal distance and index
+                const dx = Math.abs(end.cx - start.cx);
+                const baseArcHeight = Math.max(80, dx * 0.3);
+                const arcHeight = baseArcHeight + (offsetIdx * 25);
+
+                // Start from top of source node, end at top of target node
+                const startX = start.cx;
+                const startY = start.y - 5;
+                const endX = end.cx;
+                const endY = end.y - 5;
+
+                // Control point for the arc (above both nodes)
+                const midX = (startX + endX) / 2;
+                const midY = Math.min(startY, endY) - arcHeight;
+
+                d = `M${startX},${startY} Q${midX},${midY} ${endX},${endY}`;
+            } else if (edge.is_loop_back) {
+                // Loop back: curve around below
                 const midY = Math.max(start.cy, end.cy) + 60;
                 d = `M${start.cx + nodeWidth/2},${start.cy}
                      Q${start.cx + nodeWidth/2 + 40},${midY} ${end.cx},${end.cy + nodeHeight/2}`;
             } else if (start.x > end.x) {
-                // Backward edge
+                // Backward control flow edge
                 const midY = Math.min(start.cy, end.cy) - 50;
                 d = `M${start.cx - nodeWidth/2},${start.cy}
                      Q${(start.cx + end.cx)/2},${midY} ${end.cx + nodeWidth/2},${end.cy}`;
             } else {
-                // Forward edge
+                // Forward control flow edge
                 const dx = end.cx - start.cx;
                 d = `M${start.cx + nodeWidth/2},${start.cy}
                      C${start.cx + nodeWidth/2 + dx/3},${start.cy}
@@ -589,10 +628,36 @@
 
             path.setAttribute('d', d);
 
-            if (edge.edge_type === 'data_flow') {
+            if (isDataFlow) {
                 path.classList.add('edge-data');
                 path.dataset.target = edge.target;
                 path.dataset.source = edge.source;
+                if (edge.variable) {
+                    path.dataset.variable = edge.variable;
+                }
+
+                // Add variable label on the arc
+                if (edge.variable) {
+                    const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    const offsetIdx = (dataFlowIndex.get(edge.target) || 1) - 1;
+                    const dx = Math.abs(end.cx - start.cx);
+                    const baseArcHeight = Math.max(80, dx * 0.3);
+                    const arcHeight = baseArcHeight + (offsetIdx * 25);
+                    const midX = (start.cx + end.cx) / 2;
+                    const midY = Math.min(start.y, end.y) - arcHeight - 5;
+
+                    label.setAttribute('x', midX);
+                    label.setAttribute('y', midY);
+                    label.setAttribute('text-anchor', 'middle');
+                    label.setAttribute('class', 'edge-label');
+                    label.textContent = edge.variable;
+                    label.style.opacity = '0';
+                    label.dataset.target = edge.target;
+                    svg.appendChild(label);
+
+                    if (!edgeElements.has(edge.target)) edgeElements.set(edge.target, []);
+                    edgeElements.get(edge.target).push(label);
+                }
             } else {
                 path.classList.add('edge-control');
                 if (edge.is_loop_back) {
@@ -602,7 +667,7 @@
 
             svg.appendChild(path);
 
-            if (edge.edge_type === 'data_flow') {
+            if (isDataFlow) {
                 if (!edgeElements.has(edge.target)) edgeElements.set(edge.target, []);
                 edgeElements.get(edge.target).push(path);
             }
@@ -624,7 +689,6 @@
             else if (node.is_output) dataType = 'output';
             else if (node.is_aggregator) dataType = 'aggregator';
             else if (node.is_spread) dataType = 'spread_action';
-            else if (node.is_loop_head) dataType = 'for_loop';
             else if (node.node_type === 'branch' || node.node_type === 'if') dataType = 'branch';
             else if (node.node_type === 'join') dataType = 'join';
 
