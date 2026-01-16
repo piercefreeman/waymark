@@ -59,15 +59,32 @@ async fn main() -> Result<()> {
     );
 
     // Connect to database
-    let database = Arc::new(Database::connect(&config.database_url).await?);
+    let database = Arc::new(
+        Database::connect_with_pool_size(&config.database_url, config.db_max_connections).await?,
+    );
     info!("connected to database");
+
+    let webapp_database = if config.webapp.enabled {
+        Some(Arc::new(
+            Database::connect_with_pool_size(
+                &config.database_url,
+                config.webapp.db_max_connections,
+            )
+            .await?,
+        ))
+    } else {
+        None
+    };
 
     // Start worker bridge server
     let worker_bridge = WorkerBridgeServer::start(Some(config.worker_grpc_addr)).await?;
     info!(addr = %worker_bridge.addr(), "worker bridge started");
 
     // Start webapp server if enabled
-    let webapp_server = WebappServer::start(config.webapp.clone(), Arc::clone(&database)).await?;
+    let webapp_server = match webapp_database {
+        Some(db) => WebappServer::start(config.webapp.clone(), db).await?,
+        None => WebappServer::start(config.webapp.clone(), Arc::clone(&database)).await?,
+    };
 
     // Configure Python workers
     let mut worker_config = PythonWorkerConfig::new();

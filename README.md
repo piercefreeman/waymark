@@ -154,6 +154,8 @@ These are the primary environment parameters that you'll likely want to customiz
 | `RAPPEL_MAX_ACTION_LIFECYCLE` | Max actions per worker before recycling (see below) | none (no limit) | `1000` |
 | `RAPPEL_WEBAPP_ENABLED` | Enable the web dashboard | `false` | `true` |
 | `RAPPEL_WEBAPP_ADDR` | Web dashboard bind address | `0.0.0.0:24119` | `0.0.0.0:8080` |
+| `RAPPEL_WEBAPP_DB_MAX_CONNECTIONS` | Max DB connections for the webapp pool | `2` | `4` |
+| `RAPPEL_DB_MAX_CONNECTIONS` | Max DB connections for the primary pool | `10` | `30` |
 
 We expect that you won't need to modify the following env parameters, but we provide them for convenience:
 
