@@ -1,0 +1,22 @@
+{
+  "name": "rappel-example-app-js",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node ./scripts/build.mjs",
+    "start": "node ./dist/server.js",
+    "worker": "node ./dist/worker.js"
+  },
+  "dependencies": {
+    "@grpc/grpc-js": "^1.10.8",
+    "@rappel/js": "file:../js",
+    "express": "^4.19.2",
+    "pg": "^8.11.5"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.18.0",
+    "esbuild": "^0.23.0",
+    "typescript": "^5.9.2"
+  }
+}

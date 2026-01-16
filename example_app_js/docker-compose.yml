@@ -1,0 +1,72 @@
+version: "3.9"
+
+x-app-build: &app-build
+  context: ..
+  dockerfile: example_app_js/Dockerfile
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: rappel_example_js
+      POSTGRES_USER: rappel
+      POSTGRES_PASSWORD: rappel
+    ports:
+      - "5436:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rappel"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    volumes:
+      - postgres-data-js:/var/lib/postgresql/data
+
+  bridge:
+    build: *app-build
+    image: rappel-example-app-js
+    command: ["rappel-bridge"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      RAPPEL_DATABASE_URL: postgresql://rappel:rappel@postgres:5432/rappel_example_js
+      RAPPEL_BRIDGE_GRPC_ADDR: 0.0.0.0:24117
+    ports:
+      - "24117:24117"
+
+  daemons:
+    build: *app-build
+    image: rappel-example-app-js
+    command: ["start-workers"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      bridge:
+        condition: service_started
+    environment:
+      RAPPEL_DATABASE_URL: postgresql://rappel:rappel@postgres:5432/rappel_example_js
+      RAPPEL_PROTO_ROOT: /app/proto
+      RAPPEL_CONCURRENT_PER_WORKER: 200
+      RAPPEL_WORKER_COUNT: 2
+      RAPPEL_WEBAPP_ENABLED: "true"
+      RAPPEL_WEBAPP_ADDR: "0.0.0.0:24119"
+    ports:
+      - "24119:24119"
+
+  webapp:
+    build: *app-build
+    image: rappel-example-app-js
+    depends_on:
+      bridge:
+        condition: service_started
+      daemons:
+        condition: service_started
+    environment:
+      PORT: 8001
+      RAPPEL_BRIDGE_GRPC_ADDR: bridge:24117
+      RAPPEL_PROTO_ROOT: /app/proto
+    ports:
+      - "8001:8001"
+
+volumes:
+  postgres-data-js: {}

@@ -1,4 +1,5 @@
 PY_PROTO_OUT := python/proto
+JS_PROTO_OUT := js/proto
 
 .PHONY: all build-proto clean lint lint-verify python-lint python-lint-verify rust-lint rust-lint-verify coverage python-coverage rust-coverage
 
@@ -6,6 +7,7 @@ all: build-proto
 
 build-proto:
 	@mkdir -p $(PY_PROTO_OUT)
+	@mkdir -p $(JS_PROTO_OUT)
 	cd python && uv run python -m grpc_tools.protoc \
 		--proto_path=../proto \
 		--plugin=protoc-gen-mypy="$$(pwd)/.venv/bin/protoc-gen-mypy" \
@@ -14,6 +16,12 @@ build-proto:
 		--grpc_python_out=../$(PY_PROTO_OUT) \
 		--mypy_out=../$(PY_PROTO_OUT) \
 		--mypy_grpc_out=../$(PY_PROTO_OUT) \
+		../proto/messages.proto ../proto/ast.proto
+	cd js && ./node_modules/.bin/grpc_tools_node_protoc \
+		--proto_path=../proto \
+		--proto_path=./proto \
+		--js_out=import_style=commonjs,binary:./proto \
+		--grpc_out=grpc_js:./proto \
 		../proto/messages.proto ../proto/ast.proto
 	@python scripts/fix_proto_imports.py
 	$(MAKE) lint

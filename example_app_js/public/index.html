@@ -1,0 +1,922 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Rappel Workflow Demo</title>
+    <style>
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        max-width: 900px;
+        margin: 2rem auto;
+        padding: 0 1rem;
+        line-height: 1.6;
+      }
+      h1 {
+        border-bottom: 2px solid #0f172a;
+        padding-bottom: 0.5rem;
+      }
+      h2 {
+        color: #334155;
+        margin-top: 2rem;
+      }
+      .workflow-section {
+        border: 1px solid #e2e8f0;
+        border-radius: 0.75rem;
+        padding: 1.5rem;
+        margin-bottom: 1.5rem;
+        background: #fafafa;
+      }
+      .workflow-section h3 {
+        margin-top: 0;
+        color: #0f172a;
+      }
+      .workflow-section p {
+        color: #64748b;
+        margin-bottom: 1rem;
+      }
+      form {
+        display: flex;
+        gap: 0.75rem;
+        align-items: center;
+        flex-wrap: wrap;
+        margin-bottom: 1rem;
+      }
+      input[type="number"],
+      input[type="text"] {
+        padding: 0.5rem;
+        border: 1px solid #cbd5e1;
+        border-radius: 0.375rem;
+        font-size: 0.9rem;
+      }
+      input[type="number"] {
+        width: 5rem;
+      }
+      input[type="text"] {
+        width: 12rem;
+      }
+      input[type="checkbox"] {
+        width: 1.2rem;
+        height: 1.2rem;
+      }
+      textarea {
+        padding: 0.5rem;
+        border: 1px solid #cbd5e1;
+        border-radius: 0.375rem;
+        font-size: 0.9rem;
+        width: 20rem;
+        min-height: 4.5rem;
+        resize: vertical;
+        font-family: ui-monospace, monospace;
+      }
+      select {
+        padding: 0.5rem;
+        border: 1px solid #cbd5e1;
+        border-radius: 0.375rem;
+        font-size: 0.9rem;
+        background: white;
+      }
+      button {
+        padding: 0.5rem 1rem;
+        border-radius: 0.4rem;
+        border: none;
+        background: #0f172a;
+        color: white;
+        cursor: pointer;
+        font-size: 0.9rem;
+      }
+      button:hover {
+        background: #1e293b;
+      }
+      button:disabled {
+        background: #94a3b8;
+        cursor: not-allowed;
+      }
+      button.danger {
+        background: #b91c1c;
+      }
+      button.danger:hover {
+        background: #991b1b;
+      }
+      .admin-section {
+        margin-top: 2rem;
+        padding-top: 1rem;
+        border-top: 1px dashed #cbd5e1;
+      }
+      .admin-section h3 {
+        color: #64748b;
+        font-size: 0.9rem;
+        margin-bottom: 0.5rem;
+      }
+      .status {
+        font-size: 0.9rem;
+        color: #64748b;
+        min-height: 1.4rem;
+      }
+      .status.error {
+        color: #b91c1c;
+      }
+      .status.success {
+        color: #15803d;
+      }
+      .result {
+        border: 1px solid #cbd5e1;
+        border-radius: 0.5rem;
+        padding: 1rem;
+        background: white;
+        margin-top: 1rem;
+        font-family: ui-monospace, monospace;
+        font-size: 0.85rem;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      label {
+        font-weight: 500;
+        color: #334155;
+      }
+      .hint {
+        font-size: 0.8rem;
+        color: #94a3b8;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Rappel Workflow Playground</h1>
+    <p>
+      Explore different workflow patterns supported by Rappel. Each section demonstrates
+      a specific pattern - parallel execution, sequential chaining, conditionals, loops,
+      early returns, error handling, durable sleep, and scheduled execution.
+    </p>
+
+    <!-- Parallel Execution -->
+    <section class="workflow-section">
+      <h3>1. Parallel Execution (asyncio.gather)</h3>
+      <p>
+        Compute factorial and fibonacci in parallel, then combine results.
+        Demonstrates fan-out/fan-in patterns.
+      </p>
+      <form id="parallel-form">
+        <label for="parallel-number">Number (1-10):</label>
+        <input type="number" id="parallel-number" name="number" min="1" max="10" value="7" />
+        <button type="submit">Run Parallel</button>
+      </form>
+      <div class="status" id="parallel-status"></div>
+      <div class="result" id="parallel-result" hidden></div>
+    </section>
+
+    <!-- Sequential Chain -->
+    <section class="workflow-section">
+      <h3>2. Sequential Chain</h3>
+      <p>
+        Transform text through a pipeline: uppercase -> reverse -> add stars.
+        Each step depends on the previous output.
+      </p>
+      <form id="chain-form">
+        <label for="chain-text">Text:</label>
+        <input type="text" id="chain-text" name="text" value="hello world" maxlength="100" />
+        <button type="submit">Run Chain</button>
+      </form>
+      <div class="status" id="chain-status"></div>
+      <div class="result" id="chain-result" hidden></div>
+    </section>
+
+    <!-- Conditional Branching -->
+    <section class="workflow-section">
+      <h3>3. Conditional Branching (if/else)</h3>
+      <p>
+        Route to different actions based on input value.
+        High (>=75), Medium (25-74), or Low (<25).
+      </p>
+      <form id="branch-form">
+        <label for="branch-value">Value:</label>
+        <input type="number" id="branch-value" name="value" value="50" />
+        <button type="submit">Run Branch</button>
+      </form>
+      <div class="status" id="branch-status"></div>
+      <div class="result" id="branch-result" hidden></div>
+    </section>
+
+    <!-- Loop Processing -->
+    <section class="workflow-section">
+      <h3>4. Loop Processing</h3>
+      <p>
+        Process each item in a list sequentially. Enter comma-separated items (max 5).
+      </p>
+      <form id="loop-form">
+        <label for="loop-items">Items:</label>
+        <input type="text" id="loop-items" name="items" value="apple, banana, cherry" />
+        <button type="submit">Run Loop</button>
+      </form>
+      <div class="status" id="loop-status"></div>
+      <div class="result" id="loop-result" hidden></div>
+    </section>
+
+    <!-- Return Inside Loop -->
+    <section class="workflow-section">
+      <h3>5. Return Inside a Loop</h3>
+      <p>
+        Search a list for a number and return early when the needle is found.
+        Enter comma-separated integers (max 10).
+      </p>
+      <form id="loop-return-form">
+        <label for="loop-return-items">Items:</label>
+        <input type="text" id="loop-return-items" name="items" value="1, 2, 3, 4, 5" />
+        <label for="loop-return-needle">Needle:</label>
+        <input type="number" id="loop-return-needle" name="needle" value="3" />
+        <button type="submit">Run Early Return</button>
+      </form>
+      <div class="status" id="loop-return-status"></div>
+      <div class="result" id="loop-return-result" hidden></div>
+    </section>
+
+    <!-- Loop with Exception Handling -->
+    <section class="workflow-section">
+      <h3>6. Loop with Exception Handling</h3>
+      <p>
+        Process items in a loop where some may fail. Exceptions are caught,
+        an error counter is incremented, and the loop continues.
+        Items starting with "bad" will fail.
+      </p>
+      <form id="loop-exception-form" onsubmit="return false;">
+        <label for="loop-exception-items">Items:</label>
+        <input type="text" id="loop-exception-items" name="items" value="good1, bad, good2" style="width: 14rem;" />
+        <button type="submit">Run Loop Exception</button>
+      </form>
+      <div class="hint">Try: "good1, bad, good2" (1 failure) or "bad1, bad2" (all fail)</div>
+      <div class="status" id="loop-exception-status"></div>
+      <div class="result" id="loop-exception-result" hidden></div>
+    </section>
+
+    <!-- Error Handling -->
+    <section class="workflow-section">
+      <h3>7. Error Handling (try/except)</h3>
+      <p>
+        Demonstrate exception handling in workflows. Toggle failure to see recovery in action.
+      </p>
+      <form id="error-form">
+        <label for="error-fail">
+          <input type="checkbox" id="error-fail" name="should_fail" />
+          Force failure
+        </label>
+        <button type="submit">Run Error Test</button>
+      </form>
+      <div class="status" id="error-status"></div>
+      <div class="result" id="error-result" hidden></div>
+    </section>
+
+    <!-- Exception Metadata -->
+    <section class="workflow-section">
+      <h3>8. Exception Metadata (except as)</h3>
+      <p>
+        Capture exception attributes in the handler and surface them in the workflow result.
+      </p>
+      <form id="exception-metadata-form">
+        <label for="exception-metadata-fail">
+          <input type="checkbox" id="exception-metadata-fail" name="should_fail" checked />
+          Force failure
+        </label>
+        <button type="submit">Run Metadata Test</button>
+      </form>
+      <div class="status" id="exception-metadata-status"></div>
+      <div class="result" id="exception-metadata-result" hidden></div>
+    </section>
+
+    <!-- Durable Sleep -->
+    <section class="workflow-section">
+      <h3>9. Durable Sleep</h3>
+      <p>
+        Pause workflow execution. Unlike regular sleep, this survives worker restarts.
+      </p>
+      <form id="sleep-form">
+        <label for="sleep-seconds">Seconds (1-10):</label>
+        <input type="number" id="sleep-seconds" name="seconds" min="1" max="10" value="2" />
+        <button type="submit">Run Sleep</button>
+      </form>
+      <div class="status" id="sleep-status"></div>
+      <div class="result" id="sleep-result" hidden></div>
+    </section>
+
+    <!-- Guard Fallback -->
+    <section class="workflow-section">
+      <h3>10. Guard Fallback (if without else)</h3>
+      <p>
+        Skip an action when the guard is falsy, then continue to the next step.
+        Use "empty" to simulate no notes returned.
+      </p>
+      <form id="guard-fallback-form">
+        <label for="guard-fallback-user">User:</label>
+        <input type="text" id="guard-fallback-user" name="user" value="alice" maxlength="30" />
+        <button type="submit">Run Guard Fallback</button>
+      </form>
+      <div class="hint">Try: "alice" (notes) or "empty" (fallback path)</div>
+      <div class="status" id="guard-fallback-status"></div>
+      <div class="result" id="guard-fallback-result" hidden></div>
+    </section>
+
+    <!-- Early Return with Loop -->
+    <section class="workflow-section">
+      <h3>11. Early Return + Loop Pattern</h3>
+      <p>
+        Demonstrates if-with-early-return followed by for-loop. Common in data processing:
+        parse input, return early if invalid, otherwise loop over items.
+        Use "no_session:" prefix to trigger early return path.
+      </p>
+      <form id="early-return-form">
+        <label for="early-return-input">Input:</label>
+        <input type="text" id="early-return-input" name="input_text" value="apple, banana, cherry" style="width: 16rem;" />
+        <button type="submit">Run Workflow</button>
+      </form>
+      <div class="hint">Try: "apple, banana" (loop path) or "no_session:test" (early return)</div>
+      <div class="status" id="early-return-status"></div>
+      <div class="result" id="early-return-result" hidden></div>
+    </section>
+
+    <!-- Spread Empty Collection -->
+    <section class="workflow-section">
+      <h3>12. Spread Over Empty Collection</h3>
+      <p>
+        Tests spread (asyncio.gather) over collections that may be empty.
+        Enter comma-separated items, or leave empty to test empty spread handling.
+      </p>
+      <form id="spread-empty-form">
+        <label for="spread-empty-items">Items:</label>
+        <input type="text" id="spread-empty-items" name="items" value="apple, banana, cherry" style="width: 16rem;" />
+        <button type="submit">Run Spread</button>
+      </form>
+      <div class="hint">Try: "apple, banana" (normal) or clear the field for empty spread test</div>
+      <div class="status" id="spread-empty-status"></div>
+      <div class="result" id="spread-empty-result" hidden></div>
+    </section>
+
+    <!-- Kw-only Inputs -->
+    <section class="workflow-section">
+      <h3>13. Kw-only Inputs</h3>
+      <p>
+        Demonstrates keyword-only workflow inputs flowing into a request model.
+        Leave fields empty to use defaults.
+      </p>
+      <form id="kw-only-form">
+        <label for="kw-only-latitude">Latitude:</label>
+        <input type="number" id="kw-only-latitude" name="latitude" step="0.0001" value="37.7749" />
+        <label for="kw-only-longitude">Longitude:</label>
+        <input type="number" id="kw-only-longitude" name="longitude" step="0.0001" value="-122.4194" />
+        <button type="submit">Run Kw-only</button>
+      </form>
+      <div class="status" id="kw-only-status"></div>
+      <div class="result" id="kw-only-result" hidden></div>
+    </section>
+
+    <!-- Undefined Variable Validation -->
+    <section class="workflow-section">
+      <h3>14. Undefined Variable Validation</h3>
+      <p>
+        This workflow intentionally references a module-level variable to show
+        IR validation errors before execution.
+      </p>
+      <form id="undefined-variable-form">
+        <label for="undefined-variable-input">Input:</label>
+        <input type="text" id="undefined-variable-input" name="input_text" value="demo payload" />
+        <button type="submit">Run Validation</button>
+      </form>
+      <div class="hint">Expect a validation error surfaced by the workflow runtime.</div>
+      <div class="status" id="undefined-variable-status"></div>
+      <div class="result" id="undefined-variable-result" hidden></div>
+    </section>
+
+    <!-- Scheduled Workflows -->
+    <section class="workflow-section">
+      <h3>15. Batch Workflow Runs</h3>
+      <p>
+        Queue a large number of workflow instances without blocking on execution.
+        Uses the bridge batch enqueue API under the hood.
+      </p>
+      <form id="batch-form">
+        <label for="batch-workflow">Workflow:</label>
+        <select id="batch-workflow" name="workflow_name">
+          <option value="ParallelMathWorkflow">ParallelMathWorkflow</option>
+          <option value="NoOpWorkflow">NoOpWorkflow</option>
+        </select>
+        <label for="batch-count">Count:</label>
+        <input type="number" id="batch-count" name="count" min="1" value="1000" />
+        <label for="batch-size">Batch size:</label>
+        <input type="number" id="batch-size" name="batch_size" min="1" value="500" />
+        <label for="batch-priority">Priority:</label>
+        <input type="number" id="batch-priority" name="priority" placeholder="0" />
+        <label for="batch-ids">
+          <input type="checkbox" id="batch-ids" name="include_instance_ids" />
+          Include instance IDs
+        </label>
+        <button type="submit">Queue Batch</button>
+      </form>
+      <div class="hint" id="batch-hint">Inputs JSON: {"number": 7}</div>
+      <textarea id="batch-inputs" name="inputs" spellcheck="false">{"number": 7}</textarea>
+      <div class="status" id="batch-status"></div>
+      <div class="result" id="batch-result" hidden></div>
+    </section>
+
+    <section class="workflow-section">
+      <h3>16. Scheduled Workflows</h3>
+      <p>
+        Register a workflow to run automatically on a cron schedule or at fixed intervals.
+        Schedules persist across server restarts.
+      </p>
+      <form id="schedule-form">
+        <label for="schedule-workflow">Workflow:</label>
+        <select id="schedule-workflow" name="workflow_name">
+          <option value="ParallelMathWorkflow">ParallelMathWorkflow</option>
+        </select>
+        <label for="schedule-input">Number:</label>
+        <input type="number" id="schedule-input" name="number" min="1" max="10" value="7" title="Input number for workflow" />
+        <label for="schedule-type">Type:</label>
+        <select id="schedule-type" name="schedule_type">
+          <option value="interval">Interval</option>
+          <option value="cron">Cron</option>
+        </select>
+        <input type="number" id="schedule-interval" name="interval_seconds" min="10" value="60" placeholder="Seconds" title="Interval in seconds (min 10)" />
+        <input type="text" id="schedule-cron" name="cron_expression" value="*/5 * * * *" placeholder="*/5 * * * *" title="Cron expression" hidden />
+        <button type="submit">Register Schedule</button>
+      </form>
+      <div class="status" id="schedule-status"></div>
+      <div class="result" id="schedule-result" hidden></div>
+
+      <h4 style="margin-top: 1.5rem; font-size: 0.95rem; color: #475569;">Manage Existing Schedule</h4>
+      <form id="schedule-action-form" style="margin-top: 0.5rem;">
+        <label for="action-workflow">Workflow:</label>
+        <select id="action-workflow" name="workflow_name">
+          <option value="ParallelMathWorkflow">ParallelMathWorkflow</option>
+        </select>
+        <button type="button" id="pause-btn">Pause</button>
+        <button type="button" id="resume-btn">Resume</button>
+        <button type="button" id="delete-btn" class="danger">Delete</button>
+      </form>
+      <div class="status" id="schedule-action-status"></div>
+    </section>
+
+    <!-- Admin Section -->
+    <section class="admin-section">
+      <h3>Development Tools</h3>
+      <button id="reset-btn" class="danger">Reset Database</button>
+      <span id="reset-status" class="status"></span>
+    </section>
+
+    <script>
+      // Generic workflow runner
+      async function runWorkflow(formId, endpoint, getPayload, formatResult) {
+        const form = document.getElementById(formId);
+        const status = document.getElementById(formId.replace("-form", "-status"));
+        const result = document.getElementById(formId.replace("-form", "-result"));
+        const button = form.querySelector("button");
+
+        form.addEventListener("submit", async (event) => {
+          event.preventDefault();
+          const payload = getPayload(form);
+          if (payload === null) return;
+
+          status.textContent = "Dispatching workflow...";
+          status.className = "status";
+          result.hidden = true;
+          button.disabled = true;
+
+          try {
+            const response = await fetch(endpoint, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload),
+            });
+            if (!response.ok) {
+              const data = await response.json().catch(() => ({}));
+              throw new Error(data.detail ?? response.statusText);
+            }
+            const data = await response.json();
+            result.textContent = formatResult(data);
+            result.hidden = false;
+            status.textContent = "Workflow completed";
+            status.className = "status success";
+          } catch (error) {
+            status.textContent = `Failed: ${error.message}`;
+            status.className = "status error";
+          } finally {
+            button.disabled = false;
+          }
+        });
+      }
+
+      // 1. Parallel
+      runWorkflow(
+        "parallel-form",
+        "/api/parallel",
+        (form) => {
+          const number = Number(form.querySelector("#parallel-number").value);
+          return Number.isFinite(number) ? { number } : null;
+        },
+        (data) => JSON.stringify(data, null, 2)
+      );
+
+      // 2. Chain
+      runWorkflow(
+        "chain-form",
+        "/api/chain",
+        (form) => {
+          const text = form.querySelector("#chain-text").value.trim();
+          return text ? { text } : null;
+        },
+        (data) => JSON.stringify(data, null, 2)
+      );
+
+      // 3. Branch
+      runWorkflow(
+        "branch-form",
+        "/api/branch",
+        (form) => {
+          const value = Number(form.querySelector("#branch-value").value);
+          return Number.isFinite(value) ? { value } : null;
+        },
+        (data) => JSON.stringify(data, null, 2)
+      );
+
+      // 4. Loop
+      runWorkflow(
+        "loop-form",
+        "/api/loop",
+        (form) => {
+          const raw = form.querySelector("#loop-items").value;
+          const items = raw.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 5);
+          return items.length > 0 ? { items } : null;
+        },
+        (data) => JSON.stringify(data, null, 2)
+      );
+
+      // 5. Return Inside Loop
+      runWorkflow(
+        "loop-return-form",
+        "/api/loop-return",
+        (form) => {
+          const raw = form.querySelector("#loop-return-items").value;
+          const items = raw
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean)
+            .map((s) => Number(s))
+            .filter((n) => Number.isFinite(n))
+            .slice(0, 10);
+          const needle = Number(form.querySelector("#loop-return-needle").value);
+          return items.length > 0 && Number.isFinite(needle) ? { items, needle } : null;
+        },
+        (data) => JSON.stringify(data, null, 2)
+      );
+
+      // 6. Loop Exception
+      runWorkflow(
+        "loop-exception-form",
+        "/api/loop-exception",
+        (form) => {
+          const raw = form.querySelector("#loop-exception-items").value;
+          const items = raw.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 10);
+          return items.length > 0 ? { items } : null;
+        },
+        (data) => JSON.stringify(data, null, 2)
+      );
+
+      // 7. Error
+      runWorkflow(
+        "error-form",
+        "/api/error",
+        (form) => {
+          const should_fail = form.querySelector("#error-fail").checked;
+          return { should_fail };
+        },
+        (data) => JSON.stringify(data, null, 2)
+      );
+
+      // 8. Exception Metadata
+      runWorkflow(
+        "exception-metadata-form",
+        "/api/exception-metadata",
+        (form) => {
+          const should_fail = form.querySelector("#exception-metadata-fail").checked;
+          return { should_fail };
+        },
+        (data) => JSON.stringify(data, null, 2)
+      );
+
+      // 9. Sleep
+      runWorkflow(
+        "sleep-form",
+        "/api/sleep",
+        (form) => {
+          const seconds = Number(form.querySelector("#sleep-seconds").value);
+          return Number.isFinite(seconds) && seconds >= 1 && seconds <= 10
+            ? { seconds }
+            : null;
+        },
+        (data) => JSON.stringify(data, null, 2)
+      );
+
+      // 10. Guard Fallback
+      runWorkflow(
+        "guard-fallback-form",
+        "/api/guard-fallback",
+        (form) => {
+          const user = form.querySelector("#guard-fallback-user").value.trim();
+          return user ? { user } : null;
+        },
+        (data) => JSON.stringify(data, null, 2)
+      );
+
+      // 11. Early Return + Loop
+      runWorkflow(
+        "early-return-form",
+        "/api/early-return-loop",
+        (form) => {
+          const input_text = form.querySelector("#early-return-input").value.trim();
+          return input_text ? { input_text } : null;
+        },
+        (data) => JSON.stringify(data, null, 2)
+      );
+
+      // 12. Spread Empty Collection
+      runWorkflow(
+        "spread-empty-form",
+        "/api/spread-empty",
+        (form) => {
+          const raw = form.querySelector("#spread-empty-items").value;
+          const items = raw.split(",").map((s) => s.trim()).filter(Boolean);
+          // Allow empty items array to test empty spread
+          return { items };
+        },
+        (data) => JSON.stringify(data, null, 2)
+      );
+
+      // 13. Kw-only Inputs
+      runWorkflow(
+        "kw-only-form",
+        "/api/kw-only",
+        (form) => {
+          const latRaw = form.querySelector("#kw-only-latitude").value.trim();
+          const lonRaw = form.querySelector("#kw-only-longitude").value.trim();
+          const latitude = latRaw === "" ? null : Number(latRaw);
+          const longitude = lonRaw === "" ? null : Number(lonRaw);
+          if (latRaw !== "" && !Number.isFinite(latitude)) return null;
+          if (lonRaw !== "" && !Number.isFinite(longitude)) return null;
+          return { latitude, longitude };
+        },
+        (data) => JSON.stringify(data, null, 2)
+      );
+
+      // 14. Undefined Variable Validation
+      runWorkflow(
+        "undefined-variable-form",
+        "/api/undefined-variable",
+        (form) => {
+          const input_text = form.querySelector("#undefined-variable-input").value.trim();
+          return input_text ? { input_text } : null;
+        },
+        (data) => JSON.stringify(data, null, 2)
+      );
+
+
+      // 15. Batch workflow runs
+      const batchForm = document.getElementById("batch-form");
+      const batchStatus = document.getElementById("batch-status");
+      const batchResult = document.getElementById("batch-result");
+      const batchInputs = document.getElementById("batch-inputs");
+      const batchHint = document.getElementById("batch-hint");
+      const batchWorkflowSelect = document.getElementById("batch-workflow");
+      const batchButton = batchForm.querySelector("button");
+      const batchDefaults = {
+        ParallelMathWorkflow: { hint: 'Inputs JSON: {"number": 7}', inputs: '{"number": 7}' },
+        NoOpWorkflow: {
+          hint: 'Inputs JSON: {"indices": [0, 1, 2, 3, 4], "complexity": 0}',
+          inputs: '{"indices": [0, 1, 2, 3, 4], "complexity": 0}'
+        },
+      };
+
+      function applyBatchDefaults(workflowName) {
+        const defaults = batchDefaults[workflowName];
+        if (!defaults) return;
+        batchHint.textContent = defaults.hint;
+        batchInputs.value = defaults.inputs;
+      }
+
+      batchWorkflowSelect.addEventListener("change", (event) => {
+        applyBatchDefaults(event.target.value);
+      });
+      applyBatchDefaults(batchWorkflowSelect.value);
+
+      batchForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+
+        const workflow_name = batchWorkflowSelect.value;
+        const count = Number(document.getElementById("batch-count").value);
+        const batch_size = Number(document.getElementById("batch-size").value);
+        const priorityRaw = document.getElementById("batch-priority").value.trim();
+        const include_instance_ids = document.getElementById("batch-ids").checked;
+        const inputsText = batchInputs.value.trim();
+
+        if (!Number.isFinite(count) || count < 1) return;
+        if (!Number.isFinite(batch_size) || batch_size < 1) return;
+
+        let inputs = null;
+        if (inputsText) {
+          try {
+            inputs = JSON.parse(inputsText);
+          } catch (error) {
+            batchStatus.textContent = `Invalid JSON: ${error.message}`;
+            batchStatus.className = "status error";
+            return;
+          }
+        }
+
+        const payload = {
+          workflow_name,
+          count,
+          batch_size,
+          include_instance_ids,
+        };
+        if (inputs !== null) {
+          payload.inputs = inputs;
+        }
+        if (priorityRaw !== "") {
+          const priority = Number(priorityRaw);
+          if (Number.isFinite(priority)) {
+            payload.priority = priority;
+          }
+        }
+
+        batchStatus.textContent = "Queueing instances...";
+        batchStatus.className = "status";
+        batchResult.hidden = true;
+        batchResult.textContent = "";
+        batchButton.disabled = true;
+
+        try {
+          const response = await fetch("/api/batch-run", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
+            throw new Error(data.detail ?? response.statusText);
+          }
+          if (!response.body) {
+            throw new Error("Missing response stream");
+          }
+
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = "";
+
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const chunks = buffer.split("\n\n");
+            buffer = chunks.pop() ?? "";
+
+            chunks.forEach((chunk) => {
+              const lines = chunk.split("\n");
+              let eventName = "message";
+              let dataPayload = "";
+              lines.forEach((line) => {
+                if (line.startsWith("event:")) {
+                  eventName = line.slice(6).trim();
+                } else if (line.startsWith("data:")) {
+                  dataPayload += line.slice(5).trim();
+                }
+              });
+
+              if (!dataPayload) return;
+              const payload = JSON.parse(dataPayload);
+              if (eventName === "start") {
+                batchStatus.textContent = "Queueing instances...";
+                batchStatus.className = "status";
+              } else if (eventName === "complete") {
+                batchStatus.textContent = `Queued ${payload.queued} instances in ${payload.elapsed_ms}ms`;
+                batchStatus.className = "status success";
+                batchResult.textContent = JSON.stringify(payload, null, 2);
+                batchResult.hidden = false;
+              } else if (eventName === "error") {
+                batchStatus.textContent = `Failed: ${payload.message}`;
+                batchStatus.className = "status error";
+              }
+            });
+          }
+        } catch (error) {
+          batchStatus.textContent = `Failed: ${error.message}`;
+          batchStatus.className = "status error";
+        } finally {
+          batchButton.disabled = false;
+        }
+      });
+
+      // 16. Schedule - toggle between cron and interval inputs
+      const scheduleTypeSelect = document.getElementById("schedule-type");
+      const intervalInput = document.getElementById("schedule-interval");
+      const cronInput = document.getElementById("schedule-cron");
+
+      scheduleTypeSelect.addEventListener("change", () => {
+        if (scheduleTypeSelect.value === "cron") {
+          intervalInput.hidden = true;
+          cronInput.hidden = false;
+        } else {
+          intervalInput.hidden = false;
+          cronInput.hidden = true;
+        }
+      });
+
+      // 16. Schedule - register schedule
+      runWorkflow(
+        "schedule-form",
+        "/api/schedule",
+        (form) => {
+          const workflow_name = form.querySelector("#schedule-workflow").value;
+          const schedule_type = form.querySelector("#schedule-type").value;
+          const number = Number(form.querySelector("#schedule-input").value);
+          const inputs = { number };
+          if (schedule_type === "cron") {
+            const cron_expression = form.querySelector("#schedule-cron").value.trim();
+            return cron_expression
+              ? { workflow_name, schedule_type, cron_expression, inputs }
+              : null;
+          } else {
+            const interval_seconds = Number(form.querySelector("#schedule-interval").value);
+            return interval_seconds >= 10
+              ? { workflow_name, schedule_type, interval_seconds, inputs }
+              : null;
+          }
+        },
+        (data) => JSON.stringify(data, null, 2)
+      );
+
+      // 16. Schedule actions - pause, resume, delete
+      async function scheduleAction(endpoint, action) {
+        const workflow_name = document.getElementById("action-workflow").value;
+        const status = document.getElementById("schedule-action-status");
+        const buttons = document.querySelectorAll("#schedule-action-form button");
+
+        buttons.forEach((btn) => (btn.disabled = true));
+        status.textContent = `${action}...`;
+        status.className = "status";
+
+        try {
+          const response = await fetch(endpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ workflow_name }),
+          });
+          const data = await response.json();
+          status.textContent = data.message;
+          status.className = data.success ? "status success" : "status error";
+        } catch (error) {
+          status.textContent = `Error: ${error.message}`;
+          status.className = "status error";
+        } finally {
+          buttons.forEach((btn) => (btn.disabled = false));
+        }
+      }
+
+      document.getElementById("pause-btn").addEventListener("click", () => {
+        scheduleAction("/api/schedule/pause", "Pausing");
+      });
+      document.getElementById("resume-btn").addEventListener("click", () => {
+        scheduleAction("/api/schedule/resume", "Resuming");
+      });
+      document.getElementById("delete-btn").addEventListener("click", () => {
+        if (confirm("Delete this schedule?")) {
+          scheduleAction("/api/schedule/delete", "Deleting");
+        }
+      });
+
+      // Reset database button
+      document.getElementById("reset-btn").addEventListener("click", async () => {
+        const btn = document.getElementById("reset-btn");
+        const status = document.getElementById("reset-status");
+
+        if (!confirm("This will delete all workflow data. Continue?")) {
+          return;
+        }
+
+        btn.disabled = true;
+        status.textContent = "Resetting...";
+        status.className = "status";
+
+        try {
+          const response = await fetch("/api/reset", { method: "POST" });
+          const data = await response.json();
+          if (data.success) {
+            status.textContent = data.message;
+            status.className = "status success";
+          } else {
+            status.textContent = data.message;
+            status.className = "status error";
+          }
+        } catch (error) {
+          status.textContent = `Error: ${error.message}`;
+          status.className = "status error";
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>

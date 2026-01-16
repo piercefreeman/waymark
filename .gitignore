@@ -221,3 +221,6 @@ target/wheels/
 *.whl
 
 autospec
+
+node_modules
+
