@@ -60,6 +60,7 @@ Options:
 - `--hosts`: Number of simulated hosts
 - `--instances`: Number of concurrent workflow instances
 - `--workers-per-host`: Python workers per host
+- `--max-slots-per-worker`: Maximum concurrent actions per worker
 
 ### Grid Run
 

@@ -17,6 +17,7 @@ use anyhow::{Context, Result, anyhow};
 use clap::Parser;
 use prost::Message;
 use serde::Serialize;
+use sqlx::Row;
 use tempfile::TempDir;
 use tokio::{net::TcpListener, process::Command, sync::oneshot, task::JoinHandle};
 use tokio_stream::Stream;
@@ -86,6 +87,10 @@ struct Args {
     /// Number of Python workers per host
     #[arg(long, default_value = "4")]
     workers_per_host: u32,
+
+    /// Maximum concurrent actions per worker
+    #[arg(long, default_value = "10")]
+    max_slots_per_worker: u32,
 
     /// Number of workflow instances to run concurrently
     #[arg(long, default_value = "1")]
@@ -534,6 +539,37 @@ async fn wait_for_completion(
     Ok(action_count as u64)
 }
 
+async fn fetch_action_latency_metrics(database: &Arc<Database>) -> Result<(f64, f64)> {
+    let row = sqlx::query(
+        r#"
+        WITH durations AS (
+            SELECT duration_ms::double precision AS duration_ms
+            FROM action_logs
+            WHERE duration_ms IS NOT NULL
+            UNION ALL
+            SELECT duration_ms::double precision AS duration_ms
+            FROM action_log_queue
+            WHERE duration_ms IS NOT NULL
+            UNION ALL
+            SELECT EXTRACT(EPOCH FROM (completed_at - dispatched_at)) * 1000.0 AS duration_ms
+            FROM action_queue
+            WHERE status = 'completed'
+              AND completed_at IS NOT NULL
+              AND dispatched_at IS NOT NULL
+        )
+        SELECT AVG(duration_ms) AS avg_ms,
+               PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY duration_ms) AS p95_ms
+        FROM durations
+        "#,
+    )
+    .fetch_one(database.pool())
+    .await?;
+
+    let avg_ms: Option<f64> = row.try_get("avg_ms")?;
+    let p95_ms: Option<f64> = row.try_get("p95_ms")?;
+    Ok((avg_ms.unwrap_or(0.0), p95_ms.unwrap_or(0.0)))
+}
+
 fn build_input_payload(inputs: &HashMap<String, WorkflowValue>) -> Vec<u8> {
     let arguments = inputs
         .iter()
@@ -817,7 +853,7 @@ async fn main() -> Result<()> {
         let runner_config = rappel::RunnerConfig {
             batch_size: 64,
             enable_metrics: args.metrics_json.is_some(),
-            max_slots_per_worker: 10,
+            max_slots_per_worker: args.max_slots_per_worker as usize,
             poll_interval_ms: 10,
             timeout_check_interval_ms: 1000,
             timeout_check_batch_size: 100,
@@ -849,6 +885,7 @@ async fn main() -> Result<()> {
     info!(
         hosts = args.hosts,
         workers_per_host = args.workers_per_host,
+        max_slots_per_worker = args.max_slots_per_worker,
         total_workers = total_workers,
         "all hosts ready"
     );
@@ -859,6 +896,7 @@ async fn main() -> Result<()> {
     let start = Instant::now();
     let total = wait_for_completion(&database, expected_instances, timeout).await?;
     let elapsed = start.elapsed();
+    let (avg_round_trip_ms, p95_round_trip_ms) = fetch_action_latency_metrics(&database).await?;
 
     if let Some(path) = &args.metrics_json {
         let mut per_host = Vec::new();
@@ -930,8 +968,8 @@ async fn main() -> Result<()> {
         total,
         elapsed_s,
         throughput,
-        avg_round_trip_ms: 0.0,
-        p95_round_trip_ms: 0.0,
+        avg_round_trip_ms,
+        p95_round_trip_ms,
     };
 
     // Output results
@@ -942,6 +980,7 @@ async fn main() -> Result<()> {
         println!("Benchmark type: {}", args.benchmark);
         println!("Hosts: {}", args.hosts);
         println!("Workers per host: {}", args.workers_per_host);
+        println!("Max slots per worker: {}", args.max_slots_per_worker);
         println!("Total workers: {}", total_workers);
         println!("Actions executed: {}", output.total);
         println!("Elapsed time: {:.2}s", output.elapsed_s);

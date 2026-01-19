@@ -171,6 +171,7 @@ class TextFormatter(OutputFormatter):
             f"  Hosts:            {data.config['hosts']}",
             f"  Instances:        {data.config['instances']}",
             f"  Workers/host:     {data.config['workers_per_host']}",
+            f"  Max slots/worker: {data.config['max_slots_per_worker']}",
         ]
 
         # Show per-benchmark config if available, otherwise show global
@@ -860,6 +861,11 @@ def cli():
 )
 @click.option("--complexity", default=1000, help="CPU complexity per action (hash iterations)")
 @click.option("--workers-per-host", default=4, help="Number of Python workers per host")
+@click.option(
+    "--max-slots-per-worker",
+    default=10,
+    help="Maximum concurrent actions per worker",
+)
 @click.option("--hosts", default=1, help="Number of hosts")
 @click.option("--instances", default=1, help="Number of workflow instances")
 def single(
@@ -869,6 +875,7 @@ def single(
     loop_size: int,
     complexity: int,
     workers_per_host: int,
+    max_slots_per_worker: int,
     hosts: int,
     instances: int,
 ):
@@ -892,6 +899,8 @@ def single(
             str(complexity),
             "--workers-per-host",
             str(workers_per_host),
+            "--max-slots-per-worker",
+            str(max_slots_per_worker),
             "--hosts",
             str(hosts),
             "--instances",
@@ -937,6 +946,11 @@ def single(
 )
 @click.option("--complexity", default=1000, help="CPU complexity per action (hash iterations)")
 @click.option("--workers-per-host", default=4, help="Number of Python workers per host")
+@click.option(
+    "--max-slots-per-worker",
+    default=10,
+    help="Maximum concurrent actions per worker",
+)
 @click.option("--hosts", default=1, help="Number of hosts")
 @click.option("--instances", default=1, help="Number of workflow instances")
 @click.option("--timeout", default=300, help="Timeout per benchmark run in seconds")
@@ -953,6 +967,7 @@ def suite(
     loop_size: int,
     complexity: int,
     workers_per_host: int,
+    max_slots_per_worker: int,
     hosts: int,
     instances: int,
     timeout: int,
@@ -1000,6 +1015,8 @@ def suite(
                 str(bench_cfg["complexity"]),
                 "--workers-per-host",
                 str(workers_per_host),
+                "--max-slots-per-worker",
+                str(max_slots_per_worker),
                 "--hosts",
                 str(hosts),
                 "--instances",
@@ -1018,6 +1035,7 @@ def suite(
             "loop_size": loop_size,
             "complexity": complexity,
             "workers_per_host": workers_per_host,
+            "max_slots_per_worker": max_slots_per_worker,
             "hosts": hosts,
             "instances": instances,
             "timeout": timeout,
@@ -1071,6 +1089,11 @@ def parse_benchmark_config(config_str: str) -> dict[str, dict[str, int]]:
 @click.option("--instances", default="1,2,4,8", help="Comma-separated list of instance counts")
 @click.option("--workers-per-host", default=4, help="Number of Python workers per host")
 @click.option(
+    "--max-slots-per-worker",
+    default=10,
+    help="Maximum concurrent actions per worker",
+)
+@click.option(
     "--benchmarks",
     default="for-loop,fan-out",
     help="Comma-separated list of benchmark types",
@@ -1092,6 +1115,7 @@ def grid(
     hosts: str,
     instances: str,
     workers_per_host: int,
+    max_slots_per_worker: int,
     benchmarks: str,
     loop_size: int,
     complexity: int,
@@ -1140,6 +1164,7 @@ def grid(
     print(f"Hosts: {host_counts}", file=sys.stderr)
     print(f"Instances: {instance_counts}", file=sys.stderr)
     print(f"Workers per host: {workers_per_host}", file=sys.stderr)
+    print(f"Max slots per worker: {max_slots_per_worker}", file=sys.stderr)
     for bench, cfg in benchmark_configs.items():
         print(
             f"  {bench}: loop_size={cfg['loop_size']}, complexity={cfg['complexity']}",
@@ -1179,6 +1204,8 @@ def grid(
                         str(host_count),
                         "--workers-per-host",
                         str(workers_per_host),
+                        "--max-slots-per-worker",
+                        str(max_slots_per_worker),
                         "--instances",
                         str(instance_count),
                         "--log-interval",
@@ -1214,6 +1241,7 @@ def grid(
         "hosts": host_counts,
         "instances": instance_counts,
         "workers_per_host": workers_per_host,
+        "max_slots_per_worker": max_slots_per_worker,
         "benchmarks": benchmark_types,
         "benchmark_configs": benchmark_configs,
     }
