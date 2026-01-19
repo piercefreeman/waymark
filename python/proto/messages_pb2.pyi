@@ -1024,6 +1024,9 @@ class WorkflowStreamRequest(google.protobuf.message.Message):
 
     REGISTRATION_FIELD_NUMBER: builtins.int
     ACTION_RESULT_FIELD_NUMBER: builtins.int
+    SKIP_SLEEP_FIELD_NUMBER: builtins.int
+    skip_sleep: builtins.bool
+    """Skip sleep/backoff delays in in-memory execution (e.g., pytest)."""
     @property
     def registration(self) -> Global___WorkflowRegistration: ...
     @property
@@ -1033,6 +1036,7 @@ class WorkflowStreamRequest(google.protobuf.message.Message):
         *,
         registration: Global___WorkflowRegistration | None = ...,
         action_result: Global___ActionResult | None = ...,
+        skip_sleep: builtins.bool = ...,
     ) -> None: ...
     def HasField(
         self,
@@ -1043,7 +1047,14 @@ class WorkflowStreamRequest(google.protobuf.message.Message):
     def ClearField(
         self,
         field_name: typing.Literal[
-            "action_result", b"action_result", "kind", b"kind", "registration", b"registration"
+            "action_result",
+            b"action_result",
+            "kind",
+            b"kind",
+            "registration",
+            b"registration",
+            "skip_sleep",
+            b"skip_sleep",
         ],
     ) -> None: ...
     def WhichOneof(

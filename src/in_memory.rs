@@ -58,6 +58,7 @@ pub struct InMemoryWorkflowExecutor {
     readiness_required: HashMap<String, i32>,
     action_states: HashMap<String, ActionState>,
     next_sequence: u32,
+    skip_sleep: bool,
 }
 
 #[tonic::async_trait]
@@ -107,7 +108,10 @@ impl ExecutionContext for InMemoryWorkflowExecutor {
 }
 
 impl InMemoryWorkflowExecutor {
-    pub fn from_registration(registration: proto::WorkflowRegistration) -> Result<Self> {
+    pub fn from_registration(
+        registration: proto::WorkflowRegistration,
+        skip_sleep: bool,
+    ) -> Result<Self> {
         let program = ir_ast::Program::decode(&registration.ir[..]).context("invalid IR")?;
         validate_program(&program)
             .map_err(|err| anyhow::anyhow!(err))
@@ -135,6 +139,7 @@ impl InMemoryWorkflowExecutor {
             readiness_required: HashMap::new(),
             action_states: HashMap::new(),
             next_sequence: 0,
+            skip_sleep,
         })
     }
 
@@ -302,6 +307,9 @@ impl InMemoryWorkflowExecutor {
     }
 
     async fn sleep_from_increment(&self, increment: &ReadinessIncrement) {
+        if self.skip_sleep {
+            return;
+        }
         let duration_secs = increment
             .dispatch_payload
             .as_ref()
@@ -317,6 +325,9 @@ impl InMemoryWorkflowExecutor {
     }
 
     async fn maybe_backoff(&self, state: &ActionState) {
+        if self.skip_sleep {
+            return;
+        }
         let delay_ms = match state.backoff_kind {
             BackoffKind::None => 0,
             BackoffKind::Linear => state.backoff_base_delay_ms * (state.attempt_number + 1),

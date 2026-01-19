@@ -167,6 +167,7 @@ async fn execute_workflow_stream(
                 .await?
                 .ok_or_else(|| tonic::Status::invalid_argument("registration missing"))?;
 
+            let skip_sleep = first.skip_sleep;
             let registration = match first.kind {
                 Some(proto::workflow_stream_request::Kind::Registration(registration)) => {
                     registration
@@ -178,8 +179,9 @@ async fn execute_workflow_stream(
                 }
             };
 
-            let mut executor = InMemoryWorkflowExecutor::from_registration(registration)
-                .map_err(|err| tonic::Status::invalid_argument(format!("{err}")))?;
+            let mut executor =
+                InMemoryWorkflowExecutor::from_registration(registration, skip_sleep)
+                    .map_err(|err| tonic::Status::invalid_argument(format!("{err}")))?;
 
             let step = executor
                 .start()

@@ -322,7 +322,8 @@ async def execute_workflow(payload: bytes) -> bytes:
     )
 
     queue: asyncio.Queue[Optional[pb2.WorkflowStreamRequest]] = asyncio.Queue()
-    await queue.put(pb2.WorkflowStreamRequest(registration=registration))
+    skip_sleep = bool(os.environ.get("PYTEST_CURRENT_TEST"))
+    await queue.put(pb2.WorkflowStreamRequest(registration=registration, skip_sleep=skip_sleep))
 
     async def request_stream() -> AsyncIterator[pb2.WorkflowStreamRequest]:
         while True:

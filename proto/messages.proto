@@ -200,6 +200,8 @@ message WorkflowStreamRequest {
     WorkflowRegistration registration = 1;
     ActionResult action_result = 2;
   }
+  // Skip sleep/backoff delays in in-memory execution (e.g., pytest).
+  bool skip_sleep = 3;
 }
 
 // Server -> client final workflow result payload.
