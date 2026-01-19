@@ -6,11 +6,12 @@
 
 import json
 import os
-import re
 import subprocess
 import sys
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import unquote, urlparse
 
 import click
 from pydantic import BaseModel
@@ -482,28 +483,137 @@ FORMATTERS: dict[str, OutputFormatter] = {
     "csv": CsvFormatter(),
 }
 
+# =============================================================================
+# Database Configuration
+# =============================================================================
+
+
+@dataclass(frozen=True)
+class DatabaseConfig:
+    """Postgres connection parameters for benchmarks."""
+
+    user: str
+    password: str
+    host: str
+    port: int
+    dbname: str
+
+
+# Defaults align with docker-compose.yml for local runs.
+DEFAULT_DB_CONFIG = DatabaseConfig(
+    user="mountaineer",
+    password="mountaineer",
+    host="localhost",
+    port=5433,
+    dbname="mountaineer_daemons",
+)
+
+DEFAULT_DB_URL = (
+    f"postgresql://{DEFAULT_DB_CONFIG.user}:{DEFAULT_DB_CONFIG.password}@"
+    f"{DEFAULT_DB_CONFIG.host}:{DEFAULT_DB_CONFIG.port}/{DEFAULT_DB_CONFIG.dbname}"
+)
+
 
 # =============================================================================
 # Benchmark Runner
 # =============================================================================
 
 
-def reset_database():
-    """Reset the database tables for clean benchmark runs."""
-    db_url = os.environ.get(
-        "RAPPEL_DATABASE_URL",
-        "postgresql://mountaineer:mountaineer@localhost:5432/mountaineer_daemons",
+def get_database_url() -> str:
+    """Return the database URL from the environment or defaults."""
+    db_url = os.environ.get("RAPPEL_DATABASE_URL")
+    return db_url if db_url else DEFAULT_DB_URL
+
+
+def parse_database_url(db_url: str) -> DatabaseConfig:
+    """Parse a postgres URL into a DatabaseConfig."""
+    parsed = urlparse(db_url)
+    if parsed.scheme not in {"postgresql", "postgres"}:
+        raise ValueError("unsupported scheme (expected postgresql)")
+    if not parsed.username or not parsed.password or not parsed.hostname or not parsed.port:
+        raise ValueError("missing username, password, host, or port")
+    dbname = parsed.path.lstrip("/")
+    if not dbname:
+        raise ValueError("missing database name")
+    return DatabaseConfig(
+        user=unquote(parsed.username),
+        password=unquote(parsed.password),
+        host=parsed.hostname,
+        port=parsed.port,
+        dbname=dbname,
     )
 
-    match = re.match(r"postgresql://([^:]+):([^@]+)@([^:]+):(\d+)/(.+)", db_url)
-    if not match:
-        print(f"Warning: Could not parse RAPPEL_DATABASE_URL: {db_url}", file=sys.stderr)
-        return
 
-    user, password, host, port, dbname = match.groups()
-
+def check_database_connection(config: DatabaseConfig, timeout: int = 5) -> tuple[bool, str | None]:
+    """Verify we can connect to Postgres before running benchmarks."""
     env = os.environ.copy()
-    env["PGPASSWORD"] = password
+    env["PGPASSWORD"] = config.password
+
+    cmd = [
+        "psql",
+        "-h",
+        config.host,
+        "-p",
+        str(config.port),
+        "-U",
+        config.user,
+        "-d",
+        config.dbname,
+        "-c",
+        "SELECT 1;",
+    ]
+
+    try:
+        result = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=timeout)
+    except FileNotFoundError:
+        return False, "psql not found (install postgresql-client)"
+    except subprocess.TimeoutExpired:
+        return False, f"connection timed out after {timeout}s"
+
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip() or "unknown error"
+        return False, detail
+
+    return True, None
+
+
+def ensure_database_available() -> DatabaseConfig:
+    """Exit early if Postgres is not reachable."""
+    db_url = get_database_url()
+    try:
+        config = parse_database_url(db_url)
+    except ValueError as exc:
+        print(
+            f"Invalid RAPPEL_DATABASE_URL: {db_url}",
+            file=sys.stderr,
+        )
+        print(
+            f"Details: {exc}. Expected format: postgresql://USER:PASSWORD@HOST:PORT/DBNAME",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    ok, error = check_database_connection(config)
+    if not ok:
+        print(
+            f"Database is not reachable at {config.host}:{config.port}/{config.dbname}.",
+            file=sys.stderr,
+        )
+        if error:
+            print(f"Details: {error}", file=sys.stderr)
+        print(
+            "Start Postgres with: docker compose up -d postgres",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    return config
+
+
+def reset_database(config: DatabaseConfig) -> None:
+    """Reset the database tables for clean benchmark runs."""
+    env = os.environ.copy()
+    env["PGPASSWORD"] = config.password
 
     tables = [
         "action_queue",
@@ -516,13 +626,13 @@ def reset_database():
     cmd = [
         "psql",
         "-h",
-        host,
+        config.host,
         "-p",
-        port,
+        str(config.port),
         "-U",
-        user,
+        config.user,
         "-d",
-        dbname,
+        config.dbname,
         "-c",
         f"TRUNCATE {', '.join(tables)} CASCADE;",
     ]
@@ -553,11 +663,13 @@ def check_benchmark_available() -> bool:
 def run_benchmark(args: list[str], timeout: int = 300) -> BenchmarkResult | BenchmarkError:
     """Run the benchmark binary with --json flag and parse the JSON output."""
     cmd = ["./target/release/benchmark", "--json"] + args
+    env = os.environ.copy()
+    env["RAPPEL_DATABASE_URL"] = get_database_url()
 
     print(f"Running: {' '.join(cmd)}", file=sys.stderr)
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        result = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=timeout)
     except FileNotFoundError:
         return BenchmarkError(error="binary_not_found")
     except subprocess.TimeoutExpired:
@@ -648,8 +760,10 @@ def single(
         print("Benchmark binary not found. Run 'cargo build --release' first.", file=sys.stderr)
         sys.exit(1)
 
+    db_config = ensure_database_available()
+
     print(f"=== Running {benchmark} Benchmark ===", file=sys.stderr)
-    reset_database()
+    reset_database(db_config)
 
     result = run_benchmark(
         [
@@ -751,11 +865,13 @@ def suite(
         if bench not in benchmark_configs:
             benchmark_configs[bench] = {"loop_size": loop_size, "complexity": complexity}
 
+    db_config = ensure_database_available()
+
     results: dict[str, BenchmarkResult | BenchmarkError] = {}
     for benchmark in benchmark_types:
         bench_cfg = benchmark_configs[benchmark]
         print(f"=== Running {benchmark} Benchmark ===", file=sys.stderr)
-        reset_database()
+        reset_database(db_config)
         result = run_benchmark(
             [
                 "--benchmark",
@@ -893,6 +1009,8 @@ def grid(
         print("Benchmark binary not found. Run 'cargo build --release' first.", file=sys.stderr)
         sys.exit(1)
 
+    db_config = ensure_database_available()
+
     total_runs = len(benchmark_types) * len(host_counts) * len(instance_counts)
     current_run = 0
 
@@ -928,7 +1046,7 @@ def grid(
                     file=sys.stderr,
                 )
 
-                reset_database()
+                reset_database(db_config)
 
                 result = run_benchmark(
                     [
