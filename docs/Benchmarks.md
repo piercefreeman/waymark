@@ -20,6 +20,14 @@ Pure parallel fan-out where all actions run concurrently. Tests maximum action d
 workflow_input -> spread(count) -> hash_action[0..N] -> barrier -> output
 ```
 
+### queue-noop
+
+Queue stress benchmark with no-op actions. Useful for validating system scaling when action execution cost is intentionally trivial. In these runs, the dominant contention is the Rust dispatch loop and database coordination rather than Python work.
+
+```
+workflow_input -> noop_action[0..N] -> barrier -> output
+```
+
 ## Running Benchmarks
 
 Build the benchmark binary first:
@@ -30,6 +38,12 @@ cargo build --release
 
 ### Single Run
 
+Before you launch the benchmarks, you'll need a local postgres instance for use as the backing database:
+
+```bash
+docker compose up
+```
+
 Run a single benchmark configuration:
 
 ```bash
@@ -38,7 +52,7 @@ uv run scripts/run_benchmarks.py single -b fan-out -f json -o results.json
 ```
 
 Options:
-- `-b, --benchmark`: Benchmark type (`for-loop` or `fan-out`)
+- `-b, --benchmark`: Benchmark type (`for-loop`, `fan-out`, or `queue-noop`)
 - `-f, --format`: Output format (`text`, `json`, `markdown`, `csv`)
 - `-o, --output`: Output file (stdout if not specified)
 - `--count`: Number of parallel hash computations per workflow
@@ -58,67 +72,6 @@ uv run scripts/run_benchmarks.py grid --hosts "1,2,4" --instances "1,2,4,8" -f c
 
 The grid command runs all combinations of hosts × instances × benchmark types and produces a summary with scaling analysis.
 
-## Output Formats
-
-### text
-
-Human-readable tables with a scaling analysis section:
-
-```
-Benchmark Grid Results
-======================================================================
-
-[for-loop]
-----------------------------------------------------------------------
- Hosts   Inst  Workers    Actions/s   P95 (ms)   Avg (ms)
-----------------------------------------------------------------------
-     1      1        4        123.4       45.6       32.1
-     1      2        4        234.5       48.2       35.4
-...
-
-Scaling Analysis
-----------------------------------------------------------------------
-for-loop:
-  Baseline: 123.4 actions/s @ 4 workers
-  Best:     456.7 actions/s @ 16 workers (4h x 4i)
-  Speedup:  3.70x
-  Efficiency: 92.5% (throughput/worker vs baseline)
-```
-
-### json
-
-Machine-readable format for programmatic consumption:
-
-```json
-{
-  "_meta": {
-    "mode": "grid",
-    "config": { ... }
-  },
-  "grid": [
-    {
-      "benchmark": "for-loop",
-      "hosts": 1,
-      "instances": 1,
-      "total_workers": 4,
-      "result": {
-        "throughput": 123.4,
-        "p95_round_trip_ms": 45.6,
-        ...
-      }
-    }
-  ]
-}
-```
-
-### markdown
-
-GitHub-flavored markdown tables for documentation or PR comments.
-
-### csv
-
-Spreadsheet-importable format for external analysis tools.
-
 ## Metrics
 
 Each benchmark run reports:
@@ -135,9 +88,9 @@ The grid benchmark varies two orthogonal dimensions:
 
 **Hosts**: Number of independent DAG runners, each with its own worker pool. Simulates horizontal scaling across machines. Each host maintains separate database connections and worker gRPC channels.
 
-**Instances**: Number of concurrent workflow instances per configuration. Tests the runner's ability to interleave work from multiple independent workflows.
-
 **Workers per host**: Fixed multiplier determining total worker count (`hosts × workers_per_host`). More workers increase action parallelism but add gRPC overhead.
+
+**Instances**: Number of concurrent workflow instances per configuration. Tests the runner's ability to interleave work from multiple independent workflows. This represents the quantity of overall work to be queued.
 
 ## Interpreting Results
 

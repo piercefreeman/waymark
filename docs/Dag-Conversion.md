@@ -1,36 +1,86 @@
 # DAG Conversion
 
-Once we have an IR representation, our job is to make a full DAG. It should accept in a full IR representation and create nodes. This DAG conversion is non trivial, because there are some elements of control flow (like spread-gather operations and for loops) that don't typically fit in standard graphs.
+We start with the parsed IR (Rappel AST) and produce a graph the runner can execute. It is a DAG for most workflows, with a single back-edge for loops. The conversion step is where control flow and data flow are made explicit.
 
-Two edge types:
-	— state machine destination
-	— data flow
+## Mental model
 
-State machine destinations define the possible nodes to travel to after this node is completed, perhaps given some gating criteria to tie-break between them. (src, dst) means that dst should follow src in the execution roder.
+- Nodes are steps: action calls, assignments, branches, joins, aggregators, and function boundaries.
+- State machine edges encode "what can run after this completes".
+- Data-flow edges encode "which variable values should be written into a node's inbox".
 
-Data flow destinatinos determine where to push some variables that were set by this node. (src, dst) means that src is pushing some data in to dst. You’ll want to parameterize these edges by which variable of the output is being pushed.
+A node is runnable when its state machine predecessors have completed and its required inbox values are present. See `docs/specs/unified-readiness-model.md` for readiness rules.
 
-“for” should be a single node, with output state machine edges for “continue” (first node contained within it) and “done”
+## Two-phase conversion
 
-Any variables needed by the function within the “for” loop should be passed FROM the for loop. Which means any nodes that need to pass values INTO the for loop should just pass them to the for loop head.
+1. **Per-function subgraphs.** Each function becomes an isolated subgraph with `input` and `output` boundary nodes. Calls inside the function become `fn_call` nodes that capture kwargs.
+2. **Expansion + global wiring.** Starting from the entry function (prefer `main`, then the first non-internal function), we inline helper functions, remap exception edges, and recompute global data-flow edges so values defined inside helpers can reach downstream nodes.
 
-The class you build to do this should have a .visualize() which should popup some matplotlib graph of the dependencies that we have here in some tree like structure. solid lines for the state machine dependencies and dotted lines for the data flow.
+We validate the result (no dangling edges, no invalid loop wiring, no stray output edges) before returning the DAG.
 
-"spread" should be implemented as the action of interest, then a node after it acting as an aggregator. reason being is we want to allow each action to finsih in order that it finsihes and just write "action_{i}" to the results payload for the next node without us having to block to modify a list.
+## Node types you will see
 
-NOTE: we should only PUSH data to the most recent trailing node that DOESN’T modify the variable. If a variable name is modified downstream, downstream nodes should rely on the modified node value
+- `input` / `output`: function boundaries.
+- `action_call`: delegated work sent to Python workers.
+- `assignment` / `expression` / `return`: inline work executed in the runner.
+- `branch`: decision points for `if` / `elif` / `else` and loop conditions.
+- `join`: merge points; often `required_count = 1` to avoid unnecessary barriers.
+- `parallel`: entry node for parallel blocks.
+- `aggregator`: barrier node that waits for spread/parallel results.
+- `fn_call`: function call placeholders before expansion (external calls may remain).
 
+## Edge types
 
-## spread-gather
+### State machine edges
 
-TODO: Discussion on frontier nodes. Link to specs/unified-readiness-model.md.
+Execution order edges. They can carry:
 
-## for loops
+- `guard_expr` for branch and loop conditions.
+- `condition` labels like `success` or `else`.
+- `exception_types` for try/except routing.
+- `is_loop_back` for loop back-edges.
 
-In a sense I'm playing fast and loose with the acronym DAG. Our graphs can be cyclic because of our for loop support. For loops
-in contrast to spread and gather have to happen syncronously, since they need to build up the values that.
+### Data-flow edges
 
-We just set up the DAG so: the for loop head pushes the current i value to the first node in the loop, which in
-turn has a data node going back to the head to indicate the just completed i. then we make the head of the for
-loop into a frontier node. Then at runtime we just run a guard against the value of i based on the
-known full iteration values (which itself should be a var that's pushed into the inbox)?
+Per-variable edges. `(src, dst, var)` means "write `var` from src into dst's inbox". We avoid pushing stale values by only wiring from the most recent definition along the execution order. Join nodes do not define values; they only mark where paths converge.
+
+## Conversions that matter
+
+### Straight-line code
+
+Assignments and expressions become inline nodes. Action calls become `action_call` nodes. State machine edges preserve order; data-flow edges carry the variables used later.
+
+### Function boundaries and returns
+
+Each function has explicit input and output nodes. All return nodes connect to the output boundary so early returns still terminate the function. During expansion, helper functions are inlined and their nodes are prefixed; input nodes are stripped for inlined functions so the caller supplies inputs via data-flow.
+
+### Conditionals
+
+A `branch` node fans out to guarded edges for `if` / `elif` and an `else` edge for the default. If at least one branch can continue, we add a `join` node with `required_count = 1` so the next step sees a single merge point.
+
+### Try/except
+
+Try bodies are flattened. Every node inside the try body can emit exception edges to handlers. Success edges flow to a join node. If the handler binds an exception variable, we insert an assignment from `__rappel_exception__` before the handler body.
+
+### For/while loops
+
+Loops expand into a small state machine:
+
+- `for` loops create `loop_init`, `loop_cond` (branch), `loop_extract`, body, `loop_incr`, and a `loop_exit` join.
+- `while` loops create `loop_cond`, body, `loop_continue` (for continue wiring), and `loop_exit`.
+
+Back-edges are marked with `is_loop_back` so readiness ignores them.
+
+### Spread + parallel
+
+- **spread** turns into a spread action node plus an `aggregator`. Each action result is written with a `spread_index`; the aggregator reads and emits an ordered list.
+- **parallel** blocks create a `parallel` entry node, one node per call, and an `aggregator` that waits for all results.
+
+## Visualizing the graph
+
+Use the `dag-visualize` binary to render HTML:
+
+```bash
+cargo run --bin dag-visualize -- path/to/workflow.py -o dag.html
+```
+
+Solid lines are control flow; dotted lines are data flow.

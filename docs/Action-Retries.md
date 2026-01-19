@@ -1,6 +1,6 @@
 # Action Retries
 
-Actions support retry policies for automatic error recovery. Retry configuration exists at two levels: the Rappel IR syntax and the Python decorator API.
+Actions support retry policies for automatic error recovery. Retry configuration exists at two levels: the Rappel IR syntax and the Python workflow API via `run_action`.
 
 ## IR Syntax
 
@@ -29,22 +29,41 @@ Retry parameters:
 
 Duration formats: bare numbers are seconds, or use suffixes like `30s`, `2m`, `1h`.
 
-## Python Decorator API
+## Python Workflow API
 
-The Python `@action` decorator maps to the IR syntax:
+Retry and timeout policies are attached at the call site using `Workflow.run_action`. The action itself is still decorated with `@action`, but retries are not configured on the decorator.
 
 ```python
-@action(retry=3, backoff_exp=120, timeout=30)
-def my_action():
+from datetime import timedelta
+
+from rappel import action, workflow
+from rappel.workflow import RetryPolicy, Workflow
+
+
+@action
+async def my_action() -> str:
     ...
+
+
+@workflow
+class ExampleWorkflow(Workflow):
+    async def run(self) -> str:
+        return await self.run_action(
+            my_action(),
+            retry=RetryPolicy(
+                attempts=3,
+                exception_types=["NetworkError"],
+                backoff_seconds=60,
+            ),
+            timeout=timedelta(minutes=2),
+        )
 ```
 
 Parameters:
-- `retry`: Maximum retry attempts (maps to IR `retry:`)
-- `backoff_exp`: Exponential backoff base in seconds (maps to IR `backoff:`)
-- `timeout`: Per-attempt timeout in seconds (maps to IR `[timeout:]`)
-
-All time parameters are specified in seconds. Not all arguments need to be provided.
+- `RetryPolicy.attempts`: Total attempts (initial try + retries)
+- `RetryPolicy.exception_types`: Exception type names to match; empty/None catches all
+- `RetryPolicy.backoff_seconds`: Base backoff duration in seconds
+- `timeout`: Per-attempt timeout (int/float seconds or `timedelta`)
 
 ## Database Representation
 

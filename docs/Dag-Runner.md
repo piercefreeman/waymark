@@ -1,20 +1,60 @@
-## Runnable actions (what the runner actually works on)
+# DAG Runner
 
-- Runnable actions are the only things the worker pool ever sees. They fully scope module, action name, kwargs, retry/timeout, and the DAG node id so the completion can be correlated.
-- Delegated nodes (`action_call`) become runnable actions dispatched to Python workers. Inline nodes (assign/return/conditional) execute in the runner and never leave the process.
-- Queue state lives in Postgres (`action_queue`). The runner repeatedly dequeues ready items, dispatches delegated work, and processes inline/barrier/for-loop/sleep nodes directly.
+The runner is the runtime that polls Postgres, dispatches work to Python workers, executes inline nodes, and keeps the DAG moving.
 
-## Scope + inbox seeding
+## Big pieces
 
-- Workflow inputs are written once into both the inline scope **and** downstream inboxes off the input node. This happens via a shared `seed_scope_and_inbox` helper so the same data is available to actions even if no intermediate node re-emits it.
-- During completion, the runner builds an `InlineContext` (initial scope from registration + DB-fetched inbox + optional spread index) and passes that to `execute_inline_subgraph`. This keeps inline execution deterministic and avoids re-plumbing multiple maps at every call site.
-- Loops persist their accumulators and loop index back into the loop inbox each iteration so break edges and subsequent bodies see up-to-date values.
+- **DAG cache**: caches DAGs by workflow version so we do not decode the proto on every completion.
+- **Work queue handler**: polls `action_queue`, respects worker capacity, and dispatches work.
+- **Worker slot tracker**: per-worker capacity accounting for concurrent actions.
+- **Python worker pool**: long-lived gRPC connections to Python workers.
+- **In-flight tracker**: maps delivery tokens to dispatched actions and watches timeouts.
+- **Completion handler + batcher**: builds completion plans and commits them in a single transaction.
 
-## Completion path (unified readiness model)
+## Data in Postgres
 
-1. Analyze the reachable subgraph from the completed node to find inline nodes vs. frontiers (actions, barriers, for-loops, outputs).
-2. Batch-read inboxes for all nodes in that subgraph.
-3. Execute inline nodes in memory using the `InlineContext`, collecting inbox writes and readiness increments.
-4. Commit the completion plan in one transaction (inbox writes, readiness updates, enqueue new runnable actions, optional instance completion).
+- `action_queue`: runnable nodes (`action`, `barrier`, `sleep`).
+- `node_inputs`: inbox storage (append-only; latest value wins).
+- `node_readiness`: per-node counters for the unified readiness model.
+- `workflow_instances` / `workflow_versions`: instance state and DAG bytes.
+- `action_logs`: audit trail for completed actions.
 
-Exceptions and retries still flow through the existing handler path; the unified path handles successful completions and durable sleeps/barriers/loops.
+## Polling + dispatch
+
+- The runner calls `dispatch_runnable_nodes` with the available slot count.
+- `action` nodes are dispatched to Python workers.
+- `barrier` nodes (aggregators and multi-predecessor joins) execute inline.
+- `sleep` nodes are handled inline once their `scheduled_at` time arrives.
+- Each dispatched action gets a delivery token for idempotent completion.
+
+## Inline scope + inbox
+
+- Workflow inputs are seeded into an inline scope and also written to downstream inboxes so actions can access inputs even if no intermediate node re-emits them.
+- The inbox (`node_inputs`) is append-only; reads pick the latest value per variable (plus `spread_index` for aggregators).
+- The runner caches initial scopes and inbox snapshots per instance to cut down on round trips.
+
+## Completion flow (unified readiness model)
+
+When an action or barrier completes, the runner:
+
+1. Analyzes the reachable subgraph (inline nodes vs frontier nodes).
+2. Batch-reads inbox data for those nodes.
+3. Executes inline nodes in memory, updating the scope and collecting inbox writes.
+4. Commits a completion plan in one transaction: inbox writes, readiness increments, enqueue newly ready nodes, and optional instance completion.
+
+Frontier nodes are categorized as:
+
+- **Action**: external work sent to Python.
+- **Barrier**: aggregators and joins that must wait for multiple predecessors.
+- **Output**: final workflow completion.
+
+## Spread, parallel, and joins
+
+- Spread/parallel aggregators are enqueued as `barrier` nodes once all predecessors complete.
+- Join nodes with `required_count = 1` are treated as inline; joins with multiple predecessors become barriers.
+
+## Failures, retries, and timeouts
+
+- Action failures route through `CompletionEngine.handle_action_failure` to either requeue or route to exception handlers.
+- Retry + timeout policies come from the DAG node (see `docs/Action-Retries.md`).
+- A background timeout loop marks timed-out actions and requeues or fails instances as needed.
