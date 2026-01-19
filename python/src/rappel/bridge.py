@@ -315,6 +315,11 @@ async def execute_workflow(payload: bytes) -> bytes:
 
     registration = pb2.WorkflowRegistration()
     registration.ParseFromString(payload)
+    LOGGER.debug(
+        "pytest stream start: workflow=%s ir_hash=%s",
+        registration.workflow_name,
+        registration.ir_hash,
+    )
 
     queue: asyncio.Queue[Optional[pb2.WorkflowStreamRequest]] = asyncio.Queue()
     await queue.put(pb2.WorkflowStreamRequest(registration=registration))
@@ -334,6 +339,12 @@ async def execute_workflow(payload: bytes) -> bytes:
         match kind:
             case "action_dispatch":
                 dispatch = response.action_dispatch
+                LOGGER.debug(
+                    "pytest stream dispatch: action_id=%s module=%s action=%s",
+                    dispatch.action_id,
+                    dispatch.module_name,
+                    dispatch.action_name,
+                )
                 start_ns = time.monotonic_ns()
                 execution = await execute_action(dispatch)
                 end_ns = time.monotonic_ns()
@@ -356,9 +367,19 @@ async def execute_workflow(payload: bytes) -> bytes:
                     if execution.exception is not None
                     else "",
                 )
+                LOGGER.debug(
+                    "pytest stream result: action_id=%s success=%s",
+                    dispatch.action_id,
+                    execution.exception is None,
+                )
                 await queue.put(pb2.WorkflowStreamRequest(action_result=action_result))
             case "workflow_result":
                 result_payload = response.workflow_result.payload
+                LOGGER.debug(
+                    "pytest stream complete: workflow=%s payload_bytes=%s",
+                    registration.workflow_name,
+                    len(result_payload),
+                )
                 await queue.put(None)
                 break
             case None:

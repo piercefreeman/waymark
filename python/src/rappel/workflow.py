@@ -12,7 +12,18 @@ from dataclasses import dataclass
 from datetime import timedelta
 from functools import wraps
 from threading import RLock
-from typing import Any, Awaitable, ClassVar, Optional, TypeVar
+from types import UnionType
+from typing import (
+    Any,
+    Awaitable,
+    ClassVar,
+    Optional,
+    TypeVar,
+    Union,
+    get_args,
+    get_origin,
+    get_type_hints,
+)
 
 from proto import ast_pb2 as ir
 from proto import messages_pb2 as pb2
@@ -22,7 +33,7 @@ from .actions import deserialize_result_payload
 from .ir_builder import build_workflow_ir
 from .logger import configure as configure_logger
 from .serialization import build_arguments_from_kwargs
-from .workflow_runtime import WorkflowNodeResult
+from .workflow_runtime import WorkflowNodeResult, _coerce_value
 
 logger = configure_logger("rappel.workflow")
 
@@ -203,6 +214,11 @@ def workflow(cls: type[TWorkflow]) -> type[TWorkflow]:
         **kwargs: Any,
     ) -> Any:
         if _running_under_pytest():
+            logger.debug(
+                "pytest run: workflow=%s in_memory=%s",
+                cls.short_name(),
+                os.environ.get("RAPPEL_BRIDGE_IN_MEMORY"),
+            )
             _enable_in_memory_broker()
             initial_context = cls._build_initial_context(args, kwargs)
             payload = cls._build_registration_payload(initial_context, priority=_priority)
@@ -279,4 +295,41 @@ def _deserialize_workflow_result(
                     return variables[return_var]
         return None
 
-    return result.result
+    value = result.result
+    target_type = _resolve_return_type(workflow_cls)
+    if target_type is None:
+        return value
+    return _coerce_result_value(value, target_type)
+
+
+def _resolve_return_type(workflow_cls: type[Workflow]) -> Optional[type]:
+    try:
+        run_impl = workflow_cls.__workflow_run_impl__  # type: ignore[attr-defined]
+    except AttributeError:
+        run_impl = workflow_cls.run
+    try:
+        type_hints = get_type_hints(run_impl)
+    except Exception:
+        return None
+    target_type = type_hints.get("return")
+    if target_type is None or target_type is Any:
+        return None
+    return target_type
+
+
+def _coerce_result_value(value: Any, target_type: type) -> Any:
+    origin = get_origin(target_type)
+    if origin is UnionType or origin is Union:
+        for arg in get_args(target_type):
+            if arg is type(None) and value is None:
+                return None
+            try:
+                coerced = _coerce_value(value, arg)
+            except Exception:
+                continue
+            if coerced is not value:
+                return coerced
+            if isinstance(value, arg):
+                return value
+        return value
+    return _coerce_value(value, target_type)
