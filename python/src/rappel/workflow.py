@@ -329,7 +329,10 @@ def _coerce_result_value(value: Any, target_type: type) -> Any:
                 continue
             if coerced is not value:
                 return coerced
-            if isinstance(value, arg):
+            if isinstance(arg, type) and isinstance(value, arg):
                 return value
         return value
-    return _coerce_value(value, target_type)
+    try:
+        return _coerce_value(value, target_type)
+    except Exception:
+        return value

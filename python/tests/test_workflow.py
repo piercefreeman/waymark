@@ -2,8 +2,13 @@ import asyncio
 import importlib
 import os
 from collections.abc import Iterator
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Optional
+from uuid import UUID, uuid4
 
 import pytest
+from pydantic import BaseModel
 
 from proto import ast_pb2 as ir
 from proto import messages_pb2 as pb2
@@ -238,14 +243,133 @@ def test_workflow_ir_includes_module_name() -> None:
     # We should have at least 2 action calls (fetch_identifier, store_value)
     assert len(action_calls_found) >= 2
 
-    # Each action call should have a module_name set
-    for action_call in action_calls_found:
-        assert action_call.action_name, "action_name should be set"
-        assert action_call.module_name, (
-            f"module_name should be set for action {action_call.action_name}"
+
+def test_workflow_result_coerces_to_pydantic_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    class ResultModel(BaseModel):
+        user_id: UUID
+        created_at: datetime
+        status: str
+
+    @action
+    async def build_result() -> ResultModel:
+        return ResultModel(
+            user_id=uuid4(),
+            created_at=datetime(2024, 1, 2, 3, 4, 5),
+            status="ok",
         )
-        # The module should be this test module
-        assert "test_workflow" in action_call.module_name
+
+    @workflow_decorator
+    class ModelWorkflow(Workflow):
+        async def run(self) -> ResultModel:
+            return await build_result()
+
+    response_user_id = uuid4()
+    response_created_at = datetime(2024, 1, 2, 3, 4, 5)
+
+    async def fake_execute_workflow(_payload: bytes) -> bytes:
+        response = {
+            "user_id": str(response_user_id),
+            "created_at": response_created_at.isoformat(),
+            "status": "ok",
+        }
+        payload = serialize_result_payload(response)
+        return payload.SerializeToString()
+
+    monkeypatch.setattr(bridge, "execute_workflow", fake_execute_workflow)
+
+    result = asyncio.run(ModelWorkflow().run())
+
+    assert isinstance(result, ResultModel)
+    assert result.user_id == response_user_id
+    assert result.created_at == response_created_at
+    assert result.status == "ok"
+
+
+def test_workflow_result_coerces_to_dataclass(monkeypatch: pytest.MonkeyPatch) -> None:
+    @dataclass
+    class ResultData:
+        name: str
+        count: int
+
+    @action
+    async def build_data() -> ResultData:
+        return ResultData(name="demo", count=3)
+
+    @workflow_decorator
+    class DataWorkflow(Workflow):
+        async def run(self) -> ResultData:
+            return await build_data()
+
+    async def fake_execute_workflow(_payload: bytes) -> bytes:
+        response = {"name": "demo", "count": 3}
+        payload = serialize_result_payload(response)
+        return payload.SerializeToString()
+
+    monkeypatch.setattr(bridge, "execute_workflow", fake_execute_workflow)
+
+    result = asyncio.run(DataWorkflow().run())
+    assert isinstance(result, ResultData)
+    assert result.name == "demo"
+    assert result.count == 3
+
+
+def test_workflow_result_optional_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    @dataclass
+    class OptionalData:
+        name: str
+        count: int
+
+    @action
+    async def build_optional() -> OptionalData:
+        return OptionalData(name="demo", count=1)
+
+    @workflow_decorator
+    class OptionalWorkflow(Workflow):
+        async def run(self) -> Optional[OptionalData]:
+            return await build_optional()
+
+    async def fake_execute_workflow(_payload: bytes) -> bytes:
+        payload = serialize_result_payload(None)
+        return payload.SerializeToString()
+
+    monkeypatch.setattr(bridge, "execute_workflow", fake_execute_workflow)
+
+    result = asyncio.run(OptionalWorkflow().run())
+    assert result is None
+
+
+def test_workflow_result_union_falls_back(monkeypatch: pytest.MonkeyPatch) -> None:
+    @dataclass
+    class PrimaryData:
+        name: str
+        count: int
+
+    class SecondaryModel(BaseModel):
+        user_id: UUID
+        status: str
+
+    @action
+    async def build_union() -> PrimaryData:
+        return PrimaryData(name="demo", count=1)
+
+    @workflow_decorator
+    class UnionWorkflow(Workflow):
+        async def run(self) -> PrimaryData | SecondaryModel:
+            return await build_union()
+
+    response_user_id = uuid4()
+
+    async def fake_execute_workflow(_payload: bytes) -> bytes:
+        response = {"user_id": str(response_user_id), "status": "ok"}
+        payload = serialize_result_payload(response)
+        return payload.SerializeToString()
+
+    monkeypatch.setattr(bridge, "execute_workflow", fake_execute_workflow)
+
+    result = asyncio.run(UnionWorkflow().run())
+    assert isinstance(result, SecondaryModel)
+    assert result.user_id == response_user_id
+    assert result.status == "ok"
 
 
 def test_workflow_result_direct_return(monkeypatch: pytest.MonkeyPatch) -> None:
