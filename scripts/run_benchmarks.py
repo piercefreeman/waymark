@@ -8,9 +8,11 @@ import json
 import os
 import subprocess
 import sys
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Event, Thread
 from urllib.parse import unquote, urlparse
 
 import click
@@ -513,6 +515,14 @@ DEFAULT_DB_URL = (
     f"{DEFAULT_DB_CONFIG.host}:{DEFAULT_DB_CONFIG.port}/{DEFAULT_DB_CONFIG.dbname}"
 )
 
+STATUS_LOG_INTERVAL_S = 5.0
+STATUS_QUERY_TIMEOUT_S = 3
+COMPLETED_ACTIONS_QUERY = (
+    "SELECT (SELECT COUNT(*) FROM action_logs)"
+    " + (SELECT COUNT(*) FROM action_log_queue)"
+    " + (SELECT COUNT(*) FROM action_queue WHERE status = 'completed')"
+)
+
 
 # =============================================================================
 # Benchmark Runner
@@ -642,6 +652,88 @@ def reset_database(config: DatabaseConfig) -> None:
         print(f"Warning: Database reset failed: {result.stderr}", file=sys.stderr)
 
 
+def fetch_completed_actions(
+    config: DatabaseConfig, timeout: int = STATUS_QUERY_TIMEOUT_S
+) -> int | None:
+    """Query the database for completed action count using a dedicated connection."""
+    env = os.environ.copy()
+    env["PGPASSWORD"] = config.password
+
+    cmd = [
+        "psql",
+        "-X",
+        "-A",
+        "-t",
+        "-h",
+        config.host,
+        "-p",
+        str(config.port),
+        "-U",
+        config.user,
+        "-d",
+        config.dbname,
+        "-c",
+        COMPLETED_ACTIONS_QUERY,
+    ]
+
+    try:
+        result = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=timeout)
+    except FileNotFoundError:
+        return None
+    except subprocess.TimeoutExpired:
+        return None
+
+    if result.returncode != 0:
+        return None
+
+    try:
+        return int(result.stdout.strip())
+    except ValueError:
+        return None
+
+
+class BenchmarkStatusLogger:
+    """Log periodic progress updates during benchmark runs."""
+
+    def __init__(self, config: DatabaseConfig, interval_s: float) -> None:
+        self._config = config
+        self._interval_s = interval_s
+        self._stop_event = Event()
+        self._thread = Thread(target=self._run, name="benchmark-status", daemon=True)
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop_event.set()
+        self._thread.join(timeout=self._interval_s + STATUS_QUERY_TIMEOUT_S)
+
+    def _run(self) -> None:
+        start_time = time.monotonic()
+        last_time = start_time
+        last_completed: int | None = None
+
+        while not self._stop_event.wait(self._interval_s):
+            completed = fetch_completed_actions(self._config)
+            if completed is None:
+                continue
+            now = time.monotonic()
+            interval = max(0.001, now - last_time)
+            if last_completed is None:
+                throughput = 0.0
+            else:
+                throughput = max(0, completed - last_completed) / interval
+            last_completed = completed
+            last_time = now
+
+            elapsed = now - start_time
+            print(
+                "benchmark status completed_actions=%s elapsed=%.1fs throughput=%.1f actions/s"
+                % (completed, elapsed, throughput),
+                file=sys.stderr,
+            )
+
+
 def check_benchmark_available() -> bool:
     """Check if the benchmark binary exists."""
     binary_path = Path("./target/release/benchmark")
@@ -660,7 +752,12 @@ def check_benchmark_available() -> bool:
         return False
 
 
-def run_benchmark(args: list[str], timeout: int = 300) -> BenchmarkResult | BenchmarkError:
+def run_benchmark(
+    args: list[str],
+    timeout: int = 300,
+    db_config: DatabaseConfig | None = None,
+    status_interval_s: float = STATUS_LOG_INTERVAL_S,
+) -> BenchmarkResult | BenchmarkError:
     """Run the benchmark binary with --json flag and parse the JSON output."""
     cmd = ["./target/release/benchmark", "--json"] + args
     env = os.environ.copy()
@@ -669,25 +766,45 @@ def run_benchmark(args: list[str], timeout: int = 300) -> BenchmarkResult | Benc
     print(f"Running: {' '.join(cmd)}", file=sys.stderr)
 
     try:
-        result = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=timeout)
+        process = subprocess.Popen(
+            cmd,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
     except FileNotFoundError:
         return BenchmarkError(error="binary_not_found")
-    except subprocess.TimeoutExpired:
-        print(f"Benchmark timed out after {timeout}s", file=sys.stderr)
-        return BenchmarkError(error="timeout")
 
-    if result.returncode != 0:
-        print(f"Benchmark failed with exit code {result.returncode}", file=sys.stderr)
-        print(f"stderr: {result.stderr[-2000:]}", file=sys.stderr)
+    status_logger = None
+    if db_config is not None and status_interval_s > 0:
+        status_logger = BenchmarkStatusLogger(db_config, status_interval_s)
+        status_logger.start()
+
+    try:
+        try:
+            stdout, stderr = process.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            stdout, stderr = process.communicate()
+            print(f"Benchmark timed out after {timeout}s", file=sys.stderr)
+            return BenchmarkError(error="timeout")
+    finally:
+        if status_logger is not None:
+            status_logger.stop()
+
+    if process.returncode != 0:
+        print(f"Benchmark failed with exit code {process.returncode}", file=sys.stderr)
+        print(f"stderr: {stderr[-2000:]}", file=sys.stderr)
         return BenchmarkError(
             error="benchmark_failed",
-            exit_code=result.returncode,
-            stderr=result.stderr[-2000:] if result.stderr else None,
+            exit_code=process.returncode,
+            stderr=stderr[-2000:] if stderr else None,
         )
 
     try:
         json_line = None
-        for line in reversed(result.stdout.strip().split("\n")):
+        for line in reversed(stdout.strip().split("\n")):
             line = line.strip()
             if line.startswith("{") and line.endswith("}"):
                 json_line = line
@@ -701,8 +818,8 @@ def run_benchmark(args: list[str], timeout: int = 300) -> BenchmarkResult | Benc
         print(f"Failed to parse JSON output: {e}", file=sys.stderr)
         return BenchmarkError(
             error="json_parse_failed",
-            stdout=result.stdout[-2000:] if result.stdout else None,
-            stderr=result.stderr[-2000:] if result.stderr else None,
+            stdout=stdout[-2000:] if stdout else None,
+            stderr=stderr[-2000:] if stderr else None,
         )
 
 
@@ -781,7 +898,8 @@ def single(
             str(instances),
             "--log-interval",
             "0",
-        ]
+        ],
+        db_config=db_config,
     )
 
     data = SingleData(benchmark=benchmark, result=result)
@@ -890,6 +1008,7 @@ def suite(
                 "0",
             ],
             timeout=timeout,
+            db_config=db_config,
         )
         results[benchmark] = result
 
@@ -1068,6 +1187,7 @@ def grid(
                         str(timeout),
                     ],
                     timeout=timeout + 30,
+                    db_config=db_config,
                 )
 
                 cell = GridCell(
