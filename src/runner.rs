@@ -3366,7 +3366,9 @@ impl DAGRunner {
             if let Some(ref exc_types) = edge.exception_types {
                 if exc_types.is_empty() {
                     // Catch-all handler (bare except: or except Exception:)
-                    catch_all_handler = Some(edge.target.clone());
+                    if catch_all_handler.is_none() {
+                        catch_all_handler = Some(edge.target.clone());
+                    }
                 } else if exc_types.iter().any(|t| t == exception_type) {
                     // Exact match on the exception type - return immediately
                     return Some(edge.target.clone());
@@ -4445,6 +4447,56 @@ mod tests {
             handler,
             Some("catch_all_handler".to_string()),
             "Catch-all should catch any exception"
+        );
+    }
+
+    #[test]
+    fn test_exception_handler_matching_prefers_first_catch_all() {
+        use crate::dag::{DAG, DAGEdge, DAGNode};
+
+        let mut dag = DAG::new();
+
+        dag.add_node(DAGNode::new(
+            "action_1".to_string(),
+            "action_call".to_string(),
+            "@risky()".to_string(),
+        ));
+        dag.add_node(DAGNode::new(
+            "inner_handler".to_string(),
+            "action_call".to_string(),
+            "@handle_inner()".to_string(),
+        ));
+        dag.add_node(DAGNode::new(
+            "outer_handler".to_string(),
+            "action_call".to_string(),
+            "@handle_outer()".to_string(),
+        ));
+
+        dag.add_edge(DAGEdge::state_machine_with_exception(
+            "action_1".to_string(),
+            "inner_handler".to_string(),
+            vec![],
+        ));
+        dag.add_edge(DAGEdge::state_machine_with_exception(
+            "action_1".to_string(),
+            "outer_handler".to_string(),
+            vec![],
+        ));
+
+        let handler = DAGRunner::get_exception_handlers_from_node(
+            &dag,
+            "action_1",
+            "ValueError",
+            &[
+                "ValueError".to_string(),
+                "Exception".to_string(),
+                "BaseException".to_string(),
+            ],
+        );
+        assert_eq!(
+            handler,
+            Some("inner_handler".to_string()),
+            "First catch-all handler should win"
         );
     }
 

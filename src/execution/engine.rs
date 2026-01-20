@@ -355,7 +355,9 @@ fn get_exception_handlers_from_node(
         }
         if let Some(ref exc_types) = edge.exception_types {
             if exc_types.is_empty() {
-                catch_all_handler = Some(edge.target.clone());
+                if catch_all_handler.is_none() {
+                    catch_all_handler = Some(edge.target.clone());
+                }
             } else if exc_types.iter().any(|t| t == exception_type) {
                 return Some(edge.target.clone());
             } else {

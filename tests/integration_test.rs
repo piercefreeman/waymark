@@ -58,6 +58,8 @@ const LOOP_CONTROL_FLOW_WORKFLOW_MODULE: &str =
     include_str!("fixtures/integration_loop_control_flow.py");
 const PARALLEL_BLOCK_WORKFLOW_MODULE: &str = include_str!("fixtures/integration_parallel_block.py");
 const ISEXCEPTION_WORKFLOW_MODULE: &str = include_str!("fixtures/integration_isexception.py");
+const NESTED_TRY_LOOP_WORKFLOW_MODULE: &str =
+    include_str!("fixtures/integration_nested_try_loop.py");
 const EXCEPTION_WITH_SUCCESS_FAILURE_SCRIPT: &str = r#"
 import asyncio
 import os
@@ -2345,6 +2347,21 @@ async def main():
 asyncio.run(main())
 "#;
 
+const REGISTER_NESTED_TRY_LOOP_SCRIPT: &str = r#"
+import asyncio
+import os
+
+from integration_nested_try_loop import NestedTryLoopWorkflow
+
+async def main():
+    os.environ.pop("PYTEST_CURRENT_TEST", None)
+    wf = NestedTryLoopWorkflow()
+    result = await wf.run()
+    print(f"Registration result: {result}")
+
+asyncio.run(main())
+"#;
+
 /// Test that exception handling inside a for loop allows the loop to continue.
 ///
 /// This is a regression test for a bug where:
@@ -2430,6 +2447,72 @@ async fn loop_exception_workflow_continues_after_catch() -> Result<()> {
     assert_eq!(
         results[1],
         serde_json::Value::String("processed:good2".to_string())
+    );
+
+    harness.shutdown().await?;
+    Ok(())
+}
+
+// =============================================================================
+// Nested Try/Except + Loop Test
+// =============================================================================
+
+/// Ensure inner try/except inside a loop handles failures instead of the outer catch-all.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[serial]
+async fn nested_try_loop_prefers_inner_handler() -> Result<()> {
+    let _ = tracing_subscriber::fmt::try_init();
+    let _ = dotenvy::dotenv();
+
+    let Some(harness) = IntegrationHarness::new(HarnessConfig {
+        files: &[
+            (
+                "integration_nested_try_loop.py",
+                NESTED_TRY_LOOP_WORKFLOW_MODULE,
+            ),
+            ("register.py", REGISTER_NESTED_TRY_LOOP_SCRIPT),
+        ],
+        entrypoint: "register.py",
+        workflow_name: "nestedtryloopworkflow",
+        user_module: "integration_nested_try_loop",
+        inputs: &[],
+    })
+    .await?
+    else {
+        return Ok(());
+    };
+
+    harness.dispatch_all().await?;
+    info!("workflow completed");
+
+    let stored_payload = harness
+        .stored_result()
+        .await?
+        .expect("workflow should have a result");
+    let result = parse_result_json(&stored_payload)?;
+    let json_obj = result
+        .as_object()
+        .ok_or_else(|| anyhow::anyhow!("result is not an object: {result}"))?;
+
+    assert_eq!(
+        json_obj.get("post_succeeded"),
+        Some(&serde_json::Value::Bool(true)),
+        "expected post to succeed after retries"
+    );
+    assert_eq!(
+        json_obj.get("attempts"),
+        Some(&serde_json::Value::Number(3.into())),
+        "expected 3 attempts before success"
+    );
+    assert_eq!(
+        json_obj.get("inner_failures"),
+        Some(&serde_json::Value::Number(2.into())),
+        "expected 2 inner failures to be handled"
+    );
+    assert_eq!(
+        json_obj.get("outer_handled"),
+        Some(&serde_json::Value::Bool(false)),
+        "outer handler should not catch inner failures"
     );
 
     harness.shutdown().await?;
