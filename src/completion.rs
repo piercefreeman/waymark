@@ -4,6 +4,7 @@
 //! where every node gets readiness tracking and is only enqueued when
 //! `completed_count == required_count`.
 
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet, VecDeque};
 use tracing::{debug, info, warn};
 
@@ -757,6 +758,7 @@ pub fn execute_inline_subgraph_with_options(
         let initial_edges = select_guarded_successors(
             helper.get_state_machine_successors(completed_node_id),
             &inline_scope,
+            existing_inbox,
             &mut guard_errors,
         );
         for edge in initial_edges {
@@ -894,6 +896,7 @@ pub fn execute_inline_subgraph_with_options(
             let successor_edges = select_guarded_successors(
                 helper.get_state_machine_successors(&node_id),
                 &inline_scope,
+                existing_inbox,
                 &mut guard_errors,
             );
             for edge in successor_edges {
@@ -1282,6 +1285,7 @@ pub enum GuardResult {
 fn select_guarded_successors<'a>(
     edges: Vec<&'a DAGEdge>,
     scope: &InlineScope,
+    existing_inbox: &HashMap<String, HashMap<String, WorkflowValue>>,
     guard_errors: &mut Vec<(String, String)>,
 ) -> Vec<&'a DAGEdge> {
     let mut selected = Vec::new();
@@ -1298,13 +1302,25 @@ fn select_guarded_successors<'a>(
 
         if let Some(ref guard) = edge.guard_expr {
             has_guarded_edges = true;
-            match evaluate_guard(Some(guard), scope, &edge.target) {
+            let guard_scope = build_guard_scope(scope, existing_inbox.get(&edge.target));
+            if matches!(guard_scope, Cow::Owned(_)) {
+                debug!(
+                    edge_target = %edge.target,
+                    "guard scope augmented from inbox for guard evaluation"
+                );
+            }
+            match evaluate_guard(Some(guard), &guard_scope, &edge.target) {
                 GuardResult::Pass => {
                     guard_passed = true;
                     selected.push(edge);
                 }
                 GuardResult::Fail => {}
                 GuardResult::Error(err) => {
+                    debug!(
+                        edge_target = %edge.target,
+                        error = %err,
+                        "guard evaluation failed"
+                    );
                     guard_errors.push((edge.target.clone(), err));
                     guard_error = true;
                 }
@@ -1320,6 +1336,28 @@ fn select_guarded_successors<'a>(
     }
 
     selected
+}
+
+fn build_guard_scope<'a>(
+    base_scope: &'a InlineScope,
+    target_inbox: Option<&HashMap<String, WorkflowValue>>,
+) -> Cow<'a, InlineScope> {
+    let Some(inbox) = target_inbox else {
+        return Cow::Borrowed(base_scope);
+    };
+
+    if inbox.keys().all(|key| base_scope.contains_key(key)) {
+        return Cow::Borrowed(base_scope);
+    }
+
+    let mut merged = base_scope.clone();
+    for (key, value) in inbox {
+        if !merged.contains_key(key) {
+            merged.insert(key.clone(), value.clone());
+        }
+    }
+
+    Cow::Owned(merged)
 }
 
 /// Evaluate a guard expression to determine if a branch should be taken.

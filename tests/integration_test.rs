@@ -2329,6 +2329,8 @@ async fn durable_sleep_workflow_executes() -> Result<()> {
 // =============================================================================
 
 const LOOP_EXCEPTION_WORKFLOW_MODULE: &str = include_str!("fixtures/integration_loop_exception.py");
+const RETRY_EXHAUSTED_BREAK_WORKFLOW_MODULE: &str =
+    include_str!("fixtures/integration_retry_exhausted_break.py");
 
 const REGISTER_LOOP_EXCEPTION_SCRIPT: &str = r#"
 import asyncio
@@ -2340,6 +2342,20 @@ async def main():
     os.environ.pop("PYTEST_CURRENT_TEST", None)
     wf = LoopExceptionWorkflow()
     result = await wf.run(items=["good1", "bad", "good2"])
+    print(f"Registration result: {result}")
+
+asyncio.run(main())
+"#;
+const REGISTER_RETRY_EXHAUSTED_BREAK_SCRIPT: &str = r#"
+import asyncio
+import os
+
+from integration_retry_exhausted_break import RetryExhaustedBreakWorkflow
+
+async def main():
+    os.environ.pop("PYTEST_CURRENT_TEST", None)
+    wf = RetryExhaustedBreakWorkflow()
+    result = await wf.run()
     print(f"Registration result: {result}")
 
 asyncio.run(main())
@@ -2431,6 +2447,46 @@ async fn loop_exception_workflow_continues_after_catch() -> Result<()> {
         results[1],
         serde_json::Value::String("processed:good2".to_string())
     );
+
+    harness.shutdown().await?;
+    Ok(())
+}
+
+/// Test that retry exhaustion inside a loop with break still allows execution to
+/// continue into the next loop.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[serial]
+async fn retry_exhausted_break_allows_followup_loop() -> Result<()> {
+    let _ = tracing_subscriber::fmt::try_init();
+    let _ = dotenvy::dotenv();
+
+    let Some(harness) = IntegrationHarness::new(HarnessConfig {
+        files: &[
+            (
+                "integration_retry_exhausted_break.py",
+                RETRY_EXHAUSTED_BREAK_WORKFLOW_MODULE,
+            ),
+            ("register.py", REGISTER_RETRY_EXHAUSTED_BREAK_SCRIPT),
+        ],
+        entrypoint: "register.py",
+        workflow_name: "retryexhaustedbreakworkflow",
+        user_module: "integration_retry_exhausted_break",
+        inputs: &[],
+    })
+    .await?
+    else {
+        return Ok(());
+    };
+
+    harness.dispatch_all().await?;
+    info!("workflow completed");
+
+    let stored_payload = harness
+        .stored_result()
+        .await?
+        .expect("workflow should have a result");
+    let message = parse_result(&stored_payload)?;
+    assert_eq!(message, Some("wrap:seed".to_string()));
 
     harness.shutdown().await?;
     Ok(())
