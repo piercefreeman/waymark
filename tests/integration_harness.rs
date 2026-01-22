@@ -411,12 +411,15 @@ impl IntegrationHarness {
         info!("worker pool ready");
 
         // Create DAGRunner with the proper components
+        // Use completion_batch_size=1 for tests to ensure immediate completion flushing
         let runner_config = RunnerConfig {
             batch_size: 10,
             max_slots_per_worker: 5,
             poll_interval_ms: 50,
             timeout_check_interval_ms: 1000,
             timeout_check_batch_size: 100,
+            completion_batch_size: 1,
+            completion_flush_interval_ms: 1,
             ..Default::default()
         };
         let runner = Arc::new(DAGRunner::new(

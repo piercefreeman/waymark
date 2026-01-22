@@ -315,6 +315,9 @@ pub struct CompletionRecord {
     pub pool_id: Option<Uuid>,
     /// Worker ID within the pool that processed this action
     pub worker_id: Option<i64>,
+    /// Actual execution time reported by the Python worker (milliseconds).
+    /// This is the raw execution time, separate from pipeline overhead.
+    pub worker_duration_ms: Option<i64>,
 }
 
 /// New action to enqueue

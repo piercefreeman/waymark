@@ -26,6 +26,8 @@
 //! - `RAPPEL_INBOX_COMPACTION_INTERVAL_MS`: Inbox compaction interval (default: None, disabled)
 //! - `RAPPEL_INBOX_COMPACTION_BATCH_SIZE`: Max inbox rows to compact per pass (default: 10000)
 //! - `RAPPEL_INBOX_COMPACTION_MIN_AGE_SECONDS`: Minimum age for inbox rows eligible for compaction (default: 60)
+//! - `RAPPEL_COMPLETION_BATCH_SIZE`: Max completion plans to batch before flushing (default: 200)
+//! - `RAPPEL_COMPLETION_FLUSH_INTERVAL_MS`: Max wait time before flushing partial batch (default: 10)
 
 use std::{
     env,
@@ -111,6 +113,14 @@ pub struct Config {
 
     /// Maximum age in milliseconds for a start claim before reclaiming it.
     pub start_claim_timeout_ms: u64,
+
+    /// Maximum completion plans to batch together before flushing to the database.
+    /// Higher values improve throughput but increase latency. Default is 200.
+    pub completion_batch_size: usize,
+
+    /// Maximum time in milliseconds to wait before flushing a partial completion batch.
+    /// Only relevant when completion_batch_size > 1. Default is 10ms.
+    pub completion_flush_interval_ms: u64,
 }
 
 /// Webapp server configuration
@@ -355,6 +365,16 @@ impl Config {
             .and_then(|s| s.parse().ok())
             .unwrap_or(60000);
 
+        let completion_batch_size = env::var("RAPPEL_COMPLETION_BATCH_SIZE")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(200);
+
+        let completion_flush_interval_ms = env::var("RAPPEL_COMPLETION_FLUSH_INTERVAL_MS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(10);
+
         let webapp = WebappConfig::from_env();
         let gc = GcConfig::from_env();
         let inbox_compaction = InboxCompactionConfig::from_env();
@@ -380,6 +400,8 @@ impl Config {
             gc,
             inbox_compaction,
             start_claim_timeout_ms,
+            completion_batch_size,
+            completion_flush_interval_ms,
         })
     }
 
@@ -409,6 +431,8 @@ impl Config {
             gc: GcConfig::default(),
             inbox_compaction: InboxCompactionConfig::default(),
             start_claim_timeout_ms: 60000,
+            completion_batch_size: 200,
+            completion_flush_interval_ms: 10,
         }
     }
 }
