@@ -2482,6 +2482,7 @@ impl DAGRunner {
         let mut plan = engine_plan.plan;
 
         // Fill in action completion details
+        let worker_duration_ms = Some(metrics.worker_duration.as_millis() as i64);
         plan = plan
             .with_action_completion(
                 ActionId(in_flight.action.id),
@@ -2490,7 +2491,7 @@ impl DAGRunner {
                 metrics.response_payload.clone(),
                 metrics.error_message.clone(),
             )
-            .with_worker(pool_id, worker_id);
+            .with_worker(pool_id, worker_id, worker_duration_ms);
 
         debug!(
             node_id = %node_id,
@@ -2579,6 +2580,7 @@ impl DAGRunner {
             error_message: Some(format!("DAG completion failed: {}", error)),
             pool_id: None,
             worker_id: None,
+            worker_duration_ms: Some(metrics.worker_duration.as_millis() as i64),
         };
 
         if let Err(db_err) = db.complete_action(completion_record).await {
@@ -2736,6 +2738,7 @@ impl DAGRunner {
             }
         }
 
+        let worker_duration_ms = Some(metrics.worker_duration.as_millis() as i64);
         plan = plan
             .with_action_completion(
                 ActionId(in_flight.action.id),
@@ -2744,7 +2747,7 @@ impl DAGRunner {
                 metrics.response_payload.clone(),
                 metrics.error_message.clone(),
             )
-            .with_worker(pool_id, worker_id);
+            .with_worker(pool_id, worker_id, worker_duration_ms);
 
         let inbox_writes = plan.inbox_writes.clone();
         let result = completion_batcher.execute(instance_id, plan).await?;
@@ -3881,6 +3884,7 @@ mod tests {
             error_message: None,
             pool_id: None,
             worker_id: None,
+            worker_duration_ms: None,
         });
         assert!(!batch.is_empty());
     }
