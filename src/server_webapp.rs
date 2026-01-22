@@ -151,6 +151,10 @@ async fn run_server(
             "/workflows/:workflow_version_id/run/:instance_id",
             get(workflow_run_detail),
         )
+        .route(
+            "/workflows/:workflow_version_id/delete",
+            post(delete_workflow_version),
+        )
         .route("/scheduled", get(list_schedules))
         .route("/scheduled/:schedule_id", get(schedule_detail))
         .route("/scheduled/:schedule_id/pause", post(pause_schedule))
@@ -295,6 +299,28 @@ async fn workflow_run_detail(
         &actions,
         &action_logs,
     ))
+}
+
+async fn delete_workflow_version(
+    State(state): State<WebappState>,
+    Path(workflow_version_id): Path<Uuid>,
+) -> impl IntoResponse {
+    match state
+        .database
+        .delete_workflow_version(WorkflowVersionId(workflow_version_id))
+        .await
+    {
+        Ok(true) => axum::response::Redirect::to("/workflows"),
+        Ok(false) => {
+            // Version not found - redirect back to workflows
+            axum::response::Redirect::to("/workflows")
+        }
+        Err(err) => {
+            error!(?err, %workflow_version_id, "failed to delete workflow version");
+            // Redirect back to the workflow detail page on error
+            axum::response::Redirect::to(&format!("/workflows/{}", workflow_version_id))
+        }
+    }
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -821,7 +847,7 @@ fn render_workflow_detail_page(
     let workflow = WorkflowDetailMetadata {
         id: version.id.to_string(),
         name: version.workflow_name.clone(),
-        hash: version.dag_hash.clone(),
+        hash: version.ir_hash.clone(),
         created_at: version.created_at.to_rfc3339(),
         concurrency_label: if version.concurrent {
             "Concurrent".to_string()
@@ -953,7 +979,7 @@ fn render_workflow_run_page(
     let workflow = WorkflowDetailMetadata {
         id: version.id.to_string(),
         name: version.workflow_name.clone(),
-        hash: version.dag_hash.clone(),
+        hash: version.ir_hash.clone(),
         created_at: version.created_at.to_rfc3339(),
         concurrency_label: if version.concurrent {
             "Concurrent".to_string()
@@ -1826,14 +1852,14 @@ mod tests {
             WorkflowVersionSummary {
                 id: Uuid::new_v4(),
                 workflow_name: "test_workflow".to_string(),
-                dag_hash: "abc123def456".to_string(),
+                ir_hash: "abc123def456".to_string(),
                 concurrent: false,
                 created_at: chrono::Utc::now(),
             },
             WorkflowVersionSummary {
                 id: Uuid::new_v4(),
                 workflow_name: "another_workflow".to_string(),
-                dag_hash: "xyz789".to_string(),
+                ir_hash: "xyz789".to_string(),
                 concurrent: true,
                 created_at: chrono::Utc::now(),
             },
@@ -1863,7 +1889,7 @@ mod tests {
         let version = crate::db::WorkflowVersion {
             id: Uuid::new_v4(),
             workflow_name: "my_workflow".to_string(),
-            dag_hash: "hash123456789".to_string(),
+            ir_hash: "hash123456789".to_string(),
             program_proto: vec![], // Empty proto - will result in empty DAG
             concurrent: true,
             created_at: chrono::Utc::now(),
@@ -1884,7 +1910,7 @@ mod tests {
         let version = crate::db::WorkflowVersion {
             id: version_id,
             workflow_name: "my_workflow".to_string(),
-            dag_hash: "hash123".to_string(),
+            ir_hash: "hash123".to_string(),
             program_proto: vec![],
             concurrent: false,
             created_at: chrono::Utc::now(),
@@ -1921,7 +1947,7 @@ mod tests {
         let version = crate::db::WorkflowVersion {
             id: version_id,
             workflow_name: "test_workflow".to_string(),
-            dag_hash: "hash123".to_string(),
+            ir_hash: "hash123".to_string(),
             program_proto: vec![],
             concurrent: false,
             created_at: chrono::Utc::now(),
@@ -1965,7 +1991,7 @@ mod tests {
         let version = crate::db::WorkflowVersion {
             id: version_id,
             workflow_name: "action_workflow".to_string(),
-            dag_hash: "hash456".to_string(),
+            ir_hash: "hash456".to_string(),
             program_proto: vec![],
             concurrent: true,
             created_at: chrono::Utc::now(),

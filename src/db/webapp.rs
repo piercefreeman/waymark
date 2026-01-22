@@ -24,7 +24,7 @@ impl Database {
     pub async fn list_workflow_versions(&self) -> DbResult<Vec<WorkflowVersionSummary>> {
         let versions = sqlx::query_as::<_, WorkflowVersionSummary>(
             r#"
-            SELECT id, workflow_name, dag_hash, concurrent, created_at
+            SELECT id, workflow_name, ir_hash, concurrent, created_at
             FROM workflow_versions
             ORDER BY created_at DESC
             "#,
@@ -33,6 +33,24 @@ impl Database {
         .await?;
 
         Ok(versions)
+    }
+
+    /// Delete a workflow version by ID
+    ///
+    /// Returns true if the version was deleted, false if it wasn't found.
+    /// Note: This will fail if there are running instances referencing this version.
+    pub async fn delete_workflow_version(&self, version_id: WorkflowVersionId) -> DbResult<bool> {
+        let result = sqlx::query(
+            r#"
+            DELETE FROM workflow_versions
+            WHERE id = $1
+            "#,
+        )
+        .bind(version_id.0)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
     }
 
     // ========================================================================

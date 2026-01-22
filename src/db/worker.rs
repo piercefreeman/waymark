@@ -32,20 +32,20 @@ impl Database {
     pub async fn upsert_workflow_version(
         &self,
         workflow_name: &str,
-        dag_hash: &str,
+        ir_hash: &str,
         program_proto: &[u8],
         concurrent: bool,
     ) -> DbResult<WorkflowVersionId> {
         let row = sqlx::query(
             r#"
-            INSERT INTO workflow_versions (workflow_name, dag_hash, program_proto, concurrent)
+            INSERT INTO workflow_versions (workflow_name, ir_hash, program_proto, concurrent)
             VALUES ($1, $2, $3, $4)
-            ON CONFLICT (workflow_name, dag_hash) DO UPDATE SET workflow_name = EXCLUDED.workflow_name
+            ON CONFLICT (workflow_name, ir_hash) DO UPDATE SET workflow_name = EXCLUDED.workflow_name
             RETURNING id
             "#,
         )
         .bind(workflow_name)
-        .bind(dag_hash)
+        .bind(ir_hash)
         .bind(program_proto)
         .bind(concurrent)
         .fetch_one(&self.pool)
@@ -59,7 +59,7 @@ impl Database {
     pub async fn get_workflow_version(&self, id: WorkflowVersionId) -> DbResult<WorkflowVersion> {
         let version = sqlx::query_as::<_, WorkflowVersion>(
             r#"
-            SELECT id, workflow_name, dag_hash, program_proto, concurrent, created_at
+            SELECT id, workflow_name, ir_hash, program_proto, concurrent, created_at
             FROM workflow_versions
             WHERE id = $1
             "#,

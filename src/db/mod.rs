@@ -211,7 +211,7 @@ impl BackoffKind {
 pub struct WorkflowVersion {
     pub id: Uuid,
     pub workflow_name: String,
-    pub dag_hash: String,
+    pub ir_hash: String,
     pub program_proto: Vec<u8>,
     pub concurrent: bool,
     pub created_at: DateTime<Utc>,
@@ -222,7 +222,7 @@ pub struct WorkflowVersion {
 pub struct WorkflowVersionSummary {
     pub id: Uuid,
     pub workflow_name: String,
-    pub dag_hash: String,
+    pub ir_hash: String,
     pub concurrent: bool,
     pub created_at: DateTime<Utc>,
 }

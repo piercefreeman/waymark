@@ -298,7 +298,7 @@ async fn load_initial_scope(db: &Database, instance_id: WorkflowInstanceId) -> R
 
 /// Cache for DAGs loaded from workflow versions.
 ///
-/// Since workflow versions are immutable (content-addressed by dag_hash),
+/// Since workflow versions are immutable (content-addressed by ir_hash),
 /// we can cache them indefinitely. The cache stores Arc<DAG> which can be
 /// used to create DAGHelper instances on-demand.
 pub struct DAGCache {
