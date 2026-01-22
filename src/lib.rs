@@ -38,6 +38,7 @@ pub mod schedule;
 pub mod server_client;
 pub mod server_webapp;
 pub mod server_worker;
+pub mod stats;
 pub mod traversal;
 pub mod value;
 pub mod worker;
@@ -97,6 +98,9 @@ pub use completion::{
 
 // Webapp server
 pub use server_webapp::WebappServer;
+
+// Lifecycle statistics
+pub use stats::{LifecycleStats, LifecycleStatsSnapshot, MetricStats};
 
 // Schedule utilities
 pub use schedule::{next_cron_run, next_interval_run, validate_cron};

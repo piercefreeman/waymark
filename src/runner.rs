@@ -67,6 +67,7 @@ use crate::{
     messages::proto,
     parser::ast,
     schedule::{apply_jitter, next_cron_run, next_interval_run},
+    stats::LifecycleStats,
     value::WorkflowValue,
     worker::{ActionDispatchPayload, PythonWorkerPool, RoundTripMetrics, WorkerThroughputSnapshot},
 };
@@ -711,6 +712,7 @@ pub struct WorkQueueHandler {
     dag_cache: Arc<DAGCache>,
     instance_inboxes: Arc<RwLock<HashMap<Uuid, InstanceInboxCache>>>,
     metrics: Option<Arc<RunnerMetrics>>,
+    lifecycle_stats: Arc<LifecycleStats>,
 }
 
 impl WorkQueueHandler {
@@ -722,6 +724,7 @@ impl WorkQueueHandler {
         dag_cache: Arc<DAGCache>,
         instance_inboxes: Arc<RwLock<HashMap<Uuid, InstanceInboxCache>>>,
         metrics: Option<Arc<RunnerMetrics>>,
+        lifecycle_stats: Arc<LifecycleStats>,
     ) -> Self {
         Self {
             db,
@@ -731,6 +734,7 @@ impl WorkQueueHandler {
             dag_cache,
             instance_inboxes,
             metrics,
+            lifecycle_stats,
         }
     }
 
@@ -837,6 +841,14 @@ impl WorkQueueHandler {
                 sleeps: sleep_count,
             });
         }
+
+        // Record lifecycle stats
+        let total_duration = total_start.elapsed();
+        self.lifecycle_stats.record_db_fetch(Duration::from_micros(db_us));
+        self.lifecycle_stats
+            .record_dispatch_to_worker(Duration::from_micros(dispatch_us));
+        self.lifecycle_stats.record_total_dequeue(total_duration);
+        self.lifecycle_stats.increment_actions_dispatched(action_count as u64);
 
         Ok(dispatched)
     }
@@ -1746,6 +1758,8 @@ pub struct DAGRunner {
     shutdown: Arc<tokio::sync::Notify>,
     shutdown_flag: Arc<AtomicBool>,
     metrics: Option<Arc<RunnerMetrics>>,
+    /// Lifecycle statistics for diagnosing performance issues.
+    lifecycle_stats: Arc<LifecycleStats>,
 }
 
 impl DAGRunner {
@@ -1768,6 +1782,7 @@ impl DAGRunner {
             None
         };
 
+        let lifecycle_stats = Arc::new(LifecycleStats::default_window());
         let dag_cache = Arc::new(DAGCache::new(Arc::clone(&db)));
         let instance_contexts = Arc::new(RwLock::new(HashMap::new()));
         let instance_inboxes = Arc::new(RwLock::new(HashMap::new()));
@@ -1779,6 +1794,7 @@ impl DAGRunner {
             Arc::clone(&dag_cache),
             Arc::clone(&instance_inboxes),
             metrics.clone(),
+            Arc::clone(&lifecycle_stats),
         ));
         let completion_handler = WorkCompletionHandler::new(db);
 
@@ -1792,6 +1808,7 @@ impl DAGRunner {
             shutdown: Arc::new(tokio::sync::Notify::new()),
             shutdown_flag: Arc::new(AtomicBool::new(false)),
             metrics,
+            lifecycle_stats,
         }
     }
 
@@ -2132,6 +2149,25 @@ impl DAGRunner {
             });
         }
 
+        // Lifecycle stats logging loop (every 60 seconds).
+        {
+            let stats_runner = Arc::clone(&self);
+            let _stats_handle = tokio::spawn(async move {
+                let mut interval = make_interval(60_000, "lifecycle_stats");
+                loop {
+                    if stats_runner.shutdown_flag.load(Ordering::Acquire) {
+                        break;
+                    }
+                    tokio::select! {
+                        _ = stats_runner.shutdown.notified() => break,
+                        _ = interval.tick() => {
+                            stats_runner.lifecycle_stats.log_and_reset_counters();
+                        }
+                    }
+                }
+            });
+        }
+
         // Start unstarted instances loop.
         let start_runner = Arc::clone(&self);
         let start_interval =
@@ -2239,8 +2275,15 @@ impl DAGRunner {
                     let pool_id = self.work_handler.worker_pool_id();
                     let worker_id = in_flight.worker_id as i64;
                     let runner_metrics = self.metrics.clone();
+                    let lifecycle_stats = Arc::clone(&self.lifecycle_stats);
+
+                    // Record worker timing from the RoundTripMetrics
+                    lifecycle_stats.record_worker_roundtrip(metrics.round_trip);
+                    lifecycle_stats.record_worker_execution(metrics.worker_duration);
 
                     tokio::spawn(async move {
+                        let completion_start = std::time::Instant::now();
+
                         // Use unified completion path for successful actions
                         if metrics.success {
                             if let Err(e) = Self::process_completion_unified(
@@ -2255,6 +2298,7 @@ impl DAGRunner {
                                 Some(pool_id),
                                 Some(worker_id),
                                 runner_metrics.clone(),
+                                Arc::clone(&lifecycle_stats),
                             )
                             .await
                             {
@@ -2281,11 +2325,16 @@ impl DAGRunner {
                             WorkflowInstanceId(instance_id),
                             Some(pool_id),
                             Some(worker_id),
+                            Arc::clone(&lifecycle_stats),
                         )
                         .await
                         {
                             error!("Completion processing failed: {}", e);
                         }
+
+                        // Record total completion time and increment counter
+                        lifecycle_stats.record_total_completion(completion_start.elapsed());
+                        lifecycle_stats.increment_completions_processed();
                     });
                 }
             }
@@ -2430,7 +2479,8 @@ impl DAGRunner {
             completion_batcher,
             in_flight,
             metrics,
-            runner_metrics
+            runner_metrics,
+            lifecycle_stats
         ),
         fields(instance_id = %instance_id.0)
     )]
@@ -2446,6 +2496,7 @@ impl DAGRunner {
         pool_id: Option<Uuid>,
         worker_id: Option<i64>,
         runner_metrics: Option<Arc<RunnerMetrics>>,
+        lifecycle_stats: Arc<LifecycleStats>,
     ) -> RunnerResult<crate::completion::CompletionResult> {
         let total_start = std::time::Instant::now();
 
@@ -2481,6 +2532,10 @@ impl DAGRunner {
         let inline_ms = engine_plan.inline_us;
         let mut plan = engine_plan.plan;
 
+        // Record subgraph analysis and inline execution time
+        lifecycle_stats.record_subgraph_analysis(Duration::from_micros(subgraph_ms));
+        lifecycle_stats.record_inline_execution(Duration::from_micros(inline_ms));
+
         // Fill in action completion details
         plan = plan
             .with_action_completion(
@@ -2504,7 +2559,15 @@ impl DAGRunner {
         let inbox_writes = plan.inbox_writes.clone();
         let db_start = std::time::Instant::now();
         let result = completion_batcher.execute(instance_id, plan).await?;
-        let db_ms = db_start.elapsed().as_micros() as u64;
+        let db_duration = db_start.elapsed();
+        let db_ms = db_duration.as_micros() as u64;
+
+        // Record DB write time (includes batcher wait time)
+        lifecycle_stats.record_completion_db_write(db_duration);
+
+        if result.was_stale {
+            lifecycle_stats.increment_completions_stale();
+        }
 
         if !result.was_stale {
             if !inbox_writes.is_empty() {
@@ -2699,6 +2762,7 @@ impl DAGRunner {
         instance_id: WorkflowInstanceId,
         pool_id: Option<Uuid>,
         worker_id: Option<i64>,
+        _lifecycle_stats: Arc<LifecycleStats>,
     ) -> RunnerResult<()> {
         let node_id = match in_flight.action.node_id.as_deref() {
             Some(id) => id,
