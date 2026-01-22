@@ -113,6 +113,10 @@ pub struct CompletionPlan {
     /// Worker ID within the pool that processed this action.
     pub worker_id: Option<i64>,
 
+    /// Actual execution time reported by the Python worker (milliseconds).
+    /// This is the raw execution time, separate from pipeline overhead.
+    pub worker_duration_ms: Option<i64>,
+
     /// Inbox writes for frontier nodes.
     pub inbox_writes: Vec<InboxWrite>,
 
@@ -144,6 +148,7 @@ impl CompletionPlan {
             error_message: None,
             pool_id: None,
             worker_id: None,
+            worker_duration_ms: None,
             inbox_writes: Vec::new(),
             readiness_resets: Vec::new(),
             readiness_inits: Vec::new(),
@@ -171,9 +176,15 @@ impl CompletionPlan {
     }
 
     /// Set worker tracking details.
-    pub fn with_worker(mut self, pool_id: Option<Uuid>, worker_id: Option<i64>) -> Self {
+    pub fn with_worker(
+        mut self,
+        pool_id: Option<Uuid>,
+        worker_id: Option<i64>,
+        worker_duration_ms: Option<i64>,
+    ) -> Self {
         self.pool_id = pool_id;
         self.worker_id = worker_id;
+        self.worker_duration_ms = worker_duration_ms;
         self
     }
 }

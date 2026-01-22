@@ -676,11 +676,11 @@ impl Database {
                     INSERT INTO action_log_queue (action_id, instance_id, attempt_number, dispatched_at,
                                             completed_at, success, result_payload, error_message, duration_ms,
                                             module_name, action_name, node_id, dispatch_payload,
-                                            pool_id, worker_id, enqueued_at)
+                                            pool_id, worker_id, enqueued_at, worker_duration_ms)
                     SELECT id, instance_id, attempt_number, dispatched_at, NOW(), true, $3, NULL,
                            EXTRACT(EPOCH FROM (NOW() - dispatched_at)) * 1000,
                            module_name, action_name, node_id, dispatch_payload,
-                           $4, $5, enqueued_at
+                           $4, $5, enqueued_at, $6
                     FROM deleted
                 )
                 SELECT COUNT(*) FROM deleted
@@ -691,6 +691,7 @@ impl Database {
             .bind(&record.result_payload)
             .bind(record.pool_id)
             .bind(record.worker_id)
+            .bind(record.worker_duration_ms)
             .fetch_one(&self.pool)
             .await?
         } else {
@@ -712,11 +713,11 @@ impl Database {
                     INSERT INTO action_log_queue (action_id, instance_id, attempt_number, dispatched_at,
                                             completed_at, success, result_payload, error_message, duration_ms,
                                             module_name, action_name, node_id, dispatch_payload,
-                                            pool_id, worker_id, enqueued_at)
+                                            pool_id, worker_id, enqueued_at, worker_duration_ms)
                     SELECT id, instance_id, attempt_number, dispatched_at, NOW(), false, $3, $4,
                            EXTRACT(EPOCH FROM (NOW() - dispatched_at)) * 1000,
                            module_name, action_name, node_id, dispatch_payload,
-                           $5, $6, enqueued_at
+                           $5, $6, enqueued_at, $7
                     FROM updated
                 )
                 SELECT COUNT(*) FROM updated
@@ -728,6 +729,7 @@ impl Database {
             .bind(&record.error_message)
             .bind(record.pool_id)
             .bind(record.worker_id)
+            .bind(record.worker_duration_ms)
             .fetch_one(&self.pool)
             .await?
         };
@@ -812,19 +814,19 @@ impl Database {
                 RETURNING action_id, instance_id, attempt_number, dispatched_at,
                           completed_at, success, result_payload, error_message, duration_ms,
                           module_name, action_name, node_id, dispatch_payload,
-                          pool_id, worker_id, enqueued_at
+                          pool_id, worker_id, enqueued_at, worker_duration_ms
             ),
             inserted AS (
                 INSERT INTO action_logs (
                     action_id, instance_id, attempt_number, dispatched_at,
                     completed_at, success, result_payload, error_message, duration_ms,
                     module_name, action_name, node_id, dispatch_payload,
-                    pool_id, worker_id, enqueued_at
+                    pool_id, worker_id, enqueued_at, worker_duration_ms
                 )
                 SELECT action_id, instance_id, attempt_number, dispatched_at,
                        completed_at, success, result_payload, error_message, duration_ms,
                        module_name, action_name, node_id, dispatch_payload,
-                       pool_id, worker_id, enqueued_at
+                       pool_id, worker_id, enqueued_at, worker_duration_ms
                 FROM moved
                 WHERE EXISTS (
                     SELECT 1
@@ -1893,6 +1895,7 @@ impl Database {
         let mut result_payloads = Vec::new();
         let mut pool_ids = Vec::new();
         let mut worker_ids = Vec::new();
+        let mut worker_duration_ms_vec = Vec::new();
 
         for (index, (instance_id, plan)) in plans.into_iter().enumerate() {
             let CompletionPlan {
@@ -1903,6 +1906,7 @@ impl Database {
                 error_message: _,
                 pool_id,
                 worker_id,
+                worker_duration_ms,
                 inbox_writes,
                 readiness_resets,
                 readiness_inits,
@@ -1943,6 +1947,7 @@ impl Database {
                 result_payloads.push(result_payload);
                 pool_ids.push(pool_id);
                 worker_ids.push(worker_id);
+                worker_duration_ms_vec.push(worker_duration_ms);
             }
 
             batch_plans.push(BatchPlan {
@@ -1965,9 +1970,9 @@ impl Database {
             let rows = sqlx::query(
                 r#"
                 WITH updates AS (
-                    SELECT * FROM UNNEST($1::uuid[], $2::uuid[], $3::bytea[], $4::uuid[], $5::bigint[])
+                    SELECT * FROM UNNEST($1::uuid[], $2::uuid[], $3::bytea[], $4::uuid[], $5::bigint[], $6::bigint[])
                         WITH ORDINALITY
-                        AS u(action_id, delivery_token, result_payload, pool_id, worker_id, ord)
+                        AS u(action_id, delivery_token, result_payload, pool_id, worker_id, worker_duration_ms, ord)
                 ),
                 deleted AS (
                     DELETE FROM action_queue aq
@@ -1987,20 +1992,21 @@ impl Database {
                               aq.enqueued_at,
                               updates.result_payload,
                               updates.pool_id,
-                              updates.worker_id
+                              updates.worker_id,
+                              updates.worker_duration_ms
                 ),
                 log_insert AS (
                     INSERT INTO action_log_queue (
                         action_id, instance_id, attempt_number, dispatched_at,
                         completed_at, success, result_payload, error_message, duration_ms,
                         module_name, action_name, node_id, dispatch_payload,
-                        pool_id, worker_id, enqueued_at
+                        pool_id, worker_id, enqueued_at, worker_duration_ms
                     )
                     SELECT id, instance_id, attempt_number, dispatched_at,
                            NOW(), true, result_payload, NULL,
                            EXTRACT(EPOCH FROM (NOW() - dispatched_at)) * 1000,
                            module_name, action_name, node_id, dispatch_payload,
-                           pool_id, worker_id, enqueued_at
+                           pool_id, worker_id, enqueued_at, worker_duration_ms
                     FROM deleted
                 )
                 SELECT ord FROM deleted
@@ -2011,6 +2017,7 @@ impl Database {
             .bind(&result_payloads)
             .bind(&pool_ids)
             .bind(&worker_ids)
+            .bind(&worker_duration_ms_vec)
             .fetch_all(&mut *tx)
             .await?;
             timings.action_complete_us = step_start.elapsed().as_micros() as u64;
@@ -2656,6 +2663,7 @@ impl Database {
             error_message,
             pool_id,
             worker_id,
+            worker_duration_ms,
             inbox_writes,
             readiness_resets,
             readiness_inits,
@@ -2709,11 +2717,11 @@ impl Database {
                         INSERT INTO action_log_queue (action_id, instance_id, attempt_number, dispatched_at,
                                                 completed_at, success, result_payload, error_message, duration_ms,
                                                 module_name, action_name, node_id, dispatch_payload,
-                                                pool_id, worker_id, enqueued_at)
+                                                pool_id, worker_id, enqueued_at, worker_duration_ms)
                         SELECT id, instance_id, attempt_number, dispatched_at, NOW(), true, $3, NULL,
                                EXTRACT(EPOCH FROM (NOW() - dispatched_at)) * 1000,
                                module_name, action_name, node_id, dispatch_payload,
-                               $4, $5, enqueued_at
+                               $4, $5, enqueued_at, $6
                         FROM deleted
                     )
                     SELECT COUNT(*) FROM deleted
@@ -2724,6 +2732,7 @@ impl Database {
                 .bind(&result_payload)
                 .bind(pool_id)
                 .bind(worker_id)
+                .bind(worker_duration_ms)
                 .fetch_one(&mut *tx)
                 .await?
             } else {
@@ -2745,11 +2754,11 @@ impl Database {
                         INSERT INTO action_log_queue (action_id, instance_id, attempt_number, dispatched_at,
                                                 completed_at, success, result_payload, error_message, duration_ms,
                                                 module_name, action_name, node_id, dispatch_payload,
-                                                pool_id, worker_id, enqueued_at)
+                                                pool_id, worker_id, enqueued_at, worker_duration_ms)
                         SELECT id, instance_id, attempt_number, dispatched_at, NOW(), false, $3, $4,
                                EXTRACT(EPOCH FROM (NOW() - dispatched_at)) * 1000,
                                module_name, action_name, node_id, dispatch_payload,
-                               $5, $6, enqueued_at
+                               $5, $6, enqueued_at, $7
                         FROM updated
                     )
                     SELECT COUNT(*) FROM updated
@@ -2761,6 +2770,7 @@ impl Database {
                 .bind(&error_message)
                 .bind(pool_id)
                 .bind(worker_id)
+                .bind(worker_duration_ms)
                 .fetch_one(&mut *tx)
                 .await?
             };
