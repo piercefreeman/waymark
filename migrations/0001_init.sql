@@ -51,8 +51,10 @@ CREATE TABLE workflow_instances (
 );
 
 -- Claim instances by priority and creation time
+-- Note: We can't use NOW() in index predicates (not immutable), so the lease check
+-- happens at query time. This index covers the common case of unclaimed instances.
 CREATE INDEX idx_instances_claimable ON workflow_instances(priority DESC, created_at ASC)
-    WHERE status = 'running' AND (owner_id IS NULL OR lease_expires_at < NOW());
+    WHERE status = 'running';
 
 -- Find orphaned instances (for monitoring)
 CREATE INDEX idx_instances_orphaned ON workflow_instances(lease_expires_at)
