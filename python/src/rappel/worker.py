@@ -109,7 +109,9 @@ async def _handle_dispatch(
         )
         success = False
         # Return generic error - Rust will likely ignore this late response
-        error = Exception(f"action {action_name} cleanup timeout (Rust-side timeout already triggered)")
+        error = Exception(
+            f"action {action_name} cleanup timeout (Rust-side timeout already triggered)"
+        )
         response_payload = serialize_error_payload(action_name, error)
     except Exception as exc:  # noqa: BLE001 - propagate structured errors
         success = False

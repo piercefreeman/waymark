@@ -431,12 +431,12 @@ impl InstanceRunner {
         let mut timeout_lookup = self.timeout_lookup.lock().await;
 
         for (instance_id, node_id) in actions {
-            if let Some(timeout_at_ms) = timeout_lookup.remove(&(*instance_id, node_id.clone())) {
-                if let Some(entries) = timeout_queue.get_mut(&timeout_at_ms) {
-                    entries.retain(|e| !(e.instance_id == *instance_id && e.node_id == *node_id));
-                    if entries.is_empty() {
-                        timeout_queue.remove(&timeout_at_ms);
-                    }
+            if let Some(timeout_at_ms) = timeout_lookup.remove(&(*instance_id, node_id.clone()))
+                && let Some(entries) = timeout_queue.get_mut(&timeout_at_ms)
+            {
+                entries.retain(|e| !(e.instance_id == *instance_id && e.node_id == *node_id));
+                if entries.is_empty() {
+                    timeout_queue.remove(&timeout_at_ms);
                 }
             }
         }
@@ -457,10 +457,7 @@ impl InstanceRunner {
             let mut timeout_lookup = self.timeout_lookup.lock().await;
 
             // Collect all entries with timeout_at_ms <= now
-            let expired_keys: Vec<i64> = timeout_queue
-                .range(..=now_ms)
-                .map(|(k, _)| *k)
-                .collect();
+            let expired_keys: Vec<i64> = timeout_queue.range(..=now_ms).map(|(k, _)| *k).collect();
 
             for key in expired_keys {
                 if let Some(entries) = timeout_queue.remove(&key) {
@@ -1072,10 +1069,7 @@ impl InstanceRunner {
             let mut timeout_lookup = self.timeout_lookup.lock().await;
 
             for (timeout_at_ms, entry) in timeout_entries {
-                timeout_lookup.insert(
-                    (entry.instance_id, entry.node_id.clone()),
-                    timeout_at_ms,
-                );
+                timeout_lookup.insert((entry.instance_id, entry.node_id.clone()), timeout_at_ms);
                 timeout_queue
                     .entry(timeout_at_ms)
                     .or_insert_with(Vec::new)
@@ -2043,18 +2037,18 @@ mod tests {
         assert_eq!(timeout_queue.get(&timeout_at_ms).unwrap().len(), 1);
 
         // Simulate removal (when action completes normally)
-        if let Some(deadline) = timeout_lookup.remove(&(instance_id, "action_0".to_string())) {
-            if let Some(entries) = timeout_queue.get_mut(&deadline) {
-                entries.retain(|e| !(e.instance_id == instance_id && e.node_id == "action_0"));
-                if entries.is_empty() {
-                    timeout_queue.remove(&deadline);
-                }
+        if let Some(deadline) = timeout_lookup.remove(&(instance_id, "action_0".to_string()))
+            && let Some(entries) = timeout_queue.get_mut(&deadline)
+        {
+            entries.retain(|e| !(e.instance_id == instance_id && e.node_id == "action_0"));
+            if entries.is_empty() {
+                timeout_queue.remove(&deadline);
             }
         }
 
         // Verify it's removed from both structures
         assert!(!timeout_lookup.contains_key(&(instance_id, "action_0".to_string())));
-        assert!(timeout_queue.get(&timeout_at_ms).is_none());
+        assert!(!timeout_queue.contains_key(&timeout_at_ms));
     }
 
     #[test]
@@ -2080,10 +2074,7 @@ mod tests {
 
         // Current time is 2500ms - actions at 1000 and 2000 should be expired
         let now_ms = 2500_i64;
-        let expired_keys: Vec<i64> = timeout_queue
-            .range(..=now_ms)
-            .map(|(k, _)| *k)
-            .collect();
+        let expired_keys: Vec<i64> = timeout_queue.range(..=now_ms).map(|(k, _)| *k).collect();
 
         assert_eq!(expired_keys, vec![1000, 2000]);
 
