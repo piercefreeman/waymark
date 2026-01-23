@@ -95,7 +95,7 @@ async fn main() -> Result<()> {
     );
     info!(
         worker_count = config.worker_count,
-        "python worker pool created"
+        "python worker pool started"
     );
 
     // Configure and create instance runner
