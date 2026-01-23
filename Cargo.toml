@@ -28,10 +28,6 @@ name = "dag-visualize"
 path = "src/bin/dag_visualize.rs"
 
 [[bin]]
-name = "dag-debug"
-path = "src/bin/dag_debug.rs"
-
-[[bin]]
 name = "run-workflow"
 path = "src/bin/run_workflow.rs"
 

@@ -24,6 +24,9 @@ use thiserror::Error;
 // Worker and webapp modules extend Database with impl blocks.
 // No re-exports needed - methods are automatically available on Database.
 
+// Re-export types from worker module
+pub use worker::ClaimedInstance;
+
 // ============================================================================
 // Type Aliases & Newtypes
 // ============================================================================

@@ -32,8 +32,8 @@ use tonic::transport::Server;
 use tracing::{error, info, warn};
 
 use rappel::{
-    Database, PythonWorkerConfig, PythonWorkerPool, WorkerBridgeServer, WorkflowInstanceId,
-    WorkflowValue, WorkflowVersionId, proto, validate_program,
+    Database, InstanceRunner, InstanceRunnerConfig, PythonWorkerConfig, PythonWorkerPool,
+    WorkerBridgeServer, WorkflowInstanceId, WorkflowVersionId, proto, validate_program,
 };
 
 // ============================================================================
@@ -446,16 +446,13 @@ async fn wait_for_completion(
 ) -> Result<Option<JsonValue>> {
     let start = Instant::now();
     let mut last_progress = Instant::now();
-    let mut last_completed: i64 = 0;
-    let mut last_pending: i64 = 0;
 
     loop {
         if start.elapsed() > timeout {
             return Err(anyhow!("Workflow execution timed out"));
         }
 
-        // Check workflow instance status using a direct query to avoid pool contention
-        // The database.get_instance uses the shared pool which may be contended by the runner
+        // Check workflow instance status
         let status: String =
             sqlx::query_scalar("SELECT status FROM workflow_instances WHERE id = $1")
                 .bind(instance_id.0)
@@ -474,31 +471,11 @@ async fn wait_for_completion(
             _ => {
                 // Show progress periodically in verbose mode
                 if verbose && last_progress.elapsed() > Duration::from_millis(500) {
-                    let completed: i64 = sqlx::query_scalar(
-                        "SELECT COUNT(*) FROM action_queue WHERE instance_id = $1 AND status = 'completed'"
-                    )
-                    .bind(instance_id.0)
-                    .fetch_one(database.pool())
-                    .await
-                    .unwrap_or(0);
-
-                    let pending: i64 = sqlx::query_scalar(
-                        "SELECT COUNT(*) FROM action_queue WHERE instance_id = $1 AND status IN ('pending', 'dispatched')"
-                    )
-                    .bind(instance_id.0)
-                    .fetch_one(database.pool())
-                    .await
-                    .unwrap_or(0);
-
-                    // Only print if something changed
-                    if completed != last_completed || pending != last_pending {
-                        eprintln!(
-                            "[run-workflow] Progress: {} actions completed, {} pending/dispatched",
-                            completed, pending
-                        );
-                        last_completed = completed;
-                        last_pending = pending;
-                    }
+                    eprintln!(
+                        "[run-workflow] Status: {} (elapsed: {:.1}s)",
+                        status,
+                        start.elapsed().as_secs_f64()
+                    );
                     last_progress = Instant::now();
                 }
 
@@ -587,24 +564,19 @@ async fn main() -> Result<()> {
     // Initialize logging - show more detail in verbose mode
     let log_filter = if args.verbose {
         tracing_subscriber::EnvFilter::from_default_env()
-            .add_directive("rappel::runner=debug".parse().unwrap())
-            .add_directive("rappel::completion=debug".parse().unwrap())
+            .add_directive("rappel::instance_runner=debug".parse().unwrap())
             .add_directive("hyper=warn".parse().unwrap())
             .add_directive("h2=warn".parse().unwrap())
             .add_directive("tower=warn".parse().unwrap())
             .add_directive("tonic=warn".parse().unwrap())
     } else {
-        // Note: We need at least info level for rappel::runner to ensure proper async task scheduling.
-        // Setting rappel=warn causes timing issues with the runner task, so we use rappel::runner=info
-        // but keep other rappel modules quiet. This is a workaround for what appears to be a
-        // scheduling issue when tracing is completely disabled.
         tracing_subscriber::EnvFilter::from_default_env()
             .add_directive("hyper=warn".parse().unwrap())
             .add_directive("h2=warn".parse().unwrap())
             .add_directive("tower=warn".parse().unwrap())
             .add_directive("tonic=warn".parse().unwrap())
             .add_directive("rappel=warn".parse().unwrap())
-            .add_directive("rappel::runner=info".parse().unwrap())
+            .add_directive("rappel::instance_runner=info".parse().unwrap())
             .add_directive("rappel::db=info".parse().unwrap())
     };
 
@@ -621,10 +593,6 @@ async fn main() -> Result<()> {
     // Parse input JSON
     let inputs: HashMap<String, JsonValue> = serde_json::from_str(&args.input)
         .context("Failed to parse input JSON. Expected format: '{\"key\": value}'")?;
-    let workflow_inputs: HashMap<String, WorkflowValue> = inputs
-        .iter()
-        .map(|(key, value)| (key.clone(), WorkflowValue::from_json(value)))
-        .collect();
 
     if args.verbose {
         info!(file = %args.workflow_file.display(), "Loading workflow");
@@ -667,8 +635,9 @@ async fn main() -> Result<()> {
     eprintln!("[run-workflow] Connected to database");
 
     // Clean up any previous state (for local testing)
+    // Only clean tables that exist in the new architecture
     eprintln!("[run-workflow] Cleaning up previous state...");
-    sqlx::query("TRUNCATE action_queue, instance_context, loop_state, workflow_instances, workflow_versions CASCADE")
+    sqlx::query("TRUNCATE workflow_instances, workflow_versions, workflow_schedules CASCADE")
         .execute(database.pool())
         .await?;
 
@@ -747,27 +716,19 @@ async fn main() -> Result<()> {
     );
     eprintln!("[run-workflow] Python workers started");
 
-    // Create and start the DAG runner
-    let runner_config = rappel::RunnerConfig {
-        batch_size: 64,
-        max_slots_per_worker: 10,
-        poll_interval_ms: 10,
-        timeout_check_interval_ms: 1000,
-        timeout_check_batch_size: 100,
+    // Create and start the instance runner
+    let runner_config = InstanceRunnerConfig {
+        claim_batch_size: 10,
+        completion_batch_size: 100,
+        idle_poll_interval: Duration::from_millis(10),
         ..Default::default()
     };
 
-    let runner = Arc::new(rappel::DAGRunner::new(
+    let runner = Arc::new(InstanceRunner::new(
         runner_config,
-        Arc::clone(&database),
+        (*database).clone(),
         Arc::clone(&worker_pool),
     ));
-
-    // Start the instance
-    eprintln!("[run-workflow] Starting workflow instance...");
-    runner
-        .start_instance(instance_id, workflow_inputs.clone())
-        .await?;
 
     // Spawn the runner
     eprintln!("[run-workflow] Executing workflow...");

@@ -10,9 +10,7 @@ use std::{net::SocketAddr, pin::Pin, time::Duration};
 use anyhow::{Context, Result};
 use prost::Message;
 use tokio::net::TcpListener;
-use tokio::sync::mpsc;
 use tokio_stream::Stream;
-use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::wrappers::TcpListenerStream;
 use tonic::transport::Server;
 use tonic_health::server::health_reporter;
@@ -20,7 +18,6 @@ use tracing::info;
 
 use crate::{
     db::{Database, ScheduleType},
-    in_memory::{ExecutionStep, InMemoryWorkflowExecutor},
     ir_printer,
     ir_validation::validate_program,
     messages::ast as ir_ast,
@@ -155,105 +152,13 @@ type WorkflowStreamResult = Result<proto::WorkflowStreamResponse, tonic::Status>
 type WorkflowStream = Pin<Box<dyn Stream<Item = WorkflowStreamResult> + Send + 'static>>;
 
 async fn execute_workflow_stream(
-    request: tonic::Request<tonic::Streaming<proto::WorkflowStreamRequest>>,
+    _request: tonic::Request<tonic::Streaming<proto::WorkflowStreamRequest>>,
 ) -> Result<tonic::Response<WorkflowStream>, tonic::Status> {
-    let mut stream = request.into_inner();
-    let (tx, rx) = mpsc::channel(32);
-
-    tokio::spawn(async move {
-        let result = async {
-            let first = stream
-                .message()
-                .await?
-                .ok_or_else(|| tonic::Status::invalid_argument("registration missing"))?;
-
-            let skip_sleep = first.skip_sleep;
-            let registration = match first.kind {
-                Some(proto::workflow_stream_request::Kind::Registration(registration)) => {
-                    registration
-                }
-                Some(_) | None => {
-                    return Err(tonic::Status::invalid_argument(
-                        "first message must be a registration",
-                    ));
-                }
-            };
-
-            let mut executor =
-                InMemoryWorkflowExecutor::from_registration(registration, skip_sleep)
-                    .map_err(|err| tonic::Status::invalid_argument(format!("{err}")))?;
-
-            let step = executor
-                .start()
-                .await
-                .map_err(|err| tonic::Status::internal(format!("{err}")))?;
-            let completed = step.completed_payload.is_some();
-            send_stream_step(&tx, step).await?;
-
-            if completed {
-                return Ok(());
-            }
-
-            while let Some(message) = stream.message().await? {
-                let action_result = match message.kind {
-                    Some(proto::workflow_stream_request::Kind::ActionResult(result)) => result,
-                    Some(_) | None => {
-                        return Err(tonic::Status::invalid_argument(
-                            "expected action_result message",
-                        ));
-                    }
-                };
-
-                let step = executor
-                    .handle_action_result(action_result)
-                    .await
-                    .map_err(|err| tonic::Status::internal(format!("{err}")))?;
-                let completed = step.completed_payload.is_some();
-                send_stream_step(&tx, step).await?;
-                if completed {
-                    break;
-                }
-            }
-
-            Ok::<(), tonic::Status>(())
-        }
-        .await;
-
-        if let Err(status) = result {
-            let _ = tx.send(Err(status)).await;
-        }
-    });
-
-    Ok(tonic::Response::new(Box::pin(ReceiverStream::new(rx))))
-}
-
-async fn send_stream_step(
-    tx: &mpsc::Sender<WorkflowStreamResult>,
-    step: ExecutionStep,
-) -> Result<(), tonic::Status> {
-    for dispatch in step.dispatches {
-        let response = proto::WorkflowStreamResponse {
-            kind: Some(proto::workflow_stream_response::Kind::ActionDispatch(
-                dispatch,
-            )),
-        };
-        tx.send(Ok(response))
-            .await
-            .map_err(|_| tonic::Status::internal("workflow stream closed"))?;
-    }
-
-    if let Some(payload) = step.completed_payload {
-        let response = proto::WorkflowStreamResponse {
-            kind: Some(proto::workflow_stream_response::Kind::WorkflowResult(
-                proto::WorkflowExecutionResult { payload },
-            )),
-        };
-        tx.send(Ok(response))
-            .await
-            .map_err(|_| tonic::Status::internal("workflow stream closed"))?;
-    }
-
-    Ok(())
+    // In-memory workflow execution has been removed in favor of the instance-local model.
+    // Use the database-backed execution through InstanceRunner instead.
+    Err(tonic::Status::unimplemented(
+        "In-memory workflow execution is not supported. Use database-backed execution instead.",
+    ))
 }
 
 #[tonic::async_trait]
