@@ -1047,6 +1047,14 @@ impl InstanceRunner {
         instance
             .state
             .mark_running(node_id, SLEEP_WORKER_ID, inputs_bytes);
+
+        // For sleep nodes, we need to set started_at_ms immediately so the wakeup
+        // time can be calculated. Unlike worker actions, sleeps don't report duration.
+        let now_ms = Utc::now().timestamp_millis();
+        if let Some(node) = instance.state.graph.nodes.get_mut(node_id) {
+            node.started_at_ms = Some(now_ms);
+        }
+
         instance.in_flight.insert(node_id.to_string());
         self.metrics.lock().await.actions_dispatched += 1;
 
