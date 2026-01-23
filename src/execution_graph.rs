@@ -210,6 +210,17 @@ impl ExecutionState {
         std::mem::take(&mut self.graph.ready_queue)
     }
 
+    /// Get a copy of the ready queue without draining it.
+    /// Used when we need to iterate but only remove specific items.
+    pub fn peek_ready_queue(&self) -> Vec<String> {
+        self.graph.ready_queue.clone()
+    }
+
+    /// Remove a specific node from the ready queue.
+    pub fn remove_from_ready_queue(&mut self, node_id: &str) {
+        self.graph.ready_queue.retain(|id| id != node_id);
+    }
+
     /// Check if a node exists and get its status
     pub fn get_node_status(&self, node_id: &str) -> Option<NodeStatus> {
         self.graph
@@ -1738,5 +1749,85 @@ mod tests {
         assert_eq!(backoff.kind, BackoffKind::Exponential as i32);
         assert_eq!(backoff.base_delay_ms, 1000);
         assert_eq!(backoff.multiplier, 2.0);
+    }
+
+    /// Test crash recovery with partial dispatch.
+    ///
+    /// Simulates: 10 nodes ready, dispatch 2, crash, recover.
+    /// All 10 nodes should be recoverable because:
+    /// - We peek (not drain) the ready_queue
+    /// - mark_running removes dispatched nodes from ready_queue
+    /// - Undispatched nodes remain in ready_queue
+    /// - Running nodes are recovered to Pending on crash recovery
+    #[test]
+    fn test_crash_recovery_partial_dispatch() {
+        let mut state = ExecutionState::new();
+
+        // Create 10 pending nodes and add them to ready_queue
+        for i in 0..10 {
+            let node_id = format!("action_{}", i);
+            state.graph.nodes.insert(
+                node_id.clone(),
+                ExecutionNode {
+                    template_id: node_id.clone(),
+                    status: NodeStatus::Pending as i32,
+                    max_retries: 3,
+                    ..Default::default()
+                },
+            );
+            state.graph.ready_queue.push(node_id);
+        }
+
+        assert_eq!(state.graph.ready_queue.len(), 10);
+
+        // CORRECT PATTERN: Peek, don't drain
+        let ready_nodes = state.peek_ready_queue();
+        assert_eq!(ready_nodes.len(), 10);
+        // ready_queue is STILL intact
+        assert_eq!(state.graph.ready_queue.len(), 10);
+
+        // Dispatch only 2 nodes - mark_running removes them from ready_queue
+        state.mark_running("action_0", "worker-0", None);
+        state.mark_running("action_1", "worker-1", None);
+
+        // Now ready_queue has 8 (the 2 dispatched were removed by mark_running)
+        assert_eq!(state.graph.ready_queue.len(), 8);
+
+        // Sync to DB
+        let bytes = state.to_bytes();
+
+        // CRASH and recover
+        let mut recovered = ExecutionState::from_bytes(&bytes).unwrap();
+
+        // Before recovery: 8 in ready_queue, 2 Running
+        assert_eq!(recovered.graph.ready_queue.len(), 8);
+
+        // Run recovery - resets Running nodes to Pending
+        recovered.recover_running_nodes();
+
+        // After recovery: ALL 10 should be in ready_queue
+        // - 8 that were never dispatched (still in ready_queue)
+        // - 2 that were Running -> recovered to Pending -> added to ready_queue
+        assert_eq!(
+            recovered.graph.ready_queue.len(),
+            10,
+            "All nodes should be recoverable"
+        );
+
+        // No orphaned Pending nodes
+        let pending_not_in_queue: Vec<_> = recovered
+            .graph
+            .nodes
+            .iter()
+            .filter(|(node_id, node)| {
+                node.status == NodeStatus::Pending as i32
+                    && !recovered.graph.ready_queue.contains(*node_id)
+            })
+            .collect();
+
+        assert!(
+            pending_not_in_queue.is_empty(),
+            "No Pending nodes should be orphaned"
+        );
     }
 }

@@ -682,19 +682,28 @@ impl InstanceRunner {
     }
 
     /// Collect ready actions from all active instances and enqueue them.
-    /// Inline nodes (spreads, sleeps, control flow) are handled immediately.
-    /// Worker actions are added to the dispatch queue for later processing.
+    ///
+    /// Inline nodes (spreads, sleeps, control flow) are handled immediately and
+    /// removed from the ready_queue. Worker actions are added to the dispatch
+    /// queue but REMAIN in ready_queue until actually dispatched - this ensures
+    /// crash recovery can find them.
     async fn collect_ready_actions(&self) -> InstanceRunnerResult<()> {
         let mut instances = self.active_instances.write().await;
         let mut queue = self.dispatch_queue.lock().await;
 
         for (_, instance) in instances.iter_mut() {
-            // Get ready nodes from execution state
-            let ready_nodes = instance.state.drain_ready_queue();
+            // Peek at ready nodes without draining - we'll selectively remove them
+            // Worker actions stay in ready_queue until dispatch (for crash recovery)
+            let ready_nodes = instance.state.peek_ready_queue();
 
             for node_id in ready_nodes {
                 // Skip if already in flight
                 if instance.in_flight.contains(&node_id) {
+                    continue;
+                }
+
+                // Skip if already in dispatch queue (avoid duplicates)
+                if queue.iter().any(|a| a.node_id == node_id) {
                     continue;
                 }
 
@@ -703,6 +712,8 @@ impl InstanceRunner {
                     Some(n) => n.clone(),
                     None => {
                         warn!(node_id = %node_id, "Ready node not found in execution graph");
+                        // Remove invalid node from ready_queue
+                        instance.state.remove_from_ready_queue(&node_id);
                         continue;
                     }
                 };
@@ -711,12 +722,17 @@ impl InstanceRunner {
                     Some(n) => n.clone(),
                     None => {
                         warn!(node_id = %node_id, template_id = %template_id, "Ready node not found in DAG");
+                        // Remove invalid node from ready_queue
+                        instance.state.remove_from_ready_queue(&node_id);
                         continue;
                     }
                 };
 
-                // Handle spread nodes inline
+                // Handle spread nodes inline - remove from ready_queue immediately
                 if dag_node.is_spread && exec_node.spread_index.is_none() {
+                    // Remove from ready_queue since we're handling it now
+                    instance.state.remove_from_ready_queue(&node_id);
+
                     let mut completion_error = None;
                     let items = match dag_node.spread_collection_expr.as_ref() {
                         Some(expr) => {
@@ -770,7 +786,8 @@ impl InstanceRunner {
                     continue;
                 }
 
-                // Handle durable sleep actions inline
+                // Handle durable sleep actions inline - schedule_sleep_action calls mark_running
+                // which removes from ready_queue
                 if dag_node.action_name.as_deref() == Some(SLEEP_ACTION_NAME) {
                     if let Err(e) = self
                         .schedule_sleep_action(instance, &node_id, &dag_node)
@@ -782,6 +799,9 @@ impl InstanceRunner {
                 }
 
                 // Check if this is a worker action - enqueue it
+                // NOTE: We do NOT remove from ready_queue here - that happens in
+                // dispatch_from_queue when we call mark_running. This ensures crash
+                // recovery can find pending actions that were queued but not dispatched.
                 if let (Some(module_name), Some(action_name)) =
                     (dag_node.module_name.clone(), dag_node.action_name.clone())
                 {
@@ -807,7 +827,9 @@ impl InstanceRunner {
                         attempt_number,
                     });
                 } else {
-                    // Inline node - execute locally
+                    // Inline node - execute locally, remove from ready_queue
+                    instance.state.remove_from_ready_queue(&node_id);
+
                     let result = self.execute_inline_node(instance, &node_id, &dag_node);
 
                     let completion = Completion {
