@@ -5,27 +5,30 @@
 //! - gRPC health check for singleton discovery
 //! - Configuration and server lifecycle management
 
-use std::{net::SocketAddr, pin::Pin, time::Duration};
+use std::{collections::HashSet, net::SocketAddr, pin::Pin, time::Duration};
 
 use anyhow::{Context, Result};
 use prost::Message;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use tokio_stream::Stream;
-use tokio_stream::wrappers::ReceiverStream;
-use tokio_stream::wrappers::TcpListenerStream;
+use tokio_stream::wrappers::{ReceiverStream, TcpListenerStream};
 use tonic::transport::Server;
 use tonic_health::server::health_reporter;
-use tracing::info;
+use tracing::{info, warn};
+use uuid::Uuid;
 
 use crate::{
+    DAGConverter, DAGHelper, DAGNode, ExpressionEvaluator,
     db::{Database, ScheduleType},
-    in_memory::{ExecutionStep, InMemoryWorkflowExecutor},
+    execution_graph::{Completion, ExecutionState, SLEEP_WORKER_ID},
     ir_printer,
     ir_validation::validate_program,
     messages::ast as ir_ast,
     messages::proto,
+    messages::{decode_message, encode_message},
     schedule::{apply_jitter, next_cron_run, next_interval_run},
+    value::{WorkflowValue, workflow_value_from_proto_bytes, workflow_value_to_proto_bytes},
 };
 
 /// Service name for health checks
@@ -154,106 +157,669 @@ pub(crate) fn sanitize_interval(value: Option<f64>) -> Duration {
 type WorkflowStreamResult = Result<proto::WorkflowStreamResponse, tonic::Status>;
 type WorkflowStream = Pin<Box<dyn Stream<Item = WorkflowStreamResult> + Send + 'static>>;
 
-async fn execute_workflow_stream(
-    request: tonic::Request<tonic::Streaming<proto::WorkflowStreamRequest>>,
-) -> Result<tonic::Response<WorkflowStream>, tonic::Status> {
-    let mut stream = request.into_inner();
-    let (tx, rx) = mpsc::channel(32);
+struct InMemoryInstance {
+    instance_id: Uuid,
+    dag: crate::DAG,
+    state: ExecutionState,
+    in_flight: HashSet<String>,
+    pending_completions: Vec<Completion>,
+    action_seq: u32,
+}
 
-    tokio::spawn(async move {
-        let result = async {
-            let first = stream
-                .message()
-                .await?
-                .ok_or_else(|| tonic::Status::invalid_argument("registration missing"))?;
+async fn run_in_memory_workflow(
+    registration: proto::WorkflowRegistration,
+    skip_sleep: bool,
+    mut action_rx: mpsc::Receiver<proto::ActionResult>,
+    response_tx: mpsc::Sender<WorkflowStreamResult>,
+) -> Result<(), tonic::Status> {
+    let program = ir_ast::Program::decode(&registration.ir[..])
+        .map_err(|e| tonic::Status::invalid_argument(format!("invalid IR: {e}")))?;
+    if let Err(err) = validate_program(&program) {
+        return Err(tonic::Status::invalid_argument(format!(
+            "invalid IR: {err}"
+        )));
+    }
 
-            let skip_sleep = first.skip_sleep;
-            let registration = match first.kind {
-                Some(proto::workflow_stream_request::Kind::Registration(registration)) => {
-                    registration
-                }
-                Some(_) | None => {
-                    return Err(tonic::Status::invalid_argument(
-                        "first message must be a registration",
-                    ));
-                }
-            };
+    log_workflow_ir(&registration.workflow_name, &registration.ir_hash, &program);
 
-            let mut executor =
-                InMemoryWorkflowExecutor::from_registration(registration, skip_sleep)
-                    .map_err(|err| tonic::Status::invalid_argument(format!("{err}")))?;
+    let ast_program = decode_message::<crate::parser::ast::Program>(&registration.ir)
+        .map_err(|e| tonic::Status::invalid_argument(format!("invalid IR: {e}")))?;
+    let dag = DAGConverter::new()
+        .convert(&ast_program)
+        .map_err(|e| tonic::Status::invalid_argument(format!("dag conversion failed: {e}")))?;
 
-            let step = executor
-                .start()
-                .await
-                .map_err(|err| tonic::Status::internal(format!("{err}")))?;
-            let completed = step.completed_payload.is_some();
-            send_stream_step(&tx, step).await?;
+    let inputs = registration.initial_context.unwrap_or_default();
+    let mut state = ExecutionState::new();
+    state.initialize_from_dag(&dag, &inputs);
 
-            if completed {
-                return Ok(());
-            }
+    let mut instance = InMemoryInstance {
+        instance_id: Uuid::new_v4(),
+        dag,
+        state,
+        in_flight: HashSet::new(),
+        pending_completions: Vec::new(),
+        action_seq: 0,
+    };
 
-            while let Some(message) = stream.message().await? {
-                let action_result = match message.kind {
-                    Some(proto::workflow_stream_request::Kind::ActionResult(result)) => result,
-                    Some(_) | None => {
-                        return Err(tonic::Status::invalid_argument(
-                            "expected action_result message",
-                        ));
-                    }
+    let (sleep_tx, mut sleep_rx) = mpsc::channel(128);
+
+    loop {
+        drain_action_results(&mut instance, &mut action_rx);
+        drain_sleep_completions(&mut instance, &mut sleep_rx);
+
+        dispatch_ready_nodes(&mut instance, &response_tx, &sleep_tx, skip_sleep).await?;
+
+        if !instance.pending_completions.is_empty() {
+            let completions = std::mem::take(&mut instance.pending_completions);
+            let result = instance
+                .state
+                .apply_completions_batch(completions, &instance.dag);
+
+            if result.workflow_completed || result.workflow_failed {
+                let payload = if let Some(payload) = result.result_payload {
+                    payload
+                } else if let Some(message) = result.error_message {
+                    build_error_payload(&message)
+                } else if result.workflow_failed {
+                    build_error_payload("workflow failed")
+                } else {
+                    build_null_result_payload()
                 };
 
-                let step = executor
-                    .handle_action_result(action_result)
-                    .await
-                    .map_err(|err| tonic::Status::internal(format!("{err}")))?;
-                let completed = step.completed_payload.is_some();
-                send_stream_step(&tx, step).await?;
-                if completed {
+                let response = proto::WorkflowStreamResponse {
+                    kind: Some(proto::workflow_stream_response::Kind::WorkflowResult(
+                        proto::WorkflowExecutionResult { payload },
+                    )),
+                };
+                let _ = response_tx.send(Ok(response)).await;
+                break;
+            }
+        }
+
+        if instance.state.graph.ready_queue.is_empty()
+            && instance.pending_completions.is_empty()
+            && instance.in_flight.is_empty()
+        {
+            let payload = build_error_payload("workflow stalled without pending work");
+            let response = proto::WorkflowStreamResponse {
+                kind: Some(proto::workflow_stream_response::Kind::WorkflowResult(
+                    proto::WorkflowExecutionResult { payload },
+                )),
+            };
+            let _ = response_tx.send(Ok(response)).await;
+            break;
+        }
+
+        if instance.state.graph.ready_queue.is_empty() && instance.pending_completions.is_empty() {
+            tokio::select! {
+                Some(action_result) = action_rx.recv() => {
+                    handle_action_result(&mut instance, action_result);
+                }
+                Some(completion) = sleep_rx.recv() => {
+                    handle_completion(&mut instance, completion);
+                }
+                else => {
+                    let payload = build_error_payload("workflow stream closed unexpectedly");
+                    let response = proto::WorkflowStreamResponse {
+                        kind: Some(proto::workflow_stream_response::Kind::WorkflowResult(
+                            proto::WorkflowExecutionResult { payload },
+                        )),
+                    };
+                    let _ = response_tx.send(Ok(response)).await;
                     break;
                 }
             }
-
-            Ok::<(), tonic::Status>(())
         }
-        .await;
-
-        if let Err(status) = result {
-            let _ = tx.send(Err(status)).await;
-        }
-    });
-
-    Ok(tonic::Response::new(Box::pin(ReceiverStream::new(rx))))
-}
-
-async fn send_stream_step(
-    tx: &mpsc::Sender<WorkflowStreamResult>,
-    step: ExecutionStep,
-) -> Result<(), tonic::Status> {
-    for dispatch in step.dispatches {
-        let response = proto::WorkflowStreamResponse {
-            kind: Some(proto::workflow_stream_response::Kind::ActionDispatch(
-                dispatch,
-            )),
-        };
-        tx.send(Ok(response))
-            .await
-            .map_err(|_| tonic::Status::internal("workflow stream closed"))?;
-    }
-
-    if let Some(payload) = step.completed_payload {
-        let response = proto::WorkflowStreamResponse {
-            kind: Some(proto::workflow_stream_response::Kind::WorkflowResult(
-                proto::WorkflowExecutionResult { payload },
-            )),
-        };
-        tx.send(Ok(response))
-            .await
-            .map_err(|_| tonic::Status::internal("workflow stream closed"))?;
     }
 
     Ok(())
+}
+
+fn drain_action_results(
+    instance: &mut InMemoryInstance,
+    action_rx: &mut mpsc::Receiver<proto::ActionResult>,
+) {
+    while let Ok(result) = action_rx.try_recv() {
+        handle_action_result(instance, result);
+    }
+}
+
+fn drain_sleep_completions(
+    instance: &mut InMemoryInstance,
+    sleep_rx: &mut mpsc::Receiver<Completion>,
+) {
+    while let Ok(completion) = sleep_rx.try_recv() {
+        handle_completion(instance, completion);
+    }
+}
+
+fn handle_action_result(instance: &mut InMemoryInstance, result: proto::ActionResult) {
+    let duration_ns = result.worker_end_ns.saturating_sub(result.worker_start_ns);
+    let duration_ms = (duration_ns / 1_000_000) as i64;
+    let payload_bytes = encode_message(
+        result
+            .payload
+            .as_ref()
+            .unwrap_or(&proto::WorkflowArguments::default()),
+    );
+
+    let completion = Completion {
+        node_id: result.action_id,
+        success: result.success,
+        result: Some(payload_bytes),
+        error: result.error_message.clone(),
+        error_type: result.error_type.clone(),
+        worker_id: "in_memory".to_string(),
+        duration_ms,
+    };
+
+    handle_completion(instance, completion);
+}
+
+fn handle_completion(instance: &mut InMemoryInstance, completion: Completion) {
+    instance.in_flight.remove(&completion.node_id);
+    instance.pending_completions.push(completion);
+}
+
+async fn dispatch_ready_nodes(
+    instance: &mut InMemoryInstance,
+    response_tx: &mpsc::Sender<WorkflowStreamResult>,
+    sleep_tx: &mpsc::Sender<Completion>,
+    skip_sleep: bool,
+) -> Result<(), tonic::Status> {
+    let ready_nodes = instance.state.drain_ready_queue();
+
+    for node_id in ready_nodes {
+        if instance.in_flight.contains(&node_id) {
+            continue;
+        }
+
+        let exec_node = match instance.state.graph.nodes.get(&node_id) {
+            Some(node) => node.clone(),
+            None => continue,
+        };
+        let template_id = exec_node.template_id.clone();
+        let dag_node = match instance.dag.nodes.get(&template_id) {
+            Some(node) => node.clone(),
+            None => continue,
+        };
+
+        if dag_node.is_spread && exec_node.spread_index.is_none() {
+            let mut completion_error = None;
+            let items = match dag_node.spread_collection_expr.as_ref() {
+                Some(expr) => match ExpressionEvaluator::evaluate(
+                    expr,
+                    &instance.state.build_scope_for_node(&node_id),
+                ) {
+                    Ok(WorkflowValue::List(items)) | Ok(WorkflowValue::Tuple(items)) => items,
+                    Ok(WorkflowValue::Null) => Vec::new(),
+                    Ok(other) => {
+                        completion_error = Some(format!(
+                            "Spread collection must be list or tuple, got {:?}",
+                            other
+                        ));
+                        Vec::new()
+                    }
+                    Err(e) => {
+                        completion_error =
+                            Some(format!("Spread collection evaluation error: {}", e));
+                        Vec::new()
+                    }
+                },
+                None => {
+                    completion_error =
+                        Some("Spread node missing collection expression".to_string());
+                    Vec::new()
+                }
+            };
+
+            if completion_error.is_none() {
+                instance
+                    .state
+                    .expand_spread(&template_id, items, &instance.dag);
+            }
+
+            let completion = Completion {
+                node_id: node_id.clone(),
+                success: completion_error.is_none(),
+                result: None,
+                error: completion_error.clone(),
+                error_type: completion_error
+                    .as_ref()
+                    .map(|_| "SpreadEvaluationError".to_string()),
+                worker_id: "inline".to_string(),
+                duration_ms: 0,
+            };
+            instance.pending_completions.push(completion);
+            continue;
+        }
+
+        if dag_node.action_name.as_deref() == Some("sleep") {
+            schedule_sleep_action(instance, &node_id, &dag_node, skip_sleep, sleep_tx).await;
+            continue;
+        }
+
+        if dag_node.module_name.is_some() && dag_node.action_name.is_some() {
+            dispatch_action(instance, &node_id, &dag_node, response_tx).await?;
+        } else {
+            let result = execute_inline_node(instance, &node_id, &dag_node);
+            let completion = Completion {
+                node_id: node_id.clone(),
+                success: result.is_ok(),
+                result: result.ok(),
+                error: None,
+                error_type: None,
+                worker_id: "inline".to_string(),
+                duration_ms: 0,
+            };
+            instance.pending_completions.push(completion);
+        }
+    }
+
+    Ok(())
+}
+
+async fn dispatch_action(
+    instance: &mut InMemoryInstance,
+    node_id: &str,
+    dag_node: &DAGNode,
+    response_tx: &mpsc::Sender<WorkflowStreamResult>,
+) -> Result<(), tonic::Status> {
+    let module_name = dag_node
+        .module_name
+        .clone()
+        .ok_or_else(|| tonic::Status::invalid_argument("missing module name"))?;
+    let action_name = dag_node
+        .action_name
+        .clone()
+        .ok_or_else(|| tonic::Status::invalid_argument("missing action name"))?;
+
+    let inputs_bytes = instance.state.get_inputs_for_node(node_id, &instance.dag);
+    let inputs: proto::WorkflowArguments = inputs_bytes
+        .as_ref()
+        .and_then(|bytes| decode_message(bytes).ok())
+        .unwrap_or_default();
+
+    let timeout_seconds = instance.state.get_timeout_seconds(node_id);
+    let max_retries = instance.state.get_max_retries(node_id);
+    let attempt_number = instance.state.get_attempt_number(node_id);
+
+    let dispatch = proto::ActionDispatch {
+        action_id: node_id.to_string(),
+        instance_id: instance.instance_id.to_string(),
+        sequence: instance.action_seq,
+        action_name,
+        module_name,
+        kwargs: Some(inputs),
+        timeout_seconds: Some(timeout_seconds),
+        max_retries: Some(max_retries),
+        attempt_number: Some(attempt_number),
+        dispatch_token: Some(Uuid::new_v4().to_string()),
+    };
+    instance.action_seq = instance.action_seq.wrapping_add(1);
+
+    instance
+        .state
+        .mark_running(node_id, "in_memory", inputs_bytes);
+    instance.in_flight.insert(node_id.to_string());
+
+    let response = proto::WorkflowStreamResponse {
+        kind: Some(proto::workflow_stream_response::Kind::ActionDispatch(
+            dispatch,
+        )),
+    };
+
+    response_tx
+        .send(Ok(response))
+        .await
+        .map_err(|_| tonic::Status::cancelled("workflow stream closed"))?;
+
+    Ok(())
+}
+
+async fn schedule_sleep_action(
+    instance: &mut InMemoryInstance,
+    node_id: &str,
+    _dag_node: &DAGNode,
+    skip_sleep: bool,
+    sleep_tx: &mpsc::Sender<Completion>,
+) {
+    let inputs_bytes = instance.state.get_inputs_for_node(node_id, &instance.dag);
+    let inputs = decode_workflow_arguments(inputs_bytes.as_deref());
+    let duration_ms = if skip_sleep {
+        0
+    } else {
+        sleep_duration_ms_from_args(&inputs)
+    };
+
+    if duration_ms <= 0 {
+        let completion = Completion {
+            node_id: node_id.to_string(),
+            success: true,
+            result: Some(build_null_result_payload()),
+            error: None,
+            error_type: None,
+            worker_id: SLEEP_WORKER_ID.to_string(),
+            duration_ms: 0,
+        };
+        instance.pending_completions.push(completion);
+        return;
+    }
+
+    instance
+        .state
+        .mark_running(node_id, SLEEP_WORKER_ID, inputs_bytes);
+    instance.in_flight.insert(node_id.to_string());
+
+    let node_id = node_id.to_string();
+    let sleep_tx = sleep_tx.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(duration_ms as u64)).await;
+        let completion = Completion {
+            node_id,
+            success: true,
+            result: Some(build_null_result_payload()),
+            error: None,
+            error_type: None,
+            worker_id: SLEEP_WORKER_ID.to_string(),
+            duration_ms: duration_ms as i64,
+        };
+        let _ = sleep_tx.send(completion).await;
+    });
+}
+
+fn decode_workflow_arguments(bytes: Option<&[u8]>) -> proto::WorkflowArguments {
+    bytes
+        .and_then(|b| decode_message(b).ok())
+        .unwrap_or_default()
+}
+
+fn sleep_duration_ms_from_args(inputs: &proto::WorkflowArguments) -> i64 {
+    let mut duration_secs: Option<f64> = None;
+    for arg in &inputs.arguments {
+        if arg.key != "duration" && arg.key != "seconds" {
+            continue;
+        }
+        let Some(value) = arg.value.as_ref() else {
+            continue;
+        };
+        match WorkflowValue::from_proto(value) {
+            WorkflowValue::Int(i) => {
+                duration_secs = Some(i as f64);
+            }
+            WorkflowValue::Float(f) => {
+                duration_secs = Some(f);
+            }
+            WorkflowValue::String(s) => {
+                if let Ok(parsed) = s.parse::<f64>() {
+                    duration_secs = Some(parsed);
+                }
+            }
+            _ => {}
+        }
+        break;
+    }
+
+    let secs = duration_secs.unwrap_or(0.0);
+    if secs <= 0.0 {
+        0
+    } else {
+        (secs * 1000.0).ceil() as i64
+    }
+}
+
+fn build_null_result_payload() -> Vec<u8> {
+    let args = proto::WorkflowArguments {
+        arguments: vec![proto::WorkflowArgument {
+            key: "result".to_string(),
+            value: Some(WorkflowValue::Null.to_proto()),
+        }],
+    };
+    encode_message(&args)
+}
+
+fn build_error_payload(message: &str) -> Vec<u8> {
+    let args = proto::WorkflowArguments {
+        arguments: vec![proto::WorkflowArgument {
+            key: "error".to_string(),
+            value: Some(WorkflowValue::String(message.to_string()).to_proto()),
+        }],
+    };
+    encode_message(&args)
+}
+
+fn execute_inline_node(
+    instance: &mut InMemoryInstance,
+    node_id: &str,
+    dag_node: &DAGNode,
+) -> Result<Vec<u8>, String> {
+    let scope = instance.state.build_scope_for_node(node_id);
+
+    match dag_node.node_type.as_str() {
+        "assignment" | "fn_call" => {
+            if let Some(assign_expr) = &dag_node.assign_expr {
+                match ExpressionEvaluator::evaluate(assign_expr, &scope) {
+                    Ok(value) => {
+                        let result_bytes = workflow_value_to_proto_bytes(&value);
+
+                        if let Some(targets) = &dag_node.targets {
+                            if targets.len() > 1 {
+                                match &value {
+                                    WorkflowValue::Tuple(items) | WorkflowValue::List(items) => {
+                                        for (target, item) in targets.iter().zip(items.iter()) {
+                                            instance.state.store_variable_for_node(
+                                                node_id,
+                                                &dag_node.node_type,
+                                                target,
+                                                item,
+                                            );
+                                        }
+                                    }
+                                    _ => {
+                                        for target in targets {
+                                            instance.state.store_variable_for_node(
+                                                node_id,
+                                                &dag_node.node_type,
+                                                target,
+                                                &value,
+                                            );
+                                        }
+                                    }
+                                }
+                            } else {
+                                for target in targets {
+                                    instance.state.store_variable_for_node(
+                                        node_id,
+                                        &dag_node.node_type,
+                                        target,
+                                        &value,
+                                    );
+                                }
+                            }
+                        } else if let Some(target) = &dag_node.target {
+                            instance.state.store_variable_for_node(
+                                node_id,
+                                &dag_node.node_type,
+                                target,
+                                &value,
+                            );
+                        }
+
+                        Ok(result_bytes)
+                    }
+                    Err(e) => Err(format!("Assignment evaluation error: {}", e)),
+                }
+            } else {
+                Ok(vec![])
+            }
+        }
+        "branch" | "if" | "elif" => Ok(vec![]),
+        "join" | "else" => Ok(vec![]),
+        "aggregator" => {
+            let helper = DAGHelper::new(&instance.dag);
+            let exec_node = instance.state.graph.nodes.get(node_id);
+            let source_is_spread = dag_node
+                .aggregates_from
+                .as_ref()
+                .and_then(|id| instance.dag.nodes.get(id))
+                .map(|n| n.is_spread)
+                .unwrap_or(false);
+
+            let source_ids: Vec<String> = if source_is_spread {
+                exec_node.map(|n| n.waiting_for.clone()).unwrap_or_default()
+            } else if let Some(exec_node) = exec_node
+                && !exec_node.waiting_for.is_empty()
+            {
+                exec_node.waiting_for.clone()
+            } else {
+                helper
+                    .get_incoming_edges(&dag_node.id)
+                    .iter()
+                    .filter(|edge| edge.edge_type == crate::dag::EdgeType::StateMachine)
+                    .filter(|edge| edge.exception_types.is_none())
+                    .map(|edge| edge.source.clone())
+                    .collect()
+            };
+
+            let mut values = Vec::new();
+            for source_id in source_ids {
+                if let Some(source_node) = instance.state.graph.nodes.get(&source_id) {
+                    if let Some(result_bytes) = &source_node.result {
+                        let value =
+                            extract_result_value(result_bytes).unwrap_or(WorkflowValue::Null);
+                        values.push(value);
+                    } else {
+                        values.push(WorkflowValue::Null);
+                    }
+                }
+            }
+
+            let should_store_list = dag_node
+                .targets
+                .as_ref()
+                .map(|targets| targets.len() == 1)
+                .unwrap_or(false);
+
+            if should_store_list {
+                let list_value = WorkflowValue::List(values);
+                let args = proto::WorkflowArguments {
+                    arguments: vec![proto::WorkflowArgument {
+                        key: "result".to_string(),
+                        value: Some(list_value.to_proto()),
+                    }],
+                };
+                Ok(encode_message(&args))
+            } else {
+                Ok(encode_message(&proto::WorkflowArguments {
+                    arguments: vec![],
+                }))
+            }
+        }
+        "input" | "output" => Ok(vec![]),
+        "return" => {
+            if let Some(assign_expr) = &dag_node.assign_expr {
+                match ExpressionEvaluator::evaluate(assign_expr, &scope) {
+                    Ok(value) => {
+                        let result_bytes = workflow_value_to_proto_bytes(&value);
+                        if let Some(target) = &dag_node.target {
+                            instance.state.store_variable_for_node(
+                                node_id,
+                                &dag_node.node_type,
+                                target,
+                                &value,
+                            );
+                        }
+                        Ok(result_bytes)
+                    }
+                    Err(e) => Err(format!("Return evaluation error: {}", e)),
+                }
+            } else {
+                Ok(vec![])
+            }
+        }
+        _ => Ok(vec![]),
+    }
+}
+
+fn extract_result_value(result_bytes: &[u8]) -> Option<WorkflowValue> {
+    if let Ok(args) = decode_message::<proto::WorkflowArguments>(result_bytes) {
+        for arg in args.arguments {
+            if arg.key == "result" {
+                if let Some(value) = arg.value {
+                    return Some(WorkflowValue::from_proto(&value));
+                }
+                return None;
+            }
+        }
+    }
+
+    workflow_value_from_proto_bytes(result_bytes)
+}
+
+async fn execute_workflow_stream(
+    request: tonic::Request<tonic::Streaming<proto::WorkflowStreamRequest>>,
+) -> Result<tonic::Response<WorkflowStream>, tonic::Status> {
+    let mut inbound = request.into_inner();
+    let first = inbound
+        .message()
+        .await
+        .map_err(|e| tonic::Status::internal(format!("stream error: {e}")))?;
+
+    let Some(first) = first else {
+        return Err(tonic::Status::invalid_argument(
+            "missing initial workflow registration",
+        ));
+    };
+
+    let skip_sleep = first.skip_sleep;
+    let registration = match first.kind {
+        Some(proto::workflow_stream_request::Kind::Registration(registration)) => registration,
+        Some(proto::workflow_stream_request::Kind::ActionResult(_)) => {
+            return Err(tonic::Status::invalid_argument(
+                "first stream message must be registration",
+            ));
+        }
+        None => {
+            return Err(tonic::Status::invalid_argument(
+                "first stream message missing registration",
+            ));
+        }
+    };
+
+    let (action_tx, action_rx) = mpsc::channel(128);
+    let (response_tx, response_rx) = mpsc::channel::<WorkflowStreamResult>(128);
+
+    tokio::spawn(async move {
+        loop {
+            match inbound.message().await {
+                Ok(Some(message)) => match message.kind {
+                    Some(proto::workflow_stream_request::Kind::ActionResult(result)) => {
+                        if action_tx.send(result).await.is_err() {
+                            break;
+                        }
+                    }
+                    Some(proto::workflow_stream_request::Kind::Registration(_)) | None => {}
+                },
+                Ok(None) => break,
+                Err(err) => {
+                    warn!(error = %err, "workflow stream inbound error");
+                    break;
+                }
+            }
+        }
+    });
+
+    tokio::spawn(async move {
+        if let Err(status) =
+            run_in_memory_workflow(registration, skip_sleep, action_rx, response_tx.clone()).await
+        {
+            let _ = response_tx.send(Err(status)).await;
+        }
+    });
+
+    Ok(tonic::Response::new(
+        Box::pin(ReceiverStream::new(response_rx)) as WorkflowStream,
+    ))
 }
 
 #[tonic::async_trait]

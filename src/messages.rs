@@ -21,6 +21,12 @@ pub mod ast {
     tonic::include_proto!("rappel.ast");
 }
 
+/// Execution graph types from execution.proto
+pub mod execution {
+    // Execution state types
+    tonic::include_proto!("rappel.execution");
+}
+
 /// Errors that can occur during message encoding/decoding
 #[derive(Debug, Error)]
 pub enum MessageError {

@@ -1,8 +1,21 @@
 use std::collections::HashMap;
 
+use prost::Message;
 use serde_json::Value as JsonValue;
 
 use crate::messages::proto;
+
+/// Convert a WorkflowValue to protobuf bytes
+pub fn workflow_value_to_proto_bytes(value: &WorkflowValue) -> Vec<u8> {
+    value.to_proto().encode_to_vec()
+}
+
+/// Convert protobuf bytes to a WorkflowValue
+pub fn workflow_value_from_proto_bytes(bytes: &[u8]) -> Option<WorkflowValue> {
+    proto::WorkflowArgumentValue::decode(bytes)
+        .ok()
+        .map(|v| WorkflowValue::from_proto(&v))
+}
 
 #[derive(Debug, Clone)]
 pub enum WorkflowValue {

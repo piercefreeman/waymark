@@ -259,6 +259,8 @@ pub struct DAGEdge {
     /// Exception types that activate this edge (for except handlers).
     /// If present, this edge is followed when the source node fails with a matching exception.
     pub exception_types: Option<Vec<String>>,
+    /// Exception handler depth (for nested try/except precedence).
+    pub exception_depth: Option<usize>,
     /// Whether this is a loop back edge (body -> for_loop controller)
     pub is_loop_back: bool,
     /// String-based guard for loop control (e.g., "__loop_has_next(for_loop_0)")
@@ -277,6 +279,7 @@ impl DAGEdge {
             guard_expr: None,
             is_else: false,
             exception_types: None,
+            exception_depth: None,
             is_loop_back: false,
             guard_string: None,
         }
@@ -293,6 +296,7 @@ impl DAGEdge {
             guard_expr: None,
             is_else: false,
             exception_types: None,
+            exception_depth: None,
             is_loop_back: false,
             guard_string: None,
         }
@@ -309,6 +313,7 @@ impl DAGEdge {
             guard_expr: Some(guard),
             is_else: false,
             exception_types: None,
+            exception_depth: None,
             is_loop_back: false,
             guard_string: None,
         }
@@ -325,6 +330,7 @@ impl DAGEdge {
             guard_expr: None,
             is_else: true,
             exception_types: None,
+            exception_depth: None,
             is_loop_back: false,
             guard_string: None,
         }
@@ -362,6 +368,7 @@ impl DAGEdge {
             guard_expr: None,
             is_else: false,
             exception_types: Some(normalized_types),
+            exception_depth: None,
             is_loop_back: false,
             guard_string: None,
         }
@@ -378,6 +385,7 @@ impl DAGEdge {
             guard_expr: None,
             is_else: false,
             exception_types: None,
+            exception_depth: None,
             is_loop_back: false,
             guard_string: None,
         }
@@ -394,6 +402,7 @@ impl DAGEdge {
             guard_expr: None,
             is_else: false,
             exception_types: None,
+            exception_depth: None,
             is_loop_back: false,
             guard_string: None,
         }
@@ -540,6 +549,8 @@ pub struct DAGConverter {
     loop_exit_stack: Vec<String>,
     /// Stack of loop increment node IDs for continue statements
     loop_incr_stack: Vec<String>,
+    /// Current try/except nesting depth
+    try_depth: usize,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -573,6 +584,7 @@ impl DAGConverter {
             var_modifications: HashMap::new(),
             loop_exit_stack: Vec::new(),
             loop_incr_stack: Vec::new(),
+            try_depth: 0,
         }
     }
 
@@ -1455,6 +1467,7 @@ impl DAGConverter {
                                             guard_expr: None,
                                             is_else: false,
                                             exception_types: None,
+                                            exception_depth: None,
                                             is_loop_back: false,
                                             guard_string: None,
                                         });
@@ -1483,6 +1496,7 @@ impl DAGConverter {
                                     guard_expr: None,
                                     is_else: false,
                                     exception_types: None,
+                                    exception_depth: None,
                                     is_loop_back: false,
                                     guard_string: None,
                                 });
@@ -1563,6 +1577,13 @@ impl DAGConverter {
                         if should_add_edge {
                             let key = (mod_node.clone(), node_id.clone(), Some(var_name.clone()));
                             if seen_edges.insert(key.clone()) {
+                                // Data flow edges from loop_incr to action nodes inside the loop
+                                // should be marked as loop-back so they don't block the first
+                                // iteration. On the first iteration, the action hasn't received
+                                // the variable from loop_incr yet, and that's OK - it will get
+                                // the value from loop_extract or the initial definition.
+                                let is_loop_back_edge =
+                                    mod_node.contains("loop_incr") && is_action_in_loop;
                                 dag.edges.push(DAGEdge {
                                     source: mod_node.clone(),
                                     target: node_id.clone(),
@@ -1572,7 +1593,8 @@ impl DAGConverter {
                                     guard_expr: None,
                                     is_else: false,
                                     exception_types: None,
-                                    is_loop_back: false,
+                                    exception_depth: None,
+                                    is_loop_back: is_loop_back_edge,
                                     guard_string: None,
                                 });
                             }
@@ -1593,6 +1615,7 @@ impl DAGConverter {
                         guard_expr: None,
                         is_else: false,
                         exception_types: None,
+                        exception_depth: None,
                         is_loop_back: false,
                         guard_string: None,
                     });
@@ -1675,9 +1698,13 @@ impl DAGConverter {
         let output_id = self.next_id(&format!("{}_output", fn_def.name));
         let output_label = format!("output: [{}]", io.outputs.join(", "));
 
+        // Output nodes need join_required_count = 1 because they can have multiple
+        // return node predecessors (one per return statement in different branches),
+        // but only one return path will ever execute.
         let output_node = DAGNode::new(output_id.clone(), "output".to_string(), output_label)
             .with_function_name(&fn_def.name)
-            .with_output(io.outputs.clone());
+            .with_output(io.outputs.clone())
+            .with_join_required_count(1);
         self.dag.add_node(output_node);
 
         // Connect all continuing control-flow exits to the output node.
@@ -2515,7 +2542,11 @@ impl DAGConverter {
         // ============================================================
         let cond_id = self.next_id("loop_cond");
         let cond_label = format!("for {} in {}", loop_vars_str, collection_str);
-        let mut cond_node = DAGNode::new(cond_id.clone(), "branch".to_string(), cond_label.clone());
+        // Loop condition nodes need join_required_count = 1 because they receive edges from
+        // both loop_init (first iteration) and loop_incr (subsequent iterations), but only
+        // one of these will be "active" at any given time.
+        let mut cond_node = DAGNode::new(cond_id.clone(), "branch".to_string(), cond_label.clone())
+            .with_join_required_count(1);
         if let Some(ref fn_name) = self.current_function {
             cond_node = cond_node.with_function_name(fn_name);
         }
@@ -2553,10 +2584,13 @@ impl DAGConverter {
         };
 
         let extract_label = format!("{} = {}[{}]", loop_vars_str, collection_str, loop_i_var);
+        // Loop extract nodes need join_required_count = 1 because they receive data flow edges
+        // from both loop_init (first iteration) and loop_incr (subsequent iterations) paths.
         let mut extract_node =
             DAGNode::new(extract_id.clone(), "assignment".to_string(), extract_label)
                 .with_targets(&for_loop.loop_vars)
-                .with_assign_expr(index_expr);
+                .with_assign_expr(index_expr)
+                .with_join_required_count(1);
         if let Some(ref fn_name) = self.current_function {
             extract_node = extract_node.with_function_name(fn_name);
         }
@@ -2641,7 +2675,8 @@ impl DAGConverter {
 
         let mut incr_node = DAGNode::new(incr_id.clone(), "assignment".to_string(), incr_label)
             .with_target(&loop_i_var)
-            .with_assign_expr(incr_expr);
+            .with_assign_expr(incr_expr)
+            .with_join_required_count(1);
         if let Some(ref fn_name) = self.current_function {
             incr_node = incr_node.with_function_name(fn_name);
         }
@@ -2740,7 +2775,10 @@ impl DAGConverter {
 
         let cond_id = self.next_id("loop_cond");
         let cond_label = format!("while {}", condition_str);
-        let mut cond_node = DAGNode::new(cond_id.clone(), "branch".to_string(), cond_label);
+        // Loop condition nodes need join_required_count = 1 because they receive edges from
+        // both the initial path and the loop-back path, but only one is active at any time.
+        let mut cond_node = DAGNode::new(cond_id.clone(), "branch".to_string(), cond_label)
+            .with_join_required_count(1);
         if let Some(ref fn_name) = self.current_function {
             cond_node = cond_node.with_function_name(fn_name);
         }
@@ -2781,7 +2819,8 @@ impl DAGConverter {
             continue_id.clone(),
             "assignment".to_string(),
             "loop_continue".to_string(),
-        );
+        )
+        .with_join_required_count(1);
         if let Some(ref fn_name) = self.current_function {
             continue_node = continue_node.with_function_name(fn_name);
         }
@@ -3085,121 +3124,131 @@ impl DAGConverter {
         &mut self,
         try_except: &ast::TryExcept,
     ) -> Result<ConvertedSubgraph, String> {
-        let mut nodes: Vec<String> = Vec::new();
+        self.try_depth += 1;
+        let current_depth = self.try_depth;
+        let result = (|| {
+            let mut nodes: Vec<String> = Vec::new();
 
-        let try_graph = match try_except.try_block.as_ref() {
-            Some(block) => self.convert_block(block)?,
-            None => ConvertedSubgraph::noop(),
-        };
-
-        if try_graph.is_noop {
-            return Ok(ConvertedSubgraph::noop());
-        }
-        nodes.extend(try_graph.nodes.clone());
-
-        // Collect handler graphs up front so we can decide whether a join is needed.
-        let mut handler_graphs: Vec<(Vec<String>, ConvertedSubgraph)> = Vec::new();
-        for handler in &try_except.handlers {
-            let mut graph = match handler.block_body.as_ref() {
+            let try_graph = match try_except.try_block.as_ref() {
                 Some(block) => self.convert_block(block)?,
                 None => ConvertedSubgraph::noop(),
             };
-            tracing::debug!(
-                handler_entry = ?graph.entry,
-                handler_exits = ?graph.exits,
-                handler_nodes = ?graph.nodes,
-                handler_is_noop = graph.is_noop,
-                "handler graph before prepend_exception_binding"
-            );
-            if let Some(exception_var) =
-                handler.exception_var.as_ref().filter(|var| !var.is_empty())
-            {
-                graph = self.prepend_exception_binding(exception_var, graph);
+
+            if try_graph.is_noop {
+                return Ok(ConvertedSubgraph::noop());
             }
-            tracing::debug!(
-                handler_entry = ?graph.entry,
-                handler_exits = ?graph.exits,
-                handler_nodes = ?graph.nodes,
-                "handler graph after prepend_exception_binding"
-            );
-            nodes.extend(graph.nodes.clone());
-            handler_graphs.push((handler.exception_types.clone(), graph));
-        }
+            nodes.extend(try_graph.nodes.clone());
 
-        let join_needed = !try_graph.exits.is_empty()
-            || handler_graphs
-                .iter()
-                .any(|(_, graph)| graph.is_noop || !graph.exits.is_empty());
-
-        let join_id = if join_needed {
-            let join_id = self.next_id("join");
-            let mut join_node =
-                DAGNode::new(join_id.clone(), "join".to_string(), "join".to_string())
-                    .with_join_required_count(1);
-            if let Some(ref fn_name) = self.current_function {
-                join_node = join_node.with_function_name(fn_name);
-            }
-            self.dag.add_node(join_node);
-            nodes.push(join_id.clone());
-            Some(join_id)
-        } else {
-            None
-        };
-
-        // Success path(s): all normal exits of the try body go to the join via "success".
-        if let Some(join_target) = join_id.as_ref() {
-            for try_exit in &try_graph.exits {
-                self.dag.add_edge(DAGEdge::state_machine_success(
-                    try_exit.clone(),
-                    join_target.clone(),
-                ));
-            }
-        }
-
-        // Exception edges: any failing node inside the try body may route to a handler.
-        // This mirrors Python semantics more closely than only wiring from the last try node.
-        let try_exception_sources = try_graph.nodes.clone();
-        for (exception_types, handler_graph) in &handler_graphs {
-            if handler_graph.is_noop {
-                if let Some(join_target) = join_id.as_ref() {
-                    for source in &try_exception_sources {
-                        self.dag.add_edge(DAGEdge::state_machine_with_exception(
-                            source.clone(),
-                            join_target.clone(),
-                            exception_types.clone(),
-                        ));
-                    }
+            // Collect handler graphs up front so we can decide whether a join is needed.
+            let mut handler_graphs: Vec<(Vec<String>, ConvertedSubgraph)> = Vec::new();
+            for handler in &try_except.handlers {
+                let mut graph = match handler.block_body.as_ref() {
+                    Some(block) => self.convert_block(block)?,
+                    None => ConvertedSubgraph::noop(),
+                };
+                tracing::debug!(
+                    handler_entry = ?graph.entry,
+                    handler_exits = ?graph.exits,
+                    handler_nodes = ?graph.nodes,
+                    handler_is_noop = graph.is_noop,
+                    "handler graph before prepend_exception_binding"
+                );
+                if let Some(exception_var) =
+                    handler.exception_var.as_ref().filter(|var| !var.is_empty())
+                {
+                    graph = self.prepend_exception_binding(exception_var, graph);
                 }
-                continue;
+                tracing::debug!(
+                    handler_entry = ?graph.entry,
+                    handler_exits = ?graph.exits,
+                    handler_nodes = ?graph.nodes,
+                    "handler graph after prepend_exception_binding"
+                );
+                nodes.extend(graph.nodes.clone());
+                handler_graphs.push((handler.exception_types.clone(), graph));
             }
 
-            let Some(handler_entry) = handler_graph.entry.as_ref() else {
-                continue;
+            let join_needed = !try_graph.exits.is_empty()
+                || handler_graphs
+                    .iter()
+                    .any(|(_, graph)| graph.is_noop || !graph.exits.is_empty());
+
+            let join_id = if join_needed {
+                let join_id = self.next_id("join");
+                let mut join_node =
+                    DAGNode::new(join_id.clone(), "join".to_string(), "join".to_string())
+                        .with_join_required_count(1);
+                if let Some(ref fn_name) = self.current_function {
+                    join_node = join_node.with_function_name(fn_name);
+                }
+                self.dag.add_node(join_node);
+                nodes.push(join_id.clone());
+                Some(join_id)
+            } else {
+                None
             };
-            for source in &try_exception_sources {
-                self.dag.add_edge(DAGEdge::state_machine_with_exception(
-                    source.clone(),
-                    handler_entry.clone(),
-                    exception_types.clone(),
-                ));
-            }
 
+            // Success path(s): all normal exits of the try body go to the join via "success".
             if let Some(join_target) = join_id.as_ref() {
-                for handler_exit in &handler_graph.exits {
-                    self.dag.add_edge(DAGEdge::state_machine(
-                        handler_exit.clone(),
+                for try_exit in &try_graph.exits {
+                    self.dag.add_edge(DAGEdge::state_machine_success(
+                        try_exit.clone(),
                         join_target.clone(),
                     ));
                 }
             }
-        }
 
-        Ok(ConvertedSubgraph {
-            entry: try_graph.entry,
-            exits: join_id.into_iter().collect(),
-            nodes,
-            is_noop: false,
-        })
+            // Exception edges: any failing node inside the try body may route to a handler.
+            // This mirrors Python semantics more closely than only wiring from the last try node.
+            let try_exception_sources = try_graph.nodes.clone();
+            for (exception_types, handler_graph) in &handler_graphs {
+                if handler_graph.is_noop {
+                    if let Some(join_target) = join_id.as_ref() {
+                        for source in &try_exception_sources {
+                            let mut edge = DAGEdge::state_machine_with_exception(
+                                source.clone(),
+                                join_target.clone(),
+                                exception_types.clone(),
+                            );
+                            edge.exception_depth = Some(current_depth);
+                            self.dag.add_edge(edge);
+                        }
+                    }
+                    continue;
+                }
+
+                let Some(handler_entry) = handler_graph.entry.as_ref() else {
+                    continue;
+                };
+                for source in &try_exception_sources {
+                    let mut edge = DAGEdge::state_machine_with_exception(
+                        source.clone(),
+                        handler_entry.clone(),
+                        exception_types.clone(),
+                    );
+                    edge.exception_depth = Some(current_depth);
+                    self.dag.add_edge(edge);
+                }
+
+                if let Some(join_target) = join_id.as_ref() {
+                    for handler_exit in &handler_graph.exits {
+                        self.dag.add_edge(DAGEdge::state_machine(
+                            handler_exit.clone(),
+                            join_target.clone(),
+                        ));
+                    }
+                }
+            }
+
+            Ok(ConvertedSubgraph {
+                entry: try_graph.entry,
+                exits: join_id.into_iter().collect(),
+                nodes,
+                is_noop: false,
+            })
+        })();
+        self.try_depth = self.try_depth.saturating_sub(1);
+        result
     }
 
     fn prepend_exception_binding(
@@ -3264,7 +3313,10 @@ impl DAGConverter {
     /// `_tmp = await action(); return _tmp`.
     fn convert_return(&mut self, ret: &ast::ReturnStmt) -> Vec<String> {
         let node_id = self.next_id("return");
-        let mut node = DAGNode::new(node_id.clone(), "return".to_string(), "return".to_string());
+        // Return nodes need join_required_count = 1 because they can have multiple
+        // predecessors from different conditional branches, but only one branch executes.
+        let mut node = DAGNode::new(node_id.clone(), "return".to_string(), "return".to_string())
+            .with_join_required_count(1);
 
         if let Some(ref expr) = ret.value {
             node.assign_expr = Some(expr.clone());
@@ -3565,8 +3617,16 @@ impl DAGConverter {
             "data flow edges being created"
         );
         for (var_name, source, target) in edges_to_add {
-            self.dag
-                .add_edge(DAGEdge::data_flow(source, target, &var_name));
+            // Check if this is a loop-back edge:
+            // - Any data flow edge from loop_incr to nodes inside the loop body should be loop-back
+            // - This includes loop_cond, loop_extract, and any action nodes inside the loop
+            // - Only exception: edges to loop_exit are NOT loop-back (they provide final values)
+            let is_loop_back = source.contains("loop_incr") && !target.contains("loop_exit");
+            let mut edge = DAGEdge::data_flow(source, target, &var_name);
+            if is_loop_back {
+                edge = edge.with_loop_back(true);
+            }
+            self.dag.add_edge(edge);
         }
     }
 

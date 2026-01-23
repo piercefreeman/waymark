@@ -252,10 +252,6 @@ impl WorkerThroughputTracker {
         worker.last_action_at = Some(wall_time);
     }
 
-    fn snapshot(&mut self) -> Vec<WorkerThroughputSnapshot> {
-        self.snapshot_at(Instant::now())
-    }
-
     fn snapshot_at(&mut self, now: Instant) -> Vec<WorkerThroughputSnapshot> {
         let window_secs = self.window.as_secs_f64();
         let cutoff = now.checked_sub(self.window).unwrap_or(now);
@@ -725,8 +721,6 @@ pub struct PythonWorkerPool {
     workers: RwLock<Vec<Arc<PythonWorker>>>,
     /// Cursor for round-robin selection
     cursor: AtomicUsize,
-    /// Pool identifier for reporting
-    pool_id: Uuid,
     /// Throughput tracker for workers in the pool
     throughput: StdMutex<WorkerThroughputTracker>,
     /// Action counts per worker slot (for lifecycle tracking)
@@ -798,7 +792,6 @@ impl PythonWorkerPool {
         Ok(Self {
             workers: RwLock::new(workers),
             cursor: AtomicUsize::new(0),
-            pool_id: Uuid::new_v4(),
             throughput: StdMutex::new(WorkerThroughputTracker::new(
                 worker_ids,
                 Duration::from_secs(60),
@@ -841,10 +834,6 @@ impl PythonWorkerPool {
         self.workers.read().await.clone()
     }
 
-    pub(crate) fn pool_id(&self) -> Uuid {
-        self.pool_id
-    }
-
     /// Record an action completion for a worker and trigger recycling if needed.
     ///
     /// This increments the action count for the worker at the given index.
@@ -854,6 +843,18 @@ impl PythonWorkerPool {
         // Update throughput tracking
         if let Ok(mut tracker) = self.throughput.lock() {
             tracker.record_completion(worker_idx);
+            if tracing::enabled!(tracing::Level::DEBUG) {
+                let snapshots = tracker.snapshot_at(Instant::now());
+                if let Some(snapshot) = snapshots.get(worker_idx) {
+                    debug!(
+                        worker_id = snapshot.worker_id,
+                        throughput_per_min = snapshot.throughput_per_min,
+                        total_completed = snapshot.total_completed,
+                        last_action_at = ?snapshot.last_action_at,
+                        "worker throughput snapshot"
+                    );
+                }
+            }
         }
 
         // Increment action count
@@ -922,13 +923,6 @@ impl PythonWorkerPool {
         // (once all in-flight actions complete)
 
         Ok(())
-    }
-
-    pub(crate) fn throughput_snapshot(&self) -> Vec<WorkerThroughputSnapshot> {
-        if let Ok(mut tracker) = self.throughput.lock() {
-            return tracker.snapshot();
-        }
-        Vec::new()
     }
 
     /// Get the current action count for a worker slot.

@@ -17,7 +17,6 @@ use anyhow::{Context, Result, anyhow};
 use clap::Parser;
 use prost::Message;
 use serde::Serialize;
-use sqlx::Row;
 use tempfile::TempDir;
 use tokio::{net::TcpListener, process::Command, sync::oneshot, task::JoinHandle};
 use tokio_stream::Stream;
@@ -27,8 +26,9 @@ use tracing::{error, info};
 use tracing_subscriber::prelude::*;
 
 use rappel::{
-    Database, PythonWorkerConfig, PythonWorkerPool, RunnerMetricsSnapshot, WorkerBridgeServer,
-    WorkflowInstanceId, WorkflowValue, WorkflowVersionId, proto, validate_program,
+    Database, InstanceRunner, InstanceRunnerConfig, InstanceRunnerMetrics, PythonWorkerConfig,
+    PythonWorkerPool, WorkerBridgeServer, WorkflowValue, WorkflowVersionId, proto,
+    validate_program,
 };
 
 const BENCHMARK_WORKFLOW_MODULE: &str = include_str!("../../tests/fixtures/benchmark_workflow.py");
@@ -80,17 +80,13 @@ struct Args {
     #[arg(long, default_value = "100")]
     complexity: u32,
 
-    /// Number of simulated hosts (each gets its own DAGRunner + worker pool)
+    /// Number of simulated hosts (each gets its own InstanceRunner + worker pool)
     #[arg(long, default_value = "1")]
     hosts: u32,
 
     /// Number of Python workers per host
     #[arg(long, default_value = "4")]
     workers_per_host: u32,
-
-    /// Maximum concurrent actions per worker
-    #[arg(long, default_value = "10")]
-    max_slots_per_worker: u32,
 
     /// Number of workflow instances to run concurrently
     #[arg(long, default_value = "1")]
@@ -117,49 +113,24 @@ struct Args {
 struct BenchmarkOutput {
     /// Benchmark type that was run
     benchmark_type: String,
-    /// Total number of actions executed
+    /// Total number of actions executed (estimated from execution graph)
     total: u64,
     /// Total elapsed time in seconds
     elapsed_s: f64,
     /// Actions per second
     throughput: f64,
-    /// Average round-trip time in milliseconds
-    avg_round_trip_ms: f64,
-    /// P95 round-trip time in milliseconds
-    p95_round_trip_ms: f64,
 }
 
 #[derive(Serialize, Debug)]
 struct RunnerMetricsSummary {
     host: Option<u32>,
-    fetch_and_dispatch_calls: u64,
-    fetch_and_dispatch_total_us: u64,
-    fetch_and_dispatch_avg_us: f64,
-    fetch_and_dispatch_db_us: u64,
-    fetch_and_dispatch_db_avg_us: f64,
-    fetch_and_dispatch_dispatch_us: u64,
-    fetch_and_dispatch_dispatch_avg_us: f64,
-    fetch_and_dispatch_dispatched: u64,
-    fetch_and_dispatch_actions: u64,
-    fetch_and_dispatch_barriers: u64,
-    fetch_and_dispatch_sleeps: u64,
-    start_unstarted_calls: u64,
-    start_unstarted_total_us: u64,
-    start_unstarted_avg_us: f64,
-    start_unstarted_instances: u64,
-    process_completion_calls: u64,
-    process_completion_total_us: u64,
-    process_completion_avg_us: f64,
-    process_completion_subgraph_us: u64,
-    process_completion_subgraph_avg_us: f64,
-    process_completion_inbox_us: u64,
-    process_completion_inbox_avg_us: f64,
-    process_completion_inline_us: u64,
-    process_completion_inline_avg_us: f64,
-    process_completion_db_us: u64,
-    process_completion_db_avg_us: f64,
-    process_completion_newly_ready: u64,
-    process_completion_workflow_completed: u64,
+    instances_owned: u64,
+    actions_dispatched: u64,
+    actions_completed: u64,
+    instances_completed: u64,
+    instances_failed: u64,
+    heartbeats_sent: u64,
+    orphans_recovered: u64,
 }
 
 #[derive(Serialize, Debug)]
@@ -457,12 +428,12 @@ async fn run_shell_with_env(
 // ============================================================================
 
 /// Wait for the workflow to complete by monitoring the database.
-/// Returns action count and metrics collection.
+/// Returns action count estimate from aggregated metrics.
 async fn wait_for_completion(
     database: &Arc<Database>,
     expected_count: u64,
     timeout: Duration,
-) -> Result<u64> {
+) -> Result<()> {
     let start = std::time::Instant::now();
     let mut last_log = std::time::Instant::now();
 
@@ -480,13 +451,7 @@ async fn wait_for_completion(
         .await?;
 
         if completed as u64 >= expected_count {
-            // All instances finished - get final action count
-            let action_count: i64 = sqlx::query_scalar(
-                "SELECT (SELECT COUNT(*) FROM action_logs) + (SELECT COUNT(*) FROM action_log_queue) + (SELECT COUNT(*) FROM action_queue WHERE status = 'completed')",
-            )
-            .fetch_one(database.pool())
-            .await?;
-
+            // All instances finished
             // Check for failures
             let failed: i64 = sqlx::query_scalar(
                 "SELECT COUNT(*) FROM workflow_instances WHERE status = 'failed'",
@@ -503,25 +468,17 @@ async fn wait_for_completion(
             } else {
                 info!(
                     instances = completed,
-                    actions = action_count,
                     "All workflows completed successfully"
                 );
             }
 
-            return Ok(action_count as u64);
+            return Ok(());
         }
 
         if last_log.elapsed() > Duration::from_secs(1) {
-            let completed_actions: i64 = sqlx::query_scalar(
-                "SELECT (SELECT COUNT(*) FROM action_logs) + (SELECT COUNT(*) FROM action_log_queue) + (SELECT COUNT(*) FROM action_queue WHERE status = 'completed')",
-            )
-            .fetch_one(database.pool())
-            .await
-            .unwrap_or(0);
             info!(
                 completed_instances = completed,
                 total_instances = expected_count,
-                completed_actions = completed_actions,
                 "Benchmark in progress"
             );
             last_log = std::time::Instant::now();
@@ -530,44 +487,7 @@ async fn wait_for_completion(
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
 
-    // Timeout - return what we have
-    let action_count: i64 = sqlx::query_scalar(
-        "SELECT (SELECT COUNT(*) FROM action_logs) + (SELECT COUNT(*) FROM action_log_queue) + (SELECT COUNT(*) FROM action_queue WHERE status = 'completed')",
-    )
-    .fetch_one(database.pool())
-    .await?;
-    Ok(action_count as u64)
-}
-
-async fn fetch_action_latency_metrics(database: &Arc<Database>) -> Result<(f64, f64)> {
-    let row = sqlx::query(
-        r#"
-        WITH durations AS (
-            SELECT duration_ms::double precision AS duration_ms
-            FROM action_logs
-            WHERE duration_ms IS NOT NULL
-            UNION ALL
-            SELECT duration_ms::double precision AS duration_ms
-            FROM action_log_queue
-            WHERE duration_ms IS NOT NULL
-            UNION ALL
-            SELECT EXTRACT(EPOCH FROM (completed_at - dispatched_at)) * 1000.0 AS duration_ms
-            FROM action_queue
-            WHERE status = 'completed'
-              AND completed_at IS NOT NULL
-              AND dispatched_at IS NOT NULL
-        )
-        SELECT AVG(duration_ms) AS avg_ms,
-               PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY duration_ms) AS p95_ms
-        FROM durations
-        "#,
-    )
-    .fetch_one(database.pool())
-    .await?;
-
-    let avg_ms: Option<f64> = row.try_get("avg_ms")?;
-    let p95_ms: Option<f64> = row.try_get("p95_ms")?;
-    Ok((avg_ms.unwrap_or(0.0), p95_ms.unwrap_or(0.0)))
+    Ok(())
 }
 
 fn build_input_payload(inputs: &HashMap<String, WorkflowValue>) -> Vec<u8> {
@@ -581,95 +501,27 @@ fn build_input_payload(inputs: &HashMap<String, WorkflowValue>) -> Vec<u8> {
     proto::WorkflowArguments { arguments }.encode_to_vec()
 }
 
-fn avg_us(total_us: u64, count: u64) -> f64 {
-    if count == 0 {
-        0.0
-    } else {
-        total_us as f64 / count as f64
-    }
-}
-
-fn summarize_metrics(snapshot: &RunnerMetricsSnapshot, host: Option<u32>) -> RunnerMetricsSummary {
+fn summarize_metrics(metrics: &InstanceRunnerMetrics, host: Option<u32>) -> RunnerMetricsSummary {
     RunnerMetricsSummary {
         host,
-        fetch_and_dispatch_calls: snapshot.fetch_and_dispatch_calls,
-        fetch_and_dispatch_total_us: snapshot.fetch_and_dispatch_total_us,
-        fetch_and_dispatch_avg_us: avg_us(
-            snapshot.fetch_and_dispatch_total_us,
-            snapshot.fetch_and_dispatch_calls,
-        ),
-        fetch_and_dispatch_db_us: snapshot.fetch_and_dispatch_db_us,
-        fetch_and_dispatch_db_avg_us: avg_us(
-            snapshot.fetch_and_dispatch_db_us,
-            snapshot.fetch_and_dispatch_calls,
-        ),
-        fetch_and_dispatch_dispatch_us: snapshot.fetch_and_dispatch_dispatch_us,
-        fetch_and_dispatch_dispatch_avg_us: avg_us(
-            snapshot.fetch_and_dispatch_dispatch_us,
-            snapshot.fetch_and_dispatch_calls,
-        ),
-        fetch_and_dispatch_dispatched: snapshot.fetch_and_dispatch_dispatched,
-        fetch_and_dispatch_actions: snapshot.fetch_and_dispatch_actions,
-        fetch_and_dispatch_barriers: snapshot.fetch_and_dispatch_barriers,
-        fetch_and_dispatch_sleeps: snapshot.fetch_and_dispatch_sleeps,
-        start_unstarted_calls: snapshot.start_unstarted_calls,
-        start_unstarted_total_us: snapshot.start_unstarted_total_us,
-        start_unstarted_avg_us: avg_us(
-            snapshot.start_unstarted_total_us,
-            snapshot.start_unstarted_calls,
-        ),
-        start_unstarted_instances: snapshot.start_unstarted_instances,
-        process_completion_calls: snapshot.process_completion_calls,
-        process_completion_total_us: snapshot.process_completion_total_us,
-        process_completion_avg_us: avg_us(
-            snapshot.process_completion_total_us,
-            snapshot.process_completion_calls,
-        ),
-        process_completion_subgraph_us: snapshot.process_completion_subgraph_us,
-        process_completion_subgraph_avg_us: avg_us(
-            snapshot.process_completion_subgraph_us,
-            snapshot.process_completion_calls,
-        ),
-        process_completion_inbox_us: snapshot.process_completion_inbox_us,
-        process_completion_inbox_avg_us: avg_us(
-            snapshot.process_completion_inbox_us,
-            snapshot.process_completion_calls,
-        ),
-        process_completion_inline_us: snapshot.process_completion_inline_us,
-        process_completion_inline_avg_us: avg_us(
-            snapshot.process_completion_inline_us,
-            snapshot.process_completion_calls,
-        ),
-        process_completion_db_us: snapshot.process_completion_db_us,
-        process_completion_db_avg_us: avg_us(
-            snapshot.process_completion_db_us,
-            snapshot.process_completion_calls,
-        ),
-        process_completion_newly_ready: snapshot.process_completion_newly_ready,
-        process_completion_workflow_completed: snapshot.process_completion_workflow_completed,
+        instances_owned: metrics.instances_owned,
+        actions_dispatched: metrics.actions_dispatched,
+        actions_completed: metrics.actions_completed,
+        instances_completed: metrics.instances_completed,
+        instances_failed: metrics.instances_failed,
+        heartbeats_sent: metrics.heartbeats_sent,
+        orphans_recovered: metrics.orphans_recovered,
     }
 }
 
-fn merge_metrics(acc: &mut RunnerMetricsSnapshot, next: &RunnerMetricsSnapshot) {
-    acc.fetch_and_dispatch_calls += next.fetch_and_dispatch_calls;
-    acc.fetch_and_dispatch_total_us += next.fetch_and_dispatch_total_us;
-    acc.fetch_and_dispatch_db_us += next.fetch_and_dispatch_db_us;
-    acc.fetch_and_dispatch_dispatch_us += next.fetch_and_dispatch_dispatch_us;
-    acc.fetch_and_dispatch_dispatched += next.fetch_and_dispatch_dispatched;
-    acc.fetch_and_dispatch_actions += next.fetch_and_dispatch_actions;
-    acc.fetch_and_dispatch_barriers += next.fetch_and_dispatch_barriers;
-    acc.fetch_and_dispatch_sleeps += next.fetch_and_dispatch_sleeps;
-    acc.start_unstarted_calls += next.start_unstarted_calls;
-    acc.start_unstarted_total_us += next.start_unstarted_total_us;
-    acc.start_unstarted_instances += next.start_unstarted_instances;
-    acc.process_completion_calls += next.process_completion_calls;
-    acc.process_completion_total_us += next.process_completion_total_us;
-    acc.process_completion_subgraph_us += next.process_completion_subgraph_us;
-    acc.process_completion_inbox_us += next.process_completion_inbox_us;
-    acc.process_completion_inline_us += next.process_completion_inline_us;
-    acc.process_completion_db_us += next.process_completion_db_us;
-    acc.process_completion_newly_ready += next.process_completion_newly_ready;
-    acc.process_completion_workflow_completed += next.process_completion_workflow_completed;
+fn merge_metrics(acc: &mut InstanceRunnerMetrics, next: &InstanceRunnerMetrics) {
+    acc.instances_owned += next.instances_owned;
+    acc.actions_dispatched += next.actions_dispatched;
+    acc.actions_completed += next.actions_completed;
+    acc.instances_completed += next.instances_completed;
+    acc.instances_failed += next.instances_failed;
+    acc.heartbeats_sent += next.heartbeats_sent;
+    acc.orphans_recovered += next.orphans_recovered;
 }
 
 // ============================================================================
@@ -720,9 +572,7 @@ async fn main() -> Result<()> {
     info!(%database_url, pool_size, "database connected");
 
     // Clean up database
-    sqlx::query(
-        "TRUNCATE action_log_queue, action_logs, action_queue, instance_context, loop_state, workflow_instances, workflow_versions CASCADE",
-    )
+    sqlx::query("TRUNCATE workflow_instances, workflow_versions, workflow_schedules CASCADE")
         .execute(database.pool())
         .await?;
 
@@ -758,9 +608,9 @@ async fn main() -> Result<()> {
     .fetch_all(database.pool())
     .await?;
 
-    let first_instance_id = initial_instances
+    let _first_instance_id = initial_instances
         .first()
-        .map(|i| WorkflowInstanceId(i.id))
+        .map(|i| i.id)
         .context("no instance found")?;
 
     // Prepare initial inputs for the workflow
@@ -787,7 +637,7 @@ async fn main() -> Result<()> {
 
     sqlx::query("UPDATE workflow_instances SET input_payload = $1 WHERE id = $2")
         .bind(input_payload.as_slice())
-        .bind(first_instance_id.0)
+        .bind(_first_instance_id)
         .execute(database.pool())
         .await?;
 
@@ -795,14 +645,9 @@ async fn main() -> Result<()> {
     if extra_instances > 0 {
         sqlx::query(
             r#"
-            WITH new_instances AS (
-                INSERT INTO workflow_instances (workflow_name, workflow_version_id, input_payload, schedule_id, priority)
-                SELECT $1, $2, $3, NULL, 0
-                FROM generate_series(1, $4)
-                RETURNING id
-            )
-            INSERT INTO instance_context (instance_id)
-            SELECT id FROM new_instances
+            INSERT INTO workflow_instances (workflow_name, workflow_version_id, input_payload, schedule_id, priority)
+            SELECT $1, $2, $3, NULL, 0
+            FROM generate_series(1, $4)
             "#,
         )
         .bind(&workflow_name)
@@ -826,11 +671,7 @@ async fn main() -> Result<()> {
     let python_env_path = python_env.path().to_path_buf();
 
     // Create multiple simulated hosts, each with its own runner + worker pool
-    let mut hosts: Vec<(
-        Arc<rappel::DAGRunner>,
-        Arc<PythonWorkerPool>,
-        JoinHandle<()>,
-    )> = Vec::new();
+    let mut hosts: Vec<(Arc<InstanceRunner>, Arc<PythonWorkerPool>, JoinHandle<()>)> = Vec::new();
 
     for host_id in 0..args.hosts {
         let worker_config = PythonWorkerConfig {
@@ -850,23 +691,16 @@ async fn main() -> Result<()> {
             .await?,
         );
 
-        let runner_config = rappel::RunnerConfig {
-            batch_size: 64,
-            enable_metrics: args.metrics_json.is_some(),
-            max_slots_per_worker: args.max_slots_per_worker as usize,
-            poll_interval_ms: 10,
-            timeout_check_interval_ms: 1000,
-            timeout_check_batch_size: 100,
-            action_log_flush_interval_ms: 200,
-            action_log_flush_batch_size: 1000,
+        let runner_config = InstanceRunnerConfig {
+            claim_batch_size: 64,
             completion_batch_size: 200,
-            completion_flush_interval_ms: 10,
+            idle_poll_interval: Duration::from_millis(10),
             ..Default::default()
         };
 
-        let runner = Arc::new(rappel::DAGRunner::new(
+        let runner = Arc::new(InstanceRunner::new(
             runner_config,
-            Arc::clone(&database),
+            (*database).clone(),
             Arc::clone(&worker_pool),
         ));
 
@@ -885,7 +719,6 @@ async fn main() -> Result<()> {
     info!(
         hosts = args.hosts,
         workers_per_host = args.workers_per_host,
-        max_slots_per_worker = args.max_slots_per_worker,
         total_workers = total_workers,
         "all hosts ready"
     );
@@ -894,37 +727,29 @@ async fn main() -> Result<()> {
     // Wait for completion by monitoring workflow instance status
     let timeout = Duration::from_secs(args.timeout);
     let start = Instant::now();
-    let total = wait_for_completion(&database, expected_instances, timeout).await?;
+    wait_for_completion(&database, expected_instances, timeout).await?;
     let elapsed = start.elapsed();
-    let (avg_round_trip_ms, p95_round_trip_ms) = fetch_action_latency_metrics(&database).await?;
+
+    // Collect metrics from all runners
+    let mut total_metrics = InstanceRunnerMetrics::default();
+    let mut per_host_metrics = Vec::new();
+
+    for (idx, (runner, _, _)) in hosts.iter().enumerate() {
+        let metrics = runner.metrics().await;
+        per_host_metrics.push(summarize_metrics(&metrics, Some(idx as u32)));
+        merge_metrics(&mut total_metrics, &metrics);
+    }
+
+    // Estimate total actions from metrics
+    let total = total_metrics.actions_completed;
 
     if let Some(path) = &args.metrics_json {
-        let mut per_host = Vec::new();
-        let mut total_metrics = RunnerMetricsSnapshot::default();
-        let mut has_metrics = false;
-
-        for (idx, (runner, _, _)) in hosts.iter().enumerate() {
-            if let Some(snapshot) = runner.metrics_snapshot() {
-                per_host.push(summarize_metrics(&snapshot, Some(idx as u32)));
-                if !has_metrics {
-                    total_metrics = snapshot;
-                    has_metrics = true;
-                } else {
-                    merge_metrics(&mut total_metrics, &snapshot);
-                }
-            }
-        }
-
-        if has_metrics {
-            let report = RunnerMetricsReport {
-                total: summarize_metrics(&total_metrics, None),
-                per_host,
-            };
-            fs::write(path, serde_json::to_string_pretty(&report)?)?;
-            info!(path = %path.display(), "runner metrics written");
-        } else {
-            info!("runner metrics requested but metrics collection is disabled");
-        }
+        let report = RunnerMetricsReport {
+            total: summarize_metrics(&total_metrics, None),
+            per_host: per_host_metrics,
+        };
+        fs::write(path, serde_json::to_string_pretty(&report)?)?;
+        info!(path = %path.display(), "runner metrics written");
     }
 
     // Shutdown all runners
@@ -968,8 +793,6 @@ async fn main() -> Result<()> {
         total,
         elapsed_s,
         throughput,
-        avg_round_trip_ms,
-        p95_round_trip_ms,
     };
 
     // Output results
@@ -980,9 +803,8 @@ async fn main() -> Result<()> {
         println!("Benchmark type: {}", args.benchmark);
         println!("Hosts: {}", args.hosts);
         println!("Workers per host: {}", args.workers_per_host);
-        println!("Max slots per worker: {}", args.max_slots_per_worker);
         println!("Total workers: {}", total_workers);
-        println!("Actions executed: {}", output.total);
+        println!("Actions completed: {}", output.total);
         println!("Elapsed time: {:.2}s", output.elapsed_s);
         println!("Throughput: {:.2} actions/sec", output.throughput);
     }

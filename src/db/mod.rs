@@ -24,6 +24,9 @@ use thiserror::Error;
 // Worker and webapp modules extend Database with impl blocks.
 // No re-exports needed - methods are automatically available on Database.
 
+// Re-export types from worker module
+pub use worker::ClaimedInstance;
+
 // ============================================================================
 // Type Aliases & Newtypes
 // ============================================================================
@@ -72,28 +75,6 @@ impl std::fmt::Display for WorkflowInstanceId {
     }
 }
 
-/// Unique identifier for an action in the queue
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ActionId(pub Uuid);
-
-impl ActionId {
-    pub fn new() -> Self {
-        Self(Uuid::new_v4())
-    }
-}
-
-impl Default for ActionId {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl std::fmt::Display for ActionId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
 use uuid::Uuid;
 
 // ============================================================================
@@ -123,81 +104,6 @@ impl InstanceStatus {
             "completed" => Some(Self::Completed),
             "failed" => Some(Self::Failed),
             _ => None,
-        }
-    }
-}
-
-/// Status of an action in the queue
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ActionStatus {
-    Queued,
-    Dispatched,
-    Completed,
-    Failed,
-    TimedOut,
-    /// Terminal status for actions that exhausted all retries due to failures
-    Exhausted,
-    /// Terminal status for actions whose exception was caught by a handler
-    Caught,
-}
-
-impl ActionStatus {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Queued => "queued",
-            Self::Dispatched => "dispatched",
-            Self::Completed => "completed",
-            Self::Failed => "failed",
-            Self::TimedOut => "timed_out",
-            Self::Exhausted => "exhausted",
-            Self::Caught => "caught",
-        }
-    }
-
-    pub fn parse(s: &str) -> Option<Self> {
-        match s {
-            "queued" => Some(Self::Queued),
-            "dispatched" => Some(Self::Dispatched),
-            "completed" => Some(Self::Completed),
-            "failed" => Some(Self::Failed),
-            "timed_out" => Some(Self::TimedOut),
-            "exhausted" => Some(Self::Exhausted),
-            "caught" => Some(Self::Caught),
-            _ => None,
-        }
-    }
-}
-
-/// Type of retry being attempted
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RetryKind {
-    Failure,
-    Timeout,
-}
-
-impl RetryKind {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Failure => "failure",
-            Self::Timeout => "timeout",
-        }
-    }
-}
-
-/// Backoff strategy for retries
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BackoffKind {
-    None,
-    Linear,
-    Exponential,
-}
-
-impl BackoffKind {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::None => "none",
-            Self::Linear => "linear",
-            Self::Exponential => "exponential",
         }
     }
 }
@@ -272,82 +178,9 @@ pub struct WorkflowInstance {
     pub priority: i32,
 }
 
-/// An action ready for dispatch (returned from dispatch_actions)
+/// Action execution log entry (view model for UI display).
+/// Synthesized from ExecutionGraph data.
 #[derive(Debug, Clone)]
-pub struct QueuedAction {
-    pub id: Uuid,
-    pub instance_id: Uuid,
-    pub partition_id: i32,
-    pub action_seq: i32,
-    pub module_name: String,
-    pub action_name: String,
-    pub dispatch_payload: Vec<u8>,
-    pub timeout_seconds: i32,
-    pub max_retries: i32,
-    pub attempt_number: i32,
-    pub delivery_token: Uuid,
-    pub timeout_retry_limit: i32,
-    pub retry_kind: String,
-    pub node_id: Option<String>,
-    /// Type of node: "action" or "barrier"
-    pub node_type: String,
-    /// Result payload (set after completion)
-    pub result_payload: Option<Vec<u8>>,
-    /// Whether the action succeeded (set after completion)
-    pub success: Option<bool>,
-    /// Action status: pending, dispatched, completed, failed
-    pub status: String,
-    /// When the action is scheduled to run (for retries with backoff)
-    pub scheduled_at: Option<chrono::DateTime<chrono::Utc>>,
-    /// Error message if the action or workflow failed
-    pub last_error: Option<String>,
-}
-
-/// Record for completing an action
-#[derive(Debug, Clone)]
-pub struct CompletionRecord {
-    pub action_id: ActionId,
-    pub success: bool,
-    pub result_payload: Vec<u8>,
-    pub delivery_token: Uuid,
-    pub error_message: Option<String>,
-    /// Worker pool that processed this action
-    pub pool_id: Option<Uuid>,
-    /// Worker ID within the pool that processed this action
-    pub worker_id: Option<i64>,
-    /// Actual execution time reported by the Python worker (milliseconds).
-    /// This is the raw execution time, separate from pipeline overhead.
-    pub worker_duration_ms: Option<i64>,
-}
-
-/// New action to enqueue
-#[derive(Debug, Clone)]
-pub struct NewAction {
-    pub instance_id: WorkflowInstanceId,
-    pub module_name: String,
-    pub action_name: String,
-    pub dispatch_payload: Vec<u8>,
-    pub timeout_seconds: i32,
-    pub max_retries: i32,
-    pub backoff_kind: BackoffKind,
-    pub backoff_base_delay_ms: i32,
-    pub node_id: Option<String>,
-    /// The type of node (e.g., "action", "for_loop", "barrier")
-    pub node_type: Option<String>,
-}
-
-/// Loop iteration state
-#[derive(Debug, Clone, FromRow)]
-pub struct LoopState {
-    pub instance_id: Uuid,
-    pub loop_id: String,
-    pub current_index: i32,
-    pub accumulators: Option<Vec<u8>>,
-    pub updated_at: DateTime<Utc>,
-}
-
-/// Action execution log entry (for tracking each run attempt)
-#[derive(Debug, Clone, FromRow)]
 pub struct ActionLog {
     pub id: Uuid,
     pub action_id: Uuid,
@@ -359,19 +192,12 @@ pub struct ActionLog {
     pub result_payload: Option<Vec<u8>>,
     pub error_message: Option<String>,
     pub duration_ms: Option<i64>,
-    /// Worker pool that handled this action (set on completion)
     pub pool_id: Option<Uuid>,
-    /// Worker ID within the pool that handled this action (set on completion)
     pub worker_id: Option<i64>,
-    /// When the action was originally enqueued (copied from action_queue at dispatch)
     pub enqueued_at: Option<DateTime<Utc>>,
-    /// Module name (copied from action_queue for UI display after deletion)
     pub module_name: Option<String>,
-    /// Action name (copied from action_queue for UI display after deletion)
     pub action_name: Option<String>,
-    /// Node ID in the DAG (copied from action_queue for UI display after deletion)
     pub node_id: Option<String>,
-    /// Request payload (copied from action_queue for UI display after deletion)
     pub dispatch_payload: Option<Vec<u8>>,
 }
 
@@ -487,27 +313,9 @@ pub enum DbError {
 
     #[error("Not found: {0}")]
     NotFound(String),
-
-    #[error("Invalid delivery token")]
-    InvalidDeliveryToken,
 }
 
 pub type DbResult<T> = Result<T, DbError>;
-
-// ============================================================================
-// Node Readiness Types
-// ============================================================================
-
-/// Result of incrementing node readiness.
-#[derive(Debug)]
-pub struct ReadinessResult {
-    /// Current completed count after increment
-    pub completed_count: i32,
-    /// Required count to be ready
-    pub required_count: i32,
-    /// Whether this increment made the node ready
-    pub is_now_ready: bool,
-}
 
 // ============================================================================
 // Database
@@ -564,34 +372,6 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_status_roundtrip() {
-        assert_eq!(
-            ActionStatus::parse(ActionStatus::Queued.as_str()),
-            Some(ActionStatus::Queued)
-        );
-        assert_eq!(
-            ActionStatus::parse(ActionStatus::Dispatched.as_str()),
-            Some(ActionStatus::Dispatched)
-        );
-        assert_eq!(
-            ActionStatus::parse(ActionStatus::Completed.as_str()),
-            Some(ActionStatus::Completed)
-        );
-        assert_eq!(
-            ActionStatus::parse(ActionStatus::Failed.as_str()),
-            Some(ActionStatus::Failed)
-        );
-        assert_eq!(
-            ActionStatus::parse(ActionStatus::TimedOut.as_str()),
-            Some(ActionStatus::TimedOut)
-        );
-        assert_eq!(
-            ActionStatus::parse(ActionStatus::Exhausted.as_str()),
-            Some(ActionStatus::Exhausted)
-        );
-    }
 
     #[test]
     fn test_instance_status_roundtrip() {

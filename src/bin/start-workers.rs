@@ -1,10 +1,10 @@
-//! Start Workers - Runs the DAG runner with Python worker pool.
+//! Start Workers - Runs the instance runner with Python worker pool.
 //!
 //! This binary starts the worker infrastructure:
 //! - Connects to the database
 //! - Starts the WorkerBridge gRPC server for worker connections
 //! - Spawns a pool of Python workers
-//! - Runs the DAGRunner to process workflow actions
+//! - Runs the InstanceRunner to process workflow instances
 //! - Optionally starts the web dashboard for monitoring
 //!
 //! Configuration is via environment variables:
@@ -12,12 +12,11 @@
 //! - RAPPEL_WORKER_GRPC_ADDR: gRPC server for worker connections (default: 127.0.0.1:24118)
 //! - RAPPEL_USER_MODULE: Python module to preload
 //! - RAPPEL_WORKER_COUNT: Number of workers (default: num_cpus)
-//! - RAPPEL_BATCH_SIZE: Actions per poll cycle (default: 100)
-//! - RAPPEL_POLL_INTERVAL_MS: Poll interval in ms (default: 100)
 //! - RAPPEL_WEBAPP_ENABLED: Set to "true" or "1" to enable web dashboard
 //! - RAPPEL_WEBAPP_ADDR: Web dashboard address (default: 0.0.0.0:24119)
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{Result, anyhow};
 use tokio::{select, signal};
@@ -25,8 +24,8 @@ use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use rappel::{
-    DAGRunner, Database, PythonWorkerConfig, PythonWorkerPool, RunnerConfig, WebappServer,
-    WorkerBridgeServer, get_config,
+    Database, InstanceRunner, InstanceRunnerConfig, PythonWorkerConfig, PythonWorkerPool,
+    WebappServer, WorkerBridgeServer, get_config,
 };
 
 #[tokio::main]
@@ -46,22 +45,14 @@ async fn main() -> Result<()> {
     info!(
         worker_count = config.worker_count,
         concurrent_per_worker = config.concurrent_per_worker,
-        batch_size = config.batch_size,
-        poll_interval_ms = config.poll_interval_ms,
-        timeout_check_interval_ms = config.timeout_check_interval_ms,
-        timeout_check_batch_size = config.timeout_check_batch_size,
-        schedule_check_interval_ms = config.schedule_check_interval_ms,
-        schedule_check_batch_size = config.schedule_check_batch_size,
-        worker_status_interval_ms = config.worker_status_interval_ms,
         user_module = ?config.user_module,
         max_action_lifecycle = ?config.max_action_lifecycle,
         "starting worker pool"
     );
 
     // Connect to database
-    let database = Arc::new(
-        Database::connect_with_pool_size(&config.database_url, config.db_max_connections).await?,
-    );
+    let database =
+        Database::connect_with_pool_size(&config.database_url, config.db_max_connections).await?;
     info!("connected to database");
 
     let webapp_database = if config.webapp.enabled {
@@ -83,7 +74,7 @@ async fn main() -> Result<()> {
     // Start webapp server if enabled
     let webapp_server = match webapp_database {
         Some(db) => WebappServer::start(config.webapp.clone(), db).await?,
-        None => WebappServer::start(config.webapp.clone(), Arc::clone(&database)).await?,
+        None => WebappServer::start(config.webapp.clone(), Arc::new(database.clone())).await?,
     };
 
     // Configure Python workers
@@ -104,50 +95,34 @@ async fn main() -> Result<()> {
     );
     info!(
         worker_count = config.worker_count,
-        "python worker pool created"
+        "python worker pool started"
     );
 
-    // Configure and create DAG runner
-    let runner_config = RunnerConfig {
-        batch_size: config.batch_size as usize,
-        enable_metrics: false,
-        max_slots_per_worker: config.concurrent_per_worker,
-        poll_interval_ms: config.poll_interval_ms,
-        timeout_check_interval_ms: config.timeout_check_interval_ms,
-        timeout_check_batch_size: config.timeout_check_batch_size,
-        schedule_check_interval_ms: config.schedule_check_interval_ms,
-        schedule_check_batch_size: config.schedule_check_batch_size,
-        worker_status_interval_ms: config.worker_status_interval_ms,
-        action_log_flush_interval_ms: 200,
-        action_log_flush_batch_size: 1000,
+    // Configure and create instance runner
+    let runner_config = InstanceRunnerConfig {
+        claim_batch_size: config.batch_size as i32,
         completion_batch_size: config.completion_batch_size,
-        completion_flush_interval_ms: config.completion_flush_interval_ms,
-        gc_interval_ms: config.gc.interval_ms,
-        gc_retention_seconds: config.gc.retention_seconds,
-        gc_batch_size: config.gc.batch_size,
-        start_claim_timeout_ms: config.start_claim_timeout_ms,
-        inbox_compaction_interval_ms: config.inbox_compaction.interval_ms,
-        inbox_compaction_batch_size: config.inbox_compaction.batch_size,
-        inbox_compaction_min_age_seconds: config.inbox_compaction.min_age_seconds,
+        idle_poll_interval: Duration::from_millis(config.poll_interval_ms),
+        ..Default::default()
     };
 
-    let runner = Arc::new(DAGRunner::new(
+    let runner = Arc::new(InstanceRunner::new(
         runner_config,
-        Arc::clone(&database),
+        database,
         Arc::clone(&worker_pool),
     ));
 
     info!(
-        batch_size = config.batch_size,
+        claim_batch_size = config.batch_size,
         poll_interval_ms = config.poll_interval_ms,
-        "python worker pool started - waiting for shutdown signal"
+        "instance runner created - waiting for shutdown signal"
     );
 
     // Spawn runner in background task
     let runner_clone = Arc::clone(&runner);
     let runner_handle = tokio::spawn(async move {
         if let Err(e) = runner_clone.run().await {
-            tracing::error!("DAG runner error: {}", e);
+            tracing::error!("Instance runner error: {}", e);
         }
     });
 

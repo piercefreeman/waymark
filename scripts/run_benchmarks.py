@@ -29,8 +29,6 @@ class BenchmarkResult(BaseModel):
     total: int
     elapsed_s: float
     throughput: float
-    avg_round_trip_ms: float
-    p95_round_trip_ms: float
 
 
 class BenchmarkError(BaseModel):
@@ -152,8 +150,6 @@ class TextFormatter(OutputFormatter):
                     f"  Total actions:    {r.total:,}",
                     f"  Elapsed time:     {r.elapsed_s:.2f}s{warning}",
                     f"  Throughput:       {r.throughput:.1f} actions/s",
-                    f"  Avg latency:      {r.avg_round_trip_ms:.1f}ms",
-                    f"  P95 latency:      {r.p95_round_trip_ms:.1f}ms",
                 ]
             )
         else:
@@ -171,7 +167,6 @@ class TextFormatter(OutputFormatter):
             f"  Hosts:            {data.config['hosts']}",
             f"  Instances:        {data.config['instances']}",
             f"  Workers/host:     {data.config['workers_per_host']}",
-            f"  Max slots/worker: {data.config['max_slots_per_worker']}",
         ]
 
         # Show per-benchmark config if available, otherwise show global
@@ -196,7 +191,7 @@ class TextFormatter(OutputFormatter):
                 [
                     f"[{bench_name}]",
                     "-" * 86,
-                    f"{'Hosts':>6} {'Inst':>6} {'Workers':>8} {'Actions/s':>12} {'Elapsed':>10} {'P95 (ms)':>10} {'Avg (ms)':>10}",
+                    f"{'Hosts':>6} {'Inst':>6} {'Workers':>8} {'Actions/s':>12} {'Elapsed':>10}",
                     "-" * 86,
                 ]
             )
@@ -210,12 +205,12 @@ class TextFormatter(OutputFormatter):
                         elapsed_str += "*"
                     lines.append(
                         f"{cell.hosts:>6} {cell.instances:>6} {cell.total_workers:>8} "
-                        f"{r.throughput:>12.1f} {elapsed_str:>10} {r.p95_round_trip_ms:>10.1f} {r.avg_round_trip_ms:>10.1f}"
+                        f"{r.throughput:>12.1f} {elapsed_str:>10}"
                     )
                 else:
                     lines.append(
                         f"{cell.hosts:>6} {cell.instances:>6} {cell.total_workers:>8} "
-                        f"{'ERROR':>12} {'-':>10} {'-':>10} {'-':>10}"
+                        f"{'ERROR':>12} {'-':>10}"
                     )
 
             lines.append("")
@@ -324,8 +319,6 @@ class MarkdownFormatter(OutputFormatter):
                     f"| Total actions | {r.total:,} |",
                     f"| Elapsed time | {r.elapsed_s:.2f}s{warning} |",
                     f"| Throughput | {r.throughput:.1f} actions/s |",
-                    f"| Avg latency | {r.avg_round_trip_ms:.1f}ms |",
-                    f"| P95 latency | {r.p95_round_trip_ms:.1f}ms |",
                 ]
             )
             if r.elapsed_s < self.MIN_RELIABLE_RUNTIME:
@@ -374,8 +367,8 @@ class MarkdownFormatter(OutputFormatter):
                 [
                     f"### {bench_name}",
                     "",
-                    "| Hosts | Instances | Workers | Actions/s | Elapsed | P95 (ms) | Avg (ms) |",
-                    "|------:|----------:|--------:|----------:|--------:|---------:|---------:|",
+                    "| Hosts | Instances | Workers | Actions/s | Elapsed |",
+                    "|------:|----------:|--------:|----------:|--------:|",
                 ]
             )
 
@@ -385,12 +378,11 @@ class MarkdownFormatter(OutputFormatter):
                     warning = " ⚠️" if r.elapsed_s < self.MIN_RELIABLE_RUNTIME else ""
                     lines.append(
                         f"| {cell.hosts} | {cell.instances} | {cell.total_workers} | "
-                        f"{r.throughput:.1f} | {r.elapsed_s:.2f}s{warning} | {r.p95_round_trip_ms:.1f} | {r.avg_round_trip_ms:.1f} |"
+                        f"{r.throughput:.1f} | {r.elapsed_s:.2f}s{warning} |"
                     )
                 else:
                     lines.append(
-                        f"| {cell.hosts} | {cell.instances} | {cell.total_workers} | "
-                        f"ERROR | - | - | - |"
+                        f"| {cell.hosts} | {cell.instances} | {cell.total_workers} | ERROR | - |"
                     )
 
             lines.append("")
@@ -431,23 +423,20 @@ class CsvFormatter(OutputFormatter):
     """Output as CSV for spreadsheet import."""
 
     def format_single(self, data: SingleData) -> str:
-        lines = ["benchmark,total,elapsed_s,throughput,avg_ms,p95_ms,error"]
+        lines = ["benchmark,total,elapsed_s,throughput,error"]
 
         if isinstance(data.result, BenchmarkResult):
             r = data.result
-            lines.append(
-                f"{data.benchmark},{r.total},{r.elapsed_s:.3f},{r.throughput:.2f},"
-                f"{r.avg_round_trip_ms:.2f},{r.p95_round_trip_ms:.2f},"
-            )
+            lines.append(f"{data.benchmark},{r.total},{r.elapsed_s:.3f},{r.throughput:.2f},")
         else:
-            lines.append(f"{data.benchmark},,,,,,{data.result.error}")
+            lines.append(f"{data.benchmark},,,,{data.result.error}")
 
         return "\n".join(lines)
 
     def format_grid(self, data: GridData) -> str:
         lines = [
             "benchmark,hosts,instances,workers_per_host,total_workers,"
-            "total,elapsed_s,throughput,avg_ms,p95_ms,error"
+            "total,elapsed_s,throughput,error"
         ]
 
         for cell in data.cells:
@@ -457,25 +446,21 @@ class CsvFormatter(OutputFormatter):
             )
             if isinstance(cell.result, BenchmarkResult):
                 r = cell.result
-                lines.append(
-                    f"{base},{r.total},{r.elapsed_s:.3f},{r.throughput:.2f},"
-                    f"{r.avg_round_trip_ms:.2f},{r.p95_round_trip_ms:.2f},"
-                )
+                lines.append(f"{base},{r.total},{r.elapsed_s:.3f},{r.throughput:.2f},")
             else:
-                lines.append(f"{base},,,,,,{cell.result.error}")
+                lines.append(f"{base},,,,{cell.result.error}")
 
         return "\n".join(lines)
 
     def format_suite(self, data: SuiteData) -> str:
-        lines = ["benchmark,total,elapsed_s,throughput,avg_ms,p95_ms,error"]
+        lines = ["benchmark,total,elapsed_s,throughput,error"]
         for bench_name, result in data.results.items():
             if isinstance(result, BenchmarkResult):
                 lines.append(
                     f"{bench_name},{result.total},{result.elapsed_s:.3f},{result.throughput:.2f},"
-                    f"{result.avg_round_trip_ms:.2f},{result.p95_round_trip_ms:.2f},"
                 )
             else:
-                lines.append(f"{bench_name},,,,,,{result.error}")
+                lines.append(f"{bench_name},,,,{result.error}")
         return "\n".join(lines)
 
 
@@ -518,11 +503,7 @@ DEFAULT_DB_URL = (
 
 STATUS_LOG_INTERVAL_S = 5.0
 STATUS_QUERY_TIMEOUT_S = 3
-COMPLETED_ACTIONS_QUERY = (
-    "SELECT (SELECT COUNT(*) FROM action_logs)"
-    " + (SELECT COUNT(*) FROM action_log_queue)"
-    " + (SELECT COUNT(*) FROM action_queue WHERE status = 'completed')"
-)
+COMPLETED_ACTIONS_QUERY = "SELECT COUNT(*) FROM action_logs"
 
 
 # =============================================================================
@@ -626,14 +607,6 @@ def reset_database(config: DatabaseConfig) -> None:
     env = os.environ.copy()
     env["PGPASSWORD"] = config.password
 
-    tables = [
-        "action_queue",
-        "instance_context",
-        "loop_state",
-        "workflow_instances",
-        "workflow_versions",
-    ]
-
     cmd = [
         "psql",
         "-h",
@@ -645,7 +618,7 @@ def reset_database(config: DatabaseConfig) -> None:
         "-d",
         config.dbname,
         "-c",
-        f"TRUNCATE {', '.join(tables)} CASCADE;",
+        "DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;",
     ]
 
     result = subprocess.run(cmd, env=env, capture_output=True, text=True)
@@ -856,16 +829,11 @@ def cli():
 )
 @click.option(
     "--loop-size",
-    default=16,
+    default=128,
     help="Number of actions to spawn (fan-out width / for-loop iterations)",
 )
-@click.option("--complexity", default=1000, help="CPU complexity per action (hash iterations)")
+@click.option("--complexity", default=2000, help="CPU complexity per action (hash iterations)")
 @click.option("--workers-per-host", default=4, help="Number of Python workers per host")
-@click.option(
-    "--max-slots-per-worker",
-    default=10,
-    help="Maximum concurrent actions per worker",
-)
 @click.option("--hosts", default=1, help="Number of hosts")
 @click.option("--instances", default=1, help="Number of workflow instances")
 def single(
@@ -875,7 +843,6 @@ def single(
     loop_size: int,
     complexity: int,
     workers_per_host: int,
-    max_slots_per_worker: int,
     hosts: int,
     instances: int,
 ):
@@ -899,8 +866,6 @@ def single(
             str(complexity),
             "--workers-per-host",
             str(workers_per_host),
-            "--max-slots-per-worker",
-            str(max_slots_per_worker),
             "--hosts",
             str(hosts),
             "--instances",
@@ -941,16 +906,11 @@ def single(
 )
 @click.option(
     "--loop-size",
-    default=16,
+    default=128,
     help="Number of actions to spawn (fan-out width / for-loop iterations)",
 )
-@click.option("--complexity", default=1000, help="CPU complexity per action (hash iterations)")
+@click.option("--complexity", default=2000, help="CPU complexity per action (hash iterations)")
 @click.option("--workers-per-host", default=4, help="Number of Python workers per host")
-@click.option(
-    "--max-slots-per-worker",
-    default=10,
-    help="Maximum concurrent actions per worker",
-)
 @click.option("--hosts", default=1, help="Number of hosts")
 @click.option("--instances", default=1, help="Number of workflow instances")
 @click.option("--timeout", default=300, help="Timeout per benchmark run in seconds")
@@ -967,7 +927,6 @@ def suite(
     loop_size: int,
     complexity: int,
     workers_per_host: int,
-    max_slots_per_worker: int,
     hosts: int,
     instances: int,
     timeout: int,
@@ -1015,8 +974,6 @@ def suite(
                 str(bench_cfg["complexity"]),
                 "--workers-per-host",
                 str(workers_per_host),
-                "--max-slots-per-worker",
-                str(max_slots_per_worker),
                 "--hosts",
                 str(hosts),
                 "--instances",
@@ -1035,7 +992,6 @@ def suite(
             "loop_size": loop_size,
             "complexity": complexity,
             "workers_per_host": workers_per_host,
-            "max_slots_per_worker": max_slots_per_worker,
             "hosts": hosts,
             "instances": instances,
             "timeout": timeout,
@@ -1089,18 +1045,17 @@ def parse_benchmark_config(config_str: str) -> dict[str, dict[str, int]]:
 @click.option("--instances", default="1,2,4,8", help="Comma-separated list of instance counts")
 @click.option("--workers-per-host", default=4, help="Number of Python workers per host")
 @click.option(
-    "--max-slots-per-worker",
-    default=10,
-    help="Maximum concurrent actions per worker",
-)
-@click.option(
     "--benchmarks",
     default="for-loop,fan-out",
     help="Comma-separated list of benchmark types",
 )
-@click.option("--loop-size", default=16, help="Default number of actions to spawn per workflow")
 @click.option(
-    "--complexity", default=100, help="Default CPU complexity per action (hash iterations)"
+    "--loop-size",
+    default=128,
+    help="Default number of actions to spawn per workflow",
+)
+@click.option(
+    "--complexity", default=2000, help="Default CPU complexity per action (hash iterations)"
 )
 @click.option(
     "--benchmark-config",
@@ -1115,7 +1070,6 @@ def grid(
     hosts: str,
     instances: str,
     workers_per_host: int,
-    max_slots_per_worker: int,
     benchmarks: str,
     loop_size: int,
     complexity: int,
@@ -1164,7 +1118,6 @@ def grid(
     print(f"Hosts: {host_counts}", file=sys.stderr)
     print(f"Instances: {instance_counts}", file=sys.stderr)
     print(f"Workers per host: {workers_per_host}", file=sys.stderr)
-    print(f"Max slots per worker: {max_slots_per_worker}", file=sys.stderr)
     for bench, cfg in benchmark_configs.items():
         print(
             f"  {bench}: loop_size={cfg['loop_size']}, complexity={cfg['complexity']}",
@@ -1204,8 +1157,6 @@ def grid(
                         str(host_count),
                         "--workers-per-host",
                         str(workers_per_host),
-                        "--max-slots-per-worker",
-                        str(max_slots_per_worker),
                         "--instances",
                         str(instance_count),
                         "--log-interval",
@@ -1230,8 +1181,7 @@ def grid(
                 if isinstance(result, BenchmarkResult):
                     print(
                         f"    -> {result.throughput:.1f} actions/s, "
-                        f"elapsed={result.elapsed_s:.2f}s, "
-                        f"p95={result.p95_round_trip_ms:.1f}ms",
+                        f"elapsed={result.elapsed_s:.2f}s",
                         file=sys.stderr,
                     )
                 else:
@@ -1241,7 +1191,6 @@ def grid(
         "hosts": host_counts,
         "instances": instance_counts,
         "workers_per_host": workers_per_host,
-        "max_slots_per_worker": max_slots_per_worker,
         "benchmarks": benchmark_types,
         "benchmark_configs": benchmark_configs,
     }

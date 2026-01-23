@@ -21,19 +21,17 @@
 
 pub mod ast_evaluator;
 pub mod ast_printer;
-pub mod completion;
 pub mod config;
 pub mod dag;
 pub mod dag_state;
 pub mod db;
-pub mod execution;
-pub mod in_memory;
+pub mod execution_graph;
+pub mod instance_runner;
 pub mod ir_printer;
 pub mod ir_validation;
 pub mod lexer;
 pub mod messages;
 pub mod parser;
-pub mod runner;
 pub mod schedule;
 pub mod server_client;
 pub mod server_webapp;
@@ -50,10 +48,9 @@ pub use config::{
 
 // Database
 pub use db::{
-    ActionId, ActionStatus, BackoffKind, CompletionRecord, Database, DbError, DbResult,
-    InstanceStatus, NewAction, QueuedAction, RetryKind, ScheduleId, ScheduleStatus, ScheduleType,
-    WorkflowInstance, WorkflowInstanceId, WorkflowSchedule, WorkflowVersion, WorkflowVersionId,
-    WorkflowVersionSummary,
+    ClaimedInstance, Database, DbError, DbResult, InstanceStatus, ScheduleId, ScheduleStatus,
+    ScheduleType, WorkflowInstance, WorkflowInstanceId, WorkflowSchedule, WorkflowVersion,
+    WorkflowVersionId, WorkflowVersionSummary,
 };
 
 // Worker infrastructure
@@ -81,21 +78,6 @@ pub use dag_state::{DAGHelper, DataFlowTarget, ExecutionMode, SuccessorInfo};
 // AST Evaluator
 pub use ast_evaluator::{EvaluationError, EvaluationResult, ExpressionEvaluator, Scope};
 
-// Runner
-pub use runner::{
-    CompletionBatch, DAGRunner, InFlightTracker, InboxWrite, RunnerConfig, RunnerError,
-    RunnerMetricsSnapshot, RunnerResult, WorkCompletionHandler, WorkQueueHandler,
-    WorkerSlotTracker,
-};
-
-// Completion (unified readiness model)
-pub use completion::{
-    CompletionError, CompletionPlan, CompletionResult, FrontierCategory, FrontierNode, GuardResult,
-    InlineExecutionOptions, InlineScope, InstanceCompletion, NodeType, ReadinessIncrement,
-    SubgraphAnalysis, analyze_subgraph, evaluate_guard, execute_inline_subgraph,
-    execute_inline_subgraph_with_options, find_direct_predecessor_in_path, is_direct_predecessor,
-};
-
 // Webapp server
 pub use server_webapp::WebappServer;
 
@@ -110,4 +92,14 @@ pub use traversal::{
     InlineScope as TraversalScope, LoopAwareTraversal, MAX_LOOP_ITERATIONS, TraversalEdge,
     TraversalQueue, WorkQueueEntry, evaluate_guard as traversal_evaluate_guard,
     get_traversal_successors, select_guarded_edges,
+};
+
+// Execution Graph (instance-local execution model)
+pub use execution_graph::{BatchCompletionResult, Completion, ExecutionState};
+
+// Instance Runner (lease-based execution)
+pub use instance_runner::{
+    DEFAULT_CLAIM_BATCH_SIZE, DEFAULT_COMPLETION_BATCH_SIZE, DEFAULT_HEARTBEAT_INTERVAL,
+    DEFAULT_LEASE_SECONDS, InstanceRunner, InstanceRunnerConfig, InstanceRunnerError,
+    InstanceRunnerMetrics, InstanceRunnerResult,
 };

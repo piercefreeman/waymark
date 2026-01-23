@@ -4,7 +4,7 @@
 //! - Database connection
 //! - Worker bridge server
 //! - Python worker pool
-//! - DAGRunner for workflow execution
+//! - InstanceRunner for workflow execution
 //! - gRPC service for workflow registration
 
 #![allow(dead_code)]
@@ -16,6 +16,7 @@ use std::{
     path::{Path, PathBuf},
     process::Stdio,
     sync::Arc,
+    time::Duration,
 };
 
 use anyhow::{Context, Result, anyhow};
@@ -26,7 +27,7 @@ use tokio::{
     process::Command,
     sync::{OnceCell, oneshot},
     task::JoinHandle,
-    time::{Duration, timeout},
+    time::timeout,
 };
 use tokio_stream::Stream;
 use tokio_stream::wrappers::TcpListenerStream;
@@ -34,8 +35,9 @@ use tonic::transport::Server;
 use tracing::info;
 
 use rappel::{
-    DAGRunner, Database, PythonWorkerConfig, PythonWorkerPool, RunnerConfig, WorkerBridgeServer,
-    WorkflowInstanceId, WorkflowValue, WorkflowVersionId, proto, validate_program,
+    Database, InstanceRunner, InstanceRunnerConfig, PythonWorkerConfig, PythonWorkerPool,
+    WorkerBridgeServer, WorkflowInstanceId, WorkflowValue, WorkflowVersionId, proto,
+    validate_program,
 };
 
 const SCRIPT_TIMEOUT: Duration = Duration::from_secs(60);
@@ -312,7 +314,7 @@ pub struct IntegrationHarness {
     database: Arc<Database>,
     worker_bridge: Arc<WorkerBridgeServer>,
     worker_pool: Arc<PythonWorkerPool>,
-    runner: Arc<DAGRunner>,
+    runner: Arc<InstanceRunner>,
     python_env: TempDir,
     version_id: WorkflowVersionId,
     instance_id: WorkflowInstanceId,
@@ -335,7 +337,10 @@ impl IntegrationHarness {
         Self::new_internal(config, false).await
     }
 
-    async fn new_internal(config: HarnessConfig<'_>, start_instance: bool) -> Result<Option<Self>> {
+    async fn new_internal(
+        config: HarnessConfig<'_>,
+        _start_instance: bool,
+    ) -> Result<Option<Self>> {
         let database_url = env::var("RAPPEL_DATABASE_URL")
             .context("RAPPEL_DATABASE_URL is required for integration tests")?;
 
@@ -392,6 +397,25 @@ impl IntegrationHarness {
 
         info!(%instance_id, "found workflow instance");
 
+        // Merge stored inputs from Python registration with harness-provided inputs
+        let stored_inputs = if let Some(payload) = &instance.input_payload {
+            parse_input_payload(payload)?
+        } else {
+            HashMap::new()
+        };
+        let mut final_inputs = stored_inputs;
+        for (k, v) in build_initial_inputs(config.inputs) {
+            final_inputs.insert(k, v);
+        }
+
+        // Update the instance with merged inputs
+        let input_payload = build_input_payload(&final_inputs);
+        sqlx::query("UPDATE workflow_instances SET input_payload = $1 WHERE id = $2")
+            .bind(input_payload.as_slice())
+            .bind(instance_id.0)
+            .execute(database.pool())
+            .await?;
+
         // Start worker pool
         let worker_script = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("python")
@@ -410,44 +434,21 @@ impl IntegrationHarness {
         );
         info!("worker pool ready");
 
-        // Create DAGRunner with the proper components
+        // Create InstanceRunner
         // Use completion_batch_size=1 for tests to ensure immediate completion flushing
-        let runner_config = RunnerConfig {
-            batch_size: 10,
-            max_slots_per_worker: 5,
-            poll_interval_ms: 50,
-            timeout_check_interval_ms: 1000,
-            timeout_check_batch_size: 100,
+        let runner_config = InstanceRunnerConfig {
+            claim_batch_size: 10,
             completion_batch_size: 1,
-            completion_flush_interval_ms: 1,
+            idle_poll_interval: Duration::from_millis(50),
             ..Default::default()
         };
-        let runner = Arc::new(DAGRunner::new(
+        let runner = Arc::new(InstanceRunner::new(
             runner_config,
-            Arc::clone(&database),
+            (*database).clone(),
             Arc::clone(&worker_pool),
         ));
 
-        if start_instance {
-            // Parse the stored input_payload from registration (contains initial context)
-            let stored_inputs = if let Some(payload) = &instance.input_payload {
-                parse_input_payload(payload)?
-            } else {
-                HashMap::new()
-            };
-
-            // Start the workflow instance using the DAGRunner
-            // Merge stored inputs from Python registration with harness-provided inputs
-            // (harness inputs override stored inputs if there's a conflict)
-            let mut initial_inputs = stored_inputs;
-            for (k, v) in build_initial_inputs(config.inputs) {
-                initial_inputs.insert(k, v);
-            }
-            runner
-                .start_instance(instance_id, initial_inputs)
-                .await
-                .context("failed to start workflow instance")?;
-        }
+        // Note: InstanceRunner automatically claims pending instances, no start_instance needed
 
         Ok(Some(Self {
             database,
@@ -462,9 +463,9 @@ impl IntegrationHarness {
         }))
     }
 
-    /// Run the DAGRunner until the workflow completes or times out.
+    /// Run the InstanceRunner until the workflow completes or times out.
     ///
-    /// This starts the DAGRunner's main loop and waits for the workflow instance
+    /// This starts the InstanceRunner's main loop and waits for the workflow instance
     /// to reach a terminal state (completed or failed).
     pub async fn run_to_completion(&self, timeout_secs: u64) -> Result<()> {
         let runner = Arc::clone(&self.runner);
@@ -507,7 +508,7 @@ impl IntegrationHarness {
 
     /// Dispatch all queued actions and wait for completion.
     ///
-    /// This uses the DAGRunner's main loop for completion handling, which triggers DAG
+    /// This uses the InstanceRunner's main loop for completion handling, which triggers DAG
     /// traversal to enqueue successor actions. This properly handles:
     /// - Sequential workflows (action chains)
     /// - Parallel workflows (gather/spread)
@@ -534,8 +535,8 @@ impl IntegrationHarness {
         self.instance_id
     }
 
-    /// Get the DAGRunner.
-    pub fn runner(&self) -> &DAGRunner {
+    /// Get the InstanceRunner.
+    pub fn runner(&self) -> &InstanceRunner {
         &self.runner
     }
 
@@ -593,6 +594,18 @@ fn build_initial_inputs(pairs: &[(&str, &str)]) -> HashMap<String, WorkflowValue
         .collect()
 }
 
+/// Build input payload from WorkflowValue map.
+fn build_input_payload(inputs: &HashMap<String, WorkflowValue>) -> Vec<u8> {
+    let arguments = inputs
+        .iter()
+        .map(|(key, value)| proto::WorkflowArgument {
+            key: key.clone(),
+            value: Some(value.to_proto()),
+        })
+        .collect();
+    proto::WorkflowArguments { arguments }.encode_to_vec()
+}
+
 /// Parse stored input_payload (protobuf WorkflowArguments) to HashMap.
 fn parse_input_payload(payload: &[u8]) -> Result<HashMap<String, WorkflowValue>> {
     if payload.is_empty() {
@@ -612,7 +625,8 @@ fn parse_input_payload(payload: &[u8]) -> Result<HashMap<String, WorkflowValue>>
 
 /// Clean up the database before each test.
 async fn cleanup_database(db: &Database) -> Result<()> {
-    sqlx::query("TRUNCATE action_queue, instance_context, loop_state, workflow_instances, workflow_versions CASCADE")
+    // Only truncate tables that exist in the new architecture
+    sqlx::query("TRUNCATE workflow_instances, workflow_versions, workflow_schedules CASCADE")
         .execute(db.pool())
         .await?;
     Ok(())
