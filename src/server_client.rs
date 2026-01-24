@@ -5,7 +5,12 @@
 //! - gRPC health check for singleton discovery
 //! - Configuration and server lifecycle management
 
-use std::{collections::HashSet, net::SocketAddr, pin::Pin, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    net::SocketAddr,
+    pin::Pin,
+    time::Duration,
+};
 
 use anyhow::{Context, Result};
 use prost::Message;
@@ -584,10 +589,27 @@ fn build_null_result_payload() -> Vec<u8> {
 }
 
 fn build_error_payload(message: &str) -> Vec<u8> {
+    let mut values = HashMap::new();
+    values.insert(
+        "args".to_string(),
+        WorkflowValue::Tuple(vec![WorkflowValue::String(message.to_string())]),
+    );
+    let error = WorkflowValue::Exception {
+        exc_type: "RuntimeError".to_string(),
+        module: "builtins".to_string(),
+        message: message.to_string(),
+        traceback: String::new(),
+        values,
+        type_hierarchy: vec![
+            "RuntimeError".to_string(),
+            "Exception".to_string(),
+            "BaseException".to_string(),
+        ],
+    };
     let args = proto::WorkflowArguments {
         arguments: vec![proto::WorkflowArgument {
             key: "error".to_string(),
-            value: Some(WorkflowValue::String(message.to_string()).to_proto()),
+            value: Some(error.to_proto()),
         }],
     };
     encode_message(&args)

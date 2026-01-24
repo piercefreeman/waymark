@@ -485,6 +485,7 @@ fn extract_string_from_value(value: &proto::WorkflowArgumentValue) -> Result<Opt
                 None => Ok(None),
             }
         }
+        Some(Kind::Exception(exc)) => Ok(Some(exc.message.clone())),
         _ => Ok(None),
     }
 }

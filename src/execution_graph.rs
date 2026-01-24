@@ -526,10 +526,27 @@ impl ExecutionState {
     }
 
     fn build_error_payload(message: &str) -> Vec<u8> {
+        let mut values = HashMap::new();
+        values.insert(
+            "args".to_string(),
+            WorkflowValue::Tuple(vec![WorkflowValue::String(message.to_string())]),
+        );
+        let error = WorkflowValue::Exception {
+            exc_type: "RuntimeError".to_string(),
+            module: "builtins".to_string(),
+            message: message.to_string(),
+            traceback: String::new(),
+            values,
+            type_hierarchy: vec![
+                "RuntimeError".to_string(),
+                "Exception".to_string(),
+                "BaseException".to_string(),
+            ],
+        };
         let args = WorkflowArguments {
             arguments: vec![crate::messages::proto::WorkflowArgument {
                 key: "error".to_string(),
-                value: Some(WorkflowValue::String(message.to_string()).to_proto()),
+                value: Some(error.to_proto()),
             }],
         };
         encode_message(&args)
@@ -1794,6 +1811,49 @@ mod tests {
         let exc = recovered.graph.exceptions.get("node_1").unwrap();
         assert_eq!(exc.error_type, "ValueError");
         assert_eq!(exc.error_message, "invalid value");
+    }
+
+    #[test]
+    fn test_build_error_payload_serializes_exception() {
+        let payload = ExecutionState::build_error_payload("boom");
+        let args: WorkflowArguments = decode_message(&payload).expect("decode payload");
+        let entry = args
+            .arguments
+            .iter()
+            .find(|arg| arg.key == "error")
+            .expect("error entry");
+        let value = entry.value.as_ref().expect("error value");
+        let value = WorkflowValue::from_proto(value);
+
+        match value {
+            WorkflowValue::Exception {
+                exc_type,
+                module,
+                message,
+                values,
+                type_hierarchy,
+                ..
+            } => {
+                assert_eq!(exc_type, "RuntimeError");
+                assert_eq!(module, "builtins");
+                assert_eq!(message, "boom");
+                assert_eq!(
+                    type_hierarchy,
+                    vec![
+                        "RuntimeError".to_string(),
+                        "Exception".to_string(),
+                        "BaseException".to_string(),
+                    ]
+                );
+                match values.get("args") {
+                    Some(WorkflowValue::Tuple(items)) => {
+                        assert_eq!(items, &vec![WorkflowValue::String("boom".to_string())]);
+                    }
+                    other => panic!("expected args tuple, got {other:?}"),
+                }
+            }
+            other => panic!("expected exception payload, got {other:?}"),
+        }
     }
 
     #[test]
