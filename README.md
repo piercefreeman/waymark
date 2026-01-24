@@ -143,6 +143,47 @@ Rappel is in an early alpha. Particular areas of focus include:
 
 If you have a particular workflow that you think should be working but isn't yet producing the correct DAG (you can visualize it via CLI by `.visualize()`) please file an issue.
 
+## Testing
+
+### Rust tests (unit + integration)
+
+Integration tests are regular Rust tests in `tests/` and run against a real Postgres database. The test harness:
+- Loads `.env` (via `dotenvy`) for `RAPPEL_DATABASE_URL`
+- Runs DB migrations automatically on connect
+- Truncates integration tables before each test
+- Creates a temporary Python environment using `uv` and spawns `python/.venv/bin/rappel-worker`
+
+Commands:
+
+```bash
+# Everything (unit + integration)
+cargo test
+
+# Only integration tests
+cargo test --test integration_test
+cargo test --test schedule_test
+
+# Single integration test
+cargo test gather_listcomp_matches_in_memory --test integration_test
+```
+
+Prereqs:
+- Ensure Postgres is running and `RAPPEL_DATABASE_URL` is explicitly set to mirror `docker-compose.yml`
+- Ensure `uv` is installed (the tests call `uv sync` under the hood)
+
+Example (matches `docker-compose.yml` in this repo):
+
+```bash
+export RAPPEL_DATABASE_URL=postgresql://mountaineer:mountaineer@localhost:5433/mountaineer_daemons
+```
+
+### Python tests
+
+```bash
+cd python
+uv run pytest
+```
+
 ## Configuration
 
 The main rappel configuration is done through env vars, which is what you'll typically use in production when using a docker deployment pipeline. If we can't find an environment parameter we will fallback to looking for an .env that specifies it within your local filesystem.

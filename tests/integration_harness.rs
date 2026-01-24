@@ -723,6 +723,23 @@ rappel = {{ path = "{}", editable = true }}
     Ok(env_dir)
 }
 
+/// Run a Python script in a temporary environment with in-memory execution enabled.
+pub async fn run_in_memory_with_result(
+    files: &[(&str, &str)],
+    entrypoint: &str,
+    result_filename: &str,
+) -> Result<(TempDir, String)> {
+    let env_vars = vec![
+        ("PYTEST_CURRENT_TEST", "1".to_string()),
+        ("RAPPEL_BRIDGE_IN_MEMORY", "1".to_string()),
+    ];
+    let env_dir = run_in_env(files, &[], &env_vars, entrypoint).await?;
+    let result_path = env_dir.path().join(result_filename);
+    let result = fs::read_to_string(&result_path)
+        .with_context(|| format!("read in-memory result file {}", result_path.display()))?;
+    Ok((env_dir, result))
+}
+
 async fn run_shell(
     cwd: &Path,
     command: &str,

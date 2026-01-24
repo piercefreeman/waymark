@@ -15,7 +15,7 @@ use serde_json::json;
 use serial_test::serial;
 use tracing::info;
 
-use harness::{HarnessConfig, IntegrationHarness};
+use harness::{HarnessConfig, IntegrationHarness, run_in_memory_with_result};
 use rappel::proto;
 
 const SIMPLE_WORKFLOW_MODULE: &str = include_str!("fixtures/simple_workflow.py");
@@ -36,6 +36,8 @@ const SPREAD_FROM_ACTION_WORKFLOW_MODULE: &str =
 const SPREAD_LOOP_WORKFLOW_MODULE: &str = include_str!("fixtures/integration_spread_loop.py");
 const SPREAD_HELPER_INPUT_WORKFLOW_MODULE: &str =
     include_str!("fixtures/integration_spread_helper_input.py");
+const GATHER_LISTCOMP_WORKFLOW_MODULE: &str =
+    include_str!("fixtures/integration_gather_listcomp.py");
 const ERROR_HANDLING_WORKFLOW_MODULE: &str = include_str!("fixtures/integration_error_handling.py");
 const LOOP_ACCUM_WORKFLOW_MODULE: &str = include_str!("fixtures/integration_loop_accum.py");
 const MULTI_ACTION_LOOP_WORKFLOW_MODULE: &str =
@@ -158,6 +160,37 @@ async def main():
     wf = SpreadLoopWorkflow()
     result = await wf.run(items=[1, 2])
     print(f"Registration result: {result}")
+
+asyncio.run(main())
+"#;
+const REGISTER_GATHER_LISTCOMP_SCRIPT: &str = r#"
+import asyncio
+import os
+
+from integration_gather_listcomp import GatherListCompWorkflow
+
+async def main():
+    os.environ.pop("PYTEST_CURRENT_TEST", None)
+    wf = GatherListCompWorkflow()
+    result = await wf.run(items=[1, 2, 3])
+    print(f"Registration result: {result}")
+
+asyncio.run(main())
+"#;
+const RUN_GATHER_LISTCOMP_IN_MEMORY_SCRIPT: &str = r#"
+import asyncio
+import json
+import os
+
+from integration_gather_listcomp import GatherListCompWorkflow
+
+async def main():
+    os.environ["PYTEST_CURRENT_TEST"] = "1"
+    os.environ["RAPPEL_BRIDGE_IN_MEMORY"] = "1"
+    wf = GatherListCompWorkflow()
+    result = await wf.run(items=[1, 2, 3])
+    with open("result.json", "w", encoding="utf-8") as f:
+        json.dump(result, f)
 
 asyncio.run(main())
 "#;
@@ -2867,6 +2900,60 @@ async fn spread_helper_input_from_action_executes() -> Result<()> {
         Some("processed:a,processed:b".to_string()),
         "unexpected workflow result"
     );
+
+    harness.shutdown().await?;
+    Ok(())
+}
+
+/// Test asyncio.gather list comprehension spread in both DB-backed and in-memory runtimes.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[serial]
+async fn gather_listcomp_matches_in_memory() -> Result<()> {
+    let _ = tracing_subscriber::fmt::try_init();
+    let _ = dotenvy::dotenv();
+
+    let Some(harness) = IntegrationHarness::new(HarnessConfig {
+        files: &[
+            (
+                "integration_gather_listcomp.py",
+                GATHER_LISTCOMP_WORKFLOW_MODULE,
+            ),
+            ("register.py", REGISTER_GATHER_LISTCOMP_SCRIPT),
+        ],
+        entrypoint: "register.py",
+        workflow_name: "gatherlistcompworkflow",
+        user_module: "integration_gather_listcomp",
+        inputs: &[],
+    })
+    .await?
+    else {
+        return Ok(());
+    };
+
+    harness.dispatch_all().await?;
+    info!("workflow completed");
+
+    let stored_payload = harness
+        .stored_result()
+        .await?
+        .expect("workflow should have a result");
+    let db_result = parse_result_json(&stored_payload)?;
+
+    let (_env_dir, in_memory_result) = run_in_memory_with_result(
+        &[
+            (
+                "integration_gather_listcomp.py",
+                GATHER_LISTCOMP_WORKFLOW_MODULE,
+            ),
+            ("run_in_memory.py", RUN_GATHER_LISTCOMP_IN_MEMORY_SCRIPT),
+        ],
+        "run_in_memory.py",
+        "result.json",
+    )
+    .await?;
+    let in_memory_value: serde_json::Value = serde_json::from_str(&in_memory_result)?;
+
+    assert_eq!(db_result, in_memory_value);
 
     harness.shutdown().await?;
     Ok(())
