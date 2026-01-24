@@ -45,13 +45,13 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use chrono::{DateTime, TimeZone, Utc};
 use thiserror::Error;
 use tokio::sync::{Mutex, RwLock, mpsc};
 use tokio::time::MissedTickBehavior;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, trace, warn};
 use uuid::Uuid;
 
 use crate::ast_evaluator::ExpressionEvaluator;
@@ -170,6 +170,8 @@ struct ActiveInstance {
     state: ExecutionState,
     /// Actions currently being executed by workers
     in_flight: HashSet<String>,
+    /// Count of ready_queue nodes already queued for dispatch.
+    queued_ready_count: usize,
     /// Pending completions to be batched
     pending_completions: Vec<Completion>,
 }
@@ -195,17 +197,23 @@ struct WorkerCompletion {
 
 /// An action queued for dispatch to a worker.
 /// Actions are collected from ready nodes and dispatched in FIFO order.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct QueuedAction {
     instance_id: Uuid,
     node_id: String,
     module_name: String,
     action_name: String,
-    inputs: proto::WorkflowArguments,
-    inputs_bytes: Option<Vec<u8>>,
     timeout_seconds: u32,
     max_retries: u32,
     attempt_number: u32,
+}
+
+type DispatchQueueKey = (Uuid, String);
+
+struct PreparedAction {
+    action: QueuedAction,
+    inputs: proto::WorkflowArguments,
+    worker_idx: usize,
 }
 
 /// An action currently in-flight to a worker.
@@ -234,6 +242,7 @@ pub struct InstanceRunner {
     /// Actions are enqueued when nodes become ready, and dequeued
     /// based on worker capacity.
     dispatch_queue: Mutex<VecDeque<QueuedAction>>,
+    dispatch_queue_keys: Mutex<HashSet<DispatchQueueKey>>,
 
     /// In-flight actions indexed by timeout time for efficient timeout checking.
     /// Key is timeout_at_ms, value is list of actions timing out at that time.
@@ -261,6 +270,24 @@ pub struct InstanceRunner {
     stats: Option<Arc<LifecycleStats>>,
 }
 
+#[derive(Default)]
+struct RunnerProfile {
+    loops: u64,
+    claim_instances: Duration,
+    process_completions: Duration,
+    check_timeouts: Duration,
+    process_sleeping: Duration,
+    collect_ready: Duration,
+    dispatch_queue: Duration,
+    finalize_instances: Duration,
+}
+
+impl RunnerProfile {
+    fn reset(&mut self) {
+        *self = Self::default();
+    }
+}
+
 impl InstanceRunner {
     /// Create a new instance runner
     pub fn new(
@@ -278,6 +305,7 @@ impl InstanceRunner {
             active_instances: RwLock::new(HashMap::new()),
             dag_cache: RwLock::new(HashMap::new()),
             dispatch_queue: Mutex::new(VecDeque::new()),
+            dispatch_queue_keys: Mutex::new(HashSet::new()),
             timeout_queue: Mutex::new(std::collections::BTreeMap::new()),
             timeout_lookup: Mutex::new(HashMap::new()),
             shutdown: AtomicBool::new(false),
@@ -315,6 +343,13 @@ impl InstanceRunner {
         // Spawn status reporting task
         let status_handle = self.spawn_status_report_task();
 
+        let profile_interval = std::env::var("RAPPEL_RUNNER_PROFILE_INTERVAL_MS")
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok())
+            .map(Duration::from_millis);
+        let mut profile = RunnerProfile::default();
+        let mut last_profile = Instant::now();
+
         // Main loop
         loop {
             if self.is_shutdown() {
@@ -323,25 +358,67 @@ impl InstanceRunner {
             }
 
             // 1. Claim new instances if we have capacity
-            self.claim_instances().await?;
+            if profile_interval.is_some() {
+                let started_at = Instant::now();
+                self.claim_instances().await?;
+                profile.claim_instances += started_at.elapsed();
+            } else {
+                self.claim_instances().await?;
+            }
 
             // 2. Process any completions from workers
-            self.process_worker_completions().await?;
+            if profile_interval.is_some() {
+                let started_at = Instant::now();
+                self.process_worker_completions().await?;
+                profile.process_completions += started_at.elapsed();
+            } else {
+                self.process_worker_completions().await?;
+            }
 
             // 3. Check for action timeouts (Rust-side enforcement)
-            self.check_action_timeouts().await?;
+            if profile_interval.is_some() {
+                let started_at = Instant::now();
+                self.check_action_timeouts().await?;
+                profile.check_timeouts += started_at.elapsed();
+            } else {
+                self.check_action_timeouts().await?;
+            }
 
             // 4. Check for durable sleep wakeups
-            self.process_sleeping_nodes().await?;
+            if profile_interval.is_some() {
+                let started_at = Instant::now();
+                self.process_sleeping_nodes().await?;
+                profile.process_sleeping += started_at.elapsed();
+            } else {
+                self.process_sleeping_nodes().await?;
+            }
 
             // 5. Collect ready actions from instances → enqueue to dispatch queue
-            self.collect_ready_actions().await?;
+            if profile_interval.is_some() {
+                let started_at = Instant::now();
+                self.collect_ready_actions().await?;
+                profile.collect_ready += started_at.elapsed();
+            } else {
+                self.collect_ready_actions().await?;
+            }
 
             // 6. Dispatch from queue: dequeue → mark running → sync DB → send to workers
-            self.dispatch_from_queue().await?;
+            if profile_interval.is_some() {
+                let started_at = Instant::now();
+                self.dispatch_from_queue().await?;
+                profile.dispatch_queue += started_at.elapsed();
+            } else {
+                self.dispatch_from_queue().await?;
+            }
 
             // 7. Process completed instances
-            self.finalize_completed_instances().await?;
+            if profile_interval.is_some() {
+                let started_at = Instant::now();
+                self.finalize_completed_instances().await?;
+                profile.finalize_instances += started_at.elapsed();
+            } else {
+                self.finalize_completed_instances().await?;
+            }
 
             // Small sleep to avoid tight loop when idle
             let active_count = self.active_instances.read().await.len();
@@ -351,6 +428,28 @@ impl InstanceRunner {
             } else {
                 // Brief yield to allow other tasks to run
                 tokio::task::yield_now().await;
+            }
+
+            if let Some(interval) = profile_interval {
+                profile.loops += 1;
+                if last_profile.elapsed() >= interval {
+                    info!(
+                        runner_id = %self.config.runner_id,
+                        loops = profile.loops,
+                        active_instances = active_count,
+                        queue_size = queue_size,
+                        claim_ms = profile.claim_instances.as_millis() as u64,
+                        completions_ms = profile.process_completions.as_millis() as u64,
+                        timeouts_ms = profile.check_timeouts.as_millis() as u64,
+                        sleeping_ms = profile.process_sleeping.as_millis() as u64,
+                        ready_ms = profile.collect_ready.as_millis() as u64,
+                        dispatch_ms = profile.dispatch_queue.as_millis() as u64,
+                        finalize_ms = profile.finalize_instances.as_millis() as u64,
+                        "runner profile"
+                    );
+                    profile.reset();
+                    last_profile = Instant::now();
+                }
             }
         }
 
@@ -782,6 +881,7 @@ impl InstanceRunner {
             dag,
             state,
             in_flight: HashSet::new(),
+            queued_ready_count: 0,
             pending_completions: Vec::new(),
         };
 
@@ -837,8 +937,26 @@ impl InstanceRunner {
     async fn collect_ready_actions(&self) -> InstanceRunnerResult<()> {
         let mut instances = self.active_instances.write().await;
         let mut queue = self.dispatch_queue.lock().await;
+        let mut queue_keys = self.dispatch_queue_keys.lock().await;
 
         for (_, instance) in instances.iter_mut() {
+            let ready_len = instance.state.graph.ready_queue.len();
+            if ready_len == 0 {
+                continue;
+            }
+            if instance.queued_ready_count > ready_len {
+                warn!(
+                    instance_id = %instance.instance_id,
+                    queued_ready_count = instance.queued_ready_count,
+                    ready_len,
+                    "Queued ready count exceeds ready queue length; correcting"
+                );
+                instance.queued_ready_count = ready_len;
+            }
+            if instance.queued_ready_count == ready_len {
+                continue;
+            }
+
             // Peek at ready nodes without draining - we'll selectively remove them
             // Worker actions stay in ready_queue until dispatch (for crash recovery)
             let ready_nodes = instance.state.peek_ready_queue();
@@ -850,7 +968,8 @@ impl InstanceRunner {
                 }
 
                 // Skip if already in dispatch queue (avoid duplicates)
-                if queue.iter().any(|a| a.node_id == node_id) {
+                let queue_key = (instance.instance_id.0, node_id.clone());
+                if queue_keys.contains(&queue_key) {
                     continue;
                 }
 
@@ -952,12 +1071,6 @@ impl InstanceRunner {
                 if let (Some(module_name), Some(action_name)) =
                     (dag_node.module_name.clone(), dag_node.action_name.clone())
                 {
-                    let inputs_bytes = instance.state.get_inputs_for_node(&node_id, &instance.dag);
-                    let inputs: proto::WorkflowArguments = inputs_bytes
-                        .as_ref()
-                        .and_then(|bytes| decode_message(bytes).ok())
-                        .unwrap_or_default();
-
                     let timeout_seconds = instance.state.get_timeout_seconds(&node_id);
                     let max_retries = instance.state.get_max_retries(&node_id);
                     let attempt_number = instance.state.get_attempt_number(&node_id);
@@ -967,12 +1080,12 @@ impl InstanceRunner {
                         node_id: node_id.clone(),
                         module_name,
                         action_name,
-                        inputs,
-                        inputs_bytes,
                         timeout_seconds,
                         max_retries,
                         attempt_number,
                     });
+                    queue_keys.insert(queue_key);
+                    instance.queued_ready_count += 1;
                 } else {
                     // Inline node - execute locally, remove from ready_queue
                     instance.state.remove_from_ready_queue(&node_id);
@@ -1014,12 +1127,24 @@ impl InstanceRunner {
         // Dequeue actions up to available capacity
         let actions_to_dispatch: Vec<QueuedAction> = {
             let mut queue = self.dispatch_queue.lock().await;
+            let mut queue_keys = self.dispatch_queue_keys.lock().await;
             let count = available.min(queue.len());
-            queue.drain(..count).collect()
+            let actions: Vec<QueuedAction> = queue.drain(..count).collect();
+            for action in &actions {
+                queue_keys.remove(&(action.instance_id, action.node_id.clone()));
+            }
+            actions
         };
 
         if actions_to_dispatch.is_empty() {
             return Ok(());
+        }
+
+        let mut queued_removals_by_instance: HashMap<Uuid, usize> = HashMap::new();
+        for action in &actions_to_dispatch {
+            *queued_removals_by_instance
+                .entry(action.instance_id)
+                .or_insert(0) += 1;
         }
 
         // Group actions by instance for efficient updates
@@ -1034,11 +1159,14 @@ impl InstanceRunner {
         // Phase 1: Mark as Running in in-memory state and track timeouts
         let now_ms = Utc::now().timestamp_millis();
         let mut timeout_entries: Vec<(i64, InFlightAction)> = Vec::new();
+        let mut prepared_actions: Vec<PreparedAction> = Vec::new();
 
         {
             let mut instances = self.active_instances.write().await;
             for (instance_id, actions) in &by_instance {
                 if let Some(instance) = instances.get_mut(instance_id) {
+                    let mut dispatched_nodes: Vec<String> = Vec::new();
+
                     for action in actions {
                         // Acquire a worker slot
                         let worker_idx = match self.worker_pool.try_acquire_slot() {
@@ -1054,11 +1182,20 @@ impl InstanceRunner {
                         };
                         let worker_id = format!("worker-{}", worker_idx);
 
-                        instance.state.mark_running(
+                        let inputs_bytes = instance
+                            .state
+                            .get_inputs_for_node(&action.node_id, &instance.dag);
+                        let inputs: proto::WorkflowArguments = inputs_bytes
+                            .as_ref()
+                            .and_then(|bytes| decode_message(bytes).ok())
+                            .unwrap_or_default();
+
+                        instance.state.mark_running_no_queue_removal(
                             &action.node_id,
                             &worker_id,
-                            action.inputs_bytes.clone(),
+                            inputs_bytes.clone(),
                         );
+                        dispatched_nodes.push(action.node_id.clone());
 
                         // Set started_at_ms for timeout tracking
                         if let Some(node) = instance.state.graph.nodes.get_mut(&action.node_id) {
@@ -1080,6 +1217,23 @@ impl InstanceRunner {
                                 },
                             ));
                         }
+
+                        prepared_actions.push(PreparedAction {
+                            action: (*action).clone(),
+                            inputs,
+                            worker_idx,
+                        });
+                    }
+
+                    if !dispatched_nodes.is_empty() {
+                        instance
+                            .state
+                            .remove_from_ready_queue_batch(&dispatched_nodes);
+                    }
+
+                    if let Some(removed) = queued_removals_by_instance.get(instance_id) {
+                        instance.queued_ready_count =
+                            instance.queued_ready_count.saturating_sub(*removed);
                     }
                 }
             }
@@ -1142,14 +1296,14 @@ impl InstanceRunner {
         }
 
         // Phase 3: Actually send to workers
-        for action in actions_to_dispatch {
+        for prepared in prepared_actions {
             let instances = self.active_instances.read().await;
-            if !instances.contains_key(&action.instance_id) {
+            if !instances.contains_key(&prepared.action.instance_id) {
                 continue;
             }
 
             // Get worker (already acquired slot above)
-            let worker_idx = self.worker_pool.next_worker_idx() % self.worker_pool.len();
+            let worker_idx = prepared.worker_idx;
             let worker = self.worker_pool.get_worker(worker_idx).await;
             let worker_id = format!("worker-{}", worker_idx);
 
@@ -1157,15 +1311,15 @@ impl InstanceRunner {
             let dispatch_token = Uuid::new_v4();
 
             let payload = ActionDispatchPayload {
-                action_id: action.node_id.clone(),
-                instance_id: action.instance_id.to_string(),
+                action_id: prepared.action.node_id.clone(),
+                instance_id: prepared.action.instance_id.to_string(),
                 sequence: action_seq,
-                action_name: action.action_name.clone(),
-                module_name: action.module_name.clone(),
-                kwargs: action.inputs.clone(),
-                timeout_seconds: action.timeout_seconds,
-                max_retries: action.max_retries,
-                attempt_number: action.attempt_number,
+                action_name: prepared.action.action_name.clone(),
+                module_name: prepared.action.module_name.clone(),
+                kwargs: prepared.inputs.clone(),
+                timeout_seconds: prepared.action.timeout_seconds,
+                max_retries: prepared.action.max_retries,
+                attempt_number: prepared.action.attempt_number,
                 dispatch_token,
             };
 
@@ -1173,9 +1327,8 @@ impl InstanceRunner {
 
             // Spawn task to send and handle completion
             let completion_tx = self.completion_tx.clone();
-            let instance_id = action.instance_id;
-            let node_id = action.node_id.clone();
-            let worker_pool = Arc::clone(&self.worker_pool);
+            let instance_id = prepared.action.instance_id;
+            let node_id = prepared.action.node_id.clone();
             let worker_id_for_task = worker_id.clone();
 
             tokio::spawn(async move {
@@ -1230,14 +1383,11 @@ impl InstanceRunner {
                             .await;
                     }
                 }
-
-                // Record completion in worker pool (releases slot, tracks throughput)
-                worker_pool.record_completion(worker_idx, Arc::clone(&worker_pool));
             });
 
-            debug!(
-                instance_id = %action.instance_id,
-                node_id = %action.node_id,
+            trace!(
+                instance_id = %prepared.action.instance_id,
+                node_id = %prepared.action.node_id,
                 worker_id = %worker_id,
                 "Dispatched action to worker"
             );

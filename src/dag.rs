@@ -1214,7 +1214,10 @@ impl DAGConverter {
             .cloned()
             .collect();
 
-        tracing::debug!(?order, "add_global_data_flow_edges order");
+        tracing::debug!(order_len = order.len(), "add_global_data_flow_edges order");
+        if tracing::enabled!(tracing::Level::TRACE) {
+            tracing::trace!(?order, "add_global_data_flow_edges order");
+        }
 
         // Collect variable modifications (definitions) across all nodes.
         // Skip join nodes - they mark variable availability at a join point but don't
@@ -1447,13 +1450,15 @@ impl DAGConverter {
                             // Still allow edge to the next modification if it uses the var.
                             if let Some(node) = dag.nodes.get(node_id) {
                                 let uses = uses_var(node, &var_name);
-                                tracing::debug!(
-                                    node_id = %node_id,
-                                    var_name = %var_name,
-                                    has_assign_expr = node.assign_expr.is_some(),
-                                    uses = uses,
-                                    "checking next modifier uses var"
-                                );
+                                if tracing::enabled!(tracing::Level::TRACE) {
+                                    tracing::trace!(
+                                        node_id = %node_id,
+                                        var_name = %var_name,
+                                        has_assign_expr = node.assign_expr.is_some(),
+                                        uses = uses,
+                                        "checking next modifier uses var"
+                                    );
+                                }
                                 if uses {
                                     let key =
                                         (mod_node.clone(), node_id.clone(), Some(var_name.clone()));
@@ -2018,9 +2023,11 @@ impl DAGConverter {
         // Set targets for unpacking (store all targets)
         if !targets.is_empty() {
             node = node.with_targets(targets);
-            tracing::debug!(node_id = %node_id, targets = ?targets, "setting action targets");
-        } else {
-            tracing::debug!(node_id = %node_id, "no targets for action");
+            if tracing::enabled!(tracing::Level::TRACE) {
+                tracing::trace!(node_id = %node_id, targets = ?targets, "setting action targets");
+            }
+        } else if tracing::enabled!(tracing::Level::TRACE) {
+            tracing::trace!(node_id = %node_id, "no targets for action");
         }
 
         if let Some(ref fn_name) = self.current_function {
@@ -3148,11 +3155,20 @@ impl DAGConverter {
                 };
                 tracing::debug!(
                     handler_entry = ?graph.entry,
-                    handler_exits = ?graph.exits,
-                    handler_nodes = ?graph.nodes,
+                    handler_exits_len = graph.exits.len(),
+                    handler_nodes_len = graph.nodes.len(),
                     handler_is_noop = graph.is_noop,
                     "handler graph before prepend_exception_binding"
                 );
+                if tracing::enabled!(tracing::Level::TRACE) {
+                    tracing::trace!(
+                        handler_entry = ?graph.entry,
+                        handler_exits = ?graph.exits,
+                        handler_nodes = ?graph.nodes,
+                        handler_is_noop = graph.is_noop,
+                        "handler graph before prepend_exception_binding"
+                    );
+                }
                 if let Some(exception_var) =
                     handler.exception_var.as_ref().filter(|var| !var.is_empty())
                 {
@@ -3160,10 +3176,18 @@ impl DAGConverter {
                 }
                 tracing::debug!(
                     handler_entry = ?graph.entry,
-                    handler_exits = ?graph.exits,
-                    handler_nodes = ?graph.nodes,
+                    handler_exits_len = graph.exits.len(),
+                    handler_nodes_len = graph.nodes.len(),
                     "handler graph after prepend_exception_binding"
                 );
+                if tracing::enabled!(tracing::Level::TRACE) {
+                    tracing::trace!(
+                        handler_entry = ?graph.entry,
+                        handler_exits = ?graph.exits,
+                        handler_nodes = ?graph.nodes,
+                        "handler graph after prepend_exception_binding"
+                    );
+                }
                 nodes.extend(graph.nodes.clone());
                 handler_graphs.push((handler.exception_types.clone(), graph));
             }
@@ -3551,11 +3575,20 @@ impl DAGConverter {
 
         tracing::debug!(
             function_name = %function_name,
-            fn_node_ids = ?fn_node_ids,
-            order = ?order,
-            var_modifications = ?self.var_modifications.keys().collect::<Vec<_>>(),
+            fn_node_count = fn_node_ids.len(),
+            order_len = order.len(),
+            var_modifications_len = self.var_modifications.len(),
             "add_data_flow_from_definitions"
         );
+        if tracing::enabled!(tracing::Level::TRACE) {
+            let var_modifications = self.var_modifications.keys().collect::<Vec<_>>();
+            tracing::trace!(
+                fn_node_ids = ?fn_node_ids,
+                order = ?order,
+                var_modifications = ?var_modifications,
+                "add_data_flow_from_definitions"
+            );
+        }
 
         let mut edges_to_add = Vec::new();
 
@@ -3563,9 +3596,16 @@ impl DAGConverter {
         for (var_name, modifications) in &self.var_modifications {
             tracing::debug!(
                 var_name = %var_name,
-                modifications = ?modifications,
+                modifications_len = modifications.len(),
                 "processing variable modifications"
             );
+            if tracing::enabled!(tracing::Level::TRACE) {
+                tracing::trace!(
+                    var_name = %var_name,
+                    modifications = ?modifications,
+                    "processing variable modifications"
+                );
+            }
             for (i, mod_node) in modifications.iter().enumerate() {
                 if !fn_node_ids.contains(mod_node) {
                     continue;
@@ -3613,9 +3653,12 @@ impl DAGConverter {
         }
 
         tracing::debug!(
-            edges_to_add = ?edges_to_add,
+            edges_to_add_len = edges_to_add.len(),
             "data flow edges being created"
         );
+        if tracing::enabled!(tracing::Level::TRACE) {
+            tracing::trace!(edges_to_add = ?edges_to_add, "data flow edges being created");
+        }
         for (var_name, source, target) in edges_to_add {
             // Check if this is a loop-back edge:
             // - Any data flow edge from loop_incr to nodes inside the loop body should be loop-back
@@ -3634,12 +3677,14 @@ impl DAGConverter {
     fn node_uses_variable(&self, node: &DAGNode, var_name: &str) -> bool {
         // Check kwargs for variable references
         if let Some(ref kwargs) = node.kwargs {
-            tracing::debug!(
-                node_id = %node.id,
-                var_name = %var_name,
-                kwargs = ?kwargs,
-                "checking if node uses variable in kwargs"
-            );
+            if tracing::enabled!(tracing::Level::TRACE) {
+                tracing::trace!(
+                    node_id = %node.id,
+                    var_name = %var_name,
+                    kwargs = ?kwargs,
+                    "checking if node uses variable in kwargs"
+                );
+            }
             for value in kwargs.values() {
                 // Check for $var_name pattern
                 if value == &format!("${}", var_name) {

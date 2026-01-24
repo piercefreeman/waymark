@@ -60,7 +60,7 @@ use tokio::{
     task::JoinHandle,
     time::timeout,
 };
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, trace, warn};
 use uuid::Uuid;
 
 use crate::{
@@ -520,7 +520,7 @@ impl PythonWorker {
         let delivery_id = self.next_delivery.fetch_add(1, Ordering::SeqCst);
         let send_instant = Instant::now();
 
-        debug!(
+        trace!(
             action_id = %dispatch.action_id,
             instance_id = %dispatch.instance_id,
             sequence = dispatch.sequence,
@@ -585,7 +585,7 @@ impl PythonWorker {
                 .saturating_sub(response.worker_start_ns),
         );
 
-        debug!(
+        trace!(
             action_id = %dispatch.action_id,
             worker_id = self.worker_id,
             ack_latency_us = ack_latency.as_micros(),
@@ -656,7 +656,7 @@ impl PythonWorker {
                     }
                 }
                 proto::MessageKind::Heartbeat => {
-                    debug!(delivery = envelope.delivery_id, "heartbeat");
+                    trace!(delivery = envelope.delivery_id, "heartbeat");
                 }
                 other => {
                     warn!(?other, "unhandled message kind");
@@ -974,10 +974,10 @@ impl PythonWorkerPool {
         // Update throughput tracking
         if let Ok(mut tracker) = self.throughput.lock() {
             tracker.record_completion(worker_idx);
-            if tracing::enabled!(tracing::Level::DEBUG) {
+            if tracing::enabled!(tracing::Level::TRACE) {
                 let snapshots = tracker.snapshot_at(Instant::now());
                 if let Some(snapshot) = snapshots.get(worker_idx) {
-                    debug!(
+                    trace!(
                         worker_id = snapshot.worker_id,
                         throughput_per_min = snapshot.throughput_per_min,
                         total_completed = snapshot.total_completed,
