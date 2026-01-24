@@ -194,6 +194,27 @@ impl ExecutionState {
     /// the recorded start time reflects when the worker actually started executing,
     /// not when we dispatched the action.
     pub fn mark_running(&mut self, node_id: &str, worker_id: &str, inputs: Option<Vec<u8>>) {
+        self.mark_running_inner(node_id, worker_id, inputs, true);
+    }
+
+    /// Mark a node as running without removing it from the ready queue.
+    /// This allows callers to batch ready_queue removals for performance.
+    pub fn mark_running_no_queue_removal(
+        &mut self,
+        node_id: &str,
+        worker_id: &str,
+        inputs: Option<Vec<u8>>,
+    ) {
+        self.mark_running_inner(node_id, worker_id, inputs, false);
+    }
+
+    fn mark_running_inner(
+        &mut self,
+        node_id: &str,
+        worker_id: &str,
+        inputs: Option<Vec<u8>>,
+        remove_ready: bool,
+    ) {
         if let Some(node) = self.graph.nodes.get_mut(node_id) {
             node.status = NodeStatus::Running as i32;
             node.worker_id = Some(worker_id.to_string());
@@ -201,8 +222,9 @@ impl ExecutionState {
             node.inputs = inputs;
         }
 
-        // Remove from ready queue
-        self.graph.ready_queue.retain(|id| id != node_id);
+        if remove_ready {
+            self.graph.ready_queue.retain(|id| id != node_id);
+        }
     }
 
     /// Drain the ready queue, returning all node IDs that are ready to execute
@@ -219,6 +241,17 @@ impl ExecutionState {
     /// Remove a specific node from the ready queue.
     pub fn remove_from_ready_queue(&mut self, node_id: &str) {
         self.graph.ready_queue.retain(|id| id != node_id);
+    }
+
+    /// Remove a batch of nodes from the ready queue in one pass.
+    pub fn remove_from_ready_queue_batch(&mut self, node_ids: &[String]) {
+        if node_ids.is_empty() {
+            return;
+        }
+        let remove_set: HashSet<&str> = node_ids.iter().map(String::as_str).collect();
+        self.graph
+            .ready_queue
+            .retain(|id| !remove_set.contains(id.as_str()));
     }
 
     /// Check if a node exists and get its status
@@ -286,6 +319,117 @@ impl ExecutionState {
         }
 
         scope
+    }
+
+    fn build_minimal_scope_for_node(
+        &self,
+        node_id: &str,
+        exec_node: Option<&ExecutionNode>,
+        loop_var: Option<&str>,
+        required_vars: &HashSet<String>,
+    ) -> Scope {
+        let mut scope = Scope::new();
+        if required_vars.is_empty() {
+            return scope;
+        }
+
+        let mut prefix = Self::scope_prefix(node_id);
+        if Self::is_bind_node(node_id) {
+            prefix = prefix.and_then(Self::parent_prefix);
+        }
+
+        let template_id = exec_node
+            .map(|node| node.template_id.as_str())
+            .unwrap_or(node_id);
+        let spread_index = exec_node.and_then(|node| node.spread_index);
+
+        for var_name in required_vars {
+            let mut value_bytes = None;
+            if let Some(prefix) = prefix {
+                let scoped_key = Self::scoped_var_key(prefix, var_name);
+                value_bytes = self.graph.variables.get(&scoped_key);
+            }
+            if value_bytes.is_none()
+                && loop_var == Some(var_name.as_str())
+                && let Some(index) = spread_index
+            {
+                let scoped_var = format!("{}[{}].{}", template_id, index, var_name);
+                value_bytes = self.graph.variables.get(&scoped_var);
+            }
+            if value_bytes.is_none() {
+                value_bytes = self.graph.variables.get(var_name);
+            }
+
+            if let Some(bytes) = value_bytes
+                && let Some(value) = workflow_value_from_proto_bytes(bytes)
+            {
+                scope.insert(var_name.clone(), value);
+            }
+        }
+
+        scope
+    }
+
+    fn collect_expr_vars(expr: &ast::Expr, vars: &mut HashSet<String>) {
+        use ast::expr;
+
+        match &expr.kind {
+            Some(expr::Kind::Variable(v)) => {
+                vars.insert(v.name.clone());
+            }
+            Some(expr::Kind::BinaryOp(bin)) => {
+                if let Some(left) = bin.left.as_ref() {
+                    Self::collect_expr_vars(left, vars);
+                }
+                if let Some(right) = bin.right.as_ref() {
+                    Self::collect_expr_vars(right, vars);
+                }
+            }
+            Some(expr::Kind::UnaryOp(unary)) => {
+                if let Some(op) = unary.operand.as_ref() {
+                    Self::collect_expr_vars(op, vars);
+                }
+            }
+            Some(expr::Kind::List(list)) => {
+                for elem in &list.elements {
+                    Self::collect_expr_vars(elem, vars);
+                }
+            }
+            Some(expr::Kind::Dict(dict)) => {
+                for entry in &dict.entries {
+                    if let Some(key) = entry.key.as_ref() {
+                        Self::collect_expr_vars(key, vars);
+                    }
+                    if let Some(value) = entry.value.as_ref() {
+                        Self::collect_expr_vars(value, vars);
+                    }
+                }
+            }
+            Some(expr::Kind::Index(index)) => {
+                if let Some(obj) = index.object.as_ref() {
+                    Self::collect_expr_vars(obj, vars);
+                }
+                if let Some(idx) = index.index.as_ref() {
+                    Self::collect_expr_vars(idx, vars);
+                }
+            }
+            Some(expr::Kind::Dot(dot)) => {
+                if let Some(obj) = dot.object.as_ref() {
+                    Self::collect_expr_vars(obj, vars);
+                }
+            }
+            Some(expr::Kind::FunctionCall(call)) => {
+                for arg in &call.args {
+                    Self::collect_expr_vars(arg, vars);
+                }
+                for kw in &call.kwargs {
+                    if let Some(value) = kw.value.as_ref() {
+                        Self::collect_expr_vars(value, vars);
+                    }
+                }
+            }
+            _ => {}
+        }
     }
 
     pub fn store_variable_for_node(
@@ -471,22 +615,30 @@ impl ExecutionState {
         dag: &DAG,
     ) -> (Vec<&'a DAGEdge>, Vec<String>) {
         // Log all incoming edges for debugging
-        debug!(
+        trace!(
             edge_count = edges.len(),
-            scope_vars = ?scope.keys().collect::<Vec<_>>(),
+            scope_vars_len = scope.len(),
             "filter_edges_by_guards called"
         );
-        for edge in edges {
-            debug!(
-                source = %edge.source,
-                target = %edge.target,
-                has_guard_expr = edge.guard_expr.is_some(),
-                is_else = edge.is_else,
-                is_loop_back = edge.is_loop_back,
-                guard_string = ?edge.guard_string,
-                edge_type = ?edge.edge_type,
-                "Processing edge in filter_edges_by_guards"
+        if tracing::enabled!(tracing::Level::TRACE) {
+            let scope_vars = scope.keys().collect::<Vec<_>>();
+            tracing::trace!(
+                edge_count = edges.len(),
+                scope_vars = ?scope_vars,
+                "filter_edges_by_guards called"
             );
+            for edge in edges {
+                tracing::trace!(
+                    source = %edge.source,
+                    target = %edge.target,
+                    has_guard_expr = edge.guard_expr.is_some(),
+                    is_else = edge.is_else,
+                    is_loop_back = edge.is_loop_back,
+                    guard_string = ?edge.guard_string,
+                    edge_type = ?edge.edge_type,
+                    "Processing edge in filter_edges_by_guards"
+                );
+            }
         }
 
         // Separate edges by type
@@ -580,19 +732,23 @@ impl ExecutionState {
 
         // Build kwargs from the DAG node's kwarg expressions when available.
         let mut kwargs = WorkflowArguments { arguments: vec![] };
-        let mut scope = self.build_scope_for_node(node_id);
-
-        // For spread iterations, inject the loop variable into scope.
-        if let (Some(exec_node), Some(loop_var)) = (exec_node, dag_node.spread_loop_var.as_deref())
-            && let Some(index) = exec_node.spread_index
-        {
-            let var_name = format!("{}[{}].{}", template_id, index, loop_var);
-            if let Some(value_bytes) = self.graph.variables.get(&var_name)
-                && let Some(value) = workflow_value_from_proto_bytes(value_bytes)
-            {
-                scope.insert(loop_var.to_string(), value);
+        let mut required_vars = HashSet::new();
+        if let Some(kwarg_exprs) = &dag_node.kwarg_exprs {
+            for expr in kwarg_exprs.values() {
+                Self::collect_expr_vars(expr, &mut required_vars);
+            }
+        } else if let Some(kwarg_map) = &dag_node.kwargs {
+            for var_ref in kwarg_map.values() {
+                required_vars.insert(var_ref.trim_start_matches('$').to_string());
             }
         }
+
+        let scope = self.build_minimal_scope_for_node(
+            node_id,
+            exec_node,
+            dag_node.spread_loop_var.as_deref(),
+            &required_vars,
+        );
 
         if let Some(kwarg_exprs) = &dag_node.kwarg_exprs {
             for (key, expr) in kwarg_exprs {
@@ -640,12 +796,18 @@ impl ExecutionState {
         dag: &DAG,
     ) -> BatchCompletionResult {
         // Log entry for debugging
-        let completion_ids: Vec<_> = completions.iter().map(|c| c.node_id.as_str()).collect();
-        warn!(
+        debug!(
             completion_count = completions.len(),
-            node_ids = ?completion_ids,
             "apply_completions_batch called"
         );
+        if tracing::enabled!(tracing::Level::TRACE) {
+            let completion_ids: Vec<_> = completions.iter().map(|c| c.node_id.as_str()).collect();
+            tracing::trace!(
+                completion_count = completions.len(),
+                node_ids = ?completion_ids,
+                "apply_completions_batch called"
+            );
+        }
 
         let mut result = BatchCompletionResult::default();
         let helper = DAGHelper::new(dag);
@@ -882,14 +1044,29 @@ impl ExecutionState {
                 continue;
             };
 
-            debug!(
+            trace!(
                 source_node = %completion.node_id,
                 outgoing_edge_count = outgoing_edges.len(),
                 "Found outgoing edges for completed node"
             );
 
             // Evaluate guards to determine which edges are enabled
-            let scope = self.build_scope_for_node(&completion.node_id);
+            let mut guard_vars = HashSet::new();
+            for edge in &outgoing_edges {
+                if let Some(expr) = edge.guard_expr.as_ref() {
+                    Self::collect_expr_vars(expr, &mut guard_vars);
+                }
+            }
+            let exec_node = self.graph.nodes.get(&completion.node_id);
+            let loop_var = exec_node
+                .and_then(|node| dag.nodes.get(&node.template_id))
+                .and_then(|node| node.spread_loop_var.as_deref());
+            let scope = self.build_minimal_scope_for_node(
+                &completion.node_id,
+                exec_node,
+                loop_var,
+                &guard_vars,
+            );
             let (enabled_edges, guard_errors) =
                 self.filter_edges_by_guards(&outgoing_edges, &scope, dag);
             if !guard_errors.is_empty() {
@@ -903,12 +1080,18 @@ impl ExecutionState {
                 return result;
             }
 
-            debug!(
-                source_node = %completion.node_id,
-                enabled_edge_count = enabled_edges.len(),
-                enabled_targets = ?enabled_edges.iter().map(|e| e.target.as_str()).collect::<Vec<_>>(),
-                "Filtered enabled edges"
-            );
+            if tracing::enabled!(tracing::Level::TRACE) {
+                let enabled_targets = enabled_edges
+                    .iter()
+                    .map(|e| e.target.as_str())
+                    .collect::<Vec<_>>();
+                tracing::trace!(
+                    source_node = %completion.node_id,
+                    enabled_edge_count = enabled_edges.len(),
+                    enabled_targets = ?enabled_targets,
+                    "Filtered enabled edges"
+                );
+            }
 
             for edge in enabled_edges {
                 let successor_id = &edge.target;
@@ -940,13 +1123,13 @@ impl ExecutionState {
                 // Check current status
                 let status =
                     NodeStatus::try_from(successor.status).unwrap_or(NodeStatus::Unspecified);
-                debug!(
+                trace!(
                     successor_id = %successor_id,
                     status = ?status,
                     "Checking successor status"
                 );
                 if status != NodeStatus::Blocked {
-                    debug!(
+                    trace!(
                         successor_id = %successor_id,
                         status = ?status,
                         "Skipping successor - not blocked"
@@ -997,7 +1180,7 @@ impl ExecutionState {
                         .copied()
                         .collect();
 
-                    debug!(
+                    trace!(
                         successor_id = %successor_id,
                         template_id = %template_id,
                         incoming_edge_count = incoming.len(),
@@ -1018,7 +1201,7 @@ impl ExecutionState {
                     for inc_edge in incoming {
                         // Skip loop-back edges when checking readiness (they don't block forward progress)
                         if inc_edge.is_loop_back {
-                            debug!(
+                            trace!(
                                 successor_id = %successor_id,
                                 edge_source = %inc_edge.source,
                                 "Skipping loop-back edge"
@@ -1034,7 +1217,7 @@ impl ExecutionState {
                             .get(&inc_edge.source)
                             .map(|n| is_completed(n.status))
                             .unwrap_or(false);
-                        debug!(
+                        trace!(
                             successor_id = %successor_id,
                             edge_source = %inc_edge.source,
                             source_completed = source_status,
@@ -1055,7 +1238,7 @@ impl ExecutionState {
                         completed_count == total_non_loopback
                     };
 
-                    debug!(
+                    trace!(
                         successor_id = %successor_id,
                         completed = completed_count,
                         total = total_non_loopback,
@@ -1066,10 +1249,7 @@ impl ExecutionState {
 
                     if is_ready && !ready_successors.iter().any(|(id, _)| id == successor_id) {
                         ready_successors.push((successor_id.clone(), None));
-                        debug!(
-                            successor_id = %successor_id,
-                            "Added successor to ready_successors"
-                        );
+                        trace!(successor_id = %successor_id, "Added successor to ready_successors");
                     }
                 }
             }

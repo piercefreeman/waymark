@@ -6,6 +6,8 @@
 
 import json
 import os
+import re
+import shutil
 import subprocess
 import sys
 import time
@@ -798,6 +800,120 @@ def run_benchmark(
 
 
 # =============================================================================
+# Profiling Helpers
+# =============================================================================
+
+
+def build_benchmark_args(
+    benchmark: str,
+    loop_size: int,
+    complexity: int,
+    workers_per_host: int,
+    hosts: int,
+    instances: int,
+    log_interval: int,
+    timeout: int,
+    metrics_json: str | None,
+    include_json: bool,
+) -> list[str]:
+    args = [
+        "--benchmark",
+        benchmark,
+        "--loop-size",
+        str(loop_size),
+        "--complexity",
+        str(complexity),
+        "--workers-per-host",
+        str(workers_per_host),
+        "--hosts",
+        str(hosts),
+        "--instances",
+        str(instances),
+        "--log-interval",
+        str(log_interval),
+        "--timeout",
+        str(timeout),
+    ]
+    if metrics_json:
+        args += ["--metrics-json", metrics_json]
+    if include_json:
+        args.append("--json")
+    return args
+
+
+def cargo_subcommand_available(subcommand: str) -> bool:
+    try:
+        result = subprocess.run(
+            ["cargo", subcommand, "--help"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except FileNotFoundError:
+        return False
+    except subprocess.TimeoutExpired:
+        return False
+    return result.returncode == 0
+
+
+def run_flamegraph(
+    repo_root: Path,
+    output: str,
+    benchmark_args: list[str],
+    env: dict[str, str],
+) -> None:
+    if not cargo_subcommand_available("flamegraph"):
+        raise RuntimeError("cargo-flamegraph not available. Install with: cargo install flamegraph")
+
+    cmd = [
+        "cargo",
+        "flamegraph",
+        "--bin",
+        "benchmark",
+        "-o",
+        output,
+        "--",
+        *benchmark_args,
+    ]
+    subprocess.run(cmd, cwd=repo_root, env=env, check=True)
+
+
+def run_perf_record(
+    repo_root: Path,
+    output: str,
+    benchmark_args: list[str],
+    env: dict[str, str],
+    freq: int,
+) -> None:
+    perf_path = shutil.which("perf")
+    if not perf_path:
+        raise RuntimeError("perf not available (install linux perf tools)")
+
+    binary = repo_root / "target" / "release" / "benchmark"
+    if not binary.exists():
+        subprocess.run(
+            ["cargo", "build", "--release", "--bin", "benchmark"],
+            cwd=repo_root,
+            env=env,
+            check=True,
+        )
+
+    cmd = [
+        perf_path,
+        "record",
+        "-F",
+        str(freq),
+        "-g",
+        "-o",
+        output,
+        "--",
+        str(binary),
+        *benchmark_args,
+    ]
+    subprocess.run(cmd, cwd=repo_root, env=env, check=True)
+
+
+# =============================================================================
 # CLI Commands
 # =============================================================================
 
@@ -885,6 +1001,130 @@ def single(
         print(f"Results written to {output}", file=sys.stderr)
     else:
         print(formatted)
+
+
+@cli.command()
+@click.option(
+    "--tool",
+    type=click.Choice(["flamegraph", "perf"]),
+    default="flamegraph",
+    help="Profiler to use",
+)
+@click.option("--output", "-o", type=click.Path(), default=None, help="Output file path")
+@click.option(
+    "--benchmark",
+    "-b",
+    default="for-loop",
+    type=click.Choice(["for-loop", "fan-out", "queue-noop"]),
+    help="Benchmark type",
+)
+@click.option(
+    "--loop-size",
+    default=128,
+    help="Number of actions to spawn (fan-out width / for-loop iterations)",
+)
+@click.option("--complexity", default=2000, help="CPU complexity per action (hash iterations)")
+@click.option("--workers-per-host", default=4, help="Number of Python workers per host")
+@click.option("--hosts", default=1, help="Number of hosts")
+@click.option("--instances", default=1, help="Number of workflow instances")
+@click.option("--log-interval", default=0, help="Benchmark log interval (seconds)")
+@click.option("--timeout", default=300, help="Benchmark timeout (seconds)")
+@click.option("--metrics-json", type=click.Path(), default=None, help="Write metrics JSON")
+@click.option(
+    "--include-json",
+    is_flag=True,
+    help="Pass --json to the benchmark binary (increases output)",
+)
+@click.option(
+    "--perf-freq",
+    default=99,
+    help="Sampling frequency for perf (Hz)",
+)
+def profile(
+    tool: str,
+    output: str | None,
+    benchmark: str,
+    loop_size: int,
+    complexity: int,
+    workers_per_host: int,
+    hosts: int,
+    instances: int,
+    log_interval: int,
+    timeout: int,
+    metrics_json: str | None,
+    include_json: bool,
+    perf_freq: int,
+):
+    """Profile the benchmark binary with flamegraph or perf."""
+    repo_root = Path(__file__).resolve().parents[1]
+    env = os.environ.copy()
+    env["RAPPEL_DATABASE_URL"] = get_database_url()
+
+    benchmark_args = build_benchmark_args(
+        benchmark=benchmark,
+        loop_size=loop_size,
+        complexity=complexity,
+        workers_per_host=workers_per_host,
+        hosts=hosts,
+        instances=instances,
+        log_interval=log_interval,
+        timeout=timeout,
+        metrics_json=metrics_json,
+        include_json=include_json,
+    )
+
+    if tool == "flamegraph":
+        output_path = output or "flamegraph.svg"
+        run_flamegraph(repo_root, output_path, benchmark_args, env)
+        print(f"Wrote flamegraph to {output_path}")
+        return
+
+    output_path = output or "perf.data"
+    run_perf_record(repo_root, output_path, benchmark_args, env, perf_freq)
+    print(f"Wrote perf data to {output_path}")
+
+
+@cli.command()
+@click.option(
+    "--pattern",
+    default="rappel|benchmark|start-workers|uvicorn",
+    help="Regex to match process command lines",
+)
+@click.option("--limit", default=10, help="Number of processes to show")
+def inspect(pattern: str, limit: int):
+    """Show top matching processes by CPU usage."""
+    cmd = ["ps", "-axo", "pid,pcpu,pmem,command"]
+    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        print(result.stderr.strip() or "failed to run ps", file=sys.stderr)
+        sys.exit(result.returncode)
+
+    lines = result.stdout.strip().splitlines()
+    if not lines:
+        print("No process data available", file=sys.stderr)
+        sys.exit(1)
+
+    header = lines[0]
+    entries = []
+    matcher = re.compile(pattern)
+    for line in lines[1:]:
+        if matcher.search(line):
+            entries.append(line)
+
+    def cpu_value(line: str) -> float:
+        parts = line.split(maxsplit=3)
+        if len(parts) < 3:
+            return 0.0
+        try:
+            return float(parts[1])
+        except ValueError:
+            return 0.0
+
+    entries.sort(key=cpu_value, reverse=True)
+    print(header)
+    for line in entries[: max(limit, 1)]:
+        print(line)
+    print(f"\nMatched {len(entries)} processes")
 
 
 @cli.command()
@@ -1208,7 +1448,13 @@ def grid(
 
 def main():
     """Entry point with backwards compatibility."""
-    if len(sys.argv) > 1 and sys.argv[1] in ["single", "suite", "grid"]:
+    if len(sys.argv) > 1 and sys.argv[1] in [
+        "single",
+        "suite",
+        "grid",
+        "inspect",
+        "profile",
+    ]:
         cli()
     else:
         # Legacy: default to 'single' with old argument style
