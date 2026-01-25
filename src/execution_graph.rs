@@ -349,17 +349,27 @@ impl ExecutionState {
 
         for var_name in required_vars {
             let mut value_bytes = None;
-            if let Some(prefix) = prefix {
-                let scoped_key = Self::scoped_var_key(prefix, var_name);
-                value_bytes = self.graph.variables.get(&scoped_key);
-            }
-            if value_bytes.is_none()
-                && loop_var == Some(var_name.as_str())
+
+            // IMPORTANT: For spread actions, the loop variable must be looked up from the
+            // spread-specific storage FIRST, before checking scoped variables. This handles
+            // the case where the same variable name was used in an earlier for loop - we
+            // don't want the stale value from that loop, we want the spread iteration value.
+            if loop_var == Some(var_name.as_str())
                 && let Some(index) = spread_index
             {
                 let scoped_var = format!("{}[{}].{}", template_id, index, var_name);
                 value_bytes = self.graph.variables.get(&scoped_var);
             }
+
+            // Then try scoped variables (from function scope, loops, etc.)
+            if value_bytes.is_none()
+                && let Some(prefix) = prefix
+            {
+                let scoped_key = Self::scoped_var_key(prefix, var_name);
+                value_bytes = self.graph.variables.get(&scoped_key);
+            }
+
+            // Finally try global variables
             if value_bytes.is_none() {
                 value_bytes = self.graph.variables.get(var_name);
             }
