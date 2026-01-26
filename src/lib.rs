@@ -95,6 +95,7 @@ pub use execution_graph::{BatchCompletionResult, Completion, ExecutionState, MAX
 // Instance Runner (lease-based execution)
 pub use runner_database::{
     DEFAULT_CLAIM_BATCH_SIZE, DEFAULT_COMPLETION_BATCH_SIZE, DEFAULT_HEARTBEAT_INTERVAL,
-    DEFAULT_LEASE_SECONDS, InstanceRunner, InstanceRunnerConfig, InstanceRunnerError,
-    InstanceRunnerMetrics, InstanceRunnerResult,
+    DEFAULT_LEASE_SECONDS, DEFAULT_SCHEDULE_CHECK_BATCH_SIZE, DEFAULT_SCHEDULE_CHECK_INTERVAL,
+    InstanceRunner, InstanceRunnerConfig, InstanceRunnerError, InstanceRunnerMetrics,
+    InstanceRunnerResult,
 };

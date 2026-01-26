@@ -57,7 +57,8 @@ use uuid::Uuid;
 use crate::ast_evaluator::ExpressionEvaluator;
 use crate::dag::{DAG, DAGConverter, DAGNode};
 use crate::db::{
-    ClaimedInstance, Database, WorkerStatusUpdate, WorkflowInstanceId, WorkflowVersionId,
+    ClaimedInstance, Database, ScheduleId, WorkerStatusUpdate, WorkflowInstanceId,
+    WorkflowSchedule, WorkflowVersionId,
 };
 use crate::execution_graph::{Completion, ExecutionState, SLEEP_WORKER_ID};
 use crate::messages::execution::{ExecutionNode, NodeStatus};
@@ -65,6 +66,7 @@ use crate::messages::proto;
 use crate::messages::proto::WorkflowArguments;
 use crate::messages::{MessageError, decode_message, encode_message};
 use crate::parser::ast;
+use crate::schedule::{apply_jitter, next_cron_run, next_interval_run};
 use crate::stats::LifecycleStats;
 use crate::value::WorkflowValue;
 use crate::worker::{ActionDispatchPayload, PythonWorkerPool};
@@ -80,6 +82,12 @@ pub const DEFAULT_CLAIM_BATCH_SIZE: i32 = 50;
 
 /// Default completion batch size
 pub const DEFAULT_COMPLETION_BATCH_SIZE: usize = 100;
+
+/// Default schedule check interval (10 seconds)
+pub const DEFAULT_SCHEDULE_CHECK_INTERVAL: Duration = Duration::from_secs(10);
+
+/// Default schedule check batch size
+pub const DEFAULT_SCHEDULE_CHECK_BATCH_SIZE: i32 = 100;
 
 /// Built-in durable sleep action name.
 const SLEEP_ACTION_NAME: &str = "sleep";
@@ -140,6 +148,16 @@ pub struct InstanceRunnerConfig {
     pub idle_poll_interval: Duration,
     /// Interval for reporting worker status to DB
     pub status_report_interval: Duration,
+    /// Interval for checking due schedules
+    pub schedule_check_interval: Duration,
+    /// Max schedules to process per check cycle
+    pub schedule_check_batch_size: i32,
+    /// Garbage collection interval. If None, GC is disabled.
+    pub gc_interval: Option<Duration>,
+    /// Minimum age in seconds for completed/failed instances before GC cleanup.
+    pub gc_retention_seconds: i64,
+    /// Batch size for GC operations.
+    pub gc_batch_size: i32,
 }
 
 /// Default max concurrent instances
@@ -157,6 +175,11 @@ impl Default for InstanceRunnerConfig {
             completion_batch_size: DEFAULT_COMPLETION_BATCH_SIZE,
             idle_poll_interval: Duration::from_millis(100),
             status_report_interval: Duration::from_secs(5),
+            schedule_check_interval: DEFAULT_SCHEDULE_CHECK_INTERVAL,
+            schedule_check_batch_size: DEFAULT_SCHEDULE_CHECK_BATCH_SIZE,
+            gc_interval: None,           // GC disabled by default
+            gc_retention_seconds: 86400, // 24 hours
+            gc_batch_size: 100,
         }
     }
 }
@@ -342,6 +365,12 @@ impl InstanceRunner {
         // Spawn status reporting task
         let status_handle = self.spawn_status_report_task();
 
+        // Spawn schedule check task
+        let schedule_handle = self.spawn_schedule_task();
+
+        // Spawn GC task if enabled
+        let gc_handle = self.spawn_gc_task();
+
         let profile_interval = std::env::var("RAPPEL_RUNNER_PROFILE_INTERVAL_MS")
             .ok()
             .and_then(|value| value.parse::<u64>().ok())
@@ -455,6 +484,10 @@ impl InstanceRunner {
         // Cancel background tasks
         heartbeat_handle.abort();
         status_handle.abort();
+        schedule_handle.abort();
+        if let Some(handle) = gc_handle {
+            handle.abort();
+        }
 
         // Release all owned instances
         self.release_all_instances().await?;
@@ -790,6 +823,219 @@ impl InstanceRunner {
                 }
             }
         })
+    }
+
+    /// Spawn the schedule check background task.
+    ///
+    /// Periodically checks for due schedules and creates workflow instances.
+    fn spawn_schedule_task(&self) -> tokio::task::JoinHandle<()> {
+        let db = self.db.clone();
+        let schedule_interval = self.config.schedule_check_interval;
+        let batch_size = self.config.schedule_check_batch_size;
+        let shutdown = &self.shutdown as *const AtomicBool;
+
+        // Safety: We know self lives as long as the returned handle
+        let shutdown_ptr = unsafe { &*shutdown };
+
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(schedule_interval);
+            interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+            loop {
+                interval.tick().await;
+
+                if shutdown_ptr.load(Ordering::SeqCst) {
+                    break;
+                }
+
+                // Keep processing until we've drained all due schedules
+                loop {
+                    match Self::process_due_schedules(&db, batch_size).await {
+                        Ok(count) => {
+                            if count < batch_size as usize {
+                                // No more due schedules
+                                break;
+                            }
+                            // There might be more, continue processing
+                        }
+                        Err(e) => {
+                            error!(error = %e, "Failed to process due schedules");
+                            break;
+                        }
+                    }
+                }
+            }
+        })
+    }
+
+    /// Process due scheduled workflows by creating new instances.
+    ///
+    /// Returns the number of schedules that were processed.
+    async fn process_due_schedules(db: &Database, batch_size: i32) -> InstanceRunnerResult<usize> {
+        // Find due schedules (uses SKIP LOCKED for multi-runner safety)
+        let schedules = db
+            .find_due_schedules(batch_size)
+            .await
+            .map_err(InstanceRunnerError::Database)?;
+
+        let count = schedules.len();
+
+        for schedule in schedules {
+            // Get the latest version for this workflow
+            let version_id = match db
+                .get_latest_workflow_version(&schedule.workflow_name)
+                .await
+            {
+                Ok(Some(id)) => id,
+                Ok(None) => {
+                    error!(
+                        workflow_name = %schedule.workflow_name,
+                        schedule_id = %schedule.id,
+                        "SCHEDULE SKIPPED: No registered workflow version found. \
+                         The workflow DAG must be registered before the schedule can execute. \
+                         Re-register the schedule using schedule_workflow() to fix this."
+                    );
+                    // Still update next_run_at to avoid infinite retries
+                    if let Ok(next_run) = Self::compute_next_run(&schedule)
+                        && let Err(e) = db
+                            .update_schedule_next_run(ScheduleId(schedule.id), next_run)
+                            .await
+                    {
+                        error!(error = %e, "Failed to update schedule next_run");
+                    }
+                    continue;
+                }
+                Err(e) => {
+                    error!(error = %e, "Failed to get workflow version for schedule");
+                    continue;
+                }
+            };
+
+            // Create workflow instance with scheduled inputs and priority
+            let instance_id = match db
+                .create_instance_with_priority(
+                    &schedule.workflow_name,
+                    version_id,
+                    schedule.input_payload.as_deref(),
+                    Some(ScheduleId(schedule.id)),
+                    schedule.priority,
+                )
+                .await
+            {
+                Ok(id) => id,
+                Err(e) => {
+                    error!(
+                        error = %e,
+                        workflow_name = %schedule.workflow_name,
+                        "Failed to create scheduled instance"
+                    );
+                    continue;
+                }
+            };
+
+            info!(
+                schedule_id = %schedule.id,
+                workflow_name = %schedule.workflow_name,
+                instance_id = %instance_id,
+                "Created scheduled workflow instance"
+            );
+
+            // Compute next run and update schedule
+            match Self::compute_next_run(&schedule) {
+                Ok(next_run) => {
+                    if let Err(e) = db
+                        .mark_schedule_executed(ScheduleId(schedule.id), instance_id, next_run)
+                        .await
+                    {
+                        error!(error = %e, "Failed to mark schedule executed");
+                    }
+                }
+                Err(e) => {
+                    error!(error = %e, "Failed to compute next run time");
+                }
+            }
+        }
+
+        Ok(count)
+    }
+
+    /// Compute the next run time based on schedule type.
+    fn compute_next_run(schedule: &WorkflowSchedule) -> InstanceRunnerResult<DateTime<Utc>> {
+        let base = match schedule.schedule_type.as_str() {
+            "cron" => {
+                let expr = schedule
+                    .cron_expression
+                    .as_ref()
+                    .ok_or_else(|| InstanceRunnerError::Worker("Missing cron expression".into()))?;
+                next_cron_run(expr)
+                    .map_err(|e| InstanceRunnerError::Worker(format!("Invalid cron: {}", e)))?
+            }
+            "interval" => {
+                let secs = schedule.interval_seconds.ok_or_else(|| {
+                    InstanceRunnerError::Worker("Missing interval_seconds".into())
+                })?;
+                next_interval_run(secs, Some(Utc::now()))
+            }
+            _ => {
+                return Err(InstanceRunnerError::Worker(format!(
+                    "Unknown schedule type: {}",
+                    schedule.schedule_type
+                )));
+            }
+        };
+
+        apply_jitter(base, schedule.jitter_seconds)
+            .map_err(|e| InstanceRunnerError::Worker(format!("Jitter error: {}", e)))
+    }
+
+    /// Spawn the garbage collection background task (if enabled).
+    ///
+    /// Periodically cleans up old completed/failed workflow instances.
+    fn spawn_gc_task(&self) -> Option<tokio::task::JoinHandle<()>> {
+        let gc_interval = self.config.gc_interval?;
+        let db = self.db.clone();
+        let retention_seconds = self.config.gc_retention_seconds;
+        let batch_size = self.config.gc_batch_size;
+        let shutdown = &self.shutdown as *const AtomicBool;
+
+        // Safety: We know self lives as long as the returned handle
+        let shutdown_ptr = unsafe { &*shutdown };
+
+        Some(tokio::spawn(async move {
+            let mut interval = tokio::time::interval(gc_interval);
+            interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+            loop {
+                interval.tick().await;
+
+                if shutdown_ptr.load(Ordering::SeqCst) {
+                    break;
+                }
+
+                // Keep processing until we've drained all eligible instances
+                loop {
+                    match db
+                        .garbage_collect_instances(retention_seconds, batch_size)
+                        .await
+                    {
+                        Ok(count) => {
+                            if count > 0 {
+                                info!(deleted = count, "Garbage collected old instances");
+                            }
+                            if count < batch_size as i64 {
+                                // No more eligible instances
+                                break;
+                            }
+                            // There might be more, continue processing
+                        }
+                        Err(e) => {
+                            error!(error = %e, "Failed to garbage collect instances");
+                            break;
+                        }
+                    }
+                }
+            }
+        }))
     }
 
     /// Claim new instances from the database.
@@ -1801,6 +2047,17 @@ mod tests {
         assert_eq!(config.claim_batch_size, DEFAULT_CLAIM_BATCH_SIZE);
         assert_eq!(config.completion_batch_size, DEFAULT_COMPLETION_BATCH_SIZE);
         assert_eq!(config.idle_poll_interval, Duration::from_millis(100));
+        assert_eq!(
+            config.schedule_check_interval,
+            DEFAULT_SCHEDULE_CHECK_INTERVAL
+        );
+        assert_eq!(
+            config.schedule_check_batch_size,
+            DEFAULT_SCHEDULE_CHECK_BATCH_SIZE
+        );
+        assert!(config.gc_interval.is_none()); // GC disabled by default
+        assert_eq!(config.gc_retention_seconds, 86400);
+        assert_eq!(config.gc_batch_size, 100);
         // runner_id should be a valid UUID
         assert!(!config.runner_id.is_empty());
     }
@@ -1817,6 +2074,11 @@ mod tests {
             completion_batch_size: 200,
             idle_poll_interval: Duration::from_millis(500),
             status_report_interval: Duration::from_secs(10),
+            schedule_check_interval: Duration::from_secs(5),
+            schedule_check_batch_size: 50,
+            gc_interval: Some(Duration::from_secs(3600)),
+            gc_retention_seconds: 43200,
+            gc_batch_size: 50,
         };
         assert_eq!(config.runner_id, "custom-runner-123");
         assert_eq!(config.lease_seconds, 120);
@@ -1824,6 +2086,11 @@ mod tests {
         assert_eq!(config.claim_batch_size, 50);
         assert_eq!(config.max_concurrent_instances, 200);
         assert_eq!(config.completion_batch_size, 200);
+        assert_eq!(config.schedule_check_interval, Duration::from_secs(5));
+        assert_eq!(config.schedule_check_batch_size, 50);
+        assert_eq!(config.gc_interval, Some(Duration::from_secs(3600)));
+        assert_eq!(config.gc_retention_seconds, 43200);
+        assert_eq!(config.gc_batch_size, 50);
     }
 
     #[test]
