@@ -358,13 +358,31 @@ async fn get_workflow_run_data(
     let page = query.page.unwrap_or(1).max(1);
     let include_nodes = query.include_nodes.unwrap_or(true);
 
+    let payload_lookup = match state
+        .database
+        .list_execution_payloads(crate::db::WorkflowInstanceId(instance_id))
+        .await
+    {
+        Ok(payloads) if !payloads.is_empty() => Some(build_payload_lookup(payloads)),
+        Ok(_) => None,
+        Err(err) => {
+            error!(?err, %instance_id, "failed to load execution payloads");
+            None
+        }
+    };
+
     if let Ok(Some(graph_bytes)) = state
         .database
         .get_instance_execution_graph(crate::db::WorkflowInstanceId(instance_id))
         .await
         && let Some(graph) = decode_execution_graph(&graph_bytes)
     {
-        let action_logs = synthesize_action_logs_from_execution_graph(instance_id, &dag, &graph);
+        let action_logs = synthesize_action_logs_from_execution_graph(
+            instance_id,
+            &dag,
+            &graph,
+            payload_lookup.as_ref(),
+        );
         if include_nodes {
             nodes = build_node_contexts_from_action_logs(&action_logs);
         }
@@ -415,13 +433,31 @@ async fn get_workflow_action_logs(
     let dag = decode_dag_from_proto(&version.program_proto);
     let mut logs = Vec::new();
 
+    let payload_lookup = match state
+        .database
+        .list_execution_payloads(crate::db::WorkflowInstanceId(instance_id))
+        .await
+    {
+        Ok(payloads) if !payloads.is_empty() => Some(build_payload_lookup(payloads)),
+        Ok(_) => None,
+        Err(err) => {
+            error!(?err, %instance_id, "failed to load execution payloads");
+            None
+        }
+    };
+
     if let Ok(Some(graph_bytes)) = state
         .database
         .get_instance_execution_graph(crate::db::WorkflowInstanceId(instance_id))
         .await
         && let Some(graph) = decode_execution_graph(&graph_bytes)
     {
-        let action_logs = synthesize_action_logs_from_execution_graph(instance_id, &dag, &graph);
+        let action_logs = synthesize_action_logs_from_execution_graph(
+            instance_id,
+            &dag,
+            &graph,
+            payload_lookup.as_ref(),
+        );
         logs = action_logs
             .iter()
             .filter(|log| log.action_id == action_id)
@@ -1683,16 +1719,53 @@ fn datetime_from_ms(ms: i64) -> Option<chrono::DateTime<Utc>> {
     Utc.timestamp_millis_opt(ms).single()
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct PayloadKey {
+    node_id: String,
+    attempt_number: i32,
+    kind: crate::db::ExecutionPayloadKind,
+}
+
+fn build_payload_lookup(
+    payloads: Vec<crate::db::ExecutionPayload>,
+) -> std::collections::HashMap<PayloadKey, Vec<u8>> {
+    let mut lookup = std::collections::HashMap::new();
+    for payload in payloads {
+        let key = PayloadKey {
+            node_id: payload.node_id,
+            attempt_number: payload.attempt_number,
+            kind: payload.payload_kind,
+        };
+        lookup.insert(key, payload.payload);
+    }
+    lookup
+}
+
 fn synthesize_action_logs_from_execution_graph(
     instance_id: Uuid,
     dag: &[SimpleDagNode],
     graph: &ExecutionGraph,
+    payload_lookup: Option<&std::collections::HashMap<PayloadKey, Vec<u8>>>,
 ) -> Vec<crate::db::ActionLog> {
     let (internal_nodes, _) = build_node_maps(dag);
     let dag_by_id: std::collections::HashMap<&str, &SimpleDagNode> =
         dag.iter().map(|node| (node.id.as_str(), node)).collect();
     let mut action_ids: std::collections::HashMap<String, Uuid> = std::collections::HashMap::new();
     let mut logs = Vec::new();
+    let payload_for = |node_id: &str,
+                       attempt_number: i32,
+                       kind: crate::db::ExecutionPayloadKind|
+     -> Option<Vec<u8>> {
+        payload_lookup.and_then(|lookup| {
+            lookup
+                .get(&PayloadKey {
+                    node_id: node_id.to_string(),
+                    attempt_number,
+                    kind,
+                })
+                .cloned()
+        })
+    };
 
     for (node_key, exec_node) in &graph.nodes {
         let display_node_id = if dag_by_id.contains_key(node_key.as_str()) {
@@ -1712,10 +1785,23 @@ fn synthesize_action_logs_from_execution_graph(
         let action_id = *action_ids
             .entry(display_node_id.to_string())
             .or_insert_with(Uuid::new_v4);
-        let dispatch_payload = exec_node.inputs.clone();
-
         if exec_node.attempts.is_empty() {
             if let Some(started_at_ms) = exec_node.started_at_ms {
+                let attempt_number = exec_node.attempt_number;
+                let dispatch_payload = exec_node.inputs.clone().or_else(|| {
+                    payload_for(
+                        node_key,
+                        attempt_number,
+                        crate::db::ExecutionPayloadKind::Inputs,
+                    )
+                });
+                let result_payload = exec_node.result.clone().or_else(|| {
+                    payload_for(
+                        node_key,
+                        attempt_number,
+                        crate::db::ExecutionPayloadKind::Result,
+                    )
+                });
                 let status =
                     NodeStatus::try_from(exec_node.status).unwrap_or(NodeStatus::Unspecified);
                 let success = match status {
@@ -1728,11 +1814,11 @@ fn synthesize_action_logs_from_execution_graph(
                     id: Uuid::new_v4(),
                     action_id,
                     instance_id,
-                    attempt_number: exec_node.attempt_number,
+                    attempt_number,
                     dispatched_at: datetime_from_ms(started_at_ms).unwrap_or_else(Utc::now),
                     completed_at: exec_node.completed_at_ms.and_then(datetime_from_ms),
                     success,
-                    result_payload: exec_node.result.clone(),
+                    result_payload,
                     error_message: exec_node.error.clone(),
                     duration_ms: exec_node.duration_ms,
                     pool_id: None,
@@ -1748,6 +1834,20 @@ fn synthesize_action_logs_from_execution_graph(
         }
 
         for attempt in &exec_node.attempts {
+            let dispatch_payload = exec_node.inputs.clone().or_else(|| {
+                payload_for(
+                    node_key,
+                    attempt.attempt_number,
+                    crate::db::ExecutionPayloadKind::Inputs,
+                )
+            });
+            let result_payload = attempt.result.clone().or_else(|| {
+                payload_for(
+                    node_key,
+                    attempt.attempt_number,
+                    crate::db::ExecutionPayloadKind::Result,
+                )
+            });
             logs.push(crate::db::ActionLog {
                 id: Uuid::new_v4(),
                 action_id,
@@ -1756,7 +1856,7 @@ fn synthesize_action_logs_from_execution_graph(
                 dispatched_at: datetime_from_ms(attempt.started_at_ms).unwrap_or_else(Utc::now),
                 completed_at: datetime_from_ms(attempt.completed_at_ms),
                 success: Some(attempt.success),
-                result_payload: attempt.result.clone(),
+                result_payload,
                 error_message: attempt.error.clone(),
                 duration_ms: Some(attempt.duration_ms),
                 pool_id: None,
@@ -1765,7 +1865,7 @@ fn synthesize_action_logs_from_execution_graph(
                 module_name: Some(dag_node.module.clone()),
                 action_name: Some(dag_node.action.clone()),
                 node_id: Some(display_node_id.to_string()),
-                dispatch_payload: dispatch_payload.clone(),
+                dispatch_payload,
             });
         }
     }

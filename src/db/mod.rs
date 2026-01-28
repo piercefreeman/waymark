@@ -25,7 +25,12 @@ use thiserror::Error;
 // No re-exports needed - methods are automatically available on Database.
 
 // Re-export types from worker module
-pub use worker::{ClaimedInstance, ExecutionGraphUpdate, InstanceFinalization};
+pub use worker::{
+    ClaimedInstance, ExecutionEventInsert, ExecutionEventRecord, ExecutionEventType,
+    ExecutionGraphReleaseSnapshotUpdate, ExecutionGraphSnapshotUpdate, ExecutionGraphUpdate,
+    ExecutionPayloadInsert, ExecutionPayloadKind, InstanceFinalization,
+    InstanceFinalizationWithSnapshot,
+};
 
 // ============================================================================
 // Type Aliases & Newtypes
@@ -230,6 +235,18 @@ pub struct ActionLog {
     pub action_name: Option<String>,
     pub node_id: Option<String>,
     pub dispatch_payload: Option<Vec<u8>>,
+}
+
+/// Stored payload for execution events (inputs/results).
+#[derive(Debug, Clone)]
+pub struct ExecutionPayload {
+    pub id: Uuid,
+    pub instance_id: Uuid,
+    pub node_id: String,
+    pub attempt_number: i32,
+    pub payload_kind: ExecutionPayloadKind,
+    pub payload: Vec<u8>,
+    pub created_at: DateTime<Utc>,
 }
 
 // ============================================================================

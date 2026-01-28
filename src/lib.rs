@@ -25,6 +25,7 @@ pub mod config;
 pub mod dag;
 pub mod dag_state;
 pub mod db;
+pub mod execution_events;
 pub mod execution_graph;
 pub mod executor;
 pub mod ir_printer;
@@ -92,6 +93,9 @@ pub use schedule::{next_cron_run, next_interval_run, validate_cron};
 
 // Execution Graph (instance-local execution model)
 pub use execution_graph::{BatchCompletionResult, Completion, ExecutionState, MAX_LOOP_ITERATIONS};
+
+// Execution Events (append-only log model)
+pub use execution_events::{ApplyEventError, ExecutionEvent, ExecutionStateMachine, apply_event};
 
 // Instance Runner (lease-based execution)
 pub use runner_database::{

@@ -26,6 +26,9 @@
 //! - `RAPPEL_COMPLETION_FLUSH_INTERVAL_MS`: Max wait time before flushing partial batch (default: 10)
 //! - `RAPPEL_INSTANCE_CLAIM_BATCH_SIZE`: Max instances to claim per DB query (default: 50)
 //! - `RAPPEL_MAX_CONCURRENT_INSTANCES`: Max instances a runner can hold concurrently (default: 100)
+//! - `RAPPEL_PERSISTENCE_MODE`: Persistence mode: "snapshot" or "event_log" (default: snapshot)
+//! - `RAPPEL_EVENT_LOG_SNAPSHOT_EVERY`: Snapshot after N events (default: 10)
+//! - `RAPPEL_PAYLOAD_OFFLOAD`: Store action payloads in separate table (default: true)
 
 use std::{
     env,
@@ -35,6 +38,34 @@ use std::{
 };
 
 use anyhow::{Context, Result};
+
+/// Persistence model for workflow instance state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PersistenceMode {
+    Snapshot,
+    EventLog,
+}
+
+impl PersistenceMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PersistenceMode::Snapshot => "snapshot",
+            PersistenceMode::EventLog => "event_log",
+        }
+    }
+}
+
+impl FromStr for PersistenceMode {
+    type Err = String;
+
+    fn from_str(input: &str) -> std::result::Result<Self, Self::Err> {
+        match input.trim().to_lowercase().as_str() {
+            "snapshot" => Ok(PersistenceMode::Snapshot),
+            "event_log" | "eventlog" => Ok(PersistenceMode::EventLog),
+            _ => Err(format!("invalid persistence mode: {input}")),
+        }
+    }
+}
 
 /// Default address for the webapp server
 pub const DEFAULT_WEBAPP_ADDR: &str = "0.0.0.0:24119";
@@ -121,6 +152,15 @@ pub struct Config {
     /// Maximum instances a runner can hold concurrently. Default is 100.
     /// The runner will loop claiming batches until reaching this limit.
     pub max_concurrent_instances: usize,
+
+    /// Persistence mode for execution state.
+    pub persistence_mode: PersistenceMode,
+
+    /// Snapshot after N events when using event log persistence.
+    pub event_log_snapshot_every: usize,
+
+    /// Offload action payloads to a separate table (reduces execution_graph size).
+    pub payload_offload: bool,
 }
 
 /// Webapp server configuration
@@ -330,6 +370,20 @@ impl Config {
             .and_then(|s| s.parse().ok())
             .unwrap_or(100);
 
+        let persistence_mode = env::var("RAPPEL_PERSISTENCE_MODE")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(PersistenceMode::Snapshot);
+
+        let event_log_snapshot_every = env::var("RAPPEL_EVENT_LOG_SNAPSHOT_EVERY")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(10);
+
+        let payload_offload = env::var("RAPPEL_PAYLOAD_OFFLOAD")
+            .map(|v| v == "true" || v == "1")
+            .unwrap_or(true);
+
         let webapp = WebappConfig::from_env();
         let gc = GcConfig::from_env();
 
@@ -356,6 +410,9 @@ impl Config {
             completion_flush_interval_ms,
             instance_claim_batch_size,
             max_concurrent_instances,
+            persistence_mode,
+            event_log_snapshot_every,
+            payload_offload,
         })
     }
 
@@ -387,6 +444,9 @@ impl Config {
             completion_flush_interval_ms: 10,
             instance_claim_batch_size: 50,
             max_concurrent_instances: 100,
+            persistence_mode: PersistenceMode::Snapshot,
+            event_log_snapshot_every: 10,
+            payload_offload: true,
         }
     }
 }

@@ -148,6 +148,22 @@ impl ExecutionState {
         encode_execution_graph_bytes(&raw)
     }
 
+    /// Serialize the execution state without embedding action payloads.
+    pub fn to_bytes_stripped(&self) -> Vec<u8> {
+        let mut stripped = self.graph.clone();
+        for node in stripped.nodes.values_mut() {
+            if node.worker_id.as_deref() != Some(SLEEP_WORKER_ID) {
+                node.inputs = None;
+            }
+            node.result = None;
+            for attempt in node.attempts.iter_mut() {
+                attempt.result = None;
+            }
+        }
+        let raw = stripped.encode_to_vec();
+        encode_execution_graph_bytes(&raw)
+    }
+
     /// Create an empty execution state
     pub fn new() -> Self {
         Self {

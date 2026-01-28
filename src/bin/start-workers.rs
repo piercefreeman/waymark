@@ -111,6 +111,9 @@ async fn main() -> Result<()> {
         gc_interval: config.gc.interval_ms.map(Duration::from_millis),
         gc_retention_seconds: config.gc.retention_seconds,
         gc_batch_size: config.gc.batch_size,
+        persistence_mode: config.persistence_mode,
+        event_log_snapshot_every: config.event_log_snapshot_every,
+        payload_offload: config.payload_offload,
         ..Default::default()
     };
 

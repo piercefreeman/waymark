@@ -7,10 +7,12 @@
 use chrono::{DateTime, Utc};
 use sqlx::Row;
 use sqlx::{Postgres, QueryBuilder};
+use std::str::FromStr;
 
 use super::{
-    Database, DbError, DbResult, ScheduleId, WorkerStatus, WorkflowInstance, WorkflowInstanceId,
-    WorkflowSchedule, WorkflowVersionId, WorkflowVersionSummary,
+    Database, DbError, DbResult, ExecutionPayload, ExecutionPayloadKind, ScheduleId, WorkerStatus,
+    WorkflowInstance, WorkflowInstanceId, WorkflowSchedule, WorkflowVersionId,
+    WorkflowVersionSummary,
 };
 
 impl Database {
@@ -192,6 +194,42 @@ impl Database {
         .await?;
 
         Ok(row.and_then(|row| row.get("execution_graph")))
+    }
+
+    /// Load execution payloads for an instance (inputs/results).
+    pub async fn list_execution_payloads(
+        &self,
+        id: WorkflowInstanceId,
+    ) -> DbResult<Vec<ExecutionPayload>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT id, instance_id, node_id, attempt_number, payload_kind, payload_bytes, created_at
+            FROM execution_payloads
+            WHERE instance_id = $1
+            ORDER BY created_at ASC
+            "#,
+        )
+        .bind(id.0)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut payloads = Vec::with_capacity(rows.len());
+        for row in rows {
+            let kind_raw: String = row.get("payload_kind");
+            let kind = ExecutionPayloadKind::from_str(&kind_raw)
+                .map_err(|_| DbError::NotFound(format!("unknown payload kind: {kind_raw}")))?;
+            payloads.push(ExecutionPayload {
+                id: row.get("id"),
+                instance_id: row.get("instance_id"),
+                node_id: row.get("node_id"),
+                attempt_number: row.get("attempt_number"),
+                payload_kind: kind,
+                payload: row.get("payload_bytes"),
+                created_at: row.get("created_at"),
+            });
+        }
+
+        Ok(payloads)
     }
 
     // ========================================================================

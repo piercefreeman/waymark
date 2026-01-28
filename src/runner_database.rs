@@ -55,11 +55,15 @@ use tracing::{debug, error, info, trace, warn};
 use uuid::Uuid;
 
 use crate::ast_evaluator::ExpressionEvaluator;
+use crate::config::PersistenceMode;
 use crate::dag::{DAG, DAGConverter, DAGNode};
 use crate::db::{
-    ClaimedInstance, Database, ScheduleId, WorkerStatusUpdate, WorkflowInstanceId,
-    WorkflowSchedule, WorkflowVersionId,
+    ClaimedInstance, Database, ExecutionEventInsert, ExecutionEventRecord, ExecutionEventType,
+    ExecutionGraphReleaseSnapshotUpdate, ExecutionGraphSnapshotUpdate, ExecutionPayloadInsert,
+    ExecutionPayloadKind, InstanceFinalizationWithSnapshot, ScheduleId, WorkerStatusUpdate,
+    WorkflowInstanceId, WorkflowSchedule, WorkflowVersionId,
 };
+use crate::execution_events::{ExecutionEvent, ExecutionStateMachine};
 use crate::execution_graph::{Completion, ExecutionState, SLEEP_WORKER_ID};
 use crate::messages::execution::{ExecutionNode, NodeStatus};
 use crate::messages::proto;
@@ -159,6 +163,12 @@ pub struct InstanceRunnerConfig {
     pub gc_retention_seconds: i64,
     /// Batch size for GC operations.
     pub gc_batch_size: i32,
+    /// Persistence mode for execution state.
+    pub persistence_mode: PersistenceMode,
+    /// Snapshot after N events when using event log persistence.
+    pub event_log_snapshot_every: usize,
+    /// Offload action payloads to a separate table (reduces execution_graph size).
+    pub payload_offload: bool,
 }
 
 /// Default max concurrent instances
@@ -181,6 +191,9 @@ impl Default for InstanceRunnerConfig {
             gc_interval: None,           // GC disabled by default
             gc_retention_seconds: 86400, // 24 hours
             gc_batch_size: 100,
+            persistence_mode: PersistenceMode::Snapshot,
+            event_log_snapshot_every: 10,
+            payload_offload: true,
         }
     }
 }
@@ -197,6 +210,14 @@ struct ActiveInstance {
     queued_ready_count: usize,
     /// Pending completions to be batched
     pending_completions: Vec<Completion>,
+    /// Pending execution events for persistence
+    pending_events: Vec<PendingEvent>,
+    /// Pending payload offload records
+    pending_payloads: Vec<ExecutionPayloadInsert>,
+    /// Events recorded since last snapshot
+    events_since_snapshot: usize,
+    /// Last persisted event id
+    last_event_id: i64,
     /// When this instance was claimed by this runner
     claimed_at: Instant,
 }
@@ -218,6 +239,13 @@ struct WorkerCompletion {
     instance_id: Uuid,
     completion: Completion,
     worker_idx: usize,
+}
+
+#[derive(Debug, Clone)]
+struct PendingEvent {
+    event: ExecutionEvent,
+    inputs_payload_id: Option<Uuid>,
+    result_payload_id: Option<Uuid>,
 }
 
 /// An action queued for dispatch to a worker.
@@ -1213,38 +1241,64 @@ impl InstanceRunner {
         // Load or get cached DAG
         let dag = self.get_or_load_dag(version_id).await?;
 
-        // Initialize or restore execution state
-        let (state, stalled_completions) = match claimed.execution_graph {
+        let has_snapshot = claimed.execution_graph.is_some();
+        let mut state = match claimed.execution_graph {
             Some(bytes) => {
-                // Restore from persisted state
-                let mut state = ExecutionState::from_bytes(&bytes)?;
-
-                // Recover any nodes that were running when previous owner crashed
-                state.recover_running_nodes();
-
-                // Recover completed nodes whose successors weren't advanced
-                // (e.g. runner crashed after action completed but before next
-                // nodes were determined)
-                let stalled = state.find_stalled_completions(&dag);
-
+                let state = ExecutionState::from_bytes(&bytes)?;
                 self.metrics.lock().await.orphans_recovered += 1;
-                (state, stalled)
+                state
             }
             None => {
-                // New instance - initialize from DAG and inputs
                 let mut state = ExecutionState::new();
-
                 let inputs: WorkflowArguments = claimed
                     .input_payload
                     .as_ref()
                     .map(|b| decode_message(b))
                     .transpose()?
                     .unwrap_or_default();
-
                 state.initialize_from_dag(&dag, &inputs);
-                (state, Vec::new())
+                state
             }
         };
+
+        let mut last_event_id = claimed.snapshot_event_id;
+        let mut events_since_snapshot = 0usize;
+
+        if self.config.persistence_mode == PersistenceMode::EventLog {
+            let after_id = if has_snapshot {
+                claimed.snapshot_event_id
+            } else {
+                0
+            };
+            let event_records = self
+                .db
+                .get_execution_events_since(claimed.id, after_id)
+                .await?;
+            if !event_records.is_empty() {
+                let mut machine = ExecutionStateMachine::new(state, Some(&dag));
+                let mut max_id = after_id;
+                for record in &event_records {
+                    let event = Self::event_from_record(record)?;
+                    machine
+                        .apply(&event)
+                        .map_err(|err| InstanceRunnerError::Worker(err.to_string()))?;
+                    if record.id > max_id {
+                        max_id = record.id;
+                    }
+                }
+                state = machine.into_state();
+                last_event_id = max_id;
+                events_since_snapshot = event_records.len();
+            }
+        }
+
+        // Recover any nodes that were running when previous owner crashed
+        state.recover_running_nodes();
+
+        // Recover completed nodes whose successors weren't advanced
+        // (e.g. runner crashed after action completed but before next
+        // nodes were determined)
+        let stalled_completions = state.find_stalled_completions(&dag);
 
         let active = ActiveInstance {
             instance_id: claimed.id,
@@ -1254,6 +1308,10 @@ impl InstanceRunner {
             in_flight: HashSet::new(),
             queued_ready_count: 0,
             pending_completions: stalled_completions,
+            pending_events: Vec::new(),
+            pending_payloads: Vec::new(),
+            events_since_snapshot,
+            last_event_id,
             claimed_at: Instant::now(),
         };
 
@@ -1298,6 +1356,120 @@ impl InstanceRunner {
             .insert(version_id.0, Arc::clone(&dag));
 
         Ok(dag)
+    }
+
+    fn event_from_record(record: &ExecutionEventRecord) -> InstanceRunnerResult<ExecutionEvent> {
+        match record.event_type {
+            ExecutionEventType::Dispatch => {
+                let node_id = record.node_id.clone().ok_or_else(|| {
+                    InstanceRunnerError::Worker("dispatch missing node_id".into())
+                })?;
+                let worker_id = record.worker_id.clone().ok_or_else(|| {
+                    InstanceRunnerError::Worker("dispatch missing worker_id".into())
+                })?;
+                Ok(ExecutionEvent::Dispatch {
+                    node_id,
+                    worker_id,
+                    inputs: record.inputs_payload.clone(),
+                    started_at_ms: record.started_at_ms,
+                })
+            }
+            ExecutionEventType::Completion => {
+                let node_id = record.node_id.clone().ok_or_else(|| {
+                    InstanceRunnerError::Worker("completion missing node_id".into())
+                })?;
+                let worker_id = record.worker_id.clone().ok_or_else(|| {
+                    InstanceRunnerError::Worker("completion missing worker_id".into())
+                })?;
+                let success = record.success.ok_or_else(|| {
+                    InstanceRunnerError::Worker("completion missing success flag".into())
+                })?;
+                let duration_ms = record.duration_ms.ok_or_else(|| {
+                    InstanceRunnerError::Worker("completion missing duration".into())
+                })?;
+
+                Ok(ExecutionEvent::Completion {
+                    node_id,
+                    success,
+                    result: record.result_payload.clone(),
+                    error: record.error.clone(),
+                    error_type: record.error_type.clone(),
+                    worker_id,
+                    duration_ms,
+                    worker_duration_ms: record.worker_duration_ms,
+                })
+            }
+            ExecutionEventType::SetNextWakeup => Ok(ExecutionEvent::SetNextWakeup {
+                next_wakeup_ms: record.next_wakeup_ms,
+            }),
+        }
+    }
+
+    fn event_insert_from_pending(
+        instance_id: WorkflowInstanceId,
+        pending: &PendingEvent,
+    ) -> InstanceRunnerResult<ExecutionEventInsert> {
+        match &pending.event {
+            ExecutionEvent::Dispatch {
+                node_id,
+                worker_id,
+                started_at_ms,
+                ..
+            } => Ok(ExecutionEventInsert {
+                instance_id,
+                event_type: ExecutionEventType::Dispatch,
+                node_id: Some(node_id.clone()),
+                worker_id: Some(worker_id.clone()),
+                success: None,
+                error: None,
+                error_type: None,
+                duration_ms: None,
+                worker_duration_ms: None,
+                started_at_ms: *started_at_ms,
+                next_wakeup_ms: None,
+                inputs_payload_id: pending.inputs_payload_id,
+                result_payload_id: None,
+            }),
+            ExecutionEvent::Completion {
+                node_id,
+                success,
+                error,
+                error_type,
+                worker_id,
+                duration_ms,
+                worker_duration_ms,
+                ..
+            } => Ok(ExecutionEventInsert {
+                instance_id,
+                event_type: ExecutionEventType::Completion,
+                node_id: Some(node_id.clone()),
+                worker_id: Some(worker_id.clone()),
+                success: Some(*success),
+                error: error.clone(),
+                error_type: error_type.clone(),
+                duration_ms: Some(*duration_ms),
+                worker_duration_ms: *worker_duration_ms,
+                started_at_ms: None,
+                next_wakeup_ms: None,
+                inputs_payload_id: None,
+                result_payload_id: pending.result_payload_id,
+            }),
+            ExecutionEvent::SetNextWakeup { next_wakeup_ms } => Ok(ExecutionEventInsert {
+                instance_id,
+                event_type: ExecutionEventType::SetNextWakeup,
+                node_id: None,
+                worker_id: None,
+                success: None,
+                error: None,
+                error_type: None,
+                duration_ms: None,
+                worker_duration_ms: None,
+                started_at_ms: None,
+                next_wakeup_ms: *next_wakeup_ms,
+                inputs_payload_id: None,
+                result_payload_id: None,
+            }),
+        }
     }
 
     /// Collect ready actions from all active instances and enqueue them.
@@ -1569,6 +1741,45 @@ impl InstanceRunner {
                         );
                         dispatched_nodes.push(action.node_id.clone());
 
+                        if self.config.persistence_mode == PersistenceMode::EventLog
+                            || self.config.payload_offload
+                        {
+                            let mut inputs_payload_id = None;
+                            if let Some(ref payload) = inputs_bytes {
+                                let payload_id = Uuid::new_v4();
+                                inputs_payload_id = Some(payload_id);
+                                let attempt_number = instance
+                                    .state
+                                    .graph
+                                    .nodes
+                                    .get(&action.node_id)
+                                    .map(|n| n.attempt_number)
+                                    .unwrap_or(0);
+                                instance.pending_payloads.push(ExecutionPayloadInsert {
+                                    id: payload_id,
+                                    instance_id: instance.instance_id,
+                                    node_id: action.node_id.clone(),
+                                    attempt_number,
+                                    kind: ExecutionPayloadKind::Inputs,
+                                    payload: payload.clone(),
+                                });
+                            }
+
+                            if self.config.persistence_mode == PersistenceMode::EventLog {
+                                instance.pending_events.push(PendingEvent {
+                                    event: ExecutionEvent::Dispatch {
+                                        node_id: action.node_id.clone(),
+                                        worker_id: worker_id.clone(),
+                                        inputs: inputs_bytes.clone(),
+                                        started_at_ms: Some(now_ms),
+                                    },
+                                    inputs_payload_id,
+                                    result_payload_id: None,
+                                });
+                                instance.events_since_snapshot += 1;
+                            }
+                        }
+
                         // Set started_at_ms for timeout tracking
                         if let Some(node) = instance.state.graph.nodes.get_mut(&action.node_id) {
                             node.started_at_ms = Some(now_ms);
@@ -1795,13 +2006,51 @@ impl InstanceRunner {
 
         instance
             .state
-            .mark_running(node_id, SLEEP_WORKER_ID, inputs_bytes);
+            .mark_running(node_id, SLEEP_WORKER_ID, inputs_bytes.clone());
 
         // For sleep nodes, we need to set started_at_ms immediately so the wakeup
         // time can be calculated. Unlike worker actions, sleeps don't report duration.
         let now_ms = Utc::now().timestamp_millis();
         if let Some(node) = instance.state.graph.nodes.get_mut(node_id) {
             node.started_at_ms = Some(now_ms);
+        }
+
+        if self.config.persistence_mode == PersistenceMode::EventLog || self.config.payload_offload
+        {
+            let mut inputs_payload_id = None;
+            if let Some(ref payload) = inputs_bytes {
+                let payload_id = Uuid::new_v4();
+                inputs_payload_id = Some(payload_id);
+                let attempt_number = instance
+                    .state
+                    .graph
+                    .nodes
+                    .get(node_id)
+                    .map(|n| n.attempt_number)
+                    .unwrap_or(0);
+                instance.pending_payloads.push(ExecutionPayloadInsert {
+                    id: payload_id,
+                    instance_id: instance.instance_id,
+                    node_id: node_id.to_string(),
+                    attempt_number,
+                    kind: ExecutionPayloadKind::Inputs,
+                    payload: payload.clone(),
+                });
+            }
+
+            if self.config.persistence_mode == PersistenceMode::EventLog {
+                instance.pending_events.push(PendingEvent {
+                    event: ExecutionEvent::Dispatch {
+                        node_id: node_id.to_string(),
+                        worker_id: SLEEP_WORKER_ID.to_string(),
+                        inputs: inputs_bytes.clone(),
+                        started_at_ms: Some(now_ms),
+                    },
+                    inputs_payload_id,
+                    result_payload_id: None,
+                });
+                instance.events_since_snapshot += 1;
+            }
         }
 
         instance.in_flight.insert(node_id.to_string());
@@ -1929,6 +2178,39 @@ impl InstanceRunner {
 
     /// Finalize completed instances
     async fn finalize_completed_instances(&self) -> InstanceRunnerResult<()> {
+        let persistence_mode = self.config.persistence_mode;
+        let snapshot_every = self.config.event_log_snapshot_every.max(1);
+        let strip_payloads =
+            self.config.payload_offload || persistence_mode == PersistenceMode::EventLog;
+
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        enum SnapshotFinalizationKind {
+            Complete,
+            Fail,
+        }
+
+        #[derive(Debug)]
+        struct PendingSnapshotFinalization {
+            instance_id: WorkflowInstanceId,
+            result_payload: Option<Vec<u8>>,
+            graph_bytes: Vec<u8>,
+            kind: SnapshotFinalizationKind,
+        }
+
+        #[derive(Debug)]
+        struct PendingSnapshotUpdate {
+            instance_id: WorkflowInstanceId,
+            graph_bytes: Vec<u8>,
+            next_wakeup: Option<DateTime<Utc>>,
+        }
+
+        #[derive(Debug)]
+        struct PendingReleaseSnapshot {
+            instance_id: WorkflowInstanceId,
+            graph_bytes: Vec<u8>,
+            next_wakeup: Option<DateTime<Utc>>,
+        }
+
         // Collect batches for different operation types
         // (instance_id, result_payload, graph_bytes)
         let mut to_complete: Vec<(WorkflowInstanceId, Option<Vec<u8>>, Vec<u8>)> = Vec::new();
@@ -1936,6 +2218,19 @@ impl InstanceRunner {
         // (instance_id, graph_bytes, next_wakeup)
         let mut to_release: Vec<(WorkflowInstanceId, Vec<u8>, Option<DateTime<Utc>>)> = Vec::new();
         let mut to_update: Vec<(WorkflowInstanceId, Vec<u8>, Option<DateTime<Utc>>)> = Vec::new();
+
+        let mut pending_snapshot_finalizations: Vec<PendingSnapshotFinalization> = Vec::new();
+        let mut pending_snapshot_updates: Vec<PendingSnapshotUpdate> = Vec::new();
+        let mut pending_snapshot_releases: Vec<PendingReleaseSnapshot> = Vec::new();
+        let mut pending_wakeup_updates: Vec<(WorkflowInstanceId, Option<DateTime<Utc>>)> =
+            Vec::new();
+
+        let mut drained_payloads_by_instance: HashMap<
+            WorkflowInstanceId,
+            Vec<ExecutionPayloadInsert>,
+        > = HashMap::new();
+        let mut drained_events_by_instance: HashMap<WorkflowInstanceId, Vec<PendingEvent>> =
+            HashMap::new();
 
         // Track metadata for logging after batch operations complete
         let mut complete_meta: HashMap<WorkflowInstanceId, String> = HashMap::new();
@@ -1970,6 +2265,51 @@ impl InstanceRunner {
                 // Apply any remaining completions
                 let completion_result = if !instance.pending_completions.is_empty() {
                     let completions = std::mem::take(&mut instance.pending_completions);
+
+                    if persistence_mode == PersistenceMode::EventLog || self.config.payload_offload
+                    {
+                        for completion in &completions {
+                            let attempt_number = instance
+                                .state
+                                .graph
+                                .nodes
+                                .get(&completion.node_id)
+                                .map(|n| n.attempt_number)
+                                .unwrap_or(0);
+                            let mut result_payload_id = None;
+                            if let Some(ref payload) = completion.result {
+                                let payload_id = Uuid::new_v4();
+                                result_payload_id = Some(payload_id);
+                                instance.pending_payloads.push(ExecutionPayloadInsert {
+                                    id: payload_id,
+                                    instance_id: instance.instance_id,
+                                    node_id: completion.node_id.clone(),
+                                    attempt_number,
+                                    kind: ExecutionPayloadKind::Result,
+                                    payload: payload.clone(),
+                                });
+                            }
+
+                            if persistence_mode == PersistenceMode::EventLog {
+                                instance.pending_events.push(PendingEvent {
+                                    event: ExecutionEvent::Completion {
+                                        node_id: completion.node_id.clone(),
+                                        success: completion.success,
+                                        result: completion.result.clone(),
+                                        error: completion.error.clone(),
+                                        error_type: completion.error_type.clone(),
+                                        worker_id: completion.worker_id.clone(),
+                                        duration_ms: completion.duration_ms,
+                                        worker_duration_ms: completion.worker_duration_ms,
+                                    },
+                                    inputs_payload_id: None,
+                                    result_payload_id,
+                                });
+                                instance.events_since_snapshot += 1;
+                            }
+                        }
+                    }
+
                     Some(
                         instance
                             .state
@@ -1982,25 +2322,51 @@ impl InstanceRunner {
                 // Check for workflow completion/failure
                 if let Some(ref result) = completion_result {
                     if result.workflow_completed {
-                        let graph_bytes = instance.state.to_bytes();
+                        let graph_bytes = if strip_payloads {
+                            instance.state.to_bytes_stripped()
+                        } else {
+                            instance.state.to_bytes()
+                        };
                         complete_meta.insert(instance.instance_id, instance.workflow_name.clone());
-                        to_complete.push((
-                            instance.instance_id,
-                            result.result_payload.clone(),
-                            graph_bytes,
-                        ));
+                        if persistence_mode == PersistenceMode::EventLog {
+                            pending_snapshot_finalizations.push(PendingSnapshotFinalization {
+                                instance_id: instance.instance_id,
+                                result_payload: result.result_payload.clone(),
+                                graph_bytes,
+                                kind: SnapshotFinalizationKind::Complete,
+                            });
+                        } else {
+                            to_complete.push((
+                                instance.instance_id,
+                                result.result_payload.clone(),
+                                graph_bytes,
+                            ));
+                        }
                         continue;
                     } else if result.workflow_failed {
-                        let graph_bytes = instance.state.to_bytes();
+                        let graph_bytes = if strip_payloads {
+                            instance.state.to_bytes_stripped()
+                        } else {
+                            instance.state.to_bytes()
+                        };
                         fail_meta.insert(
                             instance.instance_id,
                             (instance.workflow_name.clone(), result.error_message.clone()),
                         );
-                        to_fail.push((
-                            instance.instance_id,
-                            result.result_payload.clone(),
-                            graph_bytes,
-                        ));
+                        if persistence_mode == PersistenceMode::EventLog {
+                            pending_snapshot_finalizations.push(PendingSnapshotFinalization {
+                                instance_id: instance.instance_id,
+                                result_payload: result.result_payload.clone(),
+                                graph_bytes,
+                                kind: SnapshotFinalizationKind::Fail,
+                            });
+                        } else {
+                            to_fail.push((
+                                instance.instance_id,
+                                result.result_payload.clone(),
+                                graph_bytes,
+                            ));
+                        }
                         continue;
                     }
                 }
@@ -2009,18 +2375,222 @@ impl InstanceRunner {
                 let fully_sleeping = Self::refresh_sleep_state(instance);
                 let next_wakeup =
                     Self::sleep_wakeup_datetime_ms(instance.state.graph.next_wakeup_time);
-
-                if fully_sleeping {
-                    let graph_bytes = instance.state.to_bytes();
-                    to_release.push((instance.instance_id, graph_bytes, next_wakeup));
-                } else if !instance.state.has_pending_work() && instance.in_flight.is_empty() {
-                    let graph_bytes = instance.state.to_bytes();
-                    to_update.push((instance.instance_id, graph_bytes, next_wakeup));
-                } else if instance.state.graph.next_wakeup_time != previous_wakeup {
-                    // Wakeup time changed
-                    let graph_bytes = instance.state.to_bytes();
-                    to_update.push((instance.instance_id, graph_bytes, next_wakeup));
+                if persistence_mode == PersistenceMode::EventLog
+                    && instance.state.graph.next_wakeup_time != previous_wakeup
+                {
+                    instance.pending_events.push(PendingEvent {
+                        event: ExecutionEvent::SetNextWakeup {
+                            next_wakeup_ms: instance.state.graph.next_wakeup_time,
+                        },
+                        inputs_payload_id: None,
+                        result_payload_id: None,
+                    });
+                    instance.events_since_snapshot += 1;
                 }
+
+                let graph_bytes = || {
+                    if strip_payloads {
+                        instance.state.to_bytes_stripped()
+                    } else {
+                        instance.state.to_bytes()
+                    }
+                };
+
+                if persistence_mode == PersistenceMode::EventLog {
+                    if fully_sleeping {
+                        pending_snapshot_releases.push(PendingReleaseSnapshot {
+                            instance_id: instance.instance_id,
+                            graph_bytes: graph_bytes(),
+                            next_wakeup,
+                        });
+                    } else if !instance.state.has_pending_work() && instance.in_flight.is_empty() {
+                        if instance.events_since_snapshot >= snapshot_every {
+                            pending_snapshot_updates.push(PendingSnapshotUpdate {
+                                instance_id: instance.instance_id,
+                                graph_bytes: graph_bytes(),
+                                next_wakeup,
+                            });
+                        } else if instance.state.graph.next_wakeup_time != previous_wakeup {
+                            pending_wakeup_updates.push((instance.instance_id, next_wakeup));
+                        }
+                    } else if instance.state.graph.next_wakeup_time != previous_wakeup {
+                        pending_wakeup_updates.push((instance.instance_id, next_wakeup));
+                    }
+                } else if fully_sleeping {
+                    to_release.push((instance.instance_id, graph_bytes(), next_wakeup));
+                } else if (!instance.state.has_pending_work() && instance.in_flight.is_empty())
+                    || instance.state.graph.next_wakeup_time != previous_wakeup
+                {
+                    to_update.push((instance.instance_id, graph_bytes(), next_wakeup));
+                }
+            }
+
+            if persistence_mode == PersistenceMode::EventLog || self.config.payload_offload {
+                for (_instance_id, instance) in instances.iter_mut() {
+                    if !instance.pending_payloads.is_empty() {
+                        drained_payloads_by_instance.insert(
+                            instance.instance_id,
+                            std::mem::take(&mut instance.pending_payloads),
+                        );
+                    }
+
+                    if persistence_mode == PersistenceMode::EventLog
+                        && !instance.pending_events.is_empty()
+                    {
+                        drained_events_by_instance.insert(
+                            instance.instance_id,
+                            std::mem::take(&mut instance.pending_events),
+                        );
+                    }
+                }
+            }
+        }
+
+        let mut inserted_event_max: HashMap<WorkflowInstanceId, i64> = HashMap::new();
+        if persistence_mode == PersistenceMode::EventLog || self.config.payload_offload {
+            let payloads_to_insert: Vec<ExecutionPayloadInsert> = drained_payloads_by_instance
+                .values()
+                .flatten()
+                .cloned()
+                .collect();
+
+            if !payloads_to_insert.is_empty()
+                && let Err(err) = self
+                    .db
+                    .insert_execution_payloads_batch(&payloads_to_insert)
+                    .await
+            {
+                let mut instances = self.active_instances.write().await;
+                for (id, payloads) in drained_payloads_by_instance {
+                    if let Some(instance) = instances.get_mut(&id.0) {
+                        instance.pending_payloads.extend(payloads);
+                    }
+                }
+                for (id, events) in drained_events_by_instance {
+                    if let Some(instance) = instances.get_mut(&id.0) {
+                        instance.pending_events.extend(events);
+                    }
+                }
+                return Err(InstanceRunnerError::Database(err));
+            }
+
+            if persistence_mode == PersistenceMode::EventLog
+                && !drained_events_by_instance.is_empty()
+            {
+                let mut event_inserts = Vec::new();
+                for (instance_id, events) in &drained_events_by_instance {
+                    for pending in events {
+                        let insert = Self::event_insert_from_pending(*instance_id, pending)?;
+                        event_inserts.push(insert);
+                    }
+                }
+
+                if !event_inserts.is_empty() {
+                    match self
+                        .db
+                        .insert_execution_events_batch(&self.config.runner_id, &event_inserts)
+                        .await
+                    {
+                        Ok(max_ids) => {
+                            inserted_event_max = max_ids;
+                        }
+                        Err(err) => {
+                            let mut instances = self.active_instances.write().await;
+                            for (id, events) in drained_events_by_instance {
+                                if let Some(instance) = instances.get_mut(&id.0) {
+                                    instance.pending_events.extend(events);
+                                }
+                            }
+                            return Err(InstanceRunnerError::Database(err));
+                        }
+                    }
+                }
+            }
+        }
+
+        if !inserted_event_max.is_empty() {
+            let mut instances = self.active_instances.write().await;
+            for (instance_id, max_id) in &inserted_event_max {
+                if let Some(instance) = instances.get_mut(&instance_id.0)
+                    && *max_id > instance.last_event_id
+                {
+                    instance.last_event_id = *max_id;
+                }
+            }
+        }
+
+        let mut to_complete_with_snapshot: Vec<InstanceFinalizationWithSnapshot> = Vec::new();
+        let mut to_fail_with_snapshot: Vec<InstanceFinalizationWithSnapshot> = Vec::new();
+        let mut to_release_with_snapshot: Vec<ExecutionGraphReleaseSnapshotUpdate> = Vec::new();
+        let mut to_update_with_snapshot: Vec<ExecutionGraphSnapshotUpdate> = Vec::new();
+        let mut snapshot_id_by_instance: HashMap<WorkflowInstanceId, i64> = HashMap::new();
+
+        if persistence_mode == PersistenceMode::EventLog {
+            let mut instances = self.active_instances.write().await;
+            for pending in pending_snapshot_finalizations {
+                if let Some(instance) = instances.get_mut(&pending.instance_id.0) {
+                    let snapshot_id = instance.last_event_id;
+                    match pending.kind {
+                        SnapshotFinalizationKind::Complete => {
+                            to_complete_with_snapshot.push((
+                                pending.instance_id,
+                                pending.result_payload,
+                                pending.graph_bytes,
+                                snapshot_id,
+                            ));
+                        }
+                        SnapshotFinalizationKind::Fail => {
+                            to_fail_with_snapshot.push((
+                                pending.instance_id,
+                                pending.result_payload,
+                                pending.graph_bytes,
+                                snapshot_id,
+                            ));
+                        }
+                    }
+                    instance.events_since_snapshot = 0;
+                }
+            }
+
+            for pending in pending_snapshot_releases {
+                if let Some(instance) = instances.get_mut(&pending.instance_id.0) {
+                    let snapshot_id = instance.last_event_id;
+                    to_release_with_snapshot.push((
+                        pending.instance_id,
+                        pending.graph_bytes,
+                        pending.next_wakeup,
+                        snapshot_id,
+                    ));
+                    instance.events_since_snapshot = 0;
+                }
+            }
+
+            for pending in pending_snapshot_updates {
+                if let Some(instance) = instances.get_mut(&pending.instance_id.0) {
+                    let snapshot_id = instance.last_event_id;
+                    to_update_with_snapshot.push((
+                        pending.instance_id,
+                        pending.graph_bytes,
+                        pending.next_wakeup,
+                        snapshot_id,
+                    ));
+                    instance.events_since_snapshot = 0;
+                }
+            }
+        }
+
+        if persistence_mode == PersistenceMode::EventLog {
+            for (id, _, _, snapshot_id) in &to_complete_with_snapshot {
+                snapshot_id_by_instance.insert(*id, *snapshot_id);
+            }
+            for (id, _, _, snapshot_id) in &to_fail_with_snapshot {
+                snapshot_id_by_instance.insert(*id, *snapshot_id);
+            }
+            for (id, _, _, snapshot_id) in &to_release_with_snapshot {
+                snapshot_id_by_instance.insert(*id, *snapshot_id);
+            }
+            for (id, _, _, snapshot_id) in &to_update_with_snapshot {
+                snapshot_id_by_instance.insert(*id, *snapshot_id);
             }
         }
 
@@ -2028,10 +2598,44 @@ impl InstanceRunner {
         let mut completed_ids: HashSet<WorkflowInstanceId> = HashSet::new();
         let mut released_ids: HashSet<WorkflowInstanceId> = HashSet::new();
         let mut lost_lease_ids: HashSet<WorkflowInstanceId> = HashSet::new();
+        let mut snapshot_succeeded_ids: Vec<WorkflowInstanceId> = Vec::new();
+        let mut snapshot_succeeded_event_ids: Vec<i64> = Vec::new();
         let batch_size = self.config.completion_batch_size.max(1);
 
         // Batch complete
-        if !to_complete.is_empty() {
+        if persistence_mode == PersistenceMode::EventLog {
+            if !to_complete_with_snapshot.is_empty() {
+                for chunk in to_complete_with_snapshot.chunks(batch_size) {
+                    match self
+                        .db
+                        .complete_instances_with_snapshot_batch(&self.config.runner_id, chunk)
+                        .await
+                    {
+                        Ok(succeeded) => {
+                            let mut metrics = self.metrics.lock().await;
+                            for id in &succeeded {
+                                completed_ids.insert(*id);
+                                metrics.instances_completed += 1;
+                                if let Some(snapshot_id) = snapshot_id_by_instance.get(id) {
+                                    snapshot_succeeded_ids.push(*id);
+                                    snapshot_succeeded_event_ids.push(*snapshot_id);
+                                }
+                                if let Some(workflow_name) = complete_meta.get(id) {
+                                    info!(
+                                        instance_id = %id,
+                                        workflow = %workflow_name,
+                                        "Instance completed successfully"
+                                    );
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            error!(error = %e, "Failed to complete instances batch");
+                        }
+                    }
+                }
+            }
+        } else if !to_complete.is_empty() {
             for chunk in to_complete.chunks(batch_size) {
                 match self
                     .db
@@ -2060,7 +2664,40 @@ impl InstanceRunner {
         }
 
         // Batch fail
-        if !to_fail.is_empty() {
+        if persistence_mode == PersistenceMode::EventLog {
+            if !to_fail_with_snapshot.is_empty() {
+                for chunk in to_fail_with_snapshot.chunks(batch_size) {
+                    match self
+                        .db
+                        .fail_instances_with_snapshot_batch(&self.config.runner_id, chunk)
+                        .await
+                    {
+                        Ok(succeeded) => {
+                            let mut metrics = self.metrics.lock().await;
+                            for id in &succeeded {
+                                completed_ids.insert(*id);
+                                metrics.instances_failed += 1;
+                                if let Some(snapshot_id) = snapshot_id_by_instance.get(id) {
+                                    snapshot_succeeded_ids.push(*id);
+                                    snapshot_succeeded_event_ids.push(*snapshot_id);
+                                }
+                                if let Some((workflow_name, error_msg)) = fail_meta.get(id) {
+                                    warn!(
+                                        instance_id = %id,
+                                        workflow = %workflow_name,
+                                        error = ?error_msg,
+                                        "Instance failed"
+                                    );
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            error!(error = %e, "Failed to fail instances batch");
+                        }
+                    }
+                }
+            }
+        } else if !to_fail.is_empty() {
             for chunk in to_fail.chunks(batch_size) {
                 match self
                     .db
@@ -2090,7 +2727,30 @@ impl InstanceRunner {
         }
 
         // Batch release
-        if !to_release.is_empty() {
+        if persistence_mode == PersistenceMode::EventLog {
+            if !to_release_with_snapshot.is_empty() {
+                for chunk in to_release_with_snapshot.chunks(batch_size) {
+                    match self
+                        .db
+                        .release_instances_with_snapshot_batch(&self.config.runner_id, chunk)
+                        .await
+                    {
+                        Ok(succeeded) => {
+                            released_ids.extend(succeeded.iter().copied());
+                            for id in &succeeded {
+                                if let Some(snapshot_id) = snapshot_id_by_instance.get(id) {
+                                    snapshot_succeeded_ids.push(*id);
+                                    snapshot_succeeded_event_ids.push(*snapshot_id);
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            error!(error = %e, "Failed to release instances batch");
+                        }
+                    }
+                }
+            }
+        } else if !to_release.is_empty() {
             for chunk in to_release.chunks(batch_size) {
                 match self
                     .db
@@ -2108,7 +2768,60 @@ impl InstanceRunner {
         }
 
         // Batch update
-        if !to_update.is_empty() {
+        if persistence_mode == PersistenceMode::EventLog {
+            if !to_update_with_snapshot.is_empty() {
+                for chunk in to_update_with_snapshot.chunks(batch_size) {
+                    match self
+                        .db
+                        .update_execution_graphs_with_snapshot_batch(&self.config.runner_id, chunk)
+                        .await
+                    {
+                        Ok(succeeded) => {
+                            for (id, _, _, _) in chunk {
+                                if !succeeded.contains(id) {
+                                    warn!(
+                                        instance_id = %id,
+                                        "Lost lease while persisting execution graph snapshot"
+                                    );
+                                    lost_lease_ids.insert(*id);
+                                } else if let Some(snapshot_id) = snapshot_id_by_instance.get(id) {
+                                    snapshot_succeeded_ids.push(*id);
+                                    snapshot_succeeded_event_ids.push(*snapshot_id);
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            error!(error = %e, "Failed to update execution graph snapshots batch");
+                        }
+                    }
+                }
+            }
+
+            if !pending_wakeup_updates.is_empty() {
+                for chunk in pending_wakeup_updates.chunks(batch_size) {
+                    match self
+                        .db
+                        .update_next_wakeup_times_batch(&self.config.runner_id, chunk)
+                        .await
+                    {
+                        Ok(succeeded) => {
+                            for (id, _) in chunk {
+                                if !succeeded.contains(id) {
+                                    warn!(
+                                        instance_id = %id,
+                                        "Lost lease while updating wakeup time"
+                                    );
+                                    lost_lease_ids.insert(*id);
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            error!(error = %e, "Failed to update wakeup times batch");
+                        }
+                    }
+                }
+            }
+        } else if !to_update.is_empty() {
             for chunk in to_update.chunks(batch_size) {
                 match self
                     .db
@@ -2132,6 +2845,19 @@ impl InstanceRunner {
                     }
                 }
             }
+        }
+
+        if persistence_mode == PersistenceMode::EventLog
+            && !snapshot_succeeded_ids.is_empty()
+            && let Err(err) = self
+                .db
+                .delete_execution_events_up_to(
+                    &snapshot_succeeded_ids,
+                    &snapshot_succeeded_event_ids,
+                )
+                .await
+        {
+            error!(error = %err, "Failed to delete snapshot event logs");
         }
 
         // Record duration for completed/failed instances into the rolling metric
@@ -2168,35 +2894,102 @@ impl InstanceRunner {
     /// Release all owned instances (on shutdown)
     async fn release_all_instances(&self) -> InstanceRunnerResult<()> {
         let instances = std::mem::take(&mut *self.active_instances.write().await);
+        let strip_payloads = self.config.payload_offload
+            || self.config.persistence_mode == PersistenceMode::EventLog;
 
-        let releases: Vec<_> = instances
-            .into_values()
-            .map(|mut instance| {
-                Self::refresh_sleep_state(&mut instance);
-                let next_wakeup =
-                    Self::sleep_wakeup_datetime_ms(instance.state.graph.next_wakeup_time);
-                let graph_bytes = instance.state.to_bytes();
-                (instance.instance_id, graph_bytes, next_wakeup)
-            })
-            .collect();
+        if self.config.persistence_mode == PersistenceMode::EventLog {
+            let releases: Vec<_> = instances
+                .into_values()
+                .map(|mut instance| {
+                    Self::refresh_sleep_state(&mut instance);
+                    let next_wakeup =
+                        Self::sleep_wakeup_datetime_ms(instance.state.graph.next_wakeup_time);
+                    let graph_bytes = if strip_payloads {
+                        instance.state.to_bytes_stripped()
+                    } else {
+                        instance.state.to_bytes()
+                    };
+                    (
+                        instance.instance_id,
+                        graph_bytes,
+                        next_wakeup,
+                        instance.last_event_id,
+                    )
+                })
+                .collect();
 
-        if !releases.is_empty() {
-            match self
-                .db
-                .release_instances_batch(&self.config.runner_id, &releases)
-                .await
-            {
-                Ok(released) => {
-                    for (id, _, _) in &releases {
-                        if released.contains(id) {
-                            debug!(instance_id = %id, "Released instance");
-                        } else {
-                            warn!(instance_id = %id, "Failed to release instance (lost lease?)");
+            if !releases.is_empty() {
+                match self
+                    .db
+                    .release_instances_with_snapshot_batch(&self.config.runner_id, &releases)
+                    .await
+                {
+                    Ok(released) => {
+                        let mut snapshot_ids = Vec::new();
+                        let mut snapshot_instances = Vec::new();
+                        for (id, _, _, snapshot_id) in &releases {
+                            if released.contains(id) {
+                                debug!(instance_id = %id, "Released instance");
+                                snapshot_instances.push(*id);
+                                snapshot_ids.push(*snapshot_id);
+                            } else {
+                                warn!(
+                                    instance_id = %id,
+                                    "Failed to release instance (lost lease?)"
+                                );
+                            }
+                        }
+                        if !snapshot_instances.is_empty()
+                            && let Err(err) = self
+                                .db
+                                .delete_execution_events_up_to(&snapshot_instances, &snapshot_ids)
+                                .await
+                        {
+                            error!(error = %err, "Failed to delete snapshot event logs");
                         }
                     }
+                    Err(e) => {
+                        error!(error = %e, "Failed to release instances batch");
+                    }
                 }
-                Err(e) => {
-                    error!(error = %e, "Failed to release instances batch");
+            }
+        } else {
+            let releases: Vec<_> = instances
+                .into_values()
+                .map(|mut instance| {
+                    Self::refresh_sleep_state(&mut instance);
+                    let next_wakeup =
+                        Self::sleep_wakeup_datetime_ms(instance.state.graph.next_wakeup_time);
+                    let graph_bytes = if strip_payloads {
+                        instance.state.to_bytes_stripped()
+                    } else {
+                        instance.state.to_bytes()
+                    };
+                    (instance.instance_id, graph_bytes, next_wakeup)
+                })
+                .collect();
+
+            if !releases.is_empty() {
+                match self
+                    .db
+                    .release_instances_batch(&self.config.runner_id, &releases)
+                    .await
+                {
+                    Ok(released) => {
+                        for (id, _, _) in &releases {
+                            if released.contains(id) {
+                                debug!(instance_id = %id, "Released instance");
+                            } else {
+                                warn!(
+                                    instance_id = %id,
+                                    "Failed to release instance (lost lease?)"
+                                );
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!(error = %e, "Failed to release instances batch");
+                    }
                 }
             }
         }
@@ -2233,6 +3026,9 @@ mod tests {
         assert!(config.gc_interval.is_none()); // GC disabled by default
         assert_eq!(config.gc_retention_seconds, 86400);
         assert_eq!(config.gc_batch_size, 100);
+        assert_eq!(config.persistence_mode, PersistenceMode::Snapshot);
+        assert_eq!(config.event_log_snapshot_every, 10);
+        assert!(config.payload_offload);
         // runner_id should be a valid UUID
         assert!(!config.runner_id.is_empty());
     }
@@ -2254,6 +3050,9 @@ mod tests {
             gc_interval: Some(Duration::from_secs(3600)),
             gc_retention_seconds: 43200,
             gc_batch_size: 50,
+            persistence_mode: PersistenceMode::EventLog,
+            event_log_snapshot_every: 25,
+            payload_offload: true,
         };
         assert_eq!(config.runner_id, "custom-runner-123");
         assert_eq!(config.lease_seconds, 120);
@@ -2266,6 +3065,9 @@ mod tests {
         assert_eq!(config.gc_interval, Some(Duration::from_secs(3600)));
         assert_eq!(config.gc_retention_seconds, 43200);
         assert_eq!(config.gc_batch_size, 50);
+        assert_eq!(config.persistence_mode, PersistenceMode::EventLog);
+        assert_eq!(config.event_log_snapshot_every, 25);
+        assert!(config.payload_offload);
     }
 
     #[test]
