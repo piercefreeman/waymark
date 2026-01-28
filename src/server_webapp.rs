@@ -1334,18 +1334,18 @@ fn render_workers_page(templates: &Tera, statuses: &[WorkerStatus], window_minut
     // pick the pool with the most data points (typically there's only one).
     let mut best_ts: Option<PoolTimeSeries> = None;
     for status in statuses {
-        if let Some(ref bytes) = status.time_series {
-            if let Some(ts) = PoolTimeSeries::decode(bytes) {
-                let is_better = best_ts.as_ref().is_none_or(|b| ts.len() > b.len());
-                if is_better {
-                    best_ts = Some(ts);
-                }
+        if let Some(ref bytes) = status.time_series
+            && let Some(ts) = PoolTimeSeries::decode(bytes)
+        {
+            let is_better = best_ts.as_ref().is_none_or(|b| ts.len() > b.len());
+            if is_better {
+                best_ts = Some(ts);
             }
         }
     }
 
     let (time_series_json, has_time_series) = match best_ts {
-        Some(ts) if ts.len() > 0 => {
+        Some(ts) if !ts.is_empty() => {
             let json = serde_json::to_string(&ts.to_json_entries()).unwrap_or_default();
             (json, true)
         }

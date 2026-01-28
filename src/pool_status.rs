@@ -58,6 +58,10 @@ impl PoolTimeSeries {
         self.entries.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
     /// Encode to binary: `[u32 count][N x 30-byte entries]`
     ///
     /// Each entry is:
@@ -210,7 +214,7 @@ mod tests {
         let mut ts = PoolTimeSeries::new();
         ts.push(TimeSeriesEntry {
             timestamp_secs: 1700000000,
-            actions_per_sec: 3.14,
+            actions_per_sec: 3.25,
             active_workers: 8,
             avg_instance_duration_secs: 42.5,
             active_instances: 100,
@@ -233,7 +237,7 @@ mod tests {
 
         let json = decoded.to_json_entries();
         assert_eq!(json[0].t, 1700000000);
-        assert!((json[0].aps - 3.14).abs() < 0.001);
+        assert!((json[0].aps - 3.25).abs() < 0.001);
         assert_eq!(json[0].w, 8);
         assert!((json[0].d - 42.5).abs() < 0.01);
         assert_eq!(json[0].ai, 100);
