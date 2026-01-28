@@ -161,6 +161,7 @@ impl InMemoryWorkflowExecutor {
             error_type: result.error_type,
             worker_id: "in_memory".to_string(),
             duration_ms,
+            worker_duration_ms: None,
         });
 
         self.advance().await
@@ -273,6 +274,7 @@ impl InMemoryWorkflowExecutor {
                         .map(|_| "SpreadEvaluationError".to_string()),
                     worker_id: "inline".to_string(),
                     duration_ms: 0,
+                    worker_duration_ms: None,
                 });
                 continue;
             }
@@ -295,6 +297,7 @@ impl InMemoryWorkflowExecutor {
                     error_type: None,
                     worker_id: "inline".to_string(),
                     duration_ms: 0,
+                    worker_duration_ms: None,
                 });
             }
         }
@@ -364,6 +367,7 @@ impl InMemoryWorkflowExecutor {
                 error_type: None,
                 worker_id: "sleep".to_string(),
                 duration_ms: 0,
+                worker_duration_ms: None,
             });
             return Ok(());
         }
@@ -380,6 +384,7 @@ impl InMemoryWorkflowExecutor {
             error_type: None,
             worker_id: "sleep".to_string(),
             duration_ms: duration_ms as i64,
+            worker_duration_ms: None,
         });
 
         Ok(())
