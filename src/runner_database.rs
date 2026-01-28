@@ -2028,96 +2028,108 @@ impl InstanceRunner {
         let mut completed_ids: HashSet<WorkflowInstanceId> = HashSet::new();
         let mut released_ids: HashSet<WorkflowInstanceId> = HashSet::new();
         let mut lost_lease_ids: HashSet<WorkflowInstanceId> = HashSet::new();
+        let batch_size = self.config.completion_batch_size.max(1);
 
         // Batch complete
         if !to_complete.is_empty() {
-            match self
-                .db
-                .complete_instances_batch(&self.config.runner_id, &to_complete)
-                .await
-            {
-                Ok(succeeded) => {
-                    let mut metrics = self.metrics.lock().await;
-                    for id in &succeeded {
-                        completed_ids.insert(*id);
-                        metrics.instances_completed += 1;
-                        if let Some(workflow_name) = complete_meta.get(id) {
-                            info!(
-                                instance_id = %id,
-                                workflow = %workflow_name,
-                                "Instance completed successfully"
-                            );
+            for chunk in to_complete.chunks(batch_size) {
+                match self
+                    .db
+                    .complete_instances_batch(&self.config.runner_id, chunk)
+                    .await
+                {
+                    Ok(succeeded) => {
+                        let mut metrics = self.metrics.lock().await;
+                        for id in &succeeded {
+                            completed_ids.insert(*id);
+                            metrics.instances_completed += 1;
+                            if let Some(workflow_name) = complete_meta.get(id) {
+                                info!(
+                                    instance_id = %id,
+                                    workflow = %workflow_name,
+                                    "Instance completed successfully"
+                                );
+                            }
                         }
                     }
-                }
-                Err(e) => {
-                    error!(error = %e, "Failed to complete instances batch");
+                    Err(e) => {
+                        error!(error = %e, "Failed to complete instances batch");
+                    }
                 }
             }
         }
 
         // Batch fail
         if !to_fail.is_empty() {
-            match self
-                .db
-                .fail_instances_batch(&self.config.runner_id, &to_fail)
-                .await
-            {
-                Ok(succeeded) => {
-                    let mut metrics = self.metrics.lock().await;
-                    for id in &succeeded {
-                        completed_ids.insert(*id);
-                        metrics.instances_failed += 1;
-                        if let Some((workflow_name, error_msg)) = fail_meta.get(id) {
-                            warn!(
-                                instance_id = %id,
-                                workflow = %workflow_name,
-                                error = ?error_msg,
-                                "Instance failed"
-                            );
+            for chunk in to_fail.chunks(batch_size) {
+                match self
+                    .db
+                    .fail_instances_batch(&self.config.runner_id, chunk)
+                    .await
+                {
+                    Ok(succeeded) => {
+                        let mut metrics = self.metrics.lock().await;
+                        for id in &succeeded {
+                            completed_ids.insert(*id);
+                            metrics.instances_failed += 1;
+                            if let Some((workflow_name, error_msg)) = fail_meta.get(id) {
+                                warn!(
+                                    instance_id = %id,
+                                    workflow = %workflow_name,
+                                    error = ?error_msg,
+                                    "Instance failed"
+                                );
+                            }
                         }
                     }
-                }
-                Err(e) => {
-                    error!(error = %e, "Failed to fail instances batch");
+                    Err(e) => {
+                        error!(error = %e, "Failed to fail instances batch");
+                    }
                 }
             }
         }
 
         // Batch release
         if !to_release.is_empty() {
-            match self
-                .db
-                .release_instances_batch(&self.config.runner_id, &to_release)
-                .await
-            {
-                Ok(succeeded) => {
-                    released_ids = succeeded;
-                }
-                Err(e) => {
-                    error!(error = %e, "Failed to release instances batch");
+            for chunk in to_release.chunks(batch_size) {
+                match self
+                    .db
+                    .release_instances_batch(&self.config.runner_id, chunk)
+                    .await
+                {
+                    Ok(succeeded) => {
+                        released_ids.extend(succeeded);
+                    }
+                    Err(e) => {
+                        error!(error = %e, "Failed to release instances batch");
+                    }
                 }
             }
         }
 
         // Batch update
         if !to_update.is_empty() {
-            match self
-                .db
-                .update_execution_graphs_batch(&self.config.runner_id, &to_update)
-                .await
-            {
-                Ok(succeeded) => {
-                    // Track instances that lost their lease
-                    for (id, _, _) in &to_update {
-                        if !succeeded.contains(id) {
-                            warn!(instance_id = %id, "Lost lease while persisting execution graph");
-                            lost_lease_ids.insert(*id);
+            for chunk in to_update.chunks(batch_size) {
+                match self
+                    .db
+                    .update_execution_graphs_batch(&self.config.runner_id, chunk)
+                    .await
+                {
+                    Ok(succeeded) => {
+                        // Track instances that lost their lease
+                        for (id, _, _) in chunk {
+                            if !succeeded.contains(id) {
+                                warn!(
+                                    instance_id = %id,
+                                    "Lost lease while persisting execution graph"
+                                );
+                                lost_lease_ids.insert(*id);
+                            }
                         }
                     }
-                }
-                Err(e) => {
-                    error!(error = %e, "Failed to update execution graphs batch");
+                    Err(e) => {
+                        error!(error = %e, "Failed to update execution graphs batch");
+                    }
                 }
             }
         }
