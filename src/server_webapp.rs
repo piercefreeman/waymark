@@ -26,6 +26,7 @@ use uuid::Uuid;
 
 use crate::config::WebappConfig;
 use crate::db::{Database, ScheduleId, WorkerStatus, WorkflowVersionId, WorkflowVersionSummary};
+use crate::execution_graph::ExecutionState;
 use crate::messages::execution::{ExecutionGraph, NodeStatus};
 use crate::pool_status::PoolTimeSeries;
 
@@ -1662,14 +1663,12 @@ fn build_filtered_execution_graph(
 }
 
 fn decode_execution_graph(bytes: &[u8]) -> Option<ExecutionGraph> {
-    use prost::Message;
-
     if bytes.is_empty() {
         return None;
     }
 
-    match ExecutionGraph::decode(bytes) {
-        Ok(graph) => Some(graph),
+    match ExecutionState::from_bytes(bytes) {
+        Ok(state) => Some(state.graph),
         Err(err) => {
             error!(?err, "failed to decode execution graph");
             None

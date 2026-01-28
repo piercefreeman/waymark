@@ -70,17 +70,82 @@ pub struct ExecutionState {
 /// Worker identifier used for durable sleep nodes.
 pub const SLEEP_WORKER_ID: &str = "sleep";
 const SCOPE_DELIM: &str = "::";
+const EXECUTION_GRAPH_MAGIC: [u8; 4] = *b"RAPZ";
+const EXECUTION_GRAPH_VERSION: u8 = 1;
+const EXECUTION_GRAPH_CODEC_ZSTD: u8 = 1;
+const EXECUTION_GRAPH_HEADER_LEN: usize = 4 + 1 + 1 + 8;
+const EXECUTION_GRAPH_ZSTD_LEVEL: i32 = 3;
+
+fn encode_execution_graph_bytes(raw: &[u8]) -> Vec<u8> {
+    let compressed = match zstd::bulk::compress(raw, EXECUTION_GRAPH_ZSTD_LEVEL) {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            warn!(
+                ?err,
+                "failed to compress execution graph; storing uncompressed"
+            );
+            return raw.to_vec();
+        }
+    };
+
+    if compressed.len() + EXECUTION_GRAPH_HEADER_LEN >= raw.len() {
+        return raw.to_vec();
+    }
+
+    let mut out = Vec::with_capacity(EXECUTION_GRAPH_HEADER_LEN + compressed.len());
+    out.extend_from_slice(&EXECUTION_GRAPH_MAGIC);
+    out.push(EXECUTION_GRAPH_VERSION);
+    out.push(EXECUTION_GRAPH_CODEC_ZSTD);
+    out.extend_from_slice(&(raw.len() as u64).to_le_bytes());
+    out.extend_from_slice(&compressed);
+    out
+}
+
+fn decode_execution_graph_bytes(bytes: &[u8]) -> Result<Vec<u8>, prost::DecodeError> {
+    if bytes.len() < EXECUTION_GRAPH_HEADER_LEN || !bytes.starts_with(&EXECUTION_GRAPH_MAGIC) {
+        return Ok(bytes.to_vec());
+    }
+
+    let version = bytes[EXECUTION_GRAPH_MAGIC.len()];
+    let codec = bytes[EXECUTION_GRAPH_MAGIC.len() + 1];
+    if version != EXECUTION_GRAPH_VERSION || codec != EXECUTION_GRAPH_CODEC_ZSTD {
+        warn!(version, codec, "unknown execution graph compression header");
+        return Err(prost::DecodeError::new(
+            "unknown execution graph compression header",
+        ));
+    }
+
+    let len_start = EXECUTION_GRAPH_MAGIC.len() + 2;
+    let mut len_bytes = [0u8; 8];
+    len_bytes.copy_from_slice(&bytes[len_start..len_start + 8]);
+    let raw_len = u64::from_le_bytes(len_bytes);
+    let raw_len = usize::try_from(raw_len)
+        .map_err(|_| prost::DecodeError::new("execution graph length overflow"))?;
+    let compressed = &bytes[EXECUTION_GRAPH_HEADER_LEN..];
+
+    match zstd::bulk::decompress(compressed, raw_len) {
+        Ok(decoded) => Ok(decoded),
+        Err(err) => {
+            warn!(?err, "failed to decompress execution graph");
+            Err(prost::DecodeError::new(
+                "failed to decompress execution graph",
+            ))
+        }
+    }
+}
 
 impl ExecutionState {
     /// Create a new execution state from protobuf bytes
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, prost::DecodeError> {
-        let graph = ExecutionGraph::decode(bytes)?;
+        let decoded = decode_execution_graph_bytes(bytes)?;
+        let graph = ExecutionGraph::decode(&*decoded)?;
         Ok(Self { graph })
     }
 
     /// Serialize the execution state to protobuf bytes
     pub fn to_bytes(&self) -> Vec<u8> {
-        self.graph.encode_to_vec()
+        let raw = self.graph.encode_to_vec();
+        encode_execution_graph_bytes(&raw)
     }
 
     /// Create an empty execution state
@@ -1755,6 +1820,52 @@ mod tests {
 
         assert_eq!(recovered.graph.ready_queue, vec!["test_node".to_string()]);
         assert!(recovered.graph.nodes.contains_key("test_node"));
+    }
+
+    #[test]
+    fn test_execution_graph_compression_roundtrip() {
+        let raw = vec![0u8; 4096];
+        let encoded = encode_execution_graph_bytes(&raw);
+        assert!(encoded.starts_with(&EXECUTION_GRAPH_MAGIC));
+        assert!(encoded.len() < raw.len());
+
+        let decoded = decode_execution_graph_bytes(&encoded).unwrap();
+        assert_eq!(decoded, raw);
+    }
+
+    #[test]
+    fn test_execution_graph_decode_uncompressed_bytes() {
+        let mut state = ExecutionState::new();
+        state.graph.ready_queue.push("uncompressed".to_string());
+        state.graph.nodes.insert(
+            "uncompressed".to_string(),
+            ExecutionNode {
+                template_id: "uncompressed".to_string(),
+                status: NodeStatus::Pending as i32,
+                ..Default::default()
+            },
+        );
+
+        let raw = state.graph.encode_to_vec();
+        let recovered = ExecutionState::from_bytes(&raw).unwrap();
+        assert_eq!(
+            recovered.graph.ready_queue,
+            vec!["uncompressed".to_string()]
+        );
+        assert!(recovered.graph.nodes.contains_key("uncompressed"));
+    }
+
+    #[test]
+    fn test_execution_graph_decode_rejects_unknown_header() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&EXECUTION_GRAPH_MAGIC);
+        bytes.push(EXECUTION_GRAPH_VERSION.wrapping_add(1));
+        bytes.push(EXECUTION_GRAPH_CODEC_ZSTD);
+        bytes.extend_from_slice(&0u64.to_le_bytes());
+
+        let err = decode_execution_graph_bytes(&bytes).unwrap_err();
+        let err_msg = err.to_string();
+        assert!(err_msg.contains("unknown execution graph compression header"));
     }
 
     #[test]

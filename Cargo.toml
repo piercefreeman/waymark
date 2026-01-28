@@ -64,6 +64,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-chrome = "0.7"
 metrics = "0.24"
+zstd = "0.13"
 
 [build-dependencies]
 tonic-build = "0.11"
