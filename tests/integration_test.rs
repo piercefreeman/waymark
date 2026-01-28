@@ -16,7 +16,8 @@ use serial_test::serial;
 use tracing::info;
 
 use harness::{HarnessConfig, IntegrationHarness, run_workflow_in_memory};
-use rappel::proto;
+use rappel::messages::execution::NodeStatus;
+use rappel::{DAGConverter, ExecutionState, proto};
 
 const SIMPLE_WORKFLOW_MODULE: &str = include_str!("fixtures/simple_workflow.py");
 const SEQUENTIAL_WORKFLOW_MODULE: &str = include_str!("fixtures/sequential_workflow.py");
@@ -5092,6 +5093,306 @@ async fn tuple_unpack_fn_call_kwargs_populated() -> Result<()> {
     assert_eq!(
         db_result, in_memory_result,
         "in-memory result should match DB result"
+    );
+
+    harness.shutdown().await?;
+    Ok(())
+}
+
+// ============================================================================
+// Stalled completion recovery tests
+// ============================================================================
+
+/// Test that a workflow instance stuck in "limbo" (action completed but
+/// successor nodes still blocked, empty ready_queue) recovers when a
+/// new runner claims it.
+///
+/// This reproduces the scenario where:
+/// 1. A runner completes an action (node marked COMPLETED, result stored)
+/// 2. The runner crashes/quits before apply_completions_batch determines
+///    the next nodes
+/// 3. The persisted execution_graph has COMPLETED nodes with BLOCKED successors
+/// 4. A new runner claims the instance and should recover it
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[serial]
+async fn stalled_completion_recovery_sequential_workflow() -> Result<()> {
+    let _ = tracing_subscriber::fmt::try_init();
+    let _ = dotenvy::dotenv();
+
+    let Some(harness) = IntegrationHarness::new(HarnessConfig {
+        files: &[
+            ("sequential_workflow.py", SEQUENTIAL_WORKFLOW_MODULE),
+            ("register.py", REGISTER_SEQUENTIAL_SCRIPT),
+        ],
+        entrypoint: "register.py",
+        workflow_name: "sequentialworkflow",
+        user_module: "sequential_workflow",
+        inputs: &[],
+        workflow_class: None,
+        run_args: None,
+    })
+    .await?
+    else {
+        return Ok(());
+    };
+
+    let db = harness.database();
+    let instance_id = harness.instance_id();
+
+    // Load the DAG from the workflow version
+    let version = db
+        .get_workflow_version(
+            db.list_workflow_versions()
+                .await?
+                .iter()
+                .find(|v| v.workflow_name == "sequentialworkflow")
+                .map(|v| rappel::WorkflowVersionId(v.id))
+                .expect("version exists"),
+        )
+        .await?;
+    let program: rappel::ast::Program =
+        prost::Message::decode(version.program_proto.as_slice())?;
+    let dag = DAGConverter::new()
+        .convert(&program)
+        .map_err(|e| anyhow::anyhow!("DAG conversion failed: {e}"))?;
+
+    // Initialize execution state from the DAG (same as a fresh instance)
+    let mut state = ExecutionState::new();
+    let inputs = proto::WorkflowArguments {
+        arguments: vec![],
+    };
+    state.initialize_from_dag(&dag, &inputs);
+
+    // Process the input boundary node (inline) by creating a completion for it.
+    // The input node is the entry point and has no real work.
+    let input_node_id = dag
+        .nodes
+        .values()
+        .find(|n| n.is_input)
+        .map(|n| n.id.clone())
+        .expect("DAG should have an input node");
+
+    let input_completion = rappel::Completion {
+        node_id: input_node_id.clone(),
+        success: true,
+        result: Some(vec![]),
+        error: None,
+        error_type: None,
+        worker_id: "test".to_string(),
+        duration_ms: 0,
+        worker_duration_ms: Some(0),
+    };
+    let batch_result = state.apply_completions_batch(vec![input_completion], &dag);
+
+    // After input completion, the first action (fetch_value) should be ready
+    assert!(
+        !batch_result.newly_ready.is_empty(),
+        "first action should be ready after input node completes"
+    );
+
+    // Find the first action node (fetch_value)
+    let first_action_id = batch_result.newly_ready[0].clone();
+    info!(first_action_id = %first_action_id, "first action is ready");
+
+    // Simulate the action completing successfully with result = 42
+    // Encode result as WorkflowArguments { key: "result", value: 42 }
+    let result_value = rappel::WorkflowValue::Int(42);
+    let result_args = proto::WorkflowArguments {
+        arguments: vec![proto::WorkflowArgument {
+            key: "result".to_string(),
+            value: Some(result_value.to_proto()),
+        }],
+    };
+    let result_bytes = prost::Message::encode_to_vec(&result_args);
+
+    // Mark the action as COMPLETED with the result, but DON'T call
+    // apply_completions_batch -- this simulates the crash scenario
+    if let Some(node) = state.graph.nodes.get_mut(&first_action_id) {
+        node.status = NodeStatus::Completed as i32;
+        node.result = Some(result_bytes);
+    }
+
+    // Clear the ready queue - simulating that successor computation never happened
+    state.graph.ready_queue.clear();
+
+    // Verify we're in the limbo state: action COMPLETED, successors BLOCKED, no ready work
+    assert!(
+        !state.has_pending_work(),
+        "should have no pending work (limbo state)"
+    );
+    let blocked_count = state
+        .graph
+        .nodes
+        .values()
+        .filter(|n| n.status == NodeStatus::Blocked as i32)
+        .count();
+    assert!(
+        blocked_count > 0,
+        "should have blocked successor nodes in limbo state"
+    );
+
+    // Persist this "limbo" execution graph to the database
+    let graph_bytes = state.to_bytes();
+    sqlx::query(
+        "UPDATE workflow_instances SET execution_graph = $1, owner_id = NULL, lease_expires_at = NULL WHERE id = $2"
+    )
+    .bind(&graph_bytes)
+    .bind(instance_id.0)
+    .execute(db.pool())
+    .await?;
+
+    info!("persisted limbo execution graph to DB");
+
+    // Now run the workflow to completion - the runner should:
+    // 1. Claim the instance
+    // 2. Load the persisted execution_graph
+    // 3. Call recover_running_nodes (finds nothing - no RUNNING nodes)
+    // 4. Call find_stalled_completions (finds the completed action with blocked successor)
+    // 5. Process stalled completions through apply_completions_batch
+    // 6. Advance the workflow, dispatching remaining actions to workers
+    // 7. Complete the workflow
+    harness.dispatch_all().await?;
+
+    // Verify the workflow completed with the correct result
+    let stored_payload = harness
+        .stored_result()
+        .await?
+        .expect("workflow should have a result after recovery");
+    let result_str = parse_result(&stored_payload)?.expect("result should be a string");
+
+    // The sequential workflow does: fetch_value() -> 42, transform_value(42) -> 84,
+    // format_result(84) -> "result:84"
+    assert_eq!(
+        result_str, "result:84",
+        "recovered workflow should produce correct result"
+    );
+
+    info!("stalled completion recovery test passed");
+
+    harness.shutdown().await?;
+    Ok(())
+}
+
+/// Test recovery of a simple single-action workflow stuck in limbo state.
+/// Simpler case than the sequential test: just one action whose output node
+/// is still blocked.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[serial]
+async fn stalled_completion_recovery_simple_workflow() -> Result<()> {
+    let _ = tracing_subscriber::fmt::try_init();
+    let _ = dotenvy::dotenv();
+
+    let Some(harness) = IntegrationHarness::new(HarnessConfig {
+        files: &[
+            ("simple_workflow.py", SIMPLE_WORKFLOW_MODULE),
+            ("register.py", REGISTER_SIMPLE_SCRIPT),
+        ],
+        entrypoint: "register.py",
+        workflow_name: "simpleworkflow",
+        user_module: "simple_workflow",
+        inputs: &[("name", "\"recovery_test\"")],
+        workflow_class: None,
+        run_args: None,
+    })
+    .await?
+    else {
+        return Ok(());
+    };
+
+    let db = harness.database();
+    let instance_id = harness.instance_id();
+
+    // Load the DAG
+    let version = db
+        .get_workflow_version(
+            db.list_workflow_versions()
+                .await?
+                .iter()
+                .find(|v| v.workflow_name == "simpleworkflow")
+                .map(|v| rappel::WorkflowVersionId(v.id))
+                .expect("version exists"),
+        )
+        .await?;
+    let program: rappel::ast::Program =
+        prost::Message::decode(version.program_proto.as_slice())?;
+    let dag = DAGConverter::new()
+        .convert(&program)
+        .map_err(|e| anyhow::anyhow!("DAG conversion failed: {e}"))?;
+
+    // Initialize execution state
+    let mut state = ExecutionState::new();
+    let name_value = rappel::WorkflowValue::String("recovery_test".to_string());
+    let inputs = proto::WorkflowArguments {
+        arguments: vec![proto::WorkflowArgument {
+            key: "name".to_string(),
+            value: Some(name_value.to_proto()),
+        }],
+    };
+    state.initialize_from_dag(&dag, &inputs);
+
+    // Process input node
+    let input_node_id = dag
+        .nodes
+        .values()
+        .find(|n| n.is_input)
+        .map(|n| n.id.clone())
+        .expect("input node");
+    let batch_result = state.apply_completions_batch(
+        vec![rappel::Completion {
+            node_id: input_node_id,
+            success: true,
+            result: Some(vec![]),
+            error: None,
+            error_type: None,
+            worker_id: "test".to_string(),
+            duration_ms: 0,
+            worker_duration_ms: Some(0),
+        }],
+        &dag,
+    );
+
+    // Find the greet action node
+    let action_id = batch_result.newly_ready[0].clone();
+
+    // Simulate greet action completing with "hello recovery_test"
+    let result_value = rappel::WorkflowValue::String("hello recovery_test".to_string());
+    let result_args = proto::WorkflowArguments {
+        arguments: vec![proto::WorkflowArgument {
+            key: "result".to_string(),
+            value: Some(result_value.to_proto()),
+        }],
+    };
+    let result_bytes = prost::Message::encode_to_vec(&result_args);
+
+    // Mark as completed but DON'T advance successors
+    if let Some(node) = state.graph.nodes.get_mut(&action_id) {
+        node.status = NodeStatus::Completed as i32;
+        node.result = Some(result_bytes);
+    }
+    state.graph.ready_queue.clear();
+
+    // Persist limbo state
+    let graph_bytes = state.to_bytes();
+    sqlx::query(
+        "UPDATE workflow_instances SET execution_graph = $1, owner_id = NULL, lease_expires_at = NULL WHERE id = $2"
+    )
+    .bind(&graph_bytes)
+    .bind(instance_id.0)
+    .execute(db.pool())
+    .await?;
+
+    // Run to completion - should recover from limbo
+    harness.dispatch_all().await?;
+
+    let stored_payload = harness
+        .stored_result()
+        .await?
+        .expect("workflow should complete after recovery");
+    let result_str = parse_result(&stored_payload)?.expect("result should be a string");
+
+    assert_eq!(
+        result_str, "hello recovery_test",
+        "recovered workflow should produce correct result"
     );
 
     harness.shutdown().await?;

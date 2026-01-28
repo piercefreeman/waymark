@@ -1665,6 +1665,66 @@ impl ExecutionState {
             }
         }
     }
+
+    /// Find completed nodes whose successors haven't been advanced.
+    ///
+    /// This detects the "limbo state" where a node completed successfully but
+    /// the runner crashed before `apply_completions_batch` could determine the
+    /// next nodes. Returns synthetic [`Completion`] objects that can be
+    /// re-processed through the normal completion flow to advance the workflow.
+    pub fn find_stalled_completions(&self, dag: &DAG) -> Vec<Completion> {
+        let helper = DAGHelper::new(dag);
+        let ready_set: HashSet<&str> = self.graph.ready_queue.iter().map(|s| s.as_str()).collect();
+        let mut stalled = Vec::new();
+
+        for (node_id, node) in &self.graph.nodes {
+            if node.status != NodeStatus::Completed as i32 {
+                continue;
+            }
+
+            // Check if any outgoing state-machine edge leads to a BLOCKED
+            // successor that isn't already in the ready_queue.
+            let has_stalled_successor = helper
+                .get_state_machine_successors(&node.template_id)
+                .iter()
+                .any(|edge| {
+                    if ready_set.contains(edge.target.as_str()) {
+                        return false;
+                    }
+                    self.graph
+                        .nodes
+                        .get(&edge.target)
+                        .map(|n| n.status == NodeStatus::Blocked as i32)
+                        .unwrap_or(false)
+                });
+
+            if has_stalled_successor {
+                debug!(
+                    node_id = %node_id,
+                    "Found stalled completion: node completed but successor still blocked"
+                );
+                stalled.push(Completion {
+                    node_id: node_id.clone(),
+                    success: true,
+                    result: node.result.clone(),
+                    error: None,
+                    error_type: None,
+                    worker_id: "recovery".to_string(),
+                    duration_ms: 0,
+                    worker_duration_ms: Some(0),
+                });
+            }
+        }
+
+        if !stalled.is_empty() {
+            debug!(
+                stalled_count = stalled.len(),
+                "Found stalled completions for recovery"
+            );
+        }
+
+        stalled
+    }
 }
 
 impl Default for ExecutionState {
@@ -2163,6 +2223,304 @@ mod tests {
         assert!(
             pending_not_in_queue.is_empty(),
             "No Pending nodes should be orphaned"
+        );
+    }
+
+    /// Helper to build a minimal DAG with sequential nodes connected by state-machine edges.
+    fn build_sequential_dag(node_ids: &[&str]) -> DAG {
+        use crate::dag::{DAGEdge, DAGNode};
+
+        let mut nodes = HashMap::new();
+        let mut edges = Vec::new();
+
+        for (i, id) in node_ids.iter().enumerate() {
+            let is_first = i == 0;
+            let is_last = i == node_ids.len() - 1;
+            let node_type = if is_first {
+                "input"
+            } else if is_last {
+                "output"
+            } else {
+                "action_call"
+            };
+
+            let mut node = DAGNode::new(id.to_string(), node_type.to_string(), id.to_string());
+            node.function_name = Some("run".to_string());
+            node.is_input = is_first;
+            node.is_output = is_last;
+            if !is_first && !is_last {
+                node.action_name = Some(format!("action_{}", id));
+                node.module_name = Some("test_module".to_string());
+            }
+            node.target = Some("result".to_string());
+            nodes.insert(id.to_string(), node);
+
+            if i > 0 {
+                edges.push(DAGEdge::state_machine(
+                    node_ids[i - 1].to_string(),
+                    id.to_string(),
+                ));
+            }
+        }
+
+        DAG {
+            nodes,
+            edges,
+            entry_node: Some(node_ids[0].to_string()),
+        }
+    }
+
+    #[test]
+    fn test_find_stalled_completions_detects_limbo() {
+        // Simulate the limbo state: node_b completed but successor node_c is still BLOCKED
+        let dag = build_sequential_dag(&["node_a", "node_b", "node_c"]);
+
+        let mut state = ExecutionState::new();
+        state.graph.nodes.insert(
+            "node_a".to_string(),
+            ExecutionNode {
+                template_id: "node_a".to_string(),
+                status: NodeStatus::Completed as i32,
+                ..Default::default()
+            },
+        );
+        state.graph.nodes.insert(
+            "node_b".to_string(),
+            ExecutionNode {
+                template_id: "node_b".to_string(),
+                status: NodeStatus::Completed as i32,
+                result: Some(vec![1, 2, 3]),
+                ..Default::default()
+            },
+        );
+        state.graph.nodes.insert(
+            "node_c".to_string(),
+            ExecutionNode {
+                template_id: "node_c".to_string(),
+                status: NodeStatus::Blocked as i32,
+                ..Default::default()
+            },
+        );
+        // Ready queue is empty - simulating crash after completion but before successor computation
+        assert!(state.graph.ready_queue.is_empty());
+
+        let stalled = state.find_stalled_completions(&dag);
+
+        // node_b should be identified as stalled (completed with blocked successor)
+        assert_eq!(stalled.len(), 1);
+        assert_eq!(stalled[0].node_id, "node_b");
+        assert!(stalled[0].success);
+        assert_eq!(stalled[0].result, Some(vec![1, 2, 3]));
+        assert_eq!(stalled[0].worker_id, "recovery");
+    }
+
+    #[test]
+    fn test_find_stalled_completions_no_stall_when_successor_already_ready() {
+        // node_b completed and node_c is already PENDING in the ready_queue - no stall
+        let dag = build_sequential_dag(&["node_a", "node_b", "node_c"]);
+
+        let mut state = ExecutionState::new();
+        state.graph.nodes.insert(
+            "node_a".to_string(),
+            ExecutionNode {
+                template_id: "node_a".to_string(),
+                status: NodeStatus::Completed as i32,
+                ..Default::default()
+            },
+        );
+        state.graph.nodes.insert(
+            "node_b".to_string(),
+            ExecutionNode {
+                template_id: "node_b".to_string(),
+                status: NodeStatus::Completed as i32,
+                ..Default::default()
+            },
+        );
+        state.graph.nodes.insert(
+            "node_c".to_string(),
+            ExecutionNode {
+                template_id: "node_c".to_string(),
+                status: NodeStatus::Pending as i32,
+                ..Default::default()
+            },
+        );
+        state.graph.ready_queue.push("node_c".to_string());
+
+        let stalled = state.find_stalled_completions(&dag);
+        assert!(stalled.is_empty());
+    }
+
+    #[test]
+    fn test_find_stalled_completions_ignores_running_nodes() {
+        // node_b is RUNNING - this should be handled by recover_running_nodes, not us
+        let dag = build_sequential_dag(&["node_a", "node_b", "node_c"]);
+
+        let mut state = ExecutionState::new();
+        state.graph.nodes.insert(
+            "node_a".to_string(),
+            ExecutionNode {
+                template_id: "node_a".to_string(),
+                status: NodeStatus::Completed as i32,
+                ..Default::default()
+            },
+        );
+        state.graph.nodes.insert(
+            "node_b".to_string(),
+            ExecutionNode {
+                template_id: "node_b".to_string(),
+                status: NodeStatus::Running as i32,
+                ..Default::default()
+            },
+        );
+        state.graph.nodes.insert(
+            "node_c".to_string(),
+            ExecutionNode {
+                template_id: "node_c".to_string(),
+                status: NodeStatus::Blocked as i32,
+                ..Default::default()
+            },
+        );
+
+        let stalled = state.find_stalled_completions(&dag);
+        assert!(stalled.is_empty());
+    }
+
+    #[test]
+    fn test_find_stalled_completions_no_stall_when_all_successors_advanced() {
+        // Both node_b and node_c completed - no blocked successors
+        let dag = build_sequential_dag(&["node_a", "node_b", "node_c"]);
+
+        let mut state = ExecutionState::new();
+        state.graph.nodes.insert(
+            "node_a".to_string(),
+            ExecutionNode {
+                template_id: "node_a".to_string(),
+                status: NodeStatus::Completed as i32,
+                ..Default::default()
+            },
+        );
+        state.graph.nodes.insert(
+            "node_b".to_string(),
+            ExecutionNode {
+                template_id: "node_b".to_string(),
+                status: NodeStatus::Completed as i32,
+                ..Default::default()
+            },
+        );
+        state.graph.nodes.insert(
+            "node_c".to_string(),
+            ExecutionNode {
+                template_id: "node_c".to_string(),
+                status: NodeStatus::Completed as i32,
+                ..Default::default()
+            },
+        );
+
+        let stalled = state.find_stalled_completions(&dag);
+        assert!(stalled.is_empty());
+    }
+
+    #[test]
+    fn test_stalled_completions_are_processable() {
+        // Verify that stalled completions can be processed through apply_completions_batch
+        // to advance the workflow
+        let dag = build_sequential_dag(&["node_a", "node_b", "node_c"]);
+
+        let mut state = ExecutionState::new();
+        state.graph.nodes.insert(
+            "node_a".to_string(),
+            ExecutionNode {
+                template_id: "node_a".to_string(),
+                status: NodeStatus::Completed as i32,
+                ..Default::default()
+            },
+        );
+        state.graph.nodes.insert(
+            "node_b".to_string(),
+            ExecutionNode {
+                template_id: "node_b".to_string(),
+                status: NodeStatus::Completed as i32,
+                result: Some(vec![1, 2, 3]),
+                ..Default::default()
+            },
+        );
+        state.graph.nodes.insert(
+            "node_c".to_string(),
+            ExecutionNode {
+                template_id: "node_c".to_string(),
+                status: NodeStatus::Blocked as i32,
+                ..Default::default()
+            },
+        );
+
+        let stalled = state.find_stalled_completions(&dag);
+        assert_eq!(stalled.len(), 1);
+
+        // Process the stalled completions
+        let result = state.apply_completions_batch(stalled, &dag);
+
+        // node_c should now be PENDING in the ready_queue
+        assert!(
+            result.newly_ready.contains(&"node_c".to_string()),
+            "node_c should be newly ready after recovery"
+        );
+        let node_c = state.graph.nodes.get("node_c").unwrap();
+        assert_eq!(node_c.status, NodeStatus::Pending as i32);
+        assert!(state.graph.ready_queue.contains(&"node_c".to_string()));
+    }
+
+    #[test]
+    fn test_stalled_completions_roundtrip_recovery() {
+        // Full roundtrip: create limbo state, serialize, deserialize, recover
+        let dag = build_sequential_dag(&["input", "action", "output"]);
+
+        let mut state = ExecutionState::new();
+        state.graph.nodes.insert(
+            "input".to_string(),
+            ExecutionNode {
+                template_id: "input".to_string(),
+                status: NodeStatus::Completed as i32,
+                ..Default::default()
+            },
+        );
+        state.graph.nodes.insert(
+            "action".to_string(),
+            ExecutionNode {
+                template_id: "action".to_string(),
+                status: NodeStatus::Completed as i32,
+                result: Some(vec![42]),
+                ..Default::default()
+            },
+        );
+        state.graph.nodes.insert(
+            "output".to_string(),
+            ExecutionNode {
+                template_id: "output".to_string(),
+                status: NodeStatus::Blocked as i32,
+                ..Default::default()
+            },
+        );
+
+        // Simulate crash: serialize to bytes (as if persisted to DB)
+        let bytes = state.to_bytes();
+
+        // Recovery: deserialize
+        let mut recovered = ExecutionState::from_bytes(&bytes).unwrap();
+
+        // recover_running_nodes finds nothing (no RUNNING nodes)
+        recovered.recover_running_nodes();
+        assert!(recovered.graph.ready_queue.is_empty());
+
+        // find_stalled_completions detects the limbo
+        let stalled = recovered.find_stalled_completions(&dag);
+        assert_eq!(stalled.len(), 1);
+        assert_eq!(stalled[0].node_id, "action");
+
+        // Processing the stalled completions advances the workflow
+        let result = recovered.apply_completions_batch(stalled, &dag);
+        assert!(
+            result.newly_ready.contains(&"output".to_string()),
+            "output node should be ready after recovery"
         );
     }
 }

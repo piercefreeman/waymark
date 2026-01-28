@@ -1214,7 +1214,7 @@ impl InstanceRunner {
         let dag = self.get_or_load_dag(version_id).await?;
 
         // Initialize or restore execution state
-        let state = match claimed.execution_graph {
+        let (state, stalled_completions) = match claimed.execution_graph {
             Some(bytes) => {
                 // Restore from persisted state
                 let mut state = ExecutionState::from_bytes(&bytes)?;
@@ -1222,8 +1222,13 @@ impl InstanceRunner {
                 // Recover any nodes that were running when previous owner crashed
                 state.recover_running_nodes();
 
+                // Recover completed nodes whose successors weren't advanced
+                // (e.g. runner crashed after action completed but before next
+                // nodes were determined)
+                let stalled = state.find_stalled_completions(&dag);
+
                 self.metrics.lock().await.orphans_recovered += 1;
-                state
+                (state, stalled)
             }
             None => {
                 // New instance - initialize from DAG and inputs
@@ -1237,7 +1242,7 @@ impl InstanceRunner {
                     .unwrap_or_default();
 
                 state.initialize_from_dag(&dag, &inputs);
-                state
+                (state, Vec::new())
             }
         };
 
@@ -1248,7 +1253,7 @@ impl InstanceRunner {
             state,
             in_flight: HashSet::new(),
             queued_ready_count: 0,
-            pending_completions: Vec::new(),
+            pending_completions: stalled_completions,
             claimed_at: Instant::now(),
         };
 
@@ -1988,7 +1993,48 @@ impl InstanceRunner {
                     let graph_bytes = instance.state.to_bytes();
                     to_release.push((instance.instance_id, graph_bytes, next_wakeup));
                 } else if !instance.state.has_pending_work() && instance.in_flight.is_empty() {
-                    // Instance is done (no pending work)
+                    // No pending work and nothing in flight. Check for stalled
+                    // completions: nodes that completed but whose successors were
+                    // never advanced (e.g. the runner crashed after an action
+                    // finished but before the next nodes were determined).
+                    let stalled = instance.state.find_stalled_completions(&instance.dag);
+                    if !stalled.is_empty() {
+                        debug!(
+                            instance_id = %instance.instance_id,
+                            stalled_count = stalled.len(),
+                            "Recovering stalled completions for active instance"
+                        );
+                        let stalled_result =
+                            instance.state.apply_completions_batch(stalled, &instance.dag);
+                        if stalled_result.workflow_completed {
+                            let graph_bytes = instance.state.to_bytes();
+                            complete_meta
+                                .insert(instance.instance_id, instance.workflow_name.clone());
+                            to_complete.push((
+                                instance.instance_id,
+                                stalled_result.result_payload.clone(),
+                                graph_bytes,
+                            ));
+                            continue;
+                        } else if stalled_result.workflow_failed {
+                            let graph_bytes = instance.state.to_bytes();
+                            fail_meta.insert(
+                                instance.instance_id,
+                                (
+                                    instance.workflow_name.clone(),
+                                    stalled_result.error_message.clone(),
+                                ),
+                            );
+                            to_fail.push((
+                                instance.instance_id,
+                                stalled_result.result_payload.clone(),
+                                graph_bytes,
+                            ));
+                            continue;
+                        }
+                        // Stalled completions advanced the state but workflow isn't
+                        // done yet — fall through to persist the updated graph.
+                    }
                     let graph_bytes = instance.state.to_bytes();
                     to_update.push((instance.instance_id, graph_bytes, next_wakeup));
                 } else if instance.state.graph.next_wakeup_time != previous_wakeup {
