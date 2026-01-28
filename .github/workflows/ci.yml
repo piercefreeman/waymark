@@ -447,6 +447,63 @@ jobs:
           header: benchmark-report
           path: benchmark-comment.md
 
+  fuzz-sanity:
+    runs-on: ubuntu-latest
+    needs: [rust-tests]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - name: Prepare Python worker environment
+        working-directory: python
+        run: uv sync
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2.8.2
+        with:
+          shared-key: rappel
+
+      - name: Run fuzzer (sanity)
+        run: cargo run --release --bin rappel-fuzz -- --cases 5
+
+  fuzz-extended:
+    runs-on: ubuntu-latest
+    needs: [python-tests, rust-tests]
+    timeout-minutes: 15
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'pull_request' && contains(toJson(github.event.pull_request.labels), 'full-build'))
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - name: Prepare Python worker environment
+        working-directory: python
+        run: uv sync
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2.8.2
+        with:
+          shared-key: rappel
+
+      - name: Run fuzzer (extended)
+        run: cargo run --release --bin rappel-fuzz -- --cases 100 --max-steps 12
+
   integration:
     runs-on: ubuntu-latest
     needs: [python-tests, rust-tests]
