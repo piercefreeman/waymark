@@ -864,7 +864,6 @@ struct WorkflowRunSummary {
     /// ISO 8601 timestamp (client renders as relative/local/UTC)
     created_at: String,
     status: String,
-    progress: String,
     url: String,
 }
 
@@ -912,46 +911,13 @@ fn render_workflow_detail_page(
     // Build graph data, filtering out internal nodes
     let graph_data = build_filtered_workflow_graph(&dag);
 
-    // Create a map of node sequence to action name from the DAG
-    // In the DAG, nodes are ordered by their topological order which corresponds to execution sequence
-    let action_names: Vec<String> = dag
-        .iter()
-        .map(|node| {
-            if node.action.is_empty() {
-                "action".to_string()
-            } else {
-                node.action.clone()
-            }
-        })
-        .collect();
-
     let recent_runs: Vec<WorkflowRunSummary> = instances
         .iter()
-        .map(|i| {
-            // Determine progress based on status and sequence
-            let progress = if i.status == "completed" {
-                "Done".to_string()
-            } else if i.status == "failed" {
-                "Failed".to_string()
-            } else if i.status == "pending" || i.next_action_seq == 0 {
-                "Queued".to_string()
-            } else {
-                // Show the current action being executed (seq is 0-based for the node index)
-                // next_action_seq is the NEXT action to dispatch, so current is seq - 1
-                let current_idx = (i.next_action_seq as usize).saturating_sub(1);
-                action_names
-                    .get(current_idx)
-                    .cloned()
-                    .unwrap_or_else(|| format!("Step {}", i.next_action_seq))
-            };
-
-            WorkflowRunSummary {
-                id: i.id.to_string(),
-                created_at: i.created_at.to_rfc3339(),
-                status: i.status.clone(),
-                progress,
-                url: format!("/workflows/{}/run/{}", version.id, i.id),
-            }
+        .map(|i| WorkflowRunSummary {
+            id: i.id.to_string(),
+            created_at: i.created_at.to_rfc3339(),
+            status: display_status(&i.status, i.next_action_seq),
+            url: format!("/workflows/{}/run/{}", version.id, i.id),
         })
         .collect();
 
@@ -1017,7 +983,6 @@ struct InstanceContext {
     /// ISO 8601 timestamp (client renders as relative/local/UTC)
     created_at: String,
     status: String,
-    progress: String,
     input_payload: String,
     result_payload: String,
 }
@@ -1113,41 +1078,10 @@ fn render_workflow_run_page(
         },
     };
 
-    // Decode the DAG from the workflow version for progress display
-    let dag = decode_dag_from_proto(&version.program_proto);
-
-    let action_names: Vec<String> = dag
-        .iter()
-        .map(|node| {
-            if node.action.is_empty() {
-                "action".to_string()
-            } else {
-                node.action.clone()
-            }
-        })
-        .collect();
-
-    // Determine progress based on status and sequence
-    let progress = if instance.status == "completed" {
-        "Done".to_string()
-    } else if instance.status == "failed" {
-        "Failed".to_string()
-    } else if instance.status == "pending" || instance.next_action_seq == 0 {
-        "Queued".to_string()
-    } else {
-        // Show the current action being executed
-        let current_idx = (instance.next_action_seq as usize).saturating_sub(1);
-        action_names
-            .get(current_idx)
-            .cloned()
-            .unwrap_or_else(|| format!("Step {}", instance.next_action_seq))
-    };
-
     let instance_ctx = InstanceContext {
         id: instance.id.to_string(),
         created_at: instance.created_at.to_rfc3339(),
-        status: instance.status.clone(),
-        progress,
+        status: display_status(&instance.status, instance.next_action_seq),
         input_payload: format_payload(&instance.input_payload),
         result_payload: format_payload(&instance.result_payload),
     };
@@ -1221,7 +1155,7 @@ fn render_invocations_page(
             workflow_name: i.workflow_name.clone(),
             workflow_version_id: i.workflow_version_id.map(|id| id.to_string()),
             created_at: i.created_at.to_rfc3339(),
-            status: i.status.clone(),
+            status: display_status(&i.status, i.next_action_seq),
             input_preview: truncate_payload(&i.input_payload, 240),
         })
         .collect();
@@ -1512,7 +1446,7 @@ fn render_schedule_detail_page(
             id: i.id.to_string(),
             workflow_version_id: i.workflow_version_id.map(|id| id.to_string()),
             created_at: i.created_at.to_rfc3339(),
-            status: i.status.clone(),
+            status: display_status(&i.status, i.next_action_seq),
         })
         .collect();
 
@@ -2056,6 +1990,17 @@ fn format_dependencies(items: &[String]) -> String {
     }
 }
 
+/// Compute the display status for a workflow instance.
+/// Instances with `status == "running"` but `next_action_seq == 0` haven't been
+/// picked up by a worker yet, so we surface them as "queued" in the UI.
+fn display_status(status: &str, next_action_seq: i32) -> String {
+    if status == "running" && next_action_seq == 0 {
+        "queued".to_string()
+    } else {
+        status.to_string()
+    }
+}
+
 fn format_payload(payload: &Option<Vec<u8>>) -> String {
     match payload {
         Some(bytes) if !bytes.is_empty() => format_binary_payload(bytes),
@@ -2260,7 +2205,6 @@ mod tests {
         assert!(html.contains("my_workflow"));
         assert!(html.contains("Serial")); // not concurrent
         assert!(html.contains("completed"));
-        assert!(html.contains("Done")); // progress shows "Done" for completed status
     }
 
     #[test]
