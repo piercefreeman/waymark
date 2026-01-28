@@ -159,6 +159,60 @@ pub fn workflow_arguments_to_json(bytes: &[u8]) -> Option<serde_json::Value> {
     Some(serde_json::Value::Object(map))
 }
 
+/// Convert a serde_json::Value to a WorkflowArgumentValue.
+pub fn json_to_workflow_argument_value(value: &serde_json::Value) -> proto::WorkflowArgumentValue {
+    use proto::primitive_workflow_argument::Kind as PrimitiveKind;
+    use proto::workflow_argument_value::Kind;
+
+    let kind = match value {
+        serde_json::Value::Null => Kind::Primitive(proto::PrimitiveWorkflowArgument {
+            kind: Some(PrimitiveKind::NullValue(0)),
+        }),
+        serde_json::Value::Bool(b) => Kind::Primitive(proto::PrimitiveWorkflowArgument {
+            kind: Some(PrimitiveKind::BoolValue(*b)),
+        }),
+        serde_json::Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                Kind::Primitive(proto::PrimitiveWorkflowArgument {
+                    kind: Some(PrimitiveKind::IntValue(i)),
+                })
+            } else if let Some(u) = n.as_u64() {
+                Kind::Primitive(proto::PrimitiveWorkflowArgument {
+                    kind: Some(PrimitiveKind::IntValue(u as i64)),
+                })
+            } else {
+                Kind::Primitive(proto::PrimitiveWorkflowArgument {
+                    kind: Some(PrimitiveKind::DoubleValue(n.as_f64().unwrap_or(0.0))),
+                })
+            }
+        }
+        serde_json::Value::String(s) => Kind::Primitive(proto::PrimitiveWorkflowArgument {
+            kind: Some(PrimitiveKind::StringValue(s.clone())),
+        }),
+        serde_json::Value::Array(items) => {
+            let mut list = proto::WorkflowListArgument { items: Vec::new() };
+            for item in items {
+                list.items.push(json_to_workflow_argument_value(item));
+            }
+            Kind::ListValue(list)
+        }
+        serde_json::Value::Object(map) => {
+            let mut dict = proto::WorkflowDictArgument {
+                entries: Vec::new(),
+            };
+            for (key, item) in map {
+                dict.entries.push(proto::WorkflowArgument {
+                    key: key.clone(),
+                    value: Some(json_to_workflow_argument_value(item)),
+                });
+            }
+            Kind::DictValue(dict)
+        }
+    };
+
+    proto::WorkflowArgumentValue { kind: Some(kind) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -190,5 +244,21 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(1));
         let t2 = now_monotonic_ns();
         assert!(t2 > t1);
+    }
+
+    #[test]
+    fn test_json_argument_roundtrip() {
+        let value = serde_json::json!({
+            "int": 7,
+            "float": 1.25,
+            "bool": true,
+            "text": "hello",
+            "list": [1, 2, 3],
+            "nested": {"a": 1, "b": [false, null]},
+        });
+
+        let arg = json_to_workflow_argument_value(&value);
+        let back = workflow_argument_value_to_json(&arg);
+        assert_eq!(value, back);
     }
 }

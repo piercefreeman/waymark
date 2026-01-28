@@ -1651,6 +1651,45 @@ impl DAGConverter {
             }
         }
 
+        // Ensure loop-exit join nodes forward loop-carried values to downstream uses.
+        for node in dag.nodes.values() {
+            if node.node_type != "join"
+                || !(node.label.starts_with("end for ") || node.label.starts_with("end while "))
+            {
+                continue;
+            }
+            let Some(targets) = node.targets.as_ref() else {
+                continue;
+            };
+            for var in targets {
+                for node_id in &order {
+                    if nodes_in_loop.contains(node_id) {
+                        continue;
+                    }
+                    if let Some(target_node) = dag.nodes.get(node_id)
+                        && uses_var(target_node, var)
+                    {
+                        let key = (node.id.clone(), node_id.clone(), Some(var.clone()));
+                        if seen_edges.insert(key.clone()) {
+                            dag.edges.push(DAGEdge {
+                                source: node.id.clone(),
+                                target: node_id.clone(),
+                                edge_type: EdgeType::DataFlow,
+                                condition: None,
+                                variable: Some(var.clone()),
+                                guard_expr: None,
+                                is_else: false,
+                                exception_types: None,
+                                exception_depth: None,
+                                is_loop_back: false,
+                                guard_string: None,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
         // Add back the original data flow edges we preserved up front.
         dag.edges.extend(existing_data_flow);
     }
