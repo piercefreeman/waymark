@@ -5150,17 +5150,14 @@ async fn stalled_completion_recovery_sequential_workflow() -> Result<()> {
                 .expect("version exists"),
         )
         .await?;
-    let program: rappel::ast::Program =
-        prost::Message::decode(version.program_proto.as_slice())?;
+    let program: rappel::ast::Program = prost::Message::decode(version.program_proto.as_slice())?;
     let dag = DAGConverter::new()
         .convert(&program)
         .map_err(|e| anyhow::anyhow!("DAG conversion failed: {e}"))?;
 
     // Initialize execution state from the DAG (same as a fresh instance)
     let mut state = ExecutionState::new();
-    let inputs = proto::WorkflowArguments {
-        arguments: vec![],
-    };
+    let inputs = proto::WorkflowArguments { arguments: vec![] };
     state.initialize_from_dag(&dag, &inputs);
 
     // Process the input boundary node (inline) by creating a completion for it.
@@ -5313,8 +5310,7 @@ async fn stalled_completion_recovery_simple_workflow() -> Result<()> {
                 .expect("version exists"),
         )
         .await?;
-    let program: rappel::ast::Program =
-        prost::Message::decode(version.program_proto.as_slice())?;
+    let program: rappel::ast::Program = prost::Message::decode(version.program_proto.as_slice())?;
     let dag = DAGConverter::new()
         .convert(&program)
         .map_err(|e| anyhow::anyhow!("DAG conversion failed: {e}"))?;

@@ -2004,8 +2004,9 @@ impl InstanceRunner {
                             stalled_count = stalled.len(),
                             "Recovering stalled completions for active instance"
                         );
-                        let stalled_result =
-                            instance.state.apply_completions_batch(stalled, &instance.dag);
+                        let stalled_result = instance
+                            .state
+                            .apply_completions_batch(stalled, &instance.dag);
                         if stalled_result.workflow_completed {
                             let graph_bytes = instance.state.to_bytes();
                             complete_meta
