@@ -59,7 +59,6 @@
                             <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-semibold text-zinc-500 dark:text-zinc-400">Instance</th>
                             <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-semibold text-zinc-500 dark:text-zinc-400">Created</th>
                             <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-semibold text-zinc-500 dark:text-zinc-400">Status</th>
-                            <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-semibold text-zinc-500 dark:text-zinc-400">Progress</th>
                             <th class="px-4 py-3"></th>
                         </tr>
                     </thead>
@@ -69,7 +68,6 @@
                                 <td class="px-4 py-3 font-mono text-xs text-zinc-700 dark:text-zinc-300">{{ run.id }}</td>
                                 <td class="px-4 py-3 text-zinc-700 dark:text-zinc-300">{{ macros::datetime(timestamp=run.created_at) }}</td>
                                 <td class="px-4 py-3">{{ macros::status_badge(status=run.status) }}</td>
-                                <td class="px-4 py-3 text-zinc-700 dark:text-zinc-300">{{ run.progress }}</td>
                                 <td class="px-4 py-3 text-right">
                                     <a href="{{ run.url }}" class="text-sm font-semibold text-indigo-600 dark:text-indigo-400 transition hover:text-indigo-500 dark:hover:text-indigo-300">View &rarr;</a>
                                 </td>
