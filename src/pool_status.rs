@@ -24,7 +24,7 @@ pub struct TimeSeriesEntry {
     /// Number of active Python worker processes
     pub active_workers: u16,
     /// Average instance duration in seconds
-    pub avg_instance_duration_secs: f32,
+    pub median_instance_duration_secs: f32,
     /// Number of workflow instances currently owned
     pub active_instances: u32,
     /// Dispatch queue depth (actions waiting to be sent to workers)
@@ -68,7 +68,7 @@ impl PoolTimeSeries {
     /// - i64 timestamp_secs (8 bytes, little-endian)
     /// - f32 actions_per_sec (4 bytes)
     /// - u16 active_workers (2 bytes)
-    /// - f32 avg_instance_duration_secs (4 bytes)
+    /// - f32 median_instance_duration_secs (4 bytes)
     /// - u32 active_instances (4 bytes)
     /// - u32 queue_depth (4 bytes)
     /// - u32 in_flight_actions (4 bytes)
@@ -80,7 +80,7 @@ impl PoolTimeSeries {
             buf.extend_from_slice(&entry.timestamp_secs.to_le_bytes());
             buf.extend_from_slice(&entry.actions_per_sec.to_le_bytes());
             buf.extend_from_slice(&entry.active_workers.to_le_bytes());
-            buf.extend_from_slice(&entry.avg_instance_duration_secs.to_le_bytes());
+            buf.extend_from_slice(&entry.median_instance_duration_secs.to_le_bytes());
             buf.extend_from_slice(&entry.active_instances.to_le_bytes());
             buf.extend_from_slice(&entry.queue_depth.to_le_bytes());
             buf.extend_from_slice(&entry.in_flight_actions.to_le_bytes());
@@ -109,7 +109,7 @@ impl PoolTimeSeries {
                 f32::from_le_bytes(bytes[offset + 8..offset + 12].try_into().ok()?);
             let active_workers =
                 u16::from_le_bytes(bytes[offset + 12..offset + 14].try_into().ok()?);
-            let avg_instance_duration_secs =
+            let median_instance_duration_secs =
                 f32::from_le_bytes(bytes[offset + 14..offset + 18].try_into().ok()?);
             let active_instances =
                 u32::from_le_bytes(bytes[offset + 18..offset + 22].try_into().ok()?);
@@ -120,7 +120,7 @@ impl PoolTimeSeries {
                 timestamp_secs,
                 actions_per_sec,
                 active_workers,
-                avg_instance_duration_secs,
+                median_instance_duration_secs,
                 active_instances,
                 queue_depth,
                 in_flight_actions,
@@ -137,7 +137,7 @@ impl PoolTimeSeries {
                 t: e.timestamp_secs,
                 aps: e.actions_per_sec,
                 w: e.active_workers,
-                d: e.avg_instance_duration_secs,
+                d: e.median_instance_duration_secs,
                 ai: e.active_instances,
                 qd: e.queue_depth,
                 inf: e.in_flight_actions,
@@ -161,7 +161,7 @@ pub struct TimeSeriesJsonEntry {
     pub aps: f32,
     /// Active worker count
     pub w: u16,
-    /// Average instance duration (seconds)
+    /// Median instance duration (seconds)
     pub d: f32,
     /// Active workflow instances
     pub ai: u32,
@@ -181,7 +181,7 @@ mod tests {
             timestamp_secs: ts,
             actions_per_sec: 1.5,
             active_workers: 4,
-            avg_instance_duration_secs: 10.0,
+            median_instance_duration_secs: 10.0,
             active_instances: 20,
             queue_depth: 5,
             in_flight_actions: 8,
@@ -216,7 +216,7 @@ mod tests {
             timestamp_secs: 1700000000,
             actions_per_sec: 3.25,
             active_workers: 8,
-            avg_instance_duration_secs: 42.5,
+            median_instance_duration_secs: 42.5,
             active_instances: 100,
             queue_depth: 15,
             in_flight_actions: 32,
@@ -225,7 +225,7 @@ mod tests {
             timestamp_secs: 1700000060,
             actions_per_sec: 2.71,
             active_workers: 6,
-            avg_instance_duration_secs: 38.0,
+            median_instance_duration_secs: 38.0,
             active_instances: 90,
             queue_depth: 10,
             in_flight_actions: 24,
@@ -278,7 +278,7 @@ mod tests {
             timestamp_secs: 100,
             actions_per_sec: 5.0,
             active_workers: 2,
-            avg_instance_duration_secs: 20.0,
+            median_instance_duration_secs: 20.0,
             active_instances: 50,
             queue_depth: 3,
             in_flight_actions: 10,

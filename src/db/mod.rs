@@ -151,10 +151,12 @@ pub struct WorkerStatusUpdate {
     pub active_workers: i32,
     /// Actions per second (throughput_per_min / 60)
     pub actions_per_sec: f64,
-    /// Average instance duration in seconds (computed in-memory)
-    pub avg_instance_duration_secs: Option<f64>,
+    /// Median instance duration in seconds (p50 of recently completed instances)
+    pub median_instance_duration_secs: Option<f64>,
     /// Number of workflow instances currently owned by this runner
     pub active_instance_count: i32,
+    /// Total instances completed (completed + failed) since runner start
+    pub total_instances_completed: i64,
     /// Encoded time-series ring buffer (BYTEA)
     pub time_series: Option<Vec<u8>>,
 }
@@ -179,10 +181,12 @@ pub struct WorkerStatus {
     pub active_workers: i32,
     /// Actions per second
     pub actions_per_sec: f64,
-    /// Average instance duration in seconds
-    pub avg_instance_duration_secs: Option<f64>,
+    /// Median instance duration in seconds (p50 of recently completed instances)
+    pub median_instance_duration_secs: Option<f64>,
     /// Number of workflow instances currently owned by this runner
     pub active_instance_count: i32,
+    /// Total instances completed (completed + failed) since runner start
+    pub total_instances_completed: i64,
     /// Encoded time-series ring buffer
     pub time_series: Option<Vec<u8>>,
 }

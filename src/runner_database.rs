@@ -44,7 +44,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use chrono::{DateTime, TimeZone, Utc};
@@ -293,6 +293,12 @@ pub struct InstanceRunner {
     /// Pool-level time-series ring buffer (24h at 1-minute resolution)
     pool_time_series: std::sync::Mutex<PoolTimeSeries>,
 
+    /// Rolling metric for instance completion duration (p50 over 5-minute window)
+    instance_duration_metric: std::sync::Mutex<crate::stats::RollingMetric>,
+
+    /// Total instances completed (completed + failed) since runner start
+    instances_completed_total: AtomicU64,
+
     /// Lifecycle stats
     #[allow(dead_code)]
     stats: Option<Arc<LifecycleStats>>,
@@ -342,6 +348,10 @@ impl InstanceRunner {
             completion_rx: Mutex::new(completion_rx),
             action_seq: AtomicU32::new(0),
             pool_time_series: std::sync::Mutex::new(PoolTimeSeries::new()),
+            instance_duration_metric: std::sync::Mutex::new(crate::stats::RollingMetric::new(
+                Duration::from_secs(300),
+            )),
+            instances_completed_total: AtomicU64::new(0),
             stats: None,
         }
     }
@@ -777,12 +787,17 @@ impl InstanceRunner {
         let active_instances =
             &self.active_instances as *const RwLock<HashMap<Uuid, ActiveInstance>>;
         let pool_time_series = &self.pool_time_series as *const std::sync::Mutex<PoolTimeSeries>;
+        let instance_duration_metric =
+            &self.instance_duration_metric as *const std::sync::Mutex<crate::stats::RollingMetric>;
+        let instances_completed_total = &self.instances_completed_total as *const AtomicU64;
 
         // Safety: We know self lives as long as the returned handle
         let shutdown_ptr = unsafe { &*shutdown };
         let dispatch_queue_ptr = unsafe { &*dispatch_queue };
         let active_instances_ptr = unsafe { &*active_instances };
         let pool_time_series_ptr = unsafe { &*pool_time_series };
+        let instance_duration_metric_ptr = unsafe { &*instance_duration_metric };
+        let instances_completed_total_ptr = unsafe { &*instances_completed_total };
 
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(status_interval);
@@ -824,20 +839,19 @@ impl InstanceRunner {
                 // 2. Active workers count
                 let active_workers = worker_pool.len() as i32;
 
-                // 3. Average instance duration and count from in-memory active instances
-                let (avg_instance_duration_secs, active_instance_count) = {
+                // 3. Median instance duration (p50 of recently completed) and active count
+                let (median_instance_duration_secs, active_instance_count) = {
                     let instances = active_instances_ptr.read().await;
                     let count = instances.len() as i32;
-                    if instances.is_empty() {
-                        (None, count)
-                    } else {
-                        let now = Instant::now();
-                        let total_secs: f64 = instances
-                            .values()
-                            .map(|inst| now.duration_since(inst.claimed_at).as_secs_f64())
-                            .sum();
-                        (Some(total_secs / instances.len() as f64), count)
-                    }
+                    let median = instance_duration_metric_ptr.lock().ok().and_then(|mut m| {
+                        let stats = m.stats();
+                        if stats.count > 0 {
+                            Some(stats.p50_us as f64 / 1_000_000.0)
+                        } else {
+                            None
+                        }
+                    });
+                    (median, count)
                 };
 
                 // 4. Dispatch queue size
@@ -856,7 +870,7 @@ impl InstanceRunner {
                         timestamp_secs: now_secs,
                         actions_per_sec: actions_per_sec as f32,
                         active_workers: active_workers as u16,
-                        avg_instance_duration_secs: avg_instance_duration_secs.unwrap_or(0.0)
+                        median_instance_duration_secs: median_instance_duration_secs.unwrap_or(0.0)
                             as f32,
                         active_instances: active_instance_count as u32,
                         queue_depth: dispatch_queue_size as u32,
@@ -866,6 +880,8 @@ impl InstanceRunner {
                 };
 
                 // 7. Upsert single pool-level row
+                let total_instances_completed =
+                    instances_completed_total_ptr.load(Ordering::Relaxed) as i64;
                 let update = WorkerStatusUpdate {
                     throughput_per_min,
                     total_completed,
@@ -876,8 +892,9 @@ impl InstanceRunner {
                     total_in_flight,
                     active_workers,
                     actions_per_sec,
-                    avg_instance_duration_secs,
+                    median_instance_duration_secs,
                     active_instance_count,
+                    total_instances_completed,
                     time_series: Some(time_series_bytes),
                 };
 
@@ -2076,6 +2093,22 @@ impl InstanceRunner {
                 }
                 Err(e) => {
                     error!(error = %e, "Failed to update execution graphs batch");
+                }
+            }
+        }
+
+        // Record duration for completed/failed instances into the rolling metric
+        if !completed_ids.is_empty() {
+            self.instances_completed_total
+                .fetch_add(completed_ids.len() as u64, Ordering::Relaxed);
+            let instances = self.active_instances.read().await;
+            let now = Instant::now();
+            if let Ok(mut metric) = self.instance_duration_metric.lock() {
+                for id in &completed_ids {
+                    if let Some(inst) = instances.get(&id.0) {
+                        let duration_us = now.duration_since(inst.claimed_at).as_micros() as u64;
+                        metric.record(duration_us);
+                    }
                 }
             }
         }

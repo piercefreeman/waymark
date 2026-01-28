@@ -1184,11 +1184,12 @@ struct WorkersPageContext {
     title: String,
     active_tab: String,
     window_minutes: i64,
-    workers: Vec<WorkerStatusRow>,
+    action_rows: Vec<ActionStatusRow>,
+    instance_rows: Vec<InstanceStatusRow>,
     has_workers: bool,
     active_worker_count: i32,
     actions_per_sec: String,
-    avg_instance_duration: String,
+    median_instance_duration: String,
     active_instance_count: i32,
     total_queue_depth: i64,
     total_in_flight: i64,
@@ -1197,40 +1198,68 @@ struct WorkersPageContext {
 }
 
 #[derive(Serialize)]
-struct WorkerStatusRow {
+struct ActionStatusRow {
     pool_id: String,
     active_workers: i32,
     actions_per_sec: String,
     throughput_per_min: String,
     total_completed: i64,
-    last_action_at: Option<String>,
-    updated_at: String,
     median_dequeue_ms: Option<i64>,
     median_handling_ms: Option<i64>,
-    avg_instance_duration: String,
+    last_action_at: Option<String>,
+    updated_at: String,
+}
+
+#[derive(Serialize)]
+struct InstanceStatusRow {
+    pool_id: String,
+    active_instances: i32,
+    total_completed: i64,
+    median_duration: String,
+    median_dequeue_ms: Option<i64>,
+    updated_at: String,
+}
+
+fn format_duration_secs(secs: f64) -> String {
+    if secs >= 3600.0 {
+        format!("{:.1}h", secs / 3600.0)
+    } else if secs >= 60.0 {
+        format!("{:.1}m", secs / 60.0)
+    } else {
+        format!("{:.1}s", secs)
+    }
 }
 
 fn render_workers_page(templates: &Tera, statuses: &[WorkerStatus], window_minutes: i64) -> String {
-    let workers: Vec<WorkerStatusRow> = statuses
+    let action_rows: Vec<ActionStatusRow> = statuses
+        .iter()
+        .map(|status| ActionStatusRow {
+            pool_id: status.pool_id.to_string(),
+            active_workers: status.active_workers,
+            actions_per_sec: format!("{:.2}", status.actions_per_sec),
+            throughput_per_min: format!("{:.2}", status.throughput_per_min),
+            total_completed: status.total_completed,
+            median_dequeue_ms: status.median_dequeue_ms,
+            median_handling_ms: status.median_handling_ms,
+            last_action_at: status.last_action_at.map(|dt| dt.to_rfc3339()),
+            updated_at: status.updated_at.to_rfc3339(),
+        })
+        .collect();
+
+    let instance_rows: Vec<InstanceStatusRow> = statuses
         .iter()
         .map(|status| {
-            let avg_instance_duration = match status.avg_instance_duration_secs {
-                Some(secs) if secs >= 3600.0 => format!("{:.1}h", secs / 3600.0),
-                Some(secs) if secs >= 60.0 => format!("{:.1}m", secs / 60.0),
-                Some(secs) => format!("{:.1}s", secs),
+            let median_duration = match status.median_instance_duration_secs {
+                Some(secs) => format_duration_secs(secs),
                 None => "\u{2014}".to_string(),
             };
-            WorkerStatusRow {
+            InstanceStatusRow {
                 pool_id: status.pool_id.to_string(),
-                active_workers: status.active_workers,
-                actions_per_sec: format!("{:.2}", status.actions_per_sec),
-                throughput_per_min: format!("{:.2}", status.throughput_per_min),
-                total_completed: status.total_completed,
-                last_action_at: status.last_action_at.map(|dt| dt.to_rfc3339()),
-                updated_at: status.updated_at.to_rfc3339(),
+                active_instances: status.active_instance_count,
+                total_completed: status.total_instances_completed,
+                median_duration,
                 median_dequeue_ms: status.median_dequeue_ms,
-                median_handling_ms: status.median_handling_ms,
-                avg_instance_duration,
+                updated_at: status.updated_at.to_rfc3339(),
             }
         })
         .collect();
@@ -1243,23 +1272,17 @@ fn render_workers_page(templates: &Tera, statuses: &[WorkerStatus], window_minut
     let total_queue_depth: i64 = statuses.iter().filter_map(|s| s.dispatch_queue_size).sum();
     let total_in_flight: i64 = statuses.iter().filter_map(|s| s.total_in_flight).sum();
 
-    // Weighted average of instance duration across pools
-    let avg_instance_duration = {
+    // Average of median instance duration across pools
+    let median_instance_duration = {
         let durations: Vec<f64> = statuses
             .iter()
-            .filter_map(|s| s.avg_instance_duration_secs)
+            .filter_map(|s| s.median_instance_duration_secs)
             .collect();
         if durations.is_empty() {
             "\u{2014}".to_string()
         } else {
             let avg = durations.iter().sum::<f64>() / durations.len() as f64;
-            if avg >= 3600.0 {
-                format!("{:.1}h", avg / 3600.0)
-            } else if avg >= 60.0 {
-                format!("{:.1}m", avg / 60.0)
-            } else {
-                format!("{:.1}s", avg)
-            }
+            format_duration_secs(avg)
         }
     };
 
@@ -1293,11 +1316,12 @@ fn render_workers_page(templates: &Tera, statuses: &[WorkerStatus], window_minut
         has_workers: !statuses.is_empty(),
         active_worker_count,
         actions_per_sec,
-        avg_instance_duration,
+        median_instance_duration,
         active_instance_count,
         total_queue_depth,
         total_in_flight,
-        workers,
+        action_rows,
+        instance_rows,
         time_series_json,
         has_time_series,
     };
@@ -2360,17 +2384,19 @@ mod tests {
             total_in_flight: Some(5),
             active_workers: 4,
             actions_per_sec: 0.04,
-            avg_instance_duration_secs: Some(45.3),
+            median_instance_duration_secs: Some(45.3),
             active_instance_count: 12,
+            total_instances_completed: 7,
             time_series: None,
         }];
 
         let html = render_workers_page(&templates, &statuses, 5);
 
         assert!(html.contains("Workers"));
-        assert!(html.contains("42"));
+        assert!(html.contains("42")); // total actions completed
         assert!(html.contains("0.04")); // actions/sec
-        assert!(html.contains("45.3s")); // avg instance duration
+        assert!(html.contains("45.3s")); // median instance duration
+        assert!(html.contains("7")); // total instances completed
     }
 
     // ========================================================================

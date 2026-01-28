@@ -19,20 +19,20 @@ struct Sample {
 
 /// A metric that tracks samples within a rolling time window.
 #[derive(Debug)]
-struct RollingMetric {
+pub struct RollingMetric {
     samples: VecDeque<Sample>,
     window: Duration,
 }
 
 impl RollingMetric {
-    fn new(window: Duration) -> Self {
+    pub fn new(window: Duration) -> Self {
         Self {
             samples: VecDeque::with_capacity(10000),
             window,
         }
     }
 
-    fn record(&mut self, value_us: u64) {
+    pub fn record(&mut self, value_us: u64) {
         let now = Instant::now();
         self.samples.push_back(Sample {
             timestamp: now,
@@ -52,7 +52,7 @@ impl RollingMetric {
         }
     }
 
-    fn stats(&mut self) -> MetricStats {
+    pub fn stats(&mut self) -> MetricStats {
         let now = Instant::now();
         self.prune(now);
 

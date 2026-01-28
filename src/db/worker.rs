@@ -544,11 +544,12 @@ impl Database {
                 total_in_flight,
                 active_workers,
                 actions_per_sec,
-                avg_instance_duration_secs,
+                median_instance_duration_secs,
                 active_instance_count,
+                total_instances_completed,
                 time_series
             )
-            VALUES ($1, $2, $3, $4, NOW(), $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            VALUES ($1, $2, $3, $4, NOW(), $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
             ON CONFLICT (pool_id)
             DO UPDATE SET
                 throughput_per_min = EXCLUDED.throughput_per_min,
@@ -561,8 +562,9 @@ impl Database {
                 total_in_flight = EXCLUDED.total_in_flight,
                 active_workers = EXCLUDED.active_workers,
                 actions_per_sec = EXCLUDED.actions_per_sec,
-                avg_instance_duration_secs = EXCLUDED.avg_instance_duration_secs,
+                median_instance_duration_secs = EXCLUDED.median_instance_duration_secs,
                 active_instance_count = EXCLUDED.active_instance_count,
+                total_instances_completed = EXCLUDED.total_instances_completed,
                 time_series = EXCLUDED.time_series
             "#,
         )
@@ -576,8 +578,9 @@ impl Database {
         .bind(status.total_in_flight)
         .bind(status.active_workers)
         .bind(status.actions_per_sec)
-        .bind(status.avg_instance_duration_secs)
+        .bind(status.median_instance_duration_secs)
         .bind(status.active_instance_count)
+        .bind(status.total_instances_completed)
         .bind(&status.time_series)
         .execute(&self.pool)
         .await?;
