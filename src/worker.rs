@@ -783,14 +783,27 @@ impl PythonWorkerPool {
             "spawning python worker pool"
         );
 
+        // Spawn all workers in parallel to reduce boot time.
+        let spawn_handles: Vec<_> = (0..worker_count)
+            .map(|_| {
+                let cfg = config.clone();
+                let br = Arc::clone(&bridge);
+                tokio::spawn(async move { PythonWorker::spawn(cfg, br).await })
+            })
+            .collect();
+
         let mut workers = Vec::with_capacity(worker_count);
-        for i in 0..worker_count {
-            match PythonWorker::spawn(config.clone(), Arc::clone(&bridge)).await {
-                Ok(worker) => {
+        for (i, handle) in spawn_handles.into_iter().enumerate() {
+            match handle.await {
+                Ok(Ok(worker)) => {
                     workers.push(Arc::new(worker));
                 }
-                Err(err) => {
-                    // Clean up already-spawned workers
+                result @ (Ok(Err(_)) | Err(_)) => {
+                    let err = match result {
+                        Ok(Err(e)) => e,
+                        Err(e) => anyhow::Error::from(e),
+                        _ => unreachable!(),
+                    };
                     warn!(
                         worker_index = i,
                         "failed to spawn worker, cleaning up {} already spawned",
