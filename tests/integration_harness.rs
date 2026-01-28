@@ -244,6 +244,7 @@ impl proto::workflow_service_server::WorkflowService for TestWorkflowService {
                     created_at: format_opt_datetime(Some(s.created_at)),
                     updated_at: format_opt_datetime(Some(s.updated_at)),
                     jitter_seconds: s.jitter_seconds,
+                    allow_duplicate: s.allow_duplicate,
                 }
             })
             .collect();

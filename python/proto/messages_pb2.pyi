@@ -1175,6 +1175,7 @@ class RegisterScheduleRequest(google.protobuf.message.Message):
     REGISTRATION_FIELD_NUMBER: builtins.int
     SCHEDULE_NAME_FIELD_NUMBER: builtins.int
     PRIORITY_FIELD_NUMBER: builtins.int
+    ALLOW_DUPLICATE_FIELD_NUMBER: builtins.int
     workflow_name: builtins.str
     schedule_name: builtins.str
     """Required: unique name for this schedule. Allows multiple schedules per workflow
@@ -1182,6 +1183,10 @@ class RegisterScheduleRequest(google.protobuf.message.Message):
     """
     priority: builtins.int
     """Priority for queue ordering (higher values are processed first, default 0)"""
+    allow_duplicate: builtins.bool
+    """If false (default), skip creating a new instance when one is already running
+    for this schedule. If true, always create a new instance.
+    """
     @property
     def schedule(self) -> Global___ScheduleDefinition: ...
     @property
@@ -1205,12 +1210,17 @@ class RegisterScheduleRequest(google.protobuf.message.Message):
         registration: Global___WorkflowRegistration | None = ...,
         schedule_name: builtins.str = ...,
         priority: builtins.int | None = ...,
+        allow_duplicate: builtins.bool | None = ...,
     ) -> None: ...
     def HasField(
         self,
         field_name: typing.Literal[
+            "_allow_duplicate",
+            b"_allow_duplicate",
             "_priority",
             b"_priority",
+            "allow_duplicate",
+            b"allow_duplicate",
             "inputs",
             b"inputs",
             "priority",
@@ -1224,8 +1234,12 @@ class RegisterScheduleRequest(google.protobuf.message.Message):
     def ClearField(
         self,
         field_name: typing.Literal[
+            "_allow_duplicate",
+            b"_allow_duplicate",
             "_priority",
             b"_priority",
+            "allow_duplicate",
+            b"allow_duplicate",
             "inputs",
             b"inputs",
             "priority",
@@ -1240,6 +1254,11 @@ class RegisterScheduleRequest(google.protobuf.message.Message):
             b"workflow_name",
         ],
     ) -> None: ...
+    @typing.overload
+    def WhichOneof(
+        self, oneof_group: typing.Literal["_allow_duplicate", b"_allow_duplicate"]
+    ) -> typing.Literal["allow_duplicate"] | None: ...
+    @typing.overload
     def WhichOneof(
         self, oneof_group: typing.Literal["_priority", b"_priority"]
     ) -> typing.Literal["priority"] | None: ...
@@ -1401,6 +1420,7 @@ class ScheduleInfo(google.protobuf.message.Message):
     UPDATED_AT_FIELD_NUMBER: builtins.int
     SCHEDULE_NAME_FIELD_NUMBER: builtins.int
     JITTER_SECONDS_FIELD_NUMBER: builtins.int
+    ALLOW_DUPLICATE_FIELD_NUMBER: builtins.int
     id: builtins.str
     workflow_name: builtins.str
     schedule_type: Global___ScheduleType.ValueType
@@ -1423,6 +1443,8 @@ class ScheduleInfo(google.protobuf.message.Message):
     """Name of this schedule (allows multiple per workflow)"""
     jitter_seconds: builtins.int
     """0 if no jitter configured"""
+    allow_duplicate: builtins.bool
+    """Whether duplicate instances are allowed"""
     def __init__(
         self,
         *,
@@ -1439,10 +1461,13 @@ class ScheduleInfo(google.protobuf.message.Message):
         updated_at: builtins.str = ...,
         schedule_name: builtins.str = ...,
         jitter_seconds: builtins.int = ...,
+        allow_duplicate: builtins.bool = ...,
     ) -> None: ...
     def ClearField(
         self,
         field_name: typing.Literal[
+            "allow_duplicate",
+            b"allow_duplicate",
             "created_at",
             b"created_at",
             "cron_expression",

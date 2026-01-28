@@ -426,6 +426,7 @@ impl proto::workflow_service_server::WorkflowService for WorkflowGrpcService {
 
         let input_payload = inner.inputs.map(|i| i.encode_to_vec());
         let priority = inner.priority.unwrap_or(0);
+        let allow_duplicate = inner.allow_duplicate.unwrap_or(false);
 
         let schedule_id = self
             .database
@@ -439,6 +440,7 @@ impl proto::workflow_service_server::WorkflowService for WorkflowGrpcService {
                 input_payload.as_deref(),
                 next_run,
                 priority,
+                allow_duplicate,
             )
             .await
             .map_err(|e| tonic::Status::internal(format!("database error: {e}")))?;
@@ -566,6 +568,7 @@ impl proto::workflow_service_server::WorkflowService for WorkflowGrpcService {
                     created_at: s.created_at.to_rfc3339(),
                     updated_at: s.updated_at.to_rfc3339(),
                     jitter_seconds: s.jitter_seconds,
+                    allow_duplicate: s.allow_duplicate,
                 }
             })
             .collect();

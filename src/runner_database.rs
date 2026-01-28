@@ -985,6 +985,36 @@ impl InstanceRunner {
                 }
             };
 
+            // Skip if allow_duplicate is false and there's already a running instance
+            if !schedule.allow_duplicate {
+                match db
+                    .has_running_instance_for_schedule(ScheduleId(schedule.id))
+                    .await
+                {
+                    Ok(true) => {
+                        info!(
+                            schedule_id = %schedule.id,
+                            workflow_name = %schedule.workflow_name,
+                            "Skipping scheduled run: instance already running (allow_duplicate=false)"
+                        );
+                        // Still advance next_run_at to avoid re-checking on next tick
+                        if let Ok(next_run) = Self::compute_next_run(&schedule)
+                            && let Err(e) = db
+                                .update_schedule_next_run(ScheduleId(schedule.id), next_run)
+                                .await
+                        {
+                            error!(error = %e, "Failed to update schedule next_run");
+                        }
+                        continue;
+                    }
+                    Ok(false) => {} // No running instance, proceed normally
+                    Err(e) => {
+                        error!(error = %e, "Failed to check for running instances");
+                        continue;
+                    }
+                }
+            }
+
             // Create workflow instance with scheduled inputs and priority
             let instance_id = match db
                 .create_instance_with_priority(

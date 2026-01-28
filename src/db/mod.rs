@@ -324,6 +324,8 @@ pub struct WorkflowSchedule {
     pub updated_at: DateTime<Utc>,
     /// Priority for queue ordering (higher values are processed first)
     pub priority: i32,
+    /// Whether duplicate instances are allowed when schedule fires
+    pub allow_duplicate: bool,
 }
 
 // ============================================================================

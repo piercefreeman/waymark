@@ -2493,6 +2493,7 @@ mod tests {
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
             priority: 0,
+            allow_duplicate: false,
         }];
 
         let html = render_scheduled_page(&templates, &schedules, 1, 1, None, 1);
@@ -2522,6 +2523,7 @@ mod tests {
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
             priority: 0,
+            allow_duplicate: false,
         }];
 
         let html = render_scheduled_page(&templates, &schedules, 1, 1, None, 1);
@@ -2551,6 +2553,7 @@ mod tests {
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
             priority: 0,
+            allow_duplicate: false,
         };
         let invocations: Vec<crate::db::WorkflowInstance> = vec![];
 
@@ -2587,6 +2590,7 @@ mod tests {
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
             priority: 0,
+            allow_duplicate: false,
         };
         let invocations: Vec<crate::db::WorkflowInstance> = vec![];
 
@@ -2619,6 +2623,7 @@ mod tests {
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
             priority: 0,
+            allow_duplicate: false,
         };
 
         let invocations = vec![
@@ -2778,6 +2783,7 @@ mod tests {
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
             priority: 0,
+            allow_duplicate: false,
         }];
 
         // Page 2 of 3 with search query
@@ -2816,6 +2822,7 @@ mod tests {
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
             priority: 0,
+            allow_duplicate: false,
         }];
 
         // Search query with special characters

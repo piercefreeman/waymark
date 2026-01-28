@@ -259,6 +259,9 @@ message RegisterScheduleRequest {
   string schedule_name = 5;
   // Priority for queue ordering (higher values are processed first, default 0)
   optional int32 priority = 6;
+  // If false (default), skip creating a new instance when one is already running
+  // for this schedule. If true, always create a new instance.
+  optional bool allow_duplicate = 7;
 }
 
 message RegisterScheduleResponse {
@@ -307,6 +310,7 @@ message ScheduleInfo {
   string updated_at = 11;           // ISO 8601 timestamp
   string schedule_name = 12;        // Name of this schedule (allows multiple per workflow)
   int64 jitter_seconds = 13;        // 0 if no jitter configured
+  bool allow_duplicate = 14;        // Whether duplicate instances are allowed
 }
 
 message ListSchedulesResponse {

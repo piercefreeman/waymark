@@ -155,6 +155,7 @@ class TestListSchedules:
         assert schedule.jitter_seconds is None
         assert schedule.status == "active"
         assert schedule.last_instance_id == "abc-123"
+        assert schedule.allow_duplicate is False
 
     def test_list_schedules_with_status_filter(
         self, monkeypatch: pytest.MonkeyPatch, mock_stub: AsyncMock
@@ -201,6 +202,7 @@ class TestListSchedules:
         assert schedule.next_run_at is None
         assert schedule.last_run_at is None
         assert schedule.last_instance_id is None
+        assert schedule.allow_duplicate is False
 
     def test_list_schedules_multiple(
         self, monkeypatch: pytest.MonkeyPatch, mock_stub: AsyncMock
@@ -392,6 +394,47 @@ class TestScheduleWorkflow:
             asyncio.run(
                 schedule_workflow(DemoScheduleWorkflow, schedule_name="test", schedule=123)  # type: ignore
             )
+
+    def test_schedule_workflow_with_allow_duplicate(
+        self, monkeypatch: pytest.MonkeyPatch, mock_stub: AsyncMock
+    ) -> None:
+        """Test scheduling a workflow with allow_duplicate=True."""
+        response = pb2.RegisterScheduleResponse(schedule_id="schedule-dup")
+        mock_stub.RegisterSchedule.return_value = response
+
+        result = asyncio.run(
+            schedule_workflow(
+                DemoScheduleWorkflow,
+                schedule_name="test-dup",
+                schedule="0 * * * *",
+                allow_duplicate=True,
+            )
+        )
+
+        assert result == "schedule-dup"
+        call_args = mock_stub.RegisterSchedule.call_args
+        request = call_args[0][0]
+        assert request.allow_duplicate is True
+
+    def test_schedule_workflow_default_allow_duplicate(
+        self, monkeypatch: pytest.MonkeyPatch, mock_stub: AsyncMock
+    ) -> None:
+        """Test that allow_duplicate defaults to False (not set on request)."""
+        response = pb2.RegisterScheduleResponse(schedule_id="schedule-nodup")
+        mock_stub.RegisterSchedule.return_value = response
+
+        asyncio.run(
+            schedule_workflow(
+                DemoScheduleWorkflow,
+                schedule_name="test-nodup",
+                schedule="0 * * * *",
+            )
+        )
+
+        call_args = mock_stub.RegisterSchedule.call_args
+        request = call_args[0][0]
+        # When allow_duplicate is False (default), it should not be set on the request
+        assert not request.HasField("allow_duplicate")
 
     def test_schedule_workflow_already_exists(
         self, monkeypatch: pytest.MonkeyPatch, mock_stub: AsyncMock

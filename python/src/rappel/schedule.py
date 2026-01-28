@@ -38,6 +38,7 @@ class ScheduleInfo:
     last_instance_id: Optional[str]
     created_at: datetime
     updated_at: datetime
+    allow_duplicate: bool
 
 
 async def schedule_workflow(
@@ -48,6 +49,7 @@ async def schedule_workflow(
     jitter: Optional[timedelta] = None,
     inputs: Optional[Dict[str, Any]] = None,
     priority: Optional[int] = None,
+    allow_duplicate: bool = False,
 ) -> str:
     """
     Register a schedule for a workflow.
@@ -67,6 +69,9 @@ async def schedule_workflow(
         inputs: Optional keyword arguments to pass to each scheduled run.
         priority: Optional priority for queue ordering. Higher values are
                   processed first. Default is 0.
+        allow_duplicate: If False (default), the scheduler skips creating a new
+                         instance when one is already running for this schedule.
+                         If True, always creates a new instance.
 
     Returns:
         The schedule ID.
@@ -158,6 +163,9 @@ async def schedule_workflow(
 
     if priority is not None:
         request.priority = priority
+
+    if allow_duplicate:
+        request.allow_duplicate = allow_duplicate
 
     # Send to server
     async with ensure_singleton():
@@ -370,6 +378,7 @@ async def list_schedules(
                 last_instance_id=s.last_instance_id if s.last_instance_id else None,
                 created_at=_parse_iso_datetime(s.created_at),  # type: ignore
                 updated_at=_parse_iso_datetime(s.updated_at),  # type: ignore
+                allow_duplicate=s.allow_duplicate,
             )
         )
 

@@ -81,7 +81,8 @@ async fn test_schedule_database_operations() -> Result<()> {
             0,
             None,
             next_run,
-            0, // priority
+            0,     // priority
+            false, // allow_duplicate
         )
         .await?;
     info!(%schedule_id, "created cron schedule");
@@ -108,7 +109,8 @@ async fn test_schedule_database_operations() -> Result<()> {
             0,
             None,
             next_run,
-            0, // priority
+            0,     // priority
+            false, // allow_duplicate
         )
         .await?;
 
@@ -189,7 +191,8 @@ async fn test_schedule_database_operations() -> Result<()> {
             0,
             None,
             Utc::now() + chrono::Duration::hours(1),
-            0, // priority
+            0,     // priority
+            false, // allow_duplicate
         )
         .await?;
 
@@ -240,8 +243,9 @@ async fn test_scheduler_creates_instance() -> Result<()> {
             Some(60), // 1 minute interval
             0,
             None,
-            past, // Already due!
-            0,    // priority
+            past,  // Already due!
+            0,     // priority
+            false, // allow_duplicate
         )
         .await?;
     info!("created due schedule");
@@ -369,7 +373,8 @@ async fn test_list_schedules_grpc_endpoint() -> Result<()> {
             0,
             None,
             next_run,
-            0, // priority
+            0,     // priority
+            false, // allow_duplicate
         )
         .await?;
     info!("created cron schedule");
@@ -384,7 +389,8 @@ async fn test_list_schedules_grpc_endpoint() -> Result<()> {
             0,
             None,
             next_run,
-            0, // priority
+            0,     // priority
+            false, // allow_duplicate
         )
         .await?;
     info!("created interval schedule");
@@ -469,5 +475,111 @@ async fn test_list_schedules_grpc_endpoint() -> Result<()> {
     let _ = server_handle.await;
 
     info!("list_schedules gRPC endpoint test passed");
+    Ok(())
+}
+
+/// Tests that has_running_instance_for_schedule detects running instances
+/// and that allow_duplicate controls whether schedules skip or proceed.
+#[tokio::test]
+#[serial]
+async fn test_allow_duplicate_flag() -> Result<()> {
+    let _ = tracing_subscriber::fmt::try_init();
+
+    let database_url = match env::var("RAPPEL_DATABASE_URL") {
+        Ok(url) => url,
+        Err(_) => {
+            eprintln!("skipping test: RAPPEL_DATABASE_URL not set");
+            return Ok(());
+        }
+    };
+
+    let database = Database::connect(&database_url).await?;
+    cleanup_database(&database).await?;
+
+    // Create a test workflow
+    let version_id = create_test_workflow(&database, "dedup_workflow").await?;
+    info!(%version_id, "created test workflow");
+
+    // Create a schedule with allow_duplicate=false
+    let past = Utc::now() - chrono::Duration::seconds(5);
+    let schedule_id = database
+        .upsert_schedule(
+            "dedup_workflow",
+            "no-dup",
+            ScheduleType::Interval,
+            None,
+            Some(60),
+            0,
+            None,
+            past,
+            0,     // priority
+            false, // allow_duplicate
+        )
+        .await?;
+    info!(%schedule_id, "created schedule with allow_duplicate=false");
+
+    // Verify allow_duplicate is stored correctly
+    let schedule = database
+        .get_schedule_by_name("dedup_workflow", "no-dup")
+        .await?
+        .expect("schedule should exist");
+    assert!(!schedule.allow_duplicate, "allow_duplicate should be false");
+
+    // No running instances yet
+    let has_running = database
+        .has_running_instance_for_schedule(schedule_id)
+        .await?;
+    assert!(!has_running, "should have no running instances initially");
+
+    // Create a running instance for this schedule
+    let instance_id = database
+        .create_instance("dedup_workflow", version_id, None, Some(schedule_id))
+        .await?;
+    info!(%instance_id, "created running instance for schedule");
+
+    // Now has_running_instance_for_schedule should return true
+    let has_running = database
+        .has_running_instance_for_schedule(schedule_id)
+        .await?;
+    assert!(has_running, "should detect running instance");
+
+    // Complete the instance
+    database.complete_instance(instance_id, None).await?;
+
+    // Should no longer detect running instance
+    let has_running = database
+        .has_running_instance_for_schedule(schedule_id)
+        .await?;
+    assert!(
+        !has_running,
+        "should not detect completed instance as running"
+    );
+
+    // Test with allow_duplicate=true
+    let schedule_id_dup = database
+        .upsert_schedule(
+            "dedup_workflow",
+            "allow-dup",
+            ScheduleType::Interval,
+            None,
+            Some(60),
+            0,
+            None,
+            past,
+            0,    // priority
+            true, // allow_duplicate
+        )
+        .await?;
+
+    let schedule_dup = database
+        .get_schedule_by_name("dedup_workflow", "allow-dup")
+        .await?
+        .expect("schedule should exist");
+    assert!(
+        schedule_dup.allow_duplicate,
+        "allow_duplicate should be true"
+    );
+
+    info!(%schedule_id_dup, "allow_duplicate flag test passed");
     Ok(())
 }

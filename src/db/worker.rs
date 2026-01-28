@@ -289,12 +289,13 @@ impl Database {
         input_payload: Option<&[u8]>,
         next_run_at: DateTime<Utc>,
         priority: i32,
+        allow_duplicate: bool,
     ) -> DbResult<ScheduleId> {
         let row = sqlx::query(
             r#"
             INSERT INTO workflow_schedules
-                (workflow_name, schedule_name, schedule_type, cron_expression, interval_seconds, jitter_seconds, input_payload, next_run_at, priority)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                (workflow_name, schedule_name, schedule_type, cron_expression, interval_seconds, jitter_seconds, input_payload, next_run_at, priority, allow_duplicate)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             ON CONFLICT (workflow_name, schedule_name)
             DO UPDATE SET
                 schedule_type = EXCLUDED.schedule_type,
@@ -304,6 +305,7 @@ impl Database {
                 input_payload = EXCLUDED.input_payload,
                 next_run_at = EXCLUDED.next_run_at,
                 priority = EXCLUDED.priority,
+                allow_duplicate = EXCLUDED.allow_duplicate,
                 status = 'active',
                 updated_at = NOW()
             RETURNING id
@@ -318,6 +320,7 @@ impl Database {
         .bind(input_payload)
         .bind(next_run_at)
         .bind(priority)
+        .bind(allow_duplicate)
         .fetch_one(&self.pool)
         .await?;
 
@@ -335,7 +338,7 @@ impl Database {
             r#"
             SELECT id, workflow_name, schedule_name, schedule_type, cron_expression, interval_seconds, jitter_seconds,
                    input_payload, status, next_run_at, last_run_at, last_instance_id,
-                   created_at, updated_at, priority
+                   created_at, updated_at, priority, allow_duplicate
             FROM workflow_schedules
             WHERE workflow_name = $1 AND schedule_name = $2 AND status != 'deleted'
             "#,
@@ -355,7 +358,7 @@ impl Database {
             r#"
             SELECT id, workflow_name, schedule_name, schedule_type, cron_expression, interval_seconds, jitter_seconds,
                    input_payload, status, next_run_at, last_run_at, last_instance_id,
-                   created_at, updated_at, priority
+                   created_at, updated_at, priority, allow_duplicate
             FROM workflow_schedules
             WHERE status = 'active'
               AND next_run_at IS NOT NULL
@@ -465,6 +468,21 @@ impl Database {
         Ok(result.rows_affected() > 0)
     }
 
+    /// Check if there is a running workflow instance for the given schedule.
+    /// Uses the `idx_instances_schedule_running` partial index for efficient lookups.
+    pub async fn has_running_instance_for_schedule(
+        &self,
+        schedule_id: ScheduleId,
+    ) -> DbResult<bool> {
+        let row = sqlx::query(
+            "SELECT EXISTS(SELECT 1 FROM workflow_instances WHERE schedule_id = $1 AND status = 'running') as has_running",
+        )
+        .bind(schedule_id.0)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row.get::<bool, _>("has_running"))
+    }
+
     /// List all schedules with optional status filter.
     pub async fn list_schedules(
         &self,
@@ -475,7 +493,7 @@ impl Database {
                 r#"
                 SELECT id, workflow_name, schedule_name, schedule_type, cron_expression, interval_seconds, jitter_seconds,
                        input_payload, status, next_run_at, last_run_at, last_instance_id,
-                       created_at, updated_at, priority
+                       created_at, updated_at, priority, allow_duplicate
                 FROM workflow_schedules
                 WHERE status = $1
                 ORDER BY workflow_name, schedule_name
@@ -489,7 +507,7 @@ impl Database {
                 r#"
                 SELECT id, workflow_name, schedule_name, schedule_type, cron_expression, interval_seconds, jitter_seconds,
                        input_payload, status, next_run_at, last_run_at, last_instance_id,
-                       created_at, updated_at, priority
+                       created_at, updated_at, priority, allow_duplicate
                 FROM workflow_schedules
                 WHERE status != 'deleted'
                 ORDER BY workflow_name, schedule_name
