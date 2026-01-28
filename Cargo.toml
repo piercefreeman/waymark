@@ -50,6 +50,7 @@ num_cpus = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 cron = "0.13"
 rand = "0.8"
+rayon = "1"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres", "macros", "migrate", "chrono", "uuid"] }
 tera = { version = "1.19", default-features = false, features = ["builtins"] }
 uuid = { version = "1", features = ["serde", "v4"] }

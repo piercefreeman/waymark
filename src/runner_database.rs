@@ -201,6 +201,33 @@ struct ActiveInstance {
     claimed_at: Instant,
 }
 
+/// Result of categorizing a single instance during the parallel finalize phase.
+enum InstanceCategory {
+    Complete {
+        id: WorkflowInstanceId,
+        result_payload: Option<Vec<u8>>,
+        graph_bytes: Vec<u8>,
+        workflow_name: String,
+    },
+    Fail {
+        id: WorkflowInstanceId,
+        result_payload: Option<Vec<u8>>,
+        graph_bytes: Vec<u8>,
+        workflow_name: String,
+        error_message: Option<String>,
+    },
+    Release {
+        id: WorkflowInstanceId,
+        graph_bytes: Vec<u8>,
+        next_wakeup: Option<DateTime<Utc>>,
+    },
+    Update {
+        id: WorkflowInstanceId,
+        graph_bytes: Vec<u8>,
+        next_wakeup: Option<DateTime<Utc>>,
+    },
+}
+
 /// Metrics snapshot for the instance runner
 #[derive(Debug, Clone, Default)]
 pub struct InstanceRunnerMetrics {
@@ -1889,65 +1916,132 @@ impl InstanceRunner {
         let mut complete_meta: HashMap<WorkflowInstanceId, String> = HashMap::new();
         let mut fail_meta: HashMap<WorkflowInstanceId, (String, Option<String>)> = HashMap::new();
 
-        // Phase 1: Apply completions and categorize instances
+        // Phase 1: Apply completions and categorize instances (parallelized with rayon)
         {
-            let mut instances = self.active_instances.write().await;
+            let mut instances_guard = self.active_instances.write().await;
+            let mut instances_map = std::mem::take(&mut *instances_guard);
 
-            for (_, instance) in instances.iter_mut() {
-                // Apply any remaining completions
-                let completion_result = if !instance.pending_completions.is_empty() {
-                    let completions = std::mem::take(&mut instance.pending_completions);
-                    Some(
-                        instance
-                            .state
-                            .apply_completions_batch(completions, &instance.dag),
-                    )
-                } else {
-                    None
-                };
+            // Run CPU-bound per-instance work on the rayon thread pool
+            let (returned_map, categorized) = tokio::task::spawn_blocking(move || {
+                use rayon::prelude::*;
 
-                // Check for workflow completion/failure
-                if let Some(ref result) = completion_result {
-                    if result.workflow_completed {
-                        let graph_bytes = instance.state.to_bytes();
-                        complete_meta.insert(instance.instance_id, instance.workflow_name.clone());
-                        to_complete.push((
-                            instance.instance_id,
-                            result.result_payload.clone(),
-                            graph_bytes,
-                        ));
-                        continue;
-                    } else if result.workflow_failed {
-                        let graph_bytes = instance.state.to_bytes();
-                        fail_meta.insert(
-                            instance.instance_id,
-                            (instance.workflow_name.clone(), result.error_message.clone()),
+                let results: Vec<InstanceCategory> = instances_map
+                    .par_iter_mut()
+                    .filter_map(|(_, instance)| {
+                        // Apply any remaining completions
+                        let completion_result = if !instance.pending_completions.is_empty() {
+                            let completions = std::mem::take(&mut instance.pending_completions);
+                            Some(
+                                instance
+                                    .state
+                                    .apply_completions_batch(completions, &instance.dag),
+                            )
+                        } else {
+                            None
+                        };
+
+                        // Check for workflow completion/failure
+                        if let Some(ref result) = completion_result {
+                            if result.workflow_completed {
+                                let graph_bytes = instance.state.to_bytes();
+                                return Some(InstanceCategory::Complete {
+                                    id: instance.instance_id,
+                                    result_payload: result.result_payload.clone(),
+                                    graph_bytes,
+                                    workflow_name: instance.workflow_name.clone(),
+                                });
+                            } else if result.workflow_failed {
+                                let graph_bytes = instance.state.to_bytes();
+                                return Some(InstanceCategory::Fail {
+                                    id: instance.instance_id,
+                                    result_payload: result.result_payload.clone(),
+                                    graph_bytes,
+                                    workflow_name: instance.workflow_name.clone(),
+                                    error_message: result.error_message.clone(),
+                                });
+                            }
+                        }
+
+                        let previous_wakeup = instance.state.graph.next_wakeup_time;
+                        let fully_sleeping =
+                            InstanceRunner::refresh_sleep_state(instance);
+                        let next_wakeup = InstanceRunner::sleep_wakeup_datetime_ms(
+                            instance.state.graph.next_wakeup_time,
                         );
-                        to_fail.push((
-                            instance.instance_id,
-                            result.result_payload.clone(),
-                            graph_bytes,
-                        ));
-                        continue;
+
+                        if fully_sleeping {
+                            let graph_bytes = instance.state.to_bytes();
+                            Some(InstanceCategory::Release {
+                                id: instance.instance_id,
+                                graph_bytes,
+                                next_wakeup,
+                            })
+                        } else if !instance.state.has_pending_work()
+                            && instance.in_flight.is_empty()
+                        {
+                            let graph_bytes = instance.state.to_bytes();
+                            Some(InstanceCategory::Update {
+                                id: instance.instance_id,
+                                graph_bytes,
+                                next_wakeup,
+                            })
+                        } else if instance.state.graph.next_wakeup_time != previous_wakeup {
+                            let graph_bytes = instance.state.to_bytes();
+                            Some(InstanceCategory::Update {
+                                id: instance.instance_id,
+                                graph_bytes,
+                                next_wakeup,
+                            })
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+
+                (instances_map, results)
+            })
+            .await
+            .map_err(|e| InstanceRunnerError::Worker(format!("Phase 1 parallel join error: {e}")))?;
+
+            // Put instances back under the lock
+            *instances_guard = returned_map;
+
+            // Distribute categorized results into the batch vectors
+            for cat in categorized {
+                match cat {
+                    InstanceCategory::Complete {
+                        id,
+                        result_payload,
+                        graph_bytes,
+                        workflow_name,
+                    } => {
+                        complete_meta.insert(id, workflow_name);
+                        to_complete.push((id, result_payload, graph_bytes));
                     }
-                }
-
-                let previous_wakeup = instance.state.graph.next_wakeup_time;
-                let fully_sleeping = Self::refresh_sleep_state(instance);
-                let next_wakeup =
-                    Self::sleep_wakeup_datetime_ms(instance.state.graph.next_wakeup_time);
-
-                if fully_sleeping {
-                    let graph_bytes = instance.state.to_bytes();
-                    to_release.push((instance.instance_id, graph_bytes, next_wakeup));
-                } else if !instance.state.has_pending_work() && instance.in_flight.is_empty() {
-                    // Instance is done (no pending work)
-                    let graph_bytes = instance.state.to_bytes();
-                    to_update.push((instance.instance_id, graph_bytes, next_wakeup));
-                } else if instance.state.graph.next_wakeup_time != previous_wakeup {
-                    // Wakeup time changed
-                    let graph_bytes = instance.state.to_bytes();
-                    to_update.push((instance.instance_id, graph_bytes, next_wakeup));
+                    InstanceCategory::Fail {
+                        id,
+                        result_payload,
+                        graph_bytes,
+                        workflow_name,
+                        error_message,
+                    } => {
+                        fail_meta.insert(id, (workflow_name, error_message));
+                        to_fail.push((id, result_payload, graph_bytes));
+                    }
+                    InstanceCategory::Release {
+                        id,
+                        graph_bytes,
+                        next_wakeup,
+                    } => {
+                        to_release.push((id, graph_bytes, next_wakeup));
+                    }
+                    InstanceCategory::Update {
+                        id,
+                        graph_bytes,
+                        next_wakeup,
+                    } => {
+                        to_update.push((id, graph_bytes, next_wakeup));
+                    }
                 }
             }
         }
