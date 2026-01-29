@@ -1021,6 +1021,125 @@ impl Database {
 
         Ok(row.get("count"))
     }
+
+    // ========================================================================
+    // Node Payloads (inputs/results stored separately for performance)
+    // ========================================================================
+
+    /// Save node payloads (inputs and/or results) for a batch of nodes.
+    ///
+    /// Uses upsert semantics: if a row exists, it updates the non-null fields.
+    /// This allows inputs to be written on dispatch and results on completion.
+    pub async fn save_node_payloads_batch(
+        &self,
+        payloads: &[NodePayload],
+    ) -> DbResult<()> {
+        if payloads.is_empty() {
+            return Ok(());
+        }
+
+        let instance_ids: Vec<Uuid> = payloads.iter().map(|p| p.instance_id.0).collect();
+        let node_ids: Vec<&str> = payloads.iter().map(|p| p.node_id.as_str()).collect();
+        let inputs: Vec<Option<&[u8]>> = payloads
+            .iter()
+            .map(|p| p.inputs.as_deref())
+            .collect();
+        let results: Vec<Option<&[u8]>> = payloads
+            .iter()
+            .map(|p| p.result.as_deref())
+            .collect();
+
+        sqlx::query(
+            r#"
+            INSERT INTO node_payloads (instance_id, node_id, inputs, result)
+            SELECT * FROM unnest($1::uuid[], $2::text[], $3::bytea[], $4::bytea[])
+            ON CONFLICT (instance_id, node_id) DO UPDATE SET
+                inputs = COALESCE(EXCLUDED.inputs, node_payloads.inputs),
+                result = COALESCE(EXCLUDED.result, node_payloads.result)
+            "#,
+        )
+        .bind(&instance_ids)
+        .bind(&node_ids)
+        .bind(&inputs)
+        .bind(&results)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    /// Load all node payloads for an instance.
+    ///
+    /// Used during cold start recovery to reconstruct the full ExecutionState.
+    pub async fn load_node_payloads(
+        &self,
+        instance_id: WorkflowInstanceId,
+    ) -> DbResult<Vec<NodePayload>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT instance_id, node_id, inputs, result
+            FROM node_payloads
+            WHERE instance_id = $1
+            "#,
+        )
+        .bind(instance_id.0)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .iter()
+            .map(|row| NodePayload {
+                instance_id: WorkflowInstanceId(row.get("instance_id")),
+                node_id: row.get("node_id"),
+                inputs: row.get("inputs"),
+                result: row.get("result"),
+            })
+            .collect())
+    }
+
+    /// Load node payloads for multiple instances in a single query.
+    ///
+    /// More efficient than calling load_node_payloads for each instance.
+    pub async fn load_node_payloads_batch(
+        &self,
+        instance_ids: &[WorkflowInstanceId],
+    ) -> DbResult<Vec<NodePayload>> {
+        if instance_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let ids: Vec<Uuid> = instance_ids.iter().map(|id| id.0).collect();
+
+        let rows = sqlx::query(
+            r#"
+            SELECT instance_id, node_id, inputs, result
+            FROM node_payloads
+            WHERE instance_id = ANY($1)
+            "#,
+        )
+        .bind(&ids)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .iter()
+            .map(|row| NodePayload {
+                instance_id: WorkflowInstanceId(row.get("instance_id")),
+                node_id: row.get("node_id"),
+                inputs: row.get("inputs"),
+                result: row.get("result"),
+            })
+            .collect())
+    }
+}
+
+/// Payload data for a single node (inputs sent to worker, result received)
+#[derive(Debug, Clone)]
+pub struct NodePayload {
+    pub instance_id: WorkflowInstanceId,
+    pub node_id: String,
+    pub inputs: Option<Vec<u8>>,
+    pub result: Option<Vec<u8>>,
 }
 
 /// A claimed instance ready for local execution

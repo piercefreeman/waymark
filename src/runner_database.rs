@@ -57,7 +57,7 @@ use uuid::Uuid;
 use crate::ast_evaluator::ExpressionEvaluator;
 use crate::dag::{DAG, DAGConverter, DAGNode};
 use crate::db::{
-    ClaimedInstance, Database, ScheduleId, WorkerStatusUpdate, WorkflowInstanceId,
+    ClaimedInstance, Database, NodePayload, ScheduleId, WorkerStatusUpdate, WorkflowInstanceId,
     WorkflowSchedule, WorkflowVersionId,
 };
 use crate::execution_graph::{Completion, ExecutionState, SLEEP_WORKER_ID};
@@ -1216,8 +1216,23 @@ impl InstanceRunner {
         // Initialize or restore execution state
         let (state, stalled_completions) = match claimed.execution_graph {
             Some(bytes) => {
-                // Restore from persisted state
+                // Restore from persisted state (stripped graph - metadata only)
                 let mut state = ExecutionState::from_bytes(&bytes)?;
+
+                // Hydrate with payloads from node_payloads table (cold start recovery)
+                let payloads = self.db.load_node_payloads(claimed.id).await?;
+                if !payloads.is_empty() {
+                    let payload_tuples: Vec<(String, Option<Vec<u8>>, Option<Vec<u8>>)> = payloads
+                        .into_iter()
+                        .map(|p| (p.node_id, p.inputs, p.result))
+                        .collect();
+                    state.hydrate_payloads(&payload_tuples);
+                    debug!(
+                        instance_id = %claimed.id,
+                        payload_count = payload_tuples.len(),
+                        "Hydrated payloads from cold storage"
+                    );
+                }
 
                 // Recover any nodes that were running when previous owner crashed
                 state.recover_running_nodes();
@@ -1633,7 +1648,7 @@ impl InstanceRunner {
                 .keys()
                 .filter_map(|instance_id| {
                     instances.get(instance_id).map(|instance| {
-                        let graph_bytes = instance.state.to_bytes();
+                        let graph_bytes = instance.state.to_bytes_fully_stripped();
                         let next_wakeup = instance
                             .state
                             .graph
@@ -1941,6 +1956,9 @@ impl InstanceRunner {
         let mut complete_meta: HashMap<WorkflowInstanceId, String> = HashMap::new();
         let mut fail_meta: HashMap<WorkflowInstanceId, (String, Option<String>)> = HashMap::new();
 
+        // Collect node payloads to save (inputs + results for completed actions)
+        let mut payloads_to_save: Vec<NodePayload> = Vec::new();
+
         // Phase 1: Apply completions and categorize instances
         {
             let mut instances = self.active_instances.write().await;
@@ -1970,11 +1988,27 @@ impl InstanceRunner {
                 // Apply any remaining completions
                 let completion_result = if !instance.pending_completions.is_empty() {
                     let completions = std::mem::take(&mut instance.pending_completions);
-                    Some(
-                        instance
-                            .state
-                            .apply_completions_batch(completions, &instance.dag),
-                    )
+                    // Collect node IDs before applying so we can extract payloads after
+                    let completed_node_ids: Vec<String> =
+                        completions.iter().map(|c| c.node_id.clone()).collect();
+
+                    let result = instance
+                        .state
+                        .apply_completions_batch(completions, &instance.dag);
+
+                    // Extract payloads for completed nodes (inputs + results)
+                    for node_id in completed_node_ids {
+                        if let Some(node) = instance.state.graph.nodes.get(&node_id) {
+                            payloads_to_save.push(NodePayload {
+                                instance_id: instance.instance_id,
+                                node_id,
+                                inputs: node.inputs.clone(),
+                                result: node.result.clone(),
+                            });
+                        }
+                    }
+
+                    Some(result)
                 } else {
                     None
                 };
@@ -1982,7 +2016,7 @@ impl InstanceRunner {
                 // Check for workflow completion/failure
                 if let Some(ref result) = completion_result {
                     if result.workflow_completed {
-                        let graph_bytes = instance.state.to_bytes();
+                        let graph_bytes = instance.state.to_bytes_fully_stripped();
                         complete_meta.insert(instance.instance_id, instance.workflow_name.clone());
                         to_complete.push((
                             instance.instance_id,
@@ -1991,7 +2025,7 @@ impl InstanceRunner {
                         ));
                         continue;
                     } else if result.workflow_failed {
-                        let graph_bytes = instance.state.to_bytes();
+                        let graph_bytes = instance.state.to_bytes_fully_stripped();
                         fail_meta.insert(
                             instance.instance_id,
                             (instance.workflow_name.clone(), result.error_message.clone()),
@@ -2011,14 +2045,14 @@ impl InstanceRunner {
                     Self::sleep_wakeup_datetime_ms(instance.state.graph.next_wakeup_time);
 
                 if fully_sleeping {
-                    let graph_bytes = instance.state.to_bytes();
+                    let graph_bytes = instance.state.to_bytes_fully_stripped();
                     to_release.push((instance.instance_id, graph_bytes, next_wakeup));
                 } else if !instance.state.has_pending_work() && instance.in_flight.is_empty() {
-                    let graph_bytes = instance.state.to_bytes();
+                    let graph_bytes = instance.state.to_bytes_fully_stripped();
                     to_update.push((instance.instance_id, graph_bytes, next_wakeup));
                 } else if instance.state.graph.next_wakeup_time != previous_wakeup {
                     // Wakeup time changed
-                    let graph_bytes = instance.state.to_bytes();
+                    let graph_bytes = instance.state.to_bytes_fully_stripped();
                     to_update.push((instance.instance_id, graph_bytes, next_wakeup));
                 }
             }
@@ -2134,6 +2168,14 @@ impl InstanceRunner {
             }
         }
 
+        // Save node payloads (inputs + results) to separate table
+        // This is INSERT-only and can be done in parallel with other operations
+        if !payloads_to_save.is_empty() {
+            if let Err(e) = self.db.save_node_payloads_batch(&payloads_to_save).await {
+                error!(error = %e, count = payloads_to_save.len(), "Failed to save node payloads");
+            }
+        }
+
         // Record duration for completed/failed instances into the rolling metric
         if !completed_ids.is_empty() {
             self.instances_completed_total
@@ -2175,7 +2217,7 @@ impl InstanceRunner {
                 Self::refresh_sleep_state(&mut instance);
                 let next_wakeup =
                     Self::sleep_wakeup_datetime_ms(instance.state.graph.next_wakeup_time);
-                let graph_bytes = instance.state.to_bytes();
+                let graph_bytes = instance.state.to_bytes_fully_stripped();
                 (instance.instance_id, graph_bytes, next_wakeup)
             })
             .collect();
