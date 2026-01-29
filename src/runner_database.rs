@@ -64,7 +64,7 @@ use crate::db::{
     WorkflowInstanceId, WorkflowSchedule, WorkflowVersionId,
 };
 use crate::execution_events::{ExecutionEvent, ExecutionStateMachine};
-use crate::execution_graph::{Completion, ExecutionState, SLEEP_WORKER_ID};
+use crate::execution_graph::{BatchCompletionResult, Completion, ExecutionState, SLEEP_WORKER_ID};
 use crate::messages::execution::{ExecutionNode, NodeStatus};
 use crate::messages::proto;
 use crate::messages::proto::WorkflowArguments;
@@ -351,6 +351,79 @@ impl RunnerProfile {
 }
 
 impl InstanceRunner {
+    fn build_result_payload_from_variables(
+        variables: &HashMap<String, Vec<u8>>,
+    ) -> Option<Vec<u8>> {
+        if let Some(result_value_bytes) = variables.get("result")
+            && let Ok(value) = decode_message::<proto::WorkflowArgumentValue>(result_value_bytes)
+        {
+            let args = WorkflowArguments {
+                arguments: vec![crate::messages::proto::WorkflowArgument {
+                    key: "result".to_string(),
+                    value: Some(value),
+                }],
+            };
+            return Some(encode_message(&args));
+        }
+
+        let args = WorkflowArguments {
+            arguments: vec![crate::messages::proto::WorkflowArgument {
+                key: "result".to_string(),
+                value: Some(WorkflowValue::Null.to_proto()),
+            }],
+        };
+        Some(encode_message(&args))
+    }
+
+    fn terminal_result_for_state(
+        state: &ExecutionState,
+        dag: &DAG,
+    ) -> Option<BatchCompletionResult> {
+        let entry_function = dag
+            .nodes
+            .values()
+            .find(|n| n.is_input)
+            .and_then(|n| n.function_name.clone());
+
+        for node in dag.nodes.values() {
+            let is_entry_output = node.is_output
+                && entry_function
+                    .as_deref()
+                    .map(|name| node.function_name.as_deref() == Some(name))
+                    .unwrap_or(true);
+
+            if !is_entry_output {
+                continue;
+            }
+
+            if let Some(exec_node) = state.graph.nodes.get(&node.id)
+                && exec_node.status == NodeStatus::Completed as i32
+            {
+                return Some(BatchCompletionResult {
+                    workflow_completed: true,
+                    result_payload: Self::build_result_payload_from_variables(
+                        &state.graph.variables,
+                    ),
+                    ..BatchCompletionResult::default()
+                });
+            }
+        }
+
+        if let Some(failed_node) = state.graph.nodes.values().find(|node| {
+            matches!(
+                NodeStatus::try_from(node.status).unwrap_or(NodeStatus::Unspecified),
+                NodeStatus::Failed | NodeStatus::Exhausted
+            )
+        }) {
+            return Some(BatchCompletionResult {
+                workflow_failed: true,
+                error_message: failed_node.error.clone(),
+                ..BatchCompletionResult::default()
+            });
+        }
+
+        None
+    }
     /// Create a new instance runner
     pub fn new(
         config: InstanceRunnerConfig,
@@ -2263,7 +2336,7 @@ impl InstanceRunner {
                 }
 
                 // Apply any remaining completions
-                let completion_result = if !instance.pending_completions.is_empty() {
+                let mut completion_result = if !instance.pending_completions.is_empty() {
                     let completions = std::mem::take(&mut instance.pending_completions);
 
                     if persistence_mode == PersistenceMode::EventLog || self.config.payload_offload
@@ -2318,6 +2391,15 @@ impl InstanceRunner {
                 } else {
                     None
                 };
+
+                if completion_result.is_none()
+                    && instance.pending_completions.is_empty()
+                    && !instance.state.has_pending_work()
+                    && instance.in_flight.is_empty()
+                {
+                    completion_result =
+                        Self::terminal_result_for_state(&instance.state, &instance.dag);
+                }
 
                 // Check for workflow completion/failure
                 if let Some(ref result) = completion_result {
