@@ -151,36 +151,6 @@ impl ExecutionState {
         encode_execution_graph_bytes(&raw)
     }
 
-    /// Serialize the execution state with input payloads stripped.
-    ///
-    /// This removes the `inputs` field from nodes (the kwargs sent to workers),
-    /// which is purely historical and not needed for execution decisions.
-    ///
-    /// We KEEP `result` because:
-    /// - Barrier/join nodes read predecessor results for aggregation
-    /// - Stalled completion recovery needs results
-    /// - The workflow's final result comes from the output node
-    ///
-    /// We KEEP `variables` because expressions reference them.
-    pub fn to_bytes_stripped(&self) -> Vec<u8> {
-        let mut stripped = self.graph.clone();
-
-        for node in stripped.nodes.values_mut() {
-            // Clear inputs - these are historical (what was sent to worker)
-            // and not needed for forward progress
-            node.inputs = None;
-
-            // Clear results from attempt history (keep error info for debugging)
-            // The final result is in node.result, not in attempts
-            for attempt in &mut node.attempts {
-                attempt.result = None;
-            }
-        }
-
-        let raw = stripped.encode_to_vec();
-        encode_execution_graph_bytes(&raw)
-    }
-
     /// Serialize with ALL payloads stripped (inputs AND results).
     ///
     /// WARNING: This breaks barrier/join aggregation! Only use if:

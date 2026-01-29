@@ -39,96 +39,115 @@
 
 <section class="space-y-3">
     <div>
-        <p class="text-xs uppercase tracking-[0.4em] text-zinc-500">Execution</p>
-        <h2 class="text-2xl font-semibold text-zinc-900 dark:text-white">Execution Details</h2>
-        <p class="text-sm text-zinc-600 dark:text-zinc-400">Click a node in the graph to view details</p>
+        <p class="text-xs uppercase tracking-[0.4em] text-zinc-500">DAG</p>
+        <h2 class="text-2xl font-semibold text-zinc-900 dark:text-white">Execution Graph</h2>
+        <p class="text-sm text-zinc-600 dark:text-zinc-400">Workflow dependency structure</p>
     </div>
-    <div class="grid gap-6 lg:grid-cols-2">
-        <!-- Vertical DAG (left side) -->
-        <div id="execution-graph" class="relative min-h-[400px] max-h-[600px] overflow-auto rounded-2xl border border-zinc-200 dark:border-zinc-900 bg-gradient-to-b from-zinc-50 to-zinc-100 dark:from-zinc-950 dark:to-zinc-900 p-4">
-            <p id="graph-empty" class="p-6 text-sm text-zinc-600 dark:text-zinc-400">No DAG nodes to display.</p>
-        </div>
+    <!-- Horizontal DAG -->
+    <div id="execution-graph" class="relative min-h-[300px] max-h-[500px] overflow-auto rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 p-4">
+        <p id="graph-empty" class="p-6 text-sm text-zinc-600 dark:text-zinc-400">No DAG nodes to display.</p>
+    </div>
+</section>
 
-        <!-- Detail panel (right side) -->
-        <div id="detail-panel" class="rounded-2xl border border-zinc-200 dark:border-zinc-900 bg-zinc-100 dark:bg-zinc-900/40 p-5 lg:sticky lg:top-6 lg:self-start max-h-[600px] overflow-auto">
-            <div id="detail-placeholder" class="text-center py-12 text-zinc-600 dark:text-zinc-400">
-                <svg class="mx-auto h-12 w-12 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122" />
-                </svg>
-                <p class="mt-4 text-sm">Select a node to view details</p>
-            </div>
-            <div id="detail-content" class="hidden space-y-4">
-                <div class="flex items-center justify-between gap-2">
-                    <div>
-                        <p id="detail-node-id" class="text-lg font-semibold text-zinc-900 dark:text-white"></p>
-                        <p id="detail-action-info" class="text-sm text-zinc-700 dark:text-zinc-300"></p>
-                    </div>
-                    <span id="detail-status" class="rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide"></span>
-                </div>
-                <!-- Error section (shown when there's an error) -->
-                <div id="detail-error-info" class="hidden rounded-xl bg-red-100/50 dark:bg-red-900/20 border border-red-300 dark:border-red-700 p-3">
-                    <p class="text-xs uppercase tracking-[0.4em] text-red-700 dark:text-red-400 mb-2">Error</p>
-                    <pre id="detail-error-message" class="text-sm text-red-800 dark:text-red-200 whitespace-pre-wrap break-words font-mono"></pre>
-                </div>
-                <!-- Retry info section (shown when relevant) -->
-                <div id="detail-retry-info" class="hidden rounded-xl bg-amber-100/50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-700 p-3">
-                    <p class="text-xs uppercase tracking-[0.4em] text-amber-700 dark:text-amber-400 mb-2">Retry Status</p>
-                    <div class="grid grid-cols-2 gap-2 text-sm">
-                        <div>
-                            <span class="text-zinc-600 dark:text-zinc-400">Attempts:</span>
-                            <span id="detail-attempts" class="font-semibold text-zinc-900 dark:text-white"></span>
-                        </div>
-                        <div>
-                            <span class="text-zinc-600 dark:text-zinc-400">Max Retries:</span>
-                            <span id="detail-max-retries" class="font-semibold text-zinc-900 dark:text-white"></span>
-                        </div>
-                    </div>
-                    <div id="detail-scheduled-row" class="mt-2 hidden">
-                        <span class="text-zinc-600 dark:text-zinc-400 text-sm">Scheduled At:</span>
-                        <span id="detail-scheduled-at" class="font-semibold text-zinc-900 dark:text-white text-sm"></span>
-                    </div>
-                </div>
-                <div>
-                    <p class="text-xs uppercase tracking-[0.4em] text-zinc-500">Request</p>
-                    <pre id="detail-request" class="mt-2 max-h-64 overflow-auto whitespace-pre-wrap rounded-xl bg-zinc-200/70 dark:bg-zinc-950/70 p-3 text-xs text-zinc-800 dark:text-zinc-200 font-mono"></pre>
-                </div>
-                <div>
-                    <p class="text-xs uppercase tracking-[0.4em] text-zinc-500">Response</p>
-                    <pre id="detail-response" class="mt-2 max-h-64 overflow-auto whitespace-pre-wrap rounded-xl bg-zinc-200/70 dark:bg-zinc-950/70 p-3 text-xs text-zinc-800 dark:text-zinc-200 font-mono"></pre>
-                </div>
-                <!-- Execution History section (shows all run attempts) -->
-                <div id="detail-history" class="hidden">
-                    <p class="text-xs uppercase tracking-[0.4em] text-zinc-500 mb-2">Execution History</p>
-                    <div id="detail-history-content" class="space-y-2 max-h-48 overflow-auto">
-                        <!-- History rows will be injected here -->
-                    </div>
-                </div>
-            </div>
+<!-- Gantt-style Timeline -->
+<section class="space-y-3">
+    <div>
+        <p class="text-xs uppercase tracking-[0.4em] text-zinc-500">Timeline</p>
+        <h2 class="text-2xl font-semibold text-zinc-900 dark:text-white">Execution Timeline</h2>
+        <p class="text-sm text-zinc-600 dark:text-zinc-400">Action execution timing and duration</p>
+    </div>
+    <div id="timeline-container" class="rounded-2xl border border-zinc-800 bg-zinc-950 overflow-hidden">
+        <div id="timeline-empty" class="text-center py-8 text-zinc-400">
+            <p class="text-sm">No execution logs recorded yet</p>
+        </div>
+        <div id="timeline-gantt" class="hidden">
+            <!-- Gantt chart will be rendered here -->
         </div>
     </div>
 </section>
 
-<!-- Full Execution Timeline -->
+<!-- Execution Log (list-based view) -->
 <section class="space-y-3">
     <div>
-        <p class="text-xs uppercase tracking-[0.4em] text-zinc-500">Timeline</p>
+        <p class="text-xs uppercase tracking-[0.4em] text-zinc-500">Log</p>
         <h2 class="text-2xl font-semibold text-zinc-900 dark:text-white">Execution Log</h2>
         <p class="text-sm text-zinc-600 dark:text-zinc-400">Chronological history of all action executions</p>
     </div>
-    <div id="timeline-container" class="rounded-2xl border border-zinc-200 dark:border-zinc-900 bg-zinc-100 dark:bg-zinc-900/40 p-5">
-        <div id="timeline-empty" class="text-center py-8 text-zinc-600 dark:text-zinc-400">
+    <div id="log-container" class="rounded-2xl border border-zinc-200 dark:border-zinc-900 bg-zinc-100 dark:bg-zinc-900/40 overflow-hidden">
+        <div id="log-empty" class="text-center py-8 text-zinc-600 dark:text-zinc-400">
             <p class="text-sm">No execution logs recorded yet</p>
         </div>
-        <div id="timeline-content" class="hidden space-y-2">
-            <!-- Timeline entries will be injected here -->
+        <div id="log-content" class="hidden divide-y divide-zinc-200 dark:divide-zinc-800">
+            <!-- Log entries will be injected here -->
         </div>
-        <div id="timeline-load-more-container" class="hidden pt-4 text-center">
-            <button id="timeline-load-more" class="rounded-full border border-zinc-300 dark:border-zinc-700 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200/70 dark:hover:bg-zinc-800/60 transition-colors">
+        <div id="log-load-more-container" class="hidden py-3 text-center border-t border-zinc-200 dark:border-zinc-800">
+            <button id="log-load-more" class="rounded-full border border-zinc-300 dark:border-zinc-700 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors">
                 Load more
             </button>
         </div>
     </div>
 </section>
+
+<!-- Sliding Detail Panel -->
+<div id="detail-drawer" class="fixed inset-y-0 right-0 z-50 w-full max-w-md transform translate-x-full transition-transform duration-300 ease-in-out">
+    <div class="h-full flex flex-col bg-zinc-900 border-l border-zinc-800 shadow-2xl">
+        <!-- Header -->
+        <div class="flex items-center justify-between p-5 border-b border-zinc-800">
+            <div class="min-w-0 flex-1">
+                <p id="drawer-title" class="text-xl font-semibold text-white truncate"></p>
+                <p id="drawer-subtitle" class="text-sm text-zinc-400 truncate mt-0.5"></p>
+            </div>
+            <button id="drawer-close" class="ml-4 p-2 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors">
+                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+        </div>
+        <!-- Content -->
+        <div id="drawer-content" class="flex-1 overflow-auto p-5 space-y-5">
+            <!-- Status and duration -->
+            <div class="flex items-center gap-3">
+                <span id="drawer-status" class="rounded px-2.5 py-1 text-xs font-bold uppercase tracking-wide"></span>
+                <span id="drawer-duration" class="text-sm text-zinc-400"></span>
+            </div>
+            <!-- Timing info -->
+            <div class="rounded-xl bg-zinc-800/50 p-4">
+                <div class="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                        <span class="text-xs uppercase tracking-wider text-zinc-500">Started</span>
+                        <p id="drawer-started" class="font-mono text-zinc-200 mt-1"></p>
+                    </div>
+                    <div>
+                        <span class="text-xs uppercase tracking-wider text-zinc-500">Completed</span>
+                        <p id="drawer-completed" class="font-mono text-zinc-200 mt-1"></p>
+                    </div>
+                </div>
+            </div>
+            <!-- Error section -->
+            <div id="drawer-error-section" class="hidden">
+                <p class="text-xs uppercase tracking-wider text-red-400 mb-2">Error</p>
+                <pre id="drawer-error" class="text-sm text-red-300 bg-red-950/50 border border-red-900 p-4 rounded-xl whitespace-pre-wrap break-words font-mono max-h-48 overflow-auto"></pre>
+            </div>
+            <!-- Request section -->
+            <div>
+                <p class="text-xs uppercase tracking-wider text-zinc-500 mb-2">Request</p>
+                <pre id="drawer-request" class="text-sm text-zinc-200 bg-zinc-800/50 p-4 rounded-xl whitespace-pre-wrap break-words font-mono max-h-64 overflow-auto"></pre>
+            </div>
+            <!-- Response section -->
+            <div>
+                <p class="text-xs uppercase tracking-wider text-zinc-500 mb-2">Response</p>
+                <pre id="drawer-response" class="text-sm text-zinc-200 bg-zinc-800/50 p-4 rounded-xl whitespace-pre-wrap break-words font-mono max-h-64 overflow-auto"></pre>
+            </div>
+            <!-- Attempt history -->
+            <div id="drawer-history-section" class="hidden">
+                <p class="text-xs uppercase tracking-wider text-zinc-500 mb-2">All Attempts</p>
+                <div id="drawer-history" class="space-y-2"></div>
+            </div>
+        </div>
+    </div>
+</div>
+<!-- Backdrop -->
+<div id="detail-backdrop" class="fixed inset-0 z-40 bg-black/70 opacity-0 pointer-events-none transition-opacity duration-300"></div>
 {% endblock content %}
 
 {% block scripts %}
@@ -195,7 +214,6 @@ function payloadHasException(payloadText) {
       return true;
     }
   } catch (_err) {
-    // Fall back to a simple marker check for pretty-printed payloads.
     if (payloadText.includes('"__exception__"')) {
       return true;
     }
@@ -219,13 +237,12 @@ function deriveNodeStatus(node) {
 
 /**
  * DAGLayout - Reusable class for rendering DAG visualizations
- * Supports both horizontal and vertical orientations
  */
 class DAGLayout {
   constructor(container, options = {}) {
     this.container = container;
     this.options = {
-      orientation: options.orientation || 'horizontal', // 'horizontal' or 'vertical'
+      orientation: options.orientation || 'horizontal',
       minNodeWidth: options.minNodeWidth || 120,
       maxNodeWidth: options.maxNodeWidth || 280,
       nodeHeight: options.nodeHeight || 64,
@@ -240,203 +257,121 @@ class DAGLayout {
     this.nodeWidths = new Map();
   }
 
-  // Measure text width to determine node width
   measureNodeWidth(node) {
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
-
-    // Measure each text element
-    ctx.font = '600 14px system-ui, sans-serif'; // semibold for action name
+    ctx.font = '600 14px system-ui, sans-serif';
     const actionWidth = ctx.measureText(node.action).width;
-
-    ctx.font = '500 10px ui-monospace, monospace'; // mono for node id
+    ctx.font = '500 10px ui-monospace, monospace';
     const idWidth = ctx.measureText(node.id).width;
-
-    ctx.font = '400 10px system-ui, sans-serif'; // normal for module
+    ctx.font = '400 10px system-ui, sans-serif';
     const moduleWidth = ctx.measureText(node.module).width;
-
-    // Take the max width + padding
     const textWidth = Math.max(actionWidth, idWidth, moduleWidth);
-    const paddedWidth = textWidth + 32; // 16px padding on each side
-
+    const paddedWidth = textWidth + 32;
     return Math.max(this.options.minNodeWidth, Math.min(paddedWidth, this.options.maxNodeWidth));
   }
 
-  // Status colors for nodes (opaque backgrounds)
   getStatusColors(status) {
     const isDark = document.documentElement.classList.contains('dark');
     const colors = {
-      'completed': {
-        bg: isDark ? '#064e3b' : '#d1fae5',
-        border: '#10b981',
-        text: isDark ? '#6ee7b7' : '#059669',
-        label: isDark ? '#a7f3d0' : '#047857'
-      },
-      'failed': {
-        bg: isDark ? '#7f1d1d' : '#fee2e2',
-        border: '#ef4444',
-        text: isDark ? '#fca5a5' : '#dc2626',
-        label: isDark ? '#fecaca' : '#b91c1c'
-      },
-      'dispatched': {
-        bg: isDark ? '#78350f' : '#fef3c7',
-        border: '#f59e0b',
-        text: isDark ? '#fcd34d' : '#d97706',
-        label: isDark ? '#fde68a' : '#b45309'
-      },
-      'pending': {
-        bg: isDark ? '#27272a' : '#f4f4f5',
-        border: isDark ? '#52525b' : '#a1a1aa',
-        text: isDark ? '#a1a1aa' : '#71717a',
-        label: isDark ? '#d4d4d8' : '#52525b'
-      },
-      'queued': {
-        bg: isDark ? '#27272a' : '#f4f4f5',
-        border: isDark ? '#52525b' : '#a1a1aa',
-        text: isDark ? '#a1a1aa' : '#71717a',
-        label: isDark ? '#d4d4d8' : '#52525b'
-      }
+      'completed': { bg: isDark ? '#064e3b' : '#d1fae5', border: '#10b981', text: isDark ? '#6ee7b7' : '#059669', label: isDark ? '#a7f3d0' : '#047857' },
+      'failed': { bg: isDark ? '#7f1d1d' : '#fee2e2', border: '#ef4444', text: isDark ? '#fca5a5' : '#dc2626', label: isDark ? '#fecaca' : '#b91c1c' },
+      'dispatched': { bg: isDark ? '#78350f' : '#fef3c7', border: '#f59e0b', text: isDark ? '#fcd34d' : '#d97706', label: isDark ? '#fde68a' : '#b45309' },
+      'pending': { bg: isDark ? '#27272a' : '#f4f4f5', border: isDark ? '#52525b' : '#a1a1aa', text: isDark ? '#a1a1aa' : '#71717a', label: isDark ? '#d4d4d8' : '#52525b' },
+      'queued': { bg: isDark ? '#27272a' : '#f4f4f5', border: isDark ? '#52525b' : '#a1a1aa', text: isDark ? '#a1a1aa' : '#71717a', label: isDark ? '#d4d4d8' : '#52525b' }
     };
     return colors[status] || colors['pending'];
   }
 
   render(nodes) {
     if (!nodes || !nodes.length) return;
-
     this.container.innerHTML = '';
-
     const nodeMap = new Map(nodes.map(n => [n.id, n]));
     const depthCache = new Map();
-
-    // Pre-calculate all node widths
-    nodes.forEach(node => {
-      this.nodeWidths.set(node.id, this.measureNodeWidth(node));
-    });
+    nodes.forEach(node => { this.nodeWidths.set(node.id, this.measureNodeWidth(node)); });
 
     const computeDepth = (nodeId, stack = new Set()) => {
       if (depthCache.has(nodeId)) return depthCache.get(nodeId);
       const node = nodeMap.get(nodeId);
-      if (!node || !node.depends_on || !node.depends_on.length) {
-        depthCache.set(nodeId, 0);
-        return 0;
-      }
+      if (!node || !node.depends_on || !node.depends_on.length) { depthCache.set(nodeId, 0); return 0; }
       if (stack.has(nodeId)) return 0;
       stack.add(nodeId);
       let depth = 0;
-      node.depends_on.forEach(dep => {
-        depth = Math.max(depth, computeDepth(dep, stack) + 1);
-      });
+      node.depends_on.forEach(dep => { depth = Math.max(depth, computeDepth(dep, stack) + 1); });
       stack.delete(nodeId);
       depthCache.set(nodeId, depth);
       return depth;
     };
 
     const levels = [];
-    nodes.forEach(node => {
-      const depth = computeDepth(node.id);
-      if (!levels[depth]) levels[depth] = [];
-      levels[depth].push(node);
-    });
-
-    // Sort nodes within each level by ID for stable layout across refreshes
-    levels.forEach(level => {
-      if (level) level.sort((a, b) => a.id.localeCompare(b.id));
-    });
+    nodes.forEach(node => { const depth = computeDepth(node.id); if (!levels[depth]) levels[depth] = []; levels[depth].push(node); });
+    levels.forEach(level => { if (level) level.sort((a, b) => a.id.localeCompare(b.id)); });
 
     const normalizedLevels = Array.from({ length: levels.length }, (_, i) => levels[i] || []);
     const { nodeHeight, padding, gap, rowGap, orientation } = this.options;
-
-    // Calculate max width per level
-    const levelMaxWidths = normalizedLevels.map(levelNodes =>
-      Math.max(...levelNodes.map(n => this.nodeWidths.get(n.id)), this.options.minNodeWidth)
-    );
-
-    // Calculate total dimensions
+    const levelMaxWidths = normalizedLevels.map(levelNodes => Math.max(...levelNodes.map(n => this.nodeWidths.get(n.id)), this.options.minNodeWidth));
     const maxDepth = normalizedLevels.length;
     const maxNodesInLevel = Math.max(...normalizedLevels.map(l => l.length), 1);
 
     let totalWidth, totalHeight;
     if (orientation === 'vertical') {
-      const maxLevelWidth = Math.max(...normalizedLevels.map(levelNodes =>
-        levelNodes.reduce((sum, n) => sum + this.nodeWidths.get(n.id), 0) + (levelNodes.length - 1) * (rowGap / 2)
-      ), 0);
+      const maxLevelWidth = Math.max(...normalizedLevels.map(levelNodes => levelNodes.reduce((sum, n) => sum + this.nodeWidths.get(n.id), 0) + (levelNodes.length - 1) * (rowGap / 2)), 0);
       totalWidth = padding * 2 + maxLevelWidth;
       totalHeight = padding * 2 + maxDepth * gap + nodeHeight;
     } else {
       const levelWidthsSum = levelMaxWidths.reduce((sum, w) => sum + w, 0);
       totalWidth = padding * 2 + levelWidthsSum + (maxDepth - 1) * gap;
-      totalHeight = padding * 2 + maxNodesInLevel * rowGap + nodeHeight;
+      // Height = padding + (n-1) * (nodeHeight + gap) + nodeHeight + padding
+      totalHeight = padding * 2 + maxNodesInLevel * nodeHeight + (maxNodesInLevel - 1) * 20;
     }
 
-    // Create wrapper that defines the full scrollable area
     const wrapper = document.createElement('div');
-    wrapper.style.cssText = `position: relative; width: ${totalWidth}px; height: ${Math.max(totalHeight, 300)}px;`;
+    wrapper.style.cssText = `position: relative; width: ${totalWidth}px; height: ${Math.max(totalHeight, 150)}px;`;
     this.container.appendChild(wrapper);
 
-    // Create SVG sized to full content
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svg.style.cssText = 'position: absolute; top: 0; left: 0; pointer-events: none;';
     svg.setAttribute('width', totalWidth);
-    svg.setAttribute('height', Math.max(totalHeight, 300));
+    svg.setAttribute('height', Math.max(totalHeight, 150));
     wrapper.appendChild(svg);
 
-    // Calculate cumulative positions for horizontal layout
     const levelStartX = [];
     let cumX = padding;
-    levelMaxWidths.forEach((w, i) => {
-      levelStartX[i] = cumX;
-      cumX += w + gap;
-    });
+    levelMaxWidths.forEach((w, i) => { levelStartX[i] = cumX; cumX += w + gap; });
 
-    // Create node elements
     normalizedLevels.forEach((levelNodes, depth) => {
       levelNodes.forEach((node, index) => {
         const nodeWidth = this.nodeWidths.get(node.id);
         const levelMaxWidth = levelMaxWidths[depth];
-
         let left, top;
         if (orientation === 'vertical') {
-          // Center nodes within level for vertical orientation
-          const levelTotalWidth = levelNodes.reduce((sum, n, i) =>
-            sum + this.nodeWidths.get(n.id) + (i > 0 ? rowGap / 2 : 0), 0);
+          const levelTotalWidth = levelNodes.reduce((sum, n, i) => sum + this.nodeWidths.get(n.id) + (i > 0 ? rowGap / 2 : 0), 0);
           let runningX = padding + (totalWidth - padding * 2 - levelTotalWidth) / 2;
-          for (let i = 0; i < index; i++) {
-            runningX += this.nodeWidths.get(levelNodes[i].id) + rowGap / 2;
-          }
+          for (let i = 0; i < index; i++) { runningX += this.nodeWidths.get(levelNodes[i].id) + rowGap / 2; }
           left = runningX;
           top = padding + depth * gap;
         } else {
           left = levelStartX[depth] + (levelMaxWidth - nodeWidth) / 2;
-          top = padding + index * rowGap;
+          // Space nodes vertically with nodeHeight + gap between them
+          top = padding + index * (nodeHeight + 20);
         }
-
-        this.positions.set(node.id, {
-          x: left + nodeWidth / 2,
-          y: top + nodeHeight / 2,
-          left, top,
-          width: nodeWidth
-        });
-
+        this.positions.set(node.id, { x: left + nodeWidth / 2, y: top + nodeHeight / 2, left, top, width: nodeWidth });
         const el = this.createNodeElement(node, left, top, nodeWidth);
         wrapper.appendChild(el);
         this.nodeElements.set(node.id, el);
       });
     });
 
-    // Draw edges
     const isDark = document.documentElement.classList.contains('dark');
     const strokeColor = isDark ? '#52525b' : '#d4d4d8';
-
     nodes.forEach(node => {
       if (!node.depends_on) return;
       node.depends_on.forEach(depId => {
         const start = this.positions.get(depId);
         const end = this.positions.get(node.id);
         if (!start || !end) return;
-
         const startWidth = start.width || this.options.minNodeWidth;
         const endWidth = end.width || this.options.minNodeWidth;
-
         const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         let d;
         if (orientation === 'vertical') {
@@ -459,46 +394,305 @@ class DAGLayout {
   createNodeElement(node, left, top, nodeWidth) {
     const { nodeHeight } = this.options;
     const colors = this.getStatusColors(node.status);
-
     const el = document.createElement('div');
-    el.className = 'absolute rounded-xl px-3 py-2 cursor-pointer transition-all duration-150 hover:scale-[1.02] hover:shadow-lg';
-    el.style.cssText = `
-      left: ${left}px;
-      top: ${top}px;
-      width: ${nodeWidth}px;
-      min-height: ${nodeHeight}px;
-      background: ${colors.bg};
-      border: 2px solid ${colors.border};
-      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-      overflow: hidden;
-    `;
+    el.className = 'absolute rounded-lg px-3 py-2 cursor-pointer transition-colors duration-150 hover:brightness-110';
+    el.style.cssText = `left: ${left}px; top: ${top}px; width: ${nodeWidth}px; min-height: ${nodeHeight}px; background: ${colors.bg}; border: 2px solid ${colors.border}; overflow: hidden;`;
     el.dataset.nodeId = node.id;
-
     el.innerHTML = `
       <p class="text-[10px] font-mono font-medium uppercase tracking-wider truncate" style="color: ${colors.label}">${node.id}</p>
       <p class="text-sm font-semibold truncate mt-0.5" style="color: ${colors.text}">${node.action}</p>
       <p class="text-[10px] truncate opacity-70" style="color: ${colors.text}">${node.module}</p>
     `;
-
-    if (this.options.onNodeClick) {
-      el.addEventListener('click', () => this.options.onNodeClick(node.id));
-    }
-
+    if (this.options.onNodeClick) { el.addEventListener('click', () => this.options.onNodeClick(node.id)); }
     return el;
   }
 
   selectNode(nodeId) {
-    // Clear previous selection
-    this.nodeElements.forEach(el => {
-      el.classList.remove('ring-2', 'ring-indigo-500', 'ring-offset-2');
+    this.nodeElements.forEach(el => { el.classList.remove('ring-2', 'ring-indigo-500', 'ring-offset-2'); });
+    const el = this.nodeElements.get(nodeId);
+    if (el) { el.classList.add('ring-2', 'ring-indigo-500', 'ring-offset-2'); }
+  }
+}
+
+/**
+ * GanttTimeline - Renders a modern Gantt-style timeline
+ */
+class GanttTimeline {
+  constructor(container, options = {}) {
+    this.container = container;
+    this.options = {
+      rowHeight: options.rowHeight || 44,
+      headerHeight: options.headerHeight || 48,
+      timeAxisHeight: options.timeAxisHeight || 32,
+      minBarWidth: options.minBarWidth || 80,
+      onItemClick: options.onItemClick || null,
+    };
+    this.rows = [];
+  }
+
+  render(entries) {
+    if (!entries || !entries.length) {
+      this.container.innerHTML = '';
+      return;
+    }
+
+    // Sort by dispatched_at
+    const sorted = [...entries].sort((a, b) => new Date(a.dispatched_at).getTime() - new Date(b.dispatched_at).getTime());
+
+    // Calculate time bounds
+    let minTime = Infinity, maxTime = -Infinity;
+    sorted.forEach(entry => {
+      const start = new Date(entry.dispatched_at).getTime();
+      const end = entry.completed_at ? new Date(entry.completed_at).getTime() : start + (entry.duration_ms || 100);
+      minTime = Math.min(minTime, start);
+      maxTime = Math.max(maxTime, end);
     });
 
-    // Highlight selected node
-    const el = this.nodeElements.get(nodeId);
-    if (el) {
-      el.classList.add('ring-2', 'ring-indigo-500', 'ring-offset-2');
-    }
+    const timeRange = maxTime - minTime || 1000;
+    const timePadding = timeRange * 0.02;
+    minTime -= timePadding;
+    maxTime += timePadding;
+    const totalDuration = maxTime - minTime;
+    const workflowDuration = maxTime - minTime - (timePadding * 2);
+
+    const { rowHeight, headerHeight, timeAxisHeight, minBarWidth } = this.options;
+    const chartHeight = sorted.length * rowHeight + headerHeight + timeAxisHeight;
+
+    // Build HTML
+    let html = `
+      <div class="flex flex-col" style="min-width: 100%;">
+        <!-- Header bar -->
+        <div class="flex items-center justify-between px-5 border-b border-zinc-800 bg-zinc-900" style="height: ${headerHeight}px;">
+          <div class="flex items-center gap-3">
+            <div class="w-2 h-2 rounded-full bg-emerald-500"></div>
+            <span class="text-sm font-semibold text-emerald-400">workflow()</span>
+          </div>
+          <span class="text-sm font-mono text-zinc-400">${this.formatDuration(workflowDuration)}</span>
+        </div>
+
+        <!-- Chart area -->
+        <div class="relative overflow-x-auto">
+          <!-- Time axis -->
+          <div class="sticky top-0 z-10 flex items-end border-b border-zinc-800 bg-zinc-950" style="height: ${timeAxisHeight}px;">
+            <div class="flex-1 relative px-4">
+              ${this.renderTimeAxis(minTime, maxTime)}
+            </div>
+          </div>
+
+          <!-- Rows with stripes -->
+          <div class="relative">
+            <!-- Stripe background -->
+            <div class="absolute inset-0 flex pointer-events-none">
+              ${this.renderStripes(20)}
+            </div>
+
+            <!-- Row content -->
+            ${sorted.map((entry, idx) => this.renderRow(entry, idx, minTime, totalDuration)).join('')}
+          </div>
+        </div>
+      </div>
+    `;
+
+    this.container.innerHTML = html;
+    this.rows = sorted;
+
+    // Bind click handlers
+    this.container.querySelectorAll('[data-entry-idx]').forEach(el => {
+      el.addEventListener('click', () => {
+        const idx = parseInt(el.dataset.entryIdx, 10);
+        if (this.options.onItemClick && this.rows[idx]) {
+          this.options.onItemClick(this.rows[idx]);
+        }
+      });
+    });
   }
+
+  renderStripes(count) {
+    let stripes = '';
+    for (let i = 0; i < count; i++) {
+      const bg = i % 2 === 0 ? 'bg-zinc-900/40' : 'bg-zinc-950/40';
+      stripes += `<div class="${bg} flex-1"></div>`;
+    }
+    return stripes;
+  }
+
+  renderTimeAxis(minTime, maxTime) {
+    const tickCount = 7;
+    const range = maxTime - minTime;
+    let ticks = '';
+    for (let i = 0; i <= tickCount; i++) {
+      const pct = (i / tickCount) * 100;
+      const time = minTime + range * (i / tickCount);
+      const date = new Date(time);
+      // Show relative time from start for cleaner display
+      const relativeMs = time - minTime;
+      let label;
+      if (relativeMs === 0) {
+        label = '0ms';
+      } else if (relativeMs < 1000) {
+        label = `+${Math.round(relativeMs)}ms`;
+      } else {
+        label = `+${(relativeMs / 1000).toFixed(1)}s`;
+      }
+      ticks += `<span class="absolute bottom-1 text-[10px] font-mono text-zinc-500 transform -translate-x-1/2" style="left: ${pct}%;">${label}</span>`;
+    }
+    return ticks;
+  }
+
+  renderRow(entry, idx, minTime, totalDuration) {
+    const { rowHeight, minBarWidth } = this.options;
+    const start = new Date(entry.dispatched_at).getTime();
+    const duration = entry.duration_ms || 100;
+    const end = entry.completed_at ? new Date(entry.completed_at).getTime() : start + duration;
+
+    const startPct = ((start - minTime) / totalDuration) * 100;
+    const widthPct = ((end - start) / totalDuration) * 100;
+
+    // Status colors - flat, vibrant
+    let borderColor, textColor, bgColor;
+    if (entry.success === true) {
+      borderColor = 'border-emerald-500';
+      textColor = 'text-emerald-400';
+      bgColor = 'bg-emerald-950';
+    } else if (entry.success === false) {
+      borderColor = 'border-red-500';
+      textColor = 'text-red-400';
+      bgColor = 'bg-red-950';
+    } else {
+      borderColor = 'border-amber-500';
+      textColor = 'text-amber-400';
+      bgColor = 'bg-amber-950';
+    }
+
+    const actionName = entry.actionName || entry.action_name || 'Unknown';
+    const durationText = this.formatDuration(duration);
+
+    return `
+      <div class="relative flex items-center px-4" style="height: ${rowHeight}px;" data-entry-idx="${idx}">
+        <div
+          class="absolute flex items-center justify-between gap-2 px-3 rounded border ${borderColor} ${bgColor} cursor-pointer hover:brightness-110 transition-colors"
+          style="left: calc(${startPct}% + 16px); width: max(${widthPct}%, ${minBarWidth}px); height: ${rowHeight - 12}px;"
+        >
+          <span class="text-xs font-semibold ${textColor} truncate">${actionName}()</span>
+          <span class="text-[10px] font-mono text-zinc-500 whitespace-nowrap">${durationText}</span>
+        </div>
+      </div>
+    `;
+  }
+
+  formatDuration(ms) {
+    if (ms < 1000) return `${Math.round(ms)}ms`;
+    if (ms < 60000) return `${(ms / 1000).toFixed(2)}s`;
+    const mins = Math.floor(ms / 60000);
+    const secs = ((ms % 60000) / 1000).toFixed(1);
+    return `${mins}m ${secs}s`;
+  }
+}
+
+// Drawer management
+let drawerOpen = false;
+
+function openDrawer(entry, nodeInfo) {
+  const drawer = document.getElementById('detail-drawer');
+  const backdrop = document.getElementById('detail-backdrop');
+
+  const actionName = entry.actionName || entry.action_name || 'Unknown';
+  const moduleName = entry.moduleName || entry.module_name || '';
+
+  document.getElementById('drawer-title').textContent = actionName;
+  document.getElementById('drawer-subtitle').textContent = moduleName;
+
+  // Status
+  const statusEl = document.getElementById('drawer-status');
+  statusEl.className = 'rounded px-2.5 py-1 text-xs font-bold uppercase tracking-wide';
+  if (entry.success === true) {
+    statusEl.textContent = 'Success';
+    statusEl.classList.add('bg-emerald-500/20', 'text-emerald-400');
+  } else if (entry.success === false) {
+    statusEl.textContent = 'Failed';
+    statusEl.classList.add('bg-red-500/20', 'text-red-400');
+  } else {
+    statusEl.textContent = 'Running';
+    statusEl.classList.add('bg-amber-500/20', 'text-amber-400');
+  }
+
+  // Duration
+  const durationMs = entry.duration_ms;
+  let durationText = '-';
+  if (durationMs !== null && durationMs !== undefined) {
+    durationText = durationMs < 1000 ? durationMs + 'ms' : (durationMs / 1000).toFixed(2) + 's';
+  }
+  document.getElementById('drawer-duration').textContent = `Duration: ${durationText}`;
+
+  // Timing
+  document.getElementById('drawer-started').textContent = entry.dispatched_at || '-';
+  document.getElementById('drawer-completed').textContent = entry.completed_at || '-';
+
+  // Error
+  const errorSection = document.getElementById('drawer-error-section');
+  if (entry.error_message) {
+    errorSection.classList.remove('hidden');
+    document.getElementById('drawer-error').textContent = entry.error_message;
+  } else {
+    errorSection.classList.add('hidden');
+  }
+
+  // Request/Response
+  const requestPayload = nodeInfo?.request_payload || '{}';
+  const responsePayload = entry.result_payload || nodeInfo?.response_payload || '{}';
+  document.getElementById('drawer-request').textContent = requestPayload;
+  document.getElementById('drawer-response').textContent = responsePayload;
+
+  // Load history
+  const historySection = document.getElementById('drawer-history-section');
+  const historyContainer = document.getElementById('drawer-history');
+
+  if (entry.action_id) {
+    historySection.classList.remove('hidden');
+    historyContainer.innerHTML = '<div class="text-xs text-zinc-500">Loading...</div>';
+
+    loadActionLogs(entry.action_id).then(logs => {
+      if (logs.length <= 1) { historySection.classList.add('hidden'); return; }
+      historyContainer.innerHTML = '';
+      logs.forEach(log => {
+        const row = document.createElement('div');
+        row.className = 'rounded-lg bg-zinc-800/50 p-3 text-xs';
+        let statusColor = log.success === true ? 'text-emerald-400' : log.success === false ? 'text-red-400' : 'text-amber-400';
+        let statusText = log.success === true ? 'Success' : log.success === false ? 'Failed' : 'Running';
+        let logDuration = log.duration_ms !== null && log.duration_ms !== undefined
+          ? (log.duration_ms < 1000 ? log.duration_ms + 'ms' : (log.duration_ms / 1000).toFixed(2) + 's')
+          : '-';
+        row.innerHTML = `
+          <div class="flex items-center justify-between">
+            <span class="font-semibold text-zinc-200">Attempt ${log.attempt_number + 1}</span>
+            <span class="font-semibold ${statusColor}">${statusText}</span>
+          </div>
+          <div class="mt-1 text-zinc-500">Started: ${log.dispatched_at} | Duration: ${logDuration}</div>
+          ${log.error_message ? `<div class="mt-1 text-red-400 truncate">${escapeHtml(log.error_message)}</div>` : ''}
+        `;
+        historyContainer.appendChild(row);
+      });
+    }).catch(() => {
+      historyContainer.innerHTML = '<div class="text-xs text-zinc-500">Failed to load history</div>';
+    });
+  } else {
+    historySection.classList.add('hidden');
+  }
+
+  // Open drawer
+  drawer.classList.remove('translate-x-full');
+  backdrop.classList.remove('opacity-0', 'pointer-events-none');
+  backdrop.classList.add('opacity-100', 'pointer-events-auto');
+  drawerOpen = true;
+}
+
+function closeDrawer() {
+  const drawer = document.getElementById('detail-drawer');
+  const backdrop = document.getElementById('detail-backdrop');
+  drawer.classList.add('translate-x-full');
+  backdrop.classList.add('opacity-0', 'pointer-events-none');
+  backdrop.classList.remove('opacity-100', 'pointer-events-auto');
+  drawerOpen = false;
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -507,369 +701,199 @@ document.addEventListener('DOMContentLoaded', () => {
     .catch((err) => {
       console.error(err);
       const emptyTimeline = document.querySelector('#timeline-empty p');
-      if (emptyTimeline) {
-        emptyTimeline.textContent = 'Failed to load execution logs.';
-      }
+      if (emptyTimeline) { emptyTimeline.textContent = 'Failed to load execution logs.'; }
       initRunPage(true);
     });
+
+  document.getElementById('drawer-close').addEventListener('click', closeDrawer);
+  document.getElementById('detail-backdrop').addEventListener('click', closeDrawer);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && drawerOpen) closeDrawer(); });
 });
 
 function initRunPage(loadError) {
   const container = document.getElementById('execution-graph');
   if (!container) return;
 
-  // Build node lookup from nodeData for payloads
   const nodeLookup = {};
-  nodeData.forEach(n => {
-    nodeLookup[n.id] = n;
-  });
+  nodeData.forEach(n => { nodeLookup[n.id] = n; });
 
-  // Merge status info from graphData into nodes for the DAG
+  const actionLookup = {};
+  nodeData.forEach(n => { if (n.action_id) actionLookup[n.action_id] = n; });
+
   const nodes = graphData?.nodes || [];
   nodes.forEach(n => {
     if (nodeLookup[n.id]) {
-      const detailedNode = nodeLookup[n.id];
-      n.module = detailedNode.module;
-      n.action = detailedNode.action;
-      n.status = deriveNodeStatus(detailedNode);
+      const d = nodeLookup[n.id];
+      n.module = d.module;
+      n.action = d.action;
+      n.status = deriveNodeStatus(d);
     }
   });
 
-  if (!nodes.length) return;
-
-  // Remove empty placeholder
-  const placeholder = document.getElementById('graph-empty');
-  if (placeholder) placeholder.remove();
-
-  // Create vertical DAG layout
-  const dag = new DAGLayout(container, {
-    orientation: 'vertical',
-    minNodeWidth: 120,
-    maxNodeWidth: 280,
-    nodeHeight: 64,
-    padding: 24,
-    gap: 100,
-    rowGap: 40,
-    onNodeClick: selectNode
-  });
-
-  dag.render(nodes);
-
-  // Node selection handling
-  let selectedNodeId = null;
-
-  function selectNode(nodeId) {
-    selectedNodeId = nodeId;
-    dag.selectNode(nodeId);
-
-    const node = nodeLookup[nodeId];
-    if (!node) {
-      if (loadError) {
-        const placeholder = document.getElementById('detail-placeholder');
-        if (placeholder) {
-          placeholder.textContent = 'Run details failed to load.';
-        }
-      }
-      return;
-    }
-
-    // Update detail panel
-    const placeholder = document.getElementById('detail-placeholder');
-    const content = document.getElementById('detail-content');
-
-    placeholder.classList.add('hidden');
-    content.classList.remove('hidden');
-
-    document.getElementById('detail-node-id').textContent = node.id;
-    document.getElementById('detail-action-info').textContent = `${node.action} (${node.module})`;
-
-    const statusEl = document.getElementById('detail-status');
-    statusEl.textContent = node.status;
-    statusEl.className = 'rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide';
-
-    const isDark = document.documentElement.classList.contains('dark');
-    if (node.status === 'completed') {
-      statusEl.classList.add(isDark ? 'bg-emerald-900/50' : 'bg-emerald-100', isDark ? 'text-emerald-400' : 'text-emerald-700');
-    } else if (node.status === 'failed') {
-      statusEl.classList.add(isDark ? 'bg-red-900/50' : 'bg-red-100', isDark ? 'text-red-400' : 'text-red-700');
-    } else if (node.status === 'dispatched') {
-      statusEl.classList.add(isDark ? 'bg-amber-900/50' : 'bg-amber-100', isDark ? 'text-amber-400' : 'text-amber-700');
-    } else {
-      statusEl.classList.add(isDark ? 'bg-zinc-800' : 'bg-zinc-200', isDark ? 'text-zinc-400' : 'text-zinc-600');
-    }
-
-    // Display payloads directly (no HTML entity issues since it's JSON)
-    document.getElementById('detail-request').textContent = node.request_payload || '{}';
-    document.getElementById('detail-response').textContent = node.response_payload || '{}';
-
-    // Update error info section
-    const errorInfoEl = document.getElementById('detail-error-info');
-    const errorMessageEl = document.getElementById('detail-error-message');
-
-    if (node.last_error) {
-      errorInfoEl.classList.remove('hidden');
-      errorMessageEl.textContent = node.last_error;
-    } else {
-      errorInfoEl.classList.add('hidden');
-    }
-
-    // Update retry info section
-    const retryInfoEl = document.getElementById('detail-retry-info');
-    const scheduledRowEl = document.getElementById('detail-scheduled-row');
-    const maxRetries = node.retry_kind === 'timeout' ? node.timeout_retry_limit : node.max_retries;
-
-    // Show retry info if there have been retries or action is queued/failed with scheduled time
-    const showRetryInfo = node.attempt_number > 0 ||
-                          (node.status === 'queued' && node.scheduled_at) ||
-                          node.status === 'failed';
-
-    if (showRetryInfo) {
-      retryInfoEl.classList.remove('hidden');
-      document.getElementById('detail-attempts').textContent = `${node.attempt_number + 1} / ${maxRetries + 1}`;
-      document.getElementById('detail-max-retries').textContent = maxRetries;
-
-      // Show scheduled_at if present and action is queued
-      if (node.scheduled_at && node.status === 'queued') {
-        scheduledRowEl.classList.remove('hidden');
-        document.getElementById('detail-scheduled-at').textContent = node.scheduled_at;
-      } else {
-        scheduledRowEl.classList.add('hidden');
-      }
-    } else {
-      retryInfoEl.classList.add('hidden');
-    }
-
-    // Update execution history section
-    const historyEl = document.getElementById('detail-history');
-    const historyContentEl = document.getElementById('detail-history-content');
-
-    historyEl.classList.remove('hidden');
-    historyContentEl.innerHTML = `<div class="text-xs ${isDark ? 'text-zinc-400' : 'text-zinc-600'}">Loading history...</div>`;
-
-    loadActionLogs(node.action_id)
-      .then((logs) => {
-        if (!logs.length) {
-          historyEl.classList.add('hidden');
-          return;
-        }
-
-        historyContentEl.innerHTML = '';
-        logs.forEach((log) => {
-          const row = document.createElement('div');
-          row.className = 'rounded-lg p-2 text-xs ' + (isDark ? 'bg-zinc-800' : 'bg-zinc-200/70');
-
-          // Status indicator
-          let statusColor, statusText;
-          if (log.success === true) {
-            statusColor = isDark ? 'text-emerald-400' : 'text-emerald-600';
-            statusText = 'Success';
-          } else if (log.success === false) {
-            statusColor = isDark ? 'text-red-400' : 'text-red-600';
-            statusText = 'Failed';
-          } else {
-            statusColor = isDark ? 'text-amber-400' : 'text-amber-600';
-            statusText = 'Running';
-          }
-
-          // Duration display
-          let durationText = '-';
-          if (log.duration_ms !== null && log.duration_ms !== undefined) {
-            if (log.duration_ms < 1000) {
-              durationText = log.duration_ms + 'ms';
-            } else {
-              durationText = (log.duration_ms / 1000).toFixed(2) + 's';
-            }
-          }
-
-          row.innerHTML = `
-            <div class="flex items-center justify-between gap-2">
-              <span class="font-semibold ${isDark ? 'text-zinc-200' : 'text-zinc-800'}">Attempt ${log.attempt_number + 1}</span>
-              <span class="font-semibold ${statusColor}">${statusText}</span>
-            </div>
-            <div class="mt-1 grid grid-cols-2 gap-x-4 ${isDark ? 'text-zinc-400' : 'text-zinc-600'}">
-              <div>Started: <span class="${isDark ? 'text-zinc-300' : 'text-zinc-700'}">${log.dispatched_at}</span></div>
-              <div>Duration: <span class="${isDark ? 'text-zinc-300' : 'text-zinc-700'}">${durationText}</span></div>
-            </div>
-            ${log.error_message ? `<div class="mt-1 text-red-500 dark:text-red-400 truncate" title="${log.error_message}">${log.error_message}</div>` : ''}
-          `;
-
-          historyContentEl.appendChild(row);
-        });
-      })
-      .catch(() => {
-        historyContentEl.innerHTML = `<div class="text-xs ${isDark ? 'text-zinc-400' : 'text-zinc-600'}">Failed to load history.</div>`;
-      });
+  if (nodes.length) {
+    const placeholder = document.getElementById('graph-empty');
+    if (placeholder) placeholder.remove();
+    const dag = new DAGLayout(container, {
+      orientation: 'horizontal',
+      minNodeWidth: 140, maxNodeWidth: 280, nodeHeight: 64,
+      padding: 24, gap: 80, rowGap: 80, onNodeClick: null
+    });
+    dag.render(nodes);
   }
 
-  // Select first node by default
-  if (nodes.length > 0) {
-    selectNode(nodes[0].id);
-  }
+  renderGanttTimeline(actionLookup);
+  renderExecutionLog(actionLookup);
 
-  const loadMoreButton = document.getElementById('timeline-load-more');
+  const loadMoreButton = document.getElementById('log-load-more');
   if (loadMoreButton) {
     loadMoreButton.onclick = async () => {
       loadMoreButton.disabled = true;
-      const originalLabel = loadMoreButton.textContent;
       loadMoreButton.textContent = 'Loading...';
       try {
         await loadRunData({ page: timelinePage + 1, append: true });
-        renderTimeline();
-      } catch (err) {
-        console.error(err);
-      } finally {
-        loadMoreButton.textContent = originalLabel;
-        loadMoreButton.disabled = false;
-      }
+        renderGanttTimeline(actionLookup);
+        renderExecutionLog(actionLookup);
+      } catch (err) { console.error(err); }
+      finally { loadMoreButton.textContent = 'Load more'; loadMoreButton.disabled = false; }
     };
   }
-
-  // Render the full execution timeline
-  renderTimeline();
 }
 
-function updateTimelineLoadMore() {
-  const loadMoreContainer = document.getElementById('timeline-load-more-container');
-  if (!loadMoreContainer) return;
-  if (timelineHasMore) {
-    loadMoreContainer.classList.remove('hidden');
-  } else {
-    loadMoreContainer.classList.add('hidden');
-  }
-}
-
-function renderTimeline() {
+function renderGanttTimeline(actionLookup) {
   const timelineEmpty = document.getElementById('timeline-empty');
-  const timelineContent = document.getElementById('timeline-content');
-  if (!timelineEmpty || !timelineContent) return;
+  const timelineGantt = document.getElementById('timeline-gantt');
+  if (!timelineEmpty || !timelineGantt) return;
 
   if (timelineEntries.length === 0) {
     timelineEmpty.classList.remove('hidden');
-    timelineContent.classList.add('hidden');
-    updateTimelineLoadMore();
+    timelineGantt.classList.add('hidden');
     return;
   }
 
-  // Build action_id -> action info lookup from nodeData
   const actionInfoLookup = {};
-  nodeData.forEach(n => {
-    actionInfoLookup[n.action_id] = {
-      nodeId: n.id,
-      action: n.action,
-      module: n.module
-    };
-  });
+  nodeData.forEach(n => { actionInfoLookup[n.action_id] = { nodeId: n.id, action: n.action, module: n.module }; });
 
   const resolvedLogs = timelineEntries.map((log) => {
     const info = actionInfoLookup[log.action_id];
-    return {
-      ...log,
-      nodeId: info?.nodeId || log.node_id || log.action_id,
-      actionName: info?.action || log.action_name || 'Unknown',
-      moduleName: info?.module || log.module_name || ''
-    };
+    return { ...log, nodeId: info?.nodeId || log.node_id || log.action_id, actionName: info?.action || log.action_name || 'Unknown', moduleName: info?.module || log.module_name || '' };
   });
 
   timelineEmpty.classList.add('hidden');
-  timelineContent.classList.remove('hidden');
-  timelineContent.innerHTML = '';
+  timelineGantt.classList.remove('hidden');
 
-  const isDark = document.documentElement.classList.contains('dark');
+  const gantt = new GanttTimeline(timelineGantt, {
+    rowHeight: 44, headerHeight: 48, timeAxisHeight: 32, minBarWidth: 100,
+    onItemClick: (entry) => { openDrawer(entry, actionLookup[entry.action_id]); }
+  });
+  gantt.render(resolvedLogs);
+}
+
+function renderExecutionLog(actionLookup) {
+  const logEmpty = document.getElementById('log-empty');
+  const logContent = document.getElementById('log-content');
+  const loadMoreContainer = document.getElementById('log-load-more-container');
+  if (!logEmpty || !logContent) return;
+
+  if (timelineEntries.length === 0) {
+    logEmpty.classList.remove('hidden');
+    logContent.classList.add('hidden');
+    if (loadMoreContainer) loadMoreContainer.classList.add('hidden');
+    return;
+  }
+
+  const actionInfoLookup = {};
+  nodeData.forEach(n => { actionInfoLookup[n.action_id] = { nodeId: n.id, action: n.action, module: n.module }; });
+
+  const resolvedLogs = timelineEntries.map((log) => {
+    const info = actionInfoLookup[log.action_id];
+    return { ...log, nodeId: info?.nodeId || log.node_id || log.action_id, actionName: info?.action || log.action_name || 'Unknown', moduleName: info?.module || log.module_name || '' };
+  });
+
+  logEmpty.classList.add('hidden');
+  logContent.classList.remove('hidden');
+  logContent.innerHTML = '';
 
   resolvedLogs.forEach((log, idx) => {
     const row = document.createElement('div');
-    row.className = 'rounded-lg ' + (isDark ? 'bg-zinc-800/50' : 'bg-zinc-200/50') + ' transition-colors overflow-hidden';
+    row.className = 'transition-colors';
 
-    // Status indicator
     let statusColor, statusBg, statusText;
     if (log.success === true) {
-      statusColor = isDark ? 'text-emerald-400' : 'text-emerald-600';
-      statusBg = isDark ? 'bg-emerald-900/50' : 'bg-emerald-100';
+      statusColor = 'text-emerald-600 dark:text-emerald-400';
+      statusBg = 'bg-emerald-100 dark:bg-emerald-500/20';
       statusText = 'Success';
     } else if (log.success === false) {
-      statusColor = isDark ? 'text-red-400' : 'text-red-600';
-      statusBg = isDark ? 'bg-red-900/50' : 'bg-red-100';
+      statusColor = 'text-red-600 dark:text-red-400';
+      statusBg = 'bg-red-100 dark:bg-red-500/20';
       statusText = 'Failed';
     } else {
-      statusColor = isDark ? 'text-amber-400' : 'text-amber-600';
-      statusBg = isDark ? 'bg-amber-900/50' : 'bg-amber-100';
+      statusColor = 'text-amber-600 dark:text-amber-400';
+      statusBg = 'bg-amber-100 dark:bg-amber-500/20';
       statusText = 'Running';
     }
 
-    // Duration display
     let durationText = '-';
     if (log.duration_ms !== null && log.duration_ms !== undefined) {
-      if (log.duration_ms < 1000) {
-        durationText = log.duration_ms + 'ms';
-      } else {
-        durationText = (log.duration_ms / 1000).toFixed(2) + 's';
-      }
+      durationText = log.duration_ms < 1000 ? log.duration_ms + 'ms' : (log.duration_ms / 1000).toFixed(2) + 's';
     }
 
-    // Timeline dot and line
-    const isLast = idx === resolvedLogs.length - 1;
-
-    // Check if there's content to show (result_payload or error_message)
     const hasDetails = log.result_payload || log.error_message;
-    const expandId = `timeline-expand-${idx}`;
+    const expandId = `log-expand-${idx}`;
 
     row.innerHTML = `
-      <div class="flex items-start gap-4 p-3 ${hasDetails ? 'cursor-pointer hover:' + (isDark ? 'bg-zinc-800' : 'bg-zinc-200') : ''}" ${hasDetails ? `onclick="toggleTimelineExpand('${expandId}')"` : ''}>
-        <div class="flex flex-col items-center pt-1">
-          <div class="w-3 h-3 rounded-full ${statusBg} border-2 ${log.success === true ? 'border-emerald-500' : log.success === false ? 'border-red-500' : 'border-amber-500'}"></div>
-          ${!isLast ? `<div class="w-0.5 h-full min-h-[24px] mt-1 ${isDark ? 'bg-zinc-700' : 'bg-zinc-300'}"></div>` : ''}
+      <div class="flex items-center gap-4 p-4 ${hasDetails ? 'cursor-pointer hover:bg-zinc-200/50 dark:hover:bg-zinc-800/50' : ''}" ${hasDetails ? `onclick="toggleLogExpand('${expandId}')"` : ''}>
+        <div class="flex flex-col items-center">
+          <div class="w-2.5 h-2.5 rounded-full ${statusBg} ring-2 ${log.success === true ? 'ring-emerald-500' : log.success === false ? 'ring-red-500' : 'ring-amber-500'}"></div>
         </div>
         <div class="flex-1 min-w-0">
-          <div class="flex items-center justify-between gap-2 mb-1">
-            <div class="flex items-center gap-2 min-w-0">
-              <span class="font-semibold ${isDark ? 'text-zinc-200' : 'text-zinc-800'} truncate">${log.actionName}</span>
-              <span class="text-xs ${isDark ? 'text-zinc-500' : 'text-zinc-500'} font-mono">${log.moduleName}</span>
-              <span class="text-xs px-1.5 py-0.5 rounded ${statusBg} ${statusColor} font-medium">${statusText}</span>
-            </div>
-            <div class="flex items-center gap-2">
-              <span class="text-xs ${isDark ? 'text-zinc-500' : 'text-zinc-500'} whitespace-nowrap">Attempt ${log.attempt_number + 1}</span>
-              ${hasDetails ? `<svg class="w-4 h-4 ${isDark ? 'text-zinc-500' : 'text-zinc-400'} transition-transform" id="${expandId}-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>` : ''}
-            </div>
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="font-semibold text-zinc-800 dark:text-zinc-200">${log.actionName}</span>
+            <span class="text-xs text-zinc-500 font-mono">${log.moduleName}</span>
+            <span class="text-xs px-2 py-0.5 rounded font-semibold ${statusBg} ${statusColor}">${statusText}</span>
           </div>
-          <div class="flex items-center gap-4 text-xs ${isDark ? 'text-zinc-400' : 'text-zinc-600'}">
-            <span>Started: <span class="${isDark ? 'text-zinc-300' : 'text-zinc-700'}">${log.dispatched_at}</span></span>
-            <span>Duration: <span class="${isDark ? 'text-zinc-300' : 'text-zinc-700'}">${durationText}</span></span>
+          <div class="flex items-center gap-4 mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+            <span>Started: <span class="text-zinc-700 dark:text-zinc-300">${log.dispatched_at}</span></span>
+            <span>Duration: <span class="text-zinc-700 dark:text-zinc-300">${durationText}</span></span>
           </div>
-          ${log.error_message && !log.result_payload ? `<div class="mt-1 text-xs text-red-500 dark:text-red-400 truncate" title="${escapeHtml(log.error_message)}">${escapeHtml(log.error_message)}</div>` : ''}
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-zinc-500">Attempt ${log.attempt_number + 1}</span>
+          ${hasDetails ? `<svg class="w-4 h-4 text-zinc-400 transition-transform" id="${expandId}-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>` : ''}
         </div>
       </div>
       ${hasDetails ? `
-      <div id="${expandId}" class="hidden border-t ${isDark ? 'border-zinc-700' : 'border-zinc-300'} px-3 py-3 ml-7">
+      <div id="${expandId}" class="hidden border-t border-zinc-200 dark:border-zinc-800 px-4 py-4 ml-6 space-y-3 bg-zinc-50 dark:bg-zinc-900/50">
         ${log.error_message ? `
-        <div class="mb-3">
-          <p class="text-xs uppercase tracking-[0.4em] text-red-500 dark:text-red-400 mb-1">Error</p>
-          <pre class="text-xs ${isDark ? 'text-red-300 bg-red-900/20' : 'text-red-700 bg-red-100'} p-2 rounded-lg whitespace-pre-wrap break-words font-mono overflow-x-auto max-h-32">${escapeHtml(log.error_message)}</pre>
+        <div>
+          <p class="text-xs uppercase tracking-wider text-red-500 dark:text-red-400 mb-1 font-semibold">Error</p>
+          <pre class="text-xs text-red-700 dark:text-red-300 bg-red-100 dark:bg-red-900/30 p-3 rounded-lg whitespace-pre-wrap break-words font-mono overflow-x-auto max-h-32">${escapeHtml(log.error_message)}</pre>
         </div>
         ` : ''}
         ${log.result_payload ? `
         <div>
-          <p class="text-xs uppercase tracking-[0.4em] ${isDark ? 'text-zinc-500' : 'text-zinc-500'} mb-1">${log.success === false ? 'Exception' : 'Result'}</p>
-          <pre class="text-xs ${isDark ? 'text-zinc-300 bg-zinc-900/70' : 'text-zinc-700 bg-zinc-100'} p-2 rounded-lg whitespace-pre-wrap break-words font-mono overflow-x-auto max-h-64">${escapeHtml(log.result_payload)}</pre>
+          <p class="text-xs uppercase tracking-wider text-zinc-500 mb-1 font-semibold">${log.success === false ? 'Exception' : 'Result'}</p>
+          <pre class="text-xs text-zinc-700 dark:text-zinc-300 bg-zinc-200 dark:bg-zinc-800 p-3 rounded-lg whitespace-pre-wrap break-words font-mono overflow-x-auto max-h-64">${escapeHtml(log.result_payload)}</pre>
         </div>
         ` : ''}
       </div>
       ` : ''}
     `;
 
-    timelineContent.appendChild(row);
+    logContent.appendChild(row);
   });
 
-  updateTimelineLoadMore();
+  if (loadMoreContainer) {
+    if (timelineHasMore) { loadMoreContainer.classList.remove('hidden'); }
+    else { loadMoreContainer.classList.add('hidden'); }
+  }
 }
 
-function toggleTimelineExpand(id) {
+function toggleLogExpand(id) {
   const content = document.getElementById(id);
   const icon = document.getElementById(id + '-icon');
   if (content) {
     content.classList.toggle('hidden');
-    if (icon) {
-      icon.classList.toggle('rotate-180');
-    }
+    if (icon) icon.classList.toggle('rotate-180');
   }
 }
 
