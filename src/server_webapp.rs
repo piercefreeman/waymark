@@ -1871,10 +1871,17 @@ fn synthesize_action_logs_from_execution_graph(
             continue;
         }
 
-        // Generate unique action_id per execution instance (node_key), not per template
-        let action_id = *action_ids
-            .entry(node_key.to_string())
-            .or_insert_with(Uuid::new_v4);
+        // Use execution_id from node if available (stable across refreshes),
+        // otherwise generate a new one for display purposes
+        let action_id = if let Some(exec_id) = &exec_node.execution_id {
+            *action_ids
+                .entry(exec_id.clone())
+                .or_insert_with(|| Uuid::parse_str(exec_id).unwrap_or_else(|_| Uuid::new_v4()))
+        } else {
+            *action_ids
+                .entry(node_key.to_string())
+                .or_insert_with(Uuid::new_v4)
+        };
         let dispatch_payload = exec_node.inputs.clone();
 
         if exec_node.attempts.is_empty() {

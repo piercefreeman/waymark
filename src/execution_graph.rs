@@ -14,6 +14,7 @@ use std::collections::{HashMap, HashSet};
 use chrono::Utc;
 use prost::Message;
 use tracing::{debug, trace, warn};
+use uuid::Uuid;
 
 use crate::ast_evaluator::{ExpressionEvaluator, Scope};
 use crate::dag::{DAG, DAGEdge, DAGNode, EXCEPTION_SCOPE_VAR, EdgeType};
@@ -31,7 +32,7 @@ use crate::messages::{decode_message, encode_message};
 use crate::parser::ast;
 use crate::value::{WorkflowValue, workflow_value_from_proto_bytes, workflow_value_to_proto_bytes};
 
-/// A tuple representing a node's payload data: (node_id, inputs, result)
+/// A tuple representing a node's payload data: (execution_id, inputs, result)
 pub type PayloadTuple = (String, Option<Vec<u8>>, Option<Vec<u8>>);
 
 /// Result of applying a batch of completions
@@ -210,15 +211,24 @@ impl ExecutionState {
     /// This is used during cold-start recovery to reconstitute the full
     /// in-memory state from a stripped graph + separately stored payloads.
     ///
-    /// Each payload tuple is (node_id, inputs, result).
+    /// Each payload tuple is (execution_id, inputs, result).
     pub fn hydrate_payloads(&mut self, payloads: &[PayloadTuple]) {
-        for (node_id, inputs, result) in payloads {
-            if let Some(node) = self.graph.nodes.get_mut(node_id) {
-                if inputs.is_some() {
-                    node.inputs = inputs.clone();
-                }
-                if result.is_some() {
-                    node.result = result.clone();
+        // Build a map from execution_id to payload for efficient lookup
+        let payload_map: HashMap<&str, (&Option<Vec<u8>>, &Option<Vec<u8>>)> = payloads
+            .iter()
+            .map(|(exec_id, inputs, result)| (exec_id.as_str(), (inputs, result)))
+            .collect();
+
+        // Iterate through all nodes and match by execution_id
+        for node in self.graph.nodes.values_mut() {
+            if let Some(exec_id) = &node.execution_id {
+                if let Some((inputs, result)) = payload_map.get(exec_id.as_str()) {
+                    if inputs.is_some() {
+                        node.inputs = (*inputs).clone();
+                    }
+                    if result.is_some() {
+                        node.result = (*result).clone();
+                    }
                 }
             }
         }
@@ -279,6 +289,7 @@ impl ExecutionState {
                 node_kind: determine_node_kind(node) as i32,
                 parent_execution_id: None,
                 iteration_index: None,
+                execution_id: None,
             };
 
             self.graph.nodes.insert(node_id.clone(), exec_node);
@@ -336,24 +347,31 @@ impl ExecutionState {
     }
 
     /// Mark a node as running (dispatched to a worker).
+    /// Returns the generated execution_id for this run.
     ///
     /// Note: `started_at_ms` is NOT set here - it will be set when the completion
     /// arrives, computed from `completed_at_ms - worker_duration_ms`. This ensures
     /// the recorded start time reflects when the worker actually started executing,
     /// not when we dispatched the action.
-    pub fn mark_running(&mut self, node_id: &str, worker_id: &str, inputs: Option<Vec<u8>>) {
-        self.mark_running_inner(node_id, worker_id, inputs, true);
+    pub fn mark_running(
+        &mut self,
+        node_id: &str,
+        worker_id: &str,
+        inputs: Option<Vec<u8>>,
+    ) -> Option<String> {
+        self.mark_running_inner(node_id, worker_id, inputs, true)
     }
 
     /// Mark a node as running without removing it from the ready queue.
+    /// Returns the generated execution_id for this run.
     /// This allows callers to batch ready_queue removals for performance.
     pub fn mark_running_no_queue_removal(
         &mut self,
         node_id: &str,
         worker_id: &str,
         inputs: Option<Vec<u8>>,
-    ) {
-        self.mark_running_inner(node_id, worker_id, inputs, false);
+    ) -> Option<String> {
+        self.mark_running_inner(node_id, worker_id, inputs, false)
     }
 
     fn mark_running_inner(
@@ -362,17 +380,25 @@ impl ExecutionState {
         worker_id: &str,
         inputs: Option<Vec<u8>>,
         remove_ready: bool,
-    ) {
-        if let Some(node) = self.graph.nodes.get_mut(node_id) {
+    ) -> Option<String> {
+        let execution_id = if let Some(node) = self.graph.nodes.get_mut(node_id) {
             node.status = NodeStatus::Running as i32;
             node.worker_id = Some(worker_id.to_string());
             // started_at_ms is set on completion with accurate worker timing
             node.inputs = inputs;
-        }
+            // Generate a unique execution_id for this specific run
+            let exec_id = Uuid::new_v4().to_string();
+            node.execution_id = Some(exec_id.clone());
+            Some(exec_id)
+        } else {
+            None
+        };
 
         if remove_ready {
             self.graph.ready_queue.retain(|id| id != node_id);
         }
+
+        execution_id
     }
 
     /// Drain the ready queue, returning all node IDs that are ready to execute
@@ -1670,6 +1696,8 @@ impl ExecutionState {
         result
     }
 
+    /// Reset nodes for the next loop iteration.
+    /// Archived nodes keep their execution_id, which is used to retrieve their payloads.
     fn reset_nodes_for_loop(
         &mut self,
         loop_head_id: &str,
@@ -1689,12 +1717,13 @@ impl ExecutionState {
                 if node.started_at_ms.is_some() {
                     let iter_node_id = format!("{}[iter_{}]", node_id, iteration_idx);
                     // Set parent and iteration info on the archived node
+                    // Note: execution_id is preserved, which allows payload hydration to work
                     node.parent_execution_id = Some(node_id.clone());
                     node.iteration_index = Some(iteration_idx);
                     self.graph.nodes.insert(iter_node_id, node.clone());
                 }
 
-                // Create fresh node for next iteration
+                // Create fresh node for next iteration (execution_id will be set by mark_running)
                 let fresh_node = ExecutionNode {
                     template_id: node.template_id.clone(),
                     spread_index: node.spread_index,
@@ -1721,6 +1750,7 @@ impl ExecutionState {
                     node_kind: node.node_kind,
                     parent_execution_id: None,
                     iteration_index: None,
+                    execution_id: None,
                 };
                 self.graph.nodes.insert(node_id.clone(), fresh_node);
             }
@@ -1841,6 +1871,7 @@ impl ExecutionState {
                     node_kind: NodeKind::Action as i32,
                     parent_execution_id: Some(spread_node_id.to_string()),
                     iteration_index: None,
+                    execution_id: None, // Will be set by mark_running
                 };
 
                 self.graph.nodes.insert(node_id.clone(), exec_node);

@@ -44,6 +44,11 @@ message ExecutionNode {
   optional string worker_id = 4;
   optional int64 started_at_ms = 5;
 
+  // Unique identifier for this specific execution instance.
+  // Generated when the action starts running (mark_running).
+  // Used as the key for payload storage and retrieval.
+  optional string execution_id = 26;
+
   // Completion info (when status = COMPLETED or FAILED)
   optional int64 completed_at_ms = 6;
   optional int64 duration_ms = 7;

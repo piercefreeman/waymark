@@ -1263,7 +1263,7 @@ impl InstanceRunner {
                 payloads_by_instance
                     .entry(payload.instance_id.0)
                     .or_default()
-                    .push((payload.node_id, payload.inputs, payload.result));
+                    .push((payload.execution_id, payload.inputs, payload.result));
             }
 
             for instance in claimed {
@@ -2071,9 +2071,23 @@ impl InstanceRunner {
                 // Apply any remaining completions
                 let completion_result = if !instance.pending_completions.is_empty() {
                     let completions = std::mem::take(&mut instance.pending_completions);
-                    // Collect node IDs before applying so we can extract payloads after
-                    let completed_node_ids: Vec<String> =
-                        completions.iter().map(|c| c.node_id.clone()).collect();
+
+                    // Capture payloads BEFORE apply_completions_batch.
+                    // Each node has a unique execution_id (set during mark_running) that we use
+                    // as the key for payload storage. This works across loop iterations because
+                    // the archived node keeps its execution_id.
+                    for completion in &completions {
+                        if let Some(node) = instance.state.graph.nodes.get(&completion.node_id) {
+                            if let Some(exec_id) = &node.execution_id {
+                                payloads_to_save.push(NodePayload {
+                                    instance_id: instance.instance_id,
+                                    execution_id: exec_id.clone(),
+                                    inputs: node.inputs.clone(),
+                                    result: completion.result.clone(),
+                                });
+                            }
+                        }
+                    }
 
                     let result = instance
                         .state
@@ -2081,18 +2095,6 @@ impl InstanceRunner {
 
                     // Mark progress when completions are applied
                     instance.last_progress_at = Instant::now();
-
-                    // Extract payloads for completed nodes (inputs + results)
-                    for node_id in completed_node_ids {
-                        if let Some(node) = instance.state.graph.nodes.get(&node_id) {
-                            payloads_to_save.push(NodePayload {
-                                instance_id: instance.instance_id,
-                                node_id,
-                                inputs: node.inputs.clone(),
-                                result: node.result.clone(),
-                            });
-                        }
-                    }
 
                     Some(result)
                 } else {
