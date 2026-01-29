@@ -31,6 +31,9 @@ use crate::messages::{decode_message, encode_message};
 use crate::parser::ast;
 use crate::value::{WorkflowValue, workflow_value_from_proto_bytes, workflow_value_to_proto_bytes};
 
+/// A tuple representing a node's payload data: (node_id, inputs, result)
+pub type PayloadTuple = (String, Option<Vec<u8>>, Option<Vec<u8>>);
+
 /// Result of applying a batch of completions
 #[derive(Debug, Default)]
 pub struct BatchCompletionResult {
@@ -207,7 +210,7 @@ impl ExecutionState {
     /// in-memory state from a stripped graph + separately stored payloads.
     ///
     /// Each payload tuple is (node_id, inputs, result).
-    pub fn hydrate_payloads(&mut self, payloads: &[(String, Option<Vec<u8>>, Option<Vec<u8>>)]) {
+    pub fn hydrate_payloads(&mut self, payloads: &[PayloadTuple]) {
         for (node_id, inputs, result) in payloads {
             if let Some(node) = self.graph.nodes.get_mut(node_id) {
                 if inputs.is_some() {
@@ -966,13 +969,13 @@ impl ExecutionState {
         let mut result = BatchCompletionResult::default();
 
         // Check for uncaught exceptions (workflow failed)
-        for (node_id, _exception_info) in &self.graph.exceptions {
-            if let Some(node) = self.graph.nodes.get(node_id) {
-                if node.status == NodeStatus::Exhausted as i32 {
-                    result.workflow_failed = true;
-                    result.error_message = node.error.clone();
-                    return result;
-                }
+        for node_id in self.graph.exceptions.keys() {
+            if let Some(node) = self.graph.nodes.get(node_id)
+                && node.status == NodeStatus::Exhausted as i32
+            {
+                result.workflow_failed = true;
+                result.error_message = node.error.clone();
+                return result;
             }
         }
 

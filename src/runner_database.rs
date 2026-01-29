@@ -60,7 +60,7 @@ use crate::db::{
     ArchiveRecord, ClaimedInstance, Database, NodePayload, ScheduleId, WorkerStatusUpdate,
     WorkflowInstanceId, WorkflowSchedule, WorkflowVersionId,
 };
-use crate::execution_graph::{Completion, ExecutionState, SLEEP_WORKER_ID};
+use crate::execution_graph::{Completion, ExecutionState, PayloadTuple, SLEEP_WORKER_ID};
 use crate::messages::execution::{ExecutionNode, NodeStatus};
 use crate::messages::proto;
 use crate::messages::proto::WorkflowArguments;
@@ -1241,10 +1241,7 @@ impl InstanceRunner {
             };
 
             // Group payloads by instance_id for fast lookup
-            let mut payloads_by_instance: HashMap<
-                Uuid,
-                Vec<(String, Option<Vec<u8>>, Option<Vec<u8>>)>,
-            > = HashMap::new();
+            let mut payloads_by_instance: HashMap<Uuid, Vec<PayloadTuple>> = HashMap::new();
             for payload in all_payloads {
                 payloads_by_instance
                     .entry(payload.instance_id.0)
@@ -1275,7 +1272,7 @@ impl InstanceRunner {
     async fn initialize_instance_with_payloads(
         &self,
         claimed: ClaimedInstance,
-        payloads: Option<Vec<(String, Option<Vec<u8>>, Option<Vec<u8>>)>>,
+        payloads: Option<Vec<PayloadTuple>>,
     ) -> InstanceRunnerResult<()> {
         let version_id = claimed
             .workflow_version_id
@@ -1291,16 +1288,16 @@ impl InstanceRunner {
                 let mut state = ExecutionState::from_bytes(&bytes)?;
 
                 // Hydrate with payloads (pre-loaded in batch for efficiency)
-                if let Some(payload_tuples) = payloads {
-                    if !payload_tuples.is_empty() {
-                        let count = payload_tuples.len();
-                        state.hydrate_payloads(&payload_tuples);
-                        debug!(
-                            instance_id = %claimed.id,
-                            payload_count = count,
-                            "Hydrated payloads from cold storage"
-                        );
-                    }
+                if let Some(payload_tuples) = payloads
+                    && !payload_tuples.is_empty()
+                {
+                    let count = payload_tuples.len();
+                    state.hydrate_payloads(&payload_tuples);
+                    debug!(
+                        instance_id = %claimed.id,
+                        payload_count = count,
+                        "Hydrated payloads from cold storage"
+                    );
                 }
 
                 // Recover any nodes that were running when previous owner crashed

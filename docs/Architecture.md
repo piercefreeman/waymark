@@ -19,10 +19,34 @@ rappel-rs polls the database centrally so we only need 1 connection per host mac
 
 The server receives these completed actions and uses them to increment a state machine build off of the workflow DAG. This state machine determines if any other actions have been "unlocked" by the completion of this action, or if we need to wait for subsequent actions. If they have been unlocked we will insert them into the database for subsequent queuing. The cycle continues until we have a final result that can be set as the output of the full workflow instance. At that point we can wake up any waiting callers.
 
-Key runtime data:
+## Execution Model
 
-- **Inline scope**: seeded once from workflow inputs, cached per instance, and reused during inline execution so downstream actions can still access original inputs even if no intermediate node re-emits them.
-- **Inbox**: DB-backed per-node variable storage written via DataFlow edges (and loop accumulators). The runner batch-reads inboxes for subgraphs during completion and merges with the inline scope via a single inline-context object.
+Each workflow instance has a single **execution graph** that tracks all runtime state:
+
+- **Node statuses**: pending, running, completed, failed
+- **Ready queue**: nodes waiting to be dispatched
+- **Variables**: workflow scope (inputs, intermediate results, outputs)
+- **Attempts**: retry history for each node
+
+The execution graph is stored as a compressed protobuf blob in `workflow_instances.execution_graph`. This replaces the previous multi-table model and provides better performance through reduced database round-trips.
+
+### Storage tiers
+
+**workflow_instances** (work queue)
+- Stores **stripped graphs**: node statuses and ready queue only, no payloads
+- Kept small (~2KB) for fast reads/writes during active execution
+- Instances are claimed by runners via lease-based ownership
+
+**node_payloads** (temporary storage)
+- Stores action inputs and results separately
+- INSERT-only for performance (no updates)
+- Used to hydrate stripped graphs on cold start recovery
+- Cleaned up when instances complete
+
+**completed_instances** (archive)
+- Stores **full graphs** with all inputs/outputs for historical queries
+- Written asynchronously when workflows complete or fail
+- Supports the dashboard and debugging
 
 ## Workers
 

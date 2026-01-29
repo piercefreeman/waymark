@@ -421,6 +421,7 @@ async fn main() -> Result<()> {
 }
 
 /// Run a single finalize iteration, mimicking finalize_completed_instances
+#[allow(clippy::too_many_arguments)]
 async fn run_finalize_iteration(
     db: &Database,
     owner_id: &str,
@@ -536,18 +537,18 @@ async fn run_finalize_iteration(
             // Simulate ~2% of updates having a newly completed node.
             if offload_payloads && rng.gen_bool(0.02) {
                 // Write just one node's payload (simulating one node completion)
-                if let Some((node_id, node)) = inst.state.graph.nodes.iter().next() {
-                    if node.inputs.is_some() || node.result.is_some() {
-                        let inputs_size = node.inputs.as_ref().map(|b| b.len()).unwrap_or(0);
-                        let result_size = node.result.as_ref().map(|b| b.len()).unwrap_or(0);
-                        timing.payload_bytes += inputs_size + result_size;
-                        payloads_to_write.push(NodePayload {
-                            instance_id: inst.instance_id,
-                            node_id: node_id.clone(),
-                            inputs: node.inputs.clone(),
-                            result: node.result.clone(),
-                        });
-                    }
+                if let Some((node_id, node)) = inst.state.graph.nodes.iter().next()
+                    && (node.inputs.is_some() || node.result.is_some())
+                {
+                    let inputs_size = node.inputs.as_ref().map(|b| b.len()).unwrap_or(0);
+                    let result_size = node.result.as_ref().map(|b| b.len()).unwrap_or(0);
+                    timing.payload_bytes += inputs_size + result_size;
+                    payloads_to_write.push(NodePayload {
+                        instance_id: inst.instance_id,
+                        node_id: node_id.clone(),
+                        inputs: node.inputs.clone(),
+                        result: node.result.clone(),
+                    });
                 }
             }
 
