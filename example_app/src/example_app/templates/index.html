@@ -409,6 +409,7 @@
         <select id="batch-workflow" name="workflow_name">
           <option value="ParallelMathWorkflow">ParallelMathWorkflow</option>
           <option value="ManyActionsWorkflow">ManyActionsWorkflow</option>
+          <option value="LoopingSleepWorkflow">LoopingSleepWorkflow</option>
           <option value="NoOpWorkflow">NoOpWorkflow</option>
         </select>
         <label for="batch-count">Count:</label>
@@ -486,6 +487,26 @@
       <div class="hint">Try 50-100 for quick tests, 500+ for stress testing</div>
       <div class="status" id="many-actions-status"></div>
       <div class="result" id="many-actions-result" hidden></div>
+    </section>
+
+    <!-- Looping Sleep -->
+    <section class="workflow-section">
+      <h3>19. Looping Sleep (Durable Sleep in Loops)</h3>
+      <p>
+        Run a workflow that loops with durable sleeps. Each iteration sleeps,
+        performs an action, then records the result. Useful for testing
+        looping sleep workflows and verifying durable sleeps work across iterations.
+      </p>
+      <form id="looping-sleep-form">
+        <label for="looping-sleep-iterations">Iterations (1-10):</label>
+        <input type="number" id="looping-sleep-iterations" name="iterations" min="1" max="10" value="3" />
+        <label for="looping-sleep-seconds">Sleep (sec):</label>
+        <input type="number" id="looping-sleep-seconds" name="sleep_seconds" min="1" max="30" value="2" />
+        <button type="submit">Run Looping Sleep</button>
+      </form>
+      <div class="hint">Try 3 iterations with 2s sleep for quick test, or increase for longer runs</div>
+      <div class="status" id="looping-sleep-status"></div>
+      <div class="result" id="looping-sleep-result" hidden></div>
     </section>
 
     <!-- Admin Section -->
@@ -746,6 +767,21 @@
         }
       );
 
+      // 19. Looping Sleep
+      runWorkflow(
+        "looping-sleep-form",
+        "/api/looping-sleep",
+        (form) => {
+          const iterations = Number(form.querySelector("#looping-sleep-iterations").value);
+          const sleep_seconds = Number(form.querySelector("#looping-sleep-seconds").value);
+          return Number.isFinite(iterations) && iterations >= 1 && iterations <= 10
+            && Number.isFinite(sleep_seconds) && sleep_seconds >= 1 && sleep_seconds <= 30
+            ? { iterations, sleep_seconds }
+            : null;
+        },
+        (data) => JSON.stringify(data, null, 2)
+      );
+
       // 16. Batch workflow runs
       const batchForm = document.getElementById("batch-form");
       const batchStatus = document.getElementById("batch-status");
@@ -759,6 +795,10 @@
         ManyActionsWorkflow: {
           hint: 'Inputs JSON: {"action_count": 50, "parallel": true}',
           inputs: '{"action_count": 50, "parallel": true}'
+        },
+        LoopingSleepWorkflow: {
+          hint: 'Inputs JSON: {"iterations": 3, "sleep_seconds": 2}',
+          inputs: '{"iterations": 3, "sleep_seconds": 2}'
         },
         NoOpWorkflow: {
           hint: 'Inputs JSON: {"indices": [0, 1, 2, 3, 4], "complexity": 0}',

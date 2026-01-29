@@ -47,6 +47,9 @@ from example_app.workflows import (
     LoopProcessingWorkflow,
     LoopRequest,
     LoopResult,
+    LoopingSleepRequest,
+    LoopingSleepResult,
+    LoopingSleepWorkflow,
     ManyActionsRequest,
     ManyActionsResult,
     ManyActionsWorkflow,
@@ -309,6 +312,25 @@ async def run_many_actions_workflow(payload: ManyActionsRequest) -> ManyActionsR
 
 
 # =============================================================================
+# Looping Sleep (for testing durable sleep in loops)
+# =============================================================================
+
+
+@app.post("/api/looping-sleep", response_model=LoopingSleepResult)
+async def run_looping_sleep_workflow(payload: LoopingSleepRequest) -> LoopingSleepResult:
+    """
+    Run the looping sleep workflow demonstrating durable sleep in loops.
+
+    Each iteration sleeps for the specified duration, then performs an action.
+    Useful for testing looping sleep workflows.
+    """
+    workflow = LoopingSleepWorkflow()
+    return await workflow.run(
+        iterations=payload.iterations, sleep_seconds=payload.sleep_seconds
+    )
+
+
+# =============================================================================
 # Scheduled Workflows
 # =============================================================================
 
@@ -328,6 +350,7 @@ WORKFLOW_REGISTRY = {
     "KwOnlyLocationWorkflow": KwOnlyLocationWorkflow,
     "SpreadEmptyCollectionWorkflow": SpreadEmptyCollectionWorkflow,
     "ManyActionsWorkflow": ManyActionsWorkflow,
+    "LoopingSleepWorkflow": LoopingSleepWorkflow,
     "NoOpWorkflow": NoOpWorkflow,
 }
 

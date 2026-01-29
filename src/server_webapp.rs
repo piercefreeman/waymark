@@ -162,6 +162,10 @@ async fn run_server(
             "/api/workflows/:workflow_version_id/run/:instance_id/action-logs/:action_id",
             get(get_workflow_action_logs),
         )
+        .route(
+            "/api/workflows/:workflow_version_id/run/:instance_id/export",
+            get(export_workflow_instance),
+        )
         .route("/scheduled", get(list_schedules))
         .route("/scheduled/:schedule_id", get(schedule_detail))
         .route("/scheduled/:schedule_id/pause", post(pause_schedule))
@@ -431,6 +435,77 @@ async fn get_workflow_action_logs(
     }
 
     Ok(Json(ActionLogsResponse { logs }))
+}
+
+async fn export_workflow_instance(
+    State(state): State<WebappState>,
+    Path((version_id, instance_id)): Path<(Uuid, Uuid)>,
+) -> Result<Json<WorkflowInstanceExport>, HttpError> {
+    let version = state
+        .database
+        .get_workflow_version(WorkflowVersionId(version_id))
+        .await
+        .map_err(|err| {
+            error!(?err, %version_id, "failed to load workflow version");
+            HttpError {
+                status: StatusCode::NOT_FOUND,
+                message: "workflow version not found".to_string(),
+            }
+        })?;
+
+    let instance = state
+        .database
+        .get_instance(crate::db::WorkflowInstanceId(instance_id))
+        .await
+        .map_err(|err| {
+            error!(?err, %instance_id, "failed to load instance");
+            HttpError {
+                status: StatusCode::NOT_FOUND,
+                message: "workflow instance not found".to_string(),
+            }
+        })?;
+
+    let dag = decode_dag_from_proto(&version.program_proto);
+    let mut nodes = Vec::new();
+    let mut timeline = Vec::new();
+
+    if let Ok(Some(graph_bytes)) = state
+        .database
+        .get_instance_execution_graph(crate::db::WorkflowInstanceId(instance_id))
+        .await
+        && let Some(graph) = decode_execution_graph(&graph_bytes)
+    {
+        let action_logs = synthesize_action_logs_from_execution_graph(instance_id, &dag, &graph);
+        nodes = build_node_contexts_from_action_logs(&action_logs);
+        // Get all timeline entries without pagination
+        timeline = action_logs.iter().map(build_action_log_context).collect();
+        // Sort by dispatched_at descending
+        timeline.sort_by(|a, b| b.dispatched_at.cmp(&a.dispatched_at));
+    }
+
+    let export = WorkflowInstanceExport {
+        export_version: "1.0",
+        exported_at: Utc::now().to_rfc3339(),
+        workflow: WorkflowExportInfo {
+            version_id: version.id.to_string(),
+            name: version.workflow_name.clone(),
+            dag_hash: version.dag_hash.clone(),
+            concurrent: version.concurrent,
+            created_at: version.created_at.to_rfc3339(),
+        },
+        instance: InstanceExportInfo {
+            id: instance.id.to_string(),
+            status: display_status(&instance.status, instance.next_action_seq),
+            created_at: instance.created_at.to_rfc3339(),
+            completed_at: instance.completed_at.map(|dt| dt.to_rfc3339()),
+            input_payload: format_payload(&instance.input_payload),
+            result_payload: format_payload(&instance.result_payload),
+        },
+        nodes,
+        timeline,
+    };
+
+    Ok(Json(export))
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -1063,6 +1138,45 @@ struct WorkflowRunDataResponse {
 #[derive(Serialize)]
 struct ActionLogsResponse {
     logs: Vec<ActionLogContext>,
+}
+
+/// Full export of workflow instance data for user introspection
+#[derive(Serialize)]
+struct WorkflowInstanceExport {
+    /// Metadata about the export
+    export_version: &'static str,
+    exported_at: String,
+
+    /// Workflow version information
+    workflow: WorkflowExportInfo,
+
+    /// Instance metadata
+    instance: InstanceExportInfo,
+
+    /// All execution nodes with their current state
+    nodes: Vec<NodeExecutionContext>,
+
+    /// Complete timeline of all action executions
+    timeline: Vec<ActionLogContext>,
+}
+
+#[derive(Serialize)]
+struct WorkflowExportInfo {
+    version_id: String,
+    name: String,
+    dag_hash: String,
+    concurrent: bool,
+    created_at: String,
+}
+
+#[derive(Serialize)]
+struct InstanceExportInfo {
+    id: String,
+    status: String,
+    created_at: String,
+    completed_at: Option<String>,
+    input_payload: String,
+    result_payload: String,
 }
 
 fn render_workflow_run_page(
