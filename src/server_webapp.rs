@@ -976,6 +976,8 @@ struct ExecutionGraphNode {
     depends_on: Vec<String>,
     /// Status: pending, blocked, dispatched, completed, failed
     status: String,
+    /// Whether this is a sleep action
+    is_sleep: bool,
 }
 
 #[derive(Serialize)]
@@ -1039,6 +1041,8 @@ struct ActionLogContext {
     error_message: Option<String>,
     /// Result payload (formatted as JSON string)
     result_payload: Option<String>,
+    /// Whether this is a sleep action
+    is_sleep: bool,
 }
 
 struct TimelinePage {
@@ -1551,6 +1555,7 @@ struct SimpleDagNode {
     guard: Option<String>,
     depends_on: Vec<String>,
     waits_for: Vec<String>,
+    is_sleep: bool,
 }
 
 fn decode_dag_from_proto(proto_bytes: &[u8]) -> Vec<SimpleDagNode> {
@@ -1589,13 +1594,17 @@ fn decode_dag_from_proto(proto_bytes: &[u8]) -> Vec<SimpleDagNode> {
                 .map(|e| e.source.clone())
                 .collect();
 
+            let action_name = node.action_name.clone().unwrap_or_default();
+            let is_sleep = action_name == "sleep";
+
             SimpleDagNode {
                 id: node.id.clone(),
                 module: node.module_name.clone().unwrap_or_default(),
-                action: node.action_name.clone().unwrap_or_default(),
+                action: action_name,
                 guard: node.guard_expr.as_ref().map(crate::print_expr),
                 depends_on,
                 waits_for,
+                is_sleep,
             }
         })
         .collect()
@@ -1657,6 +1666,7 @@ fn build_filtered_execution_graph(
                     .get(&node.id)
                     .cloned()
                     .unwrap_or_else(|| "pending".to_string()),
+                is_sleep: node.is_sleep,
             })
             .collect(),
     }
@@ -1827,6 +1837,12 @@ fn build_node_contexts_from_action_logs(
 }
 
 fn build_action_log_context(log: &crate::db::ActionLog) -> ActionLogContext {
+    let is_sleep = log
+        .action_name
+        .as_ref()
+        .map(|name| name == "sleep")
+        .unwrap_or(false);
+
     ActionLogContext {
         id: log.id.to_string(),
         action_id: log.action_id.to_string(),
@@ -1848,6 +1864,7 @@ fn build_action_log_context(log: &crate::db::ActionLog) -> ActionLogContext {
             .result_payload
             .as_ref()
             .map(|p| format_binary_payload(p)),
+        is_sleep,
     }
 }
 
@@ -1921,9 +1938,11 @@ fn build_node_maps(
     std::collections::HashSet<String>,
     std::collections::HashMap<String, Vec<String>>,
 ) {
+    // Internal nodes are those with empty module, EXCEPT for sleep actions
+    // which should be shown in the UI even though they don't have a module
     let internal_nodes: std::collections::HashSet<String> = dag
         .iter()
-        .filter(|node| node.module.is_empty())
+        .filter(|node| node.module.is_empty() && !node.is_sleep)
         .map(|node| node.id.clone())
         .collect();
 

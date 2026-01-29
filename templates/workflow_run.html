@@ -314,6 +314,20 @@ class DAGLayout {
     return colors[status] || colors['pending'];
   }
 
+  getNodeColors(node) {
+    // Sleep nodes always use blue, regardless of status
+    if (node.is_sleep) {
+      const isDark = document.documentElement.classList.contains('dark');
+      return {
+        bg: isDark ? 'rgba(59, 130, 246, 0.1)' : 'rgba(59, 130, 246, 0.08)',
+        border: isDark ? 'rgba(59, 130, 246, 0.5)' : 'rgba(59, 130, 246, 0.4)',
+        text: isDark ? '#60a5fa' : '#2563eb',
+        label: isDark ? '#93c5fd' : '#1d4ed8'
+      };
+    }
+    return this.getStatusColors(node.status);
+  }
+
   render(nodes) {
     if (!nodes || !nodes.length) return;
     this.container.innerHTML = '';
@@ -424,7 +438,7 @@ class DAGLayout {
 
   createNodeElement(node, left, top, nodeWidth) {
     const { nodeHeight } = this.options;
-    const colors = this.getStatusColors(node.status);
+    const colors = this.getNodeColors(node);
     const el = document.createElement('div');
     el.className = 'absolute rounded-xl px-3 py-2.5 cursor-pointer transition-all duration-150 hover:scale-[1.02]';
     el.style.cssText = `left: ${left}px; top: ${top}px; width: ${nodeWidth}px; min-height: ${nodeHeight}px; background: ${colors.bg}; border: 1px solid ${colors.border}; overflow: hidden; backdrop-filter: blur(8px);`;
@@ -575,8 +589,13 @@ class GanttTimeline {
     const widthPct = ((end - start) / totalDuration) * 100;
 
     // Status colors - transparent fill with colored border (matching badge style)
+    // Sleep nodes always use blue, regardless of status
     let borderColor, textColor, bgColor;
-    if (entry.success === true) {
+    if (entry.is_sleep) {
+      borderColor = 'border-blue-500/60';
+      textColor = 'text-blue-600 dark:text-blue-400';
+      bgColor = 'bg-blue-500/10';
+    } else if (entry.success === true) {
       borderColor = 'border-emerald-500/60';
       textColor = 'text-emerald-600 dark:text-emerald-400';
       bgColor = 'bg-emerald-500/10';
@@ -628,10 +647,13 @@ function openDrawer(entry, nodeInfo) {
   document.getElementById('drawer-title').textContent = actionName;
   document.getElementById('drawer-subtitle').textContent = moduleName;
 
-  // Status
+  // Status - sleep nodes always use blue
   const statusEl = document.getElementById('drawer-status');
   statusEl.className = 'rounded-lg px-2.5 py-1 text-xs font-semibold uppercase tracking-wide border';
-  if (entry.success === true) {
+  if (entry.is_sleep) {
+    statusEl.textContent = entry.success === true ? 'Completed' : entry.success === false ? 'Failed' : 'Sleeping';
+    statusEl.classList.add('border-blue-500/50', 'bg-blue-500/10', 'text-blue-600', 'dark:text-blue-400');
+  } else if (entry.success === true) {
     statusEl.textContent = 'Success';
     statusEl.classList.add('border-emerald-500/50', 'bg-emerald-500/10', 'text-emerald-600', 'dark:text-emerald-400');
   } else if (entry.success === false) {
@@ -843,25 +865,36 @@ function renderExecutionLog(actionLookup) {
     const row = document.createElement('div');
     row.className = 'transition-colors';
 
-    let statusColor, statusBg, statusBorder, statusText, ringColor;
-    if (log.success === true) {
+    // Sleep nodes always use blue, regardless of status
+    let statusColor, statusBg, statusBorder, statusText, ringColor, dotColor;
+    if (log.is_sleep) {
+      statusColor = 'text-blue-600 dark:text-blue-400';
+      statusBg = 'bg-blue-500/10';
+      statusBorder = 'border-blue-500/50';
+      statusText = log.success === true ? 'Completed' : log.success === false ? 'Failed' : 'Sleeping';
+      ringColor = 'ring-blue-500';
+      dotColor = 'bg-blue-500';
+    } else if (log.success === true) {
       statusColor = 'text-emerald-600 dark:text-emerald-400';
       statusBg = 'bg-emerald-500/10';
       statusBorder = 'border-emerald-500/50';
       statusText = 'Success';
       ringColor = 'ring-emerald-500';
+      dotColor = 'bg-emerald-500';
     } else if (log.success === false) {
       statusColor = 'text-red-600 dark:text-red-400';
       statusBg = 'bg-red-500/10';
       statusBorder = 'border-red-500/50';
       statusText = 'Failed';
       ringColor = 'ring-red-500';
+      dotColor = 'bg-red-500';
     } else {
       statusColor = 'text-amber-600 dark:text-amber-400';
       statusBg = 'bg-amber-500/10';
       statusBorder = 'border-amber-500/50';
       statusText = 'Running';
       ringColor = 'ring-amber-500';
+      dotColor = 'bg-amber-500';
     }
 
     let durationText = '-';
@@ -875,7 +908,7 @@ function renderExecutionLog(actionLookup) {
     row.innerHTML = `
       <div class="flex items-center gap-4 p-4 ${hasDetails ? 'cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-900/50' : ''}" ${hasDetails ? `onclick="toggleLogExpand('${expandId}')"` : ''}>
         <div class="flex flex-col items-center">
-          <div class="w-2 h-2 rounded-full ${log.success === true ? 'bg-emerald-500' : log.success === false ? 'bg-red-500' : 'bg-amber-500'}"></div>
+          <div class="w-2 h-2 rounded-full ${dotColor}"></div>
         </div>
         <div class="flex-1 min-w-0">
           <div class="flex items-center gap-2 flex-wrap">
