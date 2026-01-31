@@ -820,9 +820,12 @@ impl Database {
             return Ok(HashSet::new());
         }
 
-        let ids: Vec<Uuid> = updates.iter().map(|(id, _, _)| id.0).collect();
-        let graphs: Vec<Vec<u8>> = updates.iter().map(|(_, g, _)| g.clone()).collect();
-        let wakeups: Vec<Option<DateTime<Utc>>> = updates.iter().map(|(_, _, w)| *w).collect();
+        let mut ordered: Vec<&ExecutionGraphUpdate> = updates.iter().collect();
+        ordered.sort_by_key(|(id, _, _)| id.0);
+
+        let ids: Vec<Uuid> = ordered.iter().map(|(id, _, _)| id.0).collect();
+        let graphs: Vec<Vec<u8>> = ordered.iter().map(|(_, g, _)| g.clone()).collect();
+        let wakeups: Vec<Option<DateTime<Utc>>> = ordered.iter().map(|(_, _, w)| *w).collect();
 
         let rows = sqlx::query(
             r#"

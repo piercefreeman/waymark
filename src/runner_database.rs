@@ -98,6 +98,15 @@ pub const DEFAULT_SCHEDULE_CHECK_BATCH_SIZE: i32 = 100;
 /// This catches instances stuck with work in ready_queue that never gets dispatched.
 pub const DEFAULT_STALENESS_TIMEOUT: Duration = Duration::from_secs(120);
 
+fn is_deadlock_error(error: &crate::db::DbError) -> bool {
+    match error {
+        crate::db::DbError::Sqlx(sqlx::Error::Database(db_err)) => {
+            db_err.code().as_deref() == Some("40P01")
+        }
+        _ => false,
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum InstanceRunnerError {
     #[error("Database error: {0}")]
@@ -438,120 +447,128 @@ impl InstanceRunner {
         let mut profile = RunnerProfile::default();
         let mut last_profile = Instant::now();
 
-        // Main loop
-        loop {
-            if self.is_shutdown() {
-                info!("Shutdown requested, stopping runner");
-                break;
-            }
+        let result: InstanceRunnerResult<()> = (async {
+            // Main loop
+            loop {
+                if self.is_shutdown() {
+                    info!("Shutdown requested, stopping runner");
+                    break;
+                }
 
-            // 1. Claim new instances if we have capacity
-            if profile_interval.is_some() {
-                let started_at = Instant::now();
-                self.claim_instances().await?;
-                profile.claim_instances += started_at.elapsed();
-            } else {
-                self.claim_instances().await?;
-            }
+                // 1. Claim new instances if we have capacity
+                if profile_interval.is_some() {
+                    let started_at = Instant::now();
+                    self.claim_instances().await?;
+                    profile.claim_instances += started_at.elapsed();
+                } else {
+                    self.claim_instances().await?;
+                }
 
-            // 2. Process any completions from workers
-            if profile_interval.is_some() {
-                let started_at = Instant::now();
-                self.process_worker_completions().await?;
-                profile.process_completions += started_at.elapsed();
-            } else {
-                self.process_worker_completions().await?;
-            }
+                // 2. Process any completions from workers
+                if profile_interval.is_some() {
+                    let started_at = Instant::now();
+                    self.process_worker_completions().await?;
+                    profile.process_completions += started_at.elapsed();
+                } else {
+                    self.process_worker_completions().await?;
+                }
 
-            // 3. Check for action timeouts (Rust-side enforcement)
-            if profile_interval.is_some() {
-                let started_at = Instant::now();
-                self.check_action_timeouts().await?;
-                profile.check_timeouts += started_at.elapsed();
-            } else {
-                self.check_action_timeouts().await?;
-            }
+                // 3. Check for action timeouts (Rust-side enforcement)
+                if profile_interval.is_some() {
+                    let started_at = Instant::now();
+                    self.check_action_timeouts().await?;
+                    profile.check_timeouts += started_at.elapsed();
+                } else {
+                    self.check_action_timeouts().await?;
+                }
 
-            // 4. Check for durable sleep wakeups
-            if profile_interval.is_some() {
-                let started_at = Instant::now();
-                self.process_sleeping_nodes().await?;
-                profile.process_sleeping += started_at.elapsed();
-            } else {
-                self.process_sleeping_nodes().await?;
-            }
+                // 4. Check for durable sleep wakeups
+                if profile_interval.is_some() {
+                    let started_at = Instant::now();
+                    self.process_sleeping_nodes().await?;
+                    profile.process_sleeping += started_at.elapsed();
+                } else {
+                    self.process_sleeping_nodes().await?;
+                }
 
-            // 5. Collect ready actions from instances → enqueue to dispatch queue
-            if profile_interval.is_some() {
-                let started_at = Instant::now();
-                self.collect_ready_actions().await?;
-                profile.collect_ready += started_at.elapsed();
-            } else {
-                self.collect_ready_actions().await?;
-            }
+                // 5. Collect ready actions from instances → enqueue to dispatch queue
+                if profile_interval.is_some() {
+                    let started_at = Instant::now();
+                    self.collect_ready_actions().await?;
+                    profile.collect_ready += started_at.elapsed();
+                } else {
+                    self.collect_ready_actions().await?;
+                }
 
-            // 6. Dispatch from queue: dequeue → mark running → sync DB → send to workers
-            if profile_interval.is_some() {
-                let started_at = Instant::now();
-                self.dispatch_from_queue().await?;
-                profile.dispatch_queue += started_at.elapsed();
-            } else {
-                self.dispatch_from_queue().await?;
-            }
+                // 6. Dispatch from queue: dequeue → mark running → sync DB → send to workers
+                if profile_interval.is_some() {
+                    let started_at = Instant::now();
+                    self.dispatch_from_queue().await?;
+                    profile.dispatch_queue += started_at.elapsed();
+                } else {
+                    self.dispatch_from_queue().await?;
+                }
 
-            // 7. Process completed instances
-            if profile_interval.is_some() {
-                let started_at = Instant::now();
-                self.finalize_completed_instances(Some(&mut profile.finalize_detail))
-                    .await?;
-                profile.finalize_instances += started_at.elapsed();
-            } else {
-                self.finalize_completed_instances(None).await?;
-            }
+                // 7. Process completed instances
+                if profile_interval.is_some() {
+                    let started_at = Instant::now();
+                    self.finalize_completed_instances(Some(&mut profile.finalize_detail))
+                        .await?;
+                    profile.finalize_instances += started_at.elapsed();
+                } else {
+                    self.finalize_completed_instances(None).await?;
+                }
 
-            // Small sleep to avoid tight loop when idle
-            let active_count = self.active_instances.read().await.len();
-            let queue_size = self.dispatch_queue.lock().await.len();
-            if active_count == 0 && queue_size == 0 {
-                tokio::time::sleep(self.config.idle_poll_interval).await;
-            } else {
-                // Brief yield to allow other tasks to run
-                tokio::task::yield_now().await;
-            }
+                // Small sleep to avoid tight loop when idle
+                let active_count = self.active_instances.read().await.len();
+                let queue_size = self.dispatch_queue.lock().await.len();
+                if active_count == 0 && queue_size == 0 {
+                    tokio::time::sleep(self.config.idle_poll_interval).await;
+                } else {
+                    // Brief yield to allow other tasks to run
+                    tokio::task::yield_now().await;
+                }
 
-            if let Some(interval) = profile_interval {
-                profile.loops += 1;
-                if last_profile.elapsed() >= interval {
-                    let fd = &profile.finalize_detail;
-                    info!(
-                        runner_id = %self.config.runner_id,
-                        loops = profile.loops,
-                        active_instances = active_count,
-                        queue_size = queue_size,
-                        claim_ms = profile.claim_instances.as_millis() as u64,
-                        completions_ms = profile.process_completions.as_millis() as u64,
-                        timeouts_ms = profile.check_timeouts.as_millis() as u64,
-                        sleeping_ms = profile.process_sleeping.as_millis() as u64,
-                        ready_ms = profile.collect_ready.as_millis() as u64,
-                        dispatch_ms = profile.dispatch_queue.as_millis() as u64,
-                        finalize_ms = profile.finalize_instances.as_millis() as u64,
-                        fin_apply_ms = fd.apply_completions.as_millis() as u64,
-                        fin_update_ms = fd.db_update.as_millis() as u64,
-                        fin_update_n = fd.update_count,
-                        fin_complete_ms = fd.db_complete.as_millis() as u64,
-                        fin_complete_n = fd.complete_count,
-                        fin_fail_ms = fd.db_fail.as_millis() as u64,
-                        fin_fail_n = fd.fail_count,
-                        fin_release_ms = fd.db_release.as_millis() as u64,
-                        fin_release_n = fd.release_count,
-                        fin_evict_ms = fd.eviction.as_millis() as u64,
-                        "runner profile"
-                    );
-                    profile.reset();
-                    last_profile = Instant::now();
+                if let Some(interval) = profile_interval {
+                    profile.loops += 1;
+                    if last_profile.elapsed() >= interval {
+                        let fd = &profile.finalize_detail;
+                        info!(
+                            runner_id = %self.config.runner_id,
+                            loops = profile.loops,
+                            active_instances = active_count,
+                            queue_size = queue_size,
+                            claim_ms = profile.claim_instances.as_millis() as u64,
+                            completions_ms = profile.process_completions.as_millis() as u64,
+                            timeouts_ms = profile.check_timeouts.as_millis() as u64,
+                            sleeping_ms = profile.process_sleeping.as_millis() as u64,
+                            ready_ms = profile.collect_ready.as_millis() as u64,
+                            dispatch_ms = profile.dispatch_queue.as_millis() as u64,
+                            finalize_ms = profile.finalize_instances.as_millis() as u64,
+                            fin_apply_ms = fd.apply_completions.as_millis() as u64,
+                            fin_update_ms = fd.db_update.as_millis() as u64,
+                            fin_update_n = fd.update_count,
+                            fin_complete_ms = fd.db_complete.as_millis() as u64,
+                            fin_complete_n = fd.complete_count,
+                            fin_fail_ms = fd.db_fail.as_millis() as u64,
+                            fin_fail_n = fd.fail_count,
+                            fin_release_ms = fd.db_release.as_millis() as u64,
+                            fin_release_n = fd.release_count,
+                            fin_evict_ms = fd.eviction.as_millis() as u64,
+                            "runner profile"
+                        );
+                        profile.reset();
+                        last_profile = Instant::now();
+                    }
                 }
             }
-        }
+
+            Ok(())
+        })
+        .await;
+
+        // Signal shutdown to stop background tasks cleanly
+        self.shutdown.store(true, Ordering::SeqCst);
 
         // Cancel background tasks
         heartbeat_handle.abort();
@@ -562,9 +579,11 @@ impl InstanceRunner {
         }
 
         // Release all owned instances
-        self.release_all_instances().await?;
+        if let Err(err) = self.release_all_instances().await {
+            error!(error = %err, "Failed to release instances during shutdown");
+        }
 
-        Ok(())
+        result
     }
 
     /// Process completions received from worker tasks
@@ -1680,9 +1699,33 @@ impl InstanceRunner {
                 }
             }
             if !updates.is_empty() {
-                self.db
-                    .update_execution_graphs_batch(&self.config.runner_id, &updates)
-                    .await?;
+                let mut attempts = 0;
+                loop {
+                    match self
+                        .db
+                        .update_execution_graphs_batch(&self.config.runner_id, &updates)
+                        .await
+                    {
+                        Ok(_) => break,
+                        Err(err) if is_deadlock_error(&err) && attempts < 2 => {
+                            attempts += 1;
+                            warn!(
+                                attempt = attempts,
+                                error = %err,
+                                "Deadlock while updating execution graphs; retrying"
+                            );
+                            tokio::time::sleep(Duration::from_millis(50 * attempts as u64)).await;
+                        }
+                        Err(err) if is_deadlock_error(&err) => {
+                            error!(
+                                error = %err,
+                                "Deadlock while updating execution graphs; continuing without DB sync"
+                            );
+                            break;
+                        }
+                        Err(err) => return Err(err.into()),
+                    }
+                }
             }
             if !exec_updates.is_empty() {
                 self.db

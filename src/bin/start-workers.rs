@@ -19,8 +19,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Result, anyhow};
+use tokio::sync::watch;
 use tokio::{select, signal};
-use tracing::info;
+use tracing::{error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use rappel::{
@@ -114,39 +115,80 @@ async fn main() -> Result<()> {
         ..Default::default()
     };
 
-    let runner = Arc::new(InstanceRunner::new(
-        runner_config,
-        database,
-        Arc::clone(&worker_pool),
-    ));
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
     info!(
         claim_batch_size = config.instance_claim_batch_size,
         max_concurrent_instances = config.max_concurrent_instances,
         poll_interval_ms = config.poll_interval_ms,
-        "instance runner created - waiting for shutdown signal"
+        "instance runner supervisor created - waiting for shutdown signal"
     );
 
-    // Spawn runner in background task
-    let runner_clone = Arc::clone(&runner);
-    let runner_handle = tokio::spawn(async move {
-        if let Err(e) = runner_clone.run().await {
-            tracing::error!("Instance runner error: {}", e);
-        }
-    });
+    let runner_handle = {
+        let database = database.clone();
+        let runner_config = runner_config.clone();
+        let worker_pool = Arc::clone(&worker_pool);
+        let shutdown_rx = shutdown_rx.clone();
+        tokio::spawn(async move {
+            let mut backoff = Duration::from_millis(200);
+            let max_backoff = Duration::from_secs(5);
+
+            loop {
+                if *shutdown_rx.borrow() {
+                    break;
+                }
+
+                let runner = Arc::new(InstanceRunner::new(
+                    runner_config.clone(),
+                    database.clone(),
+                    Arc::clone(&worker_pool),
+                ));
+
+                let runner_for_shutdown = Arc::clone(&runner);
+                let mut shutdown_rx_runner = shutdown_rx.clone();
+                let shutdown_task = tokio::spawn(async move {
+                    loop {
+                        if shutdown_rx_runner.changed().await.is_err() {
+                            break;
+                        }
+                        if *shutdown_rx_runner.borrow() {
+                            runner_for_shutdown.shutdown();
+                            break;
+                        }
+                    }
+                });
+
+                let result = runner.run().await;
+                shutdown_task.abort();
+
+                if *shutdown_rx.borrow() {
+                    break;
+                }
+
+                match result {
+                    Ok(()) => {
+                        backoff = Duration::from_millis(200);
+                    }
+                    Err(err) => {
+                        error!(error = %err, "Instance runner crashed; restarting");
+                        tokio::time::sleep(backoff).await;
+                        backoff = std::cmp::min(backoff * 2, max_backoff);
+                    }
+                }
+            }
+        })
+    };
 
     // Wait for shutdown signal
     wait_for_shutdown().await?;
     info!("shutdown signal received - stopping workers");
 
-    // Shutdown runner
-    runner.shutdown();
+    let _ = shutdown_tx.send(true);
 
     // Wait for runner to finish (with timeout)
     let _ = tokio::time::timeout(std::time::Duration::from_secs(5), runner_handle).await;
 
     // Shutdown worker pool
-    drop(runner); // Release Arc reference
     let pool = Arc::try_unwrap(worker_pool)
         .map_err(|_| anyhow!("worker pool still referenced during shutdown"))?;
     pool.shutdown().await?;
