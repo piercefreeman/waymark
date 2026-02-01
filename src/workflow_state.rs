@@ -834,17 +834,10 @@ impl ExecutionState {
                 value_bytes = self.graph.variables.get(var_name);
             }
 
-            if let Some(bytes) = value_bytes {
-                let value = workflow_value_from_proto_bytes(bytes);
-                tracing::info!(
-                    var_name = %var_name,
-                    bytes_len = bytes.len(),
-                    decoded_value = ?value,
-                    "build_minimal_scope_for_node: decoding variable"
-                );
-                if let Some(v) = value {
-                    scope.insert(var_name.clone(), v);
-                }
+            if let Some(bytes) = value_bytes
+                && let Some(value) = workflow_value_from_proto_bytes(bytes)
+            {
+                scope.insert(var_name.clone(), value);
             }
         }
 
@@ -1241,26 +1234,11 @@ impl ExecutionState {
             }
         }
 
-        tracing::info!(
-            node_id = %node_id,
-            template_id = %template_id,
-            required_vars = ?required_vars,
-            global_vars = ?self.graph.variables.keys().collect::<Vec<_>>(),
-            "get_inputs_for_node: looking up required vars"
-        );
-
         let scope = self.build_minimal_scope_for_node(
             node_id,
             exec_node,
             dag_node.spread_loop_var.as_deref(),
             &required_vars,
-        );
-
-        tracing::info!(
-            node_id = %node_id,
-            scope_keys = ?scope.keys().collect::<Vec<_>>(),
-            scope_values = ?scope.iter().map(|(k, v)| (k, format!("{:?}", v))).collect::<Vec<_>>(),
-            "get_inputs_for_node: built scope"
         );
 
         if let Some(kwarg_exprs) = &dag_node.kwarg_exprs {
@@ -1313,11 +1291,6 @@ impl ExecutionState {
         // Check for uncaught exceptions (workflow failed)
         for node in self.graph.nodes.values() {
             if node.status == NodeStatus::Exhausted as i32 {
-                tracing::info!(
-                    node_id = %node.template_id,
-                    error = ?node.error,
-                    "check_workflow_completion: Found exhausted node, marking workflow as failed"
-                );
                 result.workflow_failed = true;
                 result.error_message = node.error.clone();
                 return result;
@@ -1343,13 +1316,6 @@ impl ExecutionState {
                 && exec_node.status == NodeStatus::Completed as i32
             {
                 result.workflow_completed = true;
-
-                // Debug: log all variables
-                debug!(
-                    output_node_id = %node.id,
-                    variables = ?self.graph.variables.keys().collect::<Vec<_>>(),
-                    "Workflow completion: checking result variable"
-                );
 
                 // Build result payload from the "result" variable
                 if let Some(result_value_bytes) = self.graph.variables.get("result") {
@@ -1990,13 +1956,6 @@ impl ExecutionState {
                 && exec_node.status == NodeStatus::Completed as i32
             {
                 result.workflow_completed = true;
-
-                // Debug: log all variables
-                tracing::info!(
-                    output_node_id = %node.id,
-                    variables = ?self.graph.variables.keys().collect::<Vec<_>>(),
-                    "apply_completions_batch: Workflow completion checking result variable"
-                );
 
                 // Build result payload from the "result" variable
                 // The Python side expects WorkflowArguments with key "result"
