@@ -17,7 +17,8 @@ use tracing::info;
 
 use harness::{HarnessConfig, IntegrationHarness, run_workflow_in_memory};
 use rappel::messages::execution::NodeStatus;
-use rappel::{DAGConverter, ExecutionState, proto};
+use rappel::workflow_state::ExecutionState;
+use rappel::{DAGConverter, proto};
 
 const SIMPLE_WORKFLOW_MODULE: &str = include_str!("fixtures/simple_workflow.py");
 const SEQUENTIAL_WORKFLOW_MODULE: &str = include_str!("fixtures/sequential_workflow.py");

@@ -25,7 +25,10 @@ use thiserror::Error;
 // No re-exports needed - methods are automatically available on Database.
 
 // Re-export types from worker module
-pub use worker::{ClaimedInstance, ExecutionGraphUpdate, InstanceFinalization};
+pub use worker::{
+    ActionExecutionArchive, ArchiveRecord, ClaimedInstance, ExecutionGraphUpdate,
+    InstanceFinalization, NodePayload,
+};
 
 // ============================================================================
 // Type Aliases & Newtypes
@@ -157,6 +160,10 @@ pub struct WorkerStatusUpdate {
     pub active_instance_count: i32,
     /// Total instances completed (completed + failed) since runner start
     pub total_instances_completed: i64,
+    /// Instances per second (rolling window throughput)
+    pub instances_per_sec: f64,
+    /// Instances per minute (rolling window throughput)
+    pub instances_per_min: f64,
     /// Encoded time-series ring buffer (BYTEA)
     pub time_series: Option<Vec<u8>>,
 }
@@ -187,6 +194,10 @@ pub struct WorkerStatus {
     pub active_instance_count: i32,
     /// Total instances completed (completed + failed) since runner start
     pub total_instances_completed: i64,
+    /// Instances per second (rolling window throughput)
+    pub instances_per_sec: f64,
+    /// Instances per minute (rolling window throughput)
+    pub instances_per_min: f64,
     /// Encoded time-series ring buffer
     pub time_series: Option<Vec<u8>>,
 }
@@ -230,6 +241,8 @@ pub struct ActionLog {
     pub action_name: Option<String>,
     pub node_id: Option<String>,
     pub dispatch_payload: Option<Vec<u8>>,
+    /// Node kind (matches NodeKind proto enum) - used to identify sleep nodes etc.
+    pub node_kind: i32,
 }
 
 // ============================================================================

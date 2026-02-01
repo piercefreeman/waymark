@@ -389,6 +389,147 @@ impl LifecycleStats {
     }
 }
 
+/// Snapshot of instance throughput metrics.
+#[derive(Debug, Clone, Default)]
+pub struct InstanceThroughputSnapshot {
+    /// Instances completed per second (rolling window)
+    pub instances_per_sec: f64,
+    /// Instances completed per minute (rolling window)
+    pub instances_per_min: f64,
+    /// Total instances completed since tracker creation
+    pub total_completed: u64,
+    /// Total instances failed since tracker creation
+    pub total_failed: u64,
+}
+
+/// Tracks instance completion throughput using a rolling time window.
+///
+/// Similar to `WorkerThroughputTracker` but for workflow instances.
+/// Tracks both completed and failed instances separately.
+#[derive(Debug)]
+pub struct InstanceThroughputTracker {
+    window: Duration,
+    /// Timestamps of completed instances within the window
+    completed_timestamps: VecDeque<Instant>,
+    /// Timestamps of failed instances within the window
+    failed_timestamps: VecDeque<Instant>,
+    /// Total completed instances since creation
+    total_completed: u64,
+    /// Total failed instances since creation
+    total_failed: u64,
+}
+
+impl InstanceThroughputTracker {
+    /// Create a new tracker with the given rolling window duration.
+    pub fn new(window: Duration) -> Self {
+        Self {
+            window,
+            completed_timestamps: VecDeque::with_capacity(10000),
+            failed_timestamps: VecDeque::with_capacity(1000),
+            total_completed: 0,
+            total_failed: 0,
+        }
+    }
+
+    /// Create with default 60-second window.
+    pub fn default_window() -> Self {
+        Self::new(Duration::from_secs(60))
+    }
+
+    /// Record an instance completion.
+    pub fn record_completed(&mut self) {
+        self.record_completed_at(Instant::now());
+    }
+
+    /// Record an instance completion at a specific time (for testing).
+    pub fn record_completed_at(&mut self, when: Instant) {
+        self.prune(when);
+        self.completed_timestamps.push_back(when);
+        self.total_completed = self.total_completed.saturating_add(1);
+    }
+
+    /// Record an instance failure.
+    pub fn record_failed(&mut self) {
+        self.record_failed_at(Instant::now());
+    }
+
+    /// Record an instance failure at a specific time (for testing).
+    pub fn record_failed_at(&mut self, when: Instant) {
+        self.prune(when);
+        self.failed_timestamps.push_back(when);
+        self.total_failed = self.total_failed.saturating_add(1);
+    }
+
+    /// Record multiple completions at once.
+    pub fn record_completed_batch(&mut self, count: usize) {
+        let now = Instant::now();
+        self.prune(now);
+        for _ in 0..count {
+            self.completed_timestamps.push_back(now);
+        }
+        self.total_completed = self.total_completed.saturating_add(count as u64);
+    }
+
+    /// Record multiple failures at once.
+    pub fn record_failed_batch(&mut self, count: usize) {
+        let now = Instant::now();
+        self.prune(now);
+        for _ in 0..count {
+            self.failed_timestamps.push_back(now);
+        }
+        self.total_failed = self.total_failed.saturating_add(count as u64);
+    }
+
+    fn prune(&mut self, now: Instant) {
+        let cutoff = now.checked_sub(self.window).unwrap_or(now);
+        while self
+            .completed_timestamps
+            .front()
+            .is_some_and(|t| *t < cutoff)
+        {
+            self.completed_timestamps.pop_front();
+        }
+        while self.failed_timestamps.front().is_some_and(|t| *t < cutoff) {
+            self.failed_timestamps.pop_front();
+        }
+    }
+
+    /// Get a snapshot of current throughput metrics.
+    pub fn snapshot(&mut self) -> InstanceThroughputSnapshot {
+        self.snapshot_at(Instant::now())
+    }
+
+    /// Get a snapshot at a specific time (for testing).
+    pub fn snapshot_at(&mut self, now: Instant) -> InstanceThroughputSnapshot {
+        self.prune(now);
+        let window_secs = self.window.as_secs_f64();
+
+        // Count total instances (completed + failed) in window
+        let instances_in_window = self.completed_timestamps.len() + self.failed_timestamps.len();
+
+        let instances_per_sec = if window_secs > 0.0 {
+            instances_in_window as f64 / window_secs
+        } else {
+            0.0
+        };
+
+        let instances_per_min = instances_per_sec * 60.0;
+
+        InstanceThroughputSnapshot {
+            instances_per_sec,
+            instances_per_min,
+            total_completed: self.total_completed,
+            total_failed: self.total_failed,
+        }
+    }
+
+    /// Get the count of instances in the current window.
+    pub fn instances_in_window(&mut self) -> usize {
+        self.prune(Instant::now());
+        self.completed_timestamps.len() + self.failed_timestamps.len()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -434,5 +575,56 @@ mod tests {
         // Should be reset
         let (processed, _, _) = stats.take_counters();
         assert_eq!(processed, 0);
+    }
+
+    #[test]
+    fn test_instance_throughput_tracker_basic() {
+        let mut tracker = InstanceThroughputTracker::new(Duration::from_secs(60));
+
+        // Record some completions
+        tracker.record_completed();
+        tracker.record_completed();
+        tracker.record_failed();
+
+        let snapshot = tracker.snapshot();
+        assert_eq!(snapshot.total_completed, 2);
+        assert_eq!(snapshot.total_failed, 1);
+        // 3 instances in 60 seconds = 0.05/sec = 3/min
+        assert!((snapshot.instances_per_min - 3.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_instance_throughput_tracker_window() {
+        let mut tracker = InstanceThroughputTracker::new(Duration::from_secs(60));
+        let base = Instant::now();
+
+        // Record at different times
+        tracker.record_completed_at(base);
+        tracker.record_completed_at(base + Duration::from_secs(10));
+        tracker.record_completed_at(base + Duration::from_secs(50));
+        // This one is at 70 seconds - first one should be pruned
+        tracker.record_completed_at(base + Duration::from_secs(70));
+
+        let snapshot = tracker.snapshot_at(base + Duration::from_secs(70));
+
+        // Total should be 4
+        assert_eq!(snapshot.total_completed, 4);
+        // But only 3 in the window (base is outside 60-second window from base+70)
+        // 3 instances in 60 seconds = 3/min
+        assert!((snapshot.instances_per_min - 3.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_instance_throughput_tracker_batch() {
+        let mut tracker = InstanceThroughputTracker::new(Duration::from_secs(60));
+
+        tracker.record_completed_batch(5);
+        tracker.record_failed_batch(2);
+
+        let snapshot = tracker.snapshot();
+        assert_eq!(snapshot.total_completed, 5);
+        assert_eq!(snapshot.total_failed, 2);
+        // 7 instances in window
+        assert_eq!(tracker.instances_in_window(), 7);
     }
 }

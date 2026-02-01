@@ -44,6 +44,11 @@ message ExecutionNode {
   optional string worker_id = 4;
   optional int64 started_at_ms = 5;
 
+  // Unique identifier for this specific execution instance.
+  // Generated when the action starts running (mark_running).
+  // Used as the key for payload storage and retrieval.
+  optional string execution_id = 26;
+
   // Completion info (when status = COMPLETED or FAILED)
   optional int64 completed_at_ms = 6;
   optional int64 duration_ms = 7;
@@ -74,6 +79,17 @@ message ExecutionNode {
 
   // Target variable(s) to store result
   repeated string targets = 22;
+
+  // Explicit node type - the source of truth
+  NodeKind node_kind = 23;
+
+  // Parent node that spawned this (for spread children, loop iterations)
+  // Set when this node is dynamically created from a template
+  optional string parent_execution_id = 24;
+
+  // For archived loop iterations: which iteration (0, 1, 2, ...)
+  // Set when a node is archived during loop reset
+  optional int32 iteration_index = 25;
 }
 
 // Record of a single execution attempt (for retry history)
@@ -99,6 +115,24 @@ enum NodeStatus {
   NODE_STATUS_FAILED = 5;     // Finished with error (terminal)
   NODE_STATUS_EXHAUSTED = 6;  // Exceeded retry limit (terminal)
   NODE_STATUS_CAUGHT = 7;     // Exception caught by handler (terminal)
+}
+
+// Explicit node type - no more string matching or DAG lookups
+enum NodeKind {
+  NODE_KIND_UNSPECIFIED = 0;
+  NODE_KIND_ACTION = 1;      // Regular action call
+  NODE_KIND_SLEEP = 2;       // Sleep action (special handling)
+  NODE_KIND_ASSIGNMENT = 3;  // Variable assignment
+  NODE_KIND_BRANCH = 4;      // Conditional branch
+  NODE_KIND_JOIN = 5;        // Join point for branches
+  NODE_KIND_AGGREGATOR = 6;  // Collects spread results
+  NODE_KIND_FN_CALL = 7;     // Function call
+  NODE_KIND_RETURN = 8;      // Return statement
+  NODE_KIND_BREAK = 9;       // Loop break
+  NODE_KIND_FOR_LOOP = 10;   // For loop controller
+  NODE_KIND_INPUT = 11;      // Function input boundary
+  NODE_KIND_OUTPUT = 12;     // Function output boundary
+  NODE_KIND_SPREAD = 13;     // Spread expansion template
 }
 
 // Backoff configuration for retries

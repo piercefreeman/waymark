@@ -19,15 +19,14 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::{
-    DAGConverter, DAGNode, ExpressionEvaluator,
-    execution_graph::{Completion, ExecutionState, SLEEP_WORKER_ID},
-    executor,
+    DAGConverter, DAGNode, ExpressionEvaluator, inline_executor,
     ir_validation::validate_program,
     messages::ast as ir_ast,
     messages::proto,
     messages::{decode_message, encode_message},
     value::WorkflowValue,
     workflow_ir::log_workflow_ir,
+    workflow_state::{Completion, ExecutionState, SLEEP_WORKER_ID},
 };
 
 /// gRPC stream item type for ExecuteWorkflow.
@@ -292,7 +291,7 @@ async fn dispatch_ready_nodes(
             };
 
             if completion_error.is_none() {
-                instance
+                let _ = instance
                     .state
                     .expand_spread(&template_id, items, &instance.dag);
             }
@@ -321,7 +320,7 @@ async fn dispatch_ready_nodes(
         if dag_node.module_name.is_some() && dag_node.action_name.is_some() {
             dispatch_action(instance, &node_id, &dag_node, response_tx).await?;
         } else {
-            let result = executor::execute_inline_node(
+            let result = inline_executor::execute_inline_node(
                 &mut instance.state,
                 &instance.dag,
                 &node_id,

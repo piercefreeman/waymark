@@ -23,10 +23,9 @@ pub mod ast_evaluator;
 pub mod ast_printer;
 pub mod config;
 pub mod dag;
-pub mod dag_state;
+pub mod dag_runtime;
 pub mod db;
-pub mod execution_graph;
-pub mod executor;
+pub mod inline_executor;
 pub mod ir_printer;
 pub mod ir_validation;
 pub mod lexer;
@@ -43,6 +42,7 @@ pub mod stats;
 pub mod value;
 pub mod worker;
 mod workflow_ir;
+pub mod workflow_state;
 
 // Configuration
 pub use config::{
@@ -76,7 +76,7 @@ pub use ast_printer::{AstPrinter, print_expr, print_program, print_statement};
 pub use ir_validation::validate_program;
 
 // DAG State Helper
-pub use dag_state::{DAGHelper, DataFlowTarget, ExecutionMode, SuccessorInfo};
+pub use dag_runtime::{DAGHelper, DataFlowTarget, ExecutionMode, SuccessorInfo};
 
 // AST Evaluator
 pub use ast_evaluator::{EvaluationError, EvaluationResult, ExpressionEvaluator, Scope};
@@ -90,8 +90,12 @@ pub use stats::{LifecycleStats, LifecycleStatsSnapshot, MetricStats};
 // Schedule utilities
 pub use schedule::{next_cron_run, next_interval_run, validate_cron};
 
-// Execution Graph (instance-local execution model)
-pub use execution_graph::{BatchCompletionResult, Completion, ExecutionState, MAX_LOOP_ITERATIONS};
+// Workflow State (instance-local execution model)
+pub use workflow_state::{
+    ActionExecutionMetadata, ActionExecutionUpdate, ActionNodeArchive, ActionPayload, ActionUpdate,
+    BatchCompletionResult, Completion, InstanceRehydrate, MAX_LOOP_ITERATIONS, ReadyAction,
+    RehydrateResult, WorkflowState, WorkflowStateSnapshot, WorkflowStateUpdate,
+};
 
 // Instance Runner (lease-based execution)
 pub use runner_database::{

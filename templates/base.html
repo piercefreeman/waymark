@@ -12,6 +12,37 @@
             document.documentElement.classList.remove('dark');
         }
     </script>
+    <style>
+        /* Grid background pattern for depth */
+        .bg-grid {
+            background-image:
+                linear-gradient(to right, rgb(212 212 216 / 0.5) 1px, transparent 1px);
+            background-size: 80px 100%;
+        }
+        .dark .bg-grid {
+            background-image:
+                linear-gradient(to right, rgb(39 39 42 / 0.3) 1px, transparent 1px);
+        }
+        /* Diagonal stripe pattern for idle/inactive regions */
+        .bg-stripes {
+            background-image: repeating-linear-gradient(
+                -45deg,
+                transparent,
+                transparent 4px,
+                rgb(212 212 216 / 0.3) 4px,
+                rgb(212 212 216 / 0.3) 8px
+            );
+        }
+        .dark .bg-stripes {
+            background-image: repeating-linear-gradient(
+                -45deg,
+                transparent,
+                transparent 4px,
+                rgb(39 39 42 / 0.15) 4px,
+                rgb(39 39 42 / 0.15) 8px
+            );
+        }
+    </style>
 </head>
 <body class="min-h-screen bg-zinc-100 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
     <header class="border-b border-zinc-200 bg-white/80 dark:border-zinc-900 dark:bg-zinc-950/80 backdrop-blur">
@@ -265,7 +296,7 @@
                 const column = button.dataset.column;
 
                 const dropdown = document.createElement('div');
-                dropdown.className = 'fixed z-50 w-64 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 shadow-lg';
+                dropdown.className = 'fixed z-50 w-64 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-xl shadow-xl';
                 dropdown.style.top = `${rect.bottom + 4}px`;
                 dropdown.style.left = `${rect.left}px`;
 
@@ -291,17 +322,17 @@
                 }
 
                 const footer = document.createElement('div');
-                footer.className = 'border-t border-zinc-200 dark:border-zinc-700 p-2 flex justify-end gap-2';
+                footer.className = 'border-t border-zinc-200 dark:border-zinc-800 p-3 flex justify-end gap-2';
 
                 const cancelBtn = document.createElement('button');
                 cancelBtn.type = 'button';
-                cancelBtn.className = 'px-3 py-1 text-xs font-medium text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white';
+                cancelBtn.className = 'px-3 py-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-colors';
                 cancelBtn.textContent = 'Cancel';
                 cancelBtn.addEventListener('click', closeDropdown);
 
                 const applyBtn = document.createElement('button');
                 applyBtn.type = 'button';
-                applyBtn.className = 'px-3 py-1 text-xs font-semibold bg-indigo-600 text-white rounded hover:bg-indigo-500';
+                applyBtn.className = 'px-3 py-1.5 text-xs font-medium border border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors';
                 applyBtn.textContent = 'Apply';
                 applyBtn.addEventListener('click', () => {
                     const checked = Array.from(content.querySelectorAll('input:checked')).map(cb => cb.value);

@@ -950,7 +950,14 @@ impl DAGConverter {
                             }
                         }
 
-                        if let Some(targets) = node.targets.as_ref() {
+                        // Propagate targets from fn_call to expanded return nodes
+                        // Check both node.targets (multiple) and node.target (single)
+                        let fn_call_targets: Option<Vec<String>> = node
+                            .targets
+                            .clone()
+                            .or_else(|| node.target.as_ref().map(|t| vec![t.clone()]));
+
+                        if let Some(targets) = fn_call_targets {
                             let expanded_return_ids: Vec<_> = target
                                 .nodes
                                 .iter()
@@ -2402,6 +2409,13 @@ impl DAGConverter {
         let list_aggregate = targets.len() == 1;
         let agg_id = self.next_id("parallel_aggregator");
 
+        // Check if any calls are fn_calls - if so, the aggregator should NOT have targets
+        // because fn_call return nodes handle variable storage via target propagation.
+        // Otherwise, the aggregator completion would overwrite the correct values with Null.
+        let has_fn_calls = calls
+            .iter()
+            .any(|call| matches!(call.kind, Some(ast::call::Kind::Function(_))));
+
         // Create a node for each call
         let mut call_node_ids = Vec::new();
         for (i, call) in calls.iter().enumerate() {
@@ -2484,11 +2498,21 @@ impl DAGConverter {
         }
 
         // Create aggregator node (still needed for control flow even without targets)
-        let target_label = if !targets.is_empty() {
-            if targets.len() == 1 {
-                format!("parallel_aggregate -> {}", targets[0])
+        // When there are fn_calls, the aggregator should NOT have targets because
+        // fn_call return nodes handle variable storage via target propagation.
+        let aggregator_targets = if has_fn_calls {
+            // For fn_calls, return nodes inside the fn_calls store variables directly,
+            // so the aggregator should not store variables (would overwrite with Null)
+            Vec::new()
+        } else {
+            targets.to_vec()
+        };
+
+        let target_label = if !aggregator_targets.is_empty() {
+            if aggregator_targets.len() == 1 {
+                format!("parallel_aggregate -> {}", aggregator_targets[0])
             } else {
-                format!("parallel_aggregate -> ({})", targets.join(", "))
+                format!("parallel_aggregate -> ({})", aggregator_targets.join(", "))
             }
         } else {
             "parallel_aggregate".to_string()
@@ -2496,8 +2520,8 @@ impl DAGConverter {
 
         let mut agg_node = DAGNode::new(agg_id.clone(), "aggregator".to_string(), target_label)
             .with_aggregator(&parallel_id);
-        if !targets.is_empty() {
-            agg_node = agg_node.with_targets(targets);
+        if !aggregator_targets.is_empty() {
+            agg_node = agg_node.with_targets(&aggregator_targets);
         }
         if let Some(ref fn_name) = self.current_function {
             agg_node = agg_node.with_function_name(fn_name);

@@ -5,14 +5,14 @@
 
 {% block content %}
 <section class="space-y-2">
-    <p class="text-xs uppercase tracking-[0.4em] text-zinc-500">Overview</p>
+    <p class="text-xs uppercase tracking-[0.3em] text-zinc-500">Overview</p>
     <h1 class="text-3xl font-semibold tracking-tight text-zinc-900 dark:text-white">Scheduled Workflows</h1>
-    <p class="text-sm text-zinc-600 dark:text-zinc-400">These workflows are configured to run on a recurring schedule.</p>
+    <p class="text-sm text-zinc-500 dark:text-zinc-500">These workflows are configured to run on a recurring schedule.</p>
 </section>
 
 <section class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-    <form method="GET" action="/scheduled" class="flex w-full max-w-xl items-center gap-2 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/40 px-3 py-2">
-        <svg class="h-4 w-4 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <form method="GET" action="/scheduled" class="flex w-full max-w-xl items-center gap-2 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white/50 dark:bg-zinc-900/20 px-4 py-2.5 backdrop-blur-sm focus-within:border-zinc-400 dark:focus-within:border-zinc-600 transition-colors">
+        <svg class="h-4 w-4 text-zinc-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35m1.85-5.65a7 7 0 11-14 0 7 7 0 0114 0z" />
         </svg>
         <input
@@ -20,17 +20,17 @@
             name="q"
             value="{{ search_query | default(value='') }}"
             placeholder="Search schedules (quotes, AND/OR, parentheses)"
-            class="w-full bg-transparent text-sm text-zinc-900 dark:text-white placeholder:text-zinc-400 focus:outline-none"
+            class="w-full bg-transparent text-sm text-zinc-900 dark:text-white placeholder:text-zinc-500 focus:outline-none"
         />
-        <button type="submit" class="rounded-lg bg-zinc-900 px-3 py-1 text-xs font-semibold text-white transition hover:bg-zinc-700 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200">Search</button>
+        <button type="submit" class="rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-800 px-3 py-1 text-xs font-medium text-zinc-700 dark:text-zinc-300 transition hover:bg-zinc-200 dark:hover:bg-zinc-700">Search</button>
     </form>
-    <div class="text-xs text-zinc-500 dark:text-zinc-400">
+    <div class="text-xs font-medium text-zinc-500 dark:text-zinc-400 tabular-nums">
         {{ total_count }} schedule{% if total_count != 1 %}s{% endif %}
     </div>
 </section>
 
 {% if schedules | length == 0 %}
-    <div class="rounded-2xl border border-dashed border-zinc-300 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900/40 p-6 text-center text-zinc-600 dark:text-zinc-400">
+    <div class="rounded-xl border border-dashed border-zinc-300 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/20 p-8 text-center text-zinc-500 dark:text-zinc-500">
         {% if search_query %}
             No scheduled workflows match "{{ search_query }}".
         {% else %}
@@ -38,29 +38,29 @@
         {% endif %}
     </div>
 {% else %}
-    <div class="rounded-2xl border border-zinc-200 dark:border-zinc-900 bg-white dark:bg-zinc-900/40 overflow-hidden">
+    <div class="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 overflow-hidden">
         <div class="overflow-x-auto">
-            <table class="min-w-full divide-y divide-zinc-200 dark:divide-zinc-800 text-sm">
-                <thead class="bg-zinc-100 dark:bg-zinc-800/60">
-                    <tr>
-                        <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-semibold text-zinc-500 dark:text-zinc-400">Schedule</th>
+            <table class="min-w-full text-sm">
+                <thead>
+                    <tr class="border-b border-zinc-200 dark:border-zinc-800">
+                        <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-medium text-zinc-500 dark:text-zinc-500">Schedule</th>
                         {{ macros::filterable_header(label="Workflow", column="workflow", endpoint="/api/scheduled/filter-values") }}
                         {{ macros::filterable_header(label="Type", column="schedule_type", endpoint="/api/scheduled/filter-values") }}
-                        <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-semibold text-zinc-500 dark:text-zinc-400">Expression</th>
+                        <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-medium text-zinc-500 dark:text-zinc-500">Expression</th>
                         {{ macros::filterable_header(label="Status", column="status", endpoint="/api/scheduled/filter-values") }}
-                        <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-semibold text-zinc-500 dark:text-zinc-400">Next Run</th>
+                        <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-medium text-zinc-500 dark:text-zinc-500">Next Run</th>
                         <th class="px-4 py-3"></th>
                     </tr>
                 </thead>
-                <tbody class="divide-y divide-zinc-200 dark:divide-zinc-800">
+                <tbody>
                     {% for schedule in schedules %}
-                        <tr class="align-top">
-                            <td class="px-4 py-3 font-semibold text-zinc-900 dark:text-white">{{ schedule.schedule_name }}</td>
-                            <td class="px-4 py-3 text-sm text-zinc-700 dark:text-zinc-300">{{ schedule.workflow_name }}</td>
+                        <tr class="align-top border-b border-zinc-100 dark:border-zinc-800/50 hover:bg-zinc-50 dark:hover:bg-zinc-900/50 transition-colors">
+                            <td class="px-4 py-3 font-medium text-zinc-800 dark:text-zinc-200">{{ schedule.schedule_name }}</td>
+                            <td class="px-4 py-3 text-sm text-zinc-600 dark:text-zinc-400">{{ schedule.workflow_name }}</td>
                             <td class="px-4 py-3">{{ macros::schedule_type_badge(schedule_type=schedule.schedule_type) }}</td>
-                            <td class="px-4 py-3 font-mono text-xs text-zinc-700 dark:text-zinc-300">{{ schedule.schedule_expression }}</td>
+                            <td class="px-4 py-3 font-mono text-xs text-zinc-500 dark:text-zinc-500">{{ schedule.schedule_expression }}</td>
                             <td class="px-4 py-3">{{ macros::schedule_badge(status=schedule.status) }}</td>
-                            <td class="px-4 py-3 text-zinc-700 dark:text-zinc-300">
+                            <td class="px-4 py-3 text-sm text-zinc-600 dark:text-zinc-400">
                                 {% if schedule.next_run_at %}
                                     {{ macros::datetime(timestamp=schedule.next_run_at) }}
                                 {% else %}
@@ -68,7 +68,12 @@
                                 {% endif %}
                             </td>
                             <td class="px-4 py-3 text-right">
-                                <a href="/scheduled/{{ schedule.id }}" class="text-sm font-semibold text-indigo-600 dark:text-indigo-400 transition hover:text-indigo-500 dark:hover:text-indigo-300">View &rarr;</a>
+                                <a href="/scheduled/{{ schedule.id }}" class="inline-flex items-center gap-1 text-sm font-medium text-zinc-600 dark:text-zinc-400 transition hover:text-zinc-900 dark:hover:text-white">
+                                    View
+                                    <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                                    </svg>
+                                </a>
                             </td>
                         </tr>
                     {% endfor %}
@@ -79,14 +84,24 @@
 {% endif %}
 
 {% if has_pagination %}
-    <div class="mt-8 flex items-center justify-between text-sm text-zinc-600 dark:text-zinc-400">
-        <span>Page {{ current_page }} of {{ total_pages }}</span>
+    <div class="flex items-center justify-between text-sm">
+        <span class="text-zinc-500 dark:text-zinc-500 tabular-nums">Page {{ current_page }} of {{ total_pages }}</span>
         <div class="flex items-center gap-2">
             {% if current_page > 1 %}
-                <a href="/scheduled?page={{ current_page - 1 }}{% if search_query %}&q={{ search_query | urlencode }}{% endif %}" class="rounded-lg bg-zinc-200 dark:bg-zinc-800 px-3 py-1 text-zinc-700 dark:text-zinc-300 transition hover:bg-zinc-300 dark:hover:bg-zinc-700">&larr; Previous</a>
+                <a href="/scheduled?page={{ current_page - 1 }}{% if search_query %}&q={{ search_query | urlencode }}{% endif %}" class="inline-flex items-center gap-1 rounded-lg border border-zinc-200 dark:border-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-400 transition hover:bg-zinc-100 dark:hover:bg-zinc-800">
+                    <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+                    </svg>
+                    Previous
+                </a>
             {% endif %}
             {% if current_page < total_pages %}
-                <a href="/scheduled?page={{ current_page + 1 }}{% if search_query %}&q={{ search_query | urlencode }}{% endif %}" class="rounded-lg bg-zinc-200 dark:bg-zinc-800 px-3 py-1 text-zinc-700 dark:text-zinc-300 transition hover:bg-zinc-300 dark:hover:bg-zinc-700">Next &rarr;</a>
+                <a href="/scheduled?page={{ current_page + 1 }}{% if search_query %}&q={{ search_query | urlencode }}{% endif %}" class="inline-flex items-center gap-1 rounded-lg border border-zinc-200 dark:border-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-400 transition hover:bg-zinc-100 dark:hover:bg-zinc-800">
+                    Next
+                    <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                    </svg>
+                </a>
             {% endif %}
         </div>
     </div>

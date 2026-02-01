@@ -38,6 +38,7 @@ impl Database {
     // ========================================================================
 
     /// List instances for a specific workflow version (for dashboard display)
+    /// Merges active instances from workflow_instances and archived from completed_instances.
     pub async fn list_instances_for_version(
         &self,
         version_id: WorkflowVersionId,
@@ -49,6 +50,12 @@ impl Database {
                    schedule_id, next_action_seq, input_payload, result_payload, status,
                    created_at, completed_at, priority
             FROM workflow_instances
+            WHERE workflow_version_id = $1
+            UNION ALL
+            SELECT id, partition_id, workflow_name, workflow_version_id,
+                   schedule_id, 0 as next_action_seq, input_payload, result_payload, status,
+                   created_at, completed_at, priority
+            FROM completed_instances
             WHERE workflow_version_id = $1
             ORDER BY created_at DESC
             LIMIT $2
@@ -107,11 +114,16 @@ impl Database {
     }
 
     /// Count all workflow invocations for the invocations page.
+    /// Counts both active and archived instances.
     pub async fn count_invocations(&self, search: Option<&str>) -> DbResult<i64> {
         let mut query = QueryBuilder::<Postgres>::new(
             r#"
             SELECT COUNT(*) as count
-            FROM workflow_instances
+            FROM (
+                SELECT id, workflow_name, status FROM workflow_instances
+                UNION ALL
+                SELECT id, workflow_name, status FROM completed_instances
+            ) combined
             WHERE 1=1
             "#,
         );
@@ -124,6 +136,7 @@ impl Database {
     }
 
     /// List workflow invocations for the invocations page with pagination and search.
+    /// Merges active and archived instances.
     pub async fn list_invocations_page(
         &self,
         search: Option<&str>,
@@ -135,7 +148,17 @@ impl Database {
             SELECT id, partition_id, workflow_name, workflow_version_id,
                    schedule_id, next_action_seq, input_payload, result_payload, status,
                    created_at, completed_at, priority
-            FROM workflow_instances
+            FROM (
+                SELECT id, partition_id, workflow_name, workflow_version_id,
+                       schedule_id, next_action_seq, input_payload, result_payload, status,
+                       created_at, completed_at, priority
+                FROM workflow_instances
+                UNION ALL
+                SELECT id, partition_id, workflow_name, workflow_version_id,
+                       schedule_id, 0 as next_action_seq, input_payload, result_payload, status,
+                       created_at, completed_at, priority
+                FROM completed_instances
+            ) combined
             WHERE 1=1
             "#,
         );
@@ -157,6 +180,7 @@ impl Database {
     }
 
     /// Get a workflow instance by ID (for detail view)
+    /// Checks both active (workflow_instances) and archived (completed_instances) tables.
     pub async fn get_instance(&self, id: WorkflowInstanceId) -> DbResult<WorkflowInstance> {
         let instance = sqlx::query_as::<_, WorkflowInstance>(
             r#"
@@ -165,6 +189,13 @@ impl Database {
                    created_at, completed_at, priority
             FROM workflow_instances
             WHERE id = $1
+            UNION ALL
+            SELECT id, partition_id, workflow_name, workflow_version_id,
+                   schedule_id, 0 as next_action_seq, input_payload, result_payload, status,
+                   created_at, completed_at, priority
+            FROM completed_instances
+            WHERE id = $1
+            LIMIT 1
             "#,
         )
         .bind(id.0)
@@ -176,14 +207,33 @@ impl Database {
     }
 
     /// Get raw execution graph bytes for an instance.
+    /// Checks both active (workflow_instances) and archived (completed_instances) tables.
+    /// Note: Active instances have stripped graphs; archived have full graphs.
     pub async fn get_instance_execution_graph(
         &self,
         id: WorkflowInstanceId,
     ) -> DbResult<Option<Vec<u8>>> {
+        // Check active instances first (stripped graph)
         let row = sqlx::query(
             r#"
             SELECT execution_graph
             FROM workflow_instances
+            WHERE id = $1
+            "#,
+        )
+        .bind(id.0)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        if let Some(row) = row {
+            return Ok(row.get("execution_graph"));
+        }
+
+        // Check archived instances (full graph)
+        let row = sqlx::query(
+            r#"
+            SELECT execution_graph
+            FROM completed_instances
             WHERE id = $1
             "#,
         )
@@ -315,6 +365,7 @@ impl Database {
 
     /// List workflow instances triggered by a specific schedule.
     /// Returns paginated results with offset/limit.
+    /// Merges active and archived instances.
     pub async fn list_schedule_invocations(
         &self,
         schedule_id: ScheduleId,
@@ -323,11 +374,19 @@ impl Database {
     ) -> DbResult<Vec<WorkflowInstance>> {
         let instances = sqlx::query_as::<_, WorkflowInstance>(
             r#"
-            SELECT id, partition_id, workflow_name, workflow_version_id,
-                   schedule_id, next_action_seq, input_payload, result_payload, status,
-                   created_at, completed_at, priority
-            FROM workflow_instances
-            WHERE schedule_id = $1
+            SELECT * FROM (
+                SELECT id, partition_id, workflow_name, workflow_version_id,
+                       schedule_id, next_action_seq, input_payload, result_payload, status,
+                       created_at, completed_at, priority
+                FROM workflow_instances
+                WHERE schedule_id = $1
+                UNION ALL
+                SELECT id, partition_id, workflow_name, workflow_version_id,
+                       schedule_id, 0 as next_action_seq, input_payload, result_payload, status,
+                       created_at, completed_at, priority
+                FROM completed_instances
+                WHERE schedule_id = $1
+            ) combined
             ORDER BY created_at DESC
             LIMIT $2 OFFSET $3
             "#,
@@ -342,12 +401,15 @@ impl Database {
     }
 
     /// Count total instances for a schedule (for pagination)
+    /// Counts both active and archived instances.
     pub async fn count_schedule_invocations(&self, schedule_id: ScheduleId) -> DbResult<i64> {
         let row = sqlx::query(
             r#"
-            SELECT COUNT(*) as count
-            FROM workflow_instances
-            WHERE schedule_id = $1
+            SELECT (
+                SELECT COUNT(*) FROM workflow_instances WHERE schedule_id = $1
+            ) + (
+                SELECT COUNT(*) FROM completed_instances WHERE schedule_id = $1
+            ) as count
             "#,
         )
         .bind(schedule_id.0)
@@ -407,7 +469,8 @@ impl Database {
             SELECT pool_id, throughput_per_min, total_completed, last_action_at, updated_at,
                    median_dequeue_ms, median_handling_ms, dispatch_queue_size, total_in_flight,
                    active_workers, actions_per_sec, median_instance_duration_secs,
-                   active_instance_count, total_instances_completed, time_series
+                   active_instance_count, total_instances_completed, instances_per_sec,
+                   instances_per_min, time_series
             FROM worker_status
             WHERE updated_at >= $1
             ORDER BY updated_at DESC, pool_id
@@ -425,11 +488,15 @@ impl Database {
     // ========================================================================
 
     /// Get distinct workflow names for invocations filter dropdown
+    /// Includes both active and archived instances.
     pub async fn get_distinct_invocation_workflows(&self) -> DbResult<Vec<String>> {
         let rows = sqlx::query(
             r#"
-            SELECT DISTINCT workflow_name
-            FROM workflow_instances
+            SELECT DISTINCT workflow_name FROM (
+                SELECT workflow_name FROM workflow_instances
+                UNION
+                SELECT workflow_name FROM completed_instances
+            ) combined
             ORDER BY workflow_name
             LIMIT 100
             "#,
@@ -444,11 +511,15 @@ impl Database {
     }
 
     /// Get distinct statuses for invocations filter dropdown
+    /// Includes both active and archived instances.
     pub async fn get_distinct_invocation_statuses(&self) -> DbResult<Vec<String>> {
         let rows = sqlx::query(
             r#"
-            SELECT DISTINCT status
-            FROM workflow_instances
+            SELECT DISTINCT status FROM (
+                SELECT status FROM workflow_instances
+                UNION
+                SELECT status FROM completed_instances
+            ) combined
             ORDER BY status
             "#,
         )

@@ -26,9 +26,9 @@ use uuid::Uuid;
 
 use crate::config::WebappConfig;
 use crate::db::{Database, ScheduleId, WorkerStatus, WorkflowVersionId, WorkflowVersionSummary};
-use crate::execution_graph::ExecutionState;
-use crate::messages::execution::{ExecutionGraph, NodeStatus};
+use crate::messages::execution::{ExecutionGraph, NodeKind, NodeStatus};
 use crate::pool_status::PoolTimeSeries;
+use crate::workflow_state::ExecutionState;
 
 /// Webapp server handle
 pub struct WebappServer {
@@ -162,6 +162,10 @@ async fn run_server(
             "/api/workflows/:workflow_version_id/run/:instance_id/action-logs/:action_id",
             get(get_workflow_action_logs),
         )
+        .route(
+            "/api/workflows/:workflow_version_id/run/:instance_id/export",
+            get(export_workflow_instance),
+        )
         .route("/scheduled", get(list_schedules))
         .route("/scheduled/:schedule_id", get(schedule_detail))
         .route("/scheduled/:schedule_id/pause", post(pause_schedule))
@@ -288,20 +292,14 @@ async fn workflow_run_detail(
     let dag = decode_dag_from_proto(&version.program_proto);
 
     // Build execution graph status data (used for DAG rendering)
-    let graph_data = if let Ok(Some(graph_bytes)) = state
-        .database
-        .get_instance_execution_graph(crate::db::WorkflowInstanceId(instance_id))
-        .await
-    {
-        if let Some(graph) = decode_execution_graph(&graph_bytes) {
+    // Load and hydrate to ensure inputs/results are available even for active instances
+    let graph_data =
+        if let Some(graph) = load_and_hydrate_execution_graph(&state.database, instance_id).await {
             let action_status = build_action_status_from_execution_graph(&dag, &graph);
             build_filtered_execution_graph(&dag, &action_status)
         } else {
             build_filtered_execution_graph(&dag, &std::collections::HashMap::new())
-        }
-    } else {
-        build_filtered_execution_graph(&dag, &std::collections::HashMap::new())
-    };
+        };
 
     Html(render_workflow_run_page(
         &state.templates,
@@ -358,12 +356,7 @@ async fn get_workflow_run_data(
     let page = query.page.unwrap_or(1).max(1);
     let include_nodes = query.include_nodes.unwrap_or(true);
 
-    if let Ok(Some(graph_bytes)) = state
-        .database
-        .get_instance_execution_graph(crate::db::WorkflowInstanceId(instance_id))
-        .await
-        && let Some(graph) = decode_execution_graph(&graph_bytes)
-    {
+    if let Some(graph) = load_and_hydrate_execution_graph(&state.database, instance_id).await {
         let action_logs = synthesize_action_logs_from_execution_graph(instance_id, &dag, &graph);
         if include_nodes {
             nodes = build_node_contexts_from_action_logs(&action_logs);
@@ -415,12 +408,7 @@ async fn get_workflow_action_logs(
     let dag = decode_dag_from_proto(&version.program_proto);
     let mut logs = Vec::new();
 
-    if let Ok(Some(graph_bytes)) = state
-        .database
-        .get_instance_execution_graph(crate::db::WorkflowInstanceId(instance_id))
-        .await
-        && let Some(graph) = decode_execution_graph(&graph_bytes)
-    {
+    if let Some(graph) = load_and_hydrate_execution_graph(&state.database, instance_id).await {
         let action_logs = synthesize_action_logs_from_execution_graph(instance_id, &dag, &graph);
         logs = action_logs
             .iter()
@@ -431,6 +419,72 @@ async fn get_workflow_action_logs(
     }
 
     Ok(Json(ActionLogsResponse { logs }))
+}
+
+async fn export_workflow_instance(
+    State(state): State<WebappState>,
+    Path((version_id, instance_id)): Path<(Uuid, Uuid)>,
+) -> Result<Json<WorkflowInstanceExport>, HttpError> {
+    let version = state
+        .database
+        .get_workflow_version(WorkflowVersionId(version_id))
+        .await
+        .map_err(|err| {
+            error!(?err, %version_id, "failed to load workflow version");
+            HttpError {
+                status: StatusCode::NOT_FOUND,
+                message: "workflow version not found".to_string(),
+            }
+        })?;
+
+    let instance = state
+        .database
+        .get_instance(crate::db::WorkflowInstanceId(instance_id))
+        .await
+        .map_err(|err| {
+            error!(?err, %instance_id, "failed to load instance");
+            HttpError {
+                status: StatusCode::NOT_FOUND,
+                message: "workflow instance not found".to_string(),
+            }
+        })?;
+
+    let dag = decode_dag_from_proto(&version.program_proto);
+    let mut nodes = Vec::new();
+    let mut timeline = Vec::new();
+
+    if let Some(graph) = load_and_hydrate_execution_graph(&state.database, instance_id).await {
+        let action_logs = synthesize_action_logs_from_execution_graph(instance_id, &dag, &graph);
+        nodes = build_node_contexts_from_action_logs(&action_logs);
+        // Get all timeline entries without pagination
+        timeline = action_logs.iter().map(build_action_log_context).collect();
+        // Sort by dispatched_at descending
+        timeline.sort_by(|a, b| b.dispatched_at.cmp(&a.dispatched_at));
+    }
+
+    let export = WorkflowInstanceExport {
+        export_version: "1.0",
+        exported_at: Utc::now().to_rfc3339(),
+        workflow: WorkflowExportInfo {
+            version_id: version.id.to_string(),
+            name: version.workflow_name.clone(),
+            dag_hash: version.dag_hash.clone(),
+            concurrent: version.concurrent,
+            created_at: version.created_at.to_rfc3339(),
+        },
+        instance: InstanceExportInfo {
+            id: instance.id.to_string(),
+            status: display_status(&instance.status, instance.next_action_seq),
+            created_at: instance.created_at.to_rfc3339(),
+            completed_at: instance.completed_at.map(|dt| dt.to_rfc3339()),
+            input_payload: format_payload(&instance.input_payload),
+            result_payload: format_payload(&instance.result_payload),
+        },
+        nodes,
+        timeline,
+    };
+
+    Ok(Json(export))
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -976,6 +1030,8 @@ struct ExecutionGraphNode {
     depends_on: Vec<String>,
     /// Status: pending, blocked, dispatched, completed, failed
     status: String,
+    /// Node kind as integer (matches NodeKind proto enum)
+    node_kind: i32,
 }
 
 #[derive(Serialize)]
@@ -1039,6 +1095,8 @@ struct ActionLogContext {
     error_message: Option<String>,
     /// Result payload (formatted as JSON string)
     result_payload: Option<String>,
+    /// Whether this is a sleep action
+    is_sleep: bool,
 }
 
 struct TimelinePage {
@@ -1059,6 +1117,45 @@ struct WorkflowRunDataResponse {
 #[derive(Serialize)]
 struct ActionLogsResponse {
     logs: Vec<ActionLogContext>,
+}
+
+/// Full export of workflow instance data for user introspection
+#[derive(Serialize)]
+struct WorkflowInstanceExport {
+    /// Metadata about the export
+    export_version: &'static str,
+    exported_at: String,
+
+    /// Workflow version information
+    workflow: WorkflowExportInfo,
+
+    /// Instance metadata
+    instance: InstanceExportInfo,
+
+    /// All execution nodes with their current state
+    nodes: Vec<NodeExecutionContext>,
+
+    /// Complete timeline of all action executions
+    timeline: Vec<ActionLogContext>,
+}
+
+#[derive(Serialize)]
+struct WorkflowExportInfo {
+    version_id: String,
+    name: String,
+    dag_hash: String,
+    concurrent: bool,
+    created_at: String,
+}
+
+#[derive(Serialize)]
+struct InstanceExportInfo {
+    id: String,
+    status: String,
+    created_at: String,
+    completed_at: Option<String>,
+    input_payload: String,
+    result_payload: String,
 }
 
 fn render_workflow_run_page(
@@ -1215,6 +1312,8 @@ struct ActionStatusRow {
 struct InstanceStatusRow {
     pool_id: String,
     active_instances: i32,
+    instances_per_sec: String,
+    instances_per_min: String,
     total_completed: i64,
     median_duration: String,
     median_dequeue_ms: Option<i64>,
@@ -1257,6 +1356,8 @@ fn render_workers_page(templates: &Tera, statuses: &[WorkerStatus], window_minut
             InstanceStatusRow {
                 pool_id: status.pool_id.to_string(),
                 active_instances: status.active_instance_count,
+                instances_per_sec: format!("{:.2}", status.instances_per_sec),
+                instances_per_min: format!("{:.2}", status.instances_per_min),
                 total_completed: status.total_instances_completed,
                 median_duration,
                 median_dequeue_ms: status.median_dequeue_ms,
@@ -1551,6 +1652,37 @@ struct SimpleDagNode {
     guard: Option<String>,
     depends_on: Vec<String>,
     waits_for: Vec<String>,
+    node_kind: NodeKind,
+}
+
+/// Determine the NodeKind for a DAG node based on its properties.
+fn determine_node_kind_from_dag(node: &crate::dag::DAGNode) -> NodeKind {
+    // Sleep actions are special - check first
+    if node.action_name.as_deref() == Some("sleep") {
+        return NodeKind::Sleep;
+    }
+    // Aggregator nodes collect spread results
+    if node.is_aggregator {
+        return NodeKind::Aggregator;
+    }
+    // Spread nodes are templates for parallel expansion
+    if node.is_spread {
+        return NodeKind::Spread;
+    }
+    // Map node_type string to NodeKind enum
+    match node.node_type.as_str() {
+        "action_call" => NodeKind::Action,
+        "assignment" => NodeKind::Assignment,
+        "branch" => NodeKind::Branch,
+        "join" => NodeKind::Join,
+        "fn_call" => NodeKind::FnCall,
+        "return" => NodeKind::Return,
+        "break" => NodeKind::Break,
+        "for_loop" => NodeKind::ForLoop,
+        "input" => NodeKind::Input,
+        "output" => NodeKind::Output,
+        _ => NodeKind::Unspecified,
+    }
 }
 
 fn decode_dag_from_proto(proto_bytes: &[u8]) -> Vec<SimpleDagNode> {
@@ -1589,13 +1721,17 @@ fn decode_dag_from_proto(proto_bytes: &[u8]) -> Vec<SimpleDagNode> {
                 .map(|e| e.source.clone())
                 .collect();
 
+            let action_name = node.action_name.clone().unwrap_or_default();
+            let node_kind = determine_node_kind_from_dag(node);
+
             SimpleDagNode {
                 id: node.id.clone(),
                 module: node.module_name.clone().unwrap_or_default(),
-                action: node.action_name.clone().unwrap_or_default(),
+                action: action_name,
                 guard: node.guard_expr.as_ref().map(crate::print_expr),
                 depends_on,
                 waits_for,
+                node_kind,
             }
         })
         .collect()
@@ -1657,23 +1793,50 @@ fn build_filtered_execution_graph(
                     .get(&node.id)
                     .cloned()
                     .unwrap_or_else(|| "pending".to_string()),
+                node_kind: node.node_kind as i32,
             })
             .collect(),
     }
 }
 
-fn decode_execution_graph(bytes: &[u8]) -> Option<ExecutionGraph> {
-    if bytes.is_empty() {
-        return None;
-    }
+/// Load execution graph and hydrate with payloads from node_payloads table.
+/// This ensures that even stripped graphs (from active instances) have their
+/// inputs/results restored for display.
+async fn load_and_hydrate_execution_graph(
+    database: &crate::db::Database,
+    instance_id: Uuid,
+) -> Option<ExecutionGraph> {
+    // Load the raw graph bytes
+    let graph_bytes = database
+        .get_instance_execution_graph(crate::db::WorkflowInstanceId(instance_id))
+        .await
+        .ok()
+        .flatten()?;
 
-    match ExecutionState::from_bytes(bytes) {
-        Ok(state) => Some(state.graph),
+    // Decode to ExecutionState (so we can hydrate)
+    let mut state = match ExecutionState::from_bytes(&graph_bytes) {
+        Ok(s) => s,
         Err(err) => {
             error!(?err, "failed to decode execution graph");
-            None
+            return None;
         }
+    };
+
+    // Load payloads from node_payloads table
+    if let Ok(payloads) = database
+        .load_node_payloads(crate::db::WorkflowInstanceId(instance_id))
+        .await
+        && !payloads.is_empty()
+    {
+        // Convert to PayloadTuple format (execution_id, inputs, result)
+        let payload_tuples: Vec<_> = payloads
+            .into_iter()
+            .map(|p| (p.execution_id, p.inputs, p.result))
+            .collect();
+        state.hydrate_payloads(&payload_tuples);
     }
+
+    Some(state.graph)
 }
 
 fn datetime_from_ms(ms: i64) -> Option<chrono::DateTime<Utc>> {
@@ -1691,10 +1854,18 @@ fn synthesize_action_logs_from_execution_graph(
     let (internal_nodes, _) = build_node_maps(dag);
     let dag_by_id: std::collections::HashMap<&str, &SimpleDagNode> =
         dag.iter().map(|node| (node.id.as_str(), node)).collect();
+    // Use node_key (unique per execution) for action_id, not display_node_id (template)
     let mut action_ids: std::collections::HashMap<String, Uuid> = std::collections::HashMap::new();
     let mut logs = Vec::new();
 
-    for (node_key, exec_node) in &graph.nodes {
+    // Sort node keys for deterministic iteration order
+    let mut sorted_keys: Vec<_> = graph.nodes.keys().collect();
+    sorted_keys.sort();
+
+    for node_key in sorted_keys {
+        let exec_node = &graph.nodes[node_key];
+
+        // display_node_id is the template ID for UI grouping
         let display_node_id = if dag_by_id.contains_key(node_key.as_str()) {
             node_key.as_str()
         } else {
@@ -1709,15 +1880,37 @@ fn synthesize_action_logs_from_execution_graph(
             continue;
         }
 
-        let action_id = *action_ids
-            .entry(display_node_id.to_string())
-            .or_insert_with(Uuid::new_v4);
+        // Use execution_id from node if available (stable across refreshes),
+        // otherwise generate a new one for display purposes
+        let action_id = if let Some(exec_id) = &exec_node.execution_id {
+            *action_ids
+                .entry(exec_id.clone())
+                .or_insert_with(|| Uuid::parse_str(exec_id).unwrap_or_else(|_| Uuid::new_v4()))
+        } else {
+            *action_ids
+                .entry(node_key.to_string())
+                .or_insert_with(Uuid::new_v4)
+        };
         let dispatch_payload = exec_node.inputs.clone();
 
         if exec_node.attempts.is_empty() {
+            // Only include if the node has completed (has duration_ms) or has meaningful state
+            // Skip nodes that were just started but never completed (0ms incomplete entries)
+            let status = NodeStatus::try_from(exec_node.status).unwrap_or(NodeStatus::Unspecified);
+            let is_terminal = matches!(
+                status,
+                NodeStatus::Completed
+                    | NodeStatus::Failed
+                    | NodeStatus::Exhausted
+                    | NodeStatus::Caught
+            );
+
             if let Some(started_at_ms) = exec_node.started_at_ms {
-                let status =
-                    NodeStatus::try_from(exec_node.status).unwrap_or(NodeStatus::Unspecified);
+                // Skip incomplete entries that have no duration and aren't in a terminal state
+                if exec_node.duration_ms.is_none() && !is_terminal {
+                    continue;
+                }
+
                 let success = match status {
                     NodeStatus::Completed => Some(true),
                     NodeStatus::Failed | NodeStatus::Exhausted | NodeStatus::Caught => Some(false),
@@ -1742,6 +1935,7 @@ fn synthesize_action_logs_from_execution_graph(
                     action_name: Some(dag_node.action.clone()),
                     node_id: Some(display_node_id.to_string()),
                     dispatch_payload,
+                    node_kind: exec_node.node_kind,
                 });
             }
             continue;
@@ -1766,6 +1960,7 @@ fn synthesize_action_logs_from_execution_graph(
                 action_name: Some(dag_node.action.clone()),
                 node_id: Some(display_node_id.to_string()),
                 dispatch_payload: dispatch_payload.clone(),
+                node_kind: exec_node.node_kind,
             });
         }
     }
@@ -1789,8 +1984,13 @@ fn build_node_contexts_from_action_logs(
         }
     }
 
-    latest_by_action
-        .values()
+    // Sort by action_id for deterministic ordering
+    let mut sorted_keys: Vec<_> = latest_by_action.keys().cloned().collect();
+    sorted_keys.sort();
+
+    sorted_keys
+        .iter()
+        .filter_map(|key| latest_by_action.get(key))
         .map(|log| NodeExecutionContext {
             id: log
                 .node_id
@@ -1827,6 +2027,8 @@ fn build_node_contexts_from_action_logs(
 }
 
 fn build_action_log_context(log: &crate::db::ActionLog) -> ActionLogContext {
+    let is_sleep = NodeKind::try_from(log.node_kind) == Ok(NodeKind::Sleep);
+
     ActionLogContext {
         id: log.id.to_string(),
         action_id: log.action_id.to_string(),
@@ -1848,6 +2050,7 @@ fn build_action_log_context(log: &crate::db::ActionLog) -> ActionLogContext {
             .result_payload
             .as_ref()
             .map(|p| format_binary_payload(p)),
+        is_sleep,
     }
 }
 
@@ -1857,10 +2060,13 @@ fn build_timeline_entries(
     per_page: i64,
 ) -> TimelinePage {
     let mut sorted_logs: Vec<&crate::db::ActionLog> = action_logs.iter().collect();
+    // Sort by dispatched_at descending, then by node_id and action_id for deterministic ordering
+    // (action_id alone is non-deterministic since it's generated fresh each call)
     sorted_logs.sort_by(|a, b| {
         b.dispatched_at
             .cmp(&a.dispatched_at)
-            .then_with(|| a.id.cmp(&b.id))
+            .then_with(|| a.node_id.cmp(&b.node_id))
+            .then_with(|| a.action_id.cmp(&b.action_id))
     });
 
     let total = sorted_logs.len() as i64;
@@ -1921,9 +2127,11 @@ fn build_node_maps(
     std::collections::HashSet<String>,
     std::collections::HashMap<String, Vec<String>>,
 ) {
+    // Internal nodes are those that are NOT Action or Sleep nodes
+    // Action and Sleep are the visible execution nodes shown in UI
     let internal_nodes: std::collections::HashSet<String> = dag
         .iter()
-        .filter(|node| node.module.is_empty())
+        .filter(|node| !matches!(node.node_kind, NodeKind::Action | NodeKind::Sleep))
         .map(|node| node.id.clone())
         .collect();
 
@@ -2386,6 +2594,8 @@ mod tests {
             median_instance_duration_secs: Some(45.3),
             active_instance_count: 12,
             total_instances_completed: 7,
+            instances_per_sec: 0.12,
+            instances_per_min: 7.2,
             time_series: None,
         }];
 
@@ -3092,5 +3302,148 @@ mod tests {
         // Page should render successfully with instance data
         assert!(html.contains("Run Created"));
         assert!(html.contains("Status"));
+    }
+
+    #[test]
+    fn test_build_node_maps_filters_by_kind() {
+        // Create SimpleDagNodes with various kinds
+        let dag = vec![
+            SimpleDagNode {
+                id: "action_1".to_string(),
+                module: "my_module".to_string(),
+                action: "my_action".to_string(),
+                guard: None,
+                depends_on: vec![],
+                waits_for: vec![],
+                node_kind: NodeKind::Action,
+            },
+            SimpleDagNode {
+                id: "sleep_1".to_string(),
+                module: "".to_string(), // Sleep has empty module
+                action: "sleep".to_string(),
+                guard: None,
+                depends_on: vec![],
+                waits_for: vec![],
+                node_kind: NodeKind::Sleep,
+            },
+            SimpleDagNode {
+                id: "assignment_1".to_string(),
+                module: "".to_string(),
+                action: "".to_string(),
+                guard: None,
+                depends_on: vec![],
+                waits_for: vec![],
+                node_kind: NodeKind::Assignment,
+            },
+            SimpleDagNode {
+                id: "branch_1".to_string(),
+                module: "".to_string(),
+                action: "".to_string(),
+                guard: None,
+                depends_on: vec![],
+                waits_for: vec![],
+                node_kind: NodeKind::Branch,
+            },
+            SimpleDagNode {
+                id: "input".to_string(),
+                module: "".to_string(),
+                action: "".to_string(),
+                guard: None,
+                depends_on: vec![],
+                waits_for: vec![],
+                node_kind: NodeKind::Input,
+            },
+        ];
+
+        let (internal_nodes, _) = build_node_maps(&dag);
+
+        // Action and Sleep should NOT be internal (they are visible)
+        assert!(
+            !internal_nodes.contains("action_1"),
+            "Action should not be internal"
+        );
+        assert!(
+            !internal_nodes.contains("sleep_1"),
+            "Sleep should not be internal"
+        );
+
+        // Other node types should be internal (hidden from UI)
+        assert!(
+            internal_nodes.contains("assignment_1"),
+            "Assignment should be internal"
+        );
+        assert!(
+            internal_nodes.contains("branch_1"),
+            "Branch should be internal"
+        );
+        assert!(internal_nodes.contains("input"), "Input should be internal");
+    }
+
+    #[test]
+    fn test_determine_node_kind_from_dag() {
+        // Test action node
+        let action_node = crate::dag::DAGNode::new(
+            "action_1".to_string(),
+            "action_call".to_string(),
+            "call action".to_string(),
+        );
+        assert_eq!(determine_node_kind_from_dag(&action_node), NodeKind::Action);
+
+        // Test sleep node (action_name == "sleep" takes precedence)
+        let mut sleep_node = crate::dag::DAGNode::new(
+            "sleep_1".to_string(),
+            "action_call".to_string(),
+            "sleep".to_string(),
+        );
+        sleep_node.action_name = Some("sleep".to_string());
+        assert_eq!(determine_node_kind_from_dag(&sleep_node), NodeKind::Sleep);
+
+        // Test aggregator node (is_aggregator takes precedence)
+        let mut agg_node = crate::dag::DAGNode::new(
+            "agg_1".to_string(),
+            "action_call".to_string(),
+            "aggregator".to_string(),
+        );
+        agg_node.is_aggregator = true;
+        assert_eq!(
+            determine_node_kind_from_dag(&agg_node),
+            NodeKind::Aggregator
+        );
+
+        // Test spread node (is_spread takes precedence)
+        let mut spread_node = crate::dag::DAGNode::new(
+            "spread_1".to_string(),
+            "action_call".to_string(),
+            "spread".to_string(),
+        );
+        spread_node.is_spread = true;
+        assert_eq!(determine_node_kind_from_dag(&spread_node), NodeKind::Spread);
+
+        // Test assignment node
+        let assign_node = crate::dag::DAGNode::new(
+            "assign_1".to_string(),
+            "assignment".to_string(),
+            "x = 1".to_string(),
+        );
+        assert_eq!(
+            determine_node_kind_from_dag(&assign_node),
+            NodeKind::Assignment
+        );
+
+        // Test input node
+        let input_node = crate::dag::DAGNode::new(
+            "input".to_string(),
+            "input".to_string(),
+            "input".to_string(),
+        );
+        assert_eq!(determine_node_kind_from_dag(&input_node), NodeKind::Input);
+
+        // Test output node
+        let output_node = crate::dag::DAGNode::new(
+            "output".to_string(),
+            "output".to_string(),
+            "output".to_string(),
+        );
+        assert_eq!(determine_node_kind_from_dag(&output_node), NodeKind::Output);
     }
 }

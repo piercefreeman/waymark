@@ -1,13 +1,18 @@
+import os
+
 import pytest
 from fastapi.testclient import TestClient
 
 from example_app.web import app
 
 
+def _enable_real_cluster(monkeypatch: pytest.MonkeyPatch) -> None:
+    if os.environ.get("RAPPEL_RUN_REAL_CLUSTER") == "1":
+        monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+
+
 def test_run_task_endpoint_executes_workflow(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Disable pytest shortcut mode to actually test the real cluster logic from
-    # within the docker container.
-    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    _enable_real_cluster(monkeypatch)
 
     client = TestClient(app)
     response = client.post("/api/parallel", json={"number": 5})
@@ -23,7 +28,7 @@ def test_early_return_loop_workflow_with_session(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test the early return + loop workflow when session exists (should execute loop)."""
-    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    _enable_real_cluster(monkeypatch)
 
     client = TestClient(app)
     # Provide comma-separated items - should create session and loop over items
@@ -42,7 +47,7 @@ def test_early_return_loop_workflow_early_return(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test the early return + loop workflow when no session (should return early)."""
-    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    _enable_real_cluster(monkeypatch)
 
     client = TestClient(app)
     # Use no_session: prefix - should trigger early return without executing loop
@@ -59,7 +64,7 @@ def test_early_return_loop_workflow_early_return(
 
 def test_while_loop_workflow(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test the while loop workflow executes until the limit."""
-    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    _enable_real_cluster(monkeypatch)
 
     client = TestClient(app)
     response = client.post("/api/while-loop", json={"limit": 4})

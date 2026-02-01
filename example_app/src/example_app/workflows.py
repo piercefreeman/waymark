@@ -545,7 +545,7 @@ class WhileLoopWorkflow(Workflow):
         current = 0
         iterations = 0
 
-        while current < limit:
+        for _ in range(limit):
             current = await increment_counter(current)
             iterations = iterations + 1
 
@@ -1236,6 +1236,104 @@ class ManyActionsWorkflow(Workflow):
             squares=results,
             action_count=action_count,
             parallel=parallel,
+        )
+
+
+# =============================================================================
+# Looping Sleep Workflow (for testing durable sleep in loops)
+# =============================================================================
+
+
+class LoopingSleepRequest(BaseModel):
+    """Request for looping sleep workflow."""
+
+    iterations: int = Field(
+        default=3, ge=1, le=100, description="Number of loop iterations"
+    )
+    sleep_seconds: int = Field(
+        default=2, ge=1, le=60, description="Seconds to sleep each iteration"
+    )
+
+
+class LoopingSleepIteration(BaseModel):
+    """Result of a single loop iteration."""
+
+    iteration: int
+    slept_seconds: int
+    action_result: str
+    timestamp: str
+
+
+class LoopingSleepResult(BaseModel):
+    """Final result from looping sleep workflow."""
+
+    total_iterations: int
+    total_sleep_seconds: int
+    iterations: list[LoopingSleepIteration]
+
+
+@action
+async def perform_loop_action(iteration: int) -> str:
+    """Perform an action within the loop iteration."""
+    await asyncio.sleep(0.1)  # Small delay to simulate work
+    return f"Processed iteration {iteration}"
+
+
+@action
+async def build_looping_sleep_result(
+    total_iterations: int,
+    total_sleep_seconds: int,
+    iterations: list[LoopingSleepIteration],
+) -> LoopingSleepResult:
+    """Build the final looping sleep result."""
+    return LoopingSleepResult(
+        total_iterations=total_iterations,
+        total_sleep_seconds=total_sleep_seconds,
+        iterations=iterations,
+    )
+
+
+@workflow
+class LoopingSleepWorkflow(Workflow):
+    """
+    Workflow that runs in a loop with sleep and action nodes.
+
+    Each iteration:
+    1. Sleeps for the specified duration (durable sleep)
+    2. Performs an action
+    3. Records the iteration result
+
+    This is useful for testing looping sleep workflows and verifying
+    that durable sleeps work correctly across multiple loop iterations.
+    """
+
+    async def run(
+        self, iterations: int = 3, sleep_seconds: int = 2
+    ) -> LoopingSleepResult:
+        iteration_results: list[LoopingSleepIteration] = []
+
+        for i in range(iterations):
+            # Durable sleep
+            await asyncio.sleep(sleep_seconds)
+
+            # Perform action after sleep
+            action_result = await perform_loop_action(iteration=i + 1)
+
+            # Record iteration
+            timestamp = await get_timestamp()
+            iteration_results.append(
+                LoopingSleepIteration(
+                    iteration=i + 1,
+                    slept_seconds=sleep_seconds,
+                    action_result=action_result,
+                    timestamp=timestamp,
+                )
+            )
+
+        return await build_looping_sleep_result(
+            total_iterations=iterations,
+            total_sleep_seconds=iterations * sleep_seconds,
+            iterations=iteration_results,
         )
 
 

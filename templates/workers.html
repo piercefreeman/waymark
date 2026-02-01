@@ -5,64 +5,64 @@
 
 {% block content %}
 <section class="space-y-2">
-    <p class="text-xs uppercase tracking-[0.4em] text-zinc-500">Overview</p>
+    <p class="text-xs uppercase tracking-[0.3em] text-zinc-500">Overview</p>
     <h1 class="text-3xl font-semibold tracking-tight text-zinc-900 dark:text-white">Workers</h1>
-    <p class="text-sm text-zinc-600 dark:text-zinc-400">Throughput stats for active worker pools.</p>
+    <p class="text-sm text-zinc-500 dark:text-zinc-500">Throughput stats for active worker pools.</p>
 </section>
 
 <section class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-    <form method="GET" action="/workers" class="flex w-full max-w-xl items-center gap-3 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/40 px-3 py-2">
-        <label class="text-xs uppercase tracking-[0.3em] text-zinc-500">Window</label>
+    <form method="GET" action="/workers" class="flex w-full max-w-xl items-center gap-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white/50 dark:bg-zinc-900/20 px-4 py-2.5 backdrop-blur-sm focus-within:border-zinc-400 dark:focus-within:border-zinc-600 transition-colors">
+        <label class="text-xs uppercase tracking-[0.2em] text-zinc-500">Window</label>
         <input
             type="number"
             name="minutes"
             min="1"
             value="{{ window_minutes }}"
-            class="w-24 bg-transparent text-sm text-zinc-900 dark:text-white placeholder:text-zinc-400 focus:outline-none"
+            class="w-20 bg-transparent text-sm font-medium text-zinc-900 dark:text-white placeholder:text-zinc-500 focus:outline-none tabular-nums"
         />
         <span class="text-xs text-zinc-500">minutes</span>
-        <button type="submit" class="ml-auto rounded-lg bg-zinc-900 px-3 py-1 text-xs font-semibold text-white transition hover:bg-zinc-700 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200">Apply</button>
+        <button type="submit" class="ml-auto rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-800 px-3 py-1 text-xs font-medium text-zinc-700 dark:text-zinc-300 transition hover:bg-zinc-200 dark:hover:bg-zinc-700">Apply</button>
     </form>
-    <div class="text-xs text-zinc-500 dark:text-zinc-400">
+    <div class="text-xs font-medium text-zinc-500 dark:text-zinc-500">
         Showing pools updated in the last {{ window_minutes }} minute{% if window_minutes != 1 %}s{% endif %}
     </div>
 </section>
 
 <section class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-    <div class="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/40 p-5">
-        <p class="text-xs uppercase tracking-[0.3em] text-zinc-500 dark:text-zinc-400">Active Workers</p>
-        <p class="mt-2 text-3xl font-semibold text-zinc-900 dark:text-white">{{ active_worker_count }}</p>
+    <div class="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-5">
+        <p class="text-xs uppercase tracking-[0.2em] text-zinc-500">Active Workers</p>
+        <p class="mt-2 text-3xl font-semibold text-zinc-900 dark:text-white tabular-nums">{{ active_worker_count }}</p>
     </div>
-    <div class="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/40 p-5">
-        <p class="text-xs uppercase tracking-[0.3em] text-zinc-500 dark:text-zinc-400">Actions / sec</p>
-        <p class="mt-2 text-3xl font-semibold text-zinc-900 dark:text-white">{{ actions_per_sec }}</p>
+    <div class="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-5">
+        <p class="text-xs uppercase tracking-[0.2em] text-zinc-500">Actions / sec</p>
+        <p class="mt-2 text-3xl font-semibold text-zinc-900 dark:text-white tabular-nums">{{ actions_per_sec }}</p>
     </div>
-    <div class="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/40 p-5">
-        <p class="text-xs uppercase tracking-[0.3em] text-zinc-500 dark:text-zinc-400">Median Instance Duration</p>
-        <p class="mt-2 text-3xl font-semibold text-zinc-900 dark:text-white">{{ median_instance_duration }}</p>
+    <div class="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-5">
+        <p class="text-xs uppercase tracking-[0.2em] text-zinc-500">Median Duration</p>
+        <p class="mt-2 text-3xl font-semibold text-zinc-900 dark:text-white tabular-nums">{{ median_instance_duration }}</p>
     </div>
-    <div class="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/40 p-5">
-        <p class="text-xs uppercase tracking-[0.3em] text-zinc-500 dark:text-zinc-400">Active Instances</p>
-        <p class="mt-2 text-3xl font-semibold text-zinc-900 dark:text-white">{{ active_instance_count }}</p>
+    <div class="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-5">
+        <p class="text-xs uppercase tracking-[0.2em] text-zinc-500">Active Instances</p>
+        <p class="mt-2 text-3xl font-semibold text-zinc-900 dark:text-white tabular-nums">{{ active_instance_count }}</p>
     </div>
-    <div class="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/40 p-5">
-        <p class="text-xs uppercase tracking-[0.3em] text-zinc-500 dark:text-zinc-400">In-Flight Actions</p>
-        <p class="mt-2 text-3xl font-semibold text-zinc-900 dark:text-white">{{ total_in_flight }}</p>
+    <div class="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-5">
+        <p class="text-xs uppercase tracking-[0.2em] text-zinc-500">In-Flight Actions</p>
+        <p class="mt-2 text-3xl font-semibold text-zinc-900 dark:text-white tabular-nums">{{ total_in_flight }}</p>
     </div>
-    <div class="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/40 p-5">
-        <p class="text-xs uppercase tracking-[0.3em] text-zinc-500 dark:text-zinc-400">Queue Depth</p>
-        <p class="mt-2 text-3xl font-semibold text-zinc-900 dark:text-white">{{ total_queue_depth }}</p>
+    <div class="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-5">
+        <p class="text-xs uppercase tracking-[0.2em] text-zinc-500">Queue Depth</p>
+        <p class="mt-2 text-3xl font-semibold text-zinc-900 dark:text-white tabular-nums">{{ total_queue_depth }}</p>
     </div>
 </section>
 
 {% if has_time_series %}
-<section class="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/40 p-5">
-    <p class="text-xs uppercase tracking-[0.3em] text-zinc-500 dark:text-zinc-400 mb-4">Actions / sec (2h)</p>
+<section class="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-5">
+    <p class="text-xs uppercase tracking-[0.2em] text-zinc-500 mb-4">Actions / sec (2h)</p>
     <div id="ts-chart" style="width:100%;height:200px;"></div>
 </section>
 
-<section class="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/40 p-5">
-    <p class="text-xs uppercase tracking-[0.3em] text-zinc-500 dark:text-zinc-400 mb-4">Active Instances (2h)</p>
+<section class="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-5">
+    <p class="text-xs uppercase tracking-[0.2em] text-zinc-500 mb-4">Active Instances (2h)</p>
     <div id="inst-chart" style="width:100%;height:200px;"></div>
 </section>
 
@@ -161,59 +161,59 @@
 {% endif %}
 
 {% if action_rows | length == 0 %}
-    <div class="rounded-2xl border border-dashed border-zinc-300 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900/40 p-6 text-center text-zinc-600 dark:text-zinc-400">
+    <div class="rounded-xl border border-dashed border-zinc-300 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/20 p-8 text-center text-zinc-500 dark:text-zinc-500">
         No active workers reported in the selected window.
     </div>
 {% else %}
     <div class="space-y-2">
-        <p class="text-xs uppercase tracking-[0.3em] text-zinc-500 dark:text-zinc-400">Actions</p>
+        <p class="text-xs uppercase tracking-[0.2em] text-zinc-500">Actions</p>
     </div>
-    <div class="rounded-2xl border border-zinc-200 dark:border-zinc-900 bg-white dark:bg-zinc-900/40 overflow-hidden">
+    <div class="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 overflow-hidden">
         <div class="overflow-x-auto">
-            <table class="min-w-full divide-y divide-zinc-200 dark:divide-zinc-800 text-sm">
-                <thead class="bg-zinc-100 dark:bg-zinc-800/60">
-                    <tr>
-                        <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-semibold text-zinc-500 dark:text-zinc-400">Pool</th>
-                        <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-semibold text-zinc-500 dark:text-zinc-400">Workers</th>
-                        <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-semibold text-zinc-500 dark:text-zinc-400">Actions/sec</th>
-                        <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-semibold text-zinc-500 dark:text-zinc-400">Throughput/min</th>
-                        <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-semibold text-zinc-500 dark:text-zinc-400">Total Completed</th>
-                        <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-semibold text-zinc-500 dark:text-zinc-400">Median Dequeue</th>
-                        <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-semibold text-zinc-500 dark:text-zinc-400">Median Execution</th>
-                        <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-semibold text-zinc-500 dark:text-zinc-400">Last Action</th>
-                        <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-semibold text-zinc-500 dark:text-zinc-400">Updated</th>
+            <table class="min-w-full text-sm">
+                <thead>
+                    <tr class="border-b border-zinc-200 dark:border-zinc-800">
+                        <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-medium text-zinc-500">Pool</th>
+                        <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-medium text-zinc-500">Workers</th>
+                        <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-medium text-zinc-500">Actions/sec</th>
+                        <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-medium text-zinc-500">Throughput/min</th>
+                        <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-medium text-zinc-500">Total Completed</th>
+                        <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-medium text-zinc-500">Median Dequeue</th>
+                        <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-medium text-zinc-500">Median Execution</th>
+                        <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-medium text-zinc-500">Last Action</th>
+                        <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-medium text-zinc-500">Updated</th>
                     </tr>
                 </thead>
-                <tbody class="divide-y divide-zinc-200 dark:divide-zinc-800">
+                <tbody>
                     {% for row in action_rows %}
-                        <tr>
-                            <td class="px-4 py-3 font-mono text-xs text-zinc-700 dark:text-zinc-300">{{ row.pool_id }}</td>
-                            <td class="px-4 py-3 text-zinc-700 dark:text-zinc-300">{{ row.active_workers }}</td>
-                            <td class="px-4 py-3 text-zinc-700 dark:text-zinc-300">{{ row.actions_per_sec }}</td>
-                            <td class="px-4 py-3 text-zinc-700 dark:text-zinc-300">{{ row.throughput_per_min }}</td>
-                            <td class="px-4 py-3 text-zinc-700 dark:text-zinc-300">{{ row.total_completed }}</td>
-                            <td class="px-4 py-3 text-zinc-700 dark:text-zinc-300">
+                        <tr class="border-b border-zinc-100 dark:border-zinc-800/50 hover:bg-zinc-50 dark:hover:bg-zinc-900/50 transition-colors">
+                            <td class="px-4 py-3 font-mono text-xs text-zinc-600 dark:text-zinc-400">{{ row.pool_id }}</td>
+                            <td class="px-4 py-3 text-zinc-600 dark:text-zinc-400 tabular-nums">{{ row.active_workers }}</td>
+                            <td class="px-4 py-3 text-zinc-600 dark:text-zinc-400 tabular-nums">{{ row.actions_per_sec }}</td>
+                            <td class="px-4 py-3 text-zinc-600 dark:text-zinc-400 tabular-nums">{{ row.throughput_per_min }}</td>
+                            <td class="px-4 py-3 text-zinc-600 dark:text-zinc-400 tabular-nums">{{ row.total_completed }}</td>
+                            <td class="px-4 py-3 text-zinc-600 dark:text-zinc-400 font-mono text-xs tabular-nums">
                                 {% if row.median_dequeue_ms %}
                                     {{ row.median_dequeue_ms }}ms
                                 {% else %}
                                     <span class="text-zinc-400">&mdash;</span>
                                 {% endif %}
                             </td>
-                            <td class="px-4 py-3 text-zinc-700 dark:text-zinc-300">
+                            <td class="px-4 py-3 text-zinc-600 dark:text-zinc-400 font-mono text-xs tabular-nums">
                                 {% if row.median_handling_ms %}
                                     {{ row.median_handling_ms }}ms
                                 {% else %}
                                     <span class="text-zinc-400">&mdash;</span>
                                 {% endif %}
                             </td>
-                            <td class="px-4 py-3 text-zinc-700 dark:text-zinc-300">
+                            <td class="px-4 py-3 text-zinc-600 dark:text-zinc-400 text-sm">
                                 {% if row.last_action_at %}
                                     {{ macros::datetime(timestamp=row.last_action_at) }}
                                 {% else %}
                                     <span class="text-zinc-400">(none)</span>
                                 {% endif %}
                             </td>
-                            <td class="px-4 py-3 text-zinc-700 dark:text-zinc-300">{{ macros::datetime(timestamp=row.updated_at) }}</td>
+                            <td class="px-4 py-3 text-zinc-600 dark:text-zinc-400 text-sm">{{ macros::datetime(timestamp=row.updated_at) }}</td>
                         </tr>
                     {% endfor %}
                 </tbody>
@@ -222,36 +222,40 @@
     </div>
 
     <div class="space-y-2">
-        <p class="text-xs uppercase tracking-[0.3em] text-zinc-500 dark:text-zinc-400">Instances</p>
+        <p class="text-xs uppercase tracking-[0.2em] text-zinc-500">Instances</p>
     </div>
-    <div class="rounded-2xl border border-zinc-200 dark:border-zinc-900 bg-white dark:bg-zinc-900/40 overflow-hidden">
+    <div class="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 overflow-hidden">
         <div class="overflow-x-auto">
-            <table class="min-w-full divide-y divide-zinc-200 dark:divide-zinc-800 text-sm">
-                <thead class="bg-zinc-100 dark:bg-zinc-800/60">
-                    <tr>
-                        <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-semibold text-zinc-500 dark:text-zinc-400">Pool</th>
-                        <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-semibold text-zinc-500 dark:text-zinc-400">Active Instances</th>
-                        <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-semibold text-zinc-500 dark:text-zinc-400">Total Completed</th>
-                        <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-semibold text-zinc-500 dark:text-zinc-400">Median Duration</th>
-                        <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-semibold text-zinc-500 dark:text-zinc-400">Median Dequeue</th>
-                        <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-semibold text-zinc-500 dark:text-zinc-400">Updated</th>
+            <table class="min-w-full text-sm">
+                <thead>
+                    <tr class="border-b border-zinc-200 dark:border-zinc-800">
+                        <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-medium text-zinc-500">Pool</th>
+                        <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-medium text-zinc-500">Active Instances</th>
+                        <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-medium text-zinc-500">Instances/sec</th>
+                        <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-medium text-zinc-500">Instances/min</th>
+                        <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-medium text-zinc-500">Total Completed</th>
+                        <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-medium text-zinc-500">Median Duration</th>
+                        <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-medium text-zinc-500">Median Dequeue</th>
+                        <th class="px-4 py-3 text-left text-xs uppercase tracking-wider font-medium text-zinc-500">Updated</th>
                     </tr>
                 </thead>
-                <tbody class="divide-y divide-zinc-200 dark:divide-zinc-800">
+                <tbody>
                     {% for row in instance_rows %}
-                        <tr>
-                            <td class="px-4 py-3 font-mono text-xs text-zinc-700 dark:text-zinc-300">{{ row.pool_id }}</td>
-                            <td class="px-4 py-3 text-zinc-700 dark:text-zinc-300">{{ row.active_instances }}</td>
-                            <td class="px-4 py-3 text-zinc-700 dark:text-zinc-300">{{ row.total_completed }}</td>
-                            <td class="px-4 py-3 text-zinc-700 dark:text-zinc-300">{{ row.median_duration }}</td>
-                            <td class="px-4 py-3 text-zinc-700 dark:text-zinc-300">
+                        <tr class="border-b border-zinc-100 dark:border-zinc-800/50 hover:bg-zinc-50 dark:hover:bg-zinc-900/50 transition-colors">
+                            <td class="px-4 py-3 font-mono text-xs text-zinc-600 dark:text-zinc-400">{{ row.pool_id }}</td>
+                            <td class="px-4 py-3 text-zinc-600 dark:text-zinc-400 tabular-nums">{{ row.active_instances }}</td>
+                            <td class="px-4 py-3 text-zinc-600 dark:text-zinc-400 tabular-nums">{{ row.instances_per_sec }}</td>
+                            <td class="px-4 py-3 text-zinc-600 dark:text-zinc-400 tabular-nums">{{ row.instances_per_min }}</td>
+                            <td class="px-4 py-3 text-zinc-600 dark:text-zinc-400 tabular-nums">{{ row.total_completed }}</td>
+                            <td class="px-4 py-3 text-zinc-600 dark:text-zinc-400 font-mono text-xs tabular-nums">{{ row.median_duration }}</td>
+                            <td class="px-4 py-3 text-zinc-600 dark:text-zinc-400 font-mono text-xs tabular-nums">
                                 {% if row.median_dequeue_ms %}
                                     {{ row.median_dequeue_ms }}ms
                                 {% else %}
                                     <span class="text-zinc-400">&mdash;</span>
                                 {% endif %}
                             </td>
-                            <td class="px-4 py-3 text-zinc-700 dark:text-zinc-300">{{ macros::datetime(timestamp=row.updated_at) }}</td>
+                            <td class="px-4 py-3 text-zinc-600 dark:text-zinc-400 text-sm">{{ macros::datetime(timestamp=row.updated_at) }}</td>
                         </tr>
                     {% endfor %}
                 </tbody>

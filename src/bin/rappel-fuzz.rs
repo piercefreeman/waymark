@@ -20,9 +20,10 @@ use rappel::messages::{
 };
 use rappel::value::workflow_value_from_proto_bytes;
 use rappel::workflow_arguments_to_json;
+use rappel::workflow_state::ExecutionState;
 use rappel::{
-    Completion, DAGConverter, DAGHelper, DAGNode, EdgeType, ExecutionState, ExpressionEvaluator,
-    WorkflowValue, validate_program,
+    Completion, DAGConverter, DAGHelper, DAGNode, EdgeType, ExpressionEvaluator, WorkflowValue,
+    validate_program,
 };
 
 #[derive(Debug, Parser)]
@@ -261,7 +262,7 @@ impl InMemoryWorkflowExecutor {
                 };
 
                 if completion_error.is_none() {
-                    self.state.expand_spread(&template_id, items, &self.dag);
+                    let _ = self.state.expand_spread(&template_id, items, &self.dag);
                 }
 
                 self.pending_completions.push(Completion {

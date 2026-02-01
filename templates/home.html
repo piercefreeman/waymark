@@ -5,28 +5,33 @@
 
 {% block content %}
 <section class="space-y-2">
-    <p class="text-xs uppercase tracking-[0.4em] text-zinc-500">Overview</p>
+    <p class="text-xs uppercase tracking-[0.3em] text-zinc-500">Overview</p>
     <h1 class="text-3xl font-semibold tracking-tight text-zinc-900 dark:text-white">Registered Workflows</h1>
-    <p class="text-sm text-zinc-600 dark:text-zinc-400">These workflow DAGs are available in the database backing this server.</p>
+    <p class="text-sm text-zinc-500 dark:text-zinc-500">These workflow DAGs are available in the database backing this server.</p>
 </section>
 
 {% if workflow_groups | length == 0 %}
-    <div class="rounded-2xl border border-dashed border-zinc-300 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-900/40 p-6 text-center text-zinc-600 dark:text-zinc-400">
+    <div class="rounded-xl border border-dashed border-zinc-300 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/20 p-8 text-center text-zinc-500 dark:text-zinc-500">
         No workflows found. Register a workflow to see it appear here.
     </div>
 {% else %}
     <div class="space-y-6">
         {% for group in workflow_groups %}
-            <div class="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/40 overflow-hidden">
-                <div class="px-5 py-4 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/60">
+            <div class="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 overflow-hidden">
+                <div class="px-5 py-4 border-b border-zinc-200 dark:border-zinc-800">
                     <h2 class="text-lg font-semibold text-zinc-900 dark:text-white">{{ group.name }}</h2>
-                    <p class="text-xs text-zinc-500 dark:text-zinc-400">{{ group.versions | length }} version{% if group.versions | length != 1 %}s{% endif %}</p>
+                    <p class="text-xs text-zinc-500 tabular-nums">{{ group.versions | length }} version{% if group.versions | length != 1 %}s{% endif %}</p>
                 </div>
-                <div class="divide-y divide-zinc-100 dark:divide-zinc-800">
+                <div class="divide-y divide-zinc-100 dark:divide-zinc-800/50">
                     {% for version in group.versions %}
-                        <a href="/workflows/{{ version.id }}" class="flex items-center justify-between px-5 py-3 transition hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
-                            <span class="font-mono text-sm text-zinc-700 dark:text-zinc-300">{{ version.id }}</span>
-                            <span class="text-sm text-zinc-500 dark:text-zinc-400">{{ macros::datetime(timestamp=version.created_at) }}</span>
+                        <a href="/workflows/{{ version.id }}" class="flex items-center justify-between px-5 py-3 transition hover:bg-zinc-50 dark:hover:bg-zinc-900/50 group">
+                            <span class="font-mono text-sm text-zinc-600 dark:text-zinc-400">{{ version.id }}</span>
+                            <div class="flex items-center gap-3">
+                                <span class="text-sm text-zinc-500">{{ macros::datetime(timestamp=version.created_at) }}</span>
+                                <svg class="h-4 w-4 text-zinc-400 opacity-0 group-hover:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                                </svg>
+                            </div>
                         </a>
                     {% endfor %}
                 </div>

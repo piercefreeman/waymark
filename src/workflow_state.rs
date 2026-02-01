@@ -1,35 +1,43 @@
-//! Execution graph management for instance-local workflow execution.
+//! Workflow state management for instance-local execution.
 //!
-//! The execution graph is the single source of truth for a workflow instance's
-//! state. It replaces the previous multi-table model (action_queue, node_inputs,
-//! node_readiness, instance_context) with a single protobuf-encoded blob.
+//! The workflow state is the in-memory source of truth for an instance. It tracks
+//! runtime executions (by execution_id) and the metadata needed to queue work.
+//! Heavy inputs/results are stored separately in node_payloads.
 //!
 //! Key concepts:
-//! - **Reference DAG**: The immutable workflow definition (from workflow_versions)
-//! - **Execution Graph**: The mutable execution state (this module)
-//! - **Pending Graph**: Nodes expand as spreads fan out (e.g., spread_1[0], spread_1[1], ...)
+//! - **Reference DAG**: Immutable workflow definition (from workflow_versions)
+//! - **Workflow State**: Mutable execution metadata (this module)
+//! - **Runtime Executions**: Expanded nodes per loop/spread iteration
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::Arc;
 
 use chrono::Utc;
 use prost::Message;
 use tracing::{debug, trace, warn};
+use uuid::Uuid;
 
 use crate::ast_evaluator::{ExpressionEvaluator, Scope};
-use crate::dag::{DAG, DAGEdge, EXCEPTION_SCOPE_VAR, EdgeType};
+use crate::dag::{DAG, DAGEdge, DAGNode, EXCEPTION_SCOPE_VAR, EdgeType};
+use crate::db::WorkflowInstanceId;
 
 /// Maximum number of loop iterations before terminating execution.
 /// This prevents infinite loops (e.g., `while True:`) from running forever.
 pub const MAX_LOOP_ITERATIONS: i32 = 50_000;
-use crate::dag_state::DAGHelper;
+use crate::dag_runtime::DAGHelper;
 use crate::messages::execution::{
     AttemptRecord, BackoffConfig, BackoffKind, ExceptionInfo, ExecutionGraph, ExecutionNode,
-    NodeStatus,
+    NodeKind, NodeStatus,
 };
 use crate::messages::proto::WorkflowArguments;
-use crate::messages::{decode_message, encode_message};
+use crate::messages::{MessageError, decode_message, encode_message};
 use crate::parser::ast;
 use crate::value::{WorkflowValue, workflow_value_from_proto_bytes, workflow_value_to_proto_bytes};
+
+/// A tuple representing a node's payload data: (execution_id, inputs, result)
+pub type PayloadTuple = (String, Option<Vec<u8>>, Option<Vec<u8>>);
+type PayloadRef<'a> = (&'a Option<Vec<u8>>, &'a Option<Vec<u8>>);
+type PayloadMap<'a> = HashMap<&'a str, PayloadRef<'a>>;
 
 /// Result of applying a batch of completions
 #[derive(Debug, Default)]
@@ -67,6 +75,172 @@ pub struct ExecutionState {
     pub graph: ExecutionGraph,
 }
 
+/// Runtime workflow state (public minimal API).
+#[derive(Debug, Clone)]
+pub struct WorkflowState {
+    instance_id: WorkflowInstanceId,
+    dag: Arc<DAG>,
+    inner: ExecutionState,
+    updated_executions: HashMap<String, ActionExecutionUpdate>,
+}
+
+#[derive(Debug, Clone)]
+pub struct InstanceRehydrate {
+    pub instance_id: WorkflowInstanceId,
+    pub workflow_name: String,
+    pub input_payload: Option<Vec<u8>>,
+    pub execution_graph: Option<Vec<u8>>,
+    pub dag: Arc<DAG>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RehydrateResult {
+    pub state: WorkflowState,
+    pub update: WorkflowStateUpdate,
+}
+
+#[derive(Debug, Clone)]
+pub struct ActionExecutionMetadata {
+    pub node_id: String,
+    pub action_id: String,
+    pub execution_id: Option<String>,
+    pub status: NodeStatus,
+    pub attempt_number: i32,
+    pub max_retries: i32,
+    pub worker_id: Option<String>,
+    pub started_at_ms: Option<i64>,
+    pub completed_at_ms: Option<i64>,
+    pub duration_ms: Option<i64>,
+    pub parent_execution_id: Option<String>,
+    pub spread_index: Option<i32>,
+    pub loop_index: Option<i32>,
+    pub waiting_for: Vec<String>,
+    pub completed_count: i32,
+    pub node_kind: NodeKind,
+    pub error: Option<String>,
+    pub error_type: Option<String>,
+    pub timeout_seconds: i32,
+    pub timeout_retry_limit: i32,
+    pub backoff: BackoffConfig,
+    pub sleep_wakeup_time_ms: Option<i64>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ActionExecutionUpdate {
+    pub instance_id: WorkflowInstanceId,
+    pub node_id: String,
+    pub action_id: String,
+    pub execution_id: Option<String>,
+    pub status: NodeStatus,
+    pub attempt_number: i32,
+    pub max_retries: i32,
+    pub worker_id: Option<String>,
+    pub started_at_ms: Option<i64>,
+    pub completed_at_ms: Option<i64>,
+    pub duration_ms: Option<i64>,
+    pub parent_execution_id: Option<String>,
+    pub spread_index: Option<i32>,
+    pub loop_index: Option<i32>,
+    pub waiting_for: Vec<String>,
+    pub completed_count: i32,
+    pub node_kind: NodeKind,
+    pub error: Option<String>,
+    pub error_type: Option<String>,
+    pub timeout_seconds: i32,
+    pub timeout_retry_limit: i32,
+    pub backoff: BackoffConfig,
+    pub sleep_wakeup_time_ms: Option<i64>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ActionNodeArchive {
+    pub node_id: String,
+    pub action_id: String,
+    pub execution_id: String,
+    pub status: NodeStatus,
+    pub attempt_number: i32,
+    pub max_retries: i32,
+    pub worker_id: Option<String>,
+    pub started_at_ms: Option<i64>,
+    pub completed_at_ms: Option<i64>,
+    pub duration_ms: Option<i64>,
+    pub parent_execution_id: Option<String>,
+    pub spread_index: Option<i32>,
+    pub loop_index: Option<i32>,
+    pub waiting_for: Vec<String>,
+    pub completed_count: i32,
+    pub node_kind: NodeKind,
+    pub error: Option<String>,
+    pub error_type: Option<String>,
+    pub timeout_seconds: i32,
+    pub timeout_retry_limit: i32,
+    pub backoff: BackoffConfig,
+    pub inputs: Option<Vec<u8>>,
+    pub result: Option<Vec<u8>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ReadyAction {
+    pub node_id: String,
+    pub action_id: String,
+    pub node_kind: NodeKind,
+    pub module_name: Option<String>,
+    pub action_name: Option<String>,
+    pub inputs: Option<Vec<u8>>,
+    pub timeout_seconds: u32,
+    pub max_retries: u32,
+    pub attempt_number: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct ActionPayload {
+    pub execution_id: String,
+    pub action_id: String,
+    pub inputs: Option<Vec<u8>>,
+    pub result: Option<Vec<u8>>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct WorkflowStateUpdate {
+    pub ready_actions: Vec<ReadyAction>,
+    pub payloads: Vec<ActionPayload>,
+    pub workflow_completed: bool,
+    pub workflow_failed: bool,
+    pub result_payload: Option<Vec<u8>>,
+    pub error_message: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct WorkflowStateSnapshot {
+    pub instance_id: WorkflowInstanceId,
+    pub ready_queue: Vec<String>,
+    pub next_wakeup_time: Option<i64>,
+    pub executions: HashMap<String, ActionExecutionMetadata>,
+    pub encoded_graph: Vec<u8>,
+    pub workflow_completed: bool,
+    pub workflow_failed: bool,
+    pub result_payload: Option<Vec<u8>>,
+    pub error_message: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub enum ActionUpdate {
+    Started {
+        node_id: String,
+        worker_id: String,
+        inputs: Option<Vec<u8>>,
+    },
+    Completed(Completion),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum WorkflowStateError {
+    #[error("Serialization error: {0}")]
+    Serialization(#[from] prost::DecodeError),
+    #[error("Message error: {0}")]
+    Message(#[from] MessageError),
+}
+
 /// Worker identifier used for durable sleep nodes.
 pub const SLEEP_WORKER_ID: &str = "sleep";
 const SCOPE_DELIM: &str = "::";
@@ -75,6 +249,37 @@ const EXECUTION_GRAPH_VERSION: u8 = 1;
 const EXECUTION_GRAPH_CODEC_ZSTD: u8 = 1;
 const EXECUTION_GRAPH_HEADER_LEN: usize = 4 + 1 + 1 + 8;
 const EXECUTION_GRAPH_ZSTD_LEVEL: i32 = 3;
+
+/// Determine the NodeKind for a DAG node based on its properties.
+/// This is the source of truth for node type classification.
+fn determine_node_kind(dag_node: &DAGNode) -> NodeKind {
+    // Sleep actions are special - check first
+    if dag_node.action_name.as_deref() == Some("sleep") {
+        return NodeKind::Sleep;
+    }
+    // Aggregator nodes collect spread results
+    if dag_node.is_aggregator {
+        return NodeKind::Aggregator;
+    }
+    // Spread nodes are templates for parallel expansion
+    if dag_node.is_spread {
+        return NodeKind::Spread;
+    }
+    // Map node_type string to NodeKind enum
+    match dag_node.node_type.as_str() {
+        "action_call" => NodeKind::Action,
+        "assignment" => NodeKind::Assignment,
+        "branch" => NodeKind::Branch,
+        "join" => NodeKind::Join,
+        "fn_call" => NodeKind::FnCall,
+        "return" => NodeKind::Return,
+        "break" => NodeKind::Break,
+        "for_loop" => NodeKind::ForLoop,
+        "input" => NodeKind::Input,
+        "output" => NodeKind::Output,
+        _ => NodeKind::Unspecified,
+    }
+}
 
 fn encode_execution_graph_bytes(raw: &[u8]) -> Vec<u8> {
     let compressed = match zstd::bulk::compress(raw, EXECUTION_GRAPH_ZSTD_LEVEL) {
@@ -148,6 +353,170 @@ impl ExecutionState {
         encode_execution_graph_bytes(&raw)
     }
 
+    /// Serialize with payloads + variable data stripped (metadata only).
+    ///
+    /// WARNING: This strips inputs/results/variables/exceptions. Use only when
+    /// payloads are persisted separately and variables will be rehydrated.
+    pub fn to_bytes_fully_stripped(&self) -> Vec<u8> {
+        let mut stripped = self.graph.clone();
+
+        stripped.variables.clear();
+        stripped.exceptions.clear();
+
+        for node in stripped.nodes.values_mut() {
+            node.inputs = None;
+            node.result = None;
+            node.loop_accumulators = None;
+
+            for attempt in &mut node.attempts {
+                attempt.result = None;
+            }
+        }
+
+        let raw = stripped.encode_to_vec();
+        encode_execution_graph_bytes(&raw)
+    }
+
+    /// Hydrate a stripped execution state with payloads loaded from storage.
+    ///
+    /// This is used during cold-start recovery to reconstitute the full
+    /// in-memory state from a stripped graph + separately stored payloads.
+    ///
+    /// Each payload tuple is (execution_id, inputs, result).
+    pub fn hydrate_payloads(&mut self, payloads: &[PayloadTuple]) {
+        // Build a map from execution_id to payload for efficient lookup
+        let payload_map: PayloadMap<'_> = payloads
+            .iter()
+            .map(|(exec_id, inputs, result)| (exec_id.as_str(), (inputs, result)))
+            .collect();
+
+        // Iterate through all nodes and match by execution_id
+        for node in self.graph.nodes.values_mut() {
+            if let Some(exec_id) = &node.execution_id
+                && let Some((inputs, result)) = payload_map.get(exec_id.as_str())
+            {
+                if inputs.is_some() {
+                    node.inputs = (*inputs).clone();
+                }
+                if result.is_some() {
+                    node.result = (*result).clone();
+                }
+            }
+        }
+    }
+
+    /// Rebuild variable bindings from completed node results + initial inputs.
+    ///
+    /// This is required when the persisted graph is metadata-only.
+    pub fn rehydrate_variables(&mut self, dag: &DAG, inputs: &WorkflowArguments) {
+        self.graph.variables.clear();
+
+        for arg in &inputs.arguments {
+            if let Some(value) = &arg.value {
+                let encoded = encode_message(value);
+                self.graph.variables.insert(arg.key.clone(), encoded);
+            }
+        }
+
+        struct RehydrateEntry {
+            node_id: String,
+            template_id: String,
+            targets: Vec<String>,
+            result: Vec<u8>,
+            completed_at_ms: i64,
+        }
+
+        let mut completed_nodes: Vec<RehydrateEntry> = self
+            .graph
+            .nodes
+            .iter()
+            .filter_map(|(node_id, node)| {
+                let status = NodeStatus::try_from(node.status).unwrap_or(NodeStatus::Unspecified);
+                if !matches!(status, NodeStatus::Completed | NodeStatus::Caught) {
+                    return None;
+                }
+                let result = node.result.as_ref()?.clone();
+                let mut targets = node.targets.clone();
+                if targets.is_empty()
+                    && let Some(dag_node) = dag.nodes.get(&node.template_id)
+                {
+                    if let Some(dag_targets) = dag_node.targets.clone() {
+                        targets = dag_targets;
+                    } else if let Some(target) = dag_node.target.clone() {
+                        targets = vec![target];
+                    }
+                }
+                if targets.is_empty() {
+                    return None;
+                }
+                Some(RehydrateEntry {
+                    node_id: node_id.clone(),
+                    template_id: node.template_id.clone(),
+                    targets,
+                    result,
+                    completed_at_ms: node.completed_at_ms.unwrap_or(0),
+                })
+            })
+            .collect();
+
+        completed_nodes.sort_by_key(|entry| entry.completed_at_ms);
+
+        for entry in completed_nodes {
+            let node_type = dag
+                .nodes
+                .get(&entry.template_id)
+                .map(|n| n.node_type.clone())
+                .unwrap_or_default();
+
+            if entry.result.is_empty() {
+                continue;
+            }
+            let Some(workflow_value) = crate::inline_executor::extract_result_value(&entry.result)
+            else {
+                warn!(
+                    node_id = %entry.node_id,
+                    "Failed to decode result value; skipping variable storage"
+                );
+                continue;
+            };
+
+            let targets = entry.targets.clone();
+            if targets.len() > 1 {
+                match &workflow_value {
+                    WorkflowValue::Tuple(items) | WorkflowValue::List(items) => {
+                        for (target, item) in targets.iter().zip(items.iter()) {
+                            self.store_variable_for_node(&entry.node_id, &node_type, target, item);
+                        }
+                    }
+                    _ => {
+                        warn!(
+                            node_id = %entry.node_id,
+                            targets = ?targets,
+                            "Value is not iterable for tuple unpacking"
+                        );
+                        for target in &targets {
+                            self.store_variable_for_node(
+                                &entry.node_id,
+                                &node_type,
+                                target,
+                                &workflow_value,
+                            );
+                        }
+                    }
+                }
+            } else {
+                for target in &targets {
+                    self.store_variable_for_node(
+                        &entry.node_id,
+                        &node_type,
+                        target,
+                        &workflow_value,
+                    );
+                }
+            }
+        }
+    }
+
     /// Create an empty execution state
     pub fn new() -> Self {
         Self {
@@ -176,6 +545,13 @@ impl ExecutionState {
         // Create execution nodes for all DAG nodes
         for (node_id, node) in &dag.nodes {
             let (max_retries, timeout_seconds, backoff) = Self::extract_policies(&node.policies);
+            let targets = if let Some(targets) = node.targets.clone() {
+                targets
+            } else if let Some(target) = node.target.clone() {
+                vec![target]
+            } else {
+                Vec::new()
+            };
 
             let exec_node = ExecutionNode {
                 template_id: node_id.clone(),
@@ -199,7 +575,11 @@ impl ExecutionState {
                 backoff: Some(backoff),
                 loop_index: None,
                 loop_accumulators: None,
-                targets: node.target.clone().map(|t| vec![t]).unwrap_or_default(),
+                targets,
+                node_kind: determine_node_kind(node) as i32,
+                parent_execution_id: None,
+                iteration_index: None,
+                execution_id: None,
             };
 
             self.graph.nodes.insert(node_id.clone(), exec_node);
@@ -257,24 +637,31 @@ impl ExecutionState {
     }
 
     /// Mark a node as running (dispatched to a worker).
+    /// Returns the generated execution_id for this run.
     ///
     /// Note: `started_at_ms` is NOT set here - it will be set when the completion
     /// arrives, computed from `completed_at_ms - worker_duration_ms`. This ensures
     /// the recorded start time reflects when the worker actually started executing,
     /// not when we dispatched the action.
-    pub fn mark_running(&mut self, node_id: &str, worker_id: &str, inputs: Option<Vec<u8>>) {
-        self.mark_running_inner(node_id, worker_id, inputs, true);
+    pub fn mark_running(
+        &mut self,
+        node_id: &str,
+        worker_id: &str,
+        inputs: Option<Vec<u8>>,
+    ) -> Option<String> {
+        self.mark_running_inner(node_id, worker_id, inputs, true)
     }
 
     /// Mark a node as running without removing it from the ready queue.
+    /// Returns the generated execution_id for this run.
     /// This allows callers to batch ready_queue removals for performance.
     pub fn mark_running_no_queue_removal(
         &mut self,
         node_id: &str,
         worker_id: &str,
         inputs: Option<Vec<u8>>,
-    ) {
-        self.mark_running_inner(node_id, worker_id, inputs, false);
+    ) -> Option<String> {
+        self.mark_running_inner(node_id, worker_id, inputs, false)
     }
 
     fn mark_running_inner(
@@ -283,17 +670,25 @@ impl ExecutionState {
         worker_id: &str,
         inputs: Option<Vec<u8>>,
         remove_ready: bool,
-    ) {
-        if let Some(node) = self.graph.nodes.get_mut(node_id) {
+    ) -> Option<String> {
+        let execution_id = if let Some(node) = self.graph.nodes.get_mut(node_id) {
             node.status = NodeStatus::Running as i32;
             node.worker_id = Some(worker_id.to_string());
             // started_at_ms is set on completion with accurate worker timing
             node.inputs = inputs;
-        }
+            // Generate a unique execution_id for this specific run
+            let exec_id = Uuid::new_v4().to_string();
+            node.execution_id = Some(exec_id.clone());
+            Some(exec_id)
+        } else {
+            None
+        };
 
         if remove_ready {
             self.graph.ready_queue.retain(|id| id != node_id);
         }
+
+        execution_id
     }
 
     /// Drain the ready queue, returning all node IDs that are ready to execute
@@ -885,6 +1280,81 @@ impl ExecutionState {
         Some(encode_message(&kwargs))
     }
 
+    /// Check if the workflow is already complete or failed.
+    ///
+    /// This is used to detect completion when there are no new pending completions,
+    /// e.g., after a failed completion DB write (lease expired) caused the instance
+    /// to stay in-memory but not be archived.
+    pub fn check_workflow_completion(&self, dag: &DAG) -> BatchCompletionResult {
+        let mut result = BatchCompletionResult::default();
+
+        // Check for uncaught exceptions (workflow failed)
+        for node in self.graph.nodes.values() {
+            if node.status == NodeStatus::Exhausted as i32 {
+                result.workflow_failed = true;
+                result.error_message = node.error.clone();
+                return result;
+            }
+        }
+
+        // Check for workflow completion (entry function output node completed)
+        let entry_function = dag
+            .nodes
+            .values()
+            .find(|n| n.is_input)
+            .and_then(|n| n.function_name.clone());
+
+        for node in dag.nodes.values() {
+            let is_entry_output = node.is_output
+                && entry_function
+                    .as_deref()
+                    .map(|name| node.function_name.as_deref() == Some(name))
+                    .unwrap_or(true);
+
+            if is_entry_output
+                && let Some(exec_node) = self.graph.nodes.get(&node.id)
+                && exec_node.status == NodeStatus::Completed as i32
+            {
+                result.workflow_completed = true;
+
+                // Build result payload from the "result" variable
+                if let Some(result_value_bytes) = self.graph.variables.get("result") {
+                    let value = if let Ok(value) = decode_message::<
+                        crate::messages::proto::WorkflowArgumentValue,
+                    >(result_value_bytes)
+                    {
+                        value
+                    } else if let Some(workflow_value) =
+                        crate::inline_executor::extract_result_value(result_value_bytes)
+                    {
+                        workflow_value.to_proto()
+                    } else {
+                        warn!("Failed to decode result variable, storing null payload");
+                        WorkflowValue::Null.to_proto()
+                    };
+                    let args = WorkflowArguments {
+                        arguments: vec![crate::messages::proto::WorkflowArgument {
+                            key: "result".to_string(),
+                            value: Some(value),
+                        }],
+                    };
+                    result.result_payload = Some(encode_message(&args));
+                } else {
+                    let args = WorkflowArguments {
+                        arguments: vec![crate::messages::proto::WorkflowArgument {
+                            key: "result".to_string(),
+                            value: Some(WorkflowValue::Null.to_proto()),
+                        }],
+                    };
+                    result.result_payload = Some(encode_message(&args));
+                }
+                return result;
+            }
+        }
+
+        result
+    }
+
     /// Apply a batch of completions and compute newly ready nodes
     pub fn apply_completions_batch(
         &mut self,
@@ -977,75 +1447,67 @@ impl ExecutionState {
                     if !node.targets.is_empty()
                         && let Some(result_bytes) = &completion.result
                     {
-                        // Decode as WorkflowArguments and extract the "result" entry's value
-                        if let Ok(args) = decode_message::<WorkflowArguments>(result_bytes) {
-                            for arg in &args.arguments {
-                                if arg.key == "result" {
-                                    if let Some(value) = &arg.value {
-                                        let workflow_value = WorkflowValue::from_proto(value);
-                                        let targets = node.targets.clone();
-
-                                        // Unpack tuples/lists when there are multiple targets
-                                        if targets.len() > 1 {
-                                            match &workflow_value {
-                                                WorkflowValue::Tuple(items)
-                                                | WorkflowValue::List(items) => {
-                                                    for (target, item) in
-                                                        targets.iter().zip(items.iter())
-                                                    {
-                                                        self.store_variable_for_node(
-                                                            &completion.node_id,
-                                                            &node_type,
-                                                            target,
-                                                            item,
-                                                        );
-                                                    }
-                                                }
-                                                _ => {
-                                                    // Non-iterable value with multiple targets - store as-is
-                                                    warn!(
-                                                        node_id = %completion.node_id,
-                                                        targets = ?targets,
-                                                        "Value is not iterable for tuple unpacking"
-                                                    );
-                                                    for target in &targets {
-                                                        self.store_variable_for_node(
-                                                            &completion.node_id,
-                                                            &node_type,
-                                                            target,
-                                                            &workflow_value,
-                                                        );
-                                                    }
-                                                }
-                                            }
-                                        } else {
-                                            // Single target - store entire value
-                                            for target in &targets {
-                                                self.store_variable_for_node(
-                                                    &completion.node_id,
-                                                    &node_type,
-                                                    target,
-                                                    &workflow_value,
-                                                );
-                                            }
-                                        }
-                                    }
-                                    break;
-                                }
-                            }
-                        } else {
-                            // Fallback: store raw bytes if decode fails
+                        let workflow_value = if result_bytes.is_empty() {
                             warn!(
                                 node_id = %completion.node_id,
-                                "Failed to decode result as WorkflowArguments, storing raw bytes"
+                                "Empty result payload; skipping variable storage"
                             );
-                            for target in &node.targets.clone() {
-                                self.store_raw_variable_for_node(
-                                    &completion.node_id,
-                                    &node_type,
-                                    target,
-                                    result_bytes.clone(),
+                            None
+                        } else {
+                            let decoded =
+                                crate::inline_executor::extract_result_value(result_bytes);
+                            if decoded.is_none() {
+                                warn!(
+                                    node_id = %completion.node_id,
+                                    "Failed to decode result value; skipping variable storage"
                                 );
+                            }
+                            decoded
+                        };
+
+                        if let Some(workflow_value) = workflow_value {
+                            let targets = node.targets.clone();
+
+                            // Unpack tuples/lists when there are multiple targets
+                            if targets.len() > 1 {
+                                match &workflow_value {
+                                    WorkflowValue::Tuple(items) | WorkflowValue::List(items) => {
+                                        for (target, item) in targets.iter().zip(items.iter()) {
+                                            self.store_variable_for_node(
+                                                &completion.node_id,
+                                                &node_type,
+                                                target,
+                                                item,
+                                            );
+                                        }
+                                    }
+                                    _ => {
+                                        // Non-iterable value with multiple targets - store as-is
+                                        warn!(
+                                            node_id = %completion.node_id,
+                                            targets = ?targets,
+                                            "Value is not iterable for tuple unpacking"
+                                        );
+                                        for target in &targets {
+                                            self.store_variable_for_node(
+                                                &completion.node_id,
+                                                &node_type,
+                                                target,
+                                                &workflow_value,
+                                            );
+                                        }
+                                    }
+                                }
+                            } else {
+                                // Single target - store entire value
+                                for target in &targets {
+                                    self.store_variable_for_node(
+                                        &completion.node_id,
+                                        &node_type,
+                                        target,
+                                        &workflow_value,
+                                    );
+                                }
                             }
                         }
                     }
@@ -1056,6 +1518,9 @@ impl ExecutionState {
                         node.status = NodeStatus::Pending as i32;
                         node.worker_id = None;
                         self.graph.ready_queue.push(completion.node_id.clone());
+                        if !result.newly_ready.contains(&completion.node_id) {
+                            result.newly_ready.push(completion.node_id.clone());
+                        }
                     } else {
                         if exception_info.is_none()
                             && let Some(error_type) = &completion.error_type
@@ -1239,11 +1704,18 @@ impl ExecutionState {
 
                 // Handle loop-back edges: reset node status to allow re-visitation
                 if edge.is_loop_back {
-                    self.reset_nodes_for_loop(successor_id, &edge.source, dag);
+                    // Get current iteration index before reset
+                    let current_idx = self
+                        .graph
+                        .nodes
+                        .get(successor_id)
+                        .and_then(|n| n.loop_index)
+                        .unwrap_or(0);
+
+                    self.reset_nodes_for_loop(successor_id, &edge.source, dag, current_idx);
 
                     if let Some(successor) = self.graph.nodes.get_mut(successor_id) {
                         // Increment loop_index for tracking
-                        let current_idx = successor.loop_index.unwrap_or(0);
                         let new_idx = current_idx + 1;
                         successor.loop_index = Some(new_idx);
                         trace!(
@@ -1490,17 +1962,26 @@ impl ExecutionState {
                 if let Some(result_value_bytes) = self.graph.variables.get("result") {
                     // result_value_bytes is a WorkflowArgumentValue
                     // Wrap it in WorkflowArguments with key "result"
-                    if let Ok(value) = decode_message::<crate::messages::proto::WorkflowArgumentValue>(
-                        result_value_bytes,
-                    ) {
-                        let args = WorkflowArguments {
-                            arguments: vec![crate::messages::proto::WorkflowArgument {
-                                key: "result".to_string(),
-                                value: Some(value),
-                            }],
-                        };
-                        result.result_payload = Some(encode_message(&args));
-                    }
+                    let value = if let Ok(value) = decode_message::<
+                        crate::messages::proto::WorkflowArgumentValue,
+                    >(result_value_bytes)
+                    {
+                        value
+                    } else if let Some(workflow_value) =
+                        crate::inline_executor::extract_result_value(result_value_bytes)
+                    {
+                        workflow_value.to_proto()
+                    } else {
+                        warn!("Failed to decode result variable, storing null payload");
+                        WorkflowValue::Null.to_proto()
+                    };
+                    let args = WorkflowArguments {
+                        arguments: vec![crate::messages::proto::WorkflowArgument {
+                            key: "result".to_string(),
+                            value: Some(value),
+                        }],
+                    };
+                    result.result_payload = Some(encode_message(&args));
                 } else {
                     let args = WorkflowArguments {
                         arguments: vec![crate::messages::proto::WorkflowArgument {
@@ -1516,15 +1997,63 @@ impl ExecutionState {
         result
     }
 
-    fn reset_nodes_for_loop(&mut self, loop_head_id: &str, loop_back_source: &str, dag: &DAG) {
+    /// Reset nodes for the next loop iteration.
+    /// Archived nodes keep their execution_id, which is used to retrieve their payloads.
+    fn reset_nodes_for_loop(
+        &mut self,
+        loop_head_id: &str,
+        loop_back_source: &str,
+        dag: &DAG,
+        iteration_idx: i32,
+    ) {
         let nodes_in_loop = Self::collect_loop_nodes(loop_head_id, loop_back_source, dag);
         if nodes_in_loop.is_empty() {
             return;
         }
 
         for node_id in &nodes_in_loop {
-            if let Some(node) = self.graph.nodes.get_mut(node_id) {
-                Self::reset_node_for_loop(node);
+            // Preserve completed iteration by moving to indexed node ID
+            if let Some(mut node) = self.graph.nodes.remove(node_id) {
+                // Only preserve if the node actually executed (has timing data)
+                if node.started_at_ms.is_some() {
+                    let iter_node_id = format!("{}[iter_{}]", node_id, iteration_idx);
+                    // Set parent and iteration info on the archived node
+                    // Note: execution_id is preserved, which allows payload hydration to work
+                    node.parent_execution_id = Some(node_id.clone());
+                    node.iteration_index = Some(iteration_idx);
+                    self.graph.nodes.insert(iter_node_id, node.clone());
+                }
+
+                // Create fresh node for next iteration (execution_id will be set by mark_running)
+                let fresh_node = ExecutionNode {
+                    template_id: node.template_id.clone(),
+                    spread_index: node.spread_index,
+                    status: NodeStatus::Blocked as i32,
+                    worker_id: None,
+                    started_at_ms: None,
+                    completed_at_ms: None,
+                    duration_ms: None,
+                    inputs: None,
+                    result: None,
+                    error: None,
+                    error_type: None,
+                    waiting_for: Vec::new(),
+                    completed_count: 0,
+                    attempt_number: 0,
+                    max_retries: node.max_retries,
+                    attempts: Vec::new(),
+                    timeout_seconds: node.timeout_seconds,
+                    timeout_retry_limit: node.timeout_retry_limit,
+                    backoff: node.backoff.clone(),
+                    loop_index: node.loop_index,
+                    loop_accumulators: node.loop_accumulators.clone(),
+                    targets: node.targets.clone(),
+                    node_kind: node.node_kind,
+                    parent_execution_id: None,
+                    iteration_index: None,
+                    execution_id: None,
+                };
+                self.graph.nodes.insert(node_id.clone(), fresh_node);
             }
         }
 
@@ -1586,29 +2115,18 @@ impl ExecutionState {
         visited
     }
 
-    fn reset_node_for_loop(node: &mut ExecutionNode) {
-        node.status = NodeStatus::Blocked as i32;
-        node.worker_id = None;
-        node.started_at_ms = None;
-        node.completed_at_ms = None;
-        node.duration_ms = None;
-        node.inputs = None;
-        node.result = None;
-        node.error = None;
-        node.error_type = None;
-        node.waiting_for.clear();
-        node.completed_count = 0;
-        node.attempt_number = 0;
-        node.attempts.clear();
-    }
-
     /// Expand a spread node into N concrete execution nodes
-    pub fn expand_spread(&mut self, spread_node_id: &str, items: Vec<WorkflowValue>, dag: &DAG) {
+    pub fn expand_spread(
+        &mut self,
+        spread_node_id: &str,
+        items: Vec<WorkflowValue>,
+        dag: &DAG,
+    ) -> Vec<String> {
         let dag_node = match dag.nodes.get(spread_node_id) {
             Some(n) => n,
             None => {
                 warn!("Spread node {} not found in DAG", spread_node_id);
-                return;
+                return Vec::new();
             }
         };
 
@@ -1616,7 +2134,7 @@ impl ExecutionState {
             Some(id) => id.clone(),
             None => {
                 warn!("Spread node {} has no aggregates_to", spread_node_id);
-                return;
+                return Vec::new();
             }
         };
 
@@ -1655,6 +2173,11 @@ impl ExecutionState {
                     loop_index: None,
                     loop_accumulators: None,
                     targets: vec![],
+                    // Spread children are action calls with the spread template as parent
+                    node_kind: NodeKind::Action as i32,
+                    parent_execution_id: Some(spread_node_id.to_string()),
+                    iteration_index: None,
+                    execution_id: None, // Will be set by mark_running
                 };
 
                 self.graph.nodes.insert(node_id.clone(), exec_node);
@@ -1681,6 +2204,8 @@ impl ExecutionState {
             count = expanded_ids.len(),
             "Expanded spread into concrete nodes"
         );
+
+        expanded_ids
     }
 
     /// Check if there are any nodes still running or pending
@@ -1702,8 +2227,9 @@ impl ExecutionState {
     }
 
     /// Reset running nodes to pending (for crash recovery)
-    pub fn recover_running_nodes(&mut self) {
+    pub fn recover_running_nodes(&mut self) -> Vec<String> {
         let running_ids: Vec<String> = self.get_running_nodes();
+        let mut updated = Vec::new();
 
         for node_id in running_ids {
             if let Some(node) = self.graph.nodes.get_mut(&node_id) {
@@ -1721,14 +2247,18 @@ impl ExecutionState {
                     node.worker_id = None;
                     node.started_at_ms = None;
                     self.graph.ready_queue.push(node_id.clone());
+                    updated.push(node_id.clone());
                     debug!(node_id = %node_id, "Recovered running node to pending");
                 } else {
                     node.status = NodeStatus::Exhausted as i32;
                     node.error = Some("Owner crashed, max retries exceeded".to_string());
+                    updated.push(node_id.clone());
                     debug!(node_id = %node_id, "Running node exhausted retries");
                 }
             }
         }
+
+        updated
     }
 
     /// Find completed nodes whose successors haven't been advanced.
@@ -1744,6 +2274,16 @@ impl ExecutionState {
 
         for (node_id, node) in &self.graph.nodes {
             if node.status != NodeStatus::Completed as i32 {
+                continue;
+            }
+
+            // Skip archived loop iteration nodes - they completed in a previous iteration
+            // and their successors in the DAG now refer to fresh nodes for the next iteration.
+            // Processing stalled completions for archived nodes would incorrectly add
+            // duplicate attempts with 0ms duration.
+            // Note: We check iteration_index specifically because parent_execution_id is also
+            // set for spread children, which SHOULD be processed for stalled completions.
+            if node.iteration_index.is_some() {
                 continue;
             }
 
@@ -1795,6 +2335,517 @@ impl ExecutionState {
 impl Default for ExecutionState {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl WorkflowState {
+    pub fn rehydrate(
+        instance: InstanceRehydrate,
+        action_nodes_archive: &[ActionNodeArchive],
+    ) -> Result<RehydrateResult, WorkflowStateError> {
+        let inputs: WorkflowArguments = instance
+            .input_payload
+            .as_ref()
+            .map(|b| decode_message(b))
+            .transpose()?
+            .unwrap_or_default();
+
+        let mut inner = match instance.execution_graph.as_ref() {
+            Some(bytes) => ExecutionState::from_bytes(bytes)?,
+            None => ExecutionState::new(),
+        };
+
+        if instance.execution_graph.is_none() {
+            inner.initialize_from_dag(&instance.dag, &inputs);
+        }
+
+        let mut state = WorkflowState {
+            instance_id: instance.instance_id,
+            dag: instance.dag,
+            inner,
+            updated_executions: HashMap::new(),
+        };
+
+        if instance.execution_graph.is_some() && !action_nodes_archive.is_empty() {
+            let payloads: Vec<PayloadTuple> = action_nodes_archive
+                .iter()
+                .map(|archive| {
+                    (
+                        archive.execution_id.clone(),
+                        archive.inputs.clone(),
+                        archive.result.clone(),
+                    )
+                })
+                .collect();
+            state.inner.hydrate_payloads(&payloads);
+        }
+
+        state.inner.rehydrate_variables(&state.dag, &inputs);
+
+        let recovered = state.inner.recover_running_nodes();
+        for node_id in recovered {
+            state.record_execution_update(&node_id);
+        }
+
+        let stalled = state.inner.find_stalled_completions(&state.dag);
+        let mut update = if !stalled.is_empty() {
+            state.apply_completions(stalled)
+        } else {
+            WorkflowStateUpdate::default()
+        };
+
+        let ready_snapshot = state.inner.peek_ready_queue();
+        if !ready_snapshot.is_empty() {
+            let ready_update = state.process_ready_nodes(ready_snapshot);
+            update.merge(ready_update);
+        }
+
+        let completion = state.inner.check_workflow_completion(&state.dag);
+        update.merge_completion(&completion);
+
+        Ok(RehydrateResult { state, update })
+    }
+
+    pub fn finished_action(&mut self, update: ActionUpdate) -> WorkflowStateUpdate {
+        match update {
+            ActionUpdate::Started {
+                node_id,
+                worker_id,
+                inputs,
+            } => {
+                self.inner.mark_running(&node_id, &worker_id, inputs);
+                if let Some(node) = self.inner.graph.nodes.get_mut(&node_id)
+                    && NodeKind::try_from(node.node_kind) == Ok(NodeKind::Sleep)
+                    && node.started_at_ms.is_none()
+                {
+                    node.started_at_ms = Some(Utc::now().timestamp_millis());
+                }
+                self.record_execution_update(&node_id);
+                WorkflowStateUpdate::default()
+            }
+            ActionUpdate::Completed(completion) => self.apply_completions(vec![completion]),
+        }
+    }
+
+    pub fn get_updated_executions(&mut self) -> Vec<ActionExecutionUpdate> {
+        std::mem::take(&mut self.updated_executions)
+            .into_values()
+            .collect()
+    }
+
+    pub fn get_state(&self) -> WorkflowStateSnapshot {
+        let mut executions = HashMap::new();
+        for (node_id, node) in &self.inner.graph.nodes {
+            executions.insert(node_id.clone(), self.execution_metadata(node_id, node));
+        }
+
+        let completion = self.inner.check_workflow_completion(&self.dag);
+
+        WorkflowStateSnapshot {
+            instance_id: self.instance_id,
+            ready_queue: self.inner.graph.ready_queue.clone(),
+            next_wakeup_time: self.inner.graph.next_wakeup_time,
+            executions,
+            encoded_graph: self.inner.to_bytes_fully_stripped(),
+            workflow_completed: completion.workflow_completed,
+            workflow_failed: completion.workflow_failed,
+            result_payload: completion.result_payload,
+            error_message: completion.error_message,
+        }
+    }
+
+    fn apply_completions(&mut self, completions: Vec<Completion>) -> WorkflowStateUpdate {
+        let mut update = WorkflowStateUpdate::default();
+        let mut completion_contexts: HashMap<String, (Option<String>, i32)> = HashMap::new();
+
+        for completion in &completions {
+            if let Some(payload) = self.capture_payload(completion) {
+                update.payloads.push(payload);
+            }
+            if let Some(node) = self.inner.graph.nodes.get(&completion.node_id) {
+                completion_contexts.insert(
+                    completion.node_id.clone(),
+                    (node.execution_id.clone(), node.attempt_number),
+                );
+            }
+        }
+
+        let result = self
+            .inner
+            .apply_completions_batch(completions.clone(), &self.dag);
+
+        let now_ms = Utc::now().timestamp_millis();
+        for completion in &completions {
+            let Some((execution_id, attempt_number)) =
+                completion_contexts.get(&completion.node_id).cloned()
+            else {
+                continue;
+            };
+            let Some(node) = self.inner.graph.nodes.get(&completion.node_id) else {
+                continue;
+            };
+            let Some(exec_id) = execution_id.clone() else {
+                continue;
+            };
+
+            let node_status = NodeStatus::try_from(node.status).unwrap_or(NodeStatus::Unspecified);
+            let status = if completion.success {
+                NodeStatus::Completed
+            } else {
+                match node_status {
+                    NodeStatus::Caught => NodeStatus::Caught,
+                    NodeStatus::Exhausted => NodeStatus::Exhausted,
+                    NodeStatus::Pending => NodeStatus::Failed,
+                    other => other,
+                }
+            };
+
+            let started_at_ms = completion
+                .worker_duration_ms
+                .map(|wd| now_ms - wd)
+                .or(node.started_at_ms);
+
+            let exec_update = ActionExecutionUpdate {
+                instance_id: self.instance_id,
+                node_id: completion.node_id.clone(),
+                action_id: node.template_id.clone(),
+                execution_id: Some(exec_id.clone()),
+                status,
+                attempt_number,
+                max_retries: node.max_retries,
+                worker_id: Some(completion.worker_id.clone()),
+                started_at_ms,
+                completed_at_ms: Some(now_ms),
+                duration_ms: Some(completion.duration_ms),
+                parent_execution_id: node.parent_execution_id.clone(),
+                spread_index: node.spread_index,
+                loop_index: node.loop_index,
+                waiting_for: node.waiting_for.clone(),
+                completed_count: node.completed_count,
+                node_kind: NodeKind::try_from(node.node_kind).unwrap_or(NodeKind::Unspecified),
+                error: completion.error.clone(),
+                error_type: completion.error_type.clone(),
+                timeout_seconds: node.timeout_seconds,
+                timeout_retry_limit: node.timeout_retry_limit,
+                backoff: node.backoff.clone().unwrap_or_default(),
+                sleep_wakeup_time_ms: self.sleep_wakeup_time_ms(node),
+            };
+
+            self.updated_executions.insert(exec_id, exec_update);
+
+            if !completion.success
+                && node_status == NodeStatus::Pending
+                && let Some(node_mut) = self.inner.graph.nodes.get_mut(&completion.node_id)
+            {
+                node_mut.execution_id = None;
+                node_mut.started_at_ms = None;
+                node_mut.inputs = None;
+            }
+        }
+
+        update.merge_completion(&result);
+
+        if !result.newly_ready.is_empty() {
+            let ready_update = self.process_ready_nodes(result.newly_ready);
+            update.merge(ready_update);
+        }
+
+        update
+    }
+
+    fn process_ready_nodes(&mut self, node_ids: Vec<String>) -> WorkflowStateUpdate {
+        let mut update = WorkflowStateUpdate::default();
+        let mut queue: VecDeque<String> = node_ids.into();
+
+        while let Some(node_id) = queue.pop_front() {
+            let Some(exec_node) = self.inner.graph.nodes.get(&node_id) else {
+                continue;
+            };
+            let node_kind =
+                NodeKind::try_from(exec_node.node_kind).unwrap_or(NodeKind::Unspecified);
+            let template_id = exec_node.template_id.clone();
+            let Some(dag_node) = self.dag.nodes.get(&template_id).cloned() else {
+                continue;
+            };
+
+            let is_worker_action = dag_node.module_name.is_some() && dag_node.action_name.is_some();
+
+            if node_kind == NodeKind::Sleep {
+                let inputs = self.inner.get_inputs_for_node(&node_id, &self.dag);
+                update
+                    .ready_actions
+                    .push(self.build_ready_action(&node_id, exec_node, &dag_node, inputs));
+                continue;
+            }
+            if node_kind == NodeKind::Action && is_worker_action {
+                let inputs = self.inner.get_inputs_for_node(&node_id, &self.dag);
+                update
+                    .ready_actions
+                    .push(self.build_ready_action(&node_id, exec_node, &dag_node, inputs));
+                continue;
+            }
+
+            let inputs = self.inner.get_inputs_for_node(&node_id, &self.dag);
+            self.inner
+                .mark_running_no_queue_removal(&node_id, "inline", inputs.clone());
+            self.inner.remove_from_ready_queue(&node_id);
+            self.record_execution_update(&node_id);
+
+            let completion = if node_kind == NodeKind::Spread {
+                let mut completion_error = None;
+                let items = if let Some(expr) = &dag_node.spread_collection_expr {
+                    let scope = self.inner.build_scope_for_node(&node_id);
+                    match ExpressionEvaluator::evaluate(expr, &scope) {
+                        Ok(WorkflowValue::List(items)) | Ok(WorkflowValue::Tuple(items)) => items,
+                        Ok(WorkflowValue::Null) => Vec::new(),
+                        Ok(other) => {
+                            completion_error = Some(format!(
+                                "Spread collection must be list or tuple, got {:?}",
+                                other
+                            ));
+                            Vec::new()
+                        }
+                        Err(e) => {
+                            completion_error =
+                                Some(format!("Spread collection evaluation error: {}", e));
+                            Vec::new()
+                        }
+                    }
+                } else {
+                    completion_error =
+                        Some("Spread node missing collection expression".to_string());
+                    Vec::new()
+                };
+
+                if completion_error.is_none() {
+                    let expanded = self.inner.expand_spread(&template_id, items, &self.dag);
+                    for child_id in expanded {
+                        queue.push_back(child_id);
+                    }
+                }
+
+                Completion {
+                    node_id: node_id.clone(),
+                    success: completion_error.is_none(),
+                    result: None,
+                    error: completion_error.clone(),
+                    error_type: completion_error
+                        .as_ref()
+                        .map(|_| "SpreadEvaluationError".to_string()),
+                    worker_id: "inline".to_string(),
+                    duration_ms: 0,
+                    worker_duration_ms: Some(0),
+                }
+            } else {
+                let result = crate::inline_executor::execute_inline_node(
+                    &mut self.inner,
+                    &self.dag,
+                    &node_id,
+                    &dag_node,
+                );
+
+                Completion {
+                    node_id: node_id.clone(),
+                    success: result.is_ok(),
+                    result: result.ok(),
+                    error: None,
+                    error_type: None,
+                    worker_id: "inline".to_string(),
+                    duration_ms: 0,
+                    worker_duration_ms: Some(0),
+                }
+            };
+
+            if let Some(payload) = self.capture_payload(&completion) {
+                update.payloads.push(payload);
+            }
+
+            let result = self
+                .inner
+                .apply_completions_batch(vec![completion.clone()], &self.dag);
+            self.record_execution_update(&completion.node_id);
+            update.merge_completion(&result);
+
+            if !result.newly_ready.is_empty() {
+                for next in result.newly_ready {
+                    queue.push_back(next);
+                }
+            }
+        }
+
+        update
+    }
+
+    fn build_ready_action(
+        &self,
+        node_id: &str,
+        exec_node: &ExecutionNode,
+        dag_node: &DAGNode,
+        inputs: Option<Vec<u8>>,
+    ) -> ReadyAction {
+        ReadyAction {
+            node_id: node_id.to_string(),
+            action_id: exec_node.template_id.clone(),
+            node_kind: NodeKind::try_from(exec_node.node_kind).unwrap_or(NodeKind::Unspecified),
+            module_name: dag_node.module_name.clone(),
+            action_name: dag_node.action_name.clone(),
+            inputs,
+            timeout_seconds: exec_node.timeout_seconds as u32,
+            max_retries: exec_node.max_retries as u32,
+            attempt_number: exec_node.attempt_number as u32,
+        }
+    }
+
+    fn capture_payload(&self, completion: &Completion) -> Option<ActionPayload> {
+        let node = self.inner.graph.nodes.get(&completion.node_id)?;
+        let execution_id = node.execution_id.clone()?;
+        Some(ActionPayload {
+            execution_id,
+            action_id: node.template_id.clone(),
+            inputs: node.inputs.clone(),
+            result: completion.result.clone(),
+        })
+    }
+
+    fn record_execution_update(&mut self, node_id: &str) {
+        let Some(node) = self.inner.graph.nodes.get(node_id) else {
+            return;
+        };
+        let Some(execution_id) = node.execution_id.clone() else {
+            return;
+        };
+        let update = self.execution_update(node_id, node);
+        self.updated_executions.insert(execution_id, update);
+    }
+
+    fn execution_metadata(&self, node_id: &str, node: &ExecutionNode) -> ActionExecutionMetadata {
+        ActionExecutionMetadata {
+            node_id: node_id.to_string(),
+            action_id: node.template_id.clone(),
+            execution_id: node.execution_id.clone(),
+            status: NodeStatus::try_from(node.status).unwrap_or(NodeStatus::Unspecified),
+            attempt_number: node.attempt_number,
+            max_retries: node.max_retries,
+            worker_id: node.worker_id.clone(),
+            started_at_ms: node.started_at_ms,
+            completed_at_ms: node.completed_at_ms,
+            duration_ms: node.duration_ms,
+            parent_execution_id: node.parent_execution_id.clone(),
+            spread_index: node.spread_index,
+            loop_index: node.loop_index,
+            waiting_for: node.waiting_for.clone(),
+            completed_count: node.completed_count,
+            node_kind: NodeKind::try_from(node.node_kind).unwrap_or(NodeKind::Unspecified),
+            error: node.error.clone(),
+            error_type: node.error_type.clone(),
+            timeout_seconds: node.timeout_seconds,
+            timeout_retry_limit: node.timeout_retry_limit,
+            backoff: node.backoff.clone().unwrap_or_default(),
+            sleep_wakeup_time_ms: self.sleep_wakeup_time_ms(node),
+        }
+    }
+
+    fn execution_update(&self, node_id: &str, node: &ExecutionNode) -> ActionExecutionUpdate {
+        ActionExecutionUpdate {
+            instance_id: self.instance_id,
+            node_id: node_id.to_string(),
+            action_id: node.template_id.clone(),
+            execution_id: node.execution_id.clone(),
+            status: NodeStatus::try_from(node.status).unwrap_or(NodeStatus::Unspecified),
+            attempt_number: node.attempt_number,
+            max_retries: node.max_retries,
+            worker_id: node.worker_id.clone(),
+            started_at_ms: node.started_at_ms,
+            completed_at_ms: node.completed_at_ms,
+            duration_ms: node.duration_ms,
+            parent_execution_id: node.parent_execution_id.clone(),
+            spread_index: node.spread_index,
+            loop_index: node.loop_index,
+            waiting_for: node.waiting_for.clone(),
+            completed_count: node.completed_count,
+            node_kind: NodeKind::try_from(node.node_kind).unwrap_or(NodeKind::Unspecified),
+            error: node.error.clone(),
+            error_type: node.error_type.clone(),
+            timeout_seconds: node.timeout_seconds,
+            timeout_retry_limit: node.timeout_retry_limit,
+            backoff: node.backoff.clone().unwrap_or_default(),
+            sleep_wakeup_time_ms: self.sleep_wakeup_time_ms(node),
+        }
+    }
+
+    fn sleep_wakeup_time_ms(&self, exec_node: &ExecutionNode) -> Option<i64> {
+        let started_at_ms = exec_node.started_at_ms?;
+        let inputs = decode_workflow_arguments(exec_node.inputs.as_deref());
+        let duration_ms = sleep_duration_ms_from_args(&inputs);
+        Some(started_at_ms + duration_ms)
+    }
+}
+
+impl WorkflowStateUpdate {
+    fn merge(&mut self, other: WorkflowStateUpdate) {
+        self.ready_actions.extend(other.ready_actions);
+        self.payloads.extend(other.payloads);
+        if other.workflow_completed {
+            self.workflow_completed = true;
+            self.result_payload = other.result_payload.clone();
+        }
+        if other.workflow_failed {
+            self.workflow_failed = true;
+            self.error_message = other.error_message;
+            self.result_payload = other.result_payload;
+        }
+    }
+
+    fn merge_completion(&mut self, result: &BatchCompletionResult) {
+        if result.workflow_completed {
+            self.workflow_completed = true;
+            self.result_payload = result.result_payload.clone();
+        }
+        if result.workflow_failed {
+            self.workflow_failed = true;
+            self.error_message = result.error_message.clone();
+            self.result_payload = result.result_payload.clone();
+        }
+    }
+}
+
+fn decode_workflow_arguments(bytes: Option<&[u8]>) -> WorkflowArguments {
+    bytes
+        .and_then(|b| decode_message(b).ok())
+        .unwrap_or_default()
+}
+
+fn sleep_duration_ms_from_args(inputs: &WorkflowArguments) -> i64 {
+    let mut duration_secs: Option<f64> = None;
+    for arg in &inputs.arguments {
+        if arg.key != "duration" && arg.key != "seconds" {
+            continue;
+        }
+        let Some(value) = arg.value.as_ref() else {
+            continue;
+        };
+        match WorkflowValue::from_proto(value) {
+            WorkflowValue::Int(i) => {
+                duration_secs = Some(i as f64);
+            }
+            WorkflowValue::Float(f) => {
+                duration_secs = Some(f);
+            }
+            WorkflowValue::String(s) => {
+                if let Ok(parsed) = s.parse::<f64>() {
+                    duration_secs = Some(parsed);
+                }
+            }
+            _ => {}
+        }
+        break;
+    }
+
+    let secs = duration_secs.unwrap_or(0.0);
+    if secs <= 0.0 {
+        0
+    } else {
+        (secs * 1000.0).ceil() as i64
     }
 }
 
@@ -2633,5 +3684,768 @@ mod tests {
             result.newly_ready.contains(&"output".to_string()),
             "output node should be ready after recovery"
         );
+    }
+
+    #[test]
+    fn test_find_stalled_completions_skips_archived_loop_iterations() {
+        // Test that archived loop iteration nodes (with iteration_index set) are skipped
+        // by find_stalled_completions. This prevents phantom 0ms entries.
+        use crate::dag::{DAGEdge, DAGNode};
+        use std::collections::HashMap;
+
+        let mut nodes = HashMap::new();
+        let mut edges = Vec::new();
+
+        // Create a simple DAG with action_1 -> action_2
+        let action_1 = DAGNode::new(
+            "action_1".to_string(),
+            "action_call".to_string(),
+            "action_1".to_string(),
+        );
+        nodes.insert("action_1".to_string(), action_1);
+
+        let action_2 = DAGNode::new(
+            "action_2".to_string(),
+            "action_call".to_string(),
+            "action_2".to_string(),
+        );
+        nodes.insert("action_2".to_string(), action_2);
+
+        edges.push(DAGEdge::state_machine(
+            "action_1".to_string(),
+            "action_2".to_string(),
+        ));
+
+        let dag = DAG {
+            nodes,
+            edges,
+            entry_node: Some("action_1".to_string()),
+        };
+
+        // Create execution state with:
+        // - action_1[iter_0]: archived, Completed (with iteration_index set)
+        // - action_1: fresh node, Blocked
+        // - action_2: Blocked
+        let mut state = ExecutionState::new();
+
+        // Archived iteration node - Completed with iteration_index
+        state.graph.nodes.insert(
+            "action_1[iter_0]".to_string(),
+            ExecutionNode {
+                template_id: "action_1".to_string(),
+                status: NodeStatus::Completed as i32,
+                started_at_ms: Some(1000),
+                completed_at_ms: Some(2000),
+                duration_ms: Some(1000),
+                iteration_index: Some(0),
+                parent_execution_id: Some("action_1".to_string()),
+                ..Default::default()
+            },
+        );
+
+        // Fresh node for next iteration - Blocked
+        state.graph.nodes.insert(
+            "action_1".to_string(),
+            ExecutionNode {
+                template_id: "action_1".to_string(),
+                status: NodeStatus::Blocked as i32,
+                ..Default::default()
+            },
+        );
+
+        // Successor node - Blocked
+        state.graph.nodes.insert(
+            "action_2".to_string(),
+            ExecutionNode {
+                template_id: "action_2".to_string(),
+                status: NodeStatus::Blocked as i32,
+                ..Default::default()
+            },
+        );
+
+        // find_stalled_completions should NOT find action_1[iter_0] as stalled
+        // because it has iteration_index set (it's an archived loop iteration)
+        let stalled = state.find_stalled_completions(&dag);
+        assert!(
+            stalled.is_empty(),
+            "Should not find stalled completions for archived loop iteration nodes"
+        );
+    }
+
+    #[test]
+    fn test_parallel_join_completion() {
+        // Test that an output node becomes ready when multiple parallel branches complete
+        // This tests a scenario that could cause stalls if the join logic doesn't work correctly
+        use crate::dag::{DAGEdge, DAGNode};
+        use std::collections::HashMap;
+
+        let mut nodes = HashMap::new();
+        let mut edges = Vec::new();
+
+        // Input node
+        let mut input = DAGNode::new(
+            "input".to_string(),
+            "input".to_string(),
+            "input".to_string(),
+        );
+        input.is_input = true;
+        input.function_name = Some("main".to_string());
+        nodes.insert("input".to_string(), input);
+
+        // Two parallel actions
+        let mut action_a = DAGNode::new(
+            "action_a".to_string(),
+            "fn_call".to_string(),
+            "action_a".to_string(),
+        );
+        action_a.module_name = Some("test".to_string());
+        action_a.action_name = Some("do_a".to_string());
+        action_a.function_name = Some("main".to_string());
+        nodes.insert("action_a".to_string(), action_a);
+
+        let mut action_b = DAGNode::new(
+            "action_b".to_string(),
+            "fn_call".to_string(),
+            "action_b".to_string(),
+        );
+        action_b.module_name = Some("test".to_string());
+        action_b.action_name = Some("do_b".to_string());
+        action_b.function_name = Some("main".to_string());
+        nodes.insert("action_b".to_string(), action_b);
+
+        // Join node that requires both branches
+        let mut join = DAGNode::new("join".to_string(), "join".to_string(), "join".to_string());
+        join.function_name = Some("main".to_string());
+        nodes.insert("join".to_string(), join);
+
+        // Output node
+        let mut output = DAGNode::new(
+            "output".to_string(),
+            "output".to_string(),
+            "output".to_string(),
+        );
+        output.is_output = true;
+        output.function_name = Some("main".to_string());
+        nodes.insert("output".to_string(), output);
+
+        // Edges: input -> action_a, input -> action_b, action_a -> join, action_b -> join, join -> output
+        edges.push(DAGEdge::state_machine(
+            "input".to_string(),
+            "action_a".to_string(),
+        ));
+        edges.push(DAGEdge::state_machine(
+            "input".to_string(),
+            "action_b".to_string(),
+        ));
+        edges.push(DAGEdge::state_machine(
+            "action_a".to_string(),
+            "join".to_string(),
+        ));
+        edges.push(DAGEdge::state_machine(
+            "action_b".to_string(),
+            "join".to_string(),
+        ));
+        edges.push(DAGEdge::state_machine(
+            "join".to_string(),
+            "output".to_string(),
+        ));
+
+        let dag = DAG {
+            nodes,
+            edges,
+            entry_node: Some("input".to_string()),
+        };
+
+        // Initialize execution state
+        let mut state = ExecutionState::new();
+        state.initialize_from_dag(&dag, &WorkflowArguments::default());
+
+        // Simulate input completing
+        let input_completion = Completion {
+            node_id: "input".to_string(),
+            success: true,
+            result: None,
+            error: None,
+            error_type: None,
+            worker_id: "test".to_string(),
+            duration_ms: 0,
+            worker_duration_ms: Some(0),
+        };
+        let result = state.apply_completions_batch(vec![input_completion], &dag);
+        assert!(
+            result.newly_ready.contains(&"action_a".to_string()),
+            "action_a should be ready"
+        );
+        assert!(
+            result.newly_ready.contains(&"action_b".to_string()),
+            "action_b should be ready"
+        );
+
+        // Mark actions as running (simulating dispatch)
+        state.mark_running("action_a", "worker1", None);
+        state.mark_running("action_b", "worker2", None);
+
+        // Complete action_a
+        let action_a_completion = Completion {
+            node_id: "action_a".to_string(),
+            success: true,
+            result: Some(vec![1, 2, 3]),
+            error: None,
+            error_type: None,
+            worker_id: "worker1".to_string(),
+            duration_ms: 100,
+            worker_duration_ms: Some(100),
+        };
+        let result = state.apply_completions_batch(vec![action_a_completion], &dag);
+        // Join shouldn't be ready yet - needs action_b
+        assert!(
+            !result.newly_ready.contains(&"join".to_string()),
+            "join should NOT be ready yet (needs action_b)"
+        );
+
+        // Complete action_b
+        let action_b_completion = Completion {
+            node_id: "action_b".to_string(),
+            success: true,
+            result: Some(vec![4, 5, 6]),
+            error: None,
+            error_type: None,
+            worker_id: "worker2".to_string(),
+            duration_ms: 150,
+            worker_duration_ms: Some(150),
+        };
+        let result = state.apply_completions_batch(vec![action_b_completion], &dag);
+        // Now join should be ready
+        assert!(
+            result.newly_ready.contains(&"join".to_string()),
+            "join should be ready after both branches complete"
+        );
+
+        // Process join as inline node (simulate what collect_ready_actions does)
+        let join_node = state.graph.nodes.get_mut("join").unwrap();
+        join_node.status = NodeStatus::Completed as i32;
+        state.remove_from_ready_queue("join");
+
+        // Complete join
+        let join_completion = Completion {
+            node_id: "join".to_string(),
+            success: true,
+            result: None,
+            error: None,
+            error_type: None,
+            worker_id: "inline".to_string(),
+            duration_ms: 0,
+            worker_duration_ms: Some(0),
+        };
+        let result = state.apply_completions_batch(vec![join_completion], &dag);
+        assert!(
+            result.newly_ready.contains(&"output".to_string()),
+            "output should be ready after join completes"
+        );
+
+        // Process output as inline node
+        let output_node = state.graph.nodes.get_mut("output").unwrap();
+        output_node.status = NodeStatus::Completed as i32;
+        state.remove_from_ready_queue("output");
+
+        // Complete output and check workflow completion
+        let output_completion = Completion {
+            node_id: "output".to_string(),
+            success: true,
+            result: None,
+            error: None,
+            error_type: None,
+            worker_id: "inline".to_string(),
+            duration_ms: 0,
+            worker_duration_ms: Some(0),
+        };
+        let result = state.apply_completions_batch(vec![output_completion], &dag);
+        assert!(
+            result.workflow_completed,
+            "workflow should be completed after output node completes"
+        );
+    }
+
+    #[test]
+    fn test_stalled_instance_detection_no_pending_work() {
+        // Test the scenario where an instance has:
+        // 1. No pending work (has_pending_work() returns false)
+        // 2. No in-flight actions
+        // 3. Workflow is not complete
+        // This is the "stall" scenario that keeps the instance owned but making no progress
+        use crate::dag::{DAGEdge, DAGNode};
+        use std::collections::HashMap;
+
+        let mut nodes = HashMap::new();
+        let mut edges = Vec::new();
+
+        // Simple workflow: input -> action -> output
+        let mut input = DAGNode::new(
+            "input".to_string(),
+            "input".to_string(),
+            "input".to_string(),
+        );
+        input.is_input = true;
+        input.function_name = Some("main".to_string());
+        nodes.insert("input".to_string(), input);
+
+        let mut action = DAGNode::new(
+            "action".to_string(),
+            "fn_call".to_string(),
+            "action".to_string(),
+        );
+        action.module_name = Some("test".to_string());
+        action.action_name = Some("do_work".to_string());
+        action.function_name = Some("main".to_string());
+        nodes.insert("action".to_string(), action);
+
+        let mut output = DAGNode::new(
+            "output".to_string(),
+            "output".to_string(),
+            "output".to_string(),
+        );
+        output.is_output = true;
+        output.function_name = Some("main".to_string());
+        nodes.insert("output".to_string(), output);
+
+        edges.push(DAGEdge::state_machine(
+            "input".to_string(),
+            "action".to_string(),
+        ));
+        edges.push(DAGEdge::state_machine(
+            "action".to_string(),
+            "output".to_string(),
+        ));
+
+        let dag = DAG {
+            nodes,
+            edges,
+            entry_node: Some("input".to_string()),
+        };
+
+        // Create a state where action is Completed but output is still Blocked
+        // This simulates a crash between action completing and output being advanced
+        let mut state = ExecutionState::new();
+        state.graph.nodes.insert(
+            "input".to_string(),
+            ExecutionNode {
+                template_id: "input".to_string(),
+                status: NodeStatus::Completed as i32,
+                ..Default::default()
+            },
+        );
+        state.graph.nodes.insert(
+            "action".to_string(),
+            ExecutionNode {
+                template_id: "action".to_string(),
+                status: NodeStatus::Completed as i32,
+                result: Some(vec![1, 2, 3]),
+                ..Default::default()
+            },
+        );
+        state.graph.nodes.insert(
+            "output".to_string(),
+            ExecutionNode {
+                template_id: "output".to_string(),
+                status: NodeStatus::Blocked as i32,
+                ..Default::default()
+            },
+        );
+
+        // Verify the state conditions for stall detection
+        assert!(
+            !state.has_pending_work(),
+            "Should have no pending work (no Pending/Running nodes, empty ready_queue)"
+        );
+        assert!(
+            state.graph.ready_queue.is_empty(),
+            "Ready queue should be empty"
+        );
+
+        // Check workflow completion - should NOT be complete yet
+        let status = state.check_workflow_completion(&dag);
+        assert!(
+            !status.workflow_completed,
+            "Workflow should NOT be complete (output is Blocked)"
+        );
+        assert!(!status.workflow_failed, "Workflow should NOT be failed");
+
+        // Find stalled completions - should find the action node
+        let stalled = state.find_stalled_completions(&dag);
+        assert_eq!(
+            stalled.len(),
+            1,
+            "Should find 1 stalled completion (action has blocked successor)"
+        );
+        assert_eq!(
+            stalled[0].node_id, "action",
+            "Stalled completion should be for action node"
+        );
+
+        // Apply the stalled completion to advance the workflow
+        let result = state.apply_completions_batch(stalled, &dag);
+        assert!(
+            result.newly_ready.contains(&"output".to_string()),
+            "Output should become ready after reprocessing stalled completion"
+        );
+
+        // Now the output should be in ready_queue
+        assert!(
+            state.graph.ready_queue.contains(&"output".to_string()),
+            "Output should be in ready_queue"
+        );
+        assert!(
+            state.has_pending_work(),
+            "Should now have pending work (output in ready_queue)"
+        );
+    }
+
+    // =========================================================================
+    // NodeKind Tests
+    // =========================================================================
+
+    #[test]
+    fn test_node_kind_action_call() {
+        let dag_node = DAGNode::new(
+            "action_1".to_string(),
+            "action_call".to_string(),
+            "call action".to_string(),
+        );
+        assert_eq!(determine_node_kind(&dag_node), NodeKind::Action);
+    }
+
+    #[test]
+    fn test_node_kind_sleep() {
+        let mut dag_node = DAGNode::new(
+            "action_1".to_string(),
+            "action_call".to_string(),
+            "sleep".to_string(),
+        );
+        dag_node.action_name = Some("sleep".to_string());
+        assert_eq!(determine_node_kind(&dag_node), NodeKind::Sleep);
+    }
+
+    #[test]
+    fn test_node_kind_aggregator() {
+        let mut dag_node = DAGNode::new(
+            "agg_1".to_string(),
+            "action_call".to_string(),
+            "aggregator".to_string(),
+        );
+        dag_node.is_aggregator = true;
+        assert_eq!(determine_node_kind(&dag_node), NodeKind::Aggregator);
+    }
+
+    #[test]
+    fn test_node_kind_spread() {
+        let mut dag_node = DAGNode::new(
+            "spread_1".to_string(),
+            "action_call".to_string(),
+            "spread".to_string(),
+        );
+        dag_node.is_spread = true;
+        assert_eq!(determine_node_kind(&dag_node), NodeKind::Spread);
+    }
+
+    #[test]
+    fn test_node_kind_assignment() {
+        let dag_node = DAGNode::new(
+            "assign_1".to_string(),
+            "assignment".to_string(),
+            "x = 1".to_string(),
+        );
+        assert_eq!(determine_node_kind(&dag_node), NodeKind::Assignment);
+    }
+
+    #[test]
+    fn test_node_kind_branch() {
+        let dag_node = DAGNode::new(
+            "branch_1".to_string(),
+            "branch".to_string(),
+            "if x".to_string(),
+        );
+        assert_eq!(determine_node_kind(&dag_node), NodeKind::Branch);
+    }
+
+    #[test]
+    fn test_node_kind_join() {
+        let dag_node = DAGNode::new("join_1".to_string(), "join".to_string(), "join".to_string());
+        assert_eq!(determine_node_kind(&dag_node), NodeKind::Join);
+    }
+
+    #[test]
+    fn test_node_kind_fn_call() {
+        let dag_node = DAGNode::new(
+            "fn_call_1".to_string(),
+            "fn_call".to_string(),
+            "call fn".to_string(),
+        );
+        assert_eq!(determine_node_kind(&dag_node), NodeKind::FnCall);
+    }
+
+    #[test]
+    fn test_node_kind_return() {
+        let dag_node = DAGNode::new(
+            "return_1".to_string(),
+            "return".to_string(),
+            "return".to_string(),
+        );
+        assert_eq!(determine_node_kind(&dag_node), NodeKind::Return);
+    }
+
+    #[test]
+    fn test_node_kind_break() {
+        let dag_node = DAGNode::new(
+            "break_1".to_string(),
+            "break".to_string(),
+            "break".to_string(),
+        );
+        assert_eq!(determine_node_kind(&dag_node), NodeKind::Break);
+    }
+
+    #[test]
+    fn test_node_kind_input() {
+        let dag_node = DAGNode::new(
+            "input".to_string(),
+            "input".to_string(),
+            "input".to_string(),
+        );
+        assert_eq!(determine_node_kind(&dag_node), NodeKind::Input);
+    }
+
+    #[test]
+    fn test_node_kind_output() {
+        let dag_node = DAGNode::new(
+            "output".to_string(),
+            "output".to_string(),
+            "output".to_string(),
+        );
+        assert_eq!(determine_node_kind(&dag_node), NodeKind::Output);
+    }
+
+    #[test]
+    fn test_node_kind_unknown() {
+        let dag_node = DAGNode::new(
+            "unknown_1".to_string(),
+            "unknown_type".to_string(),
+            "unknown".to_string(),
+        );
+        assert_eq!(determine_node_kind(&dag_node), NodeKind::Unspecified);
+    }
+
+    #[test]
+    fn test_node_kind_storage_roundtrip() {
+        // Test that node_kind is properly stored and recovered
+        let mut state = ExecutionState::new();
+        state.graph.nodes.insert(
+            "action_1".to_string(),
+            ExecutionNode {
+                template_id: "action_1".to_string(),
+                status: NodeStatus::Pending as i32,
+                node_kind: NodeKind::Action as i32,
+                ..Default::default()
+            },
+        );
+        state.graph.nodes.insert(
+            "sleep_1".to_string(),
+            ExecutionNode {
+                template_id: "sleep_1".to_string(),
+                status: NodeStatus::Pending as i32,
+                node_kind: NodeKind::Sleep as i32,
+                ..Default::default()
+            },
+        );
+
+        let bytes = state.to_bytes();
+        let recovered = ExecutionState::from_bytes(&bytes).unwrap();
+
+        let action = recovered.graph.nodes.get("action_1").unwrap();
+        let sleep = recovered.graph.nodes.get("sleep_1").unwrap();
+        assert_eq!(action.node_kind, NodeKind::Action as i32);
+        assert_eq!(sleep.node_kind, NodeKind::Sleep as i32);
+    }
+
+    #[test]
+    fn test_parent_execution_id_storage_roundtrip() {
+        // Test that parent_execution_id is properly stored and recovered
+        let mut state = ExecutionState::new();
+        state.graph.nodes.insert(
+            "spread_1[0]".to_string(),
+            ExecutionNode {
+                template_id: "spread_1".to_string(),
+                spread_index: Some(0),
+                status: NodeStatus::Pending as i32,
+                node_kind: NodeKind::Action as i32,
+                parent_execution_id: Some("spread_1".to_string()),
+                ..Default::default()
+            },
+        );
+
+        let bytes = state.to_bytes();
+        let recovered = ExecutionState::from_bytes(&bytes).unwrap();
+
+        let node = recovered.graph.nodes.get("spread_1[0]").unwrap();
+        assert_eq!(node.parent_execution_id, Some("spread_1".to_string()));
+    }
+
+    #[test]
+    fn test_iteration_index_storage_roundtrip() {
+        // Test that iteration_index is properly stored and recovered
+        let mut state = ExecutionState::new();
+        state.graph.nodes.insert(
+            "action_1[iter_0]".to_string(),
+            ExecutionNode {
+                template_id: "action_1".to_string(),
+                status: NodeStatus::Completed as i32,
+                node_kind: NodeKind::Action as i32,
+                parent_execution_id: Some("action_1".to_string()),
+                iteration_index: Some(0),
+                ..Default::default()
+            },
+        );
+        state.graph.nodes.insert(
+            "action_1[iter_1]".to_string(),
+            ExecutionNode {
+                template_id: "action_1".to_string(),
+                status: NodeStatus::Completed as i32,
+                node_kind: NodeKind::Action as i32,
+                parent_execution_id: Some("action_1".to_string()),
+                iteration_index: Some(1),
+                ..Default::default()
+            },
+        );
+
+        let bytes = state.to_bytes();
+        let recovered = ExecutionState::from_bytes(&bytes).unwrap();
+
+        let iter0 = recovered.graph.nodes.get("action_1[iter_0]").unwrap();
+        let iter1 = recovered.graph.nodes.get("action_1[iter_1]").unwrap();
+        assert_eq!(iter0.iteration_index, Some(0));
+        assert_eq!(iter0.parent_execution_id, Some("action_1".to_string()));
+        assert_eq!(iter1.iteration_index, Some(1));
+        assert_eq!(iter1.parent_execution_id, Some("action_1".to_string()));
+    }
+
+    #[test]
+    fn test_spread_expansion_sets_parent_and_kind() {
+        // Build a minimal DAG with a spread node
+        let mut dag = DAG {
+            nodes: std::collections::HashMap::new(),
+            edges: vec![],
+            entry_node: Some("spread_1".to_string()),
+        };
+
+        let mut spread_node = DAGNode::new(
+            "spread_1".to_string(),
+            "action_call".to_string(),
+            "spread".to_string(),
+        );
+        spread_node.is_spread = true;
+        spread_node.spread_loop_var = Some("item".to_string());
+        spread_node.aggregates_to = Some("agg_1".to_string());
+        dag.nodes.insert("spread_1".to_string(), spread_node);
+
+        let mut agg_node = DAGNode::new(
+            "agg_1".to_string(),
+            "action_call".to_string(),
+            "aggregator".to_string(),
+        );
+        agg_node.is_aggregator = true;
+        dag.nodes.insert("agg_1".to_string(), agg_node);
+
+        // Initialize execution state
+        let mut state = ExecutionState::new();
+        state.initialize_from_dag(&dag, &WorkflowArguments::default());
+
+        // Verify spread template has Spread kind
+        let spread_exec = state.graph.nodes.get("spread_1").unwrap();
+        assert_eq!(spread_exec.node_kind, NodeKind::Spread as i32);
+
+        // Expand the spread
+        let items = vec![
+            WorkflowValue::Int(1),
+            WorkflowValue::Int(2),
+            WorkflowValue::Int(3),
+        ];
+        let _ = state.expand_spread("spread_1", items, &dag);
+
+        // Verify expanded nodes have Action kind and parent set
+        for i in 0..3 {
+            let child_id = format!("spread_1[{}]", i);
+            let child = state.graph.nodes.get(&child_id).unwrap();
+            assert_eq!(
+                child.node_kind,
+                NodeKind::Action as i32,
+                "Spread child should have Action kind"
+            );
+            assert_eq!(
+                child.parent_execution_id,
+                Some("spread_1".to_string()),
+                "Spread child should have parent_execution_id set"
+            );
+            assert_eq!(
+                child.spread_index,
+                Some(i),
+                "Spread child should have spread_index set"
+            );
+        }
+    }
+
+    #[test]
+    fn test_initialize_from_dag_sets_node_kind() {
+        // Build a DAG with various node types
+        let mut dag = DAG {
+            nodes: std::collections::HashMap::new(),
+            edges: vec![],
+            entry_node: Some("input".to_string()),
+        };
+
+        let input_node = DAGNode::new(
+            "input".to_string(),
+            "input".to_string(),
+            "input".to_string(),
+        );
+        dag.nodes.insert("input".to_string(), input_node);
+
+        let mut action_node = DAGNode::new(
+            "action_1".to_string(),
+            "action_call".to_string(),
+            "call action".to_string(),
+        );
+        action_node.module_name = Some("my_module".to_string());
+        action_node.action_name = Some("my_action".to_string());
+        dag.nodes.insert("action_1".to_string(), action_node);
+
+        let mut sleep_node = DAGNode::new(
+            "sleep_1".to_string(),
+            "action_call".to_string(),
+            "sleep".to_string(),
+        );
+        sleep_node.action_name = Some("sleep".to_string());
+        dag.nodes.insert("sleep_1".to_string(), sleep_node);
+
+        let output_node = DAGNode::new(
+            "output".to_string(),
+            "output".to_string(),
+            "output".to_string(),
+        );
+        dag.nodes.insert("output".to_string(), output_node);
+
+        // Initialize execution state
+        let mut state = ExecutionState::new();
+        state.initialize_from_dag(&dag, &WorkflowArguments::default());
+
+        // Verify node kinds are set correctly
+        let input_exec = state.graph.nodes.get("input").unwrap();
+        assert_eq!(input_exec.node_kind, NodeKind::Input as i32);
+
+        let action_exec = state.graph.nodes.get("action_1").unwrap();
+        assert_eq!(action_exec.node_kind, NodeKind::Action as i32);
+
+        let sleep_exec = state.graph.nodes.get("sleep_1").unwrap();
+        assert_eq!(sleep_exec.node_kind, NodeKind::Sleep as i32);
+
+        let output_exec = state.graph.nodes.get("output").unwrap();
+        assert_eq!(output_exec.node_kind, NodeKind::Output as i32);
     }
 }

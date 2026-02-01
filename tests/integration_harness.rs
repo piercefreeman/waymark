@@ -35,7 +35,7 @@ use tonic::transport::Server;
 use tracing::info;
 
 use rappel::{
-    Database, InstanceRunner, InstanceRunnerConfig, PythonWorkerConfig, PythonWorkerPool,
+    Database, DbError, InstanceRunner, InstanceRunnerConfig, PythonWorkerConfig, PythonWorkerPool,
     WorkerBridgeServer, WorkflowInstanceId, WorkflowValue, WorkflowVersionId, proto,
     validate_program,
 };
@@ -496,9 +496,18 @@ impl IntegrationHarness {
                 ));
             }
 
-            let instance = database.get_instance(instance_id).await?;
-            if instance.status == "completed" || instance.status == "failed" {
-                break;
+            match database.get_instance(instance_id).await {
+                Ok(instance) => {
+                    if instance.status == "completed" || instance.status == "failed" {
+                        break;
+                    }
+                }
+                Err(DbError::NotFound(_)) => {
+                    // Instance may be between deletion and archival; retry until it shows up.
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    continue;
+                }
+                Err(err) => return Err(err.into()),
             }
 
             tokio::time::sleep(Duration::from_millis(100)).await;
