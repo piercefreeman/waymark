@@ -4,11 +4,14 @@
 from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
-PROTO_DIR = ROOT_DIR / "python" / "proto"
+PROTO_DIRS = [
+    ROOT_DIR / "python" / "proto",
+    ROOT_DIR / "core-python" / "proto",
+]
 
 
-def _rewrite_messages_pb2_grpc() -> None:
-    target = PROTO_DIR / "messages_pb2_grpc.py"
+def _rewrite_messages_pb2_grpc(proto_dir: Path) -> None:
+    target = proto_dir / "messages_pb2_grpc.py"
     if target.exists():
         text = target.read_text()
         needle = "import messages_pb2 as messages__pb2"
@@ -16,7 +19,7 @@ def _rewrite_messages_pb2_grpc() -> None:
         if needle in text and replacement not in text:
             target.write_text(text.replace(needle, replacement))
 
-    stub_target = PROTO_DIR / "messages_pb2_grpc.pyi"
+    stub_target = proto_dir / "messages_pb2_grpc.pyi"
     if stub_target.exists():
         stub_text = stub_target.read_text()
         stub_needle = "import messages_pb2"
@@ -25,9 +28,9 @@ def _rewrite_messages_pb2_grpc() -> None:
             stub_target.write_text(stub_text.replace(stub_needle, stub_replacement))
 
 
-def _rewrite_messages_pb2_imports() -> None:
+def _rewrite_messages_pb2_imports(proto_dir: Path) -> None:
     """Fix ast_pb2 import in messages_pb2.py to use package-relative imports."""
-    target = PROTO_DIR / "messages_pb2.py"
+    target = proto_dir / "messages_pb2.py"
     if not target.exists():
         return
     text = target.read_text()
@@ -37,7 +40,7 @@ def _rewrite_messages_pb2_imports() -> None:
         text = text.replace(needle, replacement)
         target.write_text(text)
 
-    stub_target = PROTO_DIR / "messages_pb2.pyi"
+    stub_target = proto_dir / "messages_pb2.pyi"
     if stub_target.exists():
         stub_text = stub_target.read_text()
         stub_needle = "import ast_pb2"
@@ -69,8 +72,8 @@ def _ensure_struct_registration(pb2_text: str) -> str:
     return without_existing.replace(sym_decl, replacement, 1)
 
 
-def _rewrite_messages_pb2() -> None:
-    target = PROTO_DIR / "messages_pb2.py"
+def _rewrite_messages_pb2(proto_dir: Path) -> None:
+    target = proto_dir / "messages_pb2.py"
     if not target.exists():
         return
     text = target.read_text()
@@ -79,19 +82,22 @@ def _rewrite_messages_pb2() -> None:
     target.write_text(text)
 
 
-def _rewrite_ast_pb2() -> None:
+def _rewrite_ast_pb2(proto_dir: Path) -> None:
     """Handle ast_pb2.py - no grpc needed since it's pure data structures."""
-    target = PROTO_DIR / "ast_pb2.py"
+    target = proto_dir / "ast_pb2.py"
     if not target.exists():
         return
     # ast.proto doesn't need special import handling since it has no external deps
 
 
 def main() -> None:
-    _rewrite_messages_pb2_grpc()
-    _rewrite_messages_pb2()
-    _rewrite_messages_pb2_imports()
-    _rewrite_ast_pb2()
+    for proto_dir in PROTO_DIRS:
+        if not proto_dir.exists():
+            continue
+        _rewrite_messages_pb2_grpc(proto_dir)
+        _rewrite_messages_pb2(proto_dir)
+        _rewrite_messages_pb2_imports(proto_dir)
+        _rewrite_ast_pb2(proto_dir)
 
 
 if __name__ == "__main__":

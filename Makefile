@@ -1,11 +1,12 @@
 PY_PROTO_OUT := python/proto
+PY_CORE_PROTO_OUT := core-python/proto
 
 .PHONY: all build-proto clean lint lint-verify python-lint python-lint-verify rust-lint rust-lint-verify coverage python-coverage rust-coverage
 
 all: build-proto
 
 build-proto:
-	@mkdir -p $(PY_PROTO_OUT)
+	@mkdir -p $(PY_PROTO_OUT) $(PY_CORE_PROTO_OUT)
 	cd python && uv run python -m grpc_tools.protoc \
 		--proto_path=../proto \
 		--plugin=protoc-gen-mypy="$$(pwd)/.venv/bin/protoc-gen-mypy" \
@@ -15,12 +16,22 @@ build-proto:
 		--mypy_out=../$(PY_PROTO_OUT) \
 		--mypy_grpc_out=../$(PY_PROTO_OUT) \
 		../proto/messages.proto ../proto/ast.proto
+	cd core-python && uv run python -m grpc_tools.protoc \
+		--proto_path=../proto \
+		--plugin=protoc-gen-mypy="$$(pwd)/.venv/bin/protoc-gen-mypy" \
+		--plugin=protoc-gen-mypy_grpc="$$(pwd)/.venv/bin/protoc-gen-mypy_grpc" \
+		--python_out=../$(PY_CORE_PROTO_OUT) \
+		--grpc_python_out=../$(PY_CORE_PROTO_OUT) \
+		--mypy_out=../$(PY_CORE_PROTO_OUT) \
+		--mypy_grpc_out=../$(PY_CORE_PROTO_OUT) \
+		../proto/messages.proto ../proto/ast.proto
 	cd python && uv run python ../scripts/fix_proto_imports.py
 	$(MAKE) lint
 
 clean:
 	rm -rf target
 	rm -rf $(PY_PROTO_OUT)
+	rm -rf $(PY_CORE_PROTO_OUT)
 
 lint: python-lint rust-lint
 
