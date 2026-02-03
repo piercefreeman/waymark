@@ -1,0 +1,1 @@
+- batching up done work via a queue that we read until exhaustion (ie. do a full list read then .clear())

@@ -10,13 +10,15 @@ from uuid import UUID
 
 from proto import ast_pb2 as ir
 
-from .dag import convert_to_dag
+from .dag import DAG, convert_to_dag
 from .dag_viz import render_dag_image
 from .ir_executor import ExecutionError, StatementExecutor
 from .ir_format import format_program
-from .runner import RunnerState, replay_variables
+from .backends import MemoryBackend
+from .runloop import RunLoop
+from .runner import RunnerExecutor, RunnerState, replay_variables
 from .runner.state import LiteralValue
-from .worker_pool import WorkerBridgeServer
+from .workers import InlineWorkerPool
 
 
 def _literal_int(value: int) -> ir.Expr:
@@ -33,6 +35,20 @@ def _binary(left: ir.Expr, op: ir.BinaryOperator, right: ir.Expr) -> ir.Expr:
 
 def _list(items: list[ir.Expr]) -> ir.Expr:
     return ir.Expr(list=ir.ListExpr(elements=items))
+
+
+def _literal_from_value(value: Any) -> ir.Expr:
+    if isinstance(value, bool):
+        return ir.Expr(literal=ir.Literal(bool_value=value))
+    if isinstance(value, int):
+        return ir.Expr(literal=ir.Literal(int_value=value))
+    if isinstance(value, float):
+        return ir.Expr(literal=ir.Literal(float_value=value))
+    if isinstance(value, str):
+        return ir.Expr(literal=ir.Literal(string_value=value))
+    if value is None:
+        return ir.Expr(literal=ir.Literal(is_none=True))
+    raise ValueError(f"unsupported input literal: {value!r}")
 
 
 def _build_program() -> ir.Program:
@@ -130,14 +146,25 @@ def _build_program() -> ir.Program:
     return ir.Program(functions=[main_fn])
 
 
+async def _action_double(value: int) -> int:
+    return value * 2
+
+
+async def _action_sum(values: list[int]) -> int:
+    return sum(values)
+
+
+ACTION_REGISTRY = {
+    "double": _action_double,
+    "sum": _action_sum,
+}
+
+
 async def _action_handler(action: ir.ActionCall, kwargs: dict[str, Any]) -> Any:
-    match action.action_name:
-        case "double":
-            return kwargs["value"] * 2
-        case "sum":
-            return sum(kwargs["values"])
-        case _:
-            raise ExecutionError(f"unknown action: {action.action_name}")
+    handler = ACTION_REGISTRY.get(action.action_name)
+    if handler is None:
+        raise ExecutionError(f"unknown action: {action.action_name}")
+    return await handler(**kwargs)
 
 
 def _build_runner_demo_state() -> tuple[RunnerState, dict[UUID, int]]:
@@ -166,6 +193,30 @@ def _build_runner_demo_state() -> tuple[RunnerState, dict[UUID, int]]:
     return state, action_results
 
 
+async def _run_executor_demo(program: ir.Program, dag: DAG, inputs: dict[str, Any]) -> None:
+    state = RunnerState(dag=dag, link_queued_nodes=False)
+    backend = MemoryBackend()
+    for name, value in inputs.items():
+        state.record_assignment(
+            targets=[name],
+            expr=_literal_from_value(value),
+            label=f"input {name} = {value!r}",
+        )
+
+    if dag.entry_node is None:
+        raise RuntimeError("DAG entry node not found")
+
+    entry_exec = state.queue_template_node(dag.entry_node)
+    action_results: dict[UUID, Any] = {}
+    executor = RunnerExecutor(dag, state=state, action_results=action_results, backend=backend)
+    worker_pool = InlineWorkerPool(ACTION_REGISTRY)
+    runloop = RunLoop(worker_pool)
+    executor_id = runloop.register_executor(executor, entry_exec.node_id)
+    result = await runloop.run()
+    executed = result.completed_actions.get(executor_id, [])
+    print("Runner executor actions: %s" % [node.label for node in executed])
+
+
 async def _run_smoke(base: int) -> int:
     program = _build_program()
     inputs = {"base": base}
@@ -183,12 +234,7 @@ async def _run_smoke(base: int) -> int:
     demo_state, action_results = _build_runner_demo_state()
     replayed = replay_variables(demo_state, action_results)
     print("Runner replay variables: %s" % replayed.variables)
-
-    bridge = await WorkerBridgeServer.start(None)
-    try:
-        print("Worker bridge listening on %s" % bridge.addr)
-    finally:
-        await bridge.shutdown()
+    await _run_executor_demo(program, dag, inputs)
     return 0
 
 
