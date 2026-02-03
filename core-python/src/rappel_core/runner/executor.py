@@ -937,7 +937,14 @@ class RunnerExecutor:
             return
         if actions_done:
             self._backend.save_actions_done(list(actions_done))
-        self._backend.save_graphs([GraphUpdate(state=self._state)])
+        self._backend.save_graphs(
+            [
+                GraphUpdate(
+                    nodes=dict(self._state.nodes),
+                    edges=set(self._state.edges),
+                )
+            ]
+        )
 
     def _action_name_for_node(self, node: ExecutionNode) -> str:
         if node.action is not None:

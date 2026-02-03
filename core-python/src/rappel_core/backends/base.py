@@ -9,7 +9,7 @@ from uuid import UUID
 
 if TYPE_CHECKING:  # pragma: no cover - type checkers only
     from ..dag import DAG
-    from ..runner.state import ExecutionEdge, ExecutionNode, RunnerState
+    from ..runner.state import ExecutionEdge, ExecutionNode
 
 
 @dataclass(frozen=True)
@@ -36,9 +36,14 @@ class InstanceDone:
 
 @dataclass(frozen=True)
 class GraphUpdate:
-    """Batch payload representing an updated execution graph snapshot."""
+    """Batch payload representing an updated execution graph snapshot.
 
-    state: "RunnerState"
+    This intentionally stores only runtime nodes and edges (no DAG template or
+    derived caches) so persistence stays lightweight.
+    """
+
+    nodes: "Mapping[UUID, ExecutionNode]"
+    edges: "Iterable[ExecutionEdge]"
 
 
 @dataclass(frozen=True)
