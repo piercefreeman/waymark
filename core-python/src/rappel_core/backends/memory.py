@@ -16,7 +16,7 @@ class MemoryBackend(BaseBackend):
 
     def save_graphs(self, graphs: Sequence[GraphUpdate]) -> None:
         for graph in graphs:
-            print(f"UPDATE {graph}")
+            print(f"UPDATE {graph.instance_id} {graph}")
 
     def save_actions_done(self, actions: Sequence[ActionDone]) -> None:
         for action in actions:

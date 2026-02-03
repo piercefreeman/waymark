@@ -67,6 +67,7 @@ class RunLoop:
     def register_executor(self, executor: RunnerExecutor, entry_node: UUID) -> UUID:
         """Register an executor and its entry node, returning an executor id."""
         executor_id = uuid4()
+        executor.set_instance_id(executor_id)
         self._executors[executor_id] = executor
         self._entry_nodes[executor_id] = entry_node
         return executor_id
@@ -196,7 +197,8 @@ class RunLoop:
                 action_results=instance.action_results,
                 backend=self._backend,
             )
-        executor_id = uuid4()
+        executor_id = instance.instance_id
+        executor.set_instance_id(executor_id)
         self._executors[executor_id] = executor
         self._entry_nodes[executor_id] = instance.entry_node
         result.completed_actions.setdefault(executor_id, [])

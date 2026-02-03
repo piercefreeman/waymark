@@ -93,6 +93,7 @@ class RunnerExecutor:
         self._template_incoming = self._build_template_incoming()
         self._incoming_exec_edges = self._build_incoming_exec_edges()
         self._eval_cache: dict[tuple[UUID, str], Any] = {}
+        self._instance_id: UUID | None = None
 
     @property
     def state(self) -> RunnerState:
@@ -105,6 +106,13 @@ class RunnerExecutor:
     @property
     def action_results(self) -> Mapping[UUID, Any]:
         return self._action_results
+
+    @property
+    def instance_id(self) -> UUID | None:
+        return self._instance_id
+
+    def set_instance_id(self, instance_id: UUID) -> None:
+        self._instance_id = instance_id
 
     def set_action_result(self, node_id: UUID, result: Any) -> None:
         """Store an action result value for a specific execution node."""
@@ -940,9 +948,12 @@ class RunnerExecutor:
             if actions_done:
                 backend.save_actions_done(list(actions_done))
             if graph_dirty:
+                if self._instance_id is None:
+                    raise RunnerExecutorError("instance_id is required for graph persistence")
                 backend.save_graphs(
                     [
                         GraphUpdate(
+                            instance_id=self._instance_id,
                             nodes=dict(self._state.nodes),
                             edges=set(self._state.edges),
                         )

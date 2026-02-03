@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import contextlib
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping, Sequence, TYPE_CHECKING
-from uuid import UUID
+from uuid import UUID, uuid4
 
 if TYPE_CHECKING:  # pragma: no cover - type checkers only
     from ..dag import DAG
@@ -23,6 +23,19 @@ class QueuedInstance:
     nodes: "Mapping[UUID, ExecutionNode] | None" = None
     edges: "Iterable[ExecutionEdge] | None" = None
     action_results: "Mapping[UUID, Any] | None" = None
+    instance_id: UUID = field(default_factory=uuid4)
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        object.__setattr__(self, "dag", state["dag"])
+        object.__setattr__(self, "entry_node", state["entry_node"])
+        object.__setattr__(self, "state", state.get("state"))
+        object.__setattr__(self, "nodes", state.get("nodes"))
+        object.__setattr__(self, "edges", state.get("edges"))
+        object.__setattr__(self, "action_results", state.get("action_results"))
+        instance_id = state.get("instance_id")
+        if instance_id is None:
+            instance_id = uuid4()
+        object.__setattr__(self, "instance_id", instance_id)
 
 
 @dataclass(frozen=True)
@@ -43,6 +56,7 @@ class GraphUpdate:
     derived caches) so persistence stays lightweight.
     """
 
+    instance_id: UUID
     nodes: "Mapping[UUID, ExecutionNode]"
     edges: "Iterable[ExecutionEdge]"
 

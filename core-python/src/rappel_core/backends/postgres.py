@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
 import pickle
 import sys
 from threading import Lock
@@ -56,8 +57,8 @@ class PostgresBackend(BaseBackend):
     def save_graphs(self, graphs: Sequence[GraphUpdate]) -> None:
         if not graphs:
             return
-        payloads = [(self._serialize(graph),) for graph in graphs]
-        self._copy_rows("COPY runner_graph_updates (state) FROM STDIN", payloads)
+        with self._pool.connection() as conn:
+            self._update_graphs_in(conn, graphs)
 
     def save_actions_done(self, actions: Sequence[ActionDone]) -> None:
         if not actions:
@@ -79,19 +80,8 @@ class PostgresBackend(BaseBackend):
     def save_instances_done(self, instances: Sequence[InstanceDone]) -> None:
         if not instances:
             return
-        payloads = [
-            (
-                instance.executor_id,
-                instance.entry_node,
-                self._serialize_optional(instance.result),
-                self._serialize_optional(instance.error),
-            )
-            for instance in instances
-        ]
-        self._copy_rows(
-            "COPY runner_instances_done (executor_id, entry_node, result, error) FROM STDIN",
-            payloads,
-        )
+        with self._pool.connection() as conn:
+            self._update_instances_done_in(conn, instances)
 
     async def get_queued_instances(self, size: int) -> list[QueuedInstance]:
         if size <= 0:
@@ -102,11 +92,34 @@ class PostgresBackend(BaseBackend):
         """Insert queued instances for run-loop consumption."""
         if not instances:
             return
-        payloads = [(uuid4(), self._serialize(instance)) for instance in instances]
-        self._copy_rows(
-            "COPY queued_instances (instance_id, payload) FROM STDIN",
-            payloads,
-        )
+        payloads: list[tuple[Any, Any]] = []
+        instance_payloads: list[tuple[Any, Any, Any]] = []
+        for instance in instances:
+            instance_id = instance.instance_id
+            if instance_id is None:
+                instance_id = uuid4()
+                instance = dataclasses.replace(instance, instance_id=instance_id)
+            payloads.append((instance_id, self._serialize(instance)))
+            graph = self._build_graph_update(instance, instance_id)
+            instance_payloads.append(
+                (
+                    instance_id,
+                    instance.entry_node,
+                    self._serialize(graph),
+                )
+            )
+        with self._pool.connection() as conn:
+            with conn.transaction():
+                self._copy_rows_in(
+                    conn,
+                    "COPY queued_instances (instance_id, payload) FROM STDIN",
+                    payloads,
+                )
+                self._copy_rows_in(
+                    conn,
+                    "COPY runner_instances (instance_id, entry_node, state) FROM STDIN",
+                    instance_payloads,
+                )
 
     def clear_queue(self) -> None:
         """Delete all queued instances from the backing table."""
@@ -122,6 +135,7 @@ class PostgresBackend(BaseBackend):
                     """
                     TRUNCATE runner_graph_updates,
                              runner_actions_done,
+                             runner_instances,
                              runner_instances_done,
                              queued_instances
                     RESTART IDENTITY
@@ -152,7 +166,13 @@ class PostgresBackend(BaseBackend):
                         "DELETE FROM queued_instances WHERE instance_id = ANY(%s)",
                         (instance_ids,),
                     )
-        return [self._deserialize(row[1]) for row in rows]
+        instances: list[QueuedInstance] = []
+        for instance_id, payload in rows:
+            instance = self._deserialize(payload)
+            if instance.instance_id != instance_id:
+                instance = dataclasses.replace(instance, instance_id=instance_id)
+            instances.append(instance)
+        return instances
 
     def _ensure_schema(self) -> None:
         if self.__class__._schema_ready:
@@ -180,6 +200,18 @@ class PostgresBackend(BaseBackend):
                             action_name TEXT NOT NULL,
                             attempt INTEGER NOT NULL,
                             result BYTEA
+                        )
+                        """
+                    )
+                    cur.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS runner_instances (
+                            instance_id UUID PRIMARY KEY,
+                            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                            entry_node UUID NOT NULL,
+                            state BYTEA,
+                            result BYTEA,
+                            error BYTEA
                         )
                         """
                     )
@@ -219,6 +251,54 @@ class PostgresBackend(BaseBackend):
             with cur.copy(query) as copy:
                 for row in rows:
                     copy.write_row(row)
+
+    def _update_graphs_in(self, conn: Any, graphs: Sequence[GraphUpdate]) -> None:
+        if not graphs:
+            return
+        payloads = [(self._serialize(graph), graph.instance_id) for graph in graphs]
+        with conn.cursor() as cur:
+            cur.executemany(
+                """
+                UPDATE runner_instances
+                SET state = %s
+                WHERE instance_id = %s
+                """,
+                payloads,
+            )
+
+    def _update_instances_done_in(
+        self, conn: Any, instances: Sequence[InstanceDone]
+    ) -> None:
+        if not instances:
+            return
+        payloads = [
+            (
+                self._serialize_optional(instance.result),
+                self._serialize_optional(instance.error),
+                instance.executor_id,
+            )
+            for instance in instances
+        ]
+        with conn.cursor() as cur:
+            cur.executemany(
+                """
+                UPDATE runner_instances
+                SET result = %s, error = %s
+                WHERE instance_id = %s
+                """,
+                payloads,
+            )
+
+    def _build_graph_update(self, instance: QueuedInstance, instance_id: UUID) -> GraphUpdate:
+        if instance.state is not None:
+            nodes = instance.state.nodes
+            edges = instance.state.edges
+        else:
+            nodes = instance.nodes
+            edges = instance.edges
+        if nodes is None or edges is None:
+            raise ValueError("queued instance missing runner state for persistence")
+        return GraphUpdate(instance_id=instance_id, nodes=nodes, edges=edges)
 
     @classmethod
     def _get_pool(cls, dsn: str) -> ConnectionPool:
@@ -260,12 +340,7 @@ class _PostgresBatch(BaseBackend):
     def save_graphs(self, graphs: Sequence[GraphUpdate]) -> None:
         if not graphs:
             return
-        payloads = [(self._backend._serialize(graph),) for graph in graphs]
-        self._backend._copy_rows_in(
-            self._conn,
-            "COPY runner_graph_updates (state) FROM STDIN",
-            payloads,
-        )
+        self._backend._update_graphs_in(self._conn, graphs)
 
     def save_actions_done(self, actions: Sequence[ActionDone]) -> None:
         if not actions:
@@ -288,20 +363,7 @@ class _PostgresBatch(BaseBackend):
     def save_instances_done(self, instances: Sequence[InstanceDone]) -> None:
         if not instances:
             return
-        payloads = [
-            (
-                instance.executor_id,
-                instance.entry_node,
-                self._backend._serialize_optional(instance.result),
-                self._backend._serialize_optional(instance.error),
-            )
-            for instance in instances
-        ]
-        self._backend._copy_rows_in(
-            self._conn,
-            "COPY runner_instances_done (executor_id, entry_node, result, error) FROM STDIN",
-            payloads,
-        )
+        self._backend._update_instances_done_in(self._conn, instances)
 
     async def get_queued_instances(self, size: int) -> list[QueuedInstance]:
         return await self._backend.get_queued_instances(size)
