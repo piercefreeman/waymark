@@ -48,10 +48,19 @@ class RunnerExecutorError(Exception):
 
 
 @dataclass(frozen=True)
+class DurableUpdates:
+    """Persistence payloads required before dispatching new actions."""
+
+    actions_done: list[ActionDone]
+    graph_updates: list[GraphUpdate]
+
+
+@dataclass(frozen=True)
 class ExecutorStep:
     """Return value for executor steps with newly queued action nodes."""
 
     actions: list[ExecutionNode]
+    updates: DurableUpdates | None = None
 
 
 class RunnerExecutor:
@@ -141,8 +150,8 @@ class RunnerExecutor:
                 retry_nodes.append(node)
             else:
                 node.status = NodeStatus.FAILED
-        self._persist_updates(actions_done=[])
-        return ExecutorStep(actions=retry_nodes)
+        updates = self._collect_updates(actions_done=[])
+        return ExecutorStep(actions=retry_nodes, updates=updates)
 
     def increment(self, finished_node: UUID) -> ExecutorStep:
         """Advance execution from a finished node and return newly queued actions.
@@ -188,8 +197,8 @@ class RunnerExecutor:
                 seen_actions.add(action.node_id)
                 actions.append(action)
 
-        self._persist_updates(actions_done=actions_done)
-        return ExecutorStep(actions=actions)
+        updates = self._collect_updates(actions_done=actions_done)
+        return ExecutorStep(actions=actions, updates=updates)
 
     def _walk_from(
         self,
@@ -940,25 +949,25 @@ class RunnerExecutor:
             return candidates[0]
         return self._state.queue_template_node(template_id)
 
-    def _persist_updates(self, *, actions_done: Sequence[ActionDone]) -> None:
+    def _collect_updates(self, *, actions_done: Sequence[ActionDone]) -> DurableUpdates | None:
         if self._backend is None:
-            return
+            return None
         graph_dirty = self._state.consume_graph_dirty_for_durable_execution()
-        with self._backend.batching() as backend:
-            if actions_done:
-                backend.save_actions_done(list(actions_done))
-            if graph_dirty:
-                if self._instance_id is None:
-                    raise RunnerExecutorError("instance_id is required for graph persistence")
-                backend.save_graphs(
-                    [
-                        GraphUpdate(
-                            instance_id=self._instance_id,
-                            nodes=dict(self._state.nodes),
-                            edges=set(self._state.edges),
-                        )
-                    ]
+        graph_updates: list[GraphUpdate] = []
+        if graph_dirty:
+            if self._instance_id is None:
+                raise RunnerExecutorError("instance_id is required for graph persistence")
+            graph_updates.append(
+                GraphUpdate(
+                    instance_id=self._instance_id,
+                    nodes=dict(self._state.nodes),
+                    edges=set(self._state.edges),
                 )
+            )
+        updates = DurableUpdates(actions_done=list(actions_done), graph_updates=graph_updates)
+        if not updates.actions_done and not updates.graph_updates:
+            return None
+        return updates
 
     def _action_name_for_node(self, node: ExecutionNode) -> str:
         if node.action is not None:

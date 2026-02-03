@@ -5,13 +5,13 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from dataclasses import dataclass, field
-from typing import Any, Iterable
+from typing import Any, Iterable, Sequence
 from uuid import UUID, uuid4
 
-from .backends.base import BaseBackend, InstanceDone, QueuedInstance
+from .backends.base import ActionDone, BaseBackend, GraphUpdate, InstanceDone, QueuedInstance
 from .dag import DAG, OutputNode, ReturnNode
 from .runner import replay_variables
-from .runner.executor import RunnerExecutor
+from .runner.executor import DurableUpdates, ExecutorStep, RunnerExecutor
 from .runner.state import ExecutionNode
 from .workers.base import ActionCompletion, ActionRequest, BaseWorkerPool
 
@@ -44,6 +44,7 @@ class RunLoop:
         instance_batch_size: int = 25,
         instance_done_batch_size: int | None = None,
         poll_interval: float = 0.05,
+        persistence_interval: float = 0.1,
     ) -> None:
         self._worker_pool = worker_pool
         self._backend = backend
@@ -53,11 +54,17 @@ class RunLoop:
             instance_done_batch_size if instance_done_batch_size is not None else instance_batch_size,
         )
         self._poll_interval = max(0.0, poll_interval)
+        self._persistence_interval = max(0.0, persistence_interval)
         self._executors: dict[UUID, RunnerExecutor] = {}
         self._entry_nodes: dict[UUID, UUID] = {}
         self._inflight: set[tuple[UUID, UUID]] = set()
         self._completion_queue: "asyncio.Queue[list[ActionCompletion]]" = asyncio.Queue()
         self._instance_queue: "asyncio.Queue[list[QueuedInstance]]" = asyncio.Queue()
+        self._persistence_queue: "asyncio.Queue[tuple[DurableUpdates, asyncio.Future[None]]]" = (
+            asyncio.Queue()
+        )
+        self._persistence_inflight = 0
+        self._action_queue_pending = 0
         self._stop = asyncio.Event()
         self._instances_idle = asyncio.Event()
         self._completed_executors: set[UUID] = set()
@@ -78,19 +85,34 @@ class RunLoop:
             completed_actions={executor_id: [] for executor_id in self._executors}
         )
 
+        initial_steps: list[tuple[UUID, RunnerExecutor, ExecutorStep]] = []
         for executor_id, executor in self._executors.items():
             entry_node = self._entry_nodes.get(executor_id)
             if entry_node is None:
                 raise RunLoopError(f"missing entry node for executor {executor_id}")
             step = executor.increment(entry_node)
-            self._queue_actions(executor_id, executor, step.actions)
-            self._finalize_executor_if_done(executor_id, executor)
+            initial_steps.append((executor_id, executor, step))
+        self._action_queue_pending += 1
+        try:
+            await self._persist_steps(initial_steps)
+            for executor_id, executor, step in initial_steps:
+                self._queue_actions(executor_id, executor, step.actions)
+                self._finalize_executor_if_done(executor_id, executor)
+        finally:
+            self._action_queue_pending -= 1
 
         poll_instances_task = asyncio.create_task(self._poll_instances())
         process_instances_task = asyncio.create_task(self._process_instances(result))
         poll_task = asyncio.create_task(self._poll_completions())
         process_task = asyncio.create_task(self._process_completions(result))
-        tasks = [poll_instances_task, process_instances_task, poll_task, process_task]
+        persistence_task = asyncio.create_task(self._flush_persistence())
+        tasks = [
+            poll_instances_task,
+            process_instances_task,
+            poll_task,
+            process_task,
+            persistence_task,
+        ]
         for task in tasks:
             task.add_done_callback(self._capture_task_error)
 
@@ -98,11 +120,13 @@ class RunLoop:
             self._stop.set()
 
         await self._stop.wait()
+        await self._flush_persistence_pending()
         for task in tasks:
             task.cancel()
         for task in tasks:
             with contextlib.suppress(asyncio.CancelledError):
                 await task
+        await self._flush_persistence_pending()
         self._flush_instances_done()
         if self._task_errors:
             raise self._task_errors[0]
@@ -133,6 +157,7 @@ class RunLoop:
             for completion in completions:
                 grouped.setdefault(completion.executor_id, []).append(completion)
 
+            steps: list[tuple[UUID, RunnerExecutor, ExecutorStep]] = []
             for executor_id, batch in grouped.items():
                 executor = self._executors.get(executor_id)
                 if executor is None:
@@ -151,8 +176,16 @@ class RunLoop:
 
                 if finished_nodes:
                     step = executor.increment_batch(finished_nodes)
-                    self._queue_actions(executor_id, executor, step.actions)
-                self._finalize_executor_if_done(executor_id, executor)
+                    steps.append((executor_id, executor, step))
+            self._action_queue_pending += 1
+            try:
+                await self._persist_steps(steps)
+                for executor_id, executor, step in steps:
+                    if step.actions:
+                        self._queue_actions(executor_id, executor, step.actions)
+                    self._finalize_executor_if_done(executor_id, executor)
+            finally:
+                self._action_queue_pending -= 1
 
             self._maybe_stop()
 
@@ -173,12 +206,21 @@ class RunLoop:
     async def _process_instances(self, result: RunLoopResult) -> None:
         while not self._stop.is_set():
             instances = await self._instance_queue.get()
+            steps: list[tuple[UUID, RunnerExecutor, ExecutorStep]] = []
             for instance in instances:
                 executor_id = self._register_instance(instance, result)
                 executor = self._executors[executor_id]
                 step = executor.increment(instance.entry_node)
-                self._queue_actions(executor_id, executor, step.actions)
-                self._finalize_executor_if_done(executor_id, executor)
+                steps.append((executor_id, executor, step))
+            self._action_queue_pending += 1
+            try:
+                await self._persist_steps(steps)
+                for executor_id, executor, step in steps:
+                    if step.actions:
+                        self._queue_actions(executor_id, executor, step.actions)
+                    self._finalize_executor_if_done(executor_id, executor)
+            finally:
+                self._action_queue_pending -= 1
             self._maybe_stop()
 
     def _register_instance(self, instance: QueuedInstance, result: RunLoopResult) -> UUID:
@@ -272,7 +314,13 @@ class RunLoop:
         return names
 
     def _maybe_stop(self) -> None:
-        if not self._inflight and self._instances_idle.is_set() and self._instance_queue.empty():
+        if (
+            not self._inflight
+            and self._instances_idle.is_set()
+            and self._instance_queue.empty()
+            and not self._has_pending_persistence()
+            and self._action_queue_pending == 0
+        ):
             self._stop.set()
 
     def _queue_actions(
@@ -298,3 +346,79 @@ class RunLoop:
             )
             self._worker_pool.queue(request)
             self._inflight.add(key)
+
+    def _has_pending_persistence(self) -> bool:
+        return self._persistence_inflight > 0 or not self._persistence_queue.empty()
+
+    async def _persist_steps(
+        self, steps: Sequence[tuple[UUID, RunnerExecutor, ExecutorStep]]
+    ) -> None:
+        futures: list[asyncio.Future[None]] = []
+        for _, _, step in steps:
+            if step.updates is None:
+                continue
+            futures.append(await self._enqueue_persistence(step.updates))
+        if futures:
+            await asyncio.gather(*futures)
+
+    async def _enqueue_persistence(
+        self, updates: DurableUpdates
+    ) -> "asyncio.Future[None]":
+        loop = asyncio.get_running_loop()
+        future: "asyncio.Future[None]" = loop.create_future()
+        self._persistence_inflight += 1
+        future.add_done_callback(self._on_persistence_done)
+        try:
+            await self._persistence_queue.put((updates, future))
+        except Exception:
+            if not future.done():
+                future.cancel()
+            raise
+        return future
+
+    def _on_persistence_done(self, _: "asyncio.Future[None]") -> None:
+        self._persistence_inflight = max(0, self._persistence_inflight - 1)
+
+    async def _flush_persistence(self) -> None:
+        while not self._stop.is_set():
+            await asyncio.sleep(self._persistence_interval)
+            await self._flush_persistence_pending()
+        await self._flush_persistence_pending()
+
+    async def _flush_persistence_pending(self) -> None:
+        items: list[tuple[DurableUpdates, asyncio.Future[None]]] = []
+        while True:
+            try:
+                items.append(self._persistence_queue.get_nowait())
+            except asyncio.QueueEmpty:
+                break
+        if not items:
+            return
+        actions_done: list[ActionDone] = []
+        graph_updates: list[GraphUpdate] = []
+        futures: list[asyncio.Future[None]] = []
+        for updates, future in items:
+            if updates.actions_done:
+                actions_done.extend(updates.actions_done)
+            if updates.graph_updates:
+                graph_updates.extend(updates.graph_updates)
+            futures.append(future)
+        if not actions_done and not graph_updates:
+            for future in futures:
+                if not future.done():
+                    future.set_result(None)
+            return
+        try:
+            with self._backend.batching() as backend:
+                if actions_done:
+                    backend.save_actions_done(actions_done)
+                if graph_updates:
+                    backend.save_graphs(graph_updates)
+        except Exception as exc:
+            for future in futures:
+                if not future.done():
+                    future.set_exception(exc)
+            raise
+        for future in futures:
+            if not future.done():
+                future.set_result(None)

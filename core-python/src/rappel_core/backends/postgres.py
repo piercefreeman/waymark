@@ -7,6 +7,7 @@ import contextlib
 import dataclasses
 import pickle
 import sys
+from collections import Counter
 from threading import Lock
 from typing import Any, Iterator, Sequence
 from uuid import uuid4
@@ -49,6 +50,10 @@ class PostgresBackend(BaseBackend):
         _ensure_proto_aliases()
         self._dsn = dsn
         self._pool = self._get_pool(dsn)
+        self._query_counts: Counter[str] = Counter()
+        self._query_count_lock = Lock()
+        self._batch_size_counts: dict[str, Counter[int]] = {}
+        self._batch_size_lock = Lock()
         self._ensure_schema()
 
     def batching(self) -> contextlib.AbstractContextManager[BaseBackend]:
@@ -125,12 +130,14 @@ class PostgresBackend(BaseBackend):
         """Delete all queued instances from the backing table."""
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
+                self._count_query("delete:queued_instances_all")
                 cur.execute("DELETE FROM queued_instances")
 
     def clear_all(self) -> None:
         """Delete all persisted runner data for a clean benchmark run."""
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
+                self._count_query("truncate:runner_tables")
                 cur.execute(
                     """
                     TRUNCATE runner_graph_updates,
@@ -148,6 +155,7 @@ class PostgresBackend(BaseBackend):
         with self._pool.connection() as conn:
             with conn.transaction():
                 with conn.cursor() as cur:
+                    self._count_query("select:queued_instances")
                     cur.execute(
                         """
                         SELECT instance_id, payload
@@ -161,7 +169,9 @@ class PostgresBackend(BaseBackend):
                     rows = cur.fetchall()
                     if not rows:
                         return []
+                    self._count_batch_size("select:queued_instances", len(rows))
                     instance_ids = [row[0] for row in rows]
+                    self._count_query("delete:queued_instances_by_id")
                     cur.execute(
                         "DELETE FROM queued_instances WHERE instance_id = ANY(%s)",
                         (instance_ids,),
@@ -182,6 +192,7 @@ class PostgresBackend(BaseBackend):
                 return
             with self._pool.connection() as conn:
                 with conn.cursor() as cur:
+                    self._count_query("schema:runner_graph_updates")
                     cur.execute(
                         """
                         CREATE TABLE IF NOT EXISTS runner_graph_updates (
@@ -191,6 +202,7 @@ class PostgresBackend(BaseBackend):
                         )
                         """
                     )
+                    self._count_query("schema:runner_actions_done")
                     cur.execute(
                         """
                         CREATE TABLE IF NOT EXISTS runner_actions_done (
@@ -203,6 +215,7 @@ class PostgresBackend(BaseBackend):
                         )
                         """
                     )
+                    self._count_query("schema:runner_instances")
                     cur.execute(
                         """
                         CREATE TABLE IF NOT EXISTS runner_instances (
@@ -215,6 +228,7 @@ class PostgresBackend(BaseBackend):
                         )
                         """
                     )
+                    self._count_query("schema:runner_instances_done")
                     cur.execute(
                         """
                         CREATE TABLE IF NOT EXISTS runner_instances_done (
@@ -227,6 +241,7 @@ class PostgresBackend(BaseBackend):
                         )
                         """
                     )
+                    self._count_query("schema:queued_instances")
                     cur.execute(
                         """
                         CREATE TABLE IF NOT EXISTS queued_instances (
@@ -247,6 +262,8 @@ class PostgresBackend(BaseBackend):
     def _copy_rows_in(self, conn: Any, query: str, rows: Sequence[Sequence[Any]]) -> None:
         if not rows:
             return
+        self._count_query(self._copy_label(query))
+        self._count_batch_size(self._copy_label(query), len(rows))
         with conn.cursor() as cur:
             with cur.copy(query) as copy:
                 for row in rows:
@@ -255,6 +272,8 @@ class PostgresBackend(BaseBackend):
     def _update_graphs_in(self, conn: Any, graphs: Sequence[GraphUpdate]) -> None:
         if not graphs:
             return
+        self._count_query("update:runner_instances_state")
+        self._count_batch_size("update:runner_instances_state", len(graphs))
         payloads = [(self._serialize(graph), graph.instance_id) for graph in graphs]
         with conn.cursor() as cur:
             cur.executemany(
@@ -271,6 +290,8 @@ class PostgresBackend(BaseBackend):
     ) -> None:
         if not instances:
             return
+        self._count_query("update:runner_instances_result")
+        self._count_batch_size("update:runner_instances_result", len(instances))
         payloads = [
             (
                 self._serialize_optional(instance.result),
@@ -331,6 +352,34 @@ class PostgresBackend(BaseBackend):
             raise TypeError("queued instance payload did not decode to QueuedInstance")
         return value
 
+    def _count_query(self, label: str) -> None:
+        with self._query_count_lock:
+            self._query_counts[label] += 1
+
+    def _count_batch_size(self, label: str, size: int) -> None:
+        if size <= 0:
+            return
+        with self._batch_size_lock:
+            counter = self._batch_size_counts.get(label)
+            if counter is None:
+                counter = Counter()
+                self._batch_size_counts[label] = counter
+            counter[size] += 1
+
+    def _copy_label(self, query: str) -> str:
+        parts = query.strip().split()
+        if len(parts) >= 2:
+            return f"copy:{parts[1]}"
+        return "copy:unknown"
+
+    def query_counts(self) -> dict[str, int]:
+        with self._query_count_lock:
+            return dict(self._query_counts)
+
+    def batch_size_counts(self) -> dict[str, dict[int, int]]:
+        with self._batch_size_lock:
+            return {label: dict(counter) for label, counter in self._batch_size_counts.items()}
+
 
 class _PostgresBatch(BaseBackend):
     def __init__(self, backend: PostgresBackend, conn: Any) -> None:
@@ -376,4 +425,5 @@ def _postgres_batch(backend: PostgresBackend) -> Iterator[_PostgresBatch]:
         raise RuntimeError("Postgres connection pool not initialized")
     with pool.connection() as conn:
         with conn.transaction():
+            backend._count_query("batch:transaction")
             yield _PostgresBatch(backend, conn)

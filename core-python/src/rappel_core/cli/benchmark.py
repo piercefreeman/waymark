@@ -129,7 +129,41 @@ def _queue_benchmark_instances(
     return queued
 
 
-async def _run_benchmark(count_per_case: int, base: int, batch_size: int) -> None:
+def _format_query_counts(counts: dict[str, int]) -> str:
+    lines = ["Postgres query counts:"]
+    for name in sorted(counts):
+        lines.append(f"  {name}: {counts[name]}")
+    return "\n".join(lines)
+
+
+def _median_from_counts(counts: dict[int, int]) -> int:
+    total = sum(counts.values())
+    if total <= 0:
+        return 0
+    threshold = (total + 1) // 2
+    running = 0
+    for size in sorted(counts):
+        running += counts[size]
+        if running >= threshold:
+            return size
+    return 0
+
+
+def _format_batch_size_counts(batch_counts: dict[str, dict[int, int]]) -> str:
+    lines = ["Postgres batch size p50:"]
+    for name in sorted(batch_counts):
+        counts = batch_counts[name]
+        if not counts:
+            continue
+        median = _median_from_counts(counts)
+        total = sum(counts.values())
+        lines.append(f"  {name}: p50={median} batches={total}")
+    return "\n".join(lines)
+
+
+async def _run_benchmark(
+    count_per_case: int, base: int, batch_size: int
+) -> tuple[dict[str, int], dict[str, dict[int, int]]]:
     cases = _build_cases(base)
     backend = PostgresBackend()
     backend.clear_all()
@@ -139,6 +173,7 @@ async def _run_benchmark(count_per_case: int, base: int, batch_size: int) -> Non
     worker_pool = InlineWorkerPool(ACTION_REGISTRY)
     runloop = RunLoop(worker_pool, backend)
     await runloop.run()
+    return backend.query_counts(), backend.batch_size_counts()
 
 
 def main() -> None:
@@ -168,12 +203,20 @@ def main() -> None:
     profiler = Profiler()
     profiler.start()
     error: Exception | None = None
+    query_counts: dict[str, int] | None = None
+    batch_counts: dict[str, dict[int, int]] | None = None
     try:
-        asyncio.run(_run_benchmark(args.count, args.base, args.batch_size))
+        query_counts, batch_counts = asyncio.run(
+            _run_benchmark(args.count, args.base, args.batch_size)
+        )
     except Exception as exc:  # noqa: BLE001 - show profile on failure
         error = exc
     finally:
         profiler.stop()
         print(profiler.output_text(unicode=False, color=False))
+        if query_counts:
+            print(_format_query_counts(query_counts))
+        if batch_counts:
+            print(_format_batch_size_counts(batch_counts))
     if error is not None:
         raise error
