@@ -45,6 +45,11 @@ enum InstanceMessage {
     Error(BackendError),
 }
 
+enum LoopEvent {
+    Completions(Vec<ActionCompletion>),
+    Instance(InstanceMessage),
+}
+
 pub struct RunLoop {
     worker_pool: Arc<dyn BaseWorkerPool>,
     backend: Arc<dyn BaseBackend>,
@@ -182,27 +187,79 @@ impl RunLoop {
             if self.should_stop() {
                 break;
             }
-            tokio::select! {
+
+            // Wait for at least one event
+            let first_event = tokio::select! {
                 Some(completions) = completion_rx.recv() => {
-                    self.process_completions(completions, &mut result).await?;
+                    Some(LoopEvent::Completions(completions))
                 }
                 Some(message) = instance_rx.recv() => {
-                    match message {
-                        InstanceMessage::Batch(instances) => {
-                            self.process_instances(instances, &mut result).await?;
-                        }
-                        InstanceMessage::Error(err) => {
-                            return Err(RunLoopError::Backend(err));
-                        }
-                    }
+                    Some(LoopEvent::Instance(message))
                 }
                 _ = persistence_tick.tick() => {
                     if self.persistence_interval > Duration::ZERO {
                         self.flush_instances_done().await?;
                     }
+                    None
                 }
                 else => break,
+            };
+
+            // If we got a persistence tick, continue to next iteration
+            let first_event = match first_event {
+                Some(event) => event,
+                None => continue,
+            };
+
+            // Drain ALL available completions and instances (non-blocking)
+            let mut all_completions: Vec<ActionCompletion> = Vec::new();
+            let mut all_instances: Vec<QueuedInstance> = Vec::new();
+
+            // Process first event
+            match first_event {
+                LoopEvent::Completions(completions) => {
+                    all_completions.extend(completions);
+                }
+                LoopEvent::Instance(InstanceMessage::Batch(instances)) => {
+                    if instances.is_empty() {
+                        self.instances_idle = true;
+                    } else {
+                        self.instances_idle = false;
+                        all_instances.extend(instances);
+                    }
+                }
+                LoopEvent::Instance(InstanceMessage::Error(err)) => {
+                    return Err(RunLoopError::Backend(err));
+                }
             }
+
+            // Drain remaining completions (non-blocking)
+            while let Ok(completions) = completion_rx.try_recv() {
+                all_completions.extend(completions);
+            }
+
+            // Drain remaining instances (non-blocking)
+            while let Ok(message) = instance_rx.try_recv() {
+                match message {
+                    InstanceMessage::Batch(instances) => {
+                        if instances.is_empty() {
+                            self.instances_idle = true;
+                        } else {
+                            self.instances_idle = false;
+                            all_instances.extend(instances);
+                        }
+                    }
+                    InstanceMessage::Error(err) => {
+                        return Err(RunLoopError::Backend(err));
+                    }
+                }
+            }
+
+            // Process everything in one batch:
+            // 1. Compute all steps
+            // 2. Single persist
+            // 3. Then queue new actions
+            self.process_batch(all_completions, all_instances, &mut result).await?;
         }
 
         stop.store(true, Ordering::SeqCst);
@@ -213,15 +270,51 @@ impl RunLoop {
         Ok(result)
     }
 
+    /// Process a batch of completions and new instances together.
+    /// This ensures we make a single DB round-trip for all pending work,
+    /// while maintaining durability: persist THEN queue new actions.
     #[obs]
-    async fn process_completions(
+    async fn process_batch(
+        &mut self,
+        completions: Vec<ActionCompletion>,
+        instances: Vec<QueuedInstance>,
+        result: &mut RunLoopResult,
+    ) -> Result<(), RunLoopError> {
+        let mut all_steps: Vec<(Uuid, ExecutorStep)> = Vec::new();
+
+        // Process completions into steps
+        if !completions.is_empty() {
+            let steps = self.compute_completion_steps(completions, result)?;
+            all_steps.extend(steps);
+        }
+
+        // Process new instances into steps
+        if !instances.is_empty() {
+            let steps = self.compute_instance_steps(instances, result)?;
+            all_steps.extend(steps);
+        }
+
+        if all_steps.is_empty() {
+            return Ok(());
+        }
+
+        // SINGLE persist call for all steps - this is the durability point
+        self.persist_steps(&all_steps).await?;
+
+        // ONLY AFTER persist succeeds, queue new actions
+        for (executor_id, step) in all_steps {
+            self.handle_step(executor_id, step).await?;
+        }
+
+        Ok(())
+    }
+
+    /// Compute steps from action completions without persisting or queueing.
+    fn compute_completion_steps(
         &mut self,
         completions: Vec<ActionCompletion>,
         result: &mut RunLoopResult,
-    ) -> Result<(), RunLoopError> {
-        if completions.is_empty() {
-            return Ok(());
-        }
+    ) -> Result<Vec<(Uuid, ExecutorStep)>, RunLoopError> {
         let mut grouped: HashMap<Uuid, Vec<ActionCompletion>> = HashMap::new();
         for completion in completions {
             grouped
@@ -263,25 +356,15 @@ impl RunLoop {
                 steps.push((executor_id, step));
             }
         }
-
-        self.persist_steps(&steps).await?;
-        for (executor_id, step) in steps {
-            self.handle_step(executor_id, step).await?;
-        }
-        Ok(())
+        Ok(steps)
     }
 
-    #[obs]
-    async fn process_instances(
+    /// Compute steps from new instances without persisting or queueing.
+    fn compute_instance_steps(
         &mut self,
         instances: Vec<QueuedInstance>,
         result: &mut RunLoopResult,
-    ) -> Result<(), RunLoopError> {
-        if instances.is_empty() {
-            self.instances_idle = true;
-            return Ok(());
-        }
-        self.instances_idle = false;
+    ) -> Result<Vec<(Uuid, ExecutorStep)>, RunLoopError> {
         let mut steps: Vec<(Uuid, ExecutorStep)> = Vec::new();
         for instance in instances {
             let executor_id = self.register_instance(instance, result);
@@ -295,11 +378,7 @@ impl RunLoop {
             let step = executor.increment(entry_node)?;
             steps.push((executor_id, step));
         }
-        self.persist_steps(&steps).await?;
-        for (executor_id, step) in steps {
-            self.handle_step(executor_id, step).await?;
-        }
-        Ok(())
+        Ok(steps)
     }
 
     fn register_instance(&mut self, instance: QueuedInstance, result: &mut RunLoopResult) -> Uuid {
@@ -419,8 +498,7 @@ impl RunLoop {
             return Ok(());
         }
         let pending = std::mem::take(&mut self.instances_done_pending);
-        let backend = self.backend.batching();
-        backend.save_instances_done(&pending).await?;
+        self.backend.save_instances_done(&pending).await?;
         Ok(())
     }
 
@@ -473,12 +551,14 @@ impl RunLoop {
         if actions_done.is_empty() && graph_updates.is_empty() {
             return Ok(());
         }
-        let backend = self.backend.batching();
+        // IMPORTANT: These writes MUST complete before we queue new actions.
+        // This ensures durability - if we crash after queueing actions, we have
+        // a record in the DB of what state we were in, enabling correct recovery.
         if !actions_done.is_empty() {
-            backend.save_actions_done(&actions_done).await?;
+            self.backend.save_actions_done(&actions_done).await?;
         }
         if !graph_updates.is_empty() {
-            backend.save_graphs(&graph_updates).await?;
+            self.backend.save_graphs(&graph_updates).await?;
         }
         Ok(())
     }

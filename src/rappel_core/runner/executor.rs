@@ -5,6 +5,7 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
 
+use rustc_hash::FxHashMap;
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -47,10 +48,10 @@ pub struct RunnerExecutor {
     state: RunnerState,
     action_results: HashMap<Uuid, Value>,
     backend: Option<Arc<dyn BaseBackend>>,
-    template_outgoing: HashMap<String, Vec<DAGEdge>>,
-    template_incoming: HashMap<String, HashSet<String>>,
-    incoming_exec_edges: HashMap<Uuid, Vec<ExecutionEdge>>,
-    eval_cache: RefCell<HashMap<(Uuid, String), Value>>,
+    template_outgoing: FxHashMap<String, Vec<DAGEdge>>,
+    template_incoming: FxHashMap<String, HashSet<String>>,
+    incoming_exec_edges: FxHashMap<Uuid, Vec<ExecutionEdge>>,
+    eval_cache: RefCell<FxHashMap<(Uuid, String), Value>>,
     instance_id: Option<Uuid>,
 }
 
@@ -80,7 +81,7 @@ impl RunnerExecutor {
             template_outgoing,
             template_incoming,
             incoming_exec_edges,
-            eval_cache: RefCell::new(HashMap::new()),
+            eval_cache: RefCell::new(FxHashMap::default()),
             instance_id: None,
         }
     }
@@ -212,15 +213,14 @@ impl RunnerExecutor {
 
         while let Some((current, current_exception)) = pending.pop() {
             let template_id = match &current.template_id {
-                Some(id) => id.clone(),
+                Some(id) => id,
                 None => continue,
             };
-            let template_edges = self
-                .template_outgoing
-                .get(&template_id)
-                .cloned()
-                .unwrap_or_default();
-            let edges = self.select_edges(&template_edges, &current, current_exception)?;
+            let edges = if let Some(template_edges) = self.template_outgoing.get(template_id) {
+                self.select_edges(template_edges, &current, current_exception)?
+            } else {
+                continue
+            };
             for edge in edges {
                 let successors = self.queue_successor(&current, &edge)?;
                 for successor in successors {
@@ -324,40 +324,50 @@ impl RunnerExecutor {
         _node: &ExecutionNode,
         exception_value: Option<Value>,
     ) -> Result<Vec<DAGEdge>, RunnerExecutorError> {
+        // Fast path: exception handling
         if let Some(exception_value) = exception_value {
-            return Ok(edges
-                .iter()
-                .filter(|edge| {
-                    edge.exception_types.is_some() && self.exception_matches(edge, &exception_value)
-                })
-                .cloned()
-                .collect());
+            let mut result = Vec::new();
+            for edge in edges {
+                if edge.exception_types.is_some() && self.exception_matches(edge, &exception_value) {
+                    result.push(edge.clone());
+                }
+            }
+            return Ok(result);
         }
 
-        let guard_edges: Vec<DAGEdge> = edges
-            .iter()
-            .filter(|edge| edge.guard_expr.is_some())
-            .cloned()
-            .collect();
-        let else_edges: Vec<DAGEdge> = edges.iter().filter(|edge| edge.is_else).cloned().collect();
-        if !guard_edges.is_empty() || !else_edges.is_empty() {
+        // Check if we have any conditional edges (guards or else)
+        let has_guards = edges.iter().any(|e| e.guard_expr.is_some());
+        let has_else = edges.iter().any(|e| e.is_else);
+
+        if has_guards || has_else {
+            // Evaluate guards first
             let mut passed = Vec::new();
-            for edge in guard_edges {
-                if self.evaluate_guard(edge.guard_expr.as_ref())? {
-                    passed.push(edge);
+            for edge in edges {
+                if edge.guard_expr.is_some() && self.evaluate_guard(edge.guard_expr.as_ref())? {
+                    passed.push(edge.clone());
                 }
             }
             if !passed.is_empty() {
                 return Ok(passed);
             }
+            // Fall through to else edges
+            let mut else_edges = Vec::new();
+            for edge in edges {
+                if edge.is_else {
+                    else_edges.push(edge.clone());
+                }
+            }
             return Ok(else_edges);
         }
 
-        Ok(edges
-            .iter()
-            .filter(|edge| edge.exception_types.is_none())
-            .cloned()
-            .collect())
+        // Fast path: regular edges (no exceptions, guards, or else)
+        let mut result = Vec::with_capacity(edges.len());
+        for edge in edges {
+            if edge.exception_types.is_none() {
+                result.push(edge.clone());
+            }
+        }
+        Ok(result)
     }
 
     fn queue_successor(
@@ -1155,8 +1165,8 @@ impl RunnerExecutor {
         Ok(node.action_attempt - 1 < max_retries)
     }
 
-    fn build_template_outgoing(dag: &DAG) -> HashMap<String, Vec<DAGEdge>> {
-        let mut outgoing: HashMap<String, Vec<DAGEdge>> = HashMap::new();
+    fn build_template_outgoing(dag: &DAG) -> FxHashMap<String, Vec<DAGEdge>> {
+        let mut outgoing: FxHashMap<String, Vec<DAGEdge>> = FxHashMap::default();
         for edge in &dag.edges {
             if edge.edge_type != EdgeType::StateMachine {
                 continue;
@@ -1169,8 +1179,8 @@ impl RunnerExecutor {
         outgoing
     }
 
-    fn build_template_incoming(dag: &DAG) -> HashMap<String, HashSet<String>> {
-        let mut incoming: HashMap<String, HashSet<String>> = HashMap::new();
+    fn build_template_incoming(dag: &DAG) -> FxHashMap<String, HashSet<String>> {
+        let mut incoming: FxHashMap<String, HashSet<String>> = FxHashMap::default();
         for edge in &dag.edges {
             if edge.edge_type != EdgeType::StateMachine {
                 continue;
@@ -1183,8 +1193,8 @@ impl RunnerExecutor {
         incoming
     }
 
-    fn build_incoming_exec_edges(state: &RunnerState) -> HashMap<Uuid, Vec<ExecutionEdge>> {
-        let mut incoming: HashMap<Uuid, Vec<ExecutionEdge>> = HashMap::new();
+    fn build_incoming_exec_edges(state: &RunnerState) -> FxHashMap<Uuid, Vec<ExecutionEdge>> {
+        let mut incoming: FxHashMap<Uuid, Vec<ExecutionEdge>> = FxHashMap::default();
         for edge in &state.edges {
             if edge.edge_type != EdgeType::StateMachine {
                 continue;

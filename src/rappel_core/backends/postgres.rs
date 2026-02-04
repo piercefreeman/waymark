@@ -209,11 +209,11 @@ impl PostgresBackend {
     }
 
     fn serialize<T: serde::Serialize>(value: &T) -> Result<Vec<u8>, BackendError> {
-        Ok(serde_json::to_vec(value)?)
+        rmp_serde::to_vec_named(value).map_err(|e| BackendError::Message(e.to_string()))
     }
 
     fn deserialize<T: serde::de::DeserializeOwned>(payload: &[u8]) -> Result<T, BackendError> {
-        Ok(serde_json::from_slice(payload)?)
+        rmp_serde::from_slice(payload).map_err(|e| BackendError::Message(e.to_string()))
     }
 
     #[obs]
@@ -232,7 +232,7 @@ impl PostgresBackend {
             payloads.push((graph.instance_id, Self::serialize(graph)?));
         }
         let mut builder: QueryBuilder<Postgres> =
-            QueryBuilder::new("UPDATE runner_instances AS ri SET state = v.state FROM (VALUES ");
+            QueryBuilder::new("UPDATE runner_instances AS ri SET state = v.state FROM (");
         builder.push_values(payloads.iter(), |mut b, (instance_id, payload)| {
             b.push_bind(*instance_id).push_bind(payload.as_slice());
         });
@@ -342,7 +342,7 @@ impl PostgresBackend {
             payloads.push((instance.executor_id, result, error));
         }
         let mut builder: QueryBuilder<Postgres> = QueryBuilder::new(
-            "UPDATE runner_instances AS ri SET result = v.result, error = v.error FROM (VALUES ",
+            "UPDATE runner_instances AS ri SET result = v.result, error = v.error FROM (",
         );
         builder.push_values(payloads.iter(), |mut b, (instance_id, result, error)| {
             b.push_bind(*instance_id)
@@ -359,6 +359,7 @@ impl BaseBackend for PostgresBackend {
     fn clone_box(&self) -> Box<dyn BaseBackend> {
         Box::new(self.clone())
     }
+
 
     fn save_graphs<'a>(&'a self, graphs: &'a [GraphUpdate]) -> BoxFuture<'a, BackendResult<()>> {
         Box::pin(self.save_graphs_impl(graphs))

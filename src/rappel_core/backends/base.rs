@@ -64,10 +64,6 @@ pub struct ActionDone {
 pub trait BaseBackend: Send + Sync {
     fn clone_box(&self) -> Box<dyn BaseBackend>;
 
-    fn batching(&self) -> Box<dyn BaseBackend> {
-        self.clone_box()
-    }
-
     fn save_graphs<'a>(&'a self, graphs: &'a [GraphUpdate]) -> BoxFuture<'a, BackendResult<()>>;
 
     fn save_actions_done<'a>(
