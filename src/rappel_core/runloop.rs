@@ -11,6 +11,7 @@ use serde_json::Value;
 use tokio::sync::{Notify, mpsc};
 use uuid::Uuid;
 
+use crate::observability::obs;
 use crate::rappel_core::backends::{
     ActionDone, BackendError, BaseBackend, GraphUpdate, InstanceDone, QueuedInstance,
 };
@@ -95,6 +96,7 @@ impl RunLoop {
         executor_id
     }
 
+    #[obs]
     pub async fn run(&mut self) -> Result<RunLoopResult, RunLoopError> {
         let mut result = RunLoopResult {
             completed_actions: self.executors.keys().map(|id| (*id, Vec::new())).collect(),
@@ -211,6 +213,7 @@ impl RunLoop {
         Ok(result)
     }
 
+    #[obs]
     async fn process_completions(
         &mut self,
         completions: Vec<ActionCompletion>,
@@ -268,6 +271,7 @@ impl RunLoop {
         Ok(())
     }
 
+    #[obs]
     async fn process_instances(
         &mut self,
         instances: Vec<QueuedInstance>,
@@ -331,6 +335,7 @@ impl RunLoop {
         self.inflight.is_empty() && self.instances_idle
     }
 
+    #[obs]
     async fn handle_step(
         &mut self,
         executor_id: Uuid,
@@ -408,6 +413,7 @@ impl RunLoop {
         Ok(())
     }
 
+    #[obs]
     async fn flush_instances_done(&mut self) -> Result<(), RunLoopError> {
         if self.instances_done_pending.is_empty() {
             return Ok(());
@@ -450,6 +456,7 @@ impl RunLoop {
         }
     }
 
+    #[obs]
     async fn persist_steps(&self, steps: &[(Uuid, ExecutorStep)]) -> Result<(), RunLoopError> {
         let mut actions_done: Vec<ActionDone> = Vec::new();
         let mut graph_updates: Vec<GraphUpdate> = Vec::new();

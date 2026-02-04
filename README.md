@@ -328,22 +328,27 @@ Run the Rust benchmark harness (defaults to `--count 1000`) via:
 $ make benchmark
 ```
 
-`make benchmark` builds with the `observability` feature and passes `--observe` by default
-so you can attach `tokio-console` to see task waits and blocking points. Run
-`tokio-console` in another terminal (install with `cargo install tokio-console` if needed),
-or use `make benchmark-console` to launch both panes via tmux. `make benchmark-console`
-requires tmux to be installed and available on `PATH`.
-Tokio console also requires building with `RUSTFLAGS="--cfg tokio_unstable"`, which is
-handled by the default `make benchmark` target (override with `BENCH_RUSTFLAGS=` if needed).
-The console listens on `127.0.0.1:6669` by default; override with `TOKIO_CONSOLE_BIND`.
-This is a tokio-console socket, not an HTTP endpoint, so it won’t load in a browser.
-Override args with `BENCH_ARGS="--count 200 --batch-size 50"` or disable tracing via
-`BENCH_CARGO_ARGS=`. You can also override the bind address with
-`BENCH_CONSOLE_BIND=127.0.0.1:6670` when running `make benchmark` or
-`make benchmark-console`.
-If tokio-console shows "RECONNECTING", reinstall it so the client/server protocols match:
-`cargo install tokio-console --locked`. We track the latest `console-subscriber` (0.5.x),
-while the CLI is still 0.1.x, so a stale install often causes reconnect loops.
+`make benchmark` builds with `--features trace`, writes a tracing-chrome file, and prints
+a pyinstrument-style summary via `scripts/parse_chrome_trace.py`. Override the trace path
+with `BENCH_TRACE=...`, the summary size with `BENCH_TRACE_TOP=...`, or benchmark args with
+`BENCH_ARGS="--count 200 --batch-size 50"`. `make benchmark-trace` is an alias if you want
+the explicit target name.
+
+To inspect task waits and blocking points via tokio-console, use:
+
+```bash
+$ make benchmark-console
+```
+
+This opens a tmux session with the benchmark on the left and `tokio-console` on the right.
+`make benchmark-console` requires tmux, and `tokio-console` must be installed (`cargo install
+tokio-console --locked`). Tokio console also requires building with
+`RUSTFLAGS="--cfg tokio_unstable"`, which the make target sets by default (override with
+`BENCH_RUSTFLAGS=...`). The console listens on `127.0.0.1:6669` by default; override with
+`TOKIO_CONSOLE_BIND`. This is a tokio-console socket, not an HTTP endpoint, so it won’t
+load in a browser. If tokio-console shows "RECONNECTING", reinstall it so the client/server
+protocols match. We track the latest `console-subscriber` (0.5.x), while the CLI is still
+0.1.x, so a stale install often causes reconnect loops.
 
 Stream benchmark output directly into our parser to summarize throughput and latency samples:
 

@@ -227,16 +227,17 @@ impl PostgresBackend {
             "update:runner_instances_state",
             graphs.len(),
         );
-        let mut tx = self.pool.begin().await?;
+        let mut payloads = Vec::with_capacity(graphs.len());
         for graph in graphs {
-            let payload = Self::serialize(graph)?;
-            sqlx::query("UPDATE runner_instances SET state = $1 WHERE instance_id = $2")
-                .bind(payload)
-                .bind(graph.instance_id)
-                .execute(&mut *tx)
-                .await?;
+            payloads.push((graph.instance_id, Self::serialize(graph)?));
         }
-        tx.commit().await?;
+        let mut builder: QueryBuilder<Postgres> =
+            QueryBuilder::new("UPDATE runner_instances AS ri SET state = v.state FROM (VALUES ");
+        builder.push_values(payloads.iter(), |mut b, (instance_id, payload)| {
+            b.push_bind(*instance_id).push_bind(payload.as_slice());
+        });
+        builder.push(") AS v(instance_id, state) WHERE ri.instance_id = v.instance_id");
+        builder.build().execute(&self.pool).await?;
         Ok(())
     }
 
@@ -328,7 +329,7 @@ impl PostgresBackend {
             "update:runner_instances_result",
             instances.len(),
         );
-        let mut tx = self.pool.begin().await?;
+        let mut payloads = Vec::with_capacity(instances.len());
         for instance in instances {
             let result = match &instance.result {
                 Some(value) => Some(Self::serialize(value)?),
@@ -338,16 +339,18 @@ impl PostgresBackend {
                 Some(value) => Some(Self::serialize(value)?),
                 None => None,
             };
-            sqlx::query(
-                "UPDATE runner_instances SET result = $1, error = $2 WHERE instance_id = $3",
-            )
-            .bind(result)
-            .bind(error)
-            .bind(instance.executor_id)
-            .execute(&mut *tx)
-            .await?;
+            payloads.push((instance.executor_id, result, error));
         }
-        tx.commit().await?;
+        let mut builder: QueryBuilder<Postgres> = QueryBuilder::new(
+            "UPDATE runner_instances AS ri SET result = v.result, error = v.error FROM (VALUES ",
+        );
+        builder.push_values(payloads.iter(), |mut b, (instance_id, result, error)| {
+            b.push_bind(*instance_id)
+                .push_bind(result.as_deref())
+                .push_bind(error.as_deref());
+        });
+        builder.push(") AS v(instance_id, result, error) WHERE ri.instance_id = v.instance_id");
+        builder.build().execute(&self.pool).await?;
         Ok(())
     }
 }

@@ -9,6 +9,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::messages::ast as ir;
+use crate::observability::obs;
 use crate::rappel_core::backends::{ActionDone, BaseBackend, GraphUpdate};
 use crate::rappel_core::dag::{ActionCallNode, AggregatorNode, DAG, DAGEdge, EdgeType};
 use crate::rappel_core::runner::state::{
@@ -161,6 +162,7 @@ impl RunnerExecutor {
         self.increment_batch(&[finished_node])
     }
 
+    #[obs]
     pub fn increment_batch(
         &mut self,
         finished_nodes: &[Uuid],
@@ -199,6 +201,7 @@ impl RunnerExecutor {
         Ok(ExecutorStep { actions, updates })
     }
 
+    #[obs]
     fn walk_from(
         &mut self,
         node: ExecutionNode,
@@ -239,6 +242,7 @@ impl RunnerExecutor {
         Ok(actions)
     }
 
+    #[obs]
     fn apply_finished_node(
         &mut self,
         node_id: Uuid,
@@ -823,6 +827,7 @@ impl RunnerExecutor {
         Ok(is_truthy(&result))
     }
 
+    #[obs]
     pub fn resolve_action_kwargs(
         &self,
         action: &ActionCallSpec,
@@ -835,6 +840,7 @@ impl RunnerExecutor {
         Ok(resolved)
     }
 
+    #[obs]
     fn evaluate_value_expr(&self, expr: &ValueExpr) -> Result<Value, RunnerExecutorError> {
         let stack = Rc::new(RefCell::new(HashSet::new()));
         let resolve_variable = {

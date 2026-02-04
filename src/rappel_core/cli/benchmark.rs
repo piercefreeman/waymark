@@ -9,6 +9,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::messages::ast as ir;
+use crate::observability::obs;
 use crate::rappel_core::backends::{DEFAULT_DSN, PostgresBackend, QueuedInstance};
 use crate::rappel_core::cli::smoke::{build_program, literal_from_value};
 use crate::rappel_core::dag::{DAG, convert_to_dag};
@@ -36,6 +37,8 @@ struct BenchmarkArgs {
     dsn: String,
     #[arg(long, default_value_t = false)]
     observe: bool,
+    #[arg(long, num_args = 0..=1, default_missing_value = "target/benchmark-trace.json")]
+    trace: Option<String>,
 }
 
 async fn action_double(kwargs: HashMap<String, Value>) -> Result<Value, WorkerPoolError> {
@@ -229,19 +232,16 @@ fn format_batch_size_counts(batch_counts: HashMap<String, HashMap<usize, usize>>
     lines.join("\n")
 }
 
+#[obs]
 async fn run_benchmark(
     count_per_case: usize,
     base: i64,
     batch_size: usize,
     dsn: &str,
-    observe: bool,
 ) -> (
     HashMap<String, usize>,
     HashMap<String, HashMap<usize, usize>>,
 ) {
-    if observe {
-        crate::observability::init();
-    }
     let cases = build_cases(base);
     let backend = PostgresBackend::connect(dsn)
         .await
@@ -258,17 +258,26 @@ async fn run_benchmark(
 
 pub fn main() {
     let args = BenchmarkArgs::parse();
+    if args.observe || args.trace.is_some() {
+        crate::observability::init(crate::observability::ObservabilityOptions {
+            console: args.observe,
+            trace_path: args.trace.clone(),
+        });
+    }
     let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
     let start = Instant::now();
+    let _span = tracing::info_span!("benchmark_main").entered();
     let (query_counts, batch_counts) = runtime.block_on(run_benchmark(
         args.count,
         args.base,
         args.batch_size,
         &args.dsn,
-        args.observe,
     ));
     let elapsed = start.elapsed();
     println!("Benchmark completed in {:.2?}", elapsed);
     println!("{}", format_query_counts(query_counts));
     println!("{}", format_batch_size_counts(batch_counts));
+    if args.trace.is_some() {
+        crate::observability::flush();
+    }
 }

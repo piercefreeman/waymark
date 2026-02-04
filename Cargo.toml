@@ -47,7 +47,8 @@ rappel-observability-macros = { path = "rappel-observability-macros" }
 console-subscriber = { version = "0.5", optional = true }
 
 [features]
-observability = ["dep:console-subscriber"]
+trace = []
+observability = ["trace", "dep:console-subscriber"]
 
 [build-dependencies]
 tonic-build = "0.11"
