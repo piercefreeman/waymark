@@ -3,6 +3,9 @@ name = "rappel"
 version = "0.1.0"
 edition = "2024"
 
+[workspace]
+members = ["rappel-observability-macros"]
+
 [lib]
 name = "rappel"
 crate-type = ["rlib"]
@@ -40,6 +43,11 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-chrome = "0.7"
 metrics = "0.24"
 regex = "1"
+rappel-observability-macros = { path = "rappel-observability-macros" }
+console-subscriber = { version = "0.2", optional = true }
+
+[features]
+observability = ["dep:console-subscriber"]
 
 [build-dependencies]
 tonic-build = "0.11"

@@ -7,6 +7,8 @@ use futures::future::BoxFuture;
 use sqlx::{PgPool, Postgres, QueryBuilder, Row};
 use uuid::Uuid;
 
+use crate::observability::obs;
+
 use super::base::{
     ActionDone, BackendError, BackendResult, BaseBackend, GraphUpdate, InstanceDone, QueuedInstance,
 };
@@ -21,6 +23,7 @@ pub struct PostgresBackend {
 }
 
 impl PostgresBackend {
+    #[obs]
     pub async fn connect(dsn: &str) -> BackendResult<Self> {
         let pool = PgPool::connect(dsn).await?;
         let backend = Self {
@@ -36,6 +39,7 @@ impl PostgresBackend {
         &self.pool
     }
 
+    #[obs]
     pub async fn queue_instances(&self, instances: &[QueuedInstance]) -> BackendResult<()> {
         if instances.is_empty() {
             return Ok(());
@@ -89,6 +93,7 @@ impl PostgresBackend {
         Ok(())
     }
 
+    #[obs]
     pub async fn clear_queue(&self) -> BackendResult<()> {
         Self::count_query(&self.query_counts, "delete:queued_instances_all");
         sqlx::query("DELETE FROM queued_instances")
@@ -97,6 +102,7 @@ impl PostgresBackend {
         Ok(())
     }
 
+    #[obs]
     pub async fn clear_all(&self) -> BackendResult<()> {
         Self::count_query(&self.query_counts, "truncate:runner_tables");
         sqlx::query(
@@ -128,6 +134,7 @@ impl PostgresBackend {
             .clone()
     }
 
+    #[obs]
     async fn ensure_schema(&self) -> BackendResult<()> {
         let statements = [
             r#"
@@ -208,6 +215,141 @@ impl PostgresBackend {
     fn deserialize<T: serde::de::DeserializeOwned>(payload: &[u8]) -> Result<T, BackendError> {
         Ok(serde_json::from_slice(payload)?)
     }
+
+    #[obs]
+    async fn save_graphs_impl(&self, graphs: &[GraphUpdate]) -> BackendResult<()> {
+        if graphs.is_empty() {
+            return Ok(());
+        }
+        Self::count_query(&self.query_counts, "update:runner_instances_state");
+        Self::count_batch_size(
+            &self.batch_size_counts,
+            "update:runner_instances_state",
+            graphs.len(),
+        );
+        let mut tx = self.pool.begin().await?;
+        for graph in graphs {
+            let payload = Self::serialize(graph)?;
+            sqlx::query("UPDATE runner_instances SET state = $1 WHERE instance_id = $2")
+                .bind(payload)
+                .bind(graph.instance_id)
+                .execute(&mut *tx)
+                .await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
+    #[obs]
+    async fn save_actions_done_impl(&self, actions: &[ActionDone]) -> BackendResult<()> {
+        if actions.is_empty() {
+            return Ok(());
+        }
+        Self::count_query(&self.query_counts, "insert:runner_actions_done");
+        Self::count_batch_size(
+            &self.batch_size_counts,
+            "insert:runner_actions_done",
+            actions.len(),
+        );
+        let mut payloads = Vec::new();
+        for action in actions {
+            payloads.push((
+                action.node_id,
+                action.action_name.clone(),
+                action.attempt,
+                Self::serialize(&action.result)?,
+            ));
+        }
+        let mut builder: QueryBuilder<Postgres> = QueryBuilder::new(
+            "INSERT INTO runner_actions_done (node_id, action_name, attempt, result) ",
+        );
+        builder.push_values(
+            payloads.iter(),
+            |mut b, (node_id, name, attempt, payload)| {
+                b.push_bind(*node_id)
+                    .push_bind(name)
+                    .push_bind(*attempt)
+                    .push_bind(payload.as_slice());
+            },
+        );
+        builder.build().execute(&self.pool).await?;
+        Ok(())
+    }
+
+    #[obs]
+    async fn get_queued_instances_impl(&self, size: usize) -> BackendResult<Vec<QueuedInstance>> {
+        if size == 0 {
+            return Ok(Vec::new());
+        }
+        let mut tx = self.pool.begin().await?;
+        Self::count_query(&self.query_counts, "select:queued_instances");
+        let rows = sqlx::query(
+            "SELECT instance_id, payload FROM queued_instances ORDER BY created_at LIMIT $1 FOR UPDATE SKIP LOCKED",
+        )
+        .bind(size as i64)
+        .fetch_all(&mut *tx)
+        .await?;
+        if rows.is_empty() {
+            tx.commit().await?;
+            return Ok(Vec::new());
+        }
+        Self::count_batch_size(
+            &self.batch_size_counts,
+            "select:queued_instances",
+            rows.len(),
+        );
+        let ids: Vec<Uuid> = rows.iter().map(|row| row.get::<Uuid, _>(0)).collect();
+        Self::count_query(&self.query_counts, "delete:queued_instances_by_id");
+        sqlx::query("DELETE FROM queued_instances WHERE instance_id = ANY($1)")
+            .bind(&ids)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+
+        let mut instances = Vec::new();
+        for row in rows {
+            let instance_id: Uuid = row.get(0);
+            let payload: Vec<u8> = row.get(1);
+            let mut instance: QueuedInstance = Self::deserialize(&payload)?;
+            instance.instance_id = instance_id;
+            instances.push(instance);
+        }
+        Ok(instances)
+    }
+
+    #[obs]
+    async fn save_instances_done_impl(&self, instances: &[InstanceDone]) -> BackendResult<()> {
+        if instances.is_empty() {
+            return Ok(());
+        }
+        Self::count_query(&self.query_counts, "update:runner_instances_result");
+        Self::count_batch_size(
+            &self.batch_size_counts,
+            "update:runner_instances_result",
+            instances.len(),
+        );
+        let mut tx = self.pool.begin().await?;
+        for instance in instances {
+            let result = match &instance.result {
+                Some(value) => Some(Self::serialize(value)?),
+                None => None,
+            };
+            let error = match &instance.error {
+                Some(value) => Some(Self::serialize(value)?),
+                None => None,
+            };
+            sqlx::query(
+                "UPDATE runner_instances SET result = $1, error = $2 WHERE instance_id = $3",
+            )
+            .bind(result)
+            .bind(error)
+            .bind(instance.executor_id)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
 }
 
 impl BaseBackend for PostgresBackend {
@@ -216,151 +358,28 @@ impl BaseBackend for PostgresBackend {
     }
 
     fn save_graphs<'a>(&'a self, graphs: &'a [GraphUpdate]) -> BoxFuture<'a, BackendResult<()>> {
-        Box::pin(async move {
-            if graphs.is_empty() {
-                return Ok(());
-            }
-            Self::count_query(&self.query_counts, "update:runner_instances_state");
-            Self::count_batch_size(
-                &self.batch_size_counts,
-                "update:runner_instances_state",
-                graphs.len(),
-            );
-            let mut tx = self.pool.begin().await?;
-            for graph in graphs {
-                let payload = Self::serialize(graph)?;
-                sqlx::query("UPDATE runner_instances SET state = $1 WHERE instance_id = $2")
-                    .bind(payload)
-                    .bind(graph.instance_id)
-                    .execute(&mut *tx)
-                    .await?;
-            }
-            tx.commit().await?;
-            Ok(())
-        })
+        Box::pin(self.save_graphs_impl(graphs))
     }
 
     fn save_actions_done<'a>(
         &'a self,
         actions: &'a [ActionDone],
     ) -> BoxFuture<'a, BackendResult<()>> {
-        Box::pin(async move {
-            if actions.is_empty() {
-                return Ok(());
-            }
-            Self::count_query(&self.query_counts, "insert:runner_actions_done");
-            Self::count_batch_size(
-                &self.batch_size_counts,
-                "insert:runner_actions_done",
-                actions.len(),
-            );
-            let mut payloads = Vec::new();
-            for action in actions {
-                payloads.push((
-                    action.node_id,
-                    action.action_name.clone(),
-                    action.attempt,
-                    Self::serialize(&action.result)?,
-                ));
-            }
-            let mut builder: QueryBuilder<Postgres> = QueryBuilder::new(
-                "INSERT INTO runner_actions_done (node_id, action_name, attempt, result) ",
-            );
-            builder.push_values(
-                payloads.iter(),
-                |mut b, (node_id, name, attempt, payload)| {
-                    b.push_bind(*node_id)
-                        .push_bind(name)
-                        .push_bind(*attempt)
-                        .push_bind(payload.as_slice());
-                },
-            );
-            builder.build().execute(&self.pool).await?;
-            Ok(())
-        })
+        Box::pin(self.save_actions_done_impl(actions))
     }
 
     fn get_queued_instances<'a>(
         &'a self,
         size: usize,
     ) -> BoxFuture<'a, BackendResult<Vec<QueuedInstance>>> {
-        Box::pin(async move {
-            if size == 0 {
-                return Ok(Vec::new());
-            }
-            let mut tx = self.pool.begin().await?;
-            Self::count_query(&self.query_counts, "select:queued_instances");
-            let rows = sqlx::query(
-                "SELECT instance_id, payload FROM queued_instances ORDER BY created_at LIMIT $1 FOR UPDATE SKIP LOCKED",
-            )
-            .bind(size as i64)
-            .fetch_all(&mut *tx)
-            .await?;
-            if rows.is_empty() {
-                tx.commit().await?;
-                return Ok(Vec::new());
-            }
-            Self::count_batch_size(
-                &self.batch_size_counts,
-                "select:queued_instances",
-                rows.len(),
-            );
-            let ids: Vec<Uuid> = rows.iter().map(|row| row.get::<Uuid, _>(0)).collect();
-            Self::count_query(&self.query_counts, "delete:queued_instances_by_id");
-            sqlx::query("DELETE FROM queued_instances WHERE instance_id = ANY($1)")
-                .bind(&ids)
-                .execute(&mut *tx)
-                .await?;
-            tx.commit().await?;
-
-            let mut instances = Vec::new();
-            for row in rows {
-                let instance_id: Uuid = row.get(0);
-                let payload: Vec<u8> = row.get(1);
-                let mut instance: QueuedInstance = Self::deserialize(&payload)?;
-                instance.instance_id = instance_id;
-                instances.push(instance);
-            }
-            Ok(instances)
-        })
+        Box::pin(self.get_queued_instances_impl(size))
     }
 
     fn save_instances_done<'a>(
         &'a self,
         instances: &'a [InstanceDone],
     ) -> BoxFuture<'a, BackendResult<()>> {
-        Box::pin(async move {
-            if instances.is_empty() {
-                return Ok(());
-            }
-            Self::count_query(&self.query_counts, "update:runner_instances_result");
-            Self::count_batch_size(
-                &self.batch_size_counts,
-                "update:runner_instances_result",
-                instances.len(),
-            );
-            let mut tx = self.pool.begin().await?;
-            for instance in instances {
-                let result = match &instance.result {
-                    Some(value) => Some(Self::serialize(value)?),
-                    None => None,
-                };
-                let error = match &instance.error {
-                    Some(value) => Some(Self::serialize(value)?),
-                    None => None,
-                };
-                sqlx::query(
-                    "UPDATE runner_instances SET result = $1, error = $2 WHERE instance_id = $3",
-                )
-                .bind(result)
-                .bind(error)
-                .bind(instance.executor_id)
-                .execute(&mut *tx)
-                .await?;
-            }
-            tx.commit().await?;
-            Ok(())
-        })
+        Box::pin(self.save_instances_done_impl(instances))
     }
 }
 

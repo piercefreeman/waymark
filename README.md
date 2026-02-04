@@ -322,20 +322,23 @@ The Python bridge automatically shells out to the helper unless you provide `RAP
 
 ### Benchmarking
 
-Run the Rust benchmark harness with profiling (defaults to `--count 1000`) via:
+Run the Rust benchmark harness (defaults to `--count 1000`) via:
 
 ```bash
 $ make benchmark
 ```
 
-If you installed samply via Homebrew, you may need to run `samply setup` once to grant the
-required permissions before profiling works.
-
-`make benchmark` saves a profile to `target/benchmark-profile.json` and (when supported) a
-`target/benchmark-profile.syms.json` sidecar so the parser can resolve symbols without
-opening the UI. It prints a short text summary using `scripts/parse_samply_profile.py`.
-Override args with `BENCH_ARGS="--count 200 --batch-size 50"` or change the output file via
-`BENCH_PROFILE=...`.
+`make benchmark` builds with the `observability` feature and passes `--observe` by default
+so you can attach `tokio-console` to see task waits and blocking points. Run
+`tokio-console` in another terminal (install with `cargo install tokio-console` if needed),
+or use `make benchmark-console` to launch both panes via tmux. `make benchmark-console`
+requires tmux to be installed and available on `PATH`.
+Tokio console also requires building with `RUSTFLAGS="--cfg tokio_unstable"`, which is
+handled by the default `make benchmark` target (override with `BENCH_RUSTFLAGS=` if needed).
+The console listens on `127.0.0.1:6669` by default; override with `TOKIO_CONSOLE_BIND`.
+This is a tokio-console socket, not an HTTP endpoint, so it won’t load in a browser.
+Override args with `BENCH_ARGS="--count 200 --batch-size 50"` or disable tracing via
+`BENCH_CARGO_ARGS=`.
 
 Stream benchmark output directly into our parser to summarize throughput and latency samples:
 

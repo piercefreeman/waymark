@@ -1,7 +1,7 @@
 PY_PROTO_OUT := python/proto
 PY_CORE_PROTO_OUT := core-python/proto
 
-.PHONY: all build-proto clean lint lint-verify python-lint python-lint-verify rust-lint rust-lint-verify coverage python-coverage rust-coverage benchmark
+.PHONY: all build-proto clean lint lint-verify python-lint python-lint-verify rust-lint rust-lint-verify coverage python-coverage rust-coverage benchmark benchmark-console
 
 all: build-proto
 
@@ -71,11 +71,17 @@ rust-coverage:
 	cargo llvm-cov --lcov --output-path target/rust-coverage.lcov
 	cargo llvm-cov --html --output-dir target/rust-htmlcov
 
-BENCH_ARGS ?= --count 1000
-BENCH_PROFILE ?= target/benchmark-profile.json
-BENCH_TOP ?= 20
+BENCH_ARGS ?= --observe --count 1000
+BENCH_CARGO_ARGS ?= --features observability
+BENCH_RUSTFLAGS ?= --cfg tokio_unstable
 benchmark:
-	@mkdir -p $(dir $(BENCH_PROFILE))
-	cargo build --bin benchmark
-	samply record --unstable-presymbolicate --save-only -o $(BENCH_PROFILE) -- target/debug/benchmark $(BENCH_ARGS)
-	uv run python scripts/parse_samply_profile.py $(BENCH_PROFILE) --top $(BENCH_TOP)
+	RUSTFLAGS="$(BENCH_RUSTFLAGS)" cargo build --bin benchmark $(BENCH_CARGO_ARGS)
+	RUSTFLAGS="$(BENCH_RUSTFLAGS)" target/debug/benchmark $(BENCH_ARGS)
+
+benchmark-console:
+	tmux has-session -t rappel-benchmark 2>/dev/null && tmux kill-session -t rappel-benchmark || true
+	tmux new-session -d -s rappel-benchmark 'bash -lc "make benchmark; exec $$SHELL"'
+	tmux split-window -h -t rappel-benchmark 'bash -lc "tokio-console || { echo \"tokio-console not found (run: cargo install tokio-console)\"; exec $$SHELL; }"'
+	tmux select-layout -t rappel-benchmark even-horizontal
+	tmux select-pane -t rappel-benchmark:0.0
+	tmux attach -t rappel-benchmark

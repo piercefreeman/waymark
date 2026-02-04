@@ -34,6 +34,8 @@ struct BenchmarkArgs {
     batch_size: usize,
     #[arg(long, default_value = DEFAULT_DSN)]
     dsn: String,
+    #[arg(long, default_value_t = false)]
+    observe: bool,
 }
 
 async fn action_double(kwargs: HashMap<String, Value>) -> Result<Value, WorkerPoolError> {
@@ -252,6 +254,9 @@ async fn run_benchmark(
 
 pub fn main() {
     let args = BenchmarkArgs::parse();
+    if args.observe {
+        crate::observability::init();
+    }
     let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
     let start = Instant::now();
     let (query_counts, batch_counts) = runtime.block_on(run_benchmark(

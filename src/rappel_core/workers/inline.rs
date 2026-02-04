@@ -10,6 +10,7 @@ use tokio::sync::mpsc;
 use super::base::{
     ActionCompletion, ActionRequest, BaseWorkerPool, WorkerPoolError, error_to_value,
 };
+use crate::observability::obs;
 
 pub type ActionCallable = Arc<
     dyn Fn(HashMap<String, Value>) -> BoxFuture<'static, Result<Value, WorkerPoolError>>
@@ -33,9 +34,24 @@ impl InlineWorkerPool {
             receiver: Arc::new(tokio::sync::Mutex::new(receiver)),
         }
     }
+
+    #[obs]
+    async fn get_complete_impl(&self) -> Vec<ActionCompletion> {
+        let mut receiver = self.receiver.lock().await;
+        let mut completions = Vec::new();
+        match receiver.recv().await {
+            Some(first) => completions.push(first),
+            None => return completions,
+        }
+        while let Ok(value) = receiver.try_recv() {
+            completions.push(value);
+        }
+        completions
+    }
 }
 
 impl BaseWorkerPool for InlineWorkerPool {
+    #[obs]
     fn queue(&self, request: ActionRequest) -> Result<(), WorkerPoolError> {
         let handler = self
             .actions
@@ -78,17 +94,6 @@ impl BaseWorkerPool for InlineWorkerPool {
     }
 
     fn get_complete<'a>(&'a self) -> BoxFuture<'a, Vec<ActionCompletion>> {
-        Box::pin(async move {
-            let mut receiver = self.receiver.lock().await;
-            let mut completions = Vec::new();
-            match receiver.recv().await {
-                Some(first) => completions.push(first),
-                None => return completions,
-            }
-            while let Ok(value) = receiver.try_recv() {
-                completions.push(value);
-            }
-            completions
-        })
+        Box::pin(self.get_complete_impl())
     }
 }
