@@ -39,18 +39,20 @@ ValueExpr: TypeAlias = (
 
 TExpr = TypeVar("TExpr")
 
+# Cache module-level references to avoid repeated imports in hot paths.
+# These are set lazily on first use to avoid circular import issues.
+_STATE_CLASSES: dict[str, type] | None = None
 
-class ValueExprVisitor(Generic[TExpr]):
-    """Visit ValueExpr nodes with explicit handlers.
 
-    Example:
-    - A visitor can count nodes in `a + 1` by visiting a BinaryOpValue and its children.
-    """
-
-    def visit(self, expr: "ValueExpr") -> TExpr:
-        from .state import (  # local import to avoid circular dependency
+def _get_state_classes() -> dict[str, type]:
+    """Get cached state type classes, importing lazily on first call."""
+    global _STATE_CLASSES
+    if _STATE_CLASSES is None:
+        from .state import (
+            ActionCallSpec,
             ActionResultValue,
             BinaryOpValue,
+            DictEntryValue,
             DictValue,
             DotValue,
             FunctionCallValue,
@@ -62,28 +64,60 @@ class ValueExprVisitor(Generic[TExpr]):
             VariableValue,
         )
 
-        if isinstance(expr, LiteralValue):
+        _STATE_CLASSES = {
+            "LiteralValue": LiteralValue,
+            "VariableValue": VariableValue,
+            "ActionResultValue": ActionResultValue,
+            "BinaryOpValue": BinaryOpValue,
+            "UnaryOpValue": UnaryOpValue,
+            "ListValue": ListValue,
+            "DictValue": DictValue,
+            "DictEntryValue": DictEntryValue,
+            "IndexValue": IndexValue,
+            "DotValue": DotValue,
+            "FunctionCallValue": FunctionCallValue,
+            "SpreadValue": SpreadValue,
+            "ActionCallSpec": ActionCallSpec,
+        }
+    return _STATE_CLASSES
+
+
+class ValueExprVisitor(Generic[TExpr]):
+    """Visit ValueExpr nodes with explicit handlers.
+
+    Example:
+    - A visitor can count nodes in `a + 1` by visiting a BinaryOpValue and its children.
+    """
+
+    def visit(self, expr: "ValueExpr") -> TExpr:
+        # Use type name for fast dispatch - avoids isinstance overhead
+        type_name = type(expr).__name__
+        if type_name == "LiteralValue":
             return self.visit_literal(expr)
-        if isinstance(expr, VariableValue):
+        if type_name == "VariableValue":
             return self.visit_variable(expr)
-        if isinstance(expr, ActionResultValue):
+        if type_name == "ActionResultValue":
             return self.visit_action_result(expr)
-        if isinstance(expr, BinaryOpValue):
+        if type_name == "BinaryOpValue":
             return self.visit_binary(expr)
-        if isinstance(expr, UnaryOpValue):
+        if type_name == "UnaryOpValue":
             return self.visit_unary(expr)
-        if isinstance(expr, ListValue):
+        if type_name == "ListValue":
             return self.visit_list(expr)
-        if isinstance(expr, DictValue):
+        if type_name == "DictValue":
             return self.visit_dict(expr)
-        if isinstance(expr, IndexValue):
+        if type_name == "IndexValue":
             return self.visit_index(expr)
-        if isinstance(expr, DotValue):
+        if type_name == "DotValue":
             return self.visit_dot(expr)
-        if isinstance(expr, FunctionCallValue):
+        if type_name == "FunctionCallValue":
             return self.visit_function_call(expr)
-        if isinstance(expr, SpreadValue):
+        if type_name == "SpreadValue":
             return self.visit_spread(expr)
+        # Fallback to isinstance for unknown types (maintains compatibility)
+        classes = _get_state_classes()
+        if isinstance(expr, classes["LiteralValue"]):
+            return self.visit_literal(expr)
         assert_never(expr)
 
     def visit_literal(self, expr: "LiteralValue") -> TExpr:
@@ -128,6 +162,9 @@ class ValueExprResolver(ValueExprVisitor["ValueExpr"]):
     Produces BinaryOpValue(LiteralValue(2), +, LiteralValue(1)).
     """
 
+    # Instance-level cache for state classes
+    __slots__ = ("_resolve_variable", "_seen", "_classes")
+
     def __init__(
         self,
         resolve_variable: Callable[[str, set[str]], "ValueExpr"],
@@ -135,6 +172,7 @@ class ValueExprResolver(ValueExprVisitor["ValueExpr"]):
     ) -> None:
         self._resolve_variable = resolve_variable
         self._seen = seen
+        self._classes = _get_state_classes()
 
     def visit_literal(self, expr: "LiteralValue") -> "ValueExpr":
         return expr
@@ -146,8 +184,7 @@ class ValueExprResolver(ValueExprVisitor["ValueExpr"]):
         return expr
 
     def visit_binary(self, expr: "BinaryOpValue") -> "ValueExpr":
-        from .state import BinaryOpValue
-
+        BinaryOpValue = self._classes["BinaryOpValue"]
         return BinaryOpValue(
             left=self.visit(expr.left),
             op=expr.op,
@@ -155,21 +192,19 @@ class ValueExprResolver(ValueExprVisitor["ValueExpr"]):
         )
 
     def visit_unary(self, expr: "UnaryOpValue") -> "ValueExpr":
-        from .state import UnaryOpValue
-
+        UnaryOpValue = self._classes["UnaryOpValue"]
         return UnaryOpValue(
             op=expr.op,
             operand=self.visit(expr.operand),
         )
 
     def visit_list(self, expr: "ListValue") -> "ValueExpr":
-        from .state import ListValue
-
+        ListValue = self._classes["ListValue"]
         return ListValue(elements=tuple(self.visit(item) for item in expr.elements))
 
     def visit_dict(self, expr: "DictValue") -> "ValueExpr":
-        from .state import DictEntryValue, DictValue
-
+        DictEntryValue = self._classes["DictEntryValue"]
+        DictValue = self._classes["DictValue"]
         return DictValue(
             entries=tuple(
                 DictEntryValue(
@@ -181,24 +216,21 @@ class ValueExprResolver(ValueExprVisitor["ValueExpr"]):
         )
 
     def visit_index(self, expr: "IndexValue") -> "ValueExpr":
-        from .state import IndexValue
-
+        IndexValue = self._classes["IndexValue"]
         return IndexValue(
             object=self.visit(expr.object),
             index=self.visit(expr.index),
         )
 
     def visit_dot(self, expr: "DotValue") -> "ValueExpr":
-        from .state import DotValue
-
+        DotValue = self._classes["DotValue"]
         return DotValue(
             object=self.visit(expr.object),
             attribute=expr.attribute,
         )
 
     def visit_function_call(self, expr: "FunctionCallValue") -> "ValueExpr":
-        from .state import FunctionCallValue
-
+        FunctionCallValue = self._classes["FunctionCallValue"]
         return FunctionCallValue(
             name=expr.name,
             args=tuple(self.visit(arg) for arg in expr.args),
@@ -207,8 +239,8 @@ class ValueExprResolver(ValueExprVisitor["ValueExpr"]):
         )
 
     def visit_spread(self, expr: "SpreadValue") -> "ValueExpr":
-        from .state import ActionCallSpec, SpreadValue
-
+        ActionCallSpec = self._classes["ActionCallSpec"]
+        SpreadValue = self._classes["SpreadValue"]
         collection = self.visit(expr.collection)
         kwargs = {name: self.visit(value) for name, value in expr.action.kwargs.items()}
         action = ActionCallSpec(

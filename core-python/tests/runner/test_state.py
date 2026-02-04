@@ -63,3 +63,25 @@ def test_runner_state_unrolls_loop_assignments() -> None:
     assert first_item.right.value == 2
     assert isinstance(second_item.right, LiteralValue)
     assert second_item.right.value == 2
+
+
+def test_runner_state_graph_dirty_for_action_updates() -> None:
+    state = RunnerState()
+
+    assert state.consume_graph_dirty_for_durable_execution() is False
+
+    action_result = state.queue_action("action", targets=["action_result"])
+    assert state.consume_graph_dirty_for_durable_execution() is True
+
+    assert state.consume_graph_dirty_for_durable_execution() is False
+
+    state.increment_action_attempt(action_result.node_id)
+    assert state.consume_graph_dirty_for_durable_execution() is True
+
+
+def test_runner_state_graph_dirty_not_set_for_assignments() -> None:
+    state = RunnerState()
+
+    state.record_assignment_value(targets=["value"], value_expr=LiteralValue(1))
+
+    assert state.consume_graph_dirty_for_durable_execution() is False

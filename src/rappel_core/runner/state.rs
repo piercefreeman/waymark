@@ -1,0 +1,1577 @@
+//! Execution-time DAG state with unrolled nodes and symbolic values.
+
+use std::collections::{HashMap, HashSet};
+use std::fmt;
+
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+use crate::messages::ast as ir;
+use crate::rappel_core::dag::{
+    ActionCallNode, AggregatorNode, AssignmentNode, DAG, DAGNode, EdgeType, FnCallNode, JoinNode,
+    ReturnNode,
+};
+use crate::rappel_core::runner::value_visitor::{
+    ValueExpr, collect_value_sources, resolve_value_tree,
+};
+
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
+pub struct RunnerStateError(pub String);
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ActionCallSpec {
+    pub action_name: String,
+    pub module_name: Option<String>,
+    pub kwargs: HashMap<String, ValueExpr>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LiteralValue {
+    pub value: serde_json::Value,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct VariableValue {
+    pub name: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ActionResultValue {
+    pub node_id: Uuid,
+    pub action_name: String,
+    pub iteration_index: Option<i32>,
+    pub result_index: Option<i32>,
+}
+
+impl ActionResultValue {
+    pub fn label(&self) -> String {
+        let mut label = self.action_name.clone();
+        if let Some(idx) = self.iteration_index {
+            label = format!("{label}[{idx}]");
+        }
+        if let Some(idx) = self.result_index {
+            label = format!("{label}[{idx}]");
+        }
+        label
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct BinaryOpValue {
+    pub left: Box<ValueExpr>,
+    pub op: i32,
+    pub right: Box<ValueExpr>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct UnaryOpValue {
+    pub op: i32,
+    pub operand: Box<ValueExpr>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ListValue {
+    pub elements: Vec<ValueExpr>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DictEntryValue {
+    pub key: ValueExpr,
+    pub value: ValueExpr,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DictValue {
+    pub entries: Vec<DictEntryValue>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct IndexValue {
+    pub object: Box<ValueExpr>,
+    pub index: Box<ValueExpr>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DotValue {
+    pub object: Box<ValueExpr>,
+    pub attribute: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct FunctionCallValue {
+    pub name: String,
+    pub args: Vec<ValueExpr>,
+    pub kwargs: HashMap<String, ValueExpr>,
+    pub global_function: Option<i32>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SpreadValue {
+    pub collection: Box<ValueExpr>,
+    pub loop_var: String,
+    pub action: ActionCallSpec,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", content = "data")]
+pub enum NodeStatus {
+    Queued,
+    Running,
+    Completed,
+    Failed,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ExecutionNode {
+    pub node_id: Uuid,
+    pub node_type: String,
+    pub label: String,
+    pub status: NodeStatus,
+    pub template_id: Option<String>,
+    pub targets: Vec<String>,
+    pub action: Option<ActionCallSpec>,
+    pub value_expr: Option<ValueExpr>,
+    pub assignments: HashMap<String, ValueExpr>,
+    pub action_attempt: i32,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct QueueNodeParams {
+    pub node_id: Option<Uuid>,
+    pub template_id: Option<String>,
+    pub targets: Option<Vec<String>>,
+    pub action: Option<ActionCallSpec>,
+    pub value_expr: Option<ValueExpr>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ExecutionEdge {
+    pub source: Uuid,
+    pub target: Uuid,
+    pub edge_type: EdgeType,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RunnerState {
+    pub dag: Option<DAG>,
+    pub nodes: HashMap<Uuid, ExecutionNode>,
+    pub edges: HashSet<ExecutionEdge>,
+    pub ready_queue: Vec<Uuid>,
+    pub timeline: Vec<Uuid>,
+    link_queued_nodes: bool,
+    latest_assignments: HashMap<String, Uuid>,
+    graph_dirty: bool,
+}
+
+impl RunnerState {
+    pub fn new(
+        dag: Option<DAG>,
+        nodes: Option<HashMap<Uuid, ExecutionNode>>,
+        edges: Option<HashSet<ExecutionEdge>>,
+        link_queued_nodes: bool,
+    ) -> Self {
+        let mut state = Self {
+            dag,
+            nodes: nodes.unwrap_or_default(),
+            edges: edges.unwrap_or_default(),
+            ready_queue: Vec::new(),
+            timeline: Vec::new(),
+            link_queued_nodes,
+            latest_assignments: HashMap::new(),
+            graph_dirty: false,
+        };
+        if !state.nodes.is_empty() || !state.edges.is_empty() {
+            state.rehydrate_state();
+        }
+        state
+    }
+
+    pub(crate) fn set_link_queued_nodes(&mut self, value: bool) {
+        self.link_queued_nodes = value;
+    }
+
+    pub(crate) fn latest_assignment(&self, name: &str) -> Option<Uuid> {
+        self.latest_assignments.get(name).copied()
+    }
+
+    pub fn queue_template_node(
+        &mut self,
+        template_id: &str,
+        iteration_index: Option<i32>,
+    ) -> Result<ExecutionNode, RunnerStateError> {
+        let dag = self
+            .dag
+            .as_ref()
+            .ok_or_else(|| RunnerStateError("runner state has no DAG template".to_string()))?;
+        let template = dag
+            .nodes
+            .get(template_id)
+            .ok_or_else(|| RunnerStateError(format!("template node not found: {template_id}")))?
+            .clone();
+
+        let node_id = Uuid::new_v4();
+        let node = ExecutionNode {
+            node_id,
+            node_type: template.node_type().to_string(),
+            label: template.label(),
+            status: NodeStatus::Queued,
+            template_id: Some(template_id.to_string()),
+            targets: self.node_targets(&template),
+            action: if let DAGNode::ActionCall(action_node) = &template {
+                Some(self.action_spec_from_node(action_node))
+            } else {
+                None
+            },
+            value_expr: None,
+            assignments: HashMap::new(),
+            action_attempt: if template.node_type() == "action_call" {
+                1
+            } else {
+                0
+            },
+        };
+
+        self.register_node(node.clone())?;
+        self.apply_template_node(&node, &template, iteration_index)?;
+        Ok(node)
+    }
+
+    pub fn queue_node(
+        &mut self,
+        node_type: &str,
+        label: &str,
+        params: QueueNodeParams,
+    ) -> Result<ExecutionNode, RunnerStateError> {
+        let QueueNodeParams {
+            node_id,
+            template_id,
+            targets,
+            action,
+            value_expr,
+        } = params;
+        let node_id = node_id.unwrap_or_else(Uuid::new_v4);
+        let action_attempt = if node_type == "action_call" { 1 } else { 0 };
+        let node = ExecutionNode {
+            node_id,
+            node_type: node_type.to_string(),
+            label: label.to_string(),
+            status: NodeStatus::Queued,
+            template_id,
+            targets: targets.unwrap_or_default(),
+            action,
+            value_expr,
+            assignments: HashMap::new(),
+            action_attempt,
+        };
+        self.register_node(node.clone())?;
+        Ok(node)
+    }
+
+    pub fn queue_action_call(
+        &mut self,
+        action: &ir::ActionCall,
+        targets: Option<Vec<String>>,
+        iteration_index: Option<i32>,
+        local_scope: Option<&HashMap<String, ValueExpr>>,
+    ) -> Result<ActionResultValue, RunnerStateError> {
+        let spec = self.action_spec_from_ir(action, local_scope);
+        let node = self.queue_node(
+            "action_call",
+            &format!("@{}()", spec.action_name),
+            QueueNodeParams {
+                targets: targets.clone(),
+                action: Some(spec.clone()),
+                ..QueueNodeParams::default()
+            },
+        )?;
+        for value in spec.kwargs.values() {
+            self.record_data_flow_from_value(node.node_id, value);
+        }
+        let result = self.assign_action_results(
+            &node,
+            &spec.action_name,
+            targets.as_deref(),
+            iteration_index,
+        )?;
+        if let Some(node_mut) = self.nodes.get_mut(&node.node_id) {
+            node_mut.value_expr = Some(ValueExpr::ActionResult(result.clone()));
+        }
+        Ok(result)
+    }
+
+    pub fn mark_running(&mut self, node_id: Uuid) -> Result<(), RunnerStateError> {
+        let node = self.get_node_mut(node_id)?;
+        node.status = NodeStatus::Running;
+        Ok(())
+    }
+
+    pub fn mark_completed(&mut self, node_id: Uuid) -> Result<(), RunnerStateError> {
+        let node = self.get_node_mut(node_id)?;
+        node.status = NodeStatus::Completed;
+        self.ready_queue.retain(|id| id != &node_id);
+        Ok(())
+    }
+
+    pub fn mark_failed(&mut self, node_id: Uuid) -> Result<(), RunnerStateError> {
+        let node = self.get_node_mut(node_id)?;
+        node.status = NodeStatus::Failed;
+        self.ready_queue.retain(|id| id != &node_id);
+        Ok(())
+    }
+
+    pub fn increment_action_attempt(&mut self, node_id: Uuid) -> Result<(), RunnerStateError> {
+        let node = self.get_node_mut(node_id)?;
+        if node.node_type != "action_call" {
+            return Err(RunnerStateError(
+                "action attempt increment requires an action_call node".to_string(),
+            ));
+        }
+        node.action_attempt += 1;
+        self.mark_graph_dirty();
+        Ok(())
+    }
+
+    pub fn consume_graph_dirty_for_durable_execution(&mut self) -> bool {
+        let dirty = self.graph_dirty;
+        self.graph_dirty = false;
+        dirty
+    }
+
+    pub fn add_edge(&mut self, source: Uuid, target: Uuid, edge_type: EdgeType) {
+        self.register_edge(ExecutionEdge {
+            source,
+            target,
+            edge_type,
+        });
+    }
+
+    fn register_node(&mut self, node: ExecutionNode) -> Result<(), RunnerStateError> {
+        if self.nodes.contains_key(&node.node_id) {
+            return Err(RunnerStateError(format!(
+                "execution node already queued: {}",
+                node.node_id
+            )));
+        }
+        self.nodes.insert(node.node_id, node.clone());
+        self.ready_queue.push(node.node_id);
+        if node.node_type == "action_call" {
+            self.mark_graph_dirty();
+        }
+        if self.link_queued_nodes
+            && let Some(last) = self.timeline.last()
+        {
+            self.register_edge(ExecutionEdge {
+                source: *last,
+                target: node.node_id,
+                edge_type: EdgeType::StateMachine,
+            });
+        }
+        self.timeline.push(node.node_id);
+        Ok(())
+    }
+
+    fn register_edge(&mut self, edge: ExecutionEdge) {
+        self.edges.insert(edge);
+    }
+
+    fn mark_graph_dirty(&mut self) {
+        self.graph_dirty = true;
+    }
+
+    fn rehydrate_state(&mut self) {
+        self.timeline = self.build_timeline();
+        self.latest_assignments.clear();
+        for node_id in &self.timeline {
+            if let Some(node) = self.nodes.get(node_id) {
+                for target in node.assignments.keys() {
+                    self.latest_assignments.insert(target.clone(), *node_id);
+                }
+            }
+        }
+        if self.ready_queue.is_empty() {
+            self.ready_queue = self
+                .timeline
+                .iter()
+                .filter(|node_id| {
+                    self.nodes
+                        .get(node_id)
+                        .map(|node| node.status == NodeStatus::Queued)
+                        .unwrap_or(false)
+                })
+                .cloned()
+                .collect();
+        }
+    }
+
+    fn build_timeline(&self) -> Vec<Uuid> {
+        if self.edges.is_empty() {
+            return self.nodes.keys().cloned().collect();
+        }
+        let mut adjacency: HashMap<Uuid, Vec<Uuid>> = self
+            .nodes
+            .keys()
+            .map(|node_id| (*node_id, Vec::new()))
+            .collect();
+        let mut in_degree: HashMap<Uuid, usize> =
+            self.nodes.keys().map(|node_id| (*node_id, 0)).collect();
+        let mut edges: Vec<&ExecutionEdge> = self.edges.iter().collect();
+        edges.sort_by_key(|edge| (edge.source, edge.target));
+        for edge in edges {
+            if edge.edge_type != EdgeType::StateMachine {
+                continue;
+            }
+            if adjacency.contains_key(&edge.source) && adjacency.contains_key(&edge.target) {
+                adjacency.entry(edge.source).or_default().push(edge.target);
+                *in_degree.entry(edge.target).or_insert(0) += 1;
+            }
+        }
+        let mut queue: Vec<Uuid> = in_degree
+            .iter()
+            .filter(|(_, degree)| **degree == 0)
+            .map(|(node_id, _)| *node_id)
+            .collect();
+        queue.sort_by_key(|id| id.to_string());
+        let mut order: Vec<Uuid> = Vec::new();
+        while !queue.is_empty() {
+            let node_id = queue.remove(0);
+            order.push(node_id);
+            if let Some(neighbors) = adjacency.get(&node_id) {
+                let mut sorted = neighbors.clone();
+                sorted.sort_by_key(|id| id.to_string());
+                for neighbor in sorted {
+                    if let Some(degree) = in_degree.get_mut(&neighbor) {
+                        *degree -= 1;
+                        if *degree == 0 {
+                            queue.push(neighbor);
+                        }
+                    }
+                }
+                queue.sort_by_key(|id| id.to_string());
+            }
+        }
+        let mut remaining: Vec<Uuid> = self
+            .nodes
+            .keys()
+            .filter(|node_id| !order.contains(node_id))
+            .cloned()
+            .collect();
+        remaining.sort_by_key(|id| id.to_string());
+        order.extend(remaining);
+        order
+    }
+
+    fn get_node_mut(&mut self, node_id: Uuid) -> Result<&mut ExecutionNode, RunnerStateError> {
+        self.nodes
+            .get_mut(&node_id)
+            .ok_or_else(|| RunnerStateError(format!("execution node not found: {node_id}")))
+    }
+
+    fn node_targets(&self, node: &DAGNode) -> Vec<String> {
+        match node {
+            DAGNode::Assignment(AssignmentNode {
+                targets, target, ..
+            }) => {
+                if !targets.is_empty() {
+                    return targets.clone();
+                }
+                target.clone().map(|item| vec![item]).unwrap_or_default()
+            }
+            DAGNode::ActionCall(ActionCallNode {
+                targets, target, ..
+            }) => {
+                if let Some(list) = targets
+                    && !list.is_empty()
+                {
+                    return list.clone();
+                }
+                target.clone().map(|item| vec![item]).unwrap_or_default()
+            }
+            DAGNode::FnCall(FnCallNode {
+                targets, target, ..
+            }) => {
+                if let Some(list) = targets
+                    && !list.is_empty()
+                {
+                    return list.clone();
+                }
+                target.clone().map(|item| vec![item]).unwrap_or_default()
+            }
+            DAGNode::Join(JoinNode {
+                targets, target, ..
+            }) => {
+                if let Some(list) = targets
+                    && !list.is_empty()
+                {
+                    return list.clone();
+                }
+                target.clone().map(|item| vec![item]).unwrap_or_default()
+            }
+            DAGNode::Aggregator(AggregatorNode {
+                targets, target, ..
+            }) => {
+                if let Some(list) = targets
+                    && !list.is_empty()
+                {
+                    return list.clone();
+                }
+                target.clone().map(|item| vec![item]).unwrap_or_default()
+            }
+            DAGNode::Return(ReturnNode {
+                targets, target, ..
+            }) => {
+                if let Some(list) = targets
+                    && !list.is_empty()
+                {
+                    return list.clone();
+                }
+                target.clone().map(|item| vec![item]).unwrap_or_default()
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    fn apply_template_node(
+        &mut self,
+        exec_node: &ExecutionNode,
+        template: &DAGNode,
+        iteration_index: Option<i32>,
+    ) -> Result<(), RunnerStateError> {
+        match template {
+            DAGNode::Assignment(AssignmentNode {
+                assign_expr: Some(expr),
+                ..
+            }) => {
+                let value_expr = self.expr_to_value(expr, None)?;
+                if let Some(node_mut) = self.nodes.get_mut(&exec_node.node_id) {
+                    node_mut.value_expr = Some(value_expr.clone());
+                }
+                self.record_data_flow_from_value(exec_node.node_id, &value_expr);
+                let assignments =
+                    self.build_assignments(&self.node_targets(template), &value_expr)?;
+                if let Some(node) = self.nodes.get_mut(&exec_node.node_id) {
+                    node.assignments.extend(assignments.clone());
+                }
+                self.mark_latest_assignments(exec_node.node_id, &assignments);
+                return Ok(());
+            }
+            DAGNode::ActionCall(ActionCallNode {
+                action_name,
+                targets,
+                target,
+                ..
+            }) => {
+                let kwarg_values = self
+                    .nodes
+                    .get(&exec_node.node_id)
+                    .and_then(|node| node.action.as_ref())
+                    .map(|action| action.kwargs.values().cloned().collect::<Vec<_>>())
+                    .unwrap_or_default();
+                for expr in &kwarg_values {
+                    self.record_data_flow_from_value(exec_node.node_id, expr);
+                }
+                let targets = targets
+                    .clone()
+                    .or_else(|| target.clone().map(|item| vec![item]));
+                let result = self.assign_action_results(
+                    exec_node,
+                    action_name,
+                    targets.as_deref(),
+                    iteration_index,
+                )?;
+                if let Some(node_mut) = self.nodes.get_mut(&exec_node.node_id) {
+                    node_mut.value_expr = Some(ValueExpr::ActionResult(result));
+                }
+                return Ok(());
+            }
+            DAGNode::FnCall(FnCallNode {
+                assign_expr: Some(expr),
+                ..
+            }) => {
+                let value_expr = self.expr_to_value(expr, None)?;
+                if let Some(node_mut) = self.nodes.get_mut(&exec_node.node_id) {
+                    node_mut.value_expr = Some(value_expr.clone());
+                }
+                self.record_data_flow_from_value(exec_node.node_id, &value_expr);
+                let assignments =
+                    self.build_assignments(&self.node_targets(template), &value_expr)?;
+                if let Some(node) = self.nodes.get_mut(&exec_node.node_id) {
+                    node.assignments.extend(assignments.clone());
+                }
+                self.mark_latest_assignments(exec_node.node_id, &assignments);
+                return Ok(());
+            }
+            DAGNode::Return(ReturnNode {
+                assign_expr: Some(expr),
+                target,
+                ..
+            }) => {
+                let value_expr = self.expr_to_value(expr, None)?;
+                if let Some(node_mut) = self.nodes.get_mut(&exec_node.node_id) {
+                    node_mut.value_expr = Some(value_expr.clone());
+                }
+                self.record_data_flow_from_value(exec_node.node_id, &value_expr);
+                let target = target.clone().unwrap_or_else(|| "result".to_string());
+                let assignments = self.build_assignments(&[target], &value_expr)?;
+                if let Some(node) = self.nodes.get_mut(&exec_node.node_id) {
+                    node.assignments.extend(assignments.clone());
+                }
+                self.mark_latest_assignments(exec_node.node_id, &assignments);
+                return Ok(());
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    pub(crate) fn assign_action_results(
+        &mut self,
+        node: &ExecutionNode,
+        action_name: &str,
+        targets: Option<&[String]>,
+        iteration_index: Option<i32>,
+    ) -> Result<ActionResultValue, RunnerStateError> {
+        let result_ref = ActionResultValue {
+            node_id: node.node_id,
+            action_name: action_name.to_string(),
+            iteration_index,
+            result_index: None,
+        };
+        let targets = targets.unwrap_or(&[]);
+        let assignments =
+            self.build_assignments(targets, &ValueExpr::ActionResult(result_ref.clone()))?;
+        if !assignments.is_empty() {
+            if let Some(node) = self.nodes.get_mut(&node.node_id) {
+                node.assignments.extend(assignments.clone());
+            }
+            self.mark_latest_assignments(node.node_id, &assignments);
+        }
+        Ok(result_ref)
+    }
+
+    fn build_assignments(
+        &self,
+        targets: &[String],
+        value: &ValueExpr,
+    ) -> Result<HashMap<String, ValueExpr>, RunnerStateError> {
+        let value = self.materialize_value(value.clone());
+        if targets.is_empty() {
+            return Ok(HashMap::new());
+        }
+        if targets.len() == 1 {
+            let mut map = HashMap::new();
+            map.insert(targets[0].clone(), value);
+            return Ok(map);
+        }
+
+        match value {
+            ValueExpr::List(ListValue { elements }) => {
+                if elements.len() != targets.len() {
+                    return Err(RunnerStateError("tuple unpacking mismatch".to_string()));
+                }
+                let mut map = HashMap::new();
+                for (target, item) in targets.iter().zip(elements.into_iter()) {
+                    map.insert(target.clone(), item);
+                }
+                Ok(map)
+            }
+            ValueExpr::ActionResult(action_value) => {
+                let mut map = HashMap::new();
+                for (idx, target) in targets.iter().enumerate() {
+                    map.insert(
+                        target.clone(),
+                        ValueExpr::ActionResult(ActionResultValue {
+                            node_id: action_value.node_id,
+                            action_name: action_value.action_name.clone(),
+                            iteration_index: action_value.iteration_index,
+                            result_index: Some(idx as i32),
+                        }),
+                    );
+                }
+                Ok(map)
+            }
+            ValueExpr::FunctionCall(func_value) => {
+                let mut map = HashMap::new();
+                for (idx, target) in targets.iter().enumerate() {
+                    map.insert(
+                        target.clone(),
+                        ValueExpr::Index(IndexValue {
+                            object: Box::new(ValueExpr::FunctionCall(func_value.clone())),
+                            index: Box::new(ValueExpr::Literal(LiteralValue {
+                                value: serde_json::Value::Number((idx as i64).into()),
+                            })),
+                        }),
+                    );
+                }
+                Ok(map)
+            }
+            ValueExpr::Index(index_value) => {
+                let mut map = HashMap::new();
+                for (idx, target) in targets.iter().enumerate() {
+                    map.insert(
+                        target.clone(),
+                        ValueExpr::Index(IndexValue {
+                            object: Box::new(ValueExpr::Index(index_value.clone())),
+                            index: Box::new(ValueExpr::Literal(LiteralValue {
+                                value: serde_json::Value::Number((idx as i64).into()),
+                            })),
+                        }),
+                    );
+                }
+                Ok(map)
+            }
+            _ => Err(RunnerStateError("tuple unpacking mismatch".to_string())),
+        }
+    }
+
+    pub(crate) fn materialize_value(&self, value: ValueExpr) -> ValueExpr {
+        let resolved = resolve_value_tree(&value, &|name, seen| {
+            self.resolve_variable_value(name, seen)
+        });
+        if let ValueExpr::BinaryOp(BinaryOpValue { left, op, right }) = &resolved
+            && ir::BinaryOperator::try_from(*op).ok() == Some(ir::BinaryOperator::BinaryOpAdd)
+            && let (ValueExpr::List(left_list), ValueExpr::List(right_list)) = (&**left, &**right)
+        {
+            let mut elements = left_list.elements.clone();
+            elements.extend(right_list.elements.clone());
+            return ValueExpr::List(ListValue { elements });
+        }
+        resolved
+    }
+
+    fn resolve_variable_value(&self, name: &str, seen: &mut HashSet<String>) -> ValueExpr {
+        if seen.contains(name) {
+            return ValueExpr::Variable(VariableValue {
+                name: name.to_string(),
+            });
+        }
+        let node_id = match self.latest_assignments.get(name) {
+            Some(node_id) => *node_id,
+            None => {
+                return ValueExpr::Variable(VariableValue {
+                    name: name.to_string(),
+                });
+            }
+        };
+        let node = match self.nodes.get(&node_id) {
+            Some(node) => node,
+            None => {
+                return ValueExpr::Variable(VariableValue {
+                    name: name.to_string(),
+                });
+            }
+        };
+        let assigned = match node.assignments.get(name) {
+            Some(value) => value.clone(),
+            None => {
+                return ValueExpr::Variable(VariableValue {
+                    name: name.to_string(),
+                });
+            }
+        };
+        if let ValueExpr::Variable(var) = &assigned {
+            seen.insert(name.to_string());
+            return self.resolve_variable_value(&var.name, seen);
+        }
+        assigned
+    }
+
+    pub(crate) fn mark_latest_assignments(
+        &mut self,
+        node_id: Uuid,
+        assignments: &HashMap<String, ValueExpr>,
+    ) {
+        for target in assignments.keys() {
+            self.latest_assignments.insert(target.clone(), node_id);
+        }
+    }
+
+    pub(crate) fn record_data_flow_from_value(&mut self, node_id: Uuid, value: &ValueExpr) {
+        let source_ids =
+            collect_value_sources(value, &|name| self.latest_assignments.get(name).copied());
+        self.record_data_flow_edges(node_id, &source_ids);
+    }
+
+    fn record_data_flow_edges(&mut self, node_id: Uuid, source_ids: &HashSet<Uuid>) {
+        for source_id in source_ids {
+            if *source_id == node_id {
+                continue;
+            }
+            self.register_edge(ExecutionEdge {
+                source: *source_id,
+                target: node_id,
+                edge_type: EdgeType::DataFlow,
+            });
+        }
+    }
+
+    pub fn expr_to_value(
+        &mut self,
+        expr: &ir::Expr,
+        local_scope: Option<&HashMap<String, ValueExpr>>,
+    ) -> Result<ValueExpr, RunnerStateError> {
+        match expr.kind.as_ref() {
+            Some(ir::expr::Kind::Literal(lit)) => Ok(ValueExpr::Literal(LiteralValue {
+                value: literal_value(lit),
+            })),
+            Some(ir::expr::Kind::Variable(var)) => {
+                if let Some(scope) = local_scope
+                    && let Some(value) = scope.get(&var.name)
+                {
+                    return Ok(value.clone());
+                }
+                Ok(ValueExpr::Variable(VariableValue {
+                    name: var.name.clone(),
+                }))
+            }
+            Some(ir::expr::Kind::BinaryOp(op)) => {
+                let left = op
+                    .left
+                    .as_ref()
+                    .ok_or_else(|| RunnerStateError("binary op missing left".to_string()))?;
+                let right = op
+                    .right
+                    .as_ref()
+                    .ok_or_else(|| RunnerStateError("binary op missing right".to_string()))?;
+                let left_value = self.expr_to_value(left, local_scope)?;
+                let right_value = self.expr_to_value(right, local_scope)?;
+                Ok(self.binary_op_value(op.op, left_value, right_value))
+            }
+            Some(ir::expr::Kind::UnaryOp(op)) => {
+                let operand = op
+                    .operand
+                    .as_ref()
+                    .ok_or_else(|| RunnerStateError("unary op missing operand".to_string()))?;
+                let operand_value = self.expr_to_value(operand, local_scope)?;
+                Ok(self.unary_op_value(op.op, operand_value))
+            }
+            Some(ir::expr::Kind::List(list)) => {
+                let elements = list
+                    .elements
+                    .iter()
+                    .map(|item| self.expr_to_value(item, local_scope))
+                    .collect::<Result<Vec<ValueExpr>, RunnerStateError>>()?;
+                Ok(ValueExpr::List(ListValue { elements }))
+            }
+            Some(ir::expr::Kind::Dict(dict_expr)) => {
+                let mut entries = Vec::new();
+                for entry in &dict_expr.entries {
+                    let key_expr = entry
+                        .key
+                        .as_ref()
+                        .ok_or_else(|| RunnerStateError("dict entry missing key".to_string()))?;
+                    let value_expr = entry
+                        .value
+                        .as_ref()
+                        .ok_or_else(|| RunnerStateError("dict entry missing value".to_string()))?;
+                    entries.push(DictEntryValue {
+                        key: self.expr_to_value(key_expr, local_scope)?,
+                        value: self.expr_to_value(value_expr, local_scope)?,
+                    });
+                }
+                Ok(ValueExpr::Dict(DictValue { entries }))
+            }
+            Some(ir::expr::Kind::Index(index)) => {
+                let object = index
+                    .object
+                    .as_ref()
+                    .ok_or_else(|| RunnerStateError("index access missing object".to_string()))?;
+                let index_expr = index
+                    .index
+                    .as_ref()
+                    .ok_or_else(|| RunnerStateError("index access missing index".to_string()))?;
+                let object_value = self.expr_to_value(object, local_scope)?;
+                let index_value = self.expr_to_value(index_expr, local_scope)?;
+                Ok(self.index_value(object_value, index_value))
+            }
+            Some(ir::expr::Kind::Dot(dot)) => {
+                let object = dot
+                    .object
+                    .as_ref()
+                    .ok_or_else(|| RunnerStateError("dot access missing object".to_string()))?;
+                Ok(ValueExpr::Dot(DotValue {
+                    object: Box::new(self.expr_to_value(object, local_scope)?),
+                    attribute: dot.attribute.clone(),
+                }))
+            }
+            Some(ir::expr::Kind::FunctionCall(call)) => {
+                let args = call
+                    .args
+                    .iter()
+                    .map(|arg| self.expr_to_value(arg, local_scope))
+                    .collect::<Result<Vec<ValueExpr>, RunnerStateError>>()?;
+                let mut kwargs = HashMap::new();
+                for kw in &call.kwargs {
+                    if let Some(value) = &kw.value {
+                        kwargs.insert(kw.name.clone(), self.expr_to_value(value, local_scope)?);
+                    }
+                }
+                let global_fn = if call.global_function != 0 {
+                    Some(call.global_function)
+                } else {
+                    None
+                };
+                Ok(ValueExpr::FunctionCall(FunctionCallValue {
+                    name: call.name.clone(),
+                    args,
+                    kwargs,
+                    global_function: global_fn,
+                }))
+            }
+            Some(ir::expr::Kind::ActionCall(action)) => {
+                let result = self.queue_action_call(action, None, None, local_scope)?;
+                Ok(ValueExpr::ActionResult(result))
+            }
+            Some(ir::expr::Kind::ParallelExpr(parallel)) => {
+                let mut calls = Vec::new();
+                for call in &parallel.calls {
+                    calls.push(self.call_to_value(call, local_scope)?);
+                }
+                Ok(ValueExpr::List(ListValue { elements: calls }))
+            }
+            Some(ir::expr::Kind::SpreadExpr(spread)) => self.spread_expr_value(spread, local_scope),
+            None => Ok(ValueExpr::Literal(LiteralValue {
+                value: serde_json::Value::Null,
+            })),
+        }
+    }
+
+    fn call_to_value(
+        &mut self,
+        call: &ir::Call,
+        local_scope: Option<&HashMap<String, ValueExpr>>,
+    ) -> Result<ValueExpr, RunnerStateError> {
+        match call.kind.as_ref() {
+            Some(ir::call::Kind::Action(action)) => Ok(ValueExpr::ActionResult(
+                self.queue_action_call(action, None, None, local_scope)?,
+            )),
+            Some(ir::call::Kind::Function(function)) => self.expr_to_value(
+                &ir::Expr {
+                    kind: Some(ir::expr::Kind::FunctionCall(function.clone())),
+                    span: None,
+                },
+                local_scope,
+            ),
+            None => Ok(ValueExpr::Literal(LiteralValue {
+                value: serde_json::Value::Null,
+            })),
+        }
+    }
+
+    fn spread_expr_value(
+        &mut self,
+        spread: &ir::SpreadExpr,
+        local_scope: Option<&HashMap<String, ValueExpr>>,
+    ) -> Result<ValueExpr, RunnerStateError> {
+        let collection = self.expr_to_value(
+            spread
+                .collection
+                .as_ref()
+                .ok_or_else(|| RunnerStateError("spread collection missing".to_string()))?,
+            local_scope,
+        )?;
+        if let ValueExpr::List(list) = &collection {
+            let mut results = Vec::new();
+            for (idx, item) in list.elements.iter().enumerate() {
+                let mut scope = HashMap::new();
+                scope.insert(spread.loop_var.clone(), item.clone());
+                let result = self.queue_action_call(
+                    spread
+                        .action
+                        .as_ref()
+                        .ok_or_else(|| RunnerStateError("spread action missing".to_string()))?,
+                    None,
+                    Some(idx as i32),
+                    Some(&scope),
+                )?;
+                results.push(ValueExpr::ActionResult(result));
+            }
+            return Ok(ValueExpr::List(ListValue { elements: results }));
+        }
+
+        let action_spec = self.action_spec_from_ir(
+            spread
+                .action
+                .as_ref()
+                .ok_or_else(|| RunnerStateError("spread action missing".to_string()))?,
+            None,
+        );
+        Ok(ValueExpr::Spread(SpreadValue {
+            collection: Box::new(collection),
+            loop_var: spread.loop_var.clone(),
+            action: action_spec,
+        }))
+    }
+
+    fn binary_op_value(&self, op: i32, left: ValueExpr, right: ValueExpr) -> ValueExpr {
+        if ir::BinaryOperator::try_from(op).ok() == Some(ir::BinaryOperator::BinaryOpAdd)
+            && let (ValueExpr::List(left_list), ValueExpr::List(right_list)) = (&left, &right)
+        {
+            let mut elements = left_list.elements.clone();
+            elements.extend(right_list.elements.clone());
+            return ValueExpr::List(ListValue { elements });
+        }
+        if let (ValueExpr::Literal(left_val), ValueExpr::Literal(right_val)) = (&left, &right)
+            && let Some(folded) = fold_literal_binary(op, &left_val.value, &right_val.value)
+        {
+            return ValueExpr::Literal(LiteralValue { value: folded });
+        }
+        ValueExpr::BinaryOp(BinaryOpValue {
+            left: Box::new(left),
+            op,
+            right: Box::new(right),
+        })
+    }
+
+    fn unary_op_value(&self, op: i32, operand: ValueExpr) -> ValueExpr {
+        if let ValueExpr::Literal(lit) = &operand
+            && let Some(folded) = fold_literal_unary(op, &lit.value)
+        {
+            return ValueExpr::Literal(LiteralValue { value: folded });
+        }
+        ValueExpr::UnaryOp(UnaryOpValue {
+            op,
+            operand: Box::new(operand),
+        })
+    }
+
+    fn index_value(&self, object: ValueExpr, index: ValueExpr) -> ValueExpr {
+        if let (ValueExpr::List(list), ValueExpr::Literal(idx)) = (&object, &index)
+            && let Some(idx) = idx.value.as_i64()
+            && idx >= 0
+            && (idx as usize) < list.elements.len()
+        {
+            return list.elements[idx as usize].clone();
+        }
+        ValueExpr::Index(IndexValue {
+            object: Box::new(object),
+            index: Box::new(index),
+        })
+    }
+
+    fn action_spec_from_node(&mut self, node: &ActionCallNode) -> ActionCallSpec {
+        let kwargs = node
+            .kwarg_exprs
+            .iter()
+            .map(|(name, expr)| (name.clone(), self.expr_to_value(expr, None).unwrap()))
+            .collect();
+        ActionCallSpec {
+            action_name: node.action_name.clone(),
+            module_name: node.module_name.clone(),
+            kwargs,
+        }
+    }
+
+    fn action_spec_from_ir(
+        &mut self,
+        action: &ir::ActionCall,
+        local_scope: Option<&HashMap<String, ValueExpr>>,
+    ) -> ActionCallSpec {
+        let kwargs = action
+            .kwargs
+            .iter()
+            .filter_map(|kw| kw.value.as_ref().map(|value| (kw.name.clone(), value)))
+            .map(|(name, value)| (name, self.expr_to_value(value, local_scope).unwrap()))
+            .collect();
+        ActionCallSpec {
+            action_name: action.action_name.clone(),
+            module_name: action.module_name.clone(),
+            kwargs,
+        }
+    }
+
+    pub fn queue_action(
+        &mut self,
+        action_name: &str,
+        targets: Option<Vec<String>>,
+        kwargs: Option<HashMap<String, ValueExpr>>,
+        module_name: Option<String>,
+        iteration_index: Option<i32>,
+    ) -> Result<ActionResultValue, RunnerStateError> {
+        let spec = ActionCallSpec {
+            action_name: action_name.to_string(),
+            module_name,
+            kwargs: kwargs.unwrap_or_default(),
+        };
+        let node = self.queue_node(
+            "action_call",
+            &format!("@{}()", spec.action_name),
+            QueueNodeParams {
+                targets: targets.clone(),
+                action: Some(spec.clone()),
+                ..QueueNodeParams::default()
+            },
+        )?;
+        for value in spec.kwargs.values() {
+            self.record_data_flow_from_value(node.node_id, value);
+        }
+        let result = self.assign_action_results(
+            &node,
+            &spec.action_name,
+            targets.as_deref(),
+            iteration_index,
+        )?;
+        if let Some(node) = self.nodes.get_mut(&node.node_id) {
+            node.value_expr = Some(ValueExpr::ActionResult(result.clone()));
+        }
+        Ok(result)
+    }
+
+    pub fn record_assignment(
+        &mut self,
+        targets: Vec<String>,
+        expr: &ir::Expr,
+        node_id: Option<Uuid>,
+        label: Option<String>,
+    ) -> Result<ExecutionNode, RunnerStateError> {
+        let value_expr = self.expr_to_value(expr, None)?;
+        self.record_assignment_value(targets, value_expr, node_id, label)
+    }
+
+    pub fn record_assignment_value(
+        &mut self,
+        targets: Vec<String>,
+        value_expr: ValueExpr,
+        node_id: Option<Uuid>,
+        label: Option<String>,
+    ) -> Result<ExecutionNode, RunnerStateError> {
+        let exec_node_id = node_id.unwrap_or_else(Uuid::new_v4);
+        let node = self.queue_node(
+            "assignment",
+            label.as_deref().unwrap_or("assignment"),
+            QueueNodeParams {
+                node_id: Some(exec_node_id),
+                targets: Some(targets.clone()),
+                value_expr: Some(value_expr.clone()),
+                ..QueueNodeParams::default()
+            },
+        )?;
+        self.record_data_flow_from_value(exec_node_id, &value_expr);
+        let assignments = self.build_assignments(&targets, &value_expr)?;
+        if let Some(node_mut) = self.nodes.get_mut(&node.node_id) {
+            node_mut.assignments.extend(assignments.clone());
+        }
+        self.mark_latest_assignments(node.node_id, &assignments);
+        Ok(node)
+    }
+}
+
+pub fn format_value(expr: &ValueExpr) -> String {
+    format_value_inner(expr, 0)
+}
+
+fn format_value_inner(expr: &ValueExpr, parent_prec: i32) -> String {
+    match expr {
+        ValueExpr::Literal(lit) => format_literal(&lit.value),
+        ValueExpr::Variable(var) => var.name.clone(),
+        ValueExpr::ActionResult(value) => value.label(),
+        ValueExpr::BinaryOp(value) => {
+            let (op_str, prec) = binary_operator(value.op);
+            let left = format_value_inner(&value.left, prec);
+            let right = format_value_inner(&value.right, prec + 1);
+            let rendered = format!("{left} {op_str} {right}");
+            if prec < parent_prec {
+                format!("({rendered})")
+            } else {
+                rendered
+            }
+        }
+        ValueExpr::UnaryOp(value) => {
+            let (op_str, prec) = unary_operator(value.op);
+            let operand = format_value_inner(&value.operand, prec);
+            let rendered = format!("{op_str}{operand}");
+            if prec < parent_prec {
+                format!("({rendered})")
+            } else {
+                rendered
+            }
+        }
+        ValueExpr::List(value) => {
+            let items: Vec<String> = value
+                .elements
+                .iter()
+                .map(|item| format_value_inner(item, 0))
+                .collect();
+            format!("[{}]", items.join(", "))
+        }
+        ValueExpr::Dict(value) => {
+            let entries: Vec<String> = value
+                .entries
+                .iter()
+                .map(|entry| {
+                    format!(
+                        "{}: {}",
+                        format_value_inner(&entry.key, 0),
+                        format_value_inner(&entry.value, 0)
+                    )
+                })
+                .collect();
+            format!("{{{}}}", entries.join(", "))
+        }
+        ValueExpr::Index(value) => {
+            let prec = precedence("index");
+            let obj = format_value_inner(&value.object, prec);
+            let idx = format_value_inner(&value.index, 0);
+            let rendered = format!("{obj}[{idx}]");
+            if prec < parent_prec {
+                format!("({rendered})")
+            } else {
+                rendered
+            }
+        }
+        ValueExpr::Dot(value) => {
+            let prec = precedence("dot");
+            let obj = format_value_inner(&value.object, prec);
+            let rendered = format!("{obj}.{}", value.attribute);
+            if prec < parent_prec {
+                format!("({rendered})")
+            } else {
+                rendered
+            }
+        }
+        ValueExpr::FunctionCall(value) => {
+            let mut args: Vec<String> = value
+                .args
+                .iter()
+                .map(|arg| format_value_inner(arg, 0))
+                .collect();
+            for (name, val) in &value.kwargs {
+                args.push(format!("{name}={}", format_value_inner(val, 0)));
+            }
+            format!("{}({})", value.name, args.join(", "))
+        }
+        ValueExpr::Spread(value) => {
+            let collection = format_value_inner(&value.collection, 0);
+            let mut args: Vec<String> = Vec::new();
+            for (name, val) in &value.action.kwargs {
+                args.push(format!("{name}={}", format_value_inner(val, 0)));
+            }
+            let call = format!("@{}({})", value.action.action_name, args.join(", "));
+            format!("spread {collection}:{} -> {call}", value.loop_var)
+        }
+    }
+}
+
+fn binary_operator(op: i32) -> (&'static str, i32) {
+    match ir::BinaryOperator::try_from(op).ok() {
+        Some(ir::BinaryOperator::BinaryOpOr) => ("or", 10),
+        Some(ir::BinaryOperator::BinaryOpAnd) => ("and", 20),
+        Some(ir::BinaryOperator::BinaryOpEq) => ("==", 30),
+        Some(ir::BinaryOperator::BinaryOpNe) => ("!=", 30),
+        Some(ir::BinaryOperator::BinaryOpLt) => ("<", 30),
+        Some(ir::BinaryOperator::BinaryOpLe) => ("<=", 30),
+        Some(ir::BinaryOperator::BinaryOpGt) => (">", 30),
+        Some(ir::BinaryOperator::BinaryOpGe) => (">=", 30),
+        Some(ir::BinaryOperator::BinaryOpIn) => ("in", 30),
+        Some(ir::BinaryOperator::BinaryOpNotIn) => ("not in", 30),
+        Some(ir::BinaryOperator::BinaryOpAdd) => ("+", 40),
+        Some(ir::BinaryOperator::BinaryOpSub) => ("-", 40),
+        Some(ir::BinaryOperator::BinaryOpMul) => ("*", 50),
+        Some(ir::BinaryOperator::BinaryOpDiv) => ("/", 50),
+        Some(ir::BinaryOperator::BinaryOpFloorDiv) => ("//", 50),
+        Some(ir::BinaryOperator::BinaryOpMod) => ("%", 50),
+        _ => ("?", 0),
+    }
+}
+
+fn unary_operator(op: i32) -> (&'static str, i32) {
+    match ir::UnaryOperator::try_from(op).ok() {
+        Some(ir::UnaryOperator::UnaryOpNeg) => ("-", 60),
+        Some(ir::UnaryOperator::UnaryOpNot) => ("not ", 60),
+        _ => ("?", 0),
+    }
+}
+
+fn precedence(kind: &str) -> i32 {
+    match kind {
+        "index" | "dot" => 80,
+        _ => 0,
+    }
+}
+
+fn format_literal(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::Null => "None".to_string(),
+        serde_json::Value::Bool(value) => {
+            if *value {
+                "True".to_string()
+            } else {
+                "False".to_string()
+            }
+        }
+        serde_json::Value::String(value) => {
+            serde_json::to_string(value).unwrap_or_else(|_| format!("\"{value}\""))
+        }
+        _ => value.to_string(),
+    }
+}
+
+pub(crate) fn literal_value(lit: &ir::Literal) -> serde_json::Value {
+    match lit.value.as_ref() {
+        Some(ir::literal::Value::IntValue(value)) => serde_json::Value::Number((*value).into()),
+        Some(ir::literal::Value::FloatValue(value)) => serde_json::Number::from_f64(*value)
+            .map(serde_json::Value::Number)
+            .unwrap_or(serde_json::Value::Null),
+        Some(ir::literal::Value::StringValue(value)) => serde_json::Value::String(value.clone()),
+        Some(ir::literal::Value::BoolValue(value)) => serde_json::Value::Bool(*value),
+        Some(ir::literal::Value::IsNone(_)) => serde_json::Value::Null,
+        None => serde_json::Value::Null,
+    }
+}
+
+fn fold_literal_binary(
+    op: i32,
+    left: &serde_json::Value,
+    right: &serde_json::Value,
+) -> Option<serde_json::Value> {
+    match ir::BinaryOperator::try_from(op).ok() {
+        Some(ir::BinaryOperator::BinaryOpAdd) => {
+            if let (Some(left), Some(right)) = (left.as_i64(), right.as_i64()) {
+                return Some(serde_json::Value::Number((left + right).into()));
+            }
+            if let (Some(left), Some(right)) = (left.as_f64(), right.as_f64()) {
+                return serde_json::Number::from_f64(left + right).map(serde_json::Value::Number);
+            }
+            if let (Some(left), Some(right)) = (left.as_str(), right.as_str()) {
+                return Some(serde_json::Value::String(format!("{left}{right}")));
+            }
+            None
+        }
+        Some(ir::BinaryOperator::BinaryOpSub) => {
+            if let (Some(left), Some(right)) = (left.as_f64(), right.as_f64()) {
+                return serde_json::Number::from_f64(left - right).map(serde_json::Value::Number);
+            }
+            None
+        }
+        Some(ir::BinaryOperator::BinaryOpMul) => {
+            if let (Some(left), Some(right)) = (left.as_f64(), right.as_f64()) {
+                return serde_json::Number::from_f64(left * right).map(serde_json::Value::Number);
+            }
+            None
+        }
+        Some(ir::BinaryOperator::BinaryOpDiv) => {
+            if let (Some(left), Some(right)) = (left.as_f64(), right.as_f64()) {
+                return serde_json::Number::from_f64(left / right).map(serde_json::Value::Number);
+            }
+            None
+        }
+        Some(ir::BinaryOperator::BinaryOpFloorDiv) => {
+            if let (Some(left), Some(right)) = (left.as_f64(), right.as_f64()) {
+                if right == 0.0 {
+                    return None;
+                }
+                let value = (left / right).floor();
+                return serde_json::Number::from_f64(value).map(serde_json::Value::Number);
+            }
+            None
+        }
+        Some(ir::BinaryOperator::BinaryOpMod) => {
+            if let (Some(left), Some(right)) = (left.as_f64(), right.as_f64()) {
+                return serde_json::Number::from_f64(left % right).map(serde_json::Value::Number);
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+fn fold_literal_unary(op: i32, operand: &serde_json::Value) -> Option<serde_json::Value> {
+    match ir::UnaryOperator::try_from(op).ok() {
+        Some(ir::UnaryOperator::UnaryOpNeg) => operand
+            .as_f64()
+            .and_then(|value| serde_json::Number::from_f64(-value).map(serde_json::Value::Number)),
+        Some(ir::UnaryOperator::UnaryOpNot) => Some(serde_json::Value::Bool(!is_truthy(operand))),
+        _ => None,
+    }
+}
+
+fn is_truthy(value: &serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::Null => false,
+        serde_json::Value::Bool(value) => *value,
+        serde_json::Value::Number(number) => {
+            number.as_f64().map(|value| value != 0.0).unwrap_or(false)
+        }
+        serde_json::Value::String(value) => !value.is_empty(),
+        serde_json::Value::Array(values) => !values.is_empty(),
+        serde_json::Value::Object(map) => !map.is_empty(),
+    }
+}
+
+impl fmt::Display for NodeStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let value = match self {
+            NodeStatus::Queued => "queued",
+            NodeStatus::Running => "running",
+            NodeStatus::Completed => "completed",
+            NodeStatus::Failed => "failed",
+        };
+        write!(f, "{value}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::messages::ast as ir;
+    use serde_json::Value;
+
+    fn action_plus_two_expr() -> ir::Expr {
+        ir::Expr {
+            kind: Some(ir::expr::Kind::BinaryOp(Box::new(ir::BinaryOp {
+                left: Some(Box::new(ir::Expr {
+                    kind: Some(ir::expr::Kind::Variable(ir::Variable {
+                        name: "action_result".to_string(),
+                    })),
+                    span: None,
+                })),
+                op: ir::BinaryOperator::BinaryOpAdd as i32,
+                right: Some(Box::new(ir::Expr {
+                    kind: Some(ir::expr::Kind::Literal(ir::Literal {
+                        value: Some(ir::literal::Value::IntValue(2)),
+                    })),
+                    span: None,
+                })),
+            }))),
+            span: None,
+        }
+    }
+
+    #[test]
+    fn test_runner_state_unrolls_loop_assignments() {
+        let mut state = RunnerState::new(None, None, None, true);
+
+        state
+            .queue_action(
+                "action",
+                Some(vec!["action_result".to_string()]),
+                None,
+                None,
+                Some(0),
+            )
+            .expect("queue action");
+        let first_list = ir::Expr {
+            kind: Some(ir::expr::Kind::List(ir::ListExpr {
+                elements: vec![action_plus_two_expr()],
+            })),
+            span: None,
+        };
+        state
+            .record_assignment(vec!["results".to_string()], &first_list, None, None)
+            .expect("record assignment");
+
+        state
+            .queue_action(
+                "action",
+                Some(vec!["action_result".to_string()]),
+                None,
+                None,
+                Some(1),
+            )
+            .expect("queue action");
+        let second_list = ir::Expr {
+            kind: Some(ir::expr::Kind::List(ir::ListExpr {
+                elements: vec![action_plus_two_expr()],
+            })),
+            span: None,
+        };
+        let concat_expr = ir::Expr {
+            kind: Some(ir::expr::Kind::BinaryOp(Box::new(ir::BinaryOp {
+                left: Some(Box::new(ir::Expr {
+                    kind: Some(ir::expr::Kind::Variable(ir::Variable {
+                        name: "results".to_string(),
+                    })),
+                    span: None,
+                })),
+                op: ir::BinaryOperator::BinaryOpAdd as i32,
+                right: Some(Box::new(second_list)),
+            }))),
+            span: None,
+        };
+        state
+            .record_assignment(vec!["results".to_string()], &concat_expr, None, None)
+            .expect("record assignment");
+
+        let mut results: Option<ValueExpr> = None;
+        for node_id in state.timeline.iter().rev() {
+            let node = state.nodes.get(node_id).unwrap();
+            if let Some(value) = node.assignments.get("results") {
+                results = Some(value.clone());
+                break;
+            }
+        }
+
+        let results = results.expect("results assignment");
+        let list_value = match results {
+            ValueExpr::List(value) => value,
+            other => panic!("expected ListValue, got {other:?}"),
+        };
+        assert_eq!(list_value.elements.len(), 2);
+
+        let first_item = &list_value.elements[0];
+        let second_item = &list_value.elements[1];
+
+        let first_bin = match first_item {
+            ValueExpr::BinaryOp(value) => value,
+            other => panic!("expected BinaryOpValue, got {other:?}"),
+        };
+        let second_bin = match second_item {
+            ValueExpr::BinaryOp(value) => value,
+            other => panic!("expected BinaryOpValue, got {other:?}"),
+        };
+
+        match first_bin.left.as_ref() {
+            ValueExpr::ActionResult(value) => assert_eq!(value.iteration_index, Some(0)),
+            other => panic!("expected ActionResultValue, got {other:?}"),
+        }
+        match second_bin.left.as_ref() {
+            ValueExpr::ActionResult(value) => assert_eq!(value.iteration_index, Some(1)),
+            other => panic!("expected ActionResultValue, got {other:?}"),
+        }
+
+        match first_bin.right.as_ref() {
+            ValueExpr::Literal(value) => assert_eq!(value.value, Value::Number(2.into())),
+            other => panic!("expected LiteralValue, got {other:?}"),
+        }
+        match second_bin.right.as_ref() {
+            ValueExpr::Literal(value) => assert_eq!(value.value, Value::Number(2.into())),
+            other => panic!("expected LiteralValue, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_runner_state_graph_dirty_for_action_updates() {
+        let mut state = RunnerState::new(None, None, None, true);
+        assert!(!state.consume_graph_dirty_for_durable_execution());
+
+        let action_result = state
+            .queue_action(
+                "action",
+                Some(vec!["action_result".to_string()]),
+                None,
+                None,
+                None,
+            )
+            .expect("queue action");
+        assert!(state.consume_graph_dirty_for_durable_execution());
+        assert!(!state.consume_graph_dirty_for_durable_execution());
+
+        state
+            .increment_action_attempt(action_result.node_id)
+            .expect("increment action attempt");
+        assert!(state.consume_graph_dirty_for_durable_execution());
+    }
+
+    #[test]
+    fn test_runner_state_graph_dirty_not_set_for_assignments() {
+        let mut state = RunnerState::new(None, None, None, true);
+        let value_expr = ValueExpr::Literal(LiteralValue {
+            value: Value::Number(1.into()),
+        });
+        state
+            .record_assignment_value(vec!["value".to_string()], value_expr, None, None)
+            .expect("record assignment");
+
+        assert!(!state.consume_graph_dirty_for_durable_execution());
+    }
+}

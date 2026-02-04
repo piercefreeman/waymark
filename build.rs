@@ -8,6 +8,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build_client(true)
         // Allow large enum variants in generated proto code
         .type_attribute(".", "#[allow(clippy::large_enum_variant)]")
+        // Enable serde support for persisted runtime state.
+        .type_attribute(".", "#[derive(serde::Serialize, serde::Deserialize)]")
         .compile(
             &[
                 "proto/messages.proto",
