@@ -126,7 +126,12 @@ impl RunLoop {
                 if completion_stop.load(Ordering::SeqCst) {
                     break;
                 }
-                let completions = worker_pool.get_complete().await;
+                let completions = tokio::select! {
+                    _ = completion_notify.notified() => {
+                        break;
+                    }
+                    completions = worker_pool.get_complete() => completions,
+                };
                 if completions.is_empty() {
                     continue;
                 }

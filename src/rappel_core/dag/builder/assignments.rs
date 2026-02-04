@@ -276,6 +276,10 @@ impl DAGConverter {
             Some(ir::expr::Kind::FunctionCall(call)) => {
                 let node_id = self.next_id("fn_call");
                 let (kwargs, kwarg_exprs) = self.extract_fn_call_args(call);
+                let call_expr = ir::Expr {
+                    kind: Some(ir::expr::Kind::FunctionCall(call.clone())),
+                    span: None,
+                };
                 let node = FnCallNode::new(
                     node_id.clone(),
                     call.name.clone(),
@@ -284,7 +288,7 @@ impl DAGConverter {
                         kwarg_exprs,
                         targets: None,
                         target: None,
-                        assign_expr: None,
+                        assign_expr: Some(call_expr),
                         parallel_index: None,
                         aggregates_to: None,
                         function_name: self.current_function.clone(),
@@ -305,7 +309,7 @@ impl DAGConverter {
                 | ir::expr::Kind::ParallelExpr(_)
                 | ir::expr::Kind::SpreadExpr(_),
             ) => {
-                let node_id = self.next_id("expr");
+                let node_id = self.next_id("expression");
                 let node = ExpressionNode::new(node_id.clone(), self.current_function.clone());
                 self.dag.add_node(node.into());
                 vec![node_id]

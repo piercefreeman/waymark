@@ -237,13 +237,13 @@ fn apply_binary(op: i32, left: Value, right: Value) -> Result<Value, ReplayError
         Some(ir::BinaryOperator::BinaryOpIn) => Ok(Value::Bool(value_in(&left, &right))),
         Some(ir::BinaryOperator::BinaryOpNotIn) => Ok(Value::Bool(!value_in(&left, &right))),
         Some(ir::BinaryOperator::BinaryOpAdd) => add_values(left, right),
-        Some(ir::BinaryOperator::BinaryOpSub) => numeric_op(left, right, |a, b| a - b),
-        Some(ir::BinaryOperator::BinaryOpMul) => numeric_op(left, right, |a, b| a * b),
-        Some(ir::BinaryOperator::BinaryOpDiv) => numeric_op(left, right, |a, b| a / b),
+        Some(ir::BinaryOperator::BinaryOpSub) => numeric_op(left, right, |a, b| a - b, true),
+        Some(ir::BinaryOperator::BinaryOpMul) => numeric_op(left, right, |a, b| a * b, true),
+        Some(ir::BinaryOperator::BinaryOpDiv) => numeric_op(left, right, |a, b| a / b, false),
         Some(ir::BinaryOperator::BinaryOpFloorDiv) => {
-            numeric_op(left, right, |a, b| (a / b).floor())
+            numeric_op(left, right, |a, b| (a / b).floor(), true)
         }
-        Some(ir::BinaryOperator::BinaryOpMod) => numeric_op(left, right, |a, b| a % b),
+        Some(ir::BinaryOperator::BinaryOpMod) => numeric_op(left, right, |a, b| a % b, true),
         Some(ir::BinaryOperator::BinaryOpUnspecified) | None => {
             Err(ReplayError("binary operator unspecified".to_string()))
         }
@@ -252,12 +252,18 @@ fn apply_binary(op: i32, left: Value, right: Value) -> Result<Value, ReplayError
 
 fn apply_unary(op: i32, operand: Value) -> Result<Value, ReplayError> {
     match ir::UnaryOperator::try_from(op).ok() {
-        Some(ir::UnaryOperator::UnaryOpNeg) => match operand.as_f64() {
-            Some(value) => Ok(Value::Number(
-                serde_json::Number::from_f64(-value).unwrap_or_else(|| serde_json::Number::from(0)),
-            )),
-            None => Err(ReplayError("unary neg expects number".to_string())),
-        },
+        Some(ir::UnaryOperator::UnaryOpNeg) => {
+            if let Some(value) = int_value(&operand) {
+                return Ok(Value::Number((-value).into()));
+            }
+            match operand.as_f64() {
+                Some(value) => Ok(Value::Number(
+                    serde_json::Number::from_f64(-value)
+                        .unwrap_or_else(|| serde_json::Number::from(0)),
+                )),
+                None => Err(ReplayError("unary neg expects number".to_string())),
+            }
+        }
         Some(ir::UnaryOperator::UnaryOpNot) => Ok(Value::Bool(!is_truthy(&operand))),
         Some(ir::UnaryOperator::UnaryOpUnspecified) | None => {
             Err(ReplayError("unary operator unspecified".to_string()))
@@ -338,20 +344,37 @@ fn build_incoming_data_map(
     incoming
 }
 
+fn int_value(value: &Value) -> Option<i64> {
+    value
+        .as_i64()
+        .or_else(|| value.as_u64().and_then(|value| i64::try_from(value).ok()))
+}
+
 fn numeric_op(
     left: Value,
     right: Value,
     op: impl Fn(f64, f64) -> f64,
+    prefer_int: bool,
 ) -> Result<Value, ReplayError> {
-    let left = left
+    let left_num = left
         .as_f64()
         .ok_or_else(|| ReplayError("numeric operation expects number".to_string()))?;
-    let right = right
+    let right_num = right
         .as_f64()
         .ok_or_else(|| ReplayError("numeric operation expects number".to_string()))?;
+    let result = op(left_num, right_num);
+    if prefer_int && int_value(&left).is_some() && int_value(&right).is_some() && result.is_finite()
+    {
+        let rounded = result.round();
+        if (result - rounded).abs() < 1e-9
+            && rounded >= (i64::MIN as f64)
+            && rounded <= (i64::MAX as f64)
+        {
+            return Ok(Value::Number((rounded as i64).into()));
+        }
+    }
     Ok(Value::Number(
-        serde_json::Number::from_f64(op(left, right))
-            .unwrap_or_else(|| serde_json::Number::from(0)),
+        serde_json::Number::from_f64(result).unwrap_or_else(|| serde_json::Number::from(0)),
     ))
 }
 
@@ -363,7 +386,7 @@ fn add_values(left: Value, right: Value) -> Result<Value, ReplayError> {
     if let (Some(left), Some(right)) = (left.as_str(), right.as_str()) {
         return Ok(Value::String(format!("{left}{right}")));
     }
-    numeric_op(left, right, |a, b| a + b)
+    numeric_op(left, right, |a, b| a + b, true)
 }
 
 fn compare_values(
