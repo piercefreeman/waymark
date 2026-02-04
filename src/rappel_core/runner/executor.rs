@@ -51,6 +51,8 @@ pub struct RunnerExecutor {
     template_outgoing: FxHashMap<String, Vec<DAGEdge>>,
     template_incoming: FxHashMap<String, HashSet<String>>,
     incoming_exec_edges: FxHashMap<Uuid, Vec<ExecutionEdge>>,
+    /// Index: template_id -> list of execution node IDs with that template
+    template_to_exec_nodes: FxHashMap<String, Vec<Uuid>>,
     eval_cache: RefCell<FxHashMap<(Uuid, String), Value>>,
     instance_id: Option<Uuid>,
 }
@@ -73,6 +75,7 @@ impl RunnerExecutor {
         let template_outgoing = Self::build_template_outgoing(&dag);
         let template_incoming = Self::build_template_incoming(&dag);
         let incoming_exec_edges = Self::build_incoming_exec_edges(&state);
+        let template_to_exec_nodes = Self::build_template_to_exec_nodes(&state);
         Self {
             dag,
             state,
@@ -81,6 +84,7 @@ impl RunnerExecutor {
             template_outgoing,
             template_incoming,
             incoming_exec_edges,
+            template_to_exec_nodes,
             eval_cache: RefCell::new(FxHashMap::default()),
             instance_id: None,
         }
@@ -378,35 +382,52 @@ impl RunnerExecutor {
         if edge.edge_type != EdgeType::StateMachine {
             return Ok(Vec::new());
         }
-        let template = self
-            .dag
-            .nodes
-            .get(&edge.target)
-            .ok_or_else(|| {
-                RunnerExecutorError(format!("template node not found: {}", edge.target))
-            })?
-            .clone();
 
-        if let crate::rappel_core::dag::DAGNode::ActionCall(action) = &template
-            && action.spread_loop_var.is_some()
-        {
-            return self.expand_spread_action(source, action);
+        // Extract info from template without holding borrow across mutable calls
+        enum TemplateKind {
+            SpreadAction(ActionCallNode),
+            Aggregator(String),
+            Regular(String),
         }
 
-        if let crate::rappel_core::dag::DAGNode::Aggregator(_) = &template {
-            let template_id = template.id().to_string();
-            if let Some(existing) = self.find_connected_aggregator(source.node_id, &template_id) {
-                return Ok(vec![existing]);
+        let kind = {
+            let template = self
+                .dag
+                .nodes
+                .get(&edge.target)
+                .ok_or_else(|| {
+                    RunnerExecutorError(format!("template node not found: {}", edge.target))
+                })?;
+
+            match template {
+                crate::rappel_core::dag::DAGNode::ActionCall(action) if action.spread_loop_var.is_some() => {
+                    TemplateKind::SpreadAction(action.clone())
+                }
+                crate::rappel_core::dag::DAGNode::Aggregator(_) => {
+                    TemplateKind::Aggregator(template.id().to_string())
+                }
+                _ => TemplateKind::Regular(template.id().to_string()),
             }
-            let agg_node = self.get_or_create_aggregator(&template_id)?;
-            self.add_exec_edge(source.node_id, agg_node.node_id);
-            return Ok(vec![agg_node]);
-        }
+        };
 
-        let template_id = template.id().to_string();
-        let exec_node = self.get_or_create_exec_node(&template_id)?;
-        self.add_exec_edge(source.node_id, exec_node.node_id);
-        Ok(vec![exec_node])
+        match kind {
+            TemplateKind::SpreadAction(action) => {
+                self.expand_spread_action(source, &action)
+            }
+            TemplateKind::Aggregator(template_id) => {
+                if let Some(existing) = self.find_connected_aggregator(source.node_id, &template_id) {
+                    return Ok(vec![existing]);
+                }
+                let agg_node = self.get_or_create_aggregator(&template_id)?;
+                self.add_exec_edge(source.node_id, agg_node.node_id);
+                Ok(vec![agg_node])
+            }
+            TemplateKind::Regular(template_id) => {
+                let exec_node = self.get_or_create_exec_node(&template_id)?;
+                self.add_exec_edge(source.node_id, exec_node.node_id);
+                Ok(vec![exec_node])
+            }
+        }
     }
 
     fn expand_spread_action(
@@ -532,14 +553,10 @@ impl RunnerExecutor {
         if node.status == NodeStatus::Completed {
             return false;
         }
-        let incoming = self
-            .incoming_exec_edges
-            .get(&node.node_id)
-            .cloned()
-            .unwrap_or_default();
-        if incoming.is_empty() {
-            return true;
-        }
+        let incoming = match self.incoming_exec_edges.get(&node.node_id) {
+            Some(edges) if !edges.is_empty() => edges,
+            _ => return true, // No incoming edges means ready
+        };
 
         let template = match node
             .template_id
@@ -551,16 +568,13 @@ impl RunnerExecutor {
         };
 
         if let crate::rappel_core::dag::DAGNode::Aggregator(_) = template {
-            let required = self
-                .template_incoming
-                .get(template.id())
-                .cloned()
-                .unwrap_or_default();
-            let connected = self.connected_template_sources(node.node_id);
-            if !required.is_subset(&connected) {
-                return false;
+            if let Some(required) = self.template_incoming.get(template.id()) {
+                let connected = self.connected_template_sources(node.node_id);
+                if !required.is_subset(&connected) {
+                    return false;
+                }
             }
-            for edge in &incoming {
+            for edge in incoming {
                 if let Some(source) = self.state.nodes.get(&edge.source) {
                     if source.status != NodeStatus::Completed {
                         return false;
@@ -1204,6 +1218,24 @@ impl RunnerExecutor {
         incoming
     }
 
+    fn build_template_to_exec_nodes(state: &RunnerState) -> FxHashMap<String, Vec<Uuid>> {
+        let mut index: FxHashMap<String, Vec<Uuid>> = FxHashMap::default();
+        for (node_id, node) in &state.nodes {
+            if let Some(template_id) = &node.template_id {
+                index.entry(template_id.clone()).or_default().push(*node_id);
+            }
+        }
+        index
+    }
+
+    /// Register a new execution node in the template index
+    fn register_exec_node(&mut self, template_id: &str, node_id: Uuid) {
+        self.template_to_exec_nodes
+            .entry(template_id.to_string())
+            .or_default()
+            .push(node_id);
+    }
+
     fn add_exec_edge(&mut self, source: Uuid, target: Uuid) {
         let edge = ExecutionEdge {
             source,
@@ -1290,32 +1322,41 @@ impl RunnerExecutor {
         &mut self,
         template_id: &str,
     ) -> Result<ExecutionNode, RunnerExecutorError> {
-        let mut candidates: Vec<ExecutionNode> = self
-            .state
-            .nodes
-            .values()
-            .filter(|node| {
-                node.template_id.as_deref() == Some(template_id)
-                    && node.status != NodeStatus::Completed
-            })
-            .cloned()
-            .collect();
-        if !candidates.is_empty() {
-            let timeline_index: HashMap<Uuid, usize> = self
-                .state
-                .timeline
-                .iter()
-                .enumerate()
-                .map(|(idx, node_id)| (*node_id, idx))
-                .collect();
-            candidates.sort_by_key(|node| {
-                std::cmp::Reverse(timeline_index.get(&node.node_id).copied().unwrap_or(0))
-            });
-            return Ok(candidates[0].clone());
+        // Use the index to find candidate nodes - O(k) where k is nodes for this template
+        if let Some(node_ids) = self.template_to_exec_nodes.get(template_id) {
+            // Find the most recent non-completed node
+            let mut best_node_id: Option<Uuid> = None;
+            let mut best_timeline_pos: Option<usize> = None;
+
+            for &node_id in node_ids {
+                if let Some(node) = self.state.nodes.get(&node_id) {
+                    if node.status != NodeStatus::Completed {
+                        let timeline_pos = self.state.timeline.iter().position(|&id| id == node_id);
+                        if let Some(pos) = timeline_pos {
+                            if best_timeline_pos.is_none() || pos > best_timeline_pos.unwrap() {
+                                best_timeline_pos = Some(pos);
+                                best_node_id = Some(node_id);
+                            }
+                        } else if best_node_id.is_none() {
+                            best_node_id = Some(node_id);
+                        }
+                    }
+                }
+            }
+
+            if let Some(node_id) = best_node_id {
+                return self.state.nodes.get(&node_id).cloned().ok_or_else(|| {
+                    RunnerExecutorError(format!("node disappeared: {node_id}"))
+                });
+            }
         }
-        self.state
+
+        // Create new node and register it in the index
+        let node = self.state
             .queue_template_node(template_id, None)
-            .map_err(|err| RunnerExecutorError(err.0))
+            .map_err(|err| RunnerExecutorError(err.0))?;
+        self.register_exec_node(template_id, node.node_id);
+        Ok(node)
     }
 
     fn collect_updates(
