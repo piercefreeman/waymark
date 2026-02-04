@@ -234,10 +234,14 @@ async fn run_benchmark(
     base: i64,
     batch_size: usize,
     dsn: &str,
+    observe: bool,
 ) -> (
     HashMap<String, usize>,
     HashMap<String, HashMap<usize, usize>>,
 ) {
+    if observe {
+        crate::observability::init();
+    }
     let cases = build_cases(base);
     let backend = PostgresBackend::connect(dsn)
         .await
@@ -254,9 +258,6 @@ async fn run_benchmark(
 
 pub fn main() {
     let args = BenchmarkArgs::parse();
-    if args.observe {
-        crate::observability::init();
-    }
     let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
     let start = Instant::now();
     let (query_counts, batch_counts) = runtime.block_on(run_benchmark(
@@ -264,6 +265,7 @@ pub fn main() {
         args.base,
         args.batch_size,
         &args.dsn,
+        args.observe,
     ));
     let elapsed = start.elapsed();
     println!("Benchmark completed in {:.2?}", elapsed);

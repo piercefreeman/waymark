@@ -74,14 +74,15 @@ rust-coverage:
 BENCH_ARGS ?= --observe --count 1000
 BENCH_CARGO_ARGS ?= --features observability
 BENCH_RUSTFLAGS ?= --cfg tokio_unstable
+BENCH_CONSOLE_BIND ?= 127.0.0.1:6669
 benchmark:
-	RUSTFLAGS="$(BENCH_RUSTFLAGS)" cargo build --bin benchmark $(BENCH_CARGO_ARGS)
-	RUSTFLAGS="$(BENCH_RUSTFLAGS)" target/debug/benchmark $(BENCH_ARGS)
+	TOKIO_CONSOLE_BIND="$(BENCH_CONSOLE_BIND)" RUSTFLAGS="$(BENCH_RUSTFLAGS)" cargo build --bin benchmark $(BENCH_CARGO_ARGS)
+	TOKIO_CONSOLE_BIND="$(BENCH_CONSOLE_BIND)" RUSTFLAGS="$(BENCH_RUSTFLAGS)" target/debug/benchmark $(BENCH_ARGS)
 
 benchmark-console:
 	tmux has-session -t rappel-benchmark 2>/dev/null && tmux kill-session -t rappel-benchmark || true
 	tmux new-session -d -s rappel-benchmark 'bash -lc "make benchmark; exec $$SHELL"'
-	tmux split-window -h -t rappel-benchmark 'bash -lc "tokio-console || { echo \"tokio-console not found (run: cargo install tokio-console)\"; exec $$SHELL; }"'
+	tmux split-window -h -t rappel-benchmark 'bash -lc "TOKIO_CONSOLE_BIND=$(BENCH_CONSOLE_BIND) tokio-console http://$(BENCH_CONSOLE_BIND) || { echo \"tokio-console not found (run: cargo install tokio-console)\"; exec $$SHELL; }"'
 	tmux select-layout -t rappel-benchmark even-horizontal
 	tmux select-pane -t rappel-benchmark:0.0
 	tmux attach -t rappel-benchmark

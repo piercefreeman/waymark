@@ -44,7 +44,7 @@ tracing-chrome = "0.7"
 metrics = "0.24"
 regex = "1"
 rappel-observability-macros = { path = "rappel-observability-macros" }
-console-subscriber = { version = "0.2", optional = true }
+console-subscriber = { version = "0.5", optional = true }
 
 [features]
 observability = ["dep:console-subscriber"]
