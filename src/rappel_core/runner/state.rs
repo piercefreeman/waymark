@@ -406,6 +406,9 @@ impl RunnerState {
     }
 
     /// Return and clear the graph dirty bit for durable execution.
+    ///
+    /// Only action nodes and their retry parameters must be persisted; other
+    /// nodes are deterministic from the ground-truth DAG definition.
     pub fn consume_graph_dirty_for_durable_execution(&mut self) -> bool {
         let dirty = self.graph_dirty;
         self.graph_dirty = false;
@@ -421,6 +424,13 @@ impl RunnerState {
     }
 
     /// Insert a node into the runtime bookkeeping and optional control flow.
+    ///
+    /// Use this for all queued nodes so the ready queue, timeline, and implicit
+    /// state-machine edge ordering remain consistent.
+    ///
+    /// Example:
+    /// - queue node A then node B with link_queued_nodes=True
+    ///   This creates a state-machine edge A -> B automatically.
     fn register_node(&mut self, node: ExecutionNode) -> Result<(), RunnerStateError> {
         if self.nodes.contains_key(&node.node_id) {
             return Err(RunnerStateError(format!(
@@ -455,6 +465,13 @@ impl RunnerState {
     }
 
     /// Rebuild derived structures from persisted nodes and edges.
+    ///
+    /// Use this when loading a snapshot so timeline ordering, latest assignment
+    /// tracking, and ready queue reflect the current node set.
+    ///
+    /// Example:
+    /// - Given nodes {A, B} and edge A -> B, rehydration restores timeline
+    ///   [A, B] and marks the latest assignment targets from node B.
     fn rehydrate_state(&mut self) {
         self.timeline = self.build_timeline();
         self.latest_assignments.clear();
@@ -608,6 +625,14 @@ impl RunnerState {
     }
 
     /// Apply DAG template semantics to a queued execution node.
+    ///
+    /// Use this right after queue_template_node so assignments, action result
+    /// references, and data-flow edges are populated from the template.
+    ///
+    /// Example IR:
+    /// - total = @sum(values=items)
+    ///   The ActionCallNode template produces an ActionResultValue and defines
+    ///   total via assignments on the execution node.
     fn apply_template_node(
         &mut self,
         exec_node: &ExecutionNode,
@@ -702,6 +727,13 @@ impl RunnerState {
     }
 
     /// Create symbolic action results and map them to targets.
+    ///
+    /// Use this when an action produces one or more results that are assigned
+    /// to variables (including tuple unpacking).
+    ///
+    /// Example IR:
+    /// - a, b = @pair()
+    ///   This yields ActionResultValue(node_id, result_index=0/1) for a and b.
     pub(crate) fn assign_action_results(
         &mut self,
         node: &ExecutionNode,
@@ -728,6 +760,13 @@ impl RunnerState {
     }
 
     /// Expand an assignment into per-target symbolic values.
+    ///
+    /// Use this for single-target assignments, tuple unpacking, and action
+    /// multi-result binding to keep definitions explicit.
+    ///
+    /// Example IR:
+    /// - a, b = [1, 2]
+    ///   Produces {"a": LiteralValue(1), "b": LiteralValue(2)}.
     fn build_assignments(
         &self,
         targets: &[String],
@@ -1057,6 +1096,13 @@ impl RunnerState {
     }
 
     /// Convert an IR call (action/function) into a ValueExpr.
+    ///
+    /// Use this for parallel expressions that contain mixed call types.
+    ///
+    /// Example IR:
+    /// - parallel { @double(x), helper(x) }
+    ///   Action calls become ActionResultValue nodes; function calls become
+    ///   FunctionCallValue expressions.
     fn call_to_value(
         &mut self,
         call: &ir::Call,
@@ -1080,6 +1126,13 @@ impl RunnerState {
     }
 
     /// Materialize a spread expression into concrete calls or a symbolic spread.
+    ///
+    /// Use this when converting IR spreads so known list collections unroll to
+    /// explicit action calls, while unknown collections stay symbolic.
+    ///
+    /// Example IR:
+    /// - spread [1, 2]:item -> @double(value=item)
+    ///   Produces a ListValue of ActionResultValue entries for each item.
     fn spread_expr_value(
         &mut self,
         spread: &ir::SpreadExpr,

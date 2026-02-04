@@ -878,6 +878,7 @@ impl ExprParser {
     }
 }
 
+/// Parse IR source strings into protobuf AST structures.
 pub struct IRParser {
     indent: String,
     lines: Vec<String>,
@@ -1554,6 +1555,7 @@ fn decode_string(value: &str) -> Result<String, IRParseError> {
     Ok(out)
 }
 
+/// Convenience wrapper to parse a program.
 pub fn parse_program(source: &str) -> Result<ir::Program, IRParseError> {
     IRParser::new("    ").parse_program(source)
 }
