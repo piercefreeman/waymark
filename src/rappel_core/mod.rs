@@ -1,6 +1,5 @@
 //! Rappel core asyncio components.
 
-pub mod backends;
 pub mod cli;
 pub mod dag;
 pub mod dag_viz;
@@ -9,8 +8,8 @@ pub mod ir_parser;
 pub mod runloop;
 pub mod runner;
 
+pub use crate::backends::{InstanceDone, QueuedInstance};
 pub use crate::workers::{ActionCompletion, ActionRequest, BaseWorkerPool, InlineWorkerPool};
-pub use backends::{InstanceDone, QueuedInstance};
 pub use dag::{
     ActionCallNode, AggregatorNode, AssignmentNode, BranchNode, BreakNode, ContinueNode, DAG,
     DAGConverter, DAGEdge, DAGNode, DagConversionError, EdgeType, ExpressionNode, FnCallNode,

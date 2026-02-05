@@ -34,15 +34,14 @@ use tokio::sync::watch;
 use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+use rappel::backends::PostgresBackend;
 use rappel::config::WorkerConfig;
 use rappel::db;
 use rappel::messages::ast as ir;
-use rappel::rappel_core::backends::PostgresBackend;
 use rappel::rappel_core::dag::{DAG, convert_to_dag};
 use rappel::rappel_core::runloop::runloop_supervisor;
 use rappel::{
-    PythonWorkerConfig, RemoteWorkerPool, SchedulerDatabase, WebappDatabase, WebappServer,
-    spawn_scheduler, spawn_status_reporter,
+    PythonWorkerConfig, RemoteWorkerPool, WebappServer, spawn_scheduler, spawn_status_reporter,
 };
 use uuid::Uuid;
 
@@ -94,18 +93,13 @@ async fn main() -> Result<()> {
     );
 
     // Start the webapp server.
-    let webapp_db = WebappDatabase::new(backend.pool().clone());
-    let webapp_server = WebappServer::start(config.webapp.clone(), webapp_db).await?;
+    let webapp_backend = Arc::new(backend.clone());
+    let webapp_server = WebappServer::start(config.webapp.clone(), webapp_backend).await?;
 
     // Start the scheduler loop.
-    let scheduler_db = SchedulerDatabase::new(backend.pool().clone());
     let dag_resolver = build_dag_resolver(backend.pool().clone());
-    let (scheduler_handle, scheduler_shutdown) = spawn_scheduler(
-        scheduler_db,
-        backend.clone(),
-        config.scheduler.clone(),
-        dag_resolver,
-    );
+    let (scheduler_handle, scheduler_shutdown) =
+        spawn_scheduler(backend.clone(), config.scheduler.clone(), dag_resolver);
     info!(
         poll_interval_ms = config.scheduler.poll_interval.as_millis(),
         batch_size = config.scheduler.batch_size,

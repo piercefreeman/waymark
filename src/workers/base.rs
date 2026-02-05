@@ -10,7 +10,7 @@ use uuid::Uuid;
 #[derive(Clone, Debug)]
 pub struct ActionRequest {
     pub executor_id: Uuid,
-    pub node_id: Uuid,
+    pub execution_id: Uuid,
     pub action_name: String,
     pub module_name: Option<String>,
     pub kwargs: HashMap<String, Value>,
@@ -20,7 +20,7 @@ pub struct ActionRequest {
 #[derive(Clone, Debug)]
 pub struct ActionCompletion {
     pub executor_id: Uuid,
-    pub node_id: Uuid,
+    pub execution_id: Uuid,
     pub result: Value,
 }
 

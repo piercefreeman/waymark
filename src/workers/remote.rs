@@ -1310,11 +1310,11 @@ async fn execute_remote_request(
     request: ActionRequest,
 ) -> ActionCompletion {
     let executor_id = request.executor_id;
-    let node_id = request.node_id;
+    let execution_id = request.execution_id;
     let Some(module_name) = request.module_name.clone() else {
         return ActionCompletion {
             executor_id,
-            node_id,
+            execution_id,
             result: error_to_value(&WorkerPoolError::new(
                 "RemoteWorkerPoolError",
                 "missing module name for action request",
@@ -1331,7 +1331,7 @@ async fn execute_remote_request(
 
     let worker = pool.get_worker(worker_idx).await;
     let dispatch = ActionDispatchPayload {
-        action_id: node_id.to_string(),
+        action_id: execution_id.to_string(),
         instance_id: executor_id.to_string(),
         sequence: 0,
         action_name: request.action_name,
@@ -1349,7 +1349,7 @@ async fn execute_remote_request(
             pool.record_completion(worker_idx, Arc::clone(&pool));
             ActionCompletion {
                 executor_id,
-                node_id,
+                execution_id,
                 result: decode_action_result(&metrics),
             }
         }
@@ -1357,7 +1357,7 @@ async fn execute_remote_request(
             pool.release_slot(worker_idx);
             ActionCompletion {
                 executor_id,
-                node_id,
+                execution_id,
                 result: error_to_value(&WorkerPoolError::new(
                     "RemoteWorkerPoolError",
                     err.to_string(),

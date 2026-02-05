@@ -15,10 +15,6 @@ pub const EXCEPTION_SCOPE_VAR: &str = "__rappel_exception__";
 #[error("{0}")]
 pub struct DagConversionError(pub String);
 
-pub fn assert_never<T: std::fmt::Debug>(value: T) -> ! {
-    panic!("Unhandled value: {value:?}");
-}
-
 /// Classifies edges as control-flow (state machine) or data-flow.
 ///
 /// We keep the distinction so visualization and scheduling can render them

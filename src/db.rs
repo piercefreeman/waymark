@@ -2,7 +2,7 @@
 
 use sqlx::PgPool;
 
-use crate::rappel_core::backends::{BackendError, BackendResult};
+use crate::backends::{BackendError, BackendResult};
 
 /// Run the embedded SQLx migrations.
 pub async fn run_migrations(pool: &PgPool) -> BackendResult<()> {

@@ -2,6 +2,7 @@
 //!
 //! This task periodically polls for due schedules and queues new workflow instances.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -9,11 +10,9 @@ use tokio::sync::watch;
 use tracing::{debug, error, info};
 use uuid::Uuid;
 
-use crate::rappel_core::backends::{PostgresBackend, QueuedInstance};
-use crate::rappel_core::dag::DAG;
-
-use super::db::SchedulerDatabase;
 use super::types::{ScheduleId, WorkflowSchedule};
+use crate::backends::{CoreBackend, QueuedInstance, SchedulerBackend};
+use crate::rappel_core::dag::DAG;
 
 type DagResolver = Arc<dyn Fn(&str) -> Option<DAG> + Send + Sync>;
 
@@ -36,9 +35,8 @@ impl Default for SchedulerConfig {
 }
 
 /// Background scheduler task.
-pub struct SchedulerTask {
-    scheduler_db: SchedulerDatabase,
-    backend: PostgresBackend,
+pub struct SchedulerTask<B> {
+    backend: B,
     config: SchedulerConfig,
     shutdown_rx: watch::Receiver<bool>,
     /// Function to get the DAG for a workflow.
@@ -46,17 +44,18 @@ pub struct SchedulerTask {
     dag_resolver: DagResolver,
 }
 
-impl SchedulerTask {
+impl<B> SchedulerTask<B>
+where
+    B: CoreBackend + SchedulerBackend + Clone + Send + Sync + 'static,
+{
     /// Create a new scheduler task.
     pub fn new(
-        scheduler_db: SchedulerDatabase,
-        backend: PostgresBackend,
+        backend: B,
         config: SchedulerConfig,
         shutdown_rx: watch::Receiver<bool>,
         dag_resolver: DagResolver,
     ) -> Self {
         Self {
-            scheduler_db,
             backend,
             config,
             shutdown_rx,
@@ -92,7 +91,7 @@ impl SchedulerTask {
     /// Poll for due schedules and fire them.
     async fn poll_and_fire(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let schedules = self
-            .scheduler_db
+            .backend
             .find_due_schedules(self.config.batch_size)
             .await?;
 
@@ -112,7 +111,7 @@ impl SchedulerTask {
                 );
                 // Skip to next run time to avoid retrying immediately
                 if let Err(skip_err) = self
-                    .scheduler_db
+                    .backend
                     .skip_schedule_run(ScheduleId(schedule.id))
                     .await
                 {
@@ -132,7 +131,7 @@ impl SchedulerTask {
         // Check for duplicates if not allowed
         if !schedule.allow_duplicate
             && self
-                .scheduler_db
+                .backend
                 .has_running_instance(ScheduleId(schedule.id))
                 .await?
         {
@@ -141,7 +140,7 @@ impl SchedulerTask {
                 "skipping schedule due to running instance"
             );
             return self
-                .scheduler_db
+                .backend
                 .skip_schedule_run(ScheduleId(schedule.id))
                 .await
                 .map_err(|e| e.into());
@@ -156,18 +155,20 @@ impl SchedulerTask {
             .entry_node
             .as_ref()
             .ok_or_else(|| "DAG has no entry node".to_string())?;
-        let entry_node = Uuid::parse_str(entry_node_str)
-            .map_err(|e| format!("invalid entry node UUID: {}", e))?;
+
+        let mut state =
+            crate::rappel_core::runner::RunnerState::new(Some(dag.clone()), None, None, false);
+        let entry_exec = state
+            .queue_template_node(entry_node_str, None)
+            .map_err(|err| err.0)?;
 
         // Create a queued instance
         let instance_id = Uuid::new_v4();
         let queued = QueuedInstance {
             dag,
-            entry_node,
-            state: None,
-            nodes: None,
-            edges: None,
-            action_results: None,
+            entry_node: entry_exec.node_id,
+            state: Some(state),
+            action_results: HashMap::new(),
             instance_id,
         };
 
@@ -175,7 +176,7 @@ impl SchedulerTask {
         self.backend.queue_instances(&[queued]).await?;
 
         // Mark the schedule as executed
-        self.scheduler_db
+        self.backend
             .mark_schedule_executed(ScheduleId(schedule.id), instance_id)
             .await?;
 
@@ -191,14 +192,16 @@ impl SchedulerTask {
 }
 
 /// Convenience function to spawn a scheduler task.
-pub fn spawn_scheduler(
-    scheduler_db: SchedulerDatabase,
-    backend: PostgresBackend,
+pub fn spawn_scheduler<B>(
+    backend: B,
     config: SchedulerConfig,
     dag_resolver: DagResolver,
-) -> (tokio::task::JoinHandle<()>, watch::Sender<bool>) {
+) -> (tokio::task::JoinHandle<()>, watch::Sender<bool>)
+where
+    B: CoreBackend + SchedulerBackend + Clone + Send + Sync + 'static,
+{
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
-    let task = SchedulerTask::new(scheduler_db, backend, config, shutdown_rx, dag_resolver);
+    let task = SchedulerTask::new(backend, config, shutdown_rx, dag_resolver);
     let handle = tokio::spawn(task.run());
     (handle, shutdown_tx)
 }

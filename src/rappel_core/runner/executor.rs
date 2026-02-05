@@ -9,9 +9,9 @@ use rustc_hash::FxHashMap;
 use serde_json::Value;
 use uuid::Uuid;
 
+use crate::backends::{ActionDone, CoreBackend, GraphUpdate};
 use crate::messages::ast as ir;
 use crate::observability::obs;
-use crate::rappel_core::backends::{ActionDone, BaseBackend, GraphUpdate};
 use crate::rappel_core::dag::{
     ActionCallNode, AggregatorNode, DAG, DAGEdge, EXCEPTION_SCOPE_VAR, EdgeType,
 };
@@ -62,7 +62,7 @@ pub struct RunnerExecutor {
     dag: DAG,
     state: RunnerState,
     action_results: HashMap<Uuid, Value>,
-    backend: Option<Arc<dyn BaseBackend>>,
+    backend: Option<Arc<dyn CoreBackend>>,
     template_outgoing: FxHashMap<String, Vec<DAGEdge>>,
     template_incoming: FxHashMap<String, HashSet<String>>,
     incoming_exec_edges: FxHashMap<Uuid, Vec<ExecutionEdge>>,
@@ -73,20 +73,15 @@ pub struct RunnerExecutor {
 }
 
 impl RunnerExecutor {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         dag: DAG,
-        state: Option<RunnerState>,
-        nodes: Option<HashMap<Uuid, ExecutionNode>>,
-        edges: Option<HashSet<ExecutionEdge>>,
-        action_results: Option<HashMap<Uuid, Value>>,
-        backend: Option<Arc<dyn BaseBackend>>,
+        state: RunnerState,
+        action_results: HashMap<Uuid, Value>,
+        backend: Option<Arc<dyn CoreBackend>>,
     ) -> Self {
-        let mut state =
-            state.unwrap_or_else(|| RunnerState::new(Some(dag.clone()), nodes, edges, false));
+        let mut state = state;
         state.dag = Some(dag.clone());
         state.set_link_queued_nodes(false);
-        let action_results = action_results.unwrap_or_default();
         let template_outgoing = Self::build_template_outgoing(&dag);
         let template_incoming = Self::build_template_incoming(&dag);
         let incoming_exec_edges = Self::build_incoming_exec_edges(&state);
@@ -351,15 +346,14 @@ impl RunnerExecutor {
                 if !assignments.is_empty() {
                     self.state.mark_latest_assignments(node_id, &assignments);
                 }
-                let (action_name, attempt) = {
+                let attempt = {
                     let node = self.state.nodes.get(&node_id).ok_or_else(|| {
                         RunnerExecutorError(format!("execution node not found: {node_id}"))
                     })?;
-                    (self.action_name_for_node(node), node.action_attempt)
+                    node.action_attempt
                 };
                 action_done = Some(ActionDone {
-                    node_id,
-                    action_name,
+                    execution_id: node_id,
                     attempt,
                     result: action_value,
                 });
@@ -1467,11 +1461,7 @@ impl RunnerExecutor {
             let instance_id = self.instance_id.ok_or_else(|| {
                 RunnerExecutorError("instance_id is required for graph persistence".to_string())
             })?;
-            graph_updates.push(GraphUpdate {
-                instance_id,
-                nodes: self.state.nodes.clone(),
-                edges: self.state.edges.clone(),
-            });
+            graph_updates.push(GraphUpdate::from_state(instance_id, &self.state));
         }
         let updates = DurableUpdates {
             actions_done,
@@ -1482,19 +1472,6 @@ impl RunnerExecutor {
         } else {
             Ok(Some(updates))
         }
-    }
-
-    fn action_name_for_node(&self, node: &ExecutionNode) -> String {
-        if let Some(action) = &node.action {
-            return action.action_name.clone();
-        }
-        if let Some(template_id) = &node.template_id
-            && let Some(crate::rappel_core::dag::DAGNode::ActionCall(action)) =
-                self.dag.nodes.get(template_id)
-        {
-            return action.action_name.clone();
-        }
-        node.label.clone()
     }
 }
 
@@ -1763,14 +1740,8 @@ mod tests {
         edges: HashSet<ExecutionEdge>,
         action_results: HashMap<Uuid, Value>,
     ) -> RunnerExecutor {
-        RunnerExecutor::new(
-            dag.clone(),
-            None,
-            Some(nodes),
-            Some(edges),
-            Some(action_results),
-            None,
-        )
+        let state = RunnerState::new(Some(dag.clone()), Some(nodes), Some(edges), false);
+        RunnerExecutor::new(dag.clone(), state, action_results, None)
     }
 
     fn compare_executor_states(original: &RunnerExecutor, rehydrated: &RunnerExecutor) {
@@ -1845,14 +1816,7 @@ mod tests {
 
         let mut action_results = HashMap::new();
         action_results.insert(start_exec.node_id, Value::Number(10.into()));
-        let mut executor = RunnerExecutor::new(
-            dag.clone(),
-            Some(state),
-            None,
-            None,
-            Some(action_results),
-            None,
-        );
+        let mut executor = RunnerExecutor::new(dag.clone(), state, action_results, None);
 
         let step = executor.increment(start_exec.node_id).expect("increment");
         assert_eq!(step.actions.len(), 1);
@@ -1893,14 +1857,7 @@ mod tests {
 
         let mut state = RunnerState::new(Some(dag.clone()), None, None, false);
         let exec1 = state.queue_template_node(&action1.id, None).expect("queue");
-        let executor = RunnerExecutor::new(
-            dag.clone(),
-            Some(state),
-            None,
-            None,
-            Some(HashMap::new()),
-            None,
-        );
+        let executor = RunnerExecutor::new(dag.clone(), state, HashMap::new(), None);
 
         let (nodes_snap, edges_snap, results_snap) =
             snapshot_state(executor.state(), executor.action_results());
@@ -1945,14 +1902,7 @@ mod tests {
 
         let mut action_results = HashMap::new();
         action_results.insert(exec1.node_id, Value::Number(42.into()));
-        let mut executor = RunnerExecutor::new(
-            dag.clone(),
-            Some(state),
-            None,
-            None,
-            Some(action_results),
-            None,
-        );
+        let mut executor = RunnerExecutor::new(dag.clone(), state, action_results, None);
 
         let step = executor.increment(exec1.node_id).expect("increment");
         assert_eq!(step.actions.len(), 1);
@@ -2015,14 +1965,7 @@ mod tests {
 
         let mut state = RunnerState::new(Some(dag.clone()), None, None, false);
         let exec1 = state.queue_template_node(&action1.id, None).expect("queue");
-        let mut executor = RunnerExecutor::new(
-            dag.clone(),
-            Some(state),
-            None,
-            None,
-            Some(HashMap::new()),
-            None,
-        );
+        let mut executor = RunnerExecutor::new(dag.clone(), state, HashMap::new(), None);
 
         let (nodes_snap, edges_snap, results_snap) =
             snapshot_state(executor.state(), executor.action_results());
@@ -2111,14 +2054,7 @@ mod tests {
 
         let mut action_results = HashMap::new();
         action_results.insert(exec1.node_id, Value::Number(10.into()));
-        let mut executor = RunnerExecutor::new(
-            dag.clone(),
-            Some(state),
-            None,
-            None,
-            Some(action_results),
-            None,
-        );
+        let mut executor = RunnerExecutor::new(dag.clone(), state, action_results, None);
 
         let step = executor.increment(exec1.node_id).expect("increment");
         assert_eq!(step.actions.len(), 1);
@@ -2170,14 +2106,7 @@ mod tests {
         ));
         let mut state = RunnerState::new(Some(dag.clone()), None, None, false);
         let exec1 = state.queue_template_node(&action1.id, None).expect("queue");
-        let executor = RunnerExecutor::new(
-            dag.clone(),
-            Some(state),
-            None,
-            None,
-            Some(HashMap::new()),
-            None,
-        );
+        let executor = RunnerExecutor::new(dag.clone(), state, HashMap::new(), None);
 
         let (nodes_snap, edges_snap, results_snap) =
             snapshot_state(executor.state(), executor.action_results());
@@ -2228,14 +2157,7 @@ mod tests {
 
         let mut action_results = HashMap::new();
         action_results.insert(exec1.node_id, Value::Number(100.into()));
-        let mut executor = RunnerExecutor::new(
-            dag.clone(),
-            Some(state),
-            None,
-            None,
-            Some(action_results),
-            None,
-        );
+        let mut executor = RunnerExecutor::new(dag.clone(), state, action_results, None);
 
         let (nodes_snap, edges_snap, results_snap) =
             snapshot_state(executor.state(), executor.action_results());
@@ -2277,14 +2199,7 @@ mod tests {
         let exec1 = state.queue_template_node(&action1.id, None).expect("queue");
         state.mark_running(exec1.node_id).expect("mark running");
 
-        let executor = RunnerExecutor::new(
-            dag.clone(),
-            Some(state),
-            None,
-            None,
-            Some(HashMap::new()),
-            None,
-        );
+        let executor = RunnerExecutor::new(dag.clone(), state, HashMap::new(), None);
         let (nodes_snap, edges_snap, results_snap) =
             snapshot_state(executor.state(), executor.action_results());
         let mut rehydrated = create_rehydrated_executor(&dag, nodes_snap, edges_snap, results_snap);
@@ -2336,14 +2251,7 @@ mod tests {
 
         let mut action_results = HashMap::new();
         action_results.insert(exec1.node_id, Value::Number(21.into()));
-        let mut executor = RunnerExecutor::new(
-            dag.clone(),
-            Some(state),
-            None,
-            None,
-            Some(action_results),
-            None,
-        );
+        let mut executor = RunnerExecutor::new(dag.clone(), state, action_results, None);
         executor.increment(exec1.node_id).expect("increment");
 
         let orig_replay = crate::rappel_core::runner::replay_variables(
@@ -2421,14 +2329,7 @@ mod tests {
             initial_exec.node_id,
             Value::Array(vec![1.into(), 2.into(), 3.into()]),
         );
-        let mut executor = RunnerExecutor::new(
-            dag.clone(),
-            Some(state),
-            None,
-            None,
-            Some(action_results),
-            None,
-        );
+        let mut executor = RunnerExecutor::new(dag.clone(), state, action_results, None);
 
         let step1 = executor.increment(initial_exec.node_id).expect("increment");
         assert_eq!(step1.actions.len(), 3);
@@ -2508,14 +2409,7 @@ mod tests {
             initial_exec.node_id,
             Value::Array(vec![10.into(), 20.into()]),
         );
-        let mut executor = RunnerExecutor::new(
-            dag.clone(),
-            Some(state),
-            None,
-            None,
-            Some(action_results.clone()),
-            None,
-        );
+        let mut executor = RunnerExecutor::new(dag.clone(), state, action_results.clone(), None);
 
         let step1 = executor.increment(initial_exec.node_id).expect("increment");
         let spread_nodes = step1.actions;
@@ -2580,14 +2474,7 @@ mod tests {
                 .queue_template_node(&actions[0].id, None)
                 .expect("queue"),
         );
-        let mut executor = RunnerExecutor::new(
-            dag.clone(),
-            Some(state),
-            None,
-            None,
-            Some(HashMap::new()),
-            None,
-        );
+        let mut executor = RunnerExecutor::new(dag.clone(), state, HashMap::new(), None);
 
         for i in 0..3 {
             executor.set_action_result(
@@ -2649,14 +2536,7 @@ mod tests {
 
         let mut action_results = HashMap::new();
         action_results.insert(exec1.node_id, Value::Number(50.into()));
-        let mut executor = RunnerExecutor::new(
-            dag.clone(),
-            Some(state),
-            None,
-            None,
-            Some(action_results),
-            None,
-        );
+        let mut executor = RunnerExecutor::new(dag.clone(), state, action_results, None);
         let step = executor.increment(exec1.node_id).expect("increment");
         let exec2 = step.actions[0].clone();
 

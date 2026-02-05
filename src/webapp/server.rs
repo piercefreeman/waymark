@@ -17,11 +17,11 @@ use tokio::net::TcpListener;
 use tracing::{error, info};
 use uuid::Uuid;
 
-use super::db::WebappDatabase;
 use super::types::{
     ActionLogsResponse, FilterValuesResponse, HealthResponse, InstanceExportInfo, TimelineEntry,
     WebappConfig, WorkflowInstanceExport, WorkflowRunDataResponse,
 };
+use crate::backends::WebappBackend;
 
 // Embed templates at compile time
 const TEMPLATE_BASE: &str = include_str!("../../templates/base.html");
@@ -45,7 +45,10 @@ impl WebappServer {
     /// Start the webapp server.
     ///
     /// Returns None if the webapp is disabled via configuration.
-    pub async fn start(config: WebappConfig, database: WebappDatabase) -> Result<Option<Self>> {
+    pub async fn start(
+        config: WebappConfig,
+        database: Arc<dyn WebappBackend>,
+    ) -> Result<Option<Self>> {
         if !config.enabled {
             info!("webapp disabled (set RAPPEL_WEBAPP_ENABLED=true to enable)");
             return Ok(None);
@@ -62,7 +65,7 @@ impl WebappServer {
         let templates = init_templates()?;
 
         let state = WebappState {
-            database: Arc::new(database),
+            database,
             templates: Arc::new(templates),
         };
 
@@ -125,7 +128,7 @@ fn init_templates() -> Result<Tera> {
 
 #[derive(Clone)]
 struct WebappState {
-    database: Arc<WebappDatabase>,
+    database: Arc<dyn WebappBackend>,
     templates: Arc<Tera>,
 }
 
@@ -1015,7 +1018,7 @@ struct WorkerInstanceRowView {
 
 fn render_workers_page(
     templates: &Tera,
-    statuses: &[super::db::WorkerStatus],
+    statuses: &[super::WorkerStatus],
     window_minutes: i64,
 ) -> String {
     use crate::pool_status::PoolTimeSeries;

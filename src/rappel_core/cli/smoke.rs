@@ -9,8 +9,8 @@ use clap::Parser;
 use serde_json::Value;
 use uuid::Uuid;
 
+use crate::backends::{MemoryBackend, QueuedInstance};
 use crate::messages::ast as ir;
-use crate::rappel_core::backends::{MemoryBackend, QueuedInstance};
 use crate::rappel_core::dag::convert_to_dag;
 use crate::rappel_core::dag_viz::render_dag_image;
 use crate::rappel_core::ir_format::format_program;
@@ -259,9 +259,7 @@ async fn run_program_smoke(case: &SmokeCase, worker_pool: RemoteWorkerPool) -> R
         dag: dag.clone(),
         entry_node: entry_exec.node_id,
         state: Some(state),
-        nodes: None,
-        edges: None,
-        action_results: Some(HashMap::new()),
+        action_results: HashMap::new(),
         instance_id: Uuid::new_v4(),
     });
     let result = runloop

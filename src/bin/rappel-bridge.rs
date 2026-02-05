@@ -23,23 +23,22 @@ use serde_json::Value;
 use sqlx::{PgPool, Row};
 use tokio::sync::{Mutex as AsyncMutex, mpsc};
 use tokio_stream::{StreamExt, wrappers::ReceiverStream};
-use tonic::{Request, Response, Status};
+use tonic::{Request, Response, Status, async_trait};
 use tracing::{debug, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use uuid::Uuid;
 
+use rappel::backends::{
+    ActionDone, BackendError, BackendResult, CoreBackend, GraphUpdate, InstanceDone,
+    PostgresBackend, QueuedInstance, SchedulerBackend, WorkflowRegistration,
+    WorkflowRegistryBackend,
+};
 use rappel::db;
 use rappel::messages::{self, ast as ir, proto};
-use rappel::rappel_core::backends::{
-    ActionDone, BackendError, BackendResult, BaseBackend, GraphUpdate, InstanceDone,
-    PostgresBackend, QueuedInstance,
-};
 use rappel::rappel_core::dag::convert_to_dag;
 use rappel::rappel_core::runloop::RunLoop;
 use rappel::rappel_core::runner::RunnerState;
-use rappel::scheduler::{
-    CreateScheduleParams, ScheduleId, ScheduleStatus, ScheduleType, SchedulerDatabase,
-};
+use rappel::scheduler::{CreateScheduleParams, ScheduleId, ScheduleStatus, ScheduleType};
 use rappel::workers::{ActionCompletion, ActionRequest, BaseWorkerPool, WorkerPoolError};
 
 const DEFAULT_GRPC_ADDR: &str = "127.0.0.1:24117";
@@ -65,24 +64,16 @@ impl WorkflowStore {
         &self,
         registration: &proto::WorkflowRegistration,
     ) -> Result<Uuid> {
-        let row = sqlx::query(
-            r#"
-            INSERT INTO workflow_versions (workflow_name, dag_hash, program_proto, concurrent)
-            VALUES ($1, $2, $3, $4)
-            ON CONFLICT (workflow_name, dag_hash)
-            DO UPDATE SET program_proto = EXCLUDED.program_proto, concurrent = EXCLUDED.concurrent
-            RETURNING id
-            "#,
-        )
-        .bind(&registration.workflow_name)
-        .bind(&registration.ir_hash)
-        .bind(&registration.ir)
-        .bind(registration.concurrent)
-        .fetch_one(self.pool())
-        .await?;
-
-        let id: Uuid = row.get("id");
-        Ok(id)
+        let backend_registration = WorkflowRegistration {
+            workflow_name: registration.workflow_name.clone(),
+            dag_hash: registration.ir_hash.clone(),
+            program_proto: registration.ir.clone(),
+            concurrent: registration.concurrent,
+        };
+        self.backend
+            .upsert_workflow_version(&backend_registration)
+            .await
+            .map_err(|err| anyhow::anyhow!(err))
     }
 
     async fn queue_instances(&self, instances: &[QueuedInstance]) -> Result<()> {
@@ -154,59 +145,59 @@ impl InMemoryBackend {
     }
 }
 
-impl BaseBackend for InMemoryBackend {
-    fn clone_box(&self) -> Box<dyn BaseBackend> {
+#[async_trait]
+impl CoreBackend for InMemoryBackend {
+    fn clone_box(&self) -> Box<dyn CoreBackend> {
         Box::new(self.clone())
     }
 
-    fn save_graphs<'a>(&'a self, _graphs: &'a [GraphUpdate]) -> BoxFuture<'a, BackendResult<()>> {
-        Box::pin(async { Ok(()) })
+    async fn save_graphs(&self, _graphs: &[GraphUpdate]) -> BackendResult<()> {
+        Ok(())
     }
 
-    fn save_actions_done<'a>(
-        &'a self,
-        _actions: &'a [ActionDone],
-    ) -> BoxFuture<'a, BackendResult<()>> {
-        Box::pin(async { Ok(()) })
+    async fn save_actions_done(&self, _actions: &[ActionDone]) -> BackendResult<()> {
+        Ok(())
     }
 
-    fn get_queued_instances<'a>(
-        &'a self,
-        size: usize,
-    ) -> BoxFuture<'a, BackendResult<Vec<QueuedInstance>>> {
-        Box::pin(async move {
-            if size == 0 {
-                return Ok(Vec::new());
+    async fn get_queued_instances(&self, size: usize) -> BackendResult<Vec<QueuedInstance>> {
+        if size == 0 {
+            return Ok(Vec::new());
+        }
+        let mut guard = self
+            .queue
+            .lock()
+            .map_err(|_| BackendError::Message("in-memory queue lock poisoned".to_string()))?;
+        let mut instances = Vec::new();
+        for _ in 0..size {
+            if let Some(instance) = guard.pop_front() {
+                instances.push(instance);
+            } else {
+                break;
             }
-            let mut guard = self
-                .queue
-                .lock()
-                .map_err(|_| BackendError::Message("in-memory queue lock poisoned".to_string()))?;
-            let mut instances = Vec::new();
-            for _ in 0..size {
-                if let Some(instance) = guard.pop_front() {
-                    instances.push(instance);
-                } else {
-                    break;
-                }
-            }
-            Ok(instances)
-        })
+        }
+        Ok(instances)
     }
 
-    fn save_instances_done<'a>(
-        &'a self,
-        instances: &'a [InstanceDone],
-    ) -> BoxFuture<'a, BackendResult<()>> {
-        Box::pin(async move {
-            let mut guard = self.instances_done.lock().map_err(|_| {
-                BackendError::Message("in-memory results lock poisoned".to_string())
-            })?;
-            for instance in instances {
-                guard.insert(instance.executor_id, instance.clone());
-            }
-            Ok(())
-        })
+    async fn save_instances_done(&self, instances: &[InstanceDone]) -> BackendResult<()> {
+        let mut guard = self
+            .instances_done
+            .lock()
+            .map_err(|_| BackendError::Message("in-memory results lock poisoned".to_string()))?;
+        for instance in instances {
+            guard.insert(instance.executor_id, instance.clone());
+        }
+        Ok(())
+    }
+
+    async fn queue_instances(&self, instances: &[QueuedInstance]) -> BackendResult<()> {
+        let mut guard = self
+            .queue
+            .lock()
+            .map_err(|_| BackendError::Message("in-memory queue lock poisoned".to_string()))?;
+        for instance in instances {
+            guard.push_back(instance.clone());
+        }
+        Ok(())
     }
 }
 
@@ -239,7 +230,7 @@ impl BaseWorkerPool for StreamWorkerPool {
             .module_name
             .clone()
             .ok_or_else(|| WorkerPoolError::new("StreamWorkerPoolError", "missing module name"))?;
-        let action_id = request.node_id.to_string();
+        let action_id = request.execution_id.to_string();
 
         if let Ok(mut inflight) = self.inflight.lock() {
             inflight.insert(action_id.clone(), request.executor_id);
@@ -619,13 +610,14 @@ impl proto::workflow_service_server::WorkflowService for BridgeService {
             allow_duplicate: request.allow_duplicate.unwrap_or(false),
         };
 
-        let scheduler_db = SchedulerDatabase::new(store.pool().clone());
-        let schedule_id = scheduler_db
+        let schedule_id = store
+            .backend
             .upsert_schedule(&params)
             .await
             .map_err(|err| Status::internal(format!("schedule upsert failed: {err}")))?;
 
-        let schedule = scheduler_db
+        let schedule = store
+            .backend
             .get_schedule_by_name(&request.workflow_name, &params.schedule_name)
             .await
             .map_err(|err| Status::internal(format!("schedule fetch failed: {err}")))?;
@@ -653,8 +645,8 @@ impl proto::workflow_service_server::WorkflowService for BridgeService {
         let status = proto_schedule_status(request.status)
             .ok_or_else(|| Status::invalid_argument("invalid schedule status"))?;
 
-        let scheduler_db = SchedulerDatabase::new(store.pool().clone());
-        let schedule = scheduler_db
+        let schedule = store
+            .backend
             .get_schedule_by_name(&request.workflow_name, &request.schedule_name)
             .await
             .map_err(|err| Status::internal(format!("schedule fetch failed: {err}")))?;
@@ -665,7 +657,8 @@ impl proto::workflow_service_server::WorkflowService for BridgeService {
             }));
         };
 
-        let updated = scheduler_db
+        let updated = store
+            .backend
             .update_schedule_status(ScheduleId(schedule.id), status.as_str())
             .await
             .map_err(|err| Status::internal(format!("schedule update failed: {err}")))?;
@@ -685,8 +678,8 @@ impl proto::workflow_service_server::WorkflowService for BridgeService {
             .ok_or_else(|| Status::failed_precondition("bridge running in memory mode"))?;
         let request = request.into_inner();
 
-        let scheduler_db = SchedulerDatabase::new(store.pool().clone());
-        let schedule = scheduler_db
+        let schedule = store
+            .backend
             .get_schedule_by_name(&request.workflow_name, &request.schedule_name)
             .await
             .map_err(|err| Status::internal(format!("schedule fetch failed: {err}")))?;
@@ -697,7 +690,8 @@ impl proto::workflow_service_server::WorkflowService for BridgeService {
             }));
         };
 
-        let deleted = scheduler_db
+        let deleted = store
+            .backend
             .delete_schedule(ScheduleId(schedule.id))
             .await
             .map_err(|err| Status::internal(format!("schedule delete failed: {err}")))?;
@@ -717,8 +711,8 @@ impl proto::workflow_service_server::WorkflowService for BridgeService {
             .ok_or_else(|| Status::failed_precondition("bridge running in memory mode"))?;
         let request = request.into_inner();
 
-        let scheduler_db = SchedulerDatabase::new(store.pool().clone());
-        let schedules = scheduler_db
+        let schedules = store
+            .backend
             .list_schedules(1000, 0)
             .await
             .map_err(|err| Status::internal(format!("schedule list failed: {err}")))?;
@@ -861,7 +855,7 @@ fn action_result_to_completion(
         .lock()
         .ok()
         .and_then(|mut map| map.remove(&action_id))?;
-    let node_id = Uuid::parse_str(&action_id).ok()?;
+    let execution_id = Uuid::parse_str(&action_id).ok()?;
 
     let payload = result
         .payload
@@ -885,7 +879,7 @@ fn action_result_to_completion(
 
     Some(ActionCompletion {
         executor_id,
-        node_id,
+        execution_id,
         result: value,
     })
 }
@@ -953,9 +947,7 @@ fn build_queued_instance(
         dag,
         entry_node: entry_exec.node_id,
         state: Some(state),
-        nodes: None,
-        edges: None,
-        action_results: Some(HashMap::new()),
+        action_results: HashMap::new(),
         instance_id,
     })
 }

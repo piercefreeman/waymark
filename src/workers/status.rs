@@ -7,8 +7,8 @@ use tokio::sync::watch;
 use tracing::{info, warn};
 use uuid::Uuid;
 
+use crate::backends::{WorkerStatusBackend, WorkerStatusUpdate};
 use crate::pool_status::{PoolTimeSeries, TimeSeriesEntry};
-use crate::rappel_core::backends::{WorkerStatusBackend, WorkerStatusUpdate};
 
 #[derive(Debug, Clone)]
 pub struct WorkerPoolStatsSnapshot {

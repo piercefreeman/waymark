@@ -199,6 +199,51 @@ pub struct WorkflowInstanceExport {
     pub timeline: Vec<TimelineEntry>,
 }
 
+/// Full worker status for webapp display.
+#[derive(Debug, Clone)]
+pub struct WorkerStatus {
+    pub pool_id: Uuid,
+    pub active_workers: i32,
+    pub throughput_per_min: f64,
+    pub actions_per_sec: f64,
+    pub total_completed: i64,
+    pub last_action_at: Option<DateTime<Utc>>,
+    pub updated_at: DateTime<Utc>,
+    pub median_dequeue_ms: Option<i64>,
+    pub median_handling_ms: Option<i64>,
+    pub dispatch_queue_size: Option<i64>,
+    pub total_in_flight: Option<i64>,
+    pub median_instance_duration_secs: Option<f64>,
+    pub active_instance_count: i32,
+    pub total_instances_completed: i64,
+    pub instances_per_sec: f64,
+    pub instances_per_min: f64,
+    pub time_series: Option<Vec<u8>>,
+}
+
+/// Worker action stats row for display.
+#[derive(Debug, Clone)]
+pub struct WorkerActionRow {
+    pub pool_id: String,
+    pub active_workers: i64,
+    pub actions_per_sec: String,
+    pub throughput_per_min: i64,
+    pub total_completed: i64,
+    pub median_dequeue_ms: Option<i64>,
+    pub median_handling_ms: Option<i64>,
+    pub last_action_at: Option<String>,
+    pub updated_at: String,
+}
+
+/// Aggregate worker stats for overview cards.
+#[derive(Debug, Clone)]
+pub struct WorkerAggregateStats {
+    pub active_worker_count: i64,
+    pub actions_per_sec: String,
+    pub total_in_flight: i64,
+    pub total_queue_depth: i64,
+}
+
 /// Instance info for export.
 #[derive(Debug, Serialize)]
 pub struct InstanceExportInfo {

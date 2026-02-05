@@ -12,6 +12,8 @@ use cron::Schedule;
 use rand::Rng;
 use std::str::FromStr;
 
+use super::ScheduleType;
+
 /// Convert a 5-field Unix cron expression to 6-field format.
 ///
 /// The `cron` crate requires 6 fields (sec min hour dom month dow),
@@ -78,6 +80,29 @@ pub fn apply_jitter(base: DateTime<Utc>, jitter_seconds: i64) -> Result<DateTime
     }
     let jitter = rand::thread_rng().gen_range(0..=jitter_seconds);
     Ok(base + chrono::Duration::seconds(jitter))
+}
+
+/// Compute the next run time for a schedule type with optional jitter.
+pub fn compute_next_run(
+    schedule_type: ScheduleType,
+    cron_expression: Option<&str>,
+    interval_seconds: Option<i64>,
+    jitter_seconds: i64,
+    last_run_at: Option<DateTime<Utc>>,
+) -> Result<DateTime<Utc>, String> {
+    let base = match schedule_type {
+        ScheduleType::Cron => {
+            let expr = cron_expression.ok_or_else(|| "cron expression required".to_string())?;
+            next_cron_run(expr)?
+        }
+        ScheduleType::Interval => {
+            let seconds =
+                interval_seconds.ok_or_else(|| "interval_seconds required".to_string())?;
+            next_interval_run(seconds, last_run_at)
+        }
+    };
+
+    apply_jitter(base, jitter_seconds)
 }
 
 #[cfg(test)]

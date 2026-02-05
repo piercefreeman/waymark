@@ -9,10 +9,10 @@ use serde_json::Value;
 use sqlx::PgPool;
 use uuid::Uuid;
 
+use crate::backends::{PostgresBackend, QueuedInstance};
 use crate::db;
 use crate::messages::ast as ir;
 use crate::observability::obs;
-use crate::rappel_core::backends::{PostgresBackend, QueuedInstance};
 use crate::rappel_core::cli::smoke::{
     build_control_flow_program, build_parallel_spread_program, build_program,
     build_try_except_program, build_while_loop_program, literal_from_value,
@@ -145,9 +145,7 @@ fn build_instance(case: &BenchmarkCase) -> QueuedInstance {
         dag: case.dag.clone(),
         entry_node: entry_exec.node_id,
         state: Some(state),
-        nodes: None,
-        edges: None,
-        action_results: Some(HashMap::new()),
+        action_results: HashMap::new(),
         instance_id: Uuid::new_v4(),
     }
 }

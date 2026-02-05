@@ -118,6 +118,7 @@ Follow a modern, developer-focused design language. The design prioritizes clari
 - Any python code that you run should be called with `uv` since this is the environment that will have the python dependencies we need. Also make sure you're in the appropriate directory where our pyproject.toml is defined.
 - When writing code that uses WhichOneof in Python, use a switch statement to make sure that every value is handed and add a default case for assert_never.
 - NEVER write `getattr` in your own code unless I explicitly mention it. You should just be able to call it directly.
+- Unless we explicitly mention backwards compatibility, don't implement logic that assumes how the backwards spec is compatible. We will specify it if it's relevant.
 
 ## Workflow Conventions
 
@@ -144,4 +145,11 @@ This section is used for the scratch updates, driven by our Agents.
 <rule>Prefer injecting shared database pools into backends/services; run migrations in the owning binary/config instead of creating pools and defaults inside backend modules. Good: `let pool = PgPool::connect(&cfg.database_url).await?; db::run_migrations(&pool).await?; let backend = PostgresBackend::new(pool);` Bad: `let backend = PostgresBackend::connect(DEFAULT_DSN).await?;`</rule>
 <rule>In-memory backends used for tests should retain persisted updates in-memory for assertions instead of only logging side effects. Good: `stored.extend(actions.iter().cloned());` Bad: `for action in actions { println!("INSERT {:?}", action); }`</rule>
 <rule>Avoid pass-through module stubs that only re-export another module; import from the source module or re-export at the top-level instead. Good: `use crate::workers::InlineWorkerPool;` Bad: `pub mod workers { pub use crate::workers::*; }`</rule>
+<rule>Prefer async trait methods for backend interfaces instead of BoxFuture-based signatures. Good: `#[async_trait] trait CoreBackend { async fn save_graphs(&self, graphs: &[GraphUpdate]) -> BackendResult<()>; }` Bad: `fn save_graphs<'a>(&'a self, graphs: &'a [GraphUpdate]) -> BoxFuture<'a, BackendResult<()>>;`</rule>
+<rule>Queued instance payloads should treat RunnerState as the source of truth; avoid duplicating nodes/edges fields alongside it. Good: `QueuedInstance { state: Some(state), action_results: HashMap::new(), ... }` Bad: `QueuedInstance { state: None, nodes: Some(nodes), edges: Some(edges), ... }`</rule>
+<rule>Prefer backend-owned schedule persistence over separate SchedulerDatabase wrappers. Good: `backend.upsert_schedule(&params).await?;` Bad: `SchedulerDatabase::new(pool).upsert_schedule(&params).await?;`</rule>
+<rule>Route webapp dashboard queries through a `WebappBackend` implementation instead of a standalone database wrapper. Good: `impl WebappBackend for PostgresBackend { ... }` Bad: `struct WebappDatabase { pool: PgPool }` with duplicate query logic.</rule>
+<rule>Name the core persistence trait by domain (e.g., `CoreBackend`) rather than a generic `BaseBackend` to make scope explicit. Good: `trait CoreBackend { ... }` Bad: `trait BaseBackend { ... }`.</rule>
+<rule>Prefer exhaustive `match` handling in Rust over exporting a generic `assert_never` helper. Good: `match status { NodeStatus::Queued => ..., NodeStatus::Running => ..., NodeStatus::Completed => ..., NodeStatus::Failed => ... }` Bad: `assert_never(status)`.</rule>
+<rule>Keep DAG edges stored as a flat list for compact serialization; build adjacency views in helper methods when needed. Good: `pub edges: Vec<DAGEdge>` with `get_incoming_edges()` helpers. Bad: adding multiple adjacency maps to `DAG` without a serialization plan.</rule>
 </code_feedback>

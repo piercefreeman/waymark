@@ -67,7 +67,7 @@ impl BaseWorkerPool for InlineWorkerPool {
 
         let sender = self.sender.clone();
         let executor_id = request.executor_id;
-        let node_id = request.node_id;
+        let execution_id = request.execution_id;
         let kwargs = request.kwargs;
 
         tokio::runtime::Handle::try_current().map_err(|_| {
@@ -85,7 +85,7 @@ impl BaseWorkerPool for InlineWorkerPool {
             let _ = sender
                 .send(ActionCompletion {
                     executor_id,
-                    node_id,
+                    execution_id,
                     result,
                 })
                 .await;

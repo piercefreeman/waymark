@@ -12,10 +12,10 @@ use tokio::sync::{Notify, mpsc, watch};
 use tracing::error;
 use uuid::Uuid;
 
-use crate::observability::obs;
-use crate::rappel_core::backends::{
-    ActionDone, BackendError, BaseBackend, GraphUpdate, InstanceDone, QueuedInstance,
+use crate::backends::{
+    ActionDone, BackendError, CoreBackend, GraphUpdate, InstanceDone, QueuedInstance,
 };
+use crate::observability::obs;
 use crate::rappel_core::dag::{DAG, DAGNode, OutputNode, ReturnNode};
 use crate::rappel_core::runner::{
     ExecutorStep, RunnerExecutor, RunnerExecutorError, replay_variables,
@@ -59,7 +59,7 @@ enum LoopEvent {
 /// owning executor, and continues until no actions remain in flight.
 pub struct RunLoop {
     worker_pool: Arc<dyn BaseWorkerPool>,
-    backend: Arc<dyn BaseBackend>,
+    backend: Arc<dyn CoreBackend>,
     max_concurrent_instances: usize,
     instance_done_batch_size: usize,
     poll_interval: Duration,
@@ -75,7 +75,7 @@ pub struct RunLoop {
 impl RunLoop {
     pub fn new(
         worker_pool: impl BaseWorkerPool + 'static,
-        backend: impl BaseBackend + 'static,
+        backend: impl CoreBackend + 'static,
         max_concurrent_instances: usize,
         instance_done_batch_size: Option<usize>,
         poll_interval: f64,
@@ -361,22 +361,23 @@ impl RunLoop {
                 let node = executor
                     .state()
                     .nodes
-                    .get(&completion.node_id)
+                    .get(&completion.execution_id)
                     .ok_or_else(|| {
                         RunLoopError::Message(format!(
                             "unknown execution node: {}",
-                            completion.node_id
+                            completion.execution_id
                         ))
                     })?
                     .clone();
-                executor.set_action_result(completion.node_id, completion.result);
+                executor.set_action_result(completion.execution_id, completion.result);
                 result
                     .completed_actions
                     .entry(executor_id)
                     .or_default()
                     .push(node);
-                self.inflight.remove(&(executor_id, completion.node_id));
-                finished_nodes.push(completion.node_id);
+                self.inflight
+                    .remove(&(executor_id, completion.execution_id));
+                finished_nodes.push(completion.execution_id);
             }
             if !finished_nodes.is_empty() {
                 let step = executor.increment_batch(&finished_nodes)?;
@@ -394,7 +395,7 @@ impl RunLoop {
     ) -> Result<Vec<(Uuid, ExecutorStep)>, RunLoopError> {
         let mut steps: Vec<(Uuid, ExecutorStep)> = Vec::new();
         for instance in instances {
-            let executor_id = self.register_instance(instance, result);
+            let executor_id = self.register_instance(instance, result)?;
             let executor = self
                 .executors
                 .get_mut(&executor_id)
@@ -408,33 +409,27 @@ impl RunLoop {
         Ok(steps)
     }
 
-    fn register_instance(&mut self, instance: QueuedInstance, result: &mut RunLoopResult) -> Uuid {
-        let executor = if let Some(state) = instance.state {
-            RunnerExecutor::new(
-                instance.dag.clone(),
-                Some(state),
-                None,
-                None,
-                instance.action_results.clone(),
-                Some(self.backend.clone()),
-            )
-        } else {
-            RunnerExecutor::new(
-                instance.dag.clone(),
-                None,
-                instance.nodes.clone(),
-                instance.edges.clone(),
-                instance.action_results.clone(),
-                Some(self.backend.clone()),
-            )
-        };
+    fn register_instance(
+        &mut self,
+        instance: QueuedInstance,
+        result: &mut RunLoopResult,
+    ) -> Result<Uuid, RunLoopError> {
+        let state = instance.state.ok_or_else(|| {
+            RunLoopError::Message("queued instance missing runner state".to_string())
+        })?;
+        let executor = RunnerExecutor::new(
+            instance.dag.clone(),
+            state,
+            instance.action_results.clone(),
+            Some(self.backend.clone()),
+        );
         let executor_id = instance.instance_id;
         let mut executor = executor;
         executor.set_instance_id(executor_id);
         self.executors.insert(executor_id, executor);
         self.entry_nodes.insert(executor_id, instance.entry_node);
         result.completed_actions.entry(executor_id).or_default();
-        executor_id
+        Ok(executor_id)
     }
 
     fn should_stop(&self) -> bool {
@@ -469,7 +464,7 @@ impl RunLoop {
                 let kwargs = executor.resolve_action_kwargs(&action_spec)?;
                 let request = ActionRequest {
                     executor_id,
-                    node_id: action.node_id,
+                    execution_id: action.node_id,
                     action_name: action_spec.action_name,
                     module_name: action_spec.module_name.clone(),
                     kwargs,
@@ -617,7 +612,7 @@ pub async fn runloop_supervisor<B, W>(
     persistence_interval: Duration,
     shutdown_rx: watch::Receiver<bool>,
 ) where
-    B: BaseBackend + Clone + Send + Sync + 'static,
+    B: CoreBackend + Clone + Send + Sync + 'static,
     W: BaseWorkerPool + Clone + Send + Sync + 'static,
 {
     let mut backoff = Duration::from_millis(200);
@@ -707,8 +702,8 @@ mod tests {
     use std::collections::{HashMap, VecDeque};
     use std::sync::{Arc, Mutex};
 
+    use crate::backends::MemoryBackend;
     use crate::messages::ast as ir;
-    use crate::rappel_core::backends::MemoryBackend;
     use crate::rappel_core::dag::{
         ActionCallNode, ActionCallParams, DAGEdge, DAGNode, InputNode, OutputNode,
     };
@@ -800,9 +795,7 @@ mod tests {
             dag: dag.clone(),
             entry_node: entry_exec.node_id,
             state: Some(state),
-            nodes: None,
-            edges: None,
-            action_results: Some(HashMap::new()),
+            action_results: HashMap::new(),
             instance_id: Uuid::new_v4(),
         });
 

@@ -8,7 +8,6 @@ pub mod validate;
 pub use builder::{DAGConverter, convert_to_dag};
 pub use models::{
     ConvertedSubgraph, DAG, DAGEdge, DagConversionError, EXCEPTION_SCOPE_VAR, EdgeType,
-    assert_never,
 };
 pub use nodes::{
     ActionCallNode, ActionCallParams, AggregatorNode, AssignmentNode, BranchNode, BreakNode,
