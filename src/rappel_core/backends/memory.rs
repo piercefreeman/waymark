@@ -10,33 +10,61 @@ use super::base::{
     WorkerStatusBackend, WorkerStatusUpdate,
 };
 
-/// Backend that prints updates instead of persisting them.
+/// Backend that stores updates in memory for tests or local runs.
 #[derive(Clone, Default)]
 pub struct MemoryBackend {
     instance_queue: Option<Arc<Mutex<VecDeque<QueuedInstance>>>>,
+    graph_updates: Arc<Mutex<Vec<GraphUpdate>>>,
+    actions_done: Arc<Mutex<Vec<ActionDone>>>,
+    instances_done: Arc<Mutex<Vec<InstanceDone>>>,
+    worker_status_updates: Arc<Mutex<Vec<WorkerStatusUpdate>>>,
 }
 
 impl MemoryBackend {
     pub fn new() -> Self {
-        Self {
-            instance_queue: None,
-        }
+        Self::default()
     }
 
     pub fn with_queue(queue: Arc<Mutex<VecDeque<QueuedInstance>>>) -> Self {
         Self {
             instance_queue: Some(queue),
+            ..Self::default()
         }
     }
 
     pub fn instance_queue(&self) -> Option<Arc<Mutex<VecDeque<QueuedInstance>>>> {
         self.instance_queue.clone()
     }
+
+    pub fn graph_updates(&self) -> Vec<GraphUpdate> {
+        self.graph_updates
+            .lock()
+            .expect("graph updates poisoned")
+            .clone()
+    }
+
+    pub fn actions_done(&self) -> Vec<ActionDone> {
+        self.actions_done
+            .lock()
+            .expect("actions done poisoned")
+            .clone()
+    }
+
+    pub fn instances_done(&self) -> Vec<InstanceDone> {
+        self.instances_done
+            .lock()
+            .expect("instances done poisoned")
+            .clone()
+    }
+
+    pub fn worker_status_updates(&self) -> Vec<WorkerStatusUpdate> {
+        self.worker_status_updates
+            .lock()
+            .expect("worker status updates poisoned")
+            .clone()
+    }
 }
 
-// TODO: To make this more complete, we should store some representation of these objects in-memory
-// attached to the object so we could actually theoretically use this as a storage medium
-// in tests or something separate from postgres...
 impl BaseBackend for MemoryBackend {
     fn clone_box(&self) -> Box<dyn BaseBackend> {
         Box::new(self.clone())
@@ -44,9 +72,8 @@ impl BaseBackend for MemoryBackend {
 
     fn save_graphs<'a>(&'a self, graphs: &'a [GraphUpdate]) -> BoxFuture<'a, BackendResult<()>> {
         Box::pin(async move {
-            for graph in graphs {
-                println!("UPDATE {} {:?}", graph.instance_id, graph);
-            }
+            let mut stored = self.graph_updates.lock().expect("graph updates poisoned");
+            stored.extend(graphs.iter().cloned());
             Ok(())
         })
     }
@@ -56,9 +83,8 @@ impl BaseBackend for MemoryBackend {
         actions: &'a [ActionDone],
     ) -> BoxFuture<'a, BackendResult<()>> {
         Box::pin(async move {
-            for action in actions {
-                println!("INSERT {:?}", action);
-            }
+            let mut stored = self.actions_done.lock().expect("actions done poisoned");
+            stored.extend(actions.iter().cloned());
             Ok(())
         })
     }
@@ -68,9 +94,8 @@ impl BaseBackend for MemoryBackend {
         instances: &'a [InstanceDone],
     ) -> BoxFuture<'a, BackendResult<()>> {
         Box::pin(async move {
-            for instance in instances {
-                println!("INSERT {:?}", instance);
-            }
+            let mut stored = self.instances_done.lock().expect("instances done poisoned");
+            stored.extend(instances.iter().cloned());
             Ok(())
         })
     }
@@ -104,8 +129,15 @@ impl BaseBackend for MemoryBackend {
 impl WorkerStatusBackend for MemoryBackend {
     fn upsert_worker_status<'a>(
         &'a self,
-        _status: &'a WorkerStatusUpdate,
+        status: &'a WorkerStatusUpdate,
     ) -> BoxFuture<'a, BackendResult<()>> {
-        Box::pin(async { Ok(()) })
+        Box::pin(async move {
+            let mut stored = self
+                .worker_status_updates
+                .lock()
+                .expect("worker status updates poisoned");
+            stored.push(status.clone());
+            Ok(())
+        })
     }
 }

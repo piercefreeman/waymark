@@ -15,11 +15,6 @@ use super::base::{
     QueuedInstance, WorkerStatusBackend, WorkerStatusUpdate,
 };
 
-// TODO: Remove this... we should rely on one central pool for our app. You should
-// accept the pool as the constructor parameters since this is expected to come from the
-// parent and not internally
-pub const DEFAULT_DSN: &str = "postgresql://rappel:rappel@localhost:5432/rappel_core";
-
 /// Persist runner state and action results in Postgres.
 #[derive(Clone)]
 pub struct PostgresBackend {
@@ -29,15 +24,19 @@ pub struct PostgresBackend {
 }
 
 impl PostgresBackend {
+    pub fn new(pool: PgPool) -> Self {
+        Self {
+            pool,
+            query_counts: Arc::new(Mutex::new(HashMap::new())),
+            batch_size_counts: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
     #[obs]
     pub async fn connect(dsn: &str) -> BackendResult<Self> {
         let pool = PgPool::connect(dsn).await?;
         db::run_migrations(&pool).await?;
-        Ok(Self {
-            pool,
-            query_counts: Arc::new(Mutex::new(HashMap::new())),
-            batch_size_counts: Arc::new(Mutex::new(HashMap::new())),
-        })
+        Ok(Self::new(pool))
     }
 
     pub fn pool(&self) -> &PgPool {

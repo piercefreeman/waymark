@@ -9,4 +9,4 @@ pub use base::{
     QueuedInstance, WorkerStatusBackend, WorkerStatusUpdate,
 };
 pub use memory::MemoryBackend;
-pub use postgres::{DEFAULT_DSN, PostgresBackend};
+pub use postgres::PostgresBackend;

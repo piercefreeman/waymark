@@ -20,7 +20,7 @@ use anyhow::{Context, Result};
 use futures::{Stream, future::BoxFuture};
 use prost::Message;
 use serde_json::Value;
-use sqlx::Row;
+use sqlx::{PgPool, Row};
 use tokio::sync::{Mutex as AsyncMutex, mpsc};
 use tokio_stream::{StreamExt, wrappers::ReceiverStream};
 use tonic::{Request, Response, Status};
@@ -28,6 +28,7 @@ use tracing::{debug, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use uuid::Uuid;
 
+use rappel::db;
 use rappel::messages::{self, ast as ir, proto};
 use rappel::rappel_core::backends::{
     ActionDone, BackendError, BackendResult, BaseBackend, GraphUpdate, InstanceDone,
@@ -50,7 +51,9 @@ struct WorkflowStore {
 
 impl WorkflowStore {
     async fn connect(dsn: &str) -> Result<Self> {
-        let backend = PostgresBackend::connect(dsn).await?;
+        let pool = PgPool::connect(dsn).await?;
+        db::run_migrations(&pool).await?;
+        let backend = PostgresBackend::new(pool);
         Ok(Self { backend })
     }
 

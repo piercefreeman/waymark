@@ -6,11 +6,13 @@ use std::time::Instant;
 use clap::Parser;
 use rand::seq::SliceRandom;
 use serde_json::Value;
+use sqlx::PgPool;
 use uuid::Uuid;
 
+use crate::db;
 use crate::messages::ast as ir;
 use crate::observability::obs;
-use crate::rappel_core::backends::{DEFAULT_DSN, PostgresBackend, QueuedInstance};
+use crate::rappel_core::backends::{PostgresBackend, QueuedInstance};
 use crate::rappel_core::cli::smoke::{
     build_control_flow_program, build_parallel_spread_program, build_program,
     build_try_except_program, build_while_loop_program, literal_from_value,
@@ -18,7 +20,9 @@ use crate::rappel_core::cli::smoke::{
 use crate::rappel_core::dag::{DAG, convert_to_dag};
 use crate::rappel_core::runloop::RunLoop;
 use crate::rappel_core::runner::RunnerState;
-use crate::rappel_core::workers::{ActionCallable, InlineWorkerPool, WorkerPoolError};
+use crate::workers::{ActionCallable, InlineWorkerPool, WorkerPoolError};
+
+const DEFAULT_DSN: &str = "postgresql://rappel:rappel@localhost:5432/rappel_core";
 
 #[derive(Parser, Debug)]
 #[command(
@@ -242,9 +246,9 @@ async fn run_benchmark(
     HashMap<String, HashMap<usize, usize>>,
 ) {
     let cases = build_cases(base);
-    let backend = PostgresBackend::connect(dsn)
-        .await
-        .expect("connect postgres");
+    let pool = PgPool::connect(dsn).await.expect("connect postgres");
+    db::run_migrations(&pool).await.expect("run migrations");
+    let backend = PostgresBackend::new(pool);
     backend.clear_all().await.expect("clear all");
     let total = queue_benchmark_instances(&backend, &cases, count_per_case, batch_size).await;
     println!("Queued {total} instances across {} IR jobs", cases.len());

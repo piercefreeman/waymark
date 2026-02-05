@@ -20,9 +20,7 @@ use crate::rappel_core::dag::{DAG, DAGNode, OutputNode, ReturnNode};
 use crate::rappel_core::runner::{
     ExecutorStep, RunnerExecutor, RunnerExecutorError, replay_variables,
 };
-use crate::rappel_core::workers::{
-    ActionCompletion, ActionRequest, BaseWorkerPool, WorkerPoolError,
-};
+use crate::workers::{ActionCompletion, ActionRequest, BaseWorkerPool, WorkerPoolError};
 
 /// Raised when the run loop cannot coordinate execution.
 #[derive(Debug, thiserror::Error)]
@@ -715,7 +713,7 @@ mod tests {
         ActionCallNode, ActionCallParams, DAGEdge, DAGNode, InputNode, OutputNode,
     };
     use crate::rappel_core::runner::RunnerState;
-    use crate::rappel_core::workers::ActionCallable;
+    use crate::workers::ActionCallable;
 
     #[tokio::test]
     async fn test_runloop_executes_actions() {
@@ -795,7 +793,7 @@ mod tests {
                 })
             }),
         );
-        let worker_pool = crate::rappel_core::workers::InlineWorkerPool::new(actions);
+        let worker_pool = crate::workers::InlineWorkerPool::new(actions);
 
         let mut runloop = RunLoop::new(worker_pool, backend, 25, None, 0.0, 0.1);
         queue.lock().expect("queue lock").push_back(QueuedInstance {

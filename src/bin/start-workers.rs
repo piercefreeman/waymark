@@ -28,13 +28,14 @@ use std::time::Duration;
 
 use anyhow::Result;
 use prost::Message;
-use sqlx::Row;
+use sqlx::{PgPool, Row};
 use tokio::signal;
 use tokio::sync::watch;
 use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use rappel::config::WorkerConfig;
+use rappel::db;
 use rappel::messages::ast as ir;
 use rappel::rappel_core::backends::PostgresBackend;
 use rappel::rappel_core::dag::{DAG, convert_to_dag};
@@ -67,8 +68,10 @@ async fn main() -> Result<()> {
         "starting worker infrastructure"
     );
 
-    // Initialize the backend (runs migrations on connect).
-    let backend = PostgresBackend::connect(&config.database_url).await?;
+    // Initialize the database and backend.
+    let pool = PgPool::connect(&config.database_url).await?;
+    db::run_migrations(&pool).await?;
+    let backend = PostgresBackend::new(pool);
 
     // Start the worker pool (bridge + python workers).
     let mut worker_config = PythonWorkerConfig::new();
