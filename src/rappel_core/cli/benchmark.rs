@@ -1,7 +1,8 @@
 //! Benchmark CLI for running mixed IR workloads against Postgres.
 
 use std::collections::HashMap;
-use std::time::Instant;
+use std::env;
+use std::time::{Duration, Instant};
 
 use clap::Parser;
 use rand::seq::SliceRandom;
@@ -23,6 +24,7 @@ use crate::rappel_core::runner::RunnerState;
 use crate::workers::{ActionCallable, InlineWorkerPool, WorkerPoolError};
 
 const DEFAULT_DSN: &str = "postgresql://rappel:rappel@localhost:5432/rappel_core";
+const DEFAULT_MAX_CONCURRENT_INSTANCES: usize = 25;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -233,18 +235,44 @@ fn format_batch_size_counts(batch_counts: HashMap<String, HashMap<usize, usize>>
     lines.join("\n")
 }
 
+async fn drop_benchmark_tables(pool: &PgPool) {
+    sqlx::query(
+        r#"
+        DROP TABLE IF EXISTS
+            worker_status,
+            workflow_schedules,
+            queued_instances,
+            runner_instances_done,
+            runner_instances,
+            runner_actions_done,
+            runner_graph_updates,
+            workflow_versions,
+            _sqlx_migrations
+        CASCADE
+        "#,
+    )
+    .execute(pool)
+    .await
+    .expect("drop benchmark tables");
+}
+
+struct BenchmarkStats {
+    elapsed: Duration,
+    query_counts: HashMap<String, usize>,
+    batch_counts: HashMap<String, HashMap<usize, usize>>,
+}
+
 #[obs]
 async fn run_benchmark(
     count_per_case: usize,
     base: i64,
     batch_size: usize,
     dsn: &str,
-) -> (
-    HashMap<String, usize>,
-    HashMap<String, HashMap<usize, usize>>,
-) {
+    max_concurrent_instances: usize,
+) -> BenchmarkStats {
     let cases = build_cases(base);
     let pool = PgPool::connect(dsn).await.expect("connect postgres");
+    drop_benchmark_tables(&pool).await;
     db::run_migrations(&pool).await.expect("run migrations");
     let backend = PostgresBackend::new(pool);
     backend.clear_all().await.expect("clear all");
@@ -252,9 +280,30 @@ async fn run_benchmark(
     println!("Queued {total} instances across {} IR jobs", cases.len());
 
     let worker_pool = InlineWorkerPool::new(action_registry());
-    let mut runloop = RunLoop::new(worker_pool, backend.clone(), 25, None, 0.05, 0.1);
+    let mut runloop = RunLoop::new(
+        worker_pool,
+        backend.clone(),
+        max_concurrent_instances,
+        None,
+        0.05,
+        0.1,
+    );
+    let start = Instant::now();
     let _ = runloop.run().await.expect("runloop");
-    (backend.query_counts(), backend.batch_size_counts())
+    let elapsed = start.elapsed();
+    BenchmarkStats {
+        elapsed,
+        query_counts: backend.query_counts(),
+        batch_counts: backend.batch_size_counts(),
+    }
+}
+
+fn benchmark_max_concurrent() -> usize {
+    env::var("RAPPEL_MAX_CONCURRENT_INSTANCES")
+        .ok()
+        .and_then(|value| value.trim().parse::<usize>().ok())
+        .unwrap_or(DEFAULT_MAX_CONCURRENT_INSTANCES)
+        .max(1)
 }
 
 pub fn main() {
@@ -266,18 +315,19 @@ pub fn main() {
         });
     }
     let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
-    let start = Instant::now();
     let _span = tracing::info_span!("benchmark_main").entered();
-    let (query_counts, batch_counts) = runtime.block_on(run_benchmark(
+    let max_concurrent_instances = benchmark_max_concurrent();
+    println!("max_concurrent_instances = {max_concurrent_instances}");
+    let stats = runtime.block_on(run_benchmark(
         args.count,
         args.base,
         args.batch_size,
         &args.dsn,
+        max_concurrent_instances,
     ));
-    let elapsed = start.elapsed();
-    println!("Benchmark completed in {:.2?}", elapsed);
-    println!("{}", format_query_counts(query_counts));
-    println!("{}", format_batch_size_counts(batch_counts));
+    println!("Benchmark completed in {:.2?}", stats.elapsed);
+    println!("{}", format_query_counts(stats.query_counts));
+    println!("{}", format_batch_size_counts(stats.batch_counts));
     if args.trace.is_some() {
         crate::observability::flush();
     }

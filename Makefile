@@ -73,10 +73,12 @@ rust-coverage:
 
 BENCH_ARGS ?= --count 1000
 BENCH_TRACE ?= target/benchmark-trace.json
+BENCH_TRACE_PREFIX ?= $(BENCH_TRACE:.json=)
 BENCH_TRACE_TOP ?= 30
 BENCH_CONSOLE_BIND ?= 127.0.0.1:6669
 BENCH_CONSOLE_ARGS ?= --observe
 BENCH_RUSTFLAGS ?= --cfg tokio_unstable
+BENCH_CONCURRENCY_SWEEP ?= 25 100 250 1000
 benchmark: benchmark-trace
 
 benchmark-console:
@@ -93,5 +95,9 @@ benchmark-console-run:
 
 benchmark-trace:
 	cargo build --bin benchmark --features trace
-	target/debug/benchmark --trace $(BENCH_TRACE) $(BENCH_ARGS)
-	uv run python scripts/parse_chrome_trace.py $(BENCH_TRACE) --top $(BENCH_TRACE_TOP)
+	@for max in $(BENCH_CONCURRENCY_SWEEP); do \
+		trace_file="$(BENCH_TRACE_PREFIX)-$${max}.json"; \
+		echo "=== BENCH: max_concurrent_instances=$${max} ==="; \
+		RAPPEL_MAX_CONCURRENT_INSTANCES=$${max} target/debug/benchmark --trace $$trace_file $(BENCH_ARGS); \
+		uv run python scripts/parse_chrome_trace.py $$trace_file --top $(BENCH_TRACE_TOP); \
+	done
