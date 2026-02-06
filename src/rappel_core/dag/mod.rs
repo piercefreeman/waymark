@@ -13,7 +13,7 @@ pub use models::{
 pub use nodes::{
     ActionCallNode, ActionCallParams, AggregatorNode, AssignmentNode, BranchNode, BreakNode,
     ContinueNode, ExpressionNode, FnCallNode, FnCallParams, InputNode, JoinNode, OutputNode,
-    ParallelNode, ReturnNode,
+    ParallelNode, ReturnNode, SleepNode,
 };
 pub use validate::{
     validate_dag, validate_edges_reference_existing_nodes,

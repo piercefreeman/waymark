@@ -149,6 +149,7 @@ impl DAGConverter {
                     | ir::statement::Kind::ReturnStmt(_)
                     | ir::statement::Kind::BreakStmt(_)
                     | ir::statement::Kind::ContinueStmt(_)
+                    | ir::statement::Kind::SleepStmt(_)
                     | ir::statement::Kind::ExprStmt(_),
                 )
                 | None => {

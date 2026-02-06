@@ -16,7 +16,7 @@ use crate::rappel_core::dag::convert_to_dag;
 use crate::rappel_core::dag_viz::render_dag_image;
 use crate::rappel_core::ir_format::format_program;
 use crate::rappel_core::ir_parser::parse_program;
-use crate::rappel_core::runloop::RunLoop;
+use crate::rappel_core::runloop::{RunLoop, RunLoopSupervisorConfig};
 use crate::rappel_core::runner::RunnerState;
 use crate::workers::{PythonWorkerConfig, RemoteWorkerPool};
 
@@ -258,11 +258,17 @@ async fn run_program_smoke(case: &SmokeCase, worker_pool: RemoteWorkerPool) -> R
     let mut runloop = RunLoop::new(
         worker_pool,
         backend.clone(),
-        25,
-        None,
-        Duration::from_secs_f64(0.05),
-        Duration::from_secs_f64(0.1),
-        1,
+        RunLoopSupervisorConfig {
+            max_concurrent_instances: 25,
+            executor_shards: 1,
+            instance_done_batch_size: None,
+            poll_interval: Duration::from_secs_f64(0.05),
+            persistence_interval: Duration::from_secs_f64(0.1),
+            lock_uuid: Uuid::new_v4(),
+            lock_ttl: Duration::from_secs(15),
+            lock_heartbeat: Duration::from_secs(5),
+            evict_sleep_threshold: Duration::from_secs(10),
+        },
     );
     queue.lock().expect("queue lock").push_back(QueuedInstance {
         dag: dag.clone(),
@@ -270,6 +276,7 @@ async fn run_program_smoke(case: &SmokeCase, worker_pool: RemoteWorkerPool) -> R
         state: Some(state),
         action_results: HashMap::new(),
         instance_id: Uuid::new_v4(),
+        scheduled_at: None,
     });
     runloop
         .run()

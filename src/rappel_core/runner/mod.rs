@@ -6,7 +6,9 @@ pub mod replay;
 pub mod state;
 pub mod value_visitor;
 
-pub use executor::{DurableUpdates, ExecutorStep, RunnerExecutor, RunnerExecutorError};
+pub use executor::{
+    DurableUpdates, ExecutorStep, RunnerExecutor, RunnerExecutorError, SleepRequest,
+};
 pub use replay::{ReplayError, ReplayResult, replay_variables};
 pub use state::{
     ActionCallSpec, ActionResultValue, ExecutionEdge, ExecutionNode, NodeStatus, RunnerState,

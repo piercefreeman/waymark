@@ -297,6 +297,10 @@ impl DAGConverter {
                 let node_ids = self.convert_expr_statement(expr_stmt);
                 self.wrap_node_ids(node_ids)
             }
+            Some(ir::statement::Kind::SleepStmt(sleep_stmt)) => {
+                let node_ids = self.convert_sleep(sleep_stmt);
+                self.wrap_node_ids(node_ids)
+            }
             None => Ok(ConvertedSubgraph::noop()),
         }
     }

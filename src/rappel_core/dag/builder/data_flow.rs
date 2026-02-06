@@ -6,7 +6,9 @@ use crate::messages::ast as ir;
 
 use super::super::models::DAGNode;
 use super::super::models::{DAG, DAGEdge, EdgeType};
-use super::super::nodes::{ActionCallNode, AssignmentNode, FnCallNode, InputNode, ReturnNode};
+use super::super::nodes::{
+    ActionCallNode, AssignmentNode, FnCallNode, InputNode, ReturnNode, SleepNode,
+};
 use super::converter::DAGConverter;
 
 /// Rebuild data-flow edges from variable definition/use analysis.
@@ -182,6 +184,14 @@ impl DAGConverter {
                 }
                 if let DAGNode::Return(ReturnNode {
                     assign_expr: Some(expr),
+                    ..
+                }) = node
+                    && Self::expr_uses_var(expr, var_name)
+                {
+                    return true;
+                }
+                if let DAGNode::Sleep(SleepNode {
+                    duration_expr: Some(expr),
                     ..
                 }) = node
                     && Self::expr_uses_var(expr, var_name)

@@ -11,11 +11,14 @@ use crate::{SchedulerConfig, WebappConfig};
 const DEFAULT_WORKER_GRPC_ADDR: &str = "127.0.0.1:24118";
 const DEFAULT_WORKER_CONCURRENCY: usize = 10;
 const DEFAULT_POLL_INTERVAL_MS: u64 = 100;
-const DEFAULT_MAX_CONCURRENT_INSTANCES: usize = 50;
+const DEFAULT_MAX_CONCURRENT_INSTANCES: usize = 500;
 const DEFAULT_PERSIST_INTERVAL_MS: u64 = 500;
 const DEFAULT_SCHEDULER_POLL_INTERVAL_MS: u64 = 1000;
 const DEFAULT_SCHEDULER_BATCH_SIZE: i32 = 100;
 const DEFAULT_PROFILE_INTERVAL_MS: u64 = 5000;
+const DEFAULT_EVICT_SLEEP_THRESHOLD_MS: u64 = 10_000;
+const DEFAULT_LOCK_HEARTBEAT_MS: u64 = 5_000;
+const DEFAULT_LOCK_TTL_MS: u64 = 15_000;
 
 #[derive(Debug, Clone)]
 pub struct WorkerConfig {
@@ -30,6 +33,9 @@ pub struct WorkerConfig {
     pub executor_shards: usize,
     pub instance_done_batch_size: Option<usize>,
     pub persistence_interval: Duration,
+    pub lock_ttl: Duration,
+    pub lock_heartbeat: Duration,
+    pub evict_sleep_threshold: Duration,
     pub scheduler: SchedulerConfig,
     pub webapp: WebappConfig,
     pub profile_interval: Duration,
@@ -74,6 +80,15 @@ impl WorkerConfig {
             env_u64("RAPPEL_PERSIST_INTERVAL_MS").unwrap_or(DEFAULT_PERSIST_INTERVAL_MS),
         );
 
+        let lock_ttl =
+            Duration::from_millis(env_u64("RAPPEL_LOCK_TTL_MS").unwrap_or(DEFAULT_LOCK_TTL_MS));
+        let lock_heartbeat = Duration::from_millis(
+            env_u64("RAPPEL_LOCK_HEARTBEAT_MS").unwrap_or(DEFAULT_LOCK_HEARTBEAT_MS),
+        );
+        let evict_sleep_threshold = Duration::from_millis(
+            env_u64("RAPPEL_EVICT_SLEEP_THRESHOLD_MS").unwrap_or(DEFAULT_EVICT_SLEEP_THRESHOLD_MS),
+        );
+
         let scheduler = SchedulerConfig {
             poll_interval: Duration::from_millis(
                 env_u64("RAPPEL_SCHEDULER_POLL_INTERVAL_MS")
@@ -102,6 +117,9 @@ impl WorkerConfig {
             executor_shards,
             instance_done_batch_size,
             persistence_interval,
+            lock_ttl,
+            lock_heartbeat,
+            evict_sleep_threshold,
             scheduler,
             webapp,
             profile_interval,

@@ -533,6 +533,39 @@ impl ContinueNode {
     }
 }
 
+/// Durable sleep node.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SleepNode {
+    pub id: String,
+    pub node_uuid: Uuid,
+    pub function_name: Option<String>,
+    pub duration_expr: Option<ir::Expr>,
+    pub label_hint: Option<String>,
+}
+
+impl SleepNode {
+    pub fn new(
+        id: impl Into<String>,
+        duration_expr: Option<ir::Expr>,
+        label_hint: Option<String>,
+        function_name: Option<String>,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            node_uuid: Uuid::new_v4(),
+            function_name,
+            duration_expr,
+            label_hint,
+        }
+    }
+
+    pub fn label(&self) -> String {
+        self.label_hint
+            .clone()
+            .unwrap_or_else(|| "sleep".to_string())
+    }
+}
+
 /// Bare expression statement node.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ExpressionNode {

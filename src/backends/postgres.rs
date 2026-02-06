@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::db;
 use crate::observability::obs;
-use crate::rappel_core::runner::state::NodeStatus;
+use crate::rappel_core::runner::state::{NodeStatus, RunnerState};
 use crate::scheduler::compute_next_run;
 use crate::scheduler::{CreateScheduleParams, ScheduleId, ScheduleType, WorkflowSchedule};
 use crate::webapp::{
@@ -21,8 +21,9 @@ use crate::webapp::{
 
 use super::base::{
     ActionDone, BackendError, BackendResult, CoreBackend, GraphUpdate, InstanceDone,
-    QueuedInstance, SchedulerBackend, WebappBackend, WorkerStatusBackend, WorkerStatusUpdate,
-    WorkflowRegistration, WorkflowRegistryBackend,
+    InstanceLockStatus, LockClaim, QueuedInstance, QueuedInstanceBatch, SchedulerBackend,
+    WebappBackend, WorkerStatusBackend, WorkerStatusUpdate, WorkflowRegistration,
+    WorkflowRegistryBackend,
 };
 
 /// Persist runner state and action results in Postgres.
@@ -65,7 +66,14 @@ impl PostgresBackend {
             let state = instance.state.as_ref().ok_or_else(|| {
                 BackendError::Message("queued instance missing runner state".to_string())
             })?;
-            queued_payloads.push((instance.instance_id, Self::serialize(instance)?));
+            let scheduled_at = instance.scheduled_at.unwrap_or_else(Utc::now);
+            let mut payload_instance = instance.clone();
+            payload_instance.scheduled_at = Some(scheduled_at);
+            queued_payloads.push((
+                payload_instance.instance_id,
+                scheduled_at,
+                Self::serialize(&payload_instance)?,
+            ));
             let graph = GraphUpdate::from_state(instance.instance_id, state);
             runner_payloads.push((
                 instance.instance_id,
@@ -75,10 +83,16 @@ impl PostgresBackend {
         }
 
         let mut queued_builder: QueryBuilder<Postgres> =
-            QueryBuilder::new("INSERT INTO queued_instances (instance_id, payload) ");
-        queued_builder.push_values(queued_payloads.iter(), |mut builder, (id, payload)| {
-            builder.push_bind(*id).push_bind(payload.as_slice());
-        });
+            QueryBuilder::new("INSERT INTO queued_instances (instance_id, scheduled_at, payload) ");
+        queued_builder.push_values(
+            queued_payloads.iter(),
+            |mut builder, (id, scheduled_at, payload)| {
+                builder
+                    .push_bind(*id)
+                    .push_bind(*scheduled_at)
+                    .push_bind(payload.as_slice());
+            },
+        );
 
         let mut runner_builder: QueryBuilder<Postgres> =
             QueryBuilder::new("INSERT INTO runner_instances (instance_id, entry_node, state) ");
@@ -250,9 +264,13 @@ impl PostgresBackend {
     }
 
     #[obs]
-    async fn save_graphs_impl(&self, graphs: &[GraphUpdate]) -> BackendResult<()> {
+    async fn save_graphs_impl(
+        &self,
+        lock_uuid: Uuid,
+        graphs: &[GraphUpdate],
+    ) -> BackendResult<Vec<InstanceLockStatus>> {
         if graphs.is_empty() {
-            return Ok(());
+            return Ok(Vec::new());
         }
         Self::count_query(&self.query_counts, "update:runner_instances_state");
         Self::count_batch_size(
@@ -262,16 +280,89 @@ impl PostgresBackend {
         );
         let mut payloads = Vec::with_capacity(graphs.len());
         for graph in graphs {
-            payloads.push((graph.instance_id, Self::serialize(graph)?));
+            payloads.push((
+                graph.instance_id,
+                graph.next_scheduled_at(),
+                Self::serialize(graph)?,
+            ));
         }
+        let now = Utc::now();
         let mut builder: QueryBuilder<Postgres> =
             QueryBuilder::new("UPDATE runner_instances AS ri SET state = v.state FROM (");
-        builder.push_values(payloads.iter(), |mut b, (instance_id, payload)| {
-            b.push_bind(*instance_id).push_bind(payload.as_slice());
-        });
-        builder.push(") AS v(instance_id, state) WHERE ri.instance_id = v.instance_id");
+        builder.push_values(
+            payloads.iter(),
+            |mut b, (instance_id, _scheduled_at, payload)| {
+                b.push_bind(*instance_id).push_bind(payload.as_slice());
+            },
+        );
+        builder.push(
+            ") AS v(instance_id, state) \
+             JOIN queued_instances qi ON qi.instance_id = v.instance_id \
+             WHERE ri.instance_id = v.instance_id \
+               AND qi.lock_uuid = ",
+        );
+        builder.push_bind(lock_uuid);
+        builder.push(" AND (qi.lock_expires_at IS NULL OR qi.lock_expires_at > ");
+        builder.push_bind(now);
+        builder.push(")");
         builder.build().execute(&self.pool).await?;
-        Ok(())
+
+        Self::count_query(&self.query_counts, "update:queued_instances_scheduled_at");
+        Self::count_batch_size(
+            &self.batch_size_counts,
+            "update:queued_instances_scheduled_at",
+            payloads.len(),
+        );
+        let mut schedule_builder: QueryBuilder<Postgres> = QueryBuilder::new(
+            "UPDATE queued_instances AS qi SET scheduled_at = v.scheduled_at FROM (",
+        );
+        schedule_builder.push_values(
+            payloads.iter(),
+            |mut b, (instance_id, scheduled_at, _payload)| {
+                b.push_bind(*instance_id).push_bind(*scheduled_at);
+            },
+        );
+        schedule_builder.push(
+            ") AS v(instance_id, scheduled_at) \
+             WHERE qi.instance_id = v.instance_id \
+               AND qi.lock_uuid = ",
+        );
+        schedule_builder.push_bind(lock_uuid);
+        schedule_builder.push(" AND (qi.lock_expires_at IS NULL OR qi.lock_expires_at > ");
+        schedule_builder.push_bind(now);
+        schedule_builder.push(")");
+        schedule_builder.build().execute(&self.pool).await?;
+
+        let ids: Vec<Uuid> = graphs.iter().map(|graph| graph.instance_id).collect();
+        let lock_rows = sqlx::query(
+            "SELECT instance_id, lock_uuid, lock_expires_at FROM queued_instances WHERE instance_id = ANY($1)",
+        )
+        .bind(&ids)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut lock_map: HashMap<Uuid, InstanceLockStatus> = HashMap::new();
+        for row in lock_rows {
+            let instance_id: Uuid = row.get(0);
+            lock_map.insert(
+                instance_id,
+                InstanceLockStatus {
+                    instance_id,
+                    lock_uuid: row.get(1),
+                    lock_expires_at: row.get(2),
+                },
+            );
+        }
+
+        let mut locks = Vec::with_capacity(ids.len());
+        for instance_id in ids {
+            locks.push(lock_map.remove(&instance_id).unwrap_or(InstanceLockStatus {
+                instance_id,
+                lock_uuid: None,
+                lock_expires_at: None,
+            }));
+        }
+        Ok(locks)
     }
 
     #[obs]
@@ -308,44 +399,83 @@ impl PostgresBackend {
     }
 
     #[obs]
-    async fn get_queued_instances_impl(&self, size: usize) -> BackendResult<Vec<QueuedInstance>> {
+    async fn get_queued_instances_impl(
+        &self,
+        size: usize,
+        claim: LockClaim,
+    ) -> BackendResult<QueuedInstanceBatch> {
         if size == 0 {
-            return Ok(Vec::new());
+            return Ok(QueuedInstanceBatch {
+                instances: Vec::new(),
+            });
         }
+        let now = Utc::now();
         let mut tx = self.pool.begin().await?;
         Self::count_query(&self.query_counts, "select:queued_instances");
         let rows = sqlx::query(
-            "SELECT instance_id, payload FROM queued_instances ORDER BY created_at LIMIT $1 FOR UPDATE SKIP LOCKED",
+            r#"
+            WITH claimed AS (
+                SELECT instance_id, payload
+                FROM queued_instances
+                WHERE scheduled_at <= $1
+                  AND (lock_uuid IS NULL OR lock_expires_at <= $1)
+                ORDER BY scheduled_at, created_at
+                LIMIT $2
+                FOR UPDATE SKIP LOCKED
+            ),
+            updated AS (
+                UPDATE queued_instances AS qi
+                SET lock_uuid = $3, lock_expires_at = $4
+                FROM claimed
+                WHERE qi.instance_id = claimed.instance_id
+                RETURNING qi.instance_id, claimed.payload
+            )
+            SELECT updated.instance_id, updated.payload, ri.state
+            FROM updated
+            JOIN runner_instances ri ON ri.instance_id = updated.instance_id
+            "#,
         )
+        .bind(now)
         .bind(size as i64)
+        .bind(claim.lock_uuid)
+        .bind(claim.lock_expires_at)
         .fetch_all(&mut *tx)
         .await?;
+
         if rows.is_empty() {
             tx.commit().await?;
-            return Ok(Vec::new());
+            return Ok(QueuedInstanceBatch {
+                instances: Vec::new(),
+            });
         }
+
         Self::count_batch_size(
             &self.batch_size_counts,
             "select:queued_instances",
             rows.len(),
         );
-        let ids: Vec<Uuid> = rows.iter().map(|row| row.get::<Uuid, _>(0)).collect();
-        Self::count_query(&self.query_counts, "delete:queued_instances_by_id");
-        sqlx::query("DELETE FROM queued_instances WHERE instance_id = ANY($1)")
-            .bind(&ids)
-            .execute(&mut *tx)
-            .await?;
         tx.commit().await?;
 
         let mut instances = Vec::new();
         for row in rows {
             let instance_id: Uuid = row.get(0);
             let payload: Vec<u8> = row.get(1);
+            let state_payload: Option<Vec<u8>> = row.get(2);
             let mut instance: QueuedInstance = Self::deserialize(&payload)?;
             instance.instance_id = instance_id;
+            if let Some(state_payload) = state_payload {
+                let graph: GraphUpdate = Self::deserialize(&state_payload)?;
+                instance.state = Some(RunnerState::new(
+                    Some(instance.dag.clone()),
+                    Some(graph.nodes),
+                    Some(graph.edges),
+                    false,
+                ));
+            }
             instances.push(instance);
         }
-        Ok(instances)
+
+        Ok(QueuedInstanceBatch { instances })
     }
 
     #[obs]
@@ -381,6 +511,15 @@ impl PostgresBackend {
         });
         builder.push(") AS v(instance_id, result, error) WHERE ri.instance_id = v.instance_id");
         builder.build().execute(&self.pool).await?;
+        let ids: Vec<Uuid> = instances
+            .iter()
+            .map(|instance| instance.executor_id)
+            .collect();
+        Self::count_query(&self.query_counts, "delete:queued_instances_by_id");
+        sqlx::query("DELETE FROM queued_instances WHERE instance_id = ANY($1)")
+            .bind(&ids)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 }
@@ -391,20 +530,81 @@ impl CoreBackend for PostgresBackend {
         Box::new(self.clone())
     }
 
-    async fn save_graphs(&self, graphs: &[GraphUpdate]) -> BackendResult<()> {
-        self.save_graphs_impl(graphs).await
+    async fn save_graphs(
+        &self,
+        lock_uuid: Uuid,
+        graphs: &[GraphUpdate],
+    ) -> BackendResult<Vec<InstanceLockStatus>> {
+        self.save_graphs_impl(lock_uuid, graphs).await
     }
 
     async fn save_actions_done(&self, actions: &[ActionDone]) -> BackendResult<()> {
         self.save_actions_done_impl(actions).await
     }
 
-    async fn get_queued_instances(&self, size: usize) -> BackendResult<Vec<QueuedInstance>> {
-        self.get_queued_instances_impl(size).await
+    async fn get_queued_instances(
+        &self,
+        size: usize,
+        claim: LockClaim,
+    ) -> BackendResult<QueuedInstanceBatch> {
+        self.get_queued_instances_impl(size, claim).await
     }
 
     async fn save_instances_done(&self, instances: &[InstanceDone]) -> BackendResult<()> {
         self.save_instances_done_impl(instances).await
+    }
+
+    async fn refresh_instance_locks(
+        &self,
+        claim: LockClaim,
+        instance_ids: &[Uuid],
+    ) -> BackendResult<Vec<InstanceLockStatus>> {
+        if instance_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        Self::count_query(&self.query_counts, "update:queued_instances_lock");
+        sqlx::query(
+            "UPDATE queued_instances SET lock_expires_at = $1 WHERE instance_id = ANY($2) AND lock_uuid = $3",
+        )
+        .bind(claim.lock_expires_at)
+        .bind(instance_ids)
+        .bind(claim.lock_uuid)
+        .execute(&self.pool)
+        .await?;
+        let rows = sqlx::query(
+            "SELECT instance_id, lock_uuid, lock_expires_at FROM queued_instances WHERE instance_id = ANY($1)",
+        )
+        .bind(instance_ids)
+        .fetch_all(&self.pool)
+        .await?;
+        let mut locks = Vec::with_capacity(rows.len());
+        for row in rows {
+            locks.push(InstanceLockStatus {
+                instance_id: row.get(0),
+                lock_uuid: row.get(1),
+                lock_expires_at: row.get(2),
+            });
+        }
+        Ok(locks)
+    }
+
+    async fn release_instance_locks(
+        &self,
+        lock_uuid: Uuid,
+        instance_ids: &[Uuid],
+    ) -> BackendResult<()> {
+        if instance_ids.is_empty() {
+            return Ok(());
+        }
+        Self::count_query(&self.query_counts, "update:queued_instances_release");
+        sqlx::query(
+            "UPDATE queued_instances SET lock_uuid = NULL, lock_expires_at = NULL WHERE instance_id = ANY($1) AND lock_uuid = $2",
+        )
+        .bind(instance_ids)
+        .bind(lock_uuid)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 
     async fn queue_instances(&self, instances: &[QueuedInstance]) -> BackendResult<()> {

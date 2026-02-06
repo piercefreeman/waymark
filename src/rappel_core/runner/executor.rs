@@ -3,7 +3,9 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::time::Duration;
 
+use chrono::{DateTime, Utc};
 use rustc_hash::FxHashMap;
 use serde_json::Value;
 use uuid::Uuid;
@@ -39,7 +41,15 @@ pub struct DurableUpdates {
 /// Return value for executor steps with newly queued action nodes.
 pub struct ExecutorStep {
     pub actions: Vec<ExecutionNode>,
+    pub sleep_requests: Vec<SleepRequest>,
     pub updates: Option<DurableUpdates>,
+}
+
+#[derive(Clone, Debug)]
+/// Sleep requests emitted by the executor with wake-up times.
+pub struct SleepRequest {
+    pub node_id: Uuid,
+    pub wake_at: DateTime<Utc>,
 }
 
 /// Action result payloads keyed by execution node id.
@@ -52,10 +62,20 @@ type FinishedNodeResult = (
     Option<ExecutionNode>,
 );
 
+struct WalkOutcome {
+    actions: Vec<ExecutionNode>,
+    sleep_requests: Vec<SleepRequest>,
+}
+
 enum TemplateKind {
     SpreadAction(Box<ActionCallNode>),
     Aggregator(String),
     Regular(String),
+}
+
+enum SleepDecision {
+    Completed,
+    Blocked(DateTime<Utc>),
 }
 
 #[derive(Clone, Debug)]
@@ -187,6 +207,7 @@ impl RunnerExecutor {
             let updates = self.collect_updates(Vec::new())?;
             return Ok(ExecutorStep {
                 actions: Vec::new(),
+                sleep_requests: Vec::new(),
                 updates,
             });
         }
@@ -206,7 +227,9 @@ impl RunnerExecutor {
         let mut actions_done: Vec<ActionDone> = Vec::new();
         let mut pending_starts: Vec<(ExecutionNode, Option<Value>)> = Vec::new();
         let mut actions: Vec<ExecutionNode> = Vec::new();
+        let mut sleep_requests: Vec<SleepRequest> = Vec::new();
         let mut seen_actions: HashSet<Uuid> = HashSet::new();
+        let mut seen_sleep_nodes: HashSet<Uuid> = HashSet::new();
 
         for finished_node in finished_nodes {
             let node_id = *finished_node;
@@ -225,10 +248,16 @@ impl RunnerExecutor {
         }
 
         while let Some((start, exception_value)) = pending_starts.pop() {
-            for action in self.walk_from(start, exception_value.clone())? {
+            let outcome = self.walk_from(start, exception_value.clone())?;
+            for action in outcome.actions {
                 // Multiple finished nodes can converge on the same action; avoid duplicates.
                 if seen_actions.insert(action.node_id) {
                     actions.push(action);
+                }
+            }
+            for sleep_request in outcome.sleep_requests {
+                if seen_sleep_nodes.insert(sleep_request.node_id) {
+                    sleep_requests.push(sleep_request);
                 }
             }
         }
@@ -238,7 +267,11 @@ impl RunnerExecutor {
         // Note: Action timeouts and delayed retries require wall-clock tracking in the run loop.
         // The executor only handles timeout failures once they surface as action results.
 
-        Ok(ExecutorStep { actions, updates })
+        Ok(ExecutorStep {
+            actions,
+            sleep_requests,
+            updates,
+        })
     }
 
     /// Walk downstream from a node, executing inline nodes until blocked by an action node.
@@ -247,9 +280,10 @@ impl RunnerExecutor {
         &mut self,
         node: ExecutionNode,
         exception_value: Option<Value>,
-    ) -> Result<Vec<ExecutionNode>, RunnerExecutorError> {
+    ) -> Result<WalkOutcome, RunnerExecutorError> {
         let mut pending = vec![(node, exception_value)];
         let mut actions = Vec::new();
+        let mut sleep_requests = Vec::new();
 
         while let Some((current, current_exception)) = pending.pop() {
             // template_id is the DAG node id, not the execution id.
@@ -273,6 +307,23 @@ impl RunnerExecutor {
                         actions.push(successor);
                         continue;
                     }
+                    if successor.is_sleep() {
+                        if !self.inline_ready(&successor) {
+                            continue;
+                        }
+                        match self.handle_sleep_node(&successor)? {
+                            SleepDecision::Completed => {
+                                pending.push((successor, None));
+                            }
+                            SleepDecision::Blocked(wake_at) => {
+                                sleep_requests.push(SleepRequest {
+                                    node_id: successor.node_id,
+                                    wake_at,
+                                });
+                            }
+                        }
+                        continue;
+                    }
                     if !self.inline_ready(&successor) {
                         continue;
                     }
@@ -281,7 +332,10 @@ impl RunnerExecutor {
                 }
             }
         }
-        Ok(actions)
+        Ok(WalkOutcome {
+            actions,
+            sleep_requests,
+        })
     }
 
     /// Update state for a finished node and return replay metadata.
@@ -676,6 +730,72 @@ impl RunnerExecutor {
         self.state
             .mark_completed(node.node_id)
             .map_err(|err| RunnerExecutorError(err.0))
+    }
+
+    fn handle_sleep_node(
+        &mut self,
+        node: &ExecutionNode,
+    ) -> Result<SleepDecision, RunnerExecutorError> {
+        let now = Utc::now();
+        let scheduled_at = self
+            .state
+            .nodes
+            .get(&node.node_id)
+            .and_then(|node| node.scheduled_at);
+        if let Some(wake_at) = scheduled_at {
+            if wake_at <= now {
+                self.state
+                    .mark_completed(node.node_id)
+                    .map_err(|err| RunnerExecutorError(err.0))?;
+                return Ok(SleepDecision::Completed);
+            }
+            return Ok(SleepDecision::Blocked(wake_at));
+        }
+
+        let value_expr = self
+            .state
+            .nodes
+            .get(&node.node_id)
+            .and_then(|node| node.value_expr.clone())
+            .unwrap_or(ValueExpr::Literal(LiteralValue {
+                value: Value::Number(0.into()),
+            }));
+        let materialized = self.state.materialize_value(value_expr);
+        let duration_value = self.evaluate_value_expr(&materialized)?;
+
+        let duration_secs = match duration_value {
+            Value::Number(value) => value.as_f64().ok_or_else(|| {
+                RunnerExecutorError("sleep duration must be a number".to_string())
+            })?,
+            Value::Null => 0.0,
+            _ => {
+                return Err(RunnerExecutorError(
+                    "sleep duration must be a number".to_string(),
+                ));
+            }
+        };
+
+        if !duration_secs.is_finite() {
+            return Err(RunnerExecutorError(
+                "sleep duration must be finite".to_string(),
+            ));
+        }
+
+        if duration_secs <= 0.0 {
+            self.state
+                .mark_completed(node.node_id)
+                .map_err(|err| RunnerExecutorError(err.0))?;
+            return Ok(SleepDecision::Completed);
+        }
+
+        let duration = Duration::from_secs_f64(duration_secs);
+        let chrono_duration = chrono::Duration::from_std(duration)
+            .map_err(|_| RunnerExecutorError("sleep duration is out of range".to_string()))?;
+        let wake_at = now + chrono_duration;
+        self.state
+            .set_node_scheduled_at(node.node_id, Some(wake_at))
+            .map_err(|err| RunnerExecutorError(err.0))?;
+        Ok(SleepDecision::Blocked(wake_at))
     }
 
     /// Check if an inline node is ready to run based on incoming edges.

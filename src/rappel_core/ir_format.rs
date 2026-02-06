@@ -137,6 +137,14 @@ impl IRFormatter {
             }
             Some(ir::statement::Kind::BreakStmt(_)) => vec![format!("{indent}break")],
             Some(ir::statement::Kind::ContinueStmt(_)) => vec![format!("{indent}continue")],
+            Some(ir::statement::Kind::SleepStmt(sleep_stmt)) => {
+                if let Some(duration) = &sleep_stmt.duration {
+                    let duration_str = self.format_expr(duration, 0);
+                    vec![format!("{indent}sleep {duration_str}")]
+                } else {
+                    vec![format!("{indent}sleep")]
+                }
+            }
             Some(ir::statement::Kind::ExprStmt(expr_stmt)) => {
                 if let Some(expr) = &expr_stmt.expr {
                     match expr.kind.as_ref() {

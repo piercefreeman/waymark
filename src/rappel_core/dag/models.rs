@@ -11,6 +11,7 @@ use crate::messages::ast as ir;
 use super::nodes::{
     ActionCallNode, AggregatorNode, AssignmentNode, BranchNode, BreakNode, ContinueNode,
     ExpressionNode, FnCallNode, InputNode, JoinNode, OutputNode, ParallelNode, ReturnNode,
+    SleepNode,
 };
 
 pub const EXCEPTION_SCOPE_VAR: &str = "__rappel_exception__";
@@ -175,6 +176,7 @@ pub enum DAGNode {
     Return(ReturnNode),
     Break(BreakNode),
     Continue(ContinueNode),
+    Sleep(SleepNode),
     Expression(ExpressionNode),
 }
 
@@ -199,6 +201,7 @@ macro_rules! for_each_dag_node_variant {
         $macro!(Return, as_return, ReturnNode, "return");
         $macro!(Break, as_break, BreakNode, "break");
         $macro!(Continue, as_continue, ContinueNode, "continue");
+        $macro!(Sleep, as_sleep, SleepNode, "sleep");
         $macro!(Expression, as_expression, ExpressionNode, "expression");
     };
 }
@@ -254,6 +257,7 @@ impl DAGNode {
             DAGNode::Return(node) => node,
             DAGNode::Break(node) => node,
             DAGNode::Continue(node) => node,
+            DAGNode::Sleep(node) => node,
             DAGNode::Expression(node) => node,
         }
     }
@@ -284,6 +288,7 @@ impl DAGNode {
             DAGNode::Return(_) => "return",
             DAGNode::Break(_) => "break",
             DAGNode::Continue(_) => "continue",
+            DAGNode::Sleep(_) => "sleep",
             DAGNode::Expression(_) => "expression",
         }
     }

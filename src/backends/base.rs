@@ -2,13 +2,14 @@
 
 use std::collections::{HashMap, HashSet};
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use tonic::async_trait;
 use uuid::Uuid;
 
 use crate::rappel_core::dag::DAG;
-use crate::rappel_core::runner::state::{ExecutionEdge, ExecutionNode, RunnerState};
+use crate::rappel_core::runner::state::{ExecutionEdge, ExecutionNode, NodeStatus, RunnerState};
 use crate::scheduler::{CreateScheduleParams, ScheduleId, WorkflowSchedule};
 use crate::webapp::{
     ExecutionGraphView, InstanceDetail, InstanceSummary, ScheduleDetail, ScheduleSummary,
@@ -60,6 +61,29 @@ pub struct QueuedInstance {
     pub action_results: HashMap<Uuid, Value>,
     #[serde(default = "default_instance_id")]
     pub instance_id: Uuid,
+    #[serde(default)]
+    pub scheduled_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Clone, Debug)]
+/// Result payload for queued instance polling.
+pub struct QueuedInstanceBatch {
+    pub instances: Vec<QueuedInstance>,
+}
+
+#[derive(Clone, Debug)]
+/// Lock claim settings for owned instances.
+pub struct LockClaim {
+    pub lock_uuid: Uuid,
+    pub lock_expires_at: DateTime<Utc>,
+}
+
+#[derive(Clone, Debug)]
+/// Current lock status for an instance.
+pub struct InstanceLockStatus {
+    pub instance_id: Uuid,
+    pub lock_uuid: Option<Uuid>,
+    pub lock_expires_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -89,6 +113,22 @@ impl GraphUpdate {
             nodes: state.nodes.clone(),
             edges: state.edges.clone(),
         }
+    }
+
+    pub fn next_scheduled_at(&self) -> DateTime<Utc> {
+        let mut next: Option<DateTime<Utc>> = None;
+        for node in self.nodes.values() {
+            if matches!(node.status, NodeStatus::Completed | NodeStatus::Failed) {
+                continue;
+            }
+            if let Some(scheduled_at) = node.scheduled_at {
+                next = Some(match next {
+                    Some(existing) => existing.min(scheduled_at),
+                    None => scheduled_at,
+                });
+            }
+        }
+        next.unwrap_or_else(Utc::now)
     }
 }
 
@@ -133,13 +173,35 @@ pub trait CoreBackend: Send + Sync {
     fn clone_box(&self) -> Box<dyn CoreBackend>;
 
     /// Persist updated execution graphs.
-    async fn save_graphs(&self, graphs: &[GraphUpdate]) -> BackendResult<()>;
+    async fn save_graphs(
+        &self,
+        lock_uuid: Uuid,
+        graphs: &[GraphUpdate],
+    ) -> BackendResult<Vec<InstanceLockStatus>>;
 
     /// Persist completed action executions.
     async fn save_actions_done(&self, actions: &[ActionDone]) -> BackendResult<()>;
 
     /// Return up to size queued instances without blocking.
-    async fn get_queued_instances(&self, size: usize) -> BackendResult<Vec<QueuedInstance>>;
+    async fn get_queued_instances(
+        &self,
+        size: usize,
+        claim: LockClaim,
+    ) -> BackendResult<QueuedInstanceBatch>;
+
+    /// Refresh lock expiry for owned instances.
+    async fn refresh_instance_locks(
+        &self,
+        claim: LockClaim,
+        instance_ids: &[Uuid],
+    ) -> BackendResult<Vec<InstanceLockStatus>>;
+
+    /// Release instance locks when evicting from memory.
+    async fn release_instance_locks(
+        &self,
+        lock_uuid: Uuid,
+        instance_ids: &[Uuid],
+    ) -> BackendResult<()>;
 
     /// Persist completed workflow instances.
     async fn save_instances_done(&self, instances: &[InstanceDone]) -> BackendResult<()>;

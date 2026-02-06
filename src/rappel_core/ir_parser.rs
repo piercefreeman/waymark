@@ -1019,6 +1019,21 @@ impl IRParser {
             }));
         }
 
+        if line == "sleep" || line.starts_with("sleep ") {
+            self.index += 1;
+            let duration = line.strip_prefix("sleep ").map(str::trim);
+            let duration_expr = match duration {
+                Some(value) if !value.is_empty() => Some(self.parse_expr(value)?),
+                _ => None,
+            };
+            return Ok(Some(ir::Statement {
+                kind: Some(ir::statement::Kind::SleepStmt(ir::SleepStmt {
+                    duration: duration_expr,
+                })),
+                span: None,
+            }));
+        }
+
         if line.starts_with("for ") {
             return self.parse_for_loop(indent_level).map(Some);
         }

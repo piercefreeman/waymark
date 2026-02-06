@@ -6,6 +6,7 @@ use crate::messages::ast as ir;
 
 use super::super::nodes::{
     ActionCallNode, ActionCallParams, AssignmentNode, ExpressionNode, FnCallNode, FnCallParams,
+    SleepNode,
 };
 use super::converter::DAGConverter;
 
@@ -330,6 +331,23 @@ impl DAGConverter {
             }
             None => Vec::new(),
         }
+    }
+
+    /// Convert a sleep statement into a SleepNode.
+    pub fn convert_sleep(&mut self, sleep_stmt: &ir::SleepStmt) -> Vec<String> {
+        let node_id = self.next_id("sleep");
+        let label_hint = sleep_stmt.duration.as_ref().map(|expr| {
+            let expr_str = self.expr_to_string(expr);
+            format!("sleep {expr_str}")
+        });
+        let node = SleepNode::new(
+            node_id.clone(),
+            sleep_stmt.duration.clone(),
+            label_hint,
+            self.current_function.clone(),
+        );
+        self.dag.add_node(node.into());
+        vec![node_id]
     }
 }
 

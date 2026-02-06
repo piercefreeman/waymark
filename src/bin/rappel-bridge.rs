@@ -17,6 +17,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use chrono::{DateTime, Utc};
 use futures::{Stream, future::BoxFuture};
 use prost::Message;
 use serde_json::Value;
@@ -30,13 +31,13 @@ use uuid::Uuid;
 
 use rappel::backends::{
     ActionDone, BackendError, BackendResult, CoreBackend, GraphUpdate, InstanceDone,
-    PostgresBackend, QueuedInstance, SchedulerBackend, WorkflowRegistration,
-    WorkflowRegistryBackend,
+    InstanceLockStatus, LockClaim, PostgresBackend, QueuedInstance, QueuedInstanceBatch,
+    SchedulerBackend, WorkflowRegistration, WorkflowRegistryBackend,
 };
 use rappel::db;
 use rappel::messages::{self, ast as ir, proto};
 use rappel::rappel_core::dag::convert_to_dag;
-use rappel::rappel_core::runloop::RunLoop;
+use rappel::rappel_core::runloop::{RunLoop, RunLoopSupervisorConfig};
 use rappel::rappel_core::runner::RunnerState;
 use rappel::scheduler::{CreateScheduleParams, ScheduleId, ScheduleStatus, ScheduleType};
 use rappel::workers::{ActionCompletion, ActionRequest, BaseWorkerPool, WorkerPoolError};
@@ -131,7 +132,10 @@ impl WorkflowStore {
 struct InMemoryBackend {
     queue: Arc<Mutex<VecDeque<QueuedInstance>>>,
     instances_done: Arc<Mutex<HashMap<Uuid, InstanceDone>>>,
+    instance_locks: Arc<Mutex<InstanceLockStore>>,
 }
+
+type InstanceLockStore = HashMap<Uuid, (Option<Uuid>, Option<DateTime<Utc>>)>;
 
 impl InMemoryBackend {
     fn new(
@@ -141,6 +145,7 @@ impl InMemoryBackend {
         Self {
             queue,
             instances_done,
+            instance_locks: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -151,31 +156,75 @@ impl CoreBackend for InMemoryBackend {
         Box::new(self.clone())
     }
 
-    async fn save_graphs(&self, _graphs: &[GraphUpdate]) -> BackendResult<()> {
-        Ok(())
+    async fn save_graphs(
+        &self,
+        _lock_uuid: Uuid,
+        graphs: &[GraphUpdate],
+    ) -> BackendResult<Vec<InstanceLockStatus>> {
+        let guard = self
+            .instance_locks
+            .lock()
+            .map_err(|_| BackendError::Message("in-memory locks poisoned".to_string()))?;
+        let mut locks = Vec::with_capacity(graphs.len());
+        for graph in graphs {
+            let (lock_uuid, lock_expires_at) = guard
+                .get(&graph.instance_id)
+                .cloned()
+                .unwrap_or((None, None));
+            locks.push(InstanceLockStatus {
+                instance_id: graph.instance_id,
+                lock_uuid,
+                lock_expires_at,
+            });
+        }
+        Ok(locks)
     }
 
     async fn save_actions_done(&self, _actions: &[ActionDone]) -> BackendResult<()> {
         Ok(())
     }
 
-    async fn get_queued_instances(&self, size: usize) -> BackendResult<Vec<QueuedInstance>> {
+    async fn get_queued_instances(
+        &self,
+        size: usize,
+        claim: LockClaim,
+    ) -> BackendResult<QueuedInstanceBatch> {
         if size == 0 {
-            return Ok(Vec::new());
+            return Ok(QueuedInstanceBatch {
+                instances: Vec::new(),
+            });
         }
         let mut guard = self
             .queue
             .lock()
             .map_err(|_| BackendError::Message("in-memory queue lock poisoned".to_string()))?;
+        let now = Utc::now();
         let mut instances = Vec::new();
-        for _ in 0..size {
-            if let Some(instance) = guard.pop_front() {
-                instances.push(instance);
-            } else {
+        while instances.len() < size {
+            let Some(instance) = guard.front() else {
+                break;
+            };
+            if let Some(scheduled_at) = instance.scheduled_at
+                && scheduled_at > now
+            {
                 break;
             }
+            let instance = guard.pop_front().expect("in-memory queue reported empty");
+            instances.push(instance);
         }
-        Ok(instances)
+        if !instances.is_empty() {
+            let mut locks = self
+                .instance_locks
+                .lock()
+                .map_err(|_| BackendError::Message("in-memory locks poisoned".to_string()))?;
+            for instance in &instances {
+                locks.insert(
+                    instance.instance_id,
+                    (Some(claim.lock_uuid), Some(claim.lock_expires_at)),
+                );
+            }
+        }
+        Ok(QueuedInstanceBatch { instances })
     }
 
     async fn save_instances_done(&self, instances: &[InstanceDone]) -> BackendResult<()> {
@@ -185,6 +234,15 @@ impl CoreBackend for InMemoryBackend {
             .map_err(|_| BackendError::Message("in-memory results lock poisoned".to_string()))?;
         for instance in instances {
             guard.insert(instance.executor_id, instance.clone());
+        }
+        if !instances.is_empty() {
+            let mut locks = self
+                .instance_locks
+                .lock()
+                .map_err(|_| BackendError::Message("in-memory locks poisoned".to_string()))?;
+            for instance in instances {
+                locks.remove(&instance.executor_id);
+            }
         }
         Ok(())
     }
@@ -196,6 +254,51 @@ impl CoreBackend for InMemoryBackend {
             .map_err(|_| BackendError::Message("in-memory queue lock poisoned".to_string()))?;
         for instance in instances {
             guard.push_back(instance.clone());
+        }
+        Ok(())
+    }
+
+    async fn refresh_instance_locks(
+        &self,
+        claim: LockClaim,
+        instance_ids: &[Uuid],
+    ) -> BackendResult<Vec<InstanceLockStatus>> {
+        let mut guard = self
+            .instance_locks
+            .lock()
+            .map_err(|_| BackendError::Message("in-memory locks poisoned".to_string()))?;
+        let mut locks = Vec::new();
+        for instance_id in instance_ids {
+            let entry = guard
+                .entry(*instance_id)
+                .or_insert((Some(claim.lock_uuid), Some(claim.lock_expires_at)));
+            if entry.0 == Some(claim.lock_uuid) {
+                entry.1 = Some(claim.lock_expires_at);
+            }
+            locks.push(InstanceLockStatus {
+                instance_id: *instance_id,
+                lock_uuid: entry.0,
+                lock_expires_at: entry.1,
+            });
+        }
+        Ok(locks)
+    }
+
+    async fn release_instance_locks(
+        &self,
+        lock_uuid: Uuid,
+        instance_ids: &[Uuid],
+    ) -> BackendResult<()> {
+        let mut guard = self
+            .instance_locks
+            .lock()
+            .map_err(|_| BackendError::Message("in-memory locks poisoned".to_string()))?;
+        for instance_id in instance_ids {
+            if let Some((current_lock, _)) = guard.get(instance_id)
+                && *current_lock == Some(lock_uuid)
+            {
+                guard.remove(instance_id);
+            }
         }
         Ok(())
     }
@@ -497,11 +600,17 @@ impl proto::workflow_service_server::WorkflowService for BridgeService {
                 let mut runloop = RunLoop::new(
                     worker_pool,
                     backend,
-                    25,
-                    None,
-                    Duration::from_secs_f64(0.0),
-                    Duration::from_secs_f64(0.1),
-                    1,
+                    RunLoopSupervisorConfig {
+                        max_concurrent_instances: 25,
+                        executor_shards: 1,
+                        instance_done_batch_size: None,
+                        poll_interval: Duration::from_secs_f64(0.0),
+                        persistence_interval: Duration::from_secs_f64(0.1),
+                        lock_uuid: Uuid::new_v4(),
+                        lock_ttl: Duration::from_secs(15),
+                        lock_heartbeat: Duration::from_secs(5),
+                        evict_sleep_threshold: Duration::from_secs(10),
+                    },
                 );
                 let run_result = runloop.run().await;
 
@@ -957,6 +1066,7 @@ fn build_queued_instance(
         state: Some(state),
         action_results: HashMap::new(),
         instance_id,
+        scheduled_at: None,
     })
 }
 

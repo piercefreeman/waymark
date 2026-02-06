@@ -416,6 +416,12 @@ fn assert_node_eq(actual: &DAGNode, expected: &DAGNode) {
             assert_eq!(a.id, e.id);
             assert_eq!(a.function_name, e.function_name);
         }
+        (DAGNode::Sleep(a), DAGNode::Sleep(e)) => {
+            assert_eq!(a.id, e.id);
+            assert_eq!(a.function_name, e.function_name);
+            assert_eq!(a.duration_expr, e.duration_expr);
+            assert_eq!(a.label_hint, e.label_hint);
+        }
         (DAGNode::Expression(a), DAGNode::Expression(e)) => {
             assert_eq!(a.id, e.id);
             assert_eq!(a.function_name, e.function_name);

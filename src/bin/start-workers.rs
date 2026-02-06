@@ -14,10 +14,13 @@
 //! - RAPPEL_WORKER_COUNT: Number of workers (default: num_cpus)
 //! - RAPPEL_CONCURRENT_PER_WORKER: Max concurrent actions per worker (default: 10)
 //! - RAPPEL_POLL_INTERVAL_MS: Poll interval for queued instances (default: 100)
-//! - RAPPEL_MAX_CONCURRENT_INSTANCES: Max workflow instances held concurrently (default: 50)
+//! - RAPPEL_MAX_CONCURRENT_INSTANCES: Max workflow instances held concurrently (default: 500)
 //! - RAPPEL_EXECUTOR_SHARDS: Executor shard thread count (default: num_cpus)
 //! - RAPPEL_INSTANCE_DONE_BATCH_SIZE: Instance completion flush batch size (default: claim size)
 //! - RAPPEL_PERSIST_INTERVAL_MS: Result persistence tick (default: 500)
+//! - RAPPEL_LOCK_TTL_MS: Instance lock TTL (default: 15000)
+//! - RAPPEL_LOCK_HEARTBEAT_MS: Lock refresh heartbeat interval (default: 5000)
+//! - RAPPEL_EVICT_SLEEP_THRESHOLD_MS: Sleep duration before evicting idle instances (default: 10000)
 //! - RAPPEL_MAX_ACTION_LIFECYCLE: Max actions per worker before recycling
 //! - RAPPEL_SCHEDULER_POLL_INTERVAL_MS: Scheduler poll interval (default: 1000)
 //! - RAPPEL_SCHEDULER_BATCH_SIZE: Scheduler batch size (default: 100)
@@ -65,6 +68,9 @@ async fn main() -> Result<()> {
         concurrent_per_worker = config.concurrent_per_worker,
         user_modules = ?config.user_modules,
         executor_shards = config.executor_shards,
+        lock_ttl_ms = config.lock_ttl.as_millis(),
+        lock_heartbeat_ms = config.lock_heartbeat.as_millis(),
+        evict_sleep_threshold_ms = config.evict_sleep_threshold.as_millis(),
         max_action_lifecycle = ?config.max_action_lifecycle,
         "starting worker infrastructure"
     );
@@ -136,6 +142,7 @@ async fn main() -> Result<()> {
     });
 
     // Run the runloop supervisor until shutdown.
+    let lock_uuid = Uuid::new_v4();
     runloop_supervisor(
         backend.clone(),
         remote_pool.clone(),
@@ -145,6 +152,10 @@ async fn main() -> Result<()> {
             instance_done_batch_size: config.instance_done_batch_size,
             poll_interval: config.poll_interval,
             persistence_interval: config.persistence_interval,
+            lock_uuid,
+            lock_ttl: config.lock_ttl,
+            lock_heartbeat: config.lock_heartbeat,
+            evict_sleep_threshold: config.evict_sleep_threshold,
         },
         shutdown_rx,
     )

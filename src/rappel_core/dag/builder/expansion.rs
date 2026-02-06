@@ -431,6 +431,7 @@ impl DAGConverter {
             DAGNode::Return(node) => node.id = new_id.to_string(),
             DAGNode::Break(node) => node.id = new_id.to_string(),
             DAGNode::Continue(node) => node.id = new_id.to_string(),
+            DAGNode::Sleep(node) => node.id = new_id.to_string(),
             DAGNode::Expression(node) => node.id = new_id.to_string(),
         }
     }
@@ -449,6 +450,7 @@ impl DAGConverter {
             DAGNode::Return(node) => node.node_uuid = Uuid::new_v4(),
             DAGNode::Break(node) => node.node_uuid = Uuid::new_v4(),
             DAGNode::Continue(node) => node.node_uuid = Uuid::new_v4(),
+            DAGNode::Sleep(node) => node.node_uuid = Uuid::new_v4(),
             DAGNode::Expression(node) => node.node_uuid = Uuid::new_v4(),
         }
     }

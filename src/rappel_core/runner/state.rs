@@ -3,13 +3,14 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::messages::ast as ir;
 use crate::rappel_core::dag::{
     ActionCallNode, AggregatorNode, AssignmentNode, DAG, DAGNode, EdgeType, FnCallNode, JoinNode,
-    ReturnNode,
+    ReturnNode, SleepNode,
 };
 use crate::rappel_core::runner::expression_evaluator::is_truthy;
 use crate::rappel_core::runner::value_visitor::{
@@ -138,6 +139,7 @@ pub enum ExecutionNodeType {
     Return,
     Break,
     Continue,
+    Sleep,
     Expression,
 }
 
@@ -156,6 +158,7 @@ impl ExecutionNodeType {
             ExecutionNodeType::Return => "return",
             ExecutionNodeType::Break => "break",
             ExecutionNodeType::Continue => "continue",
+            ExecutionNodeType::Sleep => "sleep",
             ExecutionNodeType::Expression => "expression",
         }
     }
@@ -178,6 +181,7 @@ impl TryFrom<&str> for ExecutionNodeType {
             "return" => Ok(ExecutionNodeType::Return),
             "break" => Ok(ExecutionNodeType::Break),
             "continue" => Ok(ExecutionNodeType::Continue),
+            "sleep" => Ok(ExecutionNodeType::Sleep),
             "expression" => Ok(ExecutionNodeType::Expression),
             _ => Err(RunnerStateError(format!(
                 "unknown execution node type: {value}"
@@ -198,6 +202,8 @@ pub struct ExecutionNode {
     pub value_expr: Option<ValueExpr>,
     pub assignments: HashMap<String, ValueExpr>,
     pub action_attempt: i32,
+    #[serde(default)]
+    pub scheduled_at: Option<DateTime<Utc>>,
 }
 
 impl ExecutionNode {
@@ -211,6 +217,13 @@ impl ExecutionNode {
             Ok(ExecutionNodeType::ActionCall)
         )
     }
+
+    pub fn is_sleep(&self) -> bool {
+        matches!(
+            ExecutionNodeType::try_from(self.node_type.as_str()),
+            Ok(ExecutionNodeType::Sleep)
+        )
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -220,6 +233,7 @@ pub struct QueueNodeParams {
     pub targets: Option<Vec<String>>,
     pub action: Option<ActionCallSpec>,
     pub value_expr: Option<ValueExpr>,
+    pub scheduled_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -367,6 +381,7 @@ impl RunnerState {
             } else {
                 0
             },
+            scheduled_at: None,
         };
 
         self.register_node(node.clone())?;
@@ -394,6 +409,7 @@ impl RunnerState {
             targets,
             action,
             value_expr,
+            scheduled_at,
         } = params;
         let node_id = node_id.unwrap_or_else(Uuid::new_v4);
         let action_attempt = if matches!(node_type_enum, ExecutionNodeType::ActionCall) {
@@ -412,6 +428,7 @@ impl RunnerState {
             value_expr,
             assignments: HashMap::new(),
             action_attempt,
+            scheduled_at,
         };
         self.register_node(node.clone())?;
         Ok(node)
@@ -468,6 +485,7 @@ impl RunnerState {
     pub fn mark_completed(&mut self, node_id: Uuid) -> Result<(), RunnerStateError> {
         let node = self.get_node_mut(node_id)?;
         node.status = NodeStatus::Completed;
+        node.scheduled_at = None;
         self.ready_queue.retain(|id| id != &node_id);
         Ok(())
     }
@@ -475,7 +493,19 @@ impl RunnerState {
     pub fn mark_failed(&mut self, node_id: Uuid) -> Result<(), RunnerStateError> {
         let node = self.get_node_mut(node_id)?;
         node.status = NodeStatus::Failed;
+        node.scheduled_at = None;
         self.ready_queue.retain(|id| id != &node_id);
+        Ok(())
+    }
+
+    pub fn set_node_scheduled_at(
+        &mut self,
+        node_id: Uuid,
+        scheduled_at: Option<DateTime<Utc>>,
+    ) -> Result<(), RunnerStateError> {
+        let node = self.get_node_mut(node_id)?;
+        node.scheduled_at = scheduled_at;
+        self.mark_graph_dirty();
         Ok(())
     }
 
@@ -771,6 +801,17 @@ impl RunnerState {
                 if let Some(node_mut) = self.nodes.get_mut(&exec_node.node_id) {
                     node_mut.value_expr = Some(ValueExpr::ActionResult(result));
                 }
+                return Ok(());
+            }
+            DAGNode::Sleep(SleepNode {
+                duration_expr: Some(expr),
+                ..
+            }) => {
+                let value_expr = self.expr_to_value(expr, None)?;
+                if let Some(node_mut) = self.nodes.get_mut(&exec_node.node_id) {
+                    node_mut.value_expr = Some(value_expr.clone());
+                }
+                self.record_data_flow_from_value(exec_node.node_id, &value_expr);
                 return Ok(());
             }
             DAGNode::FnCall(FnCallNode {

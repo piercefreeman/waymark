@@ -170,6 +170,7 @@ where
             state: Some(state),
             action_results: HashMap::new(),
             instance_id,
+            scheduled_at: None,
         };
 
         // Queue the instance

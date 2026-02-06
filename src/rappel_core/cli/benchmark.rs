@@ -19,12 +19,12 @@ use crate::rappel_core::cli::smoke::{
     build_try_except_program, build_while_loop_program, literal_from_value,
 };
 use crate::rappel_core::dag::{DAG, convert_to_dag};
-use crate::rappel_core::runloop::RunLoop;
+use crate::rappel_core::runloop::{RunLoop, RunLoopSupervisorConfig};
 use crate::rappel_core::runner::RunnerState;
 use crate::workers::{ActionCallable, InlineWorkerPool, WorkerPoolError};
 
 const DEFAULT_DSN: &str = "postgresql://rappel:rappel@localhost:5432/rappel_core";
-const DEFAULT_MAX_CONCURRENT_INSTANCES: usize = 25;
+const DEFAULT_MAX_CONCURRENT_INSTANCES: usize = 500;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -149,6 +149,7 @@ fn build_instance(case: &BenchmarkCase) -> QueuedInstance {
         state: Some(state),
         action_results: HashMap::new(),
         instance_id: Uuid::new_v4(),
+        scheduled_at: None,
     }
 }
 
@@ -284,11 +285,17 @@ async fn run_benchmark(
     let mut runloop = RunLoop::new(
         worker_pool,
         backend.clone(),
-        max_concurrent_instances,
-        None,
-        Duration::from_secs_f64(0.05),
-        Duration::from_secs_f64(0.1),
-        executor_shards,
+        RunLoopSupervisorConfig {
+            max_concurrent_instances,
+            executor_shards,
+            instance_done_batch_size: None,
+            poll_interval: Duration::from_secs_f64(0.05),
+            persistence_interval: Duration::from_secs_f64(0.1),
+            lock_uuid: Uuid::new_v4(),
+            lock_ttl: Duration::from_secs(15),
+            lock_heartbeat: Duration::from_secs(5),
+            evict_sleep_threshold: Duration::from_secs(10),
+        },
     );
     let start = Instant::now();
     runloop.run().await.expect("runloop");
