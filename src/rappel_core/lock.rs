@@ -9,7 +9,7 @@ use chrono::{Duration as ChronoDuration, Utc};
 use tokio::sync::Notify;
 use uuid::Uuid;
 
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 use crate::backends::{CoreBackend, LockClaim};
 
@@ -72,10 +72,12 @@ pub fn spawn_lock_heartbeat(
     tokio::spawn(async move {
         loop {
             if stop.load(Ordering::SeqCst) {
+                info!("lock heartbeat stop flag set");
                 break;
             }
             tokio::select! {
                 _ = stop_notify.notified() => {
+                    info!("lock heartbeat stop notified");
                     break;
                 }
                 _ = tokio::time::sleep(heartbeat_interval) => {}
@@ -101,5 +103,6 @@ pub fn spawn_lock_heartbeat(
                 warn!(error = %err, "failed to refresh instance locks");
             }
         }
+        info!("lock heartbeat exiting");
     })
 }

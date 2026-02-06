@@ -155,6 +155,54 @@ impl PostgresBackend {
         Ok(())
     }
 
+    /// Clear expired queue locks so they can be claimed again by the runloop.
+    ///
+    /// This uses the same `FOR UPDATE SKIP LOCKED` claim pattern as dequeue to
+    /// avoid blocking under concurrent sweepers.
+    #[obs]
+    pub async fn reclaim_expired_instance_locks(&self, size: usize) -> BackendResult<usize> {
+        if size == 0 {
+            return Ok(0);
+        }
+
+        let now = Utc::now();
+        let mut tx = self.pool.begin().await?;
+        Self::count_query(&self.query_counts, "update:queued_instances_expired_unlock");
+        let rows = sqlx::query(
+            r#"
+            WITH expired AS (
+                SELECT instance_id
+                FROM queued_instances
+                WHERE lock_uuid IS NOT NULL
+                  AND lock_expires_at <= $1
+                ORDER BY lock_expires_at, scheduled_at, created_at
+                LIMIT $2
+                FOR UPDATE SKIP LOCKED
+            )
+            UPDATE queued_instances AS qi
+            SET lock_uuid = NULL, lock_expires_at = NULL
+            FROM expired
+            WHERE qi.instance_id = expired.instance_id
+            RETURNING qi.instance_id
+            "#,
+        )
+        .bind(now)
+        .bind(size as i64)
+        .fetch_all(&mut *tx)
+        .await?;
+        tx.commit().await?;
+
+        if !rows.is_empty() {
+            Self::count_batch_size(
+                &self.batch_size_counts,
+                "update:queued_instances_expired_unlock",
+                rows.len(),
+            );
+        }
+
+        Ok(rows.len())
+    }
+
     #[obs]
     async fn save_graphs_impl(
         &self,
@@ -793,6 +841,80 @@ mod tests {
         let lock_expires_at: Option<chrono::DateTime<Utc>> = row.get("lock_expires_at");
         assert!(lock_uuid.is_none());
         assert!(lock_expires_at.is_none());
+    }
+
+    #[serial(postgres)]
+    #[tokio::test]
+    async fn core_reclaim_expired_instance_locks_happy_path() {
+        let backend = setup_backend().await;
+        let expired_id = Uuid::new_v4();
+        let live_id = Uuid::new_v4();
+        let entry_node = Uuid::new_v4();
+        CoreBackend::queue_instances(
+            &backend,
+            &[
+                sample_queued_instance(expired_id, entry_node),
+                sample_queued_instance(live_id, entry_node),
+            ],
+        )
+        .await
+        .expect("queue instances");
+
+        let claim = sample_lock_claim();
+        let claimed = CoreBackend::get_queued_instances(&backend, 10, claim.clone())
+            .await
+            .expect("claim queued instances");
+        assert_eq!(claimed.instances.len(), 2);
+
+        let expired_at = Utc::now() - Duration::seconds(1);
+        let live_at = Utc::now() + Duration::seconds(60);
+        sqlx::query(
+            r#"
+            UPDATE queued_instances
+            SET lock_expires_at = CASE
+                WHEN instance_id = $1 THEN $3
+                ELSE $4
+            END
+            WHERE instance_id IN ($1, $2)
+            "#,
+        )
+        .bind(expired_id)
+        .bind(live_id)
+        .bind(expired_at)
+        .bind(live_at)
+        .execute(backend.pool())
+        .await
+        .expect("set lock expiries");
+
+        let reclaimed = backend
+            .reclaim_expired_instance_locks(10)
+            .await
+            .expect("reclaim expired locks");
+        assert_eq!(reclaimed, 1);
+
+        let rows = sqlx::query(
+            "SELECT instance_id, lock_uuid, lock_expires_at FROM queued_instances WHERE instance_id IN ($1, $2)",
+        )
+        .bind(expired_id)
+        .bind(live_id)
+        .fetch_all(backend.pool())
+        .await
+        .expect("fetch lock rows");
+        let mut lock_rows: HashMap<Uuid, (Option<Uuid>, Option<chrono::DateTime<Utc>>)> =
+            HashMap::new();
+        for row in rows {
+            let instance_id: Uuid = row.get("instance_id");
+            let lock_uuid: Option<Uuid> = row.get("lock_uuid");
+            let lock_expires_at: Option<chrono::DateTime<Utc>> = row.get("lock_expires_at");
+            lock_rows.insert(instance_id, (lock_uuid, lock_expires_at));
+        }
+
+        let expired_lock = lock_rows.get(&expired_id).expect("expired lock row");
+        assert_eq!(*expired_lock, (None, None));
+
+        let live_lock = lock_rows.get(&live_id).expect("live lock row");
+        assert_eq!(live_lock.0, Some(claim.lock_uuid));
+        assert_eq!(live_lock.1, Some(live_at));
     }
 
     #[serial(postgres)]

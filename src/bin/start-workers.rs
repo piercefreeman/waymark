@@ -21,13 +21,15 @@
 //! - RAPPEL_LOCK_TTL_MS: Instance lock TTL (default: 15000)
 //! - RAPPEL_LOCK_HEARTBEAT_MS: Lock refresh heartbeat interval (default: 5000)
 //! - RAPPEL_EVICT_SLEEP_THRESHOLD_MS: Sleep duration before evicting idle instances (default: 10000)
+//! - RAPPEL_EXPIRED_LOCK_RECLAIMER_INTERVAL_MS: Sweep interval for expired queue locks (default: 1000)
+//! - RAPPEL_EXPIRED_LOCK_RECLAIMER_BATCH_SIZE: Max expired locks to reclaim per sweep (default: 1000)
 //! - RAPPEL_MAX_ACTION_LIFECYCLE: Max actions per worker before recycling
 //! - RAPPEL_SCHEDULER_POLL_INTERVAL_MS: Scheduler poll interval (default: 1000)
 //! - RAPPEL_SCHEDULER_BATCH_SIZE: Scheduler batch size (default: 100)
 //! - RAPPEL_WEBAPP_ENABLED / RAPPEL_WEBAPP_ADDR: Web dashboard configuration
 //! - RAPPEL_RUNNER_PROFILE_INTERVAL_MS: Status reporting interval (default: 5000)
 
-use std::sync::Arc;
+use std::sync::{Arc, atomic::AtomicUsize};
 use std::time::Duration;
 
 use anyhow::Result;
@@ -71,6 +73,8 @@ async fn main() -> Result<()> {
         lock_ttl_ms = config.lock_ttl.as_millis(),
         lock_heartbeat_ms = config.lock_heartbeat.as_millis(),
         evict_sleep_threshold_ms = config.evict_sleep_threshold.as_millis(),
+        expired_lock_reclaimer_interval_ms = config.expired_lock_reclaimer_interval.as_millis(),
+        expired_lock_reclaimer_batch_size = config.expired_lock_reclaimer_batch_size,
         max_action_lifecycle = ?config.max_action_lifecycle,
         "starting worker infrastructure"
     );
@@ -116,6 +120,7 @@ async fn main() -> Result<()> {
 
     // Wire shutdown coordination.
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let active_instance_gauge = Arc::new(AtomicUsize::new(0));
 
     // Start status reporting.
     let pool_id = Uuid::new_v4();
@@ -123,7 +128,14 @@ async fn main() -> Result<()> {
         pool_id,
         backend.clone(),
         remote_pool.clone(),
+        active_instance_gauge.clone(),
         config.profile_interval,
+        shutdown_rx.clone(),
+    );
+    let expired_lock_reclaimer_handle = spawn_expired_lock_reclaimer(
+        backend.clone(),
+        config.expired_lock_reclaimer_interval,
+        config.expired_lock_reclaimer_batch_size,
         shutdown_rx.clone(),
     );
 
@@ -156,6 +168,7 @@ async fn main() -> Result<()> {
             lock_ttl: config.lock_ttl,
             lock_heartbeat: config.lock_heartbeat,
             evict_sleep_threshold: config.evict_sleep_threshold,
+            active_instance_gauge: Some(active_instance_gauge),
         },
         shutdown_rx,
     )
@@ -164,6 +177,7 @@ async fn main() -> Result<()> {
     let _ = shutdown_handle.await;
     let _ = tokio::time::timeout(Duration::from_secs(5), scheduler_handle).await;
     let _ = tokio::time::timeout(Duration::from_secs(2), status_reporter_handle).await;
+    let _ = tokio::time::timeout(Duration::from_secs(2), expired_lock_reclaimer_handle).await;
 
     if let Err(err) = remote_pool.shutdown().await {
         warn!(error = %err, "worker pool shutdown failed");
@@ -208,6 +222,55 @@ fn build_dag_resolver(pool: sqlx::PgPool) -> DagResolver {
                 })
             })
         })
+    })
+}
+
+fn spawn_expired_lock_reclaimer(
+    backend: PostgresBackend,
+    interval: Duration,
+    batch_size: usize,
+    mut shutdown_rx: watch::Receiver<bool>,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(interval);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        info!(
+            interval_ms = interval.as_millis(),
+            batch_size, "expired lock reclaimer started"
+        );
+        loop {
+            tokio::select! {
+                _ = ticker.tick() => {
+                    let mut reclaimed_total = 0usize;
+                    loop {
+                        match backend.reclaim_expired_instance_locks(batch_size).await {
+                            Ok(reclaimed) => {
+                                reclaimed_total += reclaimed;
+                                if reclaimed < batch_size {
+                                    break;
+                                }
+                            }
+                            Err(err) => {
+                                warn!(error = %err, "failed to reclaim expired instance locks");
+                                break;
+                            }
+                        }
+                    }
+                    if reclaimed_total > 0 {
+                        warn!(
+                            reclaimed_total,
+                            "reclaimed expired instance locks"
+                        );
+                    }
+                }
+                _ = shutdown_rx.changed() => {
+                    if *shutdown_rx.borrow() {
+                        info!("expired lock reclaimer shutting down");
+                        break;
+                    }
+                }
+            }
+        }
     })
 }
 

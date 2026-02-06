@@ -13,7 +13,7 @@ use chrono::{DateTime, Utc};
 use prost::Message;
 use serde_json::Value;
 use tokio::sync::{Notify, mpsc, watch};
-use tracing::{debug, error, warn};
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use crate::backends::{
@@ -232,6 +232,16 @@ fn run_executor_shard(
                     "assigning instances to shard"
                 );
                 for instance in instances {
+                    // If the same instance id was reclaimed from the DB, we treat
+                    // the prior in-memory executor as stale (e.g. stalled) and
+                    // replace it with the freshly claimed state.
+                    if executors.remove(&instance.instance_id).is_some() {
+                        warn!(
+                            shard_id,
+                            instance_id = %instance.instance_id,
+                            "replacing active executor state for reclaimed instance"
+                        );
+                    }
                     let state = match instance.state {
                         Some(state) => state,
                         None => {
@@ -373,6 +383,7 @@ pub struct RunLoop {
     lock_ttl: Duration,
     lock_heartbeat: Duration,
     evict_sleep_threshold: Duration,
+    active_instance_gauge: Option<Arc<AtomicUsize>>,
 }
 
 #[derive(Clone, Debug)]
@@ -386,6 +397,7 @@ pub struct RunLoopSupervisorConfig {
     pub lock_ttl: Duration,
     pub lock_heartbeat: Duration,
     pub evict_sleep_threshold: Duration,
+    pub active_instance_gauge: Option<Arc<AtomicUsize>>,
 }
 
 impl RunLoop {
@@ -417,6 +429,7 @@ impl RunLoop {
             lock_ttl: config.lock_ttl,
             lock_heartbeat: config.lock_heartbeat,
             evict_sleep_threshold: config.evict_sleep_threshold,
+            active_instance_gauge: config.active_instance_gauge.clone(),
         }
     }
 
@@ -430,6 +443,9 @@ impl RunLoop {
             self.available_instance_slots(active_instances),
             Ordering::SeqCst,
         );
+        if let Some(gauge) = &self.active_instance_gauge {
+            gauge.store(active_instances, Ordering::SeqCst);
+        }
     }
 
     fn lock_mismatches(&self, locks: &[InstanceLockStatus]) -> HashSet<Uuid> {
@@ -597,6 +613,7 @@ impl RunLoop {
         drop(event_tx);
 
         let available_instance_slots = Arc::new(AtomicUsize::new(self.available_instance_slots(0)));
+        self.store_available_instance_slots(&available_instance_slots, 0);
 
         let (completion_tx, mut completion_rx) = mpsc::channel::<Vec<ActionCompletion>>(32);
         let (instance_tx, mut instance_rx) = mpsc::channel::<InstanceMessage>(16);
@@ -619,21 +636,55 @@ impl RunLoop {
         let completion_handle = tokio::spawn(async move {
             loop {
                 if completion_stop.load(Ordering::SeqCst) {
+                    info!("completion task stop flag set");
                     break;
                 }
+                debug!("completion task awaiting completions");
                 let completions = tokio::select! {
                     _ = completion_notify.notified() => {
+                        info!("completion task stop notified");
                         break;
                     }
-                    completions = worker_pool.get_complete() => completions,
+                    completions = worker_pool.get_complete() => {
+                        debug!(count = completions.len(), "completion task received completions");
+                        completions
+                    },
                 };
                 if completions.is_empty() {
                     continue;
                 }
-                if completion_tx.send(completions).await.is_err() {
+                debug!(
+                    count = completions.len(),
+                    "completion task sending completions"
+                );
+                let send_fut = completion_tx.send(completions);
+                tokio::pin!(send_fut);
+                let mut warned = false;
+                let mut stop_during_send = false;
+                let send_result = loop {
+                    tokio::select! {
+                        res = &mut send_fut => break Some(res),
+                        _ = completion_notify.notified() => {
+                            info!("completion task stop notified during send");
+                            stop_during_send = true;
+                            break None;
+                        }
+                        _ = tokio::time::sleep(Duration::from_secs(2)), if !warned => {
+                            warn!("completion task send pending >2s");
+                            warned = true;
+                        }
+                    }
+                };
+                if stop_during_send {
                     break;
                 }
+                if send_result.is_none() || send_result.unwrap().is_err() {
+                    warn!("completion task receiver dropped");
+                    break;
+                }
+                debug!("completion task sent completions");
             }
+            info!("completion task exiting");
             completion_notify.notify_waiters();
         });
 
@@ -648,6 +699,7 @@ impl RunLoop {
         let instance_handle = tokio::spawn(async move {
             loop {
                 if instance_stop.load(Ordering::SeqCst) {
+                    info!("instance poller stop flag set");
                     break;
                 }
                 let available_slots = instance_available_slots.load(Ordering::SeqCst);
@@ -681,6 +733,7 @@ impl RunLoop {
                     Err(err) => InstanceMessage::Error(err),
                 };
                 if instance_tx.send(message).await.is_err() {
+                    warn!("instance poller receiver dropped");
                     break;
                 }
                 if poll_interval > Duration::ZERO {
@@ -689,6 +742,7 @@ impl RunLoop {
                     tokio::time::sleep(Duration::from_millis(0)).await;
                 }
             }
+            info!("instance poller exiting");
             instance_notify.notify_waiters();
         });
 
@@ -711,6 +765,11 @@ impl RunLoop {
 
         loop {
             if instances_idle && executor_shards.is_empty() && sleeping_nodes.is_empty() {
+                info!(
+                    inflight = inflight_actions.len(),
+                    blocked = blocked_until_by_instance.len(),
+                    "runloop idle with no active executors; exiting loop"
+                );
                 break;
             }
 
@@ -733,7 +792,10 @@ impl RunLoop {
                     }
                     None
                 }
-                else => break,
+                else => {
+                    info!("runloop event channels closed");
+                    break;
+                },
             };
 
             let first_event = match first_event {
@@ -894,13 +956,37 @@ impl RunLoop {
                 debug!(count = all_instances.len(), "hydrated queued instances");
                 let mut by_shard: HashMap<usize, Vec<QueuedInstance>> = HashMap::new();
                 let mut claimed_instance_ids = Vec::with_capacity(all_instances.len());
+                let mut replaced_instance_ids = Vec::new();
                 for instance in all_instances {
-                    let shard_idx = next_shard % self.shard_count;
-                    next_shard = next_shard.wrapping_add(1);
-                    executor_shards.insert(instance.instance_id, shard_idx);
-                    inflight_actions.entry(instance.instance_id).or_insert(0);
+                    let shard_idx = if let Some(existing_shard_idx) =
+                        executor_shards.get(&instance.instance_id).copied()
+                    {
+                        // If an already-active instance reappears from the queue, treat
+                        // the prior in-memory executor as stale and replace it.
+                        replaced_instance_ids.push(instance.instance_id);
+                        inflight_actions.insert(instance.instance_id, 0);
+                        if let Some(nodes) = sleeping_by_instance.remove(&instance.instance_id) {
+                            for node_id in nodes {
+                                sleeping_nodes.remove(&node_id);
+                            }
+                        }
+                        blocked_until_by_instance.remove(&instance.instance_id);
+                        existing_shard_idx
+                    } else {
+                        let shard_idx = next_shard % self.shard_count;
+                        next_shard = next_shard.wrapping_add(1);
+                        executor_shards.insert(instance.instance_id, shard_idx);
+                        inflight_actions.insert(instance.instance_id, 0);
+                        shard_idx
+                    };
                     claimed_instance_ids.push(instance.instance_id);
                     by_shard.entry(shard_idx).or_default().push(instance);
+                }
+                if !replaced_instance_ids.is_empty() {
+                    warn!(
+                        replaced = replaced_instance_ids.len(),
+                        "replacing active executors for reclaimed queued instances"
+                    );
                 }
                 let claimed_count = claimed_instance_ids.len();
                 lock_tracker.insert_all(claimed_instance_ids);
@@ -1069,6 +1155,17 @@ impl RunLoop {
             }
         }
 
+        info!(
+            instances_idle,
+            executors = executor_shards.len(),
+            sleeping = sleeping_nodes.len(),
+            inflight = inflight_actions.len(),
+            blocked = blocked_until_by_instance.len(),
+            "runloop stopping"
+        );
+        if let Err(err) = &run_result {
+            error!(error = %err, "runloop stopping due to error");
+        }
         stop.store(true, Ordering::SeqCst);
         stop_notify.notify_waiters();
         let _ = completion_handle.await;
@@ -1087,6 +1184,10 @@ impl RunLoop {
             if let Err(err) = handle.join() {
                 error!(?err, "executor shard thread panicked");
             }
+        }
+
+        if let Some(gauge) = &self.active_instance_gauge {
+            gauge.store(0, Ordering::SeqCst);
         }
 
         run_result
@@ -1113,6 +1214,13 @@ pub async fn runloop_supervisor<B, W>(
             break;
         }
 
+        info!(
+            max_concurrent_instances = config.max_concurrent_instances,
+            executor_shards = config.executor_shards,
+            poll_interval_ms = config.poll_interval.as_millis(),
+            lock_uuid = %config.lock_uuid,
+            "runloop starting"
+        );
         let mut runloop = RunLoop::new(worker_pool.clone(), backend.clone(), config.clone());
 
         let result = runloop.run().await;
@@ -1123,6 +1231,7 @@ pub async fn runloop_supervisor<B, W>(
 
         match result {
             Ok(_) => {
+                info!("runloop exited cleanly");
                 backoff = Duration::from_millis(200);
                 if poll_interval > Duration::ZERO {
                     tokio::time::sleep(poll_interval).await;
@@ -1315,6 +1424,7 @@ fn main(input: [x], output: [y]):
                 lock_ttl: Duration::from_secs(15),
                 lock_heartbeat: Duration::from_secs(5),
                 evict_sleep_threshold: Duration::from_secs(10),
+                active_instance_gauge: None,
             },
         );
         queue.lock().expect("queue lock").push_back(QueuedInstance {

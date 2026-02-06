@@ -76,6 +76,7 @@ use crate::{
 };
 
 const LATENCY_SAMPLE_SIZE: usize = 256;
+const THROUGHPUT_WINDOW_SECS: u64 = 1;
 
 /// Configuration for spawning Python workers.
 #[derive(Clone, Debug)]
@@ -710,7 +711,7 @@ impl PythonWorkerPool {
             cursor: AtomicUsize::new(0),
             metrics: StdMutex::new(WorkerPoolMetrics::new(
                 worker_ids,
-                Duration::from_secs(60),
+                Duration::from_secs(THROUGHPUT_WINDOW_SECS),
                 LATENCY_SAMPLE_SIZE,
             )),
             action_counts,

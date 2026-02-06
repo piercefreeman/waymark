@@ -19,6 +19,8 @@ const DEFAULT_PROFILE_INTERVAL_MS: u64 = 5000;
 const DEFAULT_EVICT_SLEEP_THRESHOLD_MS: u64 = 10_000;
 const DEFAULT_LOCK_HEARTBEAT_MS: u64 = 5_000;
 const DEFAULT_LOCK_TTL_MS: u64 = 15_000;
+const DEFAULT_EXPIRED_LOCK_RECLAIMER_INTERVAL_MS: u64 = 1_000;
+const DEFAULT_EXPIRED_LOCK_RECLAIMER_BATCH_SIZE: usize = 1_000;
 
 #[derive(Debug, Clone)]
 pub struct WorkerConfig {
@@ -36,6 +38,8 @@ pub struct WorkerConfig {
     pub lock_ttl: Duration,
     pub lock_heartbeat: Duration,
     pub evict_sleep_threshold: Duration,
+    pub expired_lock_reclaimer_interval: Duration,
+    pub expired_lock_reclaimer_batch_size: usize,
     pub scheduler: SchedulerConfig,
     pub webapp: WebappConfig,
     pub profile_interval: Duration,
@@ -88,6 +92,15 @@ impl WorkerConfig {
         let evict_sleep_threshold = Duration::from_millis(
             env_u64("RAPPEL_EVICT_SLEEP_THRESHOLD_MS").unwrap_or(DEFAULT_EVICT_SLEEP_THRESHOLD_MS),
         );
+        let expired_lock_reclaimer_interval = Duration::from_millis(
+            env_u64("RAPPEL_EXPIRED_LOCK_RECLAIMER_INTERVAL_MS")
+                .unwrap_or(DEFAULT_EXPIRED_LOCK_RECLAIMER_INTERVAL_MS)
+                .max(1),
+        );
+        let expired_lock_reclaimer_batch_size =
+            env_usize("RAPPEL_EXPIRED_LOCK_RECLAIMER_BATCH_SIZE")
+                .unwrap_or(DEFAULT_EXPIRED_LOCK_RECLAIMER_BATCH_SIZE)
+                .max(1);
 
         let scheduler = SchedulerConfig {
             poll_interval: Duration::from_millis(
@@ -120,6 +133,8 @@ impl WorkerConfig {
             lock_ttl,
             lock_heartbeat,
             evict_sleep_threshold,
+            expired_lock_reclaimer_interval,
+            expired_lock_reclaimer_batch_size,
             scheduler,
             webapp,
             profile_interval,
