@@ -1324,7 +1324,7 @@ impl WebappBackend for PostgresBackend {
                 COUNT(DISTINCT worker_id) as active_workers,
                 SUM(throughput_per_min) / 60.0 as actions_per_sec,
                 SUM(throughput_per_min) as throughput_per_min,
-                SUM(total_completed) as total_completed,
+                COALESCE(SUM(total_completed), 0)::BIGINT as total_completed,
                 PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY median_dequeue_ms) as median_dequeue_ms,
                 PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY median_handling_ms) as median_handling_ms,
                 MAX(last_action_at) as last_action_at,
@@ -1435,7 +1435,7 @@ impl WebappBackend for PostgresBackend {
                 MAX(total_in_flight) as total_in_flight,
                 MAX(median_instance_duration_secs) as median_instance_duration_secs,
                 MAX(active_instance_count) as active_instance_count,
-                SUM(total_instances_completed) as total_instances_completed,
+                COALESCE(SUM(total_instances_completed), 0)::BIGINT as total_instances_completed,
                 MAX(instances_per_sec) as instances_per_sec,
                 MAX(instances_per_min) as instances_per_min,
                 (SELECT time_series FROM worker_status ws2

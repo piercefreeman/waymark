@@ -137,9 +137,20 @@ async fn run_server(
     state: WebappState,
     shutdown_rx: tokio::sync::oneshot::Receiver<()>,
 ) {
+    let app = build_router(state);
+
+    axum::serve(listener, app)
+        .with_graceful_shutdown(async {
+            let _ = shutdown_rx.await;
+        })
+        .await
+        .ok();
+}
+
+fn build_router(state: WebappState) -> Router {
     use axum::routing::post;
 
-    let app = Router::new()
+    Router::new()
         .route("/", get(list_invocations))
         .route("/invocations", get(list_invocations))
         .route("/instance/{instance_id}", get(instance_detail))
@@ -166,14 +177,7 @@ async fn run_server(
             get(get_schedule_filter_values),
         )
         .route("/healthz", get(healthz))
-        .with_state(state);
-
-    axum::serve(listener, app)
-        .with_graceful_shutdown(async {
-            let _ = shutdown_rx.await;
-        })
-        .await
-        .ok();
+        .with_state(state)
 }
 
 // ============================================================================
@@ -1139,5 +1143,147 @@ fn format_duration_secs(secs: f64) -> String {
         format!("{:.1}m", secs / 60.0)
     } else {
         format!("{:.1}h", secs / 3600.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{sync::Arc, time::Duration};
+
+    use axum::{
+        body::Body,
+        http::{Request, StatusCode},
+    };
+    use http_body_util::BodyExt;
+    use sqlx::postgres::PgPoolOptions;
+    use tower::util::ServiceExt;
+    use uuid::Uuid;
+
+    use super::{WebappState, build_router, init_templates};
+    use crate::backends::{
+        MemoryBackend, PostgresBackend, WebappBackend, WorkerStatusBackend, WorkerStatusUpdate,
+    };
+
+    async fn call_route(backend: Arc<dyn WebappBackend>, uri: &str) -> (StatusCode, String) {
+        let templates = Arc::new(init_templates().expect("templates initialize"));
+        let app = build_router(WebappState {
+            database: backend,
+            templates,
+        });
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri(uri)
+                    .body(Body::empty())
+                    .expect("route request"),
+            )
+            .await
+            .expect("route response");
+
+        let status = response.status();
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("route body")
+            .to_bytes();
+        let body = String::from_utf8(body.to_vec()).expect("route body utf8");
+        (status, body)
+    }
+
+    #[tokio::test]
+    async fn high_level_pages_resolve_with_memory_backend() {
+        let backend = MemoryBackend::new();
+        backend
+            .upsert_worker_status(&WorkerStatusUpdate {
+                pool_id: Uuid::new_v4(),
+                throughput_per_min: 120.0,
+                total_completed: 42,
+                last_action_at: None,
+                median_dequeue_ms: Some(5),
+                median_handling_ms: Some(18),
+                dispatch_queue_size: 3,
+                total_in_flight: 1,
+                active_workers: 2,
+                actions_per_sec: 2.0,
+                median_instance_duration_secs: Some(0.25),
+                active_instance_count: 1,
+                total_instances_completed: 7,
+                instances_per_sec: 0.2,
+                instances_per_min: 12.0,
+                time_series: None,
+            })
+            .await
+            .expect("worker status upsert");
+
+        let backend: Arc<dyn WebappBackend> = Arc::new(backend);
+        let routes: Vec<(String, &str)> = vec![
+            ("/".to_string(), "Invocations"),
+            ("/invocations".to_string(), "Invocations"),
+            ("/workers".to_string(), "Workers"),
+            ("/scheduled".to_string(), "Scheduled Workflows"),
+            (
+                format!("/instance/{}", Uuid::new_v4()),
+                "Instance not found",
+            ),
+            (
+                format!("/scheduled/{}", Uuid::new_v4()),
+                "Schedule not found",
+            ),
+        ];
+
+        for (route, expected) in routes {
+            let (status, body) = call_route(backend.clone(), &route).await;
+            assert_eq!(status, StatusCode::OK, "route={route}");
+            assert!(!body.trim().is_empty(), "route={route}");
+            assert!(
+                body.contains(expected),
+                "route={route}, expected={expected}"
+            );
+        }
+
+        let (status, body) = call_route(backend, "/healthz").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("\"status\":\"ok\""));
+        assert!(body.contains("\"service\":\"rappel-webapp\""));
+    }
+
+    #[tokio::test]
+    async fn high_level_pages_resolve_with_postgres_backend_when_db_is_unavailable() {
+        let pool = PgPoolOptions::new()
+            .acquire_timeout(Duration::from_millis(100))
+            .connect_lazy("postgres://rappel:rappel@127.0.0.1:1/rappel")
+            .expect("lazy postgres pool");
+        let backend: Arc<dyn WebappBackend> = Arc::new(PostgresBackend::new(pool));
+        let routes: Vec<(String, &str)> = vec![
+            ("/".to_string(), "Unable to load invocations"),
+            ("/invocations".to_string(), "Unable to load invocations"),
+            ("/workers".to_string(), "Workers"),
+            ("/scheduled".to_string(), "Scheduled Workflows"),
+            (
+                format!("/instance/{}", Uuid::new_v4()),
+                "Instance not found",
+            ),
+            (
+                format!("/scheduled/{}", Uuid::new_v4()),
+                "Schedule not found",
+            ),
+        ];
+
+        for (route, expected) in routes {
+            let (status, body) = call_route(backend.clone(), &route).await;
+            assert_eq!(status, StatusCode::OK, "route={route}");
+            assert!(!body.trim().is_empty(), "route={route}");
+            assert!(
+                body.contains(expected),
+                "route={route}, expected={expected}"
+            );
+        }
+
+        let (status, body) = call_route(backend, "/healthz").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("\"status\":\"ok\""));
+        assert!(body.contains("\"service\":\"rappel-webapp\""));
     }
 }
