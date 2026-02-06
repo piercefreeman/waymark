@@ -3,6 +3,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use anyhow::{Result, anyhow};
 use clap::Parser;
@@ -254,7 +255,15 @@ async fn run_program_smoke(case: &SmokeCase, worker_pool: RemoteWorkerPool) -> R
         .queue_template_node(&entry_node, None)
         .map_err(|err| anyhow!(err.0))?;
 
-    let mut runloop = RunLoop::new(worker_pool, backend, 25, None, 0.05, 0.1);
+    let mut runloop = RunLoop::new(
+        worker_pool,
+        backend.clone(),
+        25,
+        None,
+        Duration::from_secs_f64(0.05),
+        Duration::from_secs_f64(0.1),
+        1,
+    );
     queue.lock().expect("queue lock").push_back(QueuedInstance {
         dag: dag.clone(),
         entry_node: entry_exec.node_id,
@@ -262,18 +271,20 @@ async fn run_program_smoke(case: &SmokeCase, worker_pool: RemoteWorkerPool) -> R
         action_results: HashMap::new(),
         instance_id: Uuid::new_v4(),
     });
-    let result = runloop
+    runloop
         .run()
         .await
         .map_err(|err| anyhow!(err.to_string()))?;
-    let executed = result
-        .completed_actions
-        .values()
-        .next()
-        .cloned()
-        .unwrap_or_default();
-    let labels: Vec<String> = executed.iter().map(|node| node.label.clone()).collect();
-    println!("Runner executor actions: {labels:?}");
+    let instances_done = backend.instances_done();
+    let done = instances_done.last();
+    if let Some(done) = done {
+        println!(
+            "Runner output: result={:?} error={:?}",
+            done.result, done.error
+        );
+    } else {
+        println!("Runner output: no completed instance found");
+    }
     Ok(())
 }
 

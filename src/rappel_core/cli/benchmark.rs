@@ -269,6 +269,7 @@ async fn run_benchmark(
     batch_size: usize,
     dsn: &str,
     max_concurrent_instances: usize,
+    executor_shards: usize,
 ) -> BenchmarkStats {
     let cases = build_cases(base);
     let pool = PgPool::connect(dsn).await.expect("connect postgres");
@@ -285,11 +286,12 @@ async fn run_benchmark(
         backend.clone(),
         max_concurrent_instances,
         None,
-        0.05,
-        0.1,
+        Duration::from_secs_f64(0.05),
+        Duration::from_secs_f64(0.1),
+        executor_shards,
     );
     let start = Instant::now();
-    let _ = runloop.run().await.expect("runloop");
+    runloop.run().await.expect("runloop");
     let elapsed = start.elapsed();
     BenchmarkStats {
         elapsed,
@@ -306,6 +308,18 @@ fn benchmark_max_concurrent() -> usize {
         .max(1)
 }
 
+fn benchmark_executor_shards() -> usize {
+    env::var("RAPPEL_EXECUTOR_SHARDS")
+        .ok()
+        .and_then(|value| value.trim().parse::<usize>().ok())
+        .unwrap_or_else(|| {
+            std::thread::available_parallelism()
+                .map(|count| count.get())
+                .unwrap_or(1)
+        })
+        .max(1)
+}
+
 pub fn main() {
     let args = BenchmarkArgs::parse();
     if args.observe || args.trace.is_some() {
@@ -317,13 +331,16 @@ pub fn main() {
     let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
     let _span = tracing::info_span!("benchmark_main").entered();
     let max_concurrent_instances = benchmark_max_concurrent();
+    let executor_shards = benchmark_executor_shards();
     println!("max_concurrent_instances = {max_concurrent_instances}");
+    println!("executor_shards = {executor_shards}");
     let stats = runtime.block_on(run_benchmark(
         args.count,
         args.base,
         args.batch_size,
         &args.dsn,
         max_concurrent_instances,
+        executor_shards,
     ));
     println!("Benchmark completed in {:.2?}", stats.elapsed);
     println!("{}", format_query_counts(stats.query_counts));

@@ -494,7 +494,15 @@ impl proto::workflow_service_server::WorkflowService for BridgeService {
             };
 
             runtime.block_on(async move {
-                let mut runloop = RunLoop::new(worker_pool, backend, 25, None, 0.0, 0.1);
+                let mut runloop = RunLoop::new(
+                    worker_pool,
+                    backend,
+                    25,
+                    None,
+                    Duration::from_secs_f64(0.0),
+                    Duration::from_secs_f64(0.1),
+                    1,
+                );
                 let run_result = runloop.run().await;
 
                 let payload = match run_result {

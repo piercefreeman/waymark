@@ -11,6 +11,7 @@ use crate::rappel_core::dag::{
     ActionCallNode, AggregatorNode, AssignmentNode, DAG, DAGNode, EdgeType, FnCallNode, JoinNode,
     ReturnNode,
 };
+use crate::rappel_core::runner::expression_evaluator::is_truthy;
 use crate::rappel_core::runner::value_visitor::{
     ValueExpr, collect_value_sources, resolve_value_tree,
 };
@@ -1724,19 +1725,6 @@ fn fold_literal_unary(op: i32, operand: &serde_json::Value) -> Option<serde_json
             .and_then(|value| serde_json::Number::from_f64(-value).map(serde_json::Value::Number)),
         Some(ir::UnaryOperator::UnaryOpNot) => Some(serde_json::Value::Bool(!is_truthy(operand))),
         _ => None,
-    }
-}
-
-fn is_truthy(value: &serde_json::Value) -> bool {
-    match value {
-        serde_json::Value::Null => false,
-        serde_json::Value::Bool(value) => *value,
-        serde_json::Value::Number(number) => {
-            number.as_f64().map(|value| value != 0.0).unwrap_or(false)
-        }
-        serde_json::Value::String(value) => !value.is_empty(),
-        serde_json::Value::Array(values) => !values.is_empty(),
-        serde_json::Value::Object(map) => !map.is_empty(),
     }
 }
 

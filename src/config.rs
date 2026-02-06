@@ -27,6 +27,7 @@ pub struct WorkerConfig {
     pub max_action_lifecycle: Option<u64>,
     pub poll_interval: Duration,
     pub max_concurrent_instances: usize,
+    pub executor_shards: usize,
     pub instance_done_batch_size: Option<usize>,
     pub persistence_interval: Duration,
     pub scheduler: SchedulerConfig,
@@ -64,6 +65,9 @@ impl WorkerConfig {
         let max_concurrent_instances = env_usize("RAPPEL_MAX_CONCURRENT_INSTANCES")
             .unwrap_or(DEFAULT_MAX_CONCURRENT_INSTANCES);
 
+        let executor_shards =
+            env_usize("RAPPEL_EXECUTOR_SHARDS").unwrap_or_else(default_executor_shards);
+
         let instance_done_batch_size = env_usize("RAPPEL_INSTANCE_DONE_BATCH_SIZE");
 
         let persistence_interval = Duration::from_millis(
@@ -95,6 +99,7 @@ impl WorkerConfig {
             max_action_lifecycle,
             poll_interval,
             max_concurrent_instances,
+            executor_shards,
             instance_done_batch_size,
             persistence_interval,
             scheduler,
@@ -123,6 +128,12 @@ fn env_i32(var: &str) -> Option<i32> {
 }
 
 fn default_worker_count() -> usize {
+    std::thread::available_parallelism()
+        .map(|count| count.get())
+        .unwrap_or(1)
+}
+
+fn default_executor_shards() -> usize {
     std::thread::available_parallelism()
         .map(|count| count.get())
         .unwrap_or(1)

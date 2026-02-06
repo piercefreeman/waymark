@@ -15,6 +15,7 @@
 //! - RAPPEL_CONCURRENT_PER_WORKER: Max concurrent actions per worker (default: 10)
 //! - RAPPEL_POLL_INTERVAL_MS: Poll interval for queued instances (default: 100)
 //! - RAPPEL_MAX_CONCURRENT_INSTANCES: Max workflow instances held concurrently (default: 50)
+//! - RAPPEL_EXECUTOR_SHARDS: Executor shard thread count (default: num_cpus)
 //! - RAPPEL_INSTANCE_DONE_BATCH_SIZE: Instance completion flush batch size (default: claim size)
 //! - RAPPEL_PERSIST_INTERVAL_MS: Result persistence tick (default: 500)
 //! - RAPPEL_MAX_ACTION_LIFECYCLE: Max actions per worker before recycling
@@ -39,7 +40,7 @@ use rappel::config::WorkerConfig;
 use rappel::db;
 use rappel::messages::ast as ir;
 use rappel::rappel_core::dag::{DAG, convert_to_dag};
-use rappel::rappel_core::runloop::runloop_supervisor;
+use rappel::rappel_core::runloop::{RunLoopSupervisorConfig, runloop_supervisor};
 use rappel::{
     PythonWorkerConfig, RemoteWorkerPool, WebappServer, spawn_scheduler, spawn_status_reporter,
 };
@@ -63,6 +64,7 @@ async fn main() -> Result<()> {
         worker_count = config.worker_count,
         concurrent_per_worker = config.concurrent_per_worker,
         user_modules = ?config.user_modules,
+        executor_shards = config.executor_shards,
         max_action_lifecycle = ?config.max_action_lifecycle,
         "starting worker infrastructure"
     );
@@ -137,10 +139,13 @@ async fn main() -> Result<()> {
     runloop_supervisor(
         backend.clone(),
         remote_pool.clone(),
-        config.max_concurrent_instances,
-        config.instance_done_batch_size,
-        config.poll_interval,
-        config.persistence_interval,
+        RunLoopSupervisorConfig {
+            max_concurrent_instances: config.max_concurrent_instances,
+            executor_shards: config.executor_shards,
+            instance_done_batch_size: config.instance_done_batch_size,
+            poll_interval: config.poll_interval,
+            persistence_interval: config.persistence_interval,
+        },
         shutdown_rx,
     )
     .await;

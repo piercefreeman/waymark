@@ -17,5 +17,5 @@ pub use dag::{
 };
 pub use dag_viz::{build_dag_graph, render_dag_image};
 pub use ir_format::format_program;
-pub use runloop::{RunLoop, RunLoopResult};
+pub use runloop::RunLoop;
 pub use runner::RunnerState;
