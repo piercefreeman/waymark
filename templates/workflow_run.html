@@ -102,7 +102,7 @@
     <div>
         <p class="text-xs uppercase tracking-[0.3em] text-zinc-500">Log</p>
         <h2 class="text-2xl font-semibold text-zinc-900 dark:text-white">Execution Log</h2>
-        <p class="text-sm text-zinc-500 dark:text-zinc-500">Chronological history of all action executions</p>
+        <p class="text-sm text-zinc-500 dark:text-zinc-500">Pending actions from current state first, then chronological execution history</p>
     </div>
     <div id="log-container" class="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 overflow-hidden">
         <div id="log-empty" class="text-center py-8 text-zinc-500 dark:text-zinc-500">
@@ -259,6 +259,83 @@ function normalizeActionLogEntry(log) {
     result_payload: log.result_payload ?? log.response ?? '',
     error_message: log.error_message ?? log.error ?? null,
   };
+}
+
+function isPendingStatus(status) {
+  const normalized = String(status || '').toLowerCase();
+  return normalized === 'queued'
+    || normalized === 'running'
+    || normalized === 'pending'
+    || normalized === 'dispatched';
+}
+
+function buildActionInfoLookup() {
+  const actionInfoLookup = {};
+  nodeData.forEach((node) => {
+    if (node.node_type !== 'action_call') return;
+    actionInfoLookup[node.id] = {
+      nodeId: node.id,
+      action: node.action_name || node.action || 'Unknown',
+      module: node.module_name || node.module || '',
+      status: node.status || 'queued',
+    };
+  });
+  return actionInfoLookup;
+}
+
+function resolveTimelineLogs(actionInfoLookup) {
+  return timelineEntries.map((log) => {
+    const info = actionInfoLookup[log.action_id];
+    return {
+      ...log,
+      nodeId: info?.nodeId || log.node_id || log.action_id,
+      actionName: info?.action || log.actionName || log.action_name || 'Unknown',
+      moduleName: info?.module || log.moduleName || log.module_name || '',
+    };
+  });
+}
+
+function buildPendingActionLogs(actionInfoLookup, resolvedLogs) {
+  const latestByActionId = new Map();
+  resolvedLogs.forEach((log) => {
+    if (!log.action_id) return;
+    latestByActionId.set(log.action_id, log);
+  });
+
+  const pendingLogs = Object.entries(actionInfoLookup)
+    .filter(([actionId, info]) => {
+      if (!isPendingStatus(info.status)) return false;
+      const latest = latestByActionId.get(actionId);
+      if (!latest) return true;
+      return !isPendingStatus(latest.status) || latest.completed_at;
+    })
+    .map(([actionId, info]) => {
+      const latest = latestByActionId.get(actionId);
+      const attemptBase = Number(latest?.attempt_number);
+      const attemptNumber = Number.isFinite(attemptBase) ? attemptBase + 1 : 1;
+      return normalizeTimelineEntry({
+        action_id: actionId,
+        action_name: info.action,
+        module_name: info.module,
+        status: info.status,
+        attempt_number: attemptNumber,
+        dispatched_at: null,
+        completed_at: null,
+        duration_ms: null,
+        request_payload: latest?.request_payload ?? '{}',
+        result_payload: '',
+        error_message: null,
+      });
+    });
+
+  pendingLogs.sort((left, right) => {
+    const leftRunning = String(left.status || '').toLowerCase() === 'running';
+    const rightRunning = String(right.status || '').toLowerCase() === 'running';
+    if (leftRunning !== rightRunning) return leftRunning ? -1 : 1;
+    return String(left.actionName || '').localeCompare(String(right.actionName || ''));
+  });
+
+  return pendingLogs;
 }
 
 async function loadRunData({ page = 1, append = false } = {}) {
@@ -897,8 +974,9 @@ function initRunPage(loadError) {
     dag.render(nodes);
   }
 
-  renderGanttTimeline(actionLookup);
-  renderExecutionLog(actionLookup);
+  const actionInfoLookup = buildActionInfoLookup();
+  renderGanttTimeline(actionLookup, actionInfoLookup);
+  renderExecutionLog(actionLookup, actionInfoLookup);
 
   const loadMoreButton = document.getElementById('log-load-more');
   if (loadMoreButton) {
@@ -907,15 +985,15 @@ function initRunPage(loadError) {
       loadMoreButton.textContent = 'Loading...';
       try {
         await loadRunData({ page: timelinePage + 1, append: true });
-        renderGanttTimeline(actionLookup);
-        renderExecutionLog(actionLookup);
+        renderGanttTimeline(actionLookup, actionInfoLookup);
+        renderExecutionLog(actionLookup, actionInfoLookup);
       } catch (err) { console.error(err); }
       finally { loadMoreButton.textContent = 'Load more'; loadMoreButton.disabled = false; }
     };
   }
 }
 
-function renderGanttTimeline(actionLookup) {
+function renderGanttTimeline(actionLookup, actionInfoLookup = buildActionInfoLookup()) {
   const timelineEmpty = document.getElementById('timeline-empty');
   const timelineGantt = document.getElementById('timeline-gantt');
   if (!timelineEmpty || !timelineGantt) return;
@@ -926,25 +1004,7 @@ function renderGanttTimeline(actionLookup) {
     return;
   }
 
-  const actionInfoLookup = {};
-  nodeData.forEach(n => {
-    if (n.node_type !== 'action_call') return;
-    actionInfoLookup[n.id] = {
-      nodeId: n.id,
-      action: n.action_name || n.action || 'Unknown',
-      module: n.module_name || n.module || '',
-    };
-  });
-
-  const resolvedLogs = timelineEntries.map((log) => {
-    const info = actionInfoLookup[log.action_id];
-    return {
-      ...log,
-      nodeId: info?.nodeId || log.node_id || log.action_id,
-      actionName: info?.action || log.actionName || log.action_name || 'Unknown',
-      moduleName: info?.module || log.moduleName || log.module_name || '',
-    };
-  });
+  const resolvedLogs = resolveTimelineLogs(actionInfoLookup);
 
   timelineEmpty.classList.add('hidden');
   timelineGantt.classList.remove('hidden');
@@ -956,76 +1016,59 @@ function renderGanttTimeline(actionLookup) {
   gantt.render(resolvedLogs);
 }
 
-function renderExecutionLog(actionLookup) {
+function renderExecutionLog(actionLookup, actionInfoLookup = buildActionInfoLookup()) {
   const logEmpty = document.getElementById('log-empty');
   const logContent = document.getElementById('log-content');
   const loadMoreContainer = document.getElementById('log-load-more-container');
   if (!logEmpty || !logContent) return;
 
-  if (timelineEntries.length === 0) {
+  const resolvedLogs = resolveTimelineLogs(actionInfoLookup);
+  const pendingLogs = buildPendingActionLogs(actionInfoLookup, resolvedLogs);
+  const combinedLogs = pendingLogs.concat(resolvedLogs);
+
+  if (combinedLogs.length === 0) {
     logEmpty.classList.remove('hidden');
     logContent.classList.add('hidden');
     if (loadMoreContainer) loadMoreContainer.classList.add('hidden');
     return;
   }
 
-  const actionInfoLookup = {};
-  nodeData.forEach(n => {
-    if (n.node_type !== 'action_call') return;
-    actionInfoLookup[n.id] = {
-      nodeId: n.id,
-      action: n.action_name || n.action || 'Unknown',
-      module: n.module_name || n.module || '',
-    };
-  });
-
-  const resolvedLogs = timelineEntries.map((log) => {
-    const info = actionInfoLookup[log.action_id];
-    return {
-      ...log,
-      nodeId: info?.nodeId || log.node_id || log.action_id,
-      actionName: info?.action || log.actionName || log.action_name || 'Unknown',
-      moduleName: info?.module || log.moduleName || log.module_name || '',
-    };
-  });
-
   logEmpty.classList.add('hidden');
   logContent.classList.remove('hidden');
   logContent.innerHTML = '';
 
-  resolvedLogs.forEach((log, idx) => {
+  combinedLogs.forEach((log, idx) => {
     const row = document.createElement('div');
     row.className = 'transition-colors';
 
     // Sleep nodes always use blue, regardless of status
-    let statusColor, statusBg, statusBorder, statusText, ringColor, dotColor;
+    const normalizedStatus = String(log.status || '').toLowerCase();
+    let statusColor, statusBg, statusBorder, statusText, dotColor;
     if (log.is_sleep) {
       statusColor = 'text-blue-600 dark:text-blue-400';
       statusBg = 'bg-blue-500/10';
       statusBorder = 'border-blue-500/50';
       statusText = log.success === true ? 'Completed' : log.success === false ? 'Failed' : 'Sleeping';
-      ringColor = 'ring-blue-500';
       dotColor = 'bg-blue-500';
     } else if (log.success === true) {
       statusColor = 'text-emerald-600 dark:text-emerald-400';
       statusBg = 'bg-emerald-500/10';
       statusBorder = 'border-emerald-500/50';
       statusText = 'Success';
-      ringColor = 'ring-emerald-500';
       dotColor = 'bg-emerald-500';
     } else if (log.success === false) {
       statusColor = 'text-red-600 dark:text-red-400';
       statusBg = 'bg-red-500/10';
       statusBorder = 'border-red-500/50';
       statusText = 'Failed';
-      ringColor = 'ring-red-500';
       dotColor = 'bg-red-500';
     } else {
       statusColor = 'text-amber-600 dark:text-amber-400';
       statusBg = 'bg-amber-500/10';
       statusBorder = 'border-amber-500/50';
-      statusText = 'Running';
-      ringColor = 'ring-amber-500';
+      statusText = normalizedStatus === 'running' || normalizedStatus === 'dispatched'
+        ? 'Running'
+        : 'Pending';
       dotColor = 'bg-amber-500';
     }
 
@@ -1034,8 +1077,12 @@ function renderExecutionLog(actionLookup) {
       durationText = log.duration_ms < 1000 ? log.duration_ms + 'ms' : (log.duration_ms / 1000).toFixed(2) + 's';
     }
 
-    const hasDetails = log.request_payload || log.result_payload || log.error_message;
+    const hasDetails = Boolean(log.request_payload || log.result_payload || log.error_message);
     const expandId = `log-expand-${idx}`;
+    const startedAtText = log.dispatched_at || '-';
+    const attemptText = Number.isFinite(Number(log.attempt_number))
+      ? String(log.attempt_number)
+      : '-';
 
     row.innerHTML = `
       <div class="flex items-center gap-4 p-4 ${hasDetails ? 'cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-900/50' : ''}" ${hasDetails ? `onclick="toggleLogExpand('${expandId}')"` : ''}>
@@ -1049,12 +1096,12 @@ function renderExecutionLog(actionLookup) {
             <span class="inline-flex items-center text-xs px-2 py-0.5 rounded-full border font-medium ${statusBg} ${statusBorder} ${statusColor}">${statusText}</span>
           </div>
           <div class="flex items-center gap-4 mt-1.5 text-xs text-zinc-500">
-            <span>Started: <span class="text-zinc-600 dark:text-zinc-400 font-mono">${log.dispatched_at}</span></span>
+            <span>Started: <span class="text-zinc-600 dark:text-zinc-400 font-mono">${startedAtText}</span></span>
             <span>Duration: <span class="text-zinc-600 dark:text-zinc-400 font-mono">${durationText}</span></span>
           </div>
         </div>
         <div class="flex items-center gap-3">
-          <span class="text-xs text-zinc-400 tabular-nums">Attempt ${log.attempt_number}</span>
+          <span class="text-xs text-zinc-400 tabular-nums">Attempt ${attemptText}</span>
           ${hasDetails ? `<svg class="w-4 h-4 text-zinc-400 transition-transform" id="${expandId}-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>` : ''}
         </div>
       </div>
