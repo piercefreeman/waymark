@@ -5,13 +5,12 @@ isort:skip_file
 
 import builtins
 import collections.abc
-import sys
-import typing
-
 import google.protobuf.descriptor
 import google.protobuf.internal.containers
 import google.protobuf.internal.enum_type_wrapper
 import google.protobuf.message
+import sys
+import typing
 
 if sys.version_info >= (3, 10):
     import typing as typing_extensions
@@ -24,10 +23,7 @@ class _BinaryOperator:
     ValueType = typing.NewType("ValueType", builtins.int)
     V: typing_extensions.TypeAlias = ValueType
 
-class _BinaryOperatorEnumTypeWrapper(
-    google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[_BinaryOperator.ValueType],
-    builtins.type,
-):
+class _BinaryOperatorEnumTypeWrapper(google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[_BinaryOperator.ValueType], builtins.type):
     DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor
     BINARY_OP_UNSPECIFIED: _BinaryOperator.ValueType  # 0
     BINARY_OP_ADD: _BinaryOperator.ValueType  # 1
@@ -78,10 +74,7 @@ class _UnaryOperator:
     ValueType = typing.NewType("ValueType", builtins.int)
     V: typing_extensions.TypeAlias = ValueType
 
-class _UnaryOperatorEnumTypeWrapper(
-    google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[_UnaryOperator.ValueType],
-    builtins.type,
-):
+class _UnaryOperatorEnumTypeWrapper(google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[_UnaryOperator.ValueType], builtins.type):
     DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor
     UNARY_OP_UNSPECIFIED: _UnaryOperator.ValueType  # 0
     UNARY_OP_NEG: _UnaryOperator.ValueType  # 1
@@ -98,10 +91,7 @@ class _GlobalFunction:
     ValueType = typing.NewType("ValueType", builtins.int)
     V: typing_extensions.TypeAlias = ValueType
 
-class _GlobalFunctionEnumTypeWrapper(
-    google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[_GlobalFunction.ValueType],
-    builtins.type,
-):
+class _GlobalFunctionEnumTypeWrapper(google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[_GlobalFunction.ValueType], builtins.type):
     DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor
     GLOBAL_FUNCTION_UNSPECIFIED: _GlobalFunction.ValueType  # 0
     GLOBAL_FUNCTION_RANGE: _GlobalFunction.ValueType  # 1
@@ -132,11 +122,7 @@ class Program(google.protobuf.message.Message):
 
     FUNCTIONS_FIELD_NUMBER: builtins.int
     @property
-    def functions(
-        self,
-    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
-        Global___FunctionDef
-    ]: ...
+    def functions(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[Global___FunctionDef]: ...
     def __init__(
         self,
         *,
@@ -171,13 +157,8 @@ class FunctionDef(google.protobuf.message.Message):
         body: Global___Block | None = ...,
         span: Global___Span | None = ...,
     ) -> None: ...
-    def HasField(
-        self, field_name: typing.Literal["body", b"body", "io", b"io", "span", b"span"]
-    ) -> builtins.bool: ...
-    def ClearField(
-        self,
-        field_name: typing.Literal["body", b"body", "io", b"io", "name", b"name", "span", b"span"],
-    ) -> None: ...
+    def HasField(self, field_name: typing.Literal["body", b"body", "io", b"io", "span", b"span"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["body", b"body", "io", b"io", "name", b"name", "span", b"span"]) -> None: ...
 
 Global___FunctionDef: typing_extensions.TypeAlias = FunctionDef
 
@@ -191,13 +172,9 @@ class IoDecl(google.protobuf.message.Message):
     OUTPUTS_FIELD_NUMBER: builtins.int
     SPAN_FIELD_NUMBER: builtins.int
     @property
-    def inputs(
-        self,
-    ) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[builtins.str]: ...
+    def inputs(self) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[builtins.str]: ...
     @property
-    def outputs(
-        self,
-    ) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[builtins.str]: ...
+    def outputs(self) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[builtins.str]: ...
     @property
     def span(self) -> Global___Span: ...
     def __init__(
@@ -208,10 +185,7 @@ class IoDecl(google.protobuf.message.Message):
         span: Global___Span | None = ...,
     ) -> None: ...
     def HasField(self, field_name: typing.Literal["span", b"span"]) -> builtins.bool: ...
-    def ClearField(
-        self,
-        field_name: typing.Literal["inputs", b"inputs", "outputs", b"outputs", "span", b"span"],
-    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["inputs", b"inputs", "outputs", b"outputs", "span", b"span"]) -> None: ...
 
 Global___IoDecl: typing_extensions.TypeAlias = IoDecl
 
@@ -224,11 +198,7 @@ class Block(google.protobuf.message.Message):
     STATEMENTS_FIELD_NUMBER: builtins.int
     SPAN_FIELD_NUMBER: builtins.int
     @property
-    def statements(
-        self,
-    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
-        Global___Statement
-    ]: ...
+    def statements(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[Global___Statement]: ...
     @property
     def span(self) -> Global___Span: ...
     def __init__(
@@ -238,9 +208,7 @@ class Block(google.protobuf.message.Message):
         span: Global___Span | None = ...,
     ) -> None: ...
     def HasField(self, field_name: typing.Literal["span", b"span"]) -> builtins.bool: ...
-    def ClearField(
-        self, field_name: typing.Literal["span", b"span", "statements", b"statements"]
-    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["span", b"span", "statements", b"statements"]) -> None: ...
 
 Global___Block: typing_extensions.TypeAlias = Block
 
@@ -265,6 +233,7 @@ class Statement(google.protobuf.message.Message):
     BREAK_STMT_FIELD_NUMBER: builtins.int
     CONTINUE_STMT_FIELD_NUMBER: builtins.int
     WHILE_LOOP_FIELD_NUMBER: builtins.int
+    SLEEP_STMT_FIELD_NUMBER: builtins.int
     SPAN_FIELD_NUMBER: builtins.int
     @property
     def assignment(self) -> Global___Assignment: ...
@@ -291,6 +260,8 @@ class Statement(google.protobuf.message.Message):
     @property
     def while_loop(self) -> Global___WhileLoop: ...
     @property
+    def sleep_stmt(self) -> Global___SleepStmt: ...
+    @property
     def span(self) -> Global___Span: ...
     def __init__(
         self,
@@ -307,93 +278,12 @@ class Statement(google.protobuf.message.Message):
         break_stmt: Global___BreakStmt | None = ...,
         continue_stmt: Global___ContinueStmt | None = ...,
         while_loop: Global___WhileLoop | None = ...,
+        sleep_stmt: Global___SleepStmt | None = ...,
         span: Global___Span | None = ...,
     ) -> None: ...
-    def HasField(
-        self,
-        field_name: typing.Literal[
-            "action_call",
-            b"action_call",
-            "assignment",
-            b"assignment",
-            "break_stmt",
-            b"break_stmt",
-            "conditional",
-            b"conditional",
-            "continue_stmt",
-            b"continue_stmt",
-            "expr_stmt",
-            b"expr_stmt",
-            "for_loop",
-            b"for_loop",
-            "kind",
-            b"kind",
-            "parallel_block",
-            b"parallel_block",
-            "return_stmt",
-            b"return_stmt",
-            "span",
-            b"span",
-            "spread_action",
-            b"spread_action",
-            "try_except",
-            b"try_except",
-            "while_loop",
-            b"while_loop",
-        ],
-    ) -> builtins.bool: ...
-    def ClearField(
-        self,
-        field_name: typing.Literal[
-            "action_call",
-            b"action_call",
-            "assignment",
-            b"assignment",
-            "break_stmt",
-            b"break_stmt",
-            "conditional",
-            b"conditional",
-            "continue_stmt",
-            b"continue_stmt",
-            "expr_stmt",
-            b"expr_stmt",
-            "for_loop",
-            b"for_loop",
-            "kind",
-            b"kind",
-            "parallel_block",
-            b"parallel_block",
-            "return_stmt",
-            b"return_stmt",
-            "span",
-            b"span",
-            "spread_action",
-            b"spread_action",
-            "try_except",
-            b"try_except",
-            "while_loop",
-            b"while_loop",
-        ],
-    ) -> None: ...
-    def WhichOneof(
-        self, oneof_group: typing.Literal["kind", b"kind"]
-    ) -> (
-        typing.Literal[
-            "assignment",
-            "action_call",
-            "spread_action",
-            "parallel_block",
-            "for_loop",
-            "conditional",
-            "try_except",
-            "return_stmt",
-            "expr_stmt",
-            "break_stmt",
-            "continue_stmt",
-            "while_loop",
-        ]
-        | None
-    ): ...
+    def HasField(self, field_name: typing.Literal["action_call", b"action_call", "assignment", b"assignment", "break_stmt", b"break_stmt", "conditional", b"conditional", "continue_stmt", b"continue_stmt", "expr_stmt", b"expr_stmt", "for_loop", b"for_loop", "kind", b"kind", "parallel_block", b"parallel_block", "return_stmt", b"return_stmt", "sleep_stmt", b"sleep_stmt", "span", b"span", "spread_action", b"spread_action", "try_except", b"try_except", "while_loop", b"while_loop"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["action_call", b"action_call", "assignment", b"assignment", "break_stmt", b"break_stmt", "conditional", b"conditional", "continue_stmt", b"continue_stmt", "expr_stmt", b"expr_stmt", "for_loop", b"for_loop", "kind", b"kind", "parallel_block", b"parallel_block", "return_stmt", b"return_stmt", "sleep_stmt", b"sleep_stmt", "span", b"span", "spread_action", b"spread_action", "try_except", b"try_except", "while_loop", b"while_loop"]) -> None: ...
+    def WhichOneof(self, oneof_group: typing.Literal["kind", b"kind"]) -> typing.Literal["assignment", "action_call", "spread_action", "parallel_block", "for_loop", "conditional", "try_except", "return_stmt", "expr_stmt", "break_stmt", "continue_stmt", "while_loop", "sleep_stmt"] | None: ...
 
 Global___Statement: typing_extensions.TypeAlias = Statement
 
@@ -430,9 +320,7 @@ class Assignment(google.protobuf.message.Message):
     TARGETS_FIELD_NUMBER: builtins.int
     VALUE_FIELD_NUMBER: builtins.int
     @property
-    def targets(
-        self,
-    ) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[builtins.str]:
+    def targets(self) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[builtins.str]:
         """Single variable or tuple unpacking (a, b = expr)"""
 
     @property
@@ -444,9 +332,7 @@ class Assignment(google.protobuf.message.Message):
         value: Global___Expr | None = ...,
     ) -> None: ...
     def HasField(self, field_name: typing.Literal["value", b"value"]) -> builtins.bool: ...
-    def ClearField(
-        self, field_name: typing.Literal["targets", b"targets", "value", b"value"]
-    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["targets", b"targets", "value", b"value"]) -> None: ...
 
 Global___Assignment: typing_extensions.TypeAlias = Assignment
 
@@ -469,15 +355,9 @@ class ActionCall(google.protobuf.message.Message):
     module_name: builtins.str
     """Python module containing the action"""
     @property
-    def kwargs(
-        self,
-    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[Global___Kwarg]: ...
+    def kwargs(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[Global___Kwarg]: ...
     @property
-    def policies(
-        self,
-    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
-        Global___PolicyBracket
-    ]: ...
+    def policies(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[Global___PolicyBracket]: ...
     def __init__(
         self,
         *,
@@ -486,28 +366,9 @@ class ActionCall(google.protobuf.message.Message):
         policies: collections.abc.Iterable[Global___PolicyBracket] | None = ...,
         module_name: builtins.str | None = ...,
     ) -> None: ...
-    def HasField(
-        self,
-        field_name: typing.Literal["_module_name", b"_module_name", "module_name", b"module_name"],
-    ) -> builtins.bool: ...
-    def ClearField(
-        self,
-        field_name: typing.Literal[
-            "_module_name",
-            b"_module_name",
-            "action_name",
-            b"action_name",
-            "kwargs",
-            b"kwargs",
-            "module_name",
-            b"module_name",
-            "policies",
-            b"policies",
-        ],
-    ) -> None: ...
-    def WhichOneof(
-        self, oneof_group: typing.Literal["_module_name", b"_module_name"]
-    ) -> typing.Literal["module_name"] | None: ...
+    def HasField(self, field_name: typing.Literal["_module_name", b"_module_name", "module_name", b"module_name"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["_module_name", b"_module_name", "action_name", b"action_name", "kwargs", b"kwargs", "module_name", b"module_name", "policies", b"policies"]) -> None: ...
+    def WhichOneof(self, oneof_group: typing.Literal["_module_name", b"_module_name"]) -> typing.Literal["module_name"] | None: ...
 
 Global___ActionCall: typing_extensions.TypeAlias = ActionCall
 
@@ -539,15 +400,8 @@ class SpreadAction(google.protobuf.message.Message):
         loop_var: builtins.str = ...,
         action: Global___ActionCall | None = ...,
     ) -> None: ...
-    def HasField(
-        self, field_name: typing.Literal["action", b"action", "collection", b"collection"]
-    ) -> builtins.bool: ...
-    def ClearField(
-        self,
-        field_name: typing.Literal[
-            "action", b"action", "collection", b"collection", "loop_var", b"loop_var"
-        ],
-    ) -> None: ...
+    def HasField(self, field_name: typing.Literal["action", b"action", "collection", b"collection"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["action", b"action", "collection", b"collection", "loop_var", b"loop_var"]) -> None: ...
 
 Global___SpreadAction: typing_extensions.TypeAlias = SpreadAction
 
@@ -561,9 +415,7 @@ class ParallelBlock(google.protobuf.message.Message):
 
     CALLS_FIELD_NUMBER: builtins.int
     @property
-    def calls(
-        self,
-    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[Global___Call]:
+    def calls(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[Global___Call]:
         """Actions or function calls to run in parallel"""
 
     def __init__(
@@ -593,17 +445,9 @@ class Call(google.protobuf.message.Message):
         action: Global___ActionCall | None = ...,
         function: Global___FunctionCall | None = ...,
     ) -> None: ...
-    def HasField(
-        self,
-        field_name: typing.Literal["action", b"action", "function", b"function", "kind", b"kind"],
-    ) -> builtins.bool: ...
-    def ClearField(
-        self,
-        field_name: typing.Literal["action", b"action", "function", b"function", "kind", b"kind"],
-    ) -> None: ...
-    def WhichOneof(
-        self, oneof_group: typing.Literal["kind", b"kind"]
-    ) -> typing.Literal["action", "function"] | None: ...
+    def HasField(self, field_name: typing.Literal["action", b"action", "function", b"function", "kind", b"kind"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["action", b"action", "function", b"function", "kind", b"kind"]) -> None: ...
+    def WhichOneof(self, oneof_group: typing.Literal["kind", b"kind"]) -> typing.Literal["action", "function"] | None: ...
 
 Global___Call: typing_extensions.TypeAlias = Call
 
@@ -617,9 +461,7 @@ class ForLoop(google.protobuf.message.Message):
     ITERABLE_FIELD_NUMBER: builtins.int
     BLOCK_BODY_FIELD_NUMBER: builtins.int
     @property
-    def loop_vars(
-        self,
-    ) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[builtins.str]:
+    def loop_vars(self) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[builtins.str]:
         """Loop variable(s) for unpacking"""
 
     @property
@@ -633,15 +475,8 @@ class ForLoop(google.protobuf.message.Message):
         iterable: Global___Expr | None = ...,
         block_body: Global___Block | None = ...,
     ) -> None: ...
-    def HasField(
-        self, field_name: typing.Literal["block_body", b"block_body", "iterable", b"iterable"]
-    ) -> builtins.bool: ...
-    def ClearField(
-        self,
-        field_name: typing.Literal[
-            "block_body", b"block_body", "iterable", b"iterable", "loop_vars", b"loop_vars"
-        ],
-    ) -> None: ...
+    def HasField(self, field_name: typing.Literal["block_body", b"block_body", "iterable", b"iterable"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["block_body", b"block_body", "iterable", b"iterable", "loop_vars", b"loop_vars"]) -> None: ...
 
 Global___ForLoop: typing_extensions.TypeAlias = ForLoop
 
@@ -663,12 +498,8 @@ class WhileLoop(google.protobuf.message.Message):
         condition: Global___Expr | None = ...,
         block_body: Global___Block | None = ...,
     ) -> None: ...
-    def HasField(
-        self, field_name: typing.Literal["block_body", b"block_body", "condition", b"condition"]
-    ) -> builtins.bool: ...
-    def ClearField(
-        self, field_name: typing.Literal["block_body", b"block_body", "condition", b"condition"]
-    ) -> None: ...
+    def HasField(self, field_name: typing.Literal["block_body", b"block_body", "condition", b"condition"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["block_body", b"block_body", "condition", b"condition"]) -> None: ...
 
 Global___WhileLoop: typing_extensions.TypeAlias = WhileLoop
 
@@ -684,11 +515,7 @@ class Conditional(google.protobuf.message.Message):
     @property
     def if_branch(self) -> Global___IfBranch: ...
     @property
-    def elif_branches(
-        self,
-    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
-        Global___ElifBranch
-    ]: ...
+    def elif_branches(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[Global___ElifBranch]: ...
     @property
     def else_branch(self) -> Global___ElseBranch: ...
     def __init__(
@@ -698,33 +525,9 @@ class Conditional(google.protobuf.message.Message):
         elif_branches: collections.abc.Iterable[Global___ElifBranch] | None = ...,
         else_branch: Global___ElseBranch | None = ...,
     ) -> None: ...
-    def HasField(
-        self,
-        field_name: typing.Literal[
-            "_else_branch",
-            b"_else_branch",
-            "else_branch",
-            b"else_branch",
-            "if_branch",
-            b"if_branch",
-        ],
-    ) -> builtins.bool: ...
-    def ClearField(
-        self,
-        field_name: typing.Literal[
-            "_else_branch",
-            b"_else_branch",
-            "elif_branches",
-            b"elif_branches",
-            "else_branch",
-            b"else_branch",
-            "if_branch",
-            b"if_branch",
-        ],
-    ) -> None: ...
-    def WhichOneof(
-        self, oneof_group: typing.Literal["_else_branch", b"_else_branch"]
-    ) -> typing.Literal["else_branch"] | None: ...
+    def HasField(self, field_name: typing.Literal["_else_branch", b"_else_branch", "else_branch", b"else_branch", "if_branch", b"if_branch"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["_else_branch", b"_else_branch", "elif_branches", b"elif_branches", "else_branch", b"else_branch", "if_branch", b"if_branch"]) -> None: ...
+    def WhichOneof(self, oneof_group: typing.Literal["_else_branch", b"_else_branch"]) -> typing.Literal["else_branch"] | None: ...
 
 Global___Conditional: typing_extensions.TypeAlias = Conditional
 
@@ -748,18 +551,8 @@ class IfBranch(google.protobuf.message.Message):
         span: Global___Span | None = ...,
         block_body: Global___Block | None = ...,
     ) -> None: ...
-    def HasField(
-        self,
-        field_name: typing.Literal[
-            "block_body", b"block_body", "condition", b"condition", "span", b"span"
-        ],
-    ) -> builtins.bool: ...
-    def ClearField(
-        self,
-        field_name: typing.Literal[
-            "block_body", b"block_body", "condition", b"condition", "span", b"span"
-        ],
-    ) -> None: ...
+    def HasField(self, field_name: typing.Literal["block_body", b"block_body", "condition", b"condition", "span", b"span"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["block_body", b"block_body", "condition", b"condition", "span", b"span"]) -> None: ...
 
 Global___IfBranch: typing_extensions.TypeAlias = IfBranch
 
@@ -783,18 +576,8 @@ class ElifBranch(google.protobuf.message.Message):
         span: Global___Span | None = ...,
         block_body: Global___Block | None = ...,
     ) -> None: ...
-    def HasField(
-        self,
-        field_name: typing.Literal[
-            "block_body", b"block_body", "condition", b"condition", "span", b"span"
-        ],
-    ) -> builtins.bool: ...
-    def ClearField(
-        self,
-        field_name: typing.Literal[
-            "block_body", b"block_body", "condition", b"condition", "span", b"span"
-        ],
-    ) -> None: ...
+    def HasField(self, field_name: typing.Literal["block_body", b"block_body", "condition", b"condition", "span", b"span"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["block_body", b"block_body", "condition", b"condition", "span", b"span"]) -> None: ...
 
 Global___ElifBranch: typing_extensions.TypeAlias = ElifBranch
 
@@ -814,12 +597,8 @@ class ElseBranch(google.protobuf.message.Message):
         span: Global___Span | None = ...,
         block_body: Global___Block | None = ...,
     ) -> None: ...
-    def HasField(
-        self, field_name: typing.Literal["block_body", b"block_body", "span", b"span"]
-    ) -> builtins.bool: ...
-    def ClearField(
-        self, field_name: typing.Literal["block_body", b"block_body", "span", b"span"]
-    ) -> None: ...
+    def HasField(self, field_name: typing.Literal["block_body", b"block_body", "span", b"span"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["block_body", b"block_body", "span", b"span"]) -> None: ...
 
 Global___ElseBranch: typing_extensions.TypeAlias = ElseBranch
 
@@ -832,11 +611,7 @@ class TryExcept(google.protobuf.message.Message):
     HANDLERS_FIELD_NUMBER: builtins.int
     TRY_BLOCK_FIELD_NUMBER: builtins.int
     @property
-    def handlers(
-        self,
-    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
-        Global___ExceptHandler
-    ]: ...
+    def handlers(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[Global___ExceptHandler]: ...
     @property
     def try_block(self) -> Global___Block: ...
     def __init__(
@@ -846,9 +621,7 @@ class TryExcept(google.protobuf.message.Message):
         try_block: Global___Block | None = ...,
     ) -> None: ...
     def HasField(self, field_name: typing.Literal["try_block", b"try_block"]) -> builtins.bool: ...
-    def ClearField(
-        self, field_name: typing.Literal["handlers", b"handlers", "try_block", b"try_block"]
-    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["handlers", b"handlers", "try_block", b"try_block"]) -> None: ...
 
 Global___TryExcept: typing_extensions.TypeAlias = TryExcept
 
@@ -863,9 +636,7 @@ class ExceptHandler(google.protobuf.message.Message):
     exception_var: builtins.str
     """Variable name for "except ... as var" """
     @property
-    def exception_types(
-        self,
-    ) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[builtins.str]:
+    def exception_types(self) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[builtins.str]:
         """Empty = catch all"""
 
     @property
@@ -880,37 +651,9 @@ class ExceptHandler(google.protobuf.message.Message):
         block_body: Global___Block | None = ...,
         exception_var: builtins.str | None = ...,
     ) -> None: ...
-    def HasField(
-        self,
-        field_name: typing.Literal[
-            "_exception_var",
-            b"_exception_var",
-            "block_body",
-            b"block_body",
-            "exception_var",
-            b"exception_var",
-            "span",
-            b"span",
-        ],
-    ) -> builtins.bool: ...
-    def ClearField(
-        self,
-        field_name: typing.Literal[
-            "_exception_var",
-            b"_exception_var",
-            "block_body",
-            b"block_body",
-            "exception_types",
-            b"exception_types",
-            "exception_var",
-            b"exception_var",
-            "span",
-            b"span",
-        ],
-    ) -> None: ...
-    def WhichOneof(
-        self, oneof_group: typing.Literal["_exception_var", b"_exception_var"]
-    ) -> typing.Literal["exception_var"] | None: ...
+    def HasField(self, field_name: typing.Literal["_exception_var", b"_exception_var", "block_body", b"block_body", "exception_var", b"exception_var", "span", b"span"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["_exception_var", b"_exception_var", "block_body", b"block_body", "exception_types", b"exception_types", "exception_var", b"exception_var", "span", b"span"]) -> None: ...
+    def WhichOneof(self, oneof_group: typing.Literal["_exception_var", b"_exception_var"]) -> typing.Literal["exception_var"] | None: ...
 
 Global___ExceptHandler: typing_extensions.TypeAlias = ExceptHandler
 
@@ -928,15 +671,9 @@ class ReturnStmt(google.protobuf.message.Message):
         *,
         value: Global___Expr | None = ...,
     ) -> None: ...
-    def HasField(
-        self, field_name: typing.Literal["_value", b"_value", "value", b"value"]
-    ) -> builtins.bool: ...
-    def ClearField(
-        self, field_name: typing.Literal["_value", b"_value", "value", b"value"]
-    ) -> None: ...
-    def WhichOneof(
-        self, oneof_group: typing.Literal["_value", b"_value"]
-    ) -> typing.Literal["value"] | None: ...
+    def HasField(self, field_name: typing.Literal["_value", b"_value", "value", b"value"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["_value", b"_value", "value", b"value"]) -> None: ...
+    def WhichOneof(self, oneof_group: typing.Literal["_value", b"_value"]) -> typing.Literal["value"] | None: ...
 
 Global___ReturnStmt: typing_extensions.TypeAlias = ReturnStmt
 
@@ -958,6 +695,26 @@ class ExprStmt(google.protobuf.message.Message):
     def ClearField(self, field_name: typing.Literal["expr", b"expr"]) -> None: ...
 
 Global___ExprStmt: typing_extensions.TypeAlias = ExprStmt
+
+@typing.final
+class SleepStmt(google.protobuf.message.Message):
+    """Sleep statement (durable sleep handled by scheduler)"""
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    DURATION_FIELD_NUMBER: builtins.int
+    @property
+    def duration(self) -> Global___Expr: ...
+    def __init__(
+        self,
+        *,
+        duration: Global___Expr | None = ...,
+    ) -> None: ...
+    def HasField(self, field_name: typing.Literal["_duration", b"_duration", "duration", b"duration"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["_duration", b"_duration", "duration", b"duration"]) -> None: ...
+    def WhichOneof(self, oneof_group: typing.Literal["_duration", b"_duration"]) -> typing.Literal["duration"] | None: ...
+
+Global___SleepStmt: typing_extensions.TypeAlias = SleepStmt
 
 @typing.final
 class Expr(google.protobuf.message.Message):
@@ -1028,91 +785,9 @@ class Expr(google.protobuf.message.Message):
         spread_expr: Global___SpreadExpr | None = ...,
         span: Global___Span | None = ...,
     ) -> None: ...
-    def HasField(
-        self,
-        field_name: typing.Literal[
-            "action_call",
-            b"action_call",
-            "binary_op",
-            b"binary_op",
-            "dict",
-            b"dict",
-            "dot",
-            b"dot",
-            "function_call",
-            b"function_call",
-            "index",
-            b"index",
-            "kind",
-            b"kind",
-            "list",
-            b"list",
-            "literal",
-            b"literal",
-            "parallel_expr",
-            b"parallel_expr",
-            "span",
-            b"span",
-            "spread_expr",
-            b"spread_expr",
-            "unary_op",
-            b"unary_op",
-            "variable",
-            b"variable",
-        ],
-    ) -> builtins.bool: ...
-    def ClearField(
-        self,
-        field_name: typing.Literal[
-            "action_call",
-            b"action_call",
-            "binary_op",
-            b"binary_op",
-            "dict",
-            b"dict",
-            "dot",
-            b"dot",
-            "function_call",
-            b"function_call",
-            "index",
-            b"index",
-            "kind",
-            b"kind",
-            "list",
-            b"list",
-            "literal",
-            b"literal",
-            "parallel_expr",
-            b"parallel_expr",
-            "span",
-            b"span",
-            "spread_expr",
-            b"spread_expr",
-            "unary_op",
-            b"unary_op",
-            "variable",
-            b"variable",
-        ],
-    ) -> None: ...
-    def WhichOneof(
-        self, oneof_group: typing.Literal["kind", b"kind"]
-    ) -> (
-        typing.Literal[
-            "literal",
-            "variable",
-            "binary_op",
-            "unary_op",
-            "list",
-            "dict",
-            "index",
-            "dot",
-            "function_call",
-            "action_call",
-            "parallel_expr",
-            "spread_expr",
-        ]
-        | None
-    ): ...
+    def HasField(self, field_name: typing.Literal["action_call", b"action_call", "binary_op", b"binary_op", "dict", b"dict", "dot", b"dot", "function_call", b"function_call", "index", b"index", "kind", b"kind", "list", b"list", "literal", b"literal", "parallel_expr", b"parallel_expr", "span", b"span", "spread_expr", b"spread_expr", "unary_op", b"unary_op", "variable", b"variable"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["action_call", b"action_call", "binary_op", b"binary_op", "dict", b"dict", "dot", b"dot", "function_call", b"function_call", "index", b"index", "kind", b"kind", "list", b"list", "literal", b"literal", "parallel_expr", b"parallel_expr", "span", b"span", "spread_expr", b"spread_expr", "unary_op", b"unary_op", "variable", b"variable"]) -> None: ...
+    def WhichOneof(self, oneof_group: typing.Literal["kind", b"kind"]) -> typing.Literal["literal", "variable", "binary_op", "unary_op", "list", "dict", "index", "dot", "function_call", "action_call", "parallel_expr", "spread_expr"] | None: ...
 
 Global___Expr: typing_extensions.TypeAlias = Expr
 
@@ -1142,45 +817,9 @@ class Literal(google.protobuf.message.Message):
         bool_value: builtins.bool = ...,
         is_none: builtins.bool = ...,
     ) -> None: ...
-    def HasField(
-        self,
-        field_name: typing.Literal[
-            "bool_value",
-            b"bool_value",
-            "float_value",
-            b"float_value",
-            "int_value",
-            b"int_value",
-            "is_none",
-            b"is_none",
-            "string_value",
-            b"string_value",
-            "value",
-            b"value",
-        ],
-    ) -> builtins.bool: ...
-    def ClearField(
-        self,
-        field_name: typing.Literal[
-            "bool_value",
-            b"bool_value",
-            "float_value",
-            b"float_value",
-            "int_value",
-            b"int_value",
-            "is_none",
-            b"is_none",
-            "string_value",
-            b"string_value",
-            "value",
-            b"value",
-        ],
-    ) -> None: ...
-    def WhichOneof(
-        self, oneof_group: typing.Literal["value", b"value"]
-    ) -> (
-        typing.Literal["int_value", "float_value", "string_value", "bool_value", "is_none"] | None
-    ): ...
+    def HasField(self, field_name: typing.Literal["bool_value", b"bool_value", "float_value", b"float_value", "int_value", b"int_value", "is_none", b"is_none", "string_value", b"string_value", "value", b"value"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["bool_value", b"bool_value", "float_value", b"float_value", "int_value", b"int_value", "is_none", b"is_none", "string_value", b"string_value", "value", b"value"]) -> None: ...
+    def WhichOneof(self, oneof_group: typing.Literal["value", b"value"]) -> typing.Literal["int_value", "float_value", "string_value", "bool_value", "is_none"] | None: ...
 
 Global___Literal: typing_extensions.TypeAlias = Literal
 
@@ -1222,12 +861,8 @@ class BinaryOp(google.protobuf.message.Message):
         op: Global___BinaryOperator.ValueType = ...,
         right: Global___Expr | None = ...,
     ) -> None: ...
-    def HasField(
-        self, field_name: typing.Literal["left", b"left", "right", b"right"]
-    ) -> builtins.bool: ...
-    def ClearField(
-        self, field_name: typing.Literal["left", b"left", "op", b"op", "right", b"right"]
-    ) -> None: ...
+    def HasField(self, field_name: typing.Literal["left", b"left", "right", b"right"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["left", b"left", "op", b"op", "right", b"right"]) -> None: ...
 
 Global___BinaryOp: typing_extensions.TypeAlias = BinaryOp
 
@@ -1249,9 +884,7 @@ class UnaryOp(google.protobuf.message.Message):
         operand: Global___Expr | None = ...,
     ) -> None: ...
     def HasField(self, field_name: typing.Literal["operand", b"operand"]) -> builtins.bool: ...
-    def ClearField(
-        self, field_name: typing.Literal["op", b"op", "operand", b"operand"]
-    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["op", b"op", "operand", b"operand"]) -> None: ...
 
 Global___UnaryOp: typing_extensions.TypeAlias = UnaryOp
 
@@ -1263,9 +896,7 @@ class ListExpr(google.protobuf.message.Message):
 
     ELEMENTS_FIELD_NUMBER: builtins.int
     @property
-    def elements(
-        self,
-    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[Global___Expr]: ...
+    def elements(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[Global___Expr]: ...
     def __init__(
         self,
         *,
@@ -1283,11 +914,7 @@ class DictExpr(google.protobuf.message.Message):
 
     ENTRIES_FIELD_NUMBER: builtins.int
     @property
-    def entries(
-        self,
-    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
-        Global___DictEntry
-    ]: ...
+    def entries(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[Global___DictEntry]: ...
     def __init__(
         self,
         *,
@@ -1313,9 +940,7 @@ class DictEntry(google.protobuf.message.Message):
         key: Global___Expr | None = ...,
         value: Global___Expr | None = ...,
     ) -> None: ...
-    def HasField(
-        self, field_name: typing.Literal["key", b"key", "value", b"value"]
-    ) -> builtins.bool: ...
+    def HasField(self, field_name: typing.Literal["key", b"key", "value", b"value"]) -> builtins.bool: ...
     def ClearField(self, field_name: typing.Literal["key", b"key", "value", b"value"]) -> None: ...
 
 Global___DictEntry: typing_extensions.TypeAlias = DictEntry
@@ -1338,12 +963,8 @@ class IndexAccess(google.protobuf.message.Message):
         object: Global___Expr | None = ...,
         index: Global___Expr | None = ...,
     ) -> None: ...
-    def HasField(
-        self, field_name: typing.Literal["index", b"index", "object", b"object"]
-    ) -> builtins.bool: ...
-    def ClearField(
-        self, field_name: typing.Literal["index", b"index", "object", b"object"]
-    ) -> None: ...
+    def HasField(self, field_name: typing.Literal["index", b"index", "object", b"object"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["index", b"index", "object", b"object"]) -> None: ...
 
 Global___IndexAccess: typing_extensions.TypeAlias = IndexAccess
 
@@ -1365,9 +986,7 @@ class DotAccess(google.protobuf.message.Message):
         attribute: builtins.str = ...,
     ) -> None: ...
     def HasField(self, field_name: typing.Literal["object", b"object"]) -> builtins.bool: ...
-    def ClearField(
-        self, field_name: typing.Literal["attribute", b"attribute", "object", b"object"]
-    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["attribute", b"attribute", "object", b"object"]) -> None: ...
 
 Global___DotAccess: typing_extensions.TypeAlias = DotAccess
 
@@ -1387,15 +1006,11 @@ class FunctionCall(google.protobuf.message.Message):
     global_function: Global___GlobalFunction.ValueType
     """Global function identifier (if applicable)"""
     @property
-    def args(
-        self,
-    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[Global___Expr]:
+    def args(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[Global___Expr]:
         """Positional arguments (for built-ins)"""
 
     @property
-    def kwargs(
-        self,
-    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[Global___Kwarg]:
+    def kwargs(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[Global___Kwarg]:
         """Keyword arguments"""
 
     def __init__(
@@ -1406,19 +1021,7 @@ class FunctionCall(google.protobuf.message.Message):
         kwargs: collections.abc.Iterable[Global___Kwarg] | None = ...,
         global_function: Global___GlobalFunction.ValueType = ...,
     ) -> None: ...
-    def ClearField(
-        self,
-        field_name: typing.Literal[
-            "args",
-            b"args",
-            "global_function",
-            b"global_function",
-            "kwargs",
-            b"kwargs",
-            "name",
-            b"name",
-        ],
-    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["args", b"args", "global_function", b"global_function", "kwargs", b"kwargs", "name", b"name"]) -> None: ...
 
 Global___FunctionCall: typing_extensions.TypeAlias = FunctionCall
 
@@ -1440,9 +1043,7 @@ class Kwarg(google.protobuf.message.Message):
         value: Global___Expr | None = ...,
     ) -> None: ...
     def HasField(self, field_name: typing.Literal["value", b"value"]) -> builtins.bool: ...
-    def ClearField(
-        self, field_name: typing.Literal["name", b"name", "value", b"value"]
-    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["name", b"name", "value", b"value"]) -> None: ...
 
 Global___Kwarg: typing_extensions.TypeAlias = Kwarg
 
@@ -1456,9 +1057,7 @@ class ParallelExpr(google.protobuf.message.Message):
 
     CALLS_FIELD_NUMBER: builtins.int
     @property
-    def calls(
-        self,
-    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[Global___Call]:
+    def calls(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[Global___Call]:
         """Actions or function calls to run in parallel"""
 
     def __init__(
@@ -1498,15 +1097,8 @@ class SpreadExpr(google.protobuf.message.Message):
         loop_var: builtins.str = ...,
         action: Global___ActionCall | None = ...,
     ) -> None: ...
-    def HasField(
-        self, field_name: typing.Literal["action", b"action", "collection", b"collection"]
-    ) -> builtins.bool: ...
-    def ClearField(
-        self,
-        field_name: typing.Literal[
-            "action", b"action", "collection", b"collection", "loop_var", b"loop_var"
-        ],
-    ) -> None: ...
+    def HasField(self, field_name: typing.Literal["action", b"action", "collection", b"collection"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["action", b"action", "collection", b"collection", "loop_var", b"loop_var"]) -> None: ...
 
 Global___SpreadExpr: typing_extensions.TypeAlias = SpreadExpr
 
@@ -1533,15 +1125,9 @@ class PolicyBracket(google.protobuf.message.Message):
         retry: Global___RetryPolicy | None = ...,
         timeout: Global___TimeoutPolicy | None = ...,
     ) -> None: ...
-    def HasField(
-        self, field_name: typing.Literal["kind", b"kind", "retry", b"retry", "timeout", b"timeout"]
-    ) -> builtins.bool: ...
-    def ClearField(
-        self, field_name: typing.Literal["kind", b"kind", "retry", b"retry", "timeout", b"timeout"]
-    ) -> None: ...
-    def WhichOneof(
-        self, oneof_group: typing.Literal["kind", b"kind"]
-    ) -> typing.Literal["retry", "timeout"] | None: ...
+    def HasField(self, field_name: typing.Literal["kind", b"kind", "retry", b"retry", "timeout", b"timeout"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["kind", b"kind", "retry", b"retry", "timeout", b"timeout"]) -> None: ...
+    def WhichOneof(self, oneof_group: typing.Literal["kind", b"kind"]) -> typing.Literal["retry", "timeout"] | None: ...
 
 Global___PolicyBracket: typing_extensions.TypeAlias = PolicyBracket
 
@@ -1556,9 +1142,7 @@ class RetryPolicy(google.protobuf.message.Message):
     BACKOFF_FIELD_NUMBER: builtins.int
     max_retries: builtins.int
     @property
-    def exception_types(
-        self,
-    ) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[builtins.str]:
+    def exception_types(self) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[builtins.str]:
         """Empty = catch all"""
 
     @property
@@ -1571,17 +1155,7 @@ class RetryPolicy(google.protobuf.message.Message):
         backoff: Global___Duration | None = ...,
     ) -> None: ...
     def HasField(self, field_name: typing.Literal["backoff", b"backoff"]) -> builtins.bool: ...
-    def ClearField(
-        self,
-        field_name: typing.Literal[
-            "backoff",
-            b"backoff",
-            "exception_types",
-            b"exception_types",
-            "max_retries",
-            b"max_retries",
-        ],
-    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["backoff", b"backoff", "exception_types", b"exception_types", "max_retries", b"max_retries"]) -> None: ...
 
 Global___RetryPolicy: typing_extensions.TypeAlias = RetryPolicy
 
@@ -1648,18 +1222,6 @@ class Span(google.protobuf.message.Message):
         end_line: builtins.int = ...,
         end_col: builtins.int = ...,
     ) -> None: ...
-    def ClearField(
-        self,
-        field_name: typing.Literal[
-            "end_col",
-            b"end_col",
-            "end_line",
-            b"end_line",
-            "start_col",
-            b"start_col",
-            "start_line",
-            b"start_line",
-        ],
-    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["end_col", b"end_col", "end_line", b"end_line", "start_col", b"start_col", "start_line", b"start_line"]) -> None: ...
 
 Global___Span: typing_extensions.TypeAlias = Span

@@ -64,6 +64,9 @@ class Workflow:
     name: ClassVar[Optional[str]] = None
     """Human-friendly identifier. Override to pin the registry key; defaults to lowercase class name."""
 
+    version: ClassVar[Optional[str]] = None
+    """Optional workflow version identifier. Defaults to IR hash when unset."""
+
     concurrent: ClassVar[bool] = False
     """When True, downstream engines may respect DAG-parallel execution; False preserves sequential semantics."""
 
@@ -151,10 +154,13 @@ class Workflow:
         ir_bytes = program.SerializeToString()
         ir_hash = hashlib.sha256(ir_bytes).hexdigest()
 
+        workflow_version = cls.version or ir_hash
+
         message = pb2.WorkflowRegistration(
             workflow_name=cls.short_name(),
             ir=ir_bytes,
             ir_hash=ir_hash,
+            workflow_version=workflow_version,
             concurrent=cls.concurrent,
         )
 
@@ -281,21 +287,26 @@ def _deserialize_workflow_result(
     if result.error:
         raise RuntimeError(f"workflow failed: {result.error}")
 
+    value = result.result
+
     # Unwrap WorkflowNodeResult if present (internal worker representation)
-    if isinstance(result.result, WorkflowNodeResult):
-        # Extract the actual result from the variables dict
-        variables = result.result.variables
+    if isinstance(value, WorkflowNodeResult):
+        variables = value.variables
         program = workflow_cls.workflow_ir()
-        # Get the return variable from the IR if available
+        value = None
         if program.functions:
             outputs = list(program.functions[0].io.outputs)
-            if outputs:
-                return_var = outputs[0]
-                if return_var in variables:
-                    return variables[return_var]
-        return None
-
-    value = result.result
+            for name in outputs:
+                if name in variables:
+                    value = variables[name]
+                    break
+        if value is None:
+            if "result" in variables:
+                value = variables["result"]
+            elif len(variables) == 1:
+                value = next(iter(variables.values()))
+            else:
+                value = variables
     target_type = _resolve_return_type(workflow_cls)
     if target_type is None:
         return value

@@ -1,10 +1,10 @@
--- Rappel Core Schema
--- Single migration for new installations
+-- Rappel core schema (baseline)
 
--- ============================================================================
--- Workflow Versions
--- ============================================================================
--- Compiled workflow definitions with their DAG structure
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+-- ---------------------------------------------------------------------------
+-- Workflow definitions
+-- ---------------------------------------------------------------------------
 
 CREATE TABLE workflow_versions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -18,101 +18,79 @@ CREATE TABLE workflow_versions (
 
 CREATE INDEX idx_workflow_versions_name ON workflow_versions(workflow_name);
 
--- ============================================================================
--- Workflow Instances
--- ============================================================================
--- Running and completed workflow executions
--- Each instance contains its entire execution state in execution_graph
+-- ---------------------------------------------------------------------------
+-- Runner persistence tables
+-- ---------------------------------------------------------------------------
 
-CREATE TABLE workflow_instances (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    partition_id INT NOT NULL DEFAULT 0,
-    workflow_name TEXT NOT NULL,
-    workflow_version_id UUID REFERENCES workflow_versions(id) ON DELETE SET NULL,
-    schedule_id UUID,  -- FK added after workflow_schedules is created
-    next_action_seq INT NOT NULL DEFAULT 0,
-    input_payload BYTEA,
-    result_payload BYTEA,
-    status TEXT NOT NULL DEFAULT 'running',
+CREATE TABLE runner_graph_updates (
+    id BIGSERIAL PRIMARY KEY,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    completed_at TIMESTAMPTZ,
-    priority INT NOT NULL DEFAULT 0,
-
-    -- Execution graph: protobuf-encoded execution state
-    -- Contains all nodes, variables, and execution history
-    execution_graph BYTEA,
-
-    -- Instance ownership for distributed execution
-    owner_id TEXT,
-    lease_expires_at TIMESTAMPTZ,
-
-    -- Durable sleep scheduling
-    next_wakeup_time TIMESTAMPTZ
+    state BYTEA NOT NULL
 );
 
--- Claim instances by priority and creation time
--- Note: We can't use NOW() in index predicates (not immutable), so the lease check
--- happens at query time. This index covers the common case of unclaimed instances.
-CREATE INDEX idx_instances_claimable ON workflow_instances(priority DESC, created_at ASC)
-    WHERE status = 'running';
+CREATE TABLE runner_actions_done (
+    id BIGSERIAL PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    node_id UUID NOT NULL,
+    action_name TEXT NOT NULL,
+    attempt INTEGER NOT NULL,
+    result BYTEA
+);
 
--- Find orphaned instances (for monitoring)
-CREATE INDEX idx_instances_orphaned ON workflow_instances(lease_expires_at)
-    WHERE status = 'running' AND owner_id IS NOT NULL;
+CREATE TABLE runner_instances (
+    instance_id UUID PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    entry_node UUID NOT NULL,
+    state BYTEA,
+    result BYTEA,
+    error BYTEA
+);
 
--- Find sleeping instances ready to wake up
-CREATE INDEX idx_instances_wakeup ON workflow_instances(next_wakeup_time)
-    WHERE status = 'running' AND next_wakeup_time IS NOT NULL;
+CREATE TABLE runner_instances_done (
+    id BIGSERIAL PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    executor_id UUID NOT NULL,
+    entry_node UUID NOT NULL,
+    result BYTEA,
+    error BYTEA
+);
 
--- Query by owner
-CREATE INDEX idx_instances_owner ON workflow_instances(owner_id)
-    WHERE owner_id IS NOT NULL;
+CREATE TABLE queued_instances (
+    instance_id UUID PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    payload BYTEA NOT NULL
+);
 
--- Query by status
-CREATE INDEX idx_instances_status ON workflow_instances(status);
-
--- Query by workflow name
-CREATE INDEX idx_instances_workflow_name ON workflow_instances(workflow_name);
-
--- ============================================================================
--- Workflow Schedules
--- ============================================================================
--- Recurring workflow execution schedules
+-- ---------------------------------------------------------------------------
+-- Scheduler
+-- ---------------------------------------------------------------------------
 
 CREATE TABLE workflow_schedules (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     workflow_name TEXT NOT NULL,
     schedule_name TEXT NOT NULL,
-    schedule_type TEXT NOT NULL,  -- 'cron' or 'interval'
+    schedule_type TEXT NOT NULL,
     cron_expression TEXT,
     interval_seconds BIGINT,
     jitter_seconds BIGINT NOT NULL DEFAULT 0,
     input_payload BYTEA,
-    status TEXT NOT NULL DEFAULT 'active',  -- 'active', 'paused', 'deleted'
+    status TEXT NOT NULL DEFAULT 'active',
     next_run_at TIMESTAMPTZ,
     last_run_at TIMESTAMPTZ,
-    last_instance_id UUID REFERENCES workflow_instances(id) ON DELETE SET NULL,
+    last_instance_id UUID,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     priority INT NOT NULL DEFAULT 0,
+    allow_duplicate BOOLEAN NOT NULL DEFAULT false,
     UNIQUE(workflow_name, schedule_name)
 );
 
 CREATE INDEX idx_schedules_due ON workflow_schedules(next_run_at)
     WHERE status = 'active' AND next_run_at IS NOT NULL;
 
--- Now add the FK from workflow_instances to workflow_schedules
-ALTER TABLE workflow_instances
-    ADD CONSTRAINT fk_instances_schedule
-    FOREIGN KEY (schedule_id) REFERENCES workflow_schedules(id) ON DELETE SET NULL;
-
-CREATE INDEX idx_instances_schedule ON workflow_instances(schedule_id)
-    WHERE schedule_id IS NOT NULL;
-
--- ============================================================================
--- Worker Status
--- ============================================================================
--- Throughput and timing metrics for worker pools
+-- ---------------------------------------------------------------------------
+-- Worker status metrics
+-- ---------------------------------------------------------------------------
 
 CREATE TABLE worker_status (
     pool_id UUID NOT NULL,
@@ -123,8 +101,15 @@ CREATE TABLE worker_status (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     median_dequeue_ms BIGINT,
     median_handling_ms BIGINT,
-    -- Pool-level metrics (same for all workers in pool)
     dispatch_queue_size BIGINT,
     total_in_flight BIGINT,
+    active_workers INT NOT NULL DEFAULT 0,
+    actions_per_sec DOUBLE PRECISION NOT NULL DEFAULT 0,
+    median_instance_duration_secs DOUBLE PRECISION,
+    active_instance_count INT NOT NULL DEFAULT 0,
+    total_instances_completed BIGINT NOT NULL DEFAULT 0,
+    instances_per_sec DOUBLE PRECISION NOT NULL DEFAULT 0,
+    instances_per_min DOUBLE PRECISION NOT NULL DEFAULT 0,
+    time_series BYTEA,
     PRIMARY KEY (pool_id, worker_id)
 );

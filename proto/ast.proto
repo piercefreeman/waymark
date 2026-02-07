@@ -68,6 +68,7 @@ message Statement {
     BreakStmt break_stmt = 11;
     ContinueStmt continue_stmt = 12;
     WhileLoop while_loop = 13;
+    SleepStmt sleep_stmt = 14;
   }
   Span span = 10;
 }
@@ -177,6 +178,11 @@ message ReturnStmt {
 // Expression as statement
 message ExprStmt {
   Expr expr = 1;
+}
+
+// Sleep statement (durable sleep handled by scheduler)
+message SleepStmt {
+  optional Expr duration = 1;
 }
 
 // -----------------------------------------------------------------------------

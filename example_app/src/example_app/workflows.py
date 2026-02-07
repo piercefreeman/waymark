@@ -16,10 +16,8 @@ import asyncio
 from typing import Literal
 
 from pydantic import BaseModel, Field
-
 from rappel import Workflow, action, workflow
 from rappel.workflow import RetryPolicy
-
 
 # =============================================================================
 # Shared Models
@@ -131,7 +129,7 @@ class SleepResult(BaseModel):
 
 
 class SleepRequest(BaseModel):
-    seconds: int = Field(ge=1, le=10, description="Seconds to sleep (1-10)")
+    seconds: int = Field(ge=1, le=60, description="Seconds to sleep (1-10)")
 
 
 class GuardFallbackResult(BaseModel):
@@ -359,6 +357,7 @@ async def build_while_result(
     await asyncio.sleep(0.05)
     return WhileLoopResult(limit=limit, final=final, iterations=iterations)
 
+
 # =============================================================================
 # Actions - Error Handling Workflow
 # =============================================================================
@@ -549,7 +548,9 @@ class WhileLoopWorkflow(Workflow):
             current = await increment_counter(current)
             iterations = iterations + 1
 
-        return await build_while_result(limit=limit, final=current, iterations=iterations)
+        return await build_while_result(
+            limit=limit, final=current, iterations=iterations
+        )
 
 
 @workflow
@@ -1137,10 +1138,7 @@ class NoOpWorkflow(Workflow):
         _ = complexity
 
         stage1 = await asyncio.gather(
-            *[
-                noop_int(value=i)
-                for i in indices
-            ],
+            *[noop_int(value=i) for i in indices],
             return_exceptions=True,
         )
 
@@ -1153,10 +1151,7 @@ class NoOpWorkflow(Workflow):
             processed.append(result)
 
         tagged = await asyncio.gather(
-            *[
-                noop_tag_from_value(value=value)
-                for value in processed
-            ],
+            *[noop_tag_from_value(value=value) for value in processed],
             return_exceptions=True,
         )
 
@@ -1199,7 +1194,9 @@ async def compute_square(value: int) -> int:
 
 
 @action
-async def aggregate_squares(squares: list[int], action_count: int, parallel: bool) -> ManyActionsResult:
+async def aggregate_squares(
+    squares: list[int], action_count: int, parallel: bool
+) -> ManyActionsResult:
     """Aggregate the square computation results."""
     return ManyActionsResult(
         action_count=action_count,
@@ -1218,7 +1215,9 @@ class ManyActionsWorkflow(Workflow):
     based on the `parallel` configuration parameter.
     """
 
-    async def run(self, action_count: int = 50, parallel: bool = True) -> ManyActionsResult:
+    async def run(
+        self, action_count: int = 50, parallel: bool = True
+    ) -> ManyActionsResult:
         if parallel:
             # Fan out: run all actions in parallel
             results = await asyncio.gather(

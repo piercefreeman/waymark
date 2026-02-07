@@ -5,13 +5,11 @@ isort:skip_file
 
 import abc
 import collections.abc
-import sys
-import typing
-
 import grpc
 import grpc.aio
-
 from proto import messages_pb2
+import sys
+import typing
 
 if sys.version_info >= (3, 13):
     import typing as typing_extensions
@@ -20,16 +18,15 @@ else:
 
 _T = typing.TypeVar("_T")
 
-class _MaybeAsyncIterator(
-    collections.abc.AsyncIterator[_T], collections.abc.Iterator[_T], metaclass=abc.ABCMeta
-): ...
+class _MaybeAsyncIterator(collections.abc.AsyncIterator[_T], collections.abc.Iterator[_T], metaclass=abc.ABCMeta): ...
+
 class _ServicerContext(grpc.ServicerContext, grpc.aio.ServicerContext):  # type: ignore[misc, type-arg]
     ...
 
 GRPC_GENERATED_VERSION: str
 GRPC_VERSION: str
 _WorkerBridgeAttachType = typing_extensions.TypeVar(
-    "_WorkerBridgeAttachType",
+    '_WorkerBridgeAttachType',
     grpc.StreamStreamMultiCallable[
         messages_pb2.Envelope,
         messages_pb2.Envelope,
@@ -54,25 +51,20 @@ class WorkerBridgeStub(typing.Generic[_WorkerBridgeAttachType]):
     """
 
     @typing.overload
-    def __init__(
-        self: WorkerBridgeStub[
-            grpc.StreamStreamMultiCallable[
-                messages_pb2.Envelope,
-                messages_pb2.Envelope,
-            ],
+    def __init__(self: WorkerBridgeStub[
+        grpc.StreamStreamMultiCallable[
+            messages_pb2.Envelope,
+            messages_pb2.Envelope,
         ],
-        channel: grpc.Channel,
-    ) -> None: ...
+    ], channel: grpc.Channel) -> None: ...
+
     @typing.overload
-    def __init__(
-        self: WorkerBridgeStub[
-            grpc.aio.StreamStreamMultiCallable[
-                messages_pb2.Envelope,
-                messages_pb2.Envelope,
-            ],
+    def __init__(self: WorkerBridgeStub[
+        grpc.aio.StreamStreamMultiCallable[
+            messages_pb2.Envelope,
+            messages_pb2.Envelope,
         ],
-        channel: grpc.aio.Channel,
-    ) -> None: ...
+    ], channel: grpc.aio.Channel) -> None: ...
 
     Attach: _WorkerBridgeAttachType
 
@@ -97,17 +89,12 @@ class WorkerBridgeServicer(metaclass=abc.ABCMeta):
         self,
         request_iterator: _MaybeAsyncIterator[messages_pb2.Envelope],
         context: _ServicerContext,
-    ) -> typing.Union[
-        collections.abc.Iterator[messages_pb2.Envelope],
-        collections.abc.AsyncIterator[messages_pb2.Envelope],
-    ]: ...
+    ) -> typing.Union[collections.abc.Iterator[messages_pb2.Envelope], collections.abc.AsyncIterator[messages_pb2.Envelope]]: ...
 
-def add_WorkerBridgeServicer_to_server(
-    servicer: WorkerBridgeServicer, server: typing.Union[grpc.Server, grpc.aio.Server]
-) -> None: ...
+def add_WorkerBridgeServicer_to_server(servicer: WorkerBridgeServicer, server: typing.Union[grpc.Server, grpc.aio.Server]) -> None: ...
 
 _WorkflowServiceRegisterWorkflowType = typing_extensions.TypeVar(
-    "_WorkflowServiceRegisterWorkflowType",
+    '_WorkflowServiceRegisterWorkflowType',
     grpc.UnaryUnaryMultiCallable[
         messages_pb2.RegisterWorkflowRequest,
         messages_pb2.RegisterWorkflowResponse,
@@ -123,7 +110,7 @@ _WorkflowServiceRegisterWorkflowType = typing_extensions.TypeVar(
 )
 
 _WorkflowServiceRegisterWorkflowBatchType = typing_extensions.TypeVar(
-    "_WorkflowServiceRegisterWorkflowBatchType",
+    '_WorkflowServiceRegisterWorkflowBatchType',
     grpc.UnaryUnaryMultiCallable[
         messages_pb2.RegisterWorkflowBatchRequest,
         messages_pb2.RegisterWorkflowBatchResponse,
@@ -139,7 +126,7 @@ _WorkflowServiceRegisterWorkflowBatchType = typing_extensions.TypeVar(
 )
 
 _WorkflowServiceWaitForInstanceType = typing_extensions.TypeVar(
-    "_WorkflowServiceWaitForInstanceType",
+    '_WorkflowServiceWaitForInstanceType',
     grpc.UnaryUnaryMultiCallable[
         messages_pb2.WaitForInstanceRequest,
         messages_pb2.WaitForInstanceResponse,
@@ -155,7 +142,7 @@ _WorkflowServiceWaitForInstanceType = typing_extensions.TypeVar(
 )
 
 _WorkflowServiceExecuteWorkflowType = typing_extensions.TypeVar(
-    "_WorkflowServiceExecuteWorkflowType",
+    '_WorkflowServiceExecuteWorkflowType',
     grpc.StreamStreamMultiCallable[
         messages_pb2.WorkflowStreamRequest,
         messages_pb2.WorkflowStreamResponse,
@@ -171,7 +158,7 @@ _WorkflowServiceExecuteWorkflowType = typing_extensions.TypeVar(
 )
 
 _WorkflowServiceRegisterScheduleType = typing_extensions.TypeVar(
-    "_WorkflowServiceRegisterScheduleType",
+    '_WorkflowServiceRegisterScheduleType',
     grpc.UnaryUnaryMultiCallable[
         messages_pb2.RegisterScheduleRequest,
         messages_pb2.RegisterScheduleResponse,
@@ -187,7 +174,7 @@ _WorkflowServiceRegisterScheduleType = typing_extensions.TypeVar(
 )
 
 _WorkflowServiceUpdateScheduleStatusType = typing_extensions.TypeVar(
-    "_WorkflowServiceUpdateScheduleStatusType",
+    '_WorkflowServiceUpdateScheduleStatusType',
     grpc.UnaryUnaryMultiCallable[
         messages_pb2.UpdateScheduleStatusRequest,
         messages_pb2.UpdateScheduleStatusResponse,
@@ -203,7 +190,7 @@ _WorkflowServiceUpdateScheduleStatusType = typing_extensions.TypeVar(
 )
 
 _WorkflowServiceDeleteScheduleType = typing_extensions.TypeVar(
-    "_WorkflowServiceDeleteScheduleType",
+    '_WorkflowServiceDeleteScheduleType',
     grpc.UnaryUnaryMultiCallable[
         messages_pb2.DeleteScheduleRequest,
         messages_pb2.DeleteScheduleResponse,
@@ -219,7 +206,7 @@ _WorkflowServiceDeleteScheduleType = typing_extensions.TypeVar(
 )
 
 _WorkflowServiceListSchedulesType = typing_extensions.TypeVar(
-    "_WorkflowServiceListSchedulesType",
+    '_WorkflowServiceListSchedulesType',
     grpc.UnaryUnaryMultiCallable[
         messages_pb2.ListSchedulesRequest,
         messages_pb2.ListSchedulesResponse,
@@ -234,96 +221,80 @@ _WorkflowServiceListSchedulesType = typing_extensions.TypeVar(
     ],
 )
 
-class WorkflowServiceStub(
-    typing.Generic[
-        _WorkflowServiceRegisterWorkflowType,
-        _WorkflowServiceRegisterWorkflowBatchType,
-        _WorkflowServiceWaitForInstanceType,
-        _WorkflowServiceExecuteWorkflowType,
-        _WorkflowServiceRegisterScheduleType,
-        _WorkflowServiceUpdateScheduleStatusType,
-        _WorkflowServiceDeleteScheduleType,
-        _WorkflowServiceListSchedulesType,
-    ]
-):
+class WorkflowServiceStub(typing.Generic[_WorkflowServiceRegisterWorkflowType, _WorkflowServiceRegisterWorkflowBatchType, _WorkflowServiceWaitForInstanceType, _WorkflowServiceExecuteWorkflowType, _WorkflowServiceRegisterScheduleType, _WorkflowServiceUpdateScheduleStatusType, _WorkflowServiceDeleteScheduleType, _WorkflowServiceListSchedulesType]):
     """Workflow management service for client operations."""
 
     @typing.overload
-    def __init__(
-        self: WorkflowServiceStub[
-            grpc.UnaryUnaryMultiCallable[
-                messages_pb2.RegisterWorkflowRequest,
-                messages_pb2.RegisterWorkflowResponse,
-            ],
-            grpc.UnaryUnaryMultiCallable[
-                messages_pb2.RegisterWorkflowBatchRequest,
-                messages_pb2.RegisterWorkflowBatchResponse,
-            ],
-            grpc.UnaryUnaryMultiCallable[
-                messages_pb2.WaitForInstanceRequest,
-                messages_pb2.WaitForInstanceResponse,
-            ],
-            grpc.StreamStreamMultiCallable[
-                messages_pb2.WorkflowStreamRequest,
-                messages_pb2.WorkflowStreamResponse,
-            ],
-            grpc.UnaryUnaryMultiCallable[
-                messages_pb2.RegisterScheduleRequest,
-                messages_pb2.RegisterScheduleResponse,
-            ],
-            grpc.UnaryUnaryMultiCallable[
-                messages_pb2.UpdateScheduleStatusRequest,
-                messages_pb2.UpdateScheduleStatusResponse,
-            ],
-            grpc.UnaryUnaryMultiCallable[
-                messages_pb2.DeleteScheduleRequest,
-                messages_pb2.DeleteScheduleResponse,
-            ],
-            grpc.UnaryUnaryMultiCallable[
-                messages_pb2.ListSchedulesRequest,
-                messages_pb2.ListSchedulesResponse,
-            ],
+    def __init__(self: WorkflowServiceStub[
+        grpc.UnaryUnaryMultiCallable[
+            messages_pb2.RegisterWorkflowRequest,
+            messages_pb2.RegisterWorkflowResponse,
         ],
-        channel: grpc.Channel,
-    ) -> None: ...
+        grpc.UnaryUnaryMultiCallable[
+            messages_pb2.RegisterWorkflowBatchRequest,
+            messages_pb2.RegisterWorkflowBatchResponse,
+        ],
+        grpc.UnaryUnaryMultiCallable[
+            messages_pb2.WaitForInstanceRequest,
+            messages_pb2.WaitForInstanceResponse,
+        ],
+        grpc.StreamStreamMultiCallable[
+            messages_pb2.WorkflowStreamRequest,
+            messages_pb2.WorkflowStreamResponse,
+        ],
+        grpc.UnaryUnaryMultiCallable[
+            messages_pb2.RegisterScheduleRequest,
+            messages_pb2.RegisterScheduleResponse,
+        ],
+        grpc.UnaryUnaryMultiCallable[
+            messages_pb2.UpdateScheduleStatusRequest,
+            messages_pb2.UpdateScheduleStatusResponse,
+        ],
+        grpc.UnaryUnaryMultiCallable[
+            messages_pb2.DeleteScheduleRequest,
+            messages_pb2.DeleteScheduleResponse,
+        ],
+        grpc.UnaryUnaryMultiCallable[
+            messages_pb2.ListSchedulesRequest,
+            messages_pb2.ListSchedulesResponse,
+        ],
+    ], channel: grpc.Channel) -> None: ...
+
     @typing.overload
-    def __init__(
-        self: WorkflowServiceStub[
-            grpc.aio.UnaryUnaryMultiCallable[
-                messages_pb2.RegisterWorkflowRequest,
-                messages_pb2.RegisterWorkflowResponse,
-            ],
-            grpc.aio.UnaryUnaryMultiCallable[
-                messages_pb2.RegisterWorkflowBatchRequest,
-                messages_pb2.RegisterWorkflowBatchResponse,
-            ],
-            grpc.aio.UnaryUnaryMultiCallable[
-                messages_pb2.WaitForInstanceRequest,
-                messages_pb2.WaitForInstanceResponse,
-            ],
-            grpc.aio.StreamStreamMultiCallable[
-                messages_pb2.WorkflowStreamRequest,
-                messages_pb2.WorkflowStreamResponse,
-            ],
-            grpc.aio.UnaryUnaryMultiCallable[
-                messages_pb2.RegisterScheduleRequest,
-                messages_pb2.RegisterScheduleResponse,
-            ],
-            grpc.aio.UnaryUnaryMultiCallable[
-                messages_pb2.UpdateScheduleStatusRequest,
-                messages_pb2.UpdateScheduleStatusResponse,
-            ],
-            grpc.aio.UnaryUnaryMultiCallable[
-                messages_pb2.DeleteScheduleRequest,
-                messages_pb2.DeleteScheduleResponse,
-            ],
-            grpc.aio.UnaryUnaryMultiCallable[
-                messages_pb2.ListSchedulesRequest,
-                messages_pb2.ListSchedulesResponse,
-            ],
+    def __init__(self: WorkflowServiceStub[
+        grpc.aio.UnaryUnaryMultiCallable[
+            messages_pb2.RegisterWorkflowRequest,
+            messages_pb2.RegisterWorkflowResponse,
         ],
-        channel: grpc.aio.Channel,
-    ) -> None: ...
+        grpc.aio.UnaryUnaryMultiCallable[
+            messages_pb2.RegisterWorkflowBatchRequest,
+            messages_pb2.RegisterWorkflowBatchResponse,
+        ],
+        grpc.aio.UnaryUnaryMultiCallable[
+            messages_pb2.WaitForInstanceRequest,
+            messages_pb2.WaitForInstanceResponse,
+        ],
+        grpc.aio.StreamStreamMultiCallable[
+            messages_pb2.WorkflowStreamRequest,
+            messages_pb2.WorkflowStreamResponse,
+        ],
+        grpc.aio.UnaryUnaryMultiCallable[
+            messages_pb2.RegisterScheduleRequest,
+            messages_pb2.RegisterScheduleResponse,
+        ],
+        grpc.aio.UnaryUnaryMultiCallable[
+            messages_pb2.UpdateScheduleStatusRequest,
+            messages_pb2.UpdateScheduleStatusResponse,
+        ],
+        grpc.aio.UnaryUnaryMultiCallable[
+            messages_pb2.DeleteScheduleRequest,
+            messages_pb2.DeleteScheduleResponse,
+        ],
+        grpc.aio.UnaryUnaryMultiCallable[
+            messages_pb2.ListSchedulesRequest,
+            messages_pb2.ListSchedulesResponse,
+        ],
+    ], channel: grpc.aio.Channel) -> None: ...
 
     RegisterWorkflow: _WorkflowServiceRegisterWorkflowType
 
@@ -385,46 +356,35 @@ class WorkflowServiceServicer(metaclass=abc.ABCMeta):
         self,
         request: messages_pb2.RegisterWorkflowRequest,
         context: _ServicerContext,
-    ) -> typing.Union[
-        messages_pb2.RegisterWorkflowResponse,
-        collections.abc.Awaitable[messages_pb2.RegisterWorkflowResponse],
-    ]: ...
+    ) -> typing.Union[messages_pb2.RegisterWorkflowResponse, collections.abc.Awaitable[messages_pb2.RegisterWorkflowResponse]]: ...
+
     @abc.abstractmethod
     def RegisterWorkflowBatch(
         self,
         request: messages_pb2.RegisterWorkflowBatchRequest,
         context: _ServicerContext,
-    ) -> typing.Union[
-        messages_pb2.RegisterWorkflowBatchResponse,
-        collections.abc.Awaitable[messages_pb2.RegisterWorkflowBatchResponse],
-    ]: ...
+    ) -> typing.Union[messages_pb2.RegisterWorkflowBatchResponse, collections.abc.Awaitable[messages_pb2.RegisterWorkflowBatchResponse]]: ...
+
     @abc.abstractmethod
     def WaitForInstance(
         self,
         request: messages_pb2.WaitForInstanceRequest,
         context: _ServicerContext,
-    ) -> typing.Union[
-        messages_pb2.WaitForInstanceResponse,
-        collections.abc.Awaitable[messages_pb2.WaitForInstanceResponse],
-    ]: ...
+    ) -> typing.Union[messages_pb2.WaitForInstanceResponse, collections.abc.Awaitable[messages_pb2.WaitForInstanceResponse]]: ...
+
     @abc.abstractmethod
     def ExecuteWorkflow(
         self,
         request_iterator: _MaybeAsyncIterator[messages_pb2.WorkflowStreamRequest],
         context: _ServicerContext,
-    ) -> typing.Union[
-        collections.abc.Iterator[messages_pb2.WorkflowStreamResponse],
-        collections.abc.AsyncIterator[messages_pb2.WorkflowStreamResponse],
-    ]: ...
+    ) -> typing.Union[collections.abc.Iterator[messages_pb2.WorkflowStreamResponse], collections.abc.AsyncIterator[messages_pb2.WorkflowStreamResponse]]: ...
+
     @abc.abstractmethod
     def RegisterSchedule(
         self,
         request: messages_pb2.RegisterScheduleRequest,
         context: _ServicerContext,
-    ) -> typing.Union[
-        messages_pb2.RegisterScheduleResponse,
-        collections.abc.Awaitable[messages_pb2.RegisterScheduleResponse],
-    ]:
+    ) -> typing.Union[messages_pb2.RegisterScheduleResponse, collections.abc.Awaitable[messages_pb2.RegisterScheduleResponse]]:
         """Schedule management"""
 
     @abc.abstractmethod
@@ -432,29 +392,20 @@ class WorkflowServiceServicer(metaclass=abc.ABCMeta):
         self,
         request: messages_pb2.UpdateScheduleStatusRequest,
         context: _ServicerContext,
-    ) -> typing.Union[
-        messages_pb2.UpdateScheduleStatusResponse,
-        collections.abc.Awaitable[messages_pb2.UpdateScheduleStatusResponse],
-    ]: ...
+    ) -> typing.Union[messages_pb2.UpdateScheduleStatusResponse, collections.abc.Awaitable[messages_pb2.UpdateScheduleStatusResponse]]: ...
+
     @abc.abstractmethod
     def DeleteSchedule(
         self,
         request: messages_pb2.DeleteScheduleRequest,
         context: _ServicerContext,
-    ) -> typing.Union[
-        messages_pb2.DeleteScheduleResponse,
-        collections.abc.Awaitable[messages_pb2.DeleteScheduleResponse],
-    ]: ...
+    ) -> typing.Union[messages_pb2.DeleteScheduleResponse, collections.abc.Awaitable[messages_pb2.DeleteScheduleResponse]]: ...
+
     @abc.abstractmethod
     def ListSchedules(
         self,
         request: messages_pb2.ListSchedulesRequest,
         context: _ServicerContext,
-    ) -> typing.Union[
-        messages_pb2.ListSchedulesResponse,
-        collections.abc.Awaitable[messages_pb2.ListSchedulesResponse],
-    ]: ...
+    ) -> typing.Union[messages_pb2.ListSchedulesResponse, collections.abc.Awaitable[messages_pb2.ListSchedulesResponse]]: ...
 
-def add_WorkflowServiceServicer_to_server(
-    servicer: WorkflowServiceServicer, server: typing.Union[grpc.Server, grpc.aio.Server]
-) -> None: ...
+def add_WorkflowServiceServicer_to_server(servicer: WorkflowServiceServicer, server: typing.Union[grpc.Server, grpc.aio.Server]) -> None: ...

@@ -1,37 +1,59 @@
-//! Start Workers - Runs the instance runner with Python worker pool.
+//! Start Workers - Runs the core runloop with Python worker pool.
 //!
 //! This binary starts the worker infrastructure:
 //! - Connects to the database
 //! - Starts the WorkerBridge gRPC server for worker connections
 //! - Spawns a pool of Python workers
-//! - Runs the InstanceRunner to process workflow instances
-//! - Optionally starts the web dashboard for monitoring
+//! - Runs the core runloop to process queued workflow instances
+//! - Optionally starts the scheduler and web dashboard
 //!
 //! Configuration is via environment variables:
 //! - RAPPEL_DATABASE_URL: PostgreSQL connection string (required)
 //! - RAPPEL_WORKER_GRPC_ADDR: gRPC server for worker connections (default: 127.0.0.1:24118)
-//! - RAPPEL_USER_MODULE: Python module to preload
+//! - RAPPEL_USER_MODULE: Python module(s) to preload (comma-separated)
 //! - RAPPEL_WORKER_COUNT: Number of workers (default: num_cpus)
-//! - RAPPEL_WEBAPP_ENABLED: Set to "true" or "1" to enable web dashboard
-//! - RAPPEL_WEBAPP_ADDR: Web dashboard address (default: 0.0.0.0:24119)
+//! - RAPPEL_CONCURRENT_PER_WORKER: Max concurrent actions per worker (default: 10)
+//! - RAPPEL_POLL_INTERVAL_MS: Poll interval for queued instances (default: 100)
+//! - RAPPEL_MAX_CONCURRENT_INSTANCES: Max workflow instances held concurrently (default: 500)
+//! - RAPPEL_EXECUTOR_SHARDS: Executor shard thread count (default: num_cpus)
+//! - RAPPEL_INSTANCE_DONE_BATCH_SIZE: Instance completion flush batch size (default: claim size)
+//! - RAPPEL_PERSIST_INTERVAL_MS: Result persistence tick (default: 500)
+//! - RAPPEL_LOCK_TTL_MS: Instance lock TTL (default: 15000)
+//! - RAPPEL_LOCK_HEARTBEAT_MS: Lock refresh heartbeat interval (default: 5000)
+//! - RAPPEL_EVICT_SLEEP_THRESHOLD_MS: Sleep duration before evicting idle instances (default: 10000)
+//! - RAPPEL_EXPIRED_LOCK_RECLAIMER_INTERVAL_MS: Sweep interval for expired queue locks (default: 1000)
+//! - RAPPEL_EXPIRED_LOCK_RECLAIMER_BATCH_SIZE: Max expired locks to reclaim per sweep (default: 1000)
+//! - RAPPEL_MAX_ACTION_LIFECYCLE: Max actions per worker before recycling
+//! - RAPPEL_SCHEDULER_POLL_INTERVAL_MS: Scheduler poll interval (default: 1000)
+//! - RAPPEL_SCHEDULER_BATCH_SIZE: Scheduler batch size (default: 100)
+//! - RAPPEL_WEBAPP_ENABLED / RAPPEL_WEBAPP_ADDR: Web dashboard configuration
+//! - RAPPEL_RUNNER_PROFILE_INTERVAL_MS: Status reporting interval (default: 5000)
 
-use std::sync::Arc;
+use std::sync::{Arc, atomic::AtomicUsize};
 use std::time::Duration;
 
-use anyhow::{Result, anyhow};
+use anyhow::Result;
+use prost::Message;
+use sqlx::{PgPool, Row};
+use tokio::signal;
 use tokio::sync::watch;
-use tokio::{select, signal};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+use rappel::backends::PostgresBackend;
+use rappel::config::WorkerConfig;
+use rappel::db;
+use rappel::messages::ast as ir;
+use rappel::rappel_core::dag::convert_to_dag;
+use rappel::rappel_core::runloop::{RunLoopSupervisorConfig, runloop_supervisor};
+use rappel::scheduler::{DagResolver, WorkflowDag};
 use rappel::{
-    Database, InstanceRunner, InstanceRunnerConfig, PythonWorkerConfig, PythonWorkerPool,
-    WebappServer, WorkerBridgeServer, get_config,
+    PythonWorkerConfig, RemoteWorkerPool, WebappServer, spawn_scheduler, spawn_status_reporter,
 };
+use uuid::Uuid;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Initialize logging
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -40,163 +62,127 @@ async fn main() -> Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    // Load configuration from global cache
-    let config = get_config();
+    // Load configuration and announce startup.
+    let config = WorkerConfig::from_env()?;
 
     info!(
         worker_count = config.worker_count,
         concurrent_per_worker = config.concurrent_per_worker,
-        user_module = ?config.user_module,
+        user_modules = ?config.user_modules,
+        executor_shards = config.executor_shards,
+        lock_ttl_ms = config.lock_ttl.as_millis(),
+        lock_heartbeat_ms = config.lock_heartbeat.as_millis(),
+        evict_sleep_threshold_ms = config.evict_sleep_threshold.as_millis(),
+        expired_lock_reclaimer_interval_ms = config.expired_lock_reclaimer_interval.as_millis(),
+        expired_lock_reclaimer_batch_size = config.expired_lock_reclaimer_batch_size,
         max_action_lifecycle = ?config.max_action_lifecycle,
-        "starting worker pool"
+        "starting worker infrastructure"
     );
 
-    // Connect to database
-    let database =
-        Database::connect_with_pool_size(&config.database_url, config.db_max_connections).await?;
-    info!("connected to database");
+    // Initialize the database and backend.
+    let pool = PgPool::connect(&config.database_url).await?;
+    db::run_migrations(&pool).await?;
+    let backend = PostgresBackend::new(pool);
 
-    let webapp_database = if config.webapp.enabled {
-        Some(Arc::new(
-            Database::connect_with_pool_size(
-                &config.database_url,
-                config.webapp.db_max_connections,
-            )
-            .await?,
-        ))
-    } else {
-        None
-    };
-
-    // Start worker bridge server
-    let worker_bridge = WorkerBridgeServer::start(Some(config.worker_grpc_addr)).await?;
-    info!(addr = %worker_bridge.addr(), "worker bridge started");
-
-    // Start webapp server if enabled
-    let webapp_server = match webapp_database {
-        Some(db) => WebappServer::start(config.webapp.clone(), db).await?,
-        None => WebappServer::start(config.webapp.clone(), Arc::new(database.clone())).await?,
-    };
-
-    // Configure Python workers
+    // Start the worker pool (bridge + python workers).
     let mut worker_config = PythonWorkerConfig::new();
-    if let Some(module) = &config.user_module {
-        worker_config = worker_config.with_user_module(module);
+    if !config.user_modules.is_empty() {
+        worker_config = worker_config.with_user_modules(config.user_modules.clone());
     }
 
-    // Create worker pool with concurrency limit
-    let worker_pool = Arc::new(
-        PythonWorkerPool::new_with_concurrency(
-            worker_config,
-            config.worker_count,
-            Arc::clone(&worker_bridge),
-            config.max_action_lifecycle,
-            config.concurrent_per_worker,
-        )
-        .await?,
-    );
+    let remote_pool = RemoteWorkerPool::new_with_config(
+        worker_config,
+        config.worker_count,
+        Some(config.worker_grpc_addr),
+        config.max_action_lifecycle,
+        config.concurrent_per_worker,
+    )
+    .await?;
     info!(
-        worker_count = config.worker_count,
+        count = config.worker_count,
+        bridge_addr = %remote_pool.bridge_addr(),
         "python worker pool started"
     );
 
-    // Configure and create instance runner
-    let runner_config = InstanceRunnerConfig {
-        claim_batch_size: config.instance_claim_batch_size,
-        max_concurrent_instances: config.max_concurrent_instances,
-        completion_batch_size: config.completion_batch_size,
-        idle_poll_interval: Duration::from_millis(config.poll_interval_ms),
-        status_report_interval: Duration::from_millis(config.worker_status_interval_ms),
-        schedule_check_interval: Duration::from_millis(config.schedule_check_interval_ms),
-        schedule_check_batch_size: config.schedule_check_batch_size,
-        gc_interval: config.gc.interval_ms.map(Duration::from_millis),
-        gc_retention_seconds: config.gc.retention_seconds,
-        gc_batch_size: config.gc.batch_size,
-        ..Default::default()
-    };
+    // Start the webapp server.
+    let webapp_backend = Arc::new(backend.clone());
+    let webapp_server = WebappServer::start(config.webapp.clone(), webapp_backend).await?;
 
-    let (shutdown_tx, shutdown_rx) = watch::channel(false);
-
+    // Start the scheduler loop.
+    let dag_resolver = build_dag_resolver(backend.pool().clone());
+    let (scheduler_handle, scheduler_shutdown) =
+        spawn_scheduler(backend.clone(), config.scheduler.clone(), dag_resolver);
     info!(
-        claim_batch_size = config.instance_claim_batch_size,
-        max_concurrent_instances = config.max_concurrent_instances,
-        poll_interval_ms = config.poll_interval_ms,
-        "instance runner supervisor created - waiting for shutdown signal"
+        poll_interval_ms = config.scheduler.poll_interval.as_millis(),
+        batch_size = config.scheduler.batch_size,
+        "scheduler task started"
     );
 
-    let runner_handle = {
-        let database = database.clone();
-        let runner_config = runner_config.clone();
-        let worker_pool = Arc::clone(&worker_pool);
-        let shutdown_rx = shutdown_rx.clone();
-        tokio::spawn(async move {
-            let mut backoff = Duration::from_millis(200);
-            let max_backoff = Duration::from_secs(5);
+    // Wire shutdown coordination.
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let active_instance_gauge = Arc::new(AtomicUsize::new(0));
 
-            loop {
-                if *shutdown_rx.borrow() {
-                    break;
-                }
+    // Start status reporting.
+    let pool_id = Uuid::new_v4();
+    let status_reporter_handle = spawn_status_reporter(
+        pool_id,
+        backend.clone(),
+        remote_pool.clone(),
+        active_instance_gauge.clone(),
+        config.profile_interval,
+        shutdown_rx.clone(),
+    );
+    let expired_lock_reclaimer_handle = spawn_expired_lock_reclaimer(
+        backend.clone(),
+        config.expired_lock_reclaimer_interval,
+        config.expired_lock_reclaimer_batch_size,
+        shutdown_rx.clone(),
+    );
 
-                let runner = Arc::new(InstanceRunner::new(
-                    runner_config.clone(),
-                    database.clone(),
-                    Arc::clone(&worker_pool),
-                ));
-
-                let runner_for_shutdown = Arc::clone(&runner);
-                let mut shutdown_rx_runner = shutdown_rx.clone();
-                let shutdown_task = tokio::spawn(async move {
-                    loop {
-                        if shutdown_rx_runner.changed().await.is_err() {
-                            break;
-                        }
-                        if *shutdown_rx_runner.borrow() {
-                            runner_for_shutdown.shutdown();
-                            break;
-                        }
-                    }
-                });
-
-                let result = runner.run().await;
-                shutdown_task.abort();
-
-                if *shutdown_rx.borrow() {
-                    break;
-                }
-
-                match result {
-                    Ok(()) => {
-                        backoff = Duration::from_millis(200);
-                    }
-                    Err(err) => {
-                        error!(error = %err, "Instance runner crashed; restarting");
-                        tokio::time::sleep(backoff).await;
-                        backoff = std::cmp::min(backoff * 2, max_backoff);
-                    }
-                }
+    let shutdown_handle = tokio::spawn({
+        let shutdown_tx = shutdown_tx.clone();
+        let scheduler_shutdown = scheduler_shutdown.clone();
+        async move {
+            if let Err(err) = wait_for_shutdown().await {
+                error!(error = %err, "shutdown signal listener failed");
+                return;
             }
-        })
-    };
+            info!("shutdown signal received");
+            let _ = shutdown_tx.send(true);
+            let _ = scheduler_shutdown.send(true);
+        }
+    });
 
-    // Wait for shutdown signal
-    wait_for_shutdown().await?;
-    info!("shutdown signal received - stopping workers");
+    // Run the runloop supervisor until shutdown.
+    let lock_uuid = Uuid::new_v4();
+    runloop_supervisor(
+        backend.clone(),
+        remote_pool.clone(),
+        RunLoopSupervisorConfig {
+            max_concurrent_instances: config.max_concurrent_instances,
+            executor_shards: config.executor_shards,
+            instance_done_batch_size: config.instance_done_batch_size,
+            poll_interval: config.poll_interval,
+            persistence_interval: config.persistence_interval,
+            lock_uuid,
+            lock_ttl: config.lock_ttl,
+            lock_heartbeat: config.lock_heartbeat,
+            evict_sleep_threshold: config.evict_sleep_threshold,
+            active_instance_gauge: Some(active_instance_gauge),
+        },
+        shutdown_rx,
+    )
+    .await;
 
-    let _ = shutdown_tx.send(true);
+    let _ = shutdown_handle.await;
+    let _ = tokio::time::timeout(Duration::from_secs(5), scheduler_handle).await;
+    let _ = tokio::time::timeout(Duration::from_secs(2), status_reporter_handle).await;
+    let _ = tokio::time::timeout(Duration::from_secs(2), expired_lock_reclaimer_handle).await;
 
-    // Wait for runner to finish (with timeout)
-    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), runner_handle).await;
+    if let Err(err) = remote_pool.shutdown().await {
+        warn!(error = %err, "worker pool shutdown failed");
+    }
 
-    // Shutdown worker pool
-    let pool = Arc::try_unwrap(worker_pool)
-        .map_err(|_| anyhow!("worker pool still referenced during shutdown"))?;
-    pool.shutdown().await?;
-
-    // Shutdown worker bridge
-    worker_bridge.shutdown().await;
-
-    // Shutdown webapp server if running
     if let Some(webapp) = webapp_server {
         webapp.shutdown().await;
     }
@@ -205,13 +191,96 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+fn build_dag_resolver(pool: sqlx::PgPool) -> DagResolver {
+    Arc::new(move |workflow_name| {
+        let pool = pool.clone();
+        let workflow_name = workflow_name.to_string();
+        tokio::task::block_in_place(|| {
+            let handle = tokio::runtime::Handle::current();
+            handle.block_on(async move {
+                let row = sqlx::query(
+                    r#"
+                    SELECT id, program_proto
+                    FROM workflow_versions
+                    WHERE workflow_name = $1
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    "#,
+                )
+                .bind(&workflow_name)
+                .fetch_optional(&pool)
+                .await
+                .ok()??;
+
+                let version_id: Uuid = row.get("id");
+                let payload: Vec<u8> = row.get("program_proto");
+                let program = ir::Program::decode(&payload[..]).ok()?;
+                let dag = convert_to_dag(&program).ok()?;
+                Some(WorkflowDag {
+                    version_id,
+                    dag: Arc::new(dag),
+                })
+            })
+        })
+    })
+}
+
+fn spawn_expired_lock_reclaimer(
+    backend: PostgresBackend,
+    interval: Duration,
+    batch_size: usize,
+    mut shutdown_rx: watch::Receiver<bool>,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(interval);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        info!(
+            interval_ms = interval.as_millis(),
+            batch_size, "expired lock reclaimer started"
+        );
+        loop {
+            tokio::select! {
+                _ = ticker.tick() => {
+                    let mut reclaimed_total = 0usize;
+                    loop {
+                        match backend.reclaim_expired_instance_locks(batch_size).await {
+                            Ok(reclaimed) => {
+                                reclaimed_total += reclaimed;
+                                if reclaimed < batch_size {
+                                    break;
+                                }
+                            }
+                            Err(err) => {
+                                warn!(error = %err, "failed to reclaim expired instance locks");
+                                break;
+                            }
+                        }
+                    }
+                    if reclaimed_total > 0 {
+                        warn!(
+                            reclaimed_total,
+                            "reclaimed expired instance locks"
+                        );
+                    }
+                }
+                _ = shutdown_rx.changed() => {
+                    if *shutdown_rx.borrow() {
+                        info!("expired lock reclaimer shutting down");
+                        break;
+                    }
+                }
+            }
+        }
+    })
+}
+
 async fn wait_for_shutdown() -> Result<()> {
     #[cfg(unix)]
     {
         use tokio::signal::unix::{SignalKind, signal as unix_signal};
 
         let mut terminate = unix_signal(SignalKind::terminate())?;
-        select! {
+        tokio::select! {
             _ = signal::ctrl_c() => {
                 info!("Ctrl+C received");
             }
@@ -221,6 +290,7 @@ async fn wait_for_shutdown() -> Result<()> {
         }
         Ok(())
     }
+
     #[cfg(not(unix))]
     {
         signal::ctrl_c().await?;

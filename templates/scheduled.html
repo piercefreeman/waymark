@@ -58,7 +58,7 @@
                             <td class="px-4 py-3 font-medium text-zinc-800 dark:text-zinc-200">{{ schedule.schedule_name }}</td>
                             <td class="px-4 py-3 text-sm text-zinc-600 dark:text-zinc-400">{{ schedule.workflow_name }}</td>
                             <td class="px-4 py-3">{{ macros::schedule_type_badge(schedule_type=schedule.schedule_type) }}</td>
-                            <td class="px-4 py-3 font-mono text-xs text-zinc-500 dark:text-zinc-500">{{ schedule.schedule_expression }}</td>
+                            <td class="px-4 py-3 font-mono text-xs text-zinc-500 dark:text-zinc-500">{{ schedule.expression }}</td>
                             <td class="px-4 py-3">{{ macros::schedule_badge(status=schedule.status) }}</td>
                             <td class="px-4 py-3 text-sm text-zinc-600 dark:text-zinc-400">
                                 {% if schedule.next_run_at %}

@@ -1,3 +1,116 @@
+# Rappel
+
+## Terminology
+
+- A "node_id" is only true for the ground truth DAG node that come from the workflow definition in the run() workflow. This is converted from Python->IR->DAG. These are the `nodes` that are referenced.
+- An "execution_id" comes from the state graph of the program that is currently running. Loops are unrolled in this state, for example. They also maintain the state of the actions that are actually pushed into the cluster like the current attempt number of the actions.
+
+## Code Review
+
+When there are TODOs in the code that indicate issues with the code written (versus areas that we want to implement in the future), you should fix them one by one. You should also generalize the feedback that you receive into advice that applies to our code style guides. For every piece of this feedback, consult the AGENTS.md file. Is the feedback still within the document? If not, add it as a new bullet or nuance a bullet that is already there to be more specific it it overlaps significantly in scope. Feel free to include code examples inline of the good/bad way of how to handle it.
+
+Once you are done fixing the TODO, double check your work. Have we really taken care of the TODO? Remove the comment if so.
+
+Follow this syntax:
+
+<code_feedback>
+<rule></rule>
+</code_feedback>
+
+## UI Design Conventions
+
+Follow a modern, developer-focused design language. The design prioritizes clarity, information density, and professional polish.
+
+### Theme & Color System
+
+**Dual Theme Support**
+- Every component must support both light and dark modes
+- Dark mode: Near-black backgrounds (#0a0a0a to #1a1a1a), light text
+- Light mode: White/off-white backgrounds, dark text
+- Use CSS variables or Tailwind's dark: prefix for all color values
+
+**Semantic Color Palette**
+- **Green** (#22c55e / emerald): Success, completed, active states, running processes
+- **Blue** (#3b82f6): Primary actions, parent workflows, links, interactive elements
+- **Yellow/Amber** (#eab308): Waiting, pending, in-progress states
+- **Red** (#ef4444): Errors, failures, destructive actions
+- **Gray** (#6b7280): Secondary text, metadata, timestamps, disabled states
+
+### Visual Elements
+
+**Background Treatment**
+- Use subtle vertical or grid lines on dark backgrounds for depth and structure
+- Lines should be very low contrast (e.g., #1f1f1f on #0a0a0a)
+- Diagonal hatching patterns for "idle" or inactive regions
+
+**Cards & Containers**
+- Minimize card usage - prefer flat layouts with subtle borders
+- When cards are needed: thin 1px borders, no shadows in dark mode
+- Light mode cards: subtle shadows allowed, clean white backgrounds
+- Border radius: consistent rounded-lg (8px) or rounded-xl (12px)
+
+**Glassmorphism (Floating Elements Only)**
+- Apply to modals, dropdowns, popovers, and floating UI
+- Use backdrop-blur with semi-transparent backgrounds
+- Dark mode: rgba(0,0,0,0.8) with backdrop-blur-lg
+- Light mode: rgba(255,255,255,0.9) with backdrop-blur-lg
+
+### Component Patterns
+
+**Status Badges/Pills**
+- Rounded-full pill shape with semantic border colors
+- Transparent or semi-transparent fill with colored border
+- Include status dot indicator when appropriate
+- Example: Green border + "Completed" text for success states
+
+**Timeline/Waterfall Visualizations**
+- Horizontal bars showing duration and timing
+- Color-coded by status (green=success, blue=running, yellow=waiting)
+- Show function names and durations inline
+- Use grid lines to indicate time intervals
+
+**Code & Technical Text**
+- Monospace font (font-mono) for: IDs, function names, code snippets, durations
+- Syntax highlighting in code blocks with muted, readable colors
+- Inline code: subtle background tint with rounded corners
+
+**Typography Hierarchy**
+- Headlines: Bold, larger size, high contrast
+- Body text: Regular weight, comfortable reading size
+- Metadata: Smaller size, muted gray color
+- Use font-medium sparingly for emphasis
+
+### Layout Principles
+
+**Spacing**
+- Generous whitespace between sections
+- Consistent padding within components (p-4, p-6)
+- Use gap utilities for flex/grid layouts
+
+**Information Density**
+- Dense data displays (tables, timelines) are acceptable
+- Balance density with clear visual hierarchy
+- Group related information visually
+
+**Responsive Behavior**
+- Mobile-first approach
+- Stack horizontal layouts vertically on small screens
+- Maintain readability at all breakpoints
+
+### Interaction States
+
+**Hover**
+- Subtle background color shift
+- Don't rely on hover for essential information
+
+**Focus**
+- Clear focus rings for accessibility
+- Use ring-2 with brand/accent color
+
+**Active/Selected**
+- Distinct visual treatment from hover
+- Consider using filled backgrounds instead of just borders
+
 ## Coding Conventions
 
 - Never add optional-import fallbacks for core dependencies (e.g., wrapping `pydantic` imports in `try/except`). Import them directly and let the program fail fast if they're missing.
@@ -5,6 +118,7 @@
 - Any python code that you run should be called with `uv` since this is the environment that will have the python dependencies we need. Also make sure you're in the appropriate directory where our pyproject.toml is defined.
 - When writing code that uses WhichOneof in Python, use a switch statement to make sure that every value is handed and add a default case for assert_never.
 - NEVER write `getattr` in your own code unless I explicitly mention it. You should just be able to call it directly.
+- Unless we explicitly mention backwards compatibility, don't implement logic that assumes how the backwards spec is compatible. We will specify it if it's relevant.
 
 ## Workflow Conventions
 
@@ -17,3 +131,34 @@
 
 - Run python tests with `uv run pytest`
 - To run the rust integration tests you'll have to do something like: source .env && cargo test ...
+- Unless there's a compelling reason, you should construct synthetic graphs via writing code in our IR language and then parsing with `ir_parser.rs`. This makes it much easier for people to add additional IRs in the future. It also guarantees that the output DAG will match the DAG that's actually created at runtime. If you _really_ need control at the level of the DAG, write a detailed comment justifying why we need to do it manually versus just using the parser.
+- If there is common logic/helpers that is shared by a bunch of different rust tests, we should extract a test harness class and place it in a local test_helpers.rs. This file serves as our conventional rust equivalent for conftest.py in Python where we can dump these helpers instead of interrupting the flow of the file under test.
+
+## AI Controlled
+
+This section is used for the scratch updates, driven by our Agents.
+
+<code_feedback>
+<rule>Centralize environment parsing in shared config modules and build sub-configs inside `from_env`. Good: `let cfg = WorkerConfig::from_env()?; let webapp = cfg.webapp.clone();` Bad: `let cfg = WorkerConfig::from_env()?; let webapp = WebappConfig::from_env();`</rule>
+<rule>Prefer `?` (with `context` when needed) over wrapping simple errors with `map_err(|err| anyhow!(err))`. Good: `PostgresBackend::connect(dsn).await?;` Bad: `PostgresBackend::connect(dsn).await.map_err(|err| anyhow!(err))?;`</rule>
+<rule>Use SQLx migrations for schema creation instead of ad-hoc `CREATE TABLE` blocks in binaries. Good: `db::run_migrations(&pool).await?;` Bad: `sqlx::query("CREATE TABLE...").execute(&pool).await?;`</rule>
+<rule>Own and shut down exclusive dependencies in the component that uses them (e.g., worker pools own their bridge servers). Good: `PythonWorkerPool::new_with_bridge_addr(...)` Bad: `let bridge = WorkerBridgeServer::start(...); PythonWorkerPool::new(..., bridge, ...)`</rule>
+<rule>Promote shared runtime helpers into their owning modules rather than duplicating them in binaries. Good: `runloop::runloop_supervisor(...)` Bad: `async fn runloop_supervisor(...) { ... }` in a bin.</rule>
+<rule>Prefer injecting shared database pools into backends/services; run migrations in the owning binary/config instead of creating pools and defaults inside backend modules. Good: `let pool = PgPool::connect(&cfg.database_url).await?; db::run_migrations(&pool).await?; let backend = PostgresBackend::new(pool);` Bad: `let backend = PostgresBackend::connect(DEFAULT_DSN).await?;`</rule>
+<rule>In-memory backends used for tests should retain persisted updates in-memory for assertions instead of only logging side effects. Good: `stored.extend(actions.iter().cloned());` Bad: `for action in actions { println!("INSERT {:?}", action); }`</rule>
+<rule>Avoid pass-through module stubs that only re-export another module; import from the source module or re-export at the top-level instead. Good: `use crate::workers::InlineWorkerPool;` Bad: `pub mod workers { pub use crate::workers::*; }`</rule>
+<rule>Prefer async trait methods for backend interfaces instead of BoxFuture-based signatures. Good: `#[async_trait] trait CoreBackend { async fn save_graphs(&self, graphs: &[GraphUpdate]) -> BackendResult<()>; }` Bad: `fn save_graphs<'a>(&'a self, graphs: &'a [GraphUpdate]) -> BoxFuture<'a, BackendResult<()>>;`</rule>
+<rule>Queued instance payloads should treat RunnerState as the source of truth; avoid duplicating nodes/edges fields alongside it. Good: `QueuedInstance { state: Some(state), action_results: HashMap::new(), ... }` Bad: `QueuedInstance { state: None, nodes: Some(nodes), edges: Some(edges), ... }`</rule>
+<rule>Prefer backend-owned schedule persistence over separate SchedulerDatabase wrappers. Good: `backend.upsert_schedule(&params).await?;` Bad: `SchedulerDatabase::new(pool).upsert_schedule(&params).await?;`</rule>
+<rule>Route webapp dashboard queries through a `WebappBackend` implementation instead of a standalone database wrapper. Good: `impl WebappBackend for PostgresBackend { ... }` Bad: `struct WebappDatabase { pool: PgPool }` with duplicate query logic.</rule>
+<rule>Name the core persistence trait by domain (e.g., `CoreBackend`) rather than a generic `BaseBackend` to make scope explicit. Good: `trait CoreBackend { ... }` Bad: `trait BaseBackend { ... }`.</rule>
+<rule>Prefer exhaustive `match` handling in Rust over exporting a generic `assert_never` helper. Good: `match status { NodeStatus::Queued => ..., NodeStatus::Running => ..., NodeStatus::Completed => ..., NodeStatus::Failed => ... }` Bad: `assert_never(status)`.</rule>
+<rule>Keep DAG edges stored as a flat list for compact serialization; build adjacency views in helper methods when needed. Good: `pub edges: Vec<DAGEdge>` with `get_incoming_edges()` helpers. Bad: adding multiple adjacency maps to `DAG` without a serialization plan.</rule>
+<rule>Avoid stringly-typed execution node checks; use `ExecutionNodeType` or `ExecutionNode::is_action_call()` helpers. Good: `if node.is_action_call() { ... }` Bad: `if node.node_type == "action_call" { ... }`.</rule>
+<rule>Centralize action failure/retry handling to keep resume and completion paths consistent. Good: `self.handle_action_failure(node_id, exception)?;` Bad: duplicated retry/queue logic in multiple methods.</rule>
+<rule>Keep `DAGNode` in `models.rs` and centralize per-variant logic with shared helpers/macros to avoid repeated match ladders. Good: `for_each_dag_node_variant!(impl_dag_node_view);` Bad: hand-written match blocks copied across methods.</rule>
+<rule>Add a happy-path unit test for each DAG builder conversion helper. Good: a literal assignment conversion test in `dag/builder/assignments.rs`; Bad: no coverage for new conversion branches.</rule>
+<rule>Centralize worker pool metrics in shared helpers so pools don't duplicate tracking logic. Good: `WorkerPoolMetrics::new(worker_ids, window, samples); metrics.record_completion(idx);` Bad: per-pool `WorkerThroughputTracker`/`LatencyTracker` structs.</rule>
+<rule>Add a minimal happy-path test for formatting/serialization helpers. Good: parse IR then `assert_eq!(format_program(&program), source);` Bad: leaving formatting logic untested.</rule>
+<rule>Centralize external test harness setup (e.g., Postgres via docker compose) in shared test fixtures instead of ad-hoc per-test DSN probing. Good: `let pool = test_support::postgres_setup().await;` Bad: each test loops through env vars and fallback DSNs independently.</rule>
+</code_feedback>

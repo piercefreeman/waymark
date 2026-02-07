@@ -5,14 +5,13 @@ isort:skip_file
 
 import builtins
 import collections.abc
-import sys
-import typing
-
 import google.protobuf.descriptor
 import google.protobuf.internal.containers
 import google.protobuf.internal.enum_type_wrapper
 import google.protobuf.message
 import google.protobuf.struct_pb2
+import sys
+import typing
 
 if sys.version_info >= (3, 10):
     import typing as typing_extensions
@@ -25,10 +24,7 @@ class _MessageKind:
     ValueType = typing.NewType("ValueType", builtins.int)
     V: typing_extensions.TypeAlias = ValueType
 
-class _MessageKindEnumTypeWrapper(
-    google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[_MessageKind.ValueType],
-    builtins.type,
-):
+class _MessageKindEnumTypeWrapper(google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[_MessageKind.ValueType], builtins.type):
     DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor
     MESSAGE_KIND_UNSPECIFIED: _MessageKind.ValueType  # 0
     MESSAGE_KIND_ACTION_DISPATCH: _MessageKind.ValueType  # 1
@@ -67,10 +63,7 @@ class _ScheduleType:
     ValueType = typing.NewType("ValueType", builtins.int)
     V: typing_extensions.TypeAlias = ValueType
 
-class _ScheduleTypeEnumTypeWrapper(
-    google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[_ScheduleType.ValueType],
-    builtins.type,
-):
+class _ScheduleTypeEnumTypeWrapper(google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[_ScheduleType.ValueType], builtins.type):
     DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor
     SCHEDULE_TYPE_UNSPECIFIED: _ScheduleType.ValueType  # 0
     SCHEDULE_TYPE_CRON: _ScheduleType.ValueType  # 1
@@ -92,10 +85,7 @@ class _ScheduleStatus:
     ValueType = typing.NewType("ValueType", builtins.int)
     V: typing_extensions.TypeAlias = ValueType
 
-class _ScheduleStatusEnumTypeWrapper(
-    google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[_ScheduleStatus.ValueType],
-    builtins.type,
-):
+class _ScheduleStatusEnumTypeWrapper(google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[_ScheduleStatus.ValueType], builtins.type):
     DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor
     SCHEDULE_STATUS_UNSPECIFIED: _ScheduleStatus.ValueType  # 0
     SCHEDULE_STATUS_ACTIVE: _ScheduleStatus.ValueType  # 1
@@ -136,19 +126,7 @@ class Envelope(google.protobuf.message.Message):
         kind: Global___MessageKind.ValueType = ...,
         payload: builtins.bytes = ...,
     ) -> None: ...
-    def ClearField(
-        self,
-        field_name: typing.Literal[
-            "delivery_id",
-            b"delivery_id",
-            "kind",
-            b"kind",
-            "partition_id",
-            b"partition_id",
-            "payload",
-            b"payload",
-        ],
-    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["delivery_id", b"delivery_id", "kind", b"kind", "partition_id", b"partition_id", "payload", b"payload"]) -> None: ...
 
 Global___Envelope: typing_extensions.TypeAlias = Envelope
 
@@ -204,78 +182,16 @@ class ActionDispatch(google.protobuf.message.Message):
         attempt_number: builtins.int | None = ...,
         dispatch_token: builtins.str | None = ...,
     ) -> None: ...
-    def HasField(
-        self,
-        field_name: typing.Literal[
-            "_attempt_number",
-            b"_attempt_number",
-            "_dispatch_token",
-            b"_dispatch_token",
-            "_max_retries",
-            b"_max_retries",
-            "_timeout_seconds",
-            b"_timeout_seconds",
-            "attempt_number",
-            b"attempt_number",
-            "dispatch_token",
-            b"dispatch_token",
-            "kwargs",
-            b"kwargs",
-            "max_retries",
-            b"max_retries",
-            "timeout_seconds",
-            b"timeout_seconds",
-        ],
-    ) -> builtins.bool: ...
-    def ClearField(
-        self,
-        field_name: typing.Literal[
-            "_attempt_number",
-            b"_attempt_number",
-            "_dispatch_token",
-            b"_dispatch_token",
-            "_max_retries",
-            b"_max_retries",
-            "_timeout_seconds",
-            b"_timeout_seconds",
-            "action_id",
-            b"action_id",
-            "action_name",
-            b"action_name",
-            "attempt_number",
-            b"attempt_number",
-            "dispatch_token",
-            b"dispatch_token",
-            "instance_id",
-            b"instance_id",
-            "kwargs",
-            b"kwargs",
-            "max_retries",
-            b"max_retries",
-            "module_name",
-            b"module_name",
-            "sequence",
-            b"sequence",
-            "timeout_seconds",
-            b"timeout_seconds",
-        ],
-    ) -> None: ...
+    def HasField(self, field_name: typing.Literal["_attempt_number", b"_attempt_number", "_dispatch_token", b"_dispatch_token", "_max_retries", b"_max_retries", "_timeout_seconds", b"_timeout_seconds", "attempt_number", b"attempt_number", "dispatch_token", b"dispatch_token", "kwargs", b"kwargs", "max_retries", b"max_retries", "timeout_seconds", b"timeout_seconds"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["_attempt_number", b"_attempt_number", "_dispatch_token", b"_dispatch_token", "_max_retries", b"_max_retries", "_timeout_seconds", b"_timeout_seconds", "action_id", b"action_id", "action_name", b"action_name", "attempt_number", b"attempt_number", "dispatch_token", b"dispatch_token", "instance_id", b"instance_id", "kwargs", b"kwargs", "max_retries", b"max_retries", "module_name", b"module_name", "sequence", b"sequence", "timeout_seconds", b"timeout_seconds"]) -> None: ...
     @typing.overload
-    def WhichOneof(
-        self, oneof_group: typing.Literal["_attempt_number", b"_attempt_number"]
-    ) -> typing.Literal["attempt_number"] | None: ...
+    def WhichOneof(self, oneof_group: typing.Literal["_attempt_number", b"_attempt_number"]) -> typing.Literal["attempt_number"] | None: ...
     @typing.overload
-    def WhichOneof(
-        self, oneof_group: typing.Literal["_dispatch_token", b"_dispatch_token"]
-    ) -> typing.Literal["dispatch_token"] | None: ...
+    def WhichOneof(self, oneof_group: typing.Literal["_dispatch_token", b"_dispatch_token"]) -> typing.Literal["dispatch_token"] | None: ...
     @typing.overload
-    def WhichOneof(
-        self, oneof_group: typing.Literal["_max_retries", b"_max_retries"]
-    ) -> typing.Literal["max_retries"] | None: ...
+    def WhichOneof(self, oneof_group: typing.Literal["_max_retries", b"_max_retries"]) -> typing.Literal["max_retries"] | None: ...
     @typing.overload
-    def WhichOneof(
-        self, oneof_group: typing.Literal["_timeout_seconds", b"_timeout_seconds"]
-    ) -> typing.Literal["timeout_seconds"] | None: ...
+    def WhichOneof(self, oneof_group: typing.Literal["_timeout_seconds", b"_timeout_seconds"]) -> typing.Literal["timeout_seconds"] | None: ...
 
 Global___ActionDispatch: typing_extensions.TypeAlias = ActionDispatch
 
@@ -320,64 +236,14 @@ class ActionResult(google.protobuf.message.Message):
         error_type: builtins.str | None = ...,
         error_message: builtins.str | None = ...,
     ) -> None: ...
-    def HasField(
-        self,
-        field_name: typing.Literal[
-            "_dispatch_token",
-            b"_dispatch_token",
-            "_error_message",
-            b"_error_message",
-            "_error_type",
-            b"_error_type",
-            "dispatch_token",
-            b"dispatch_token",
-            "error_message",
-            b"error_message",
-            "error_type",
-            b"error_type",
-            "payload",
-            b"payload",
-        ],
-    ) -> builtins.bool: ...
-    def ClearField(
-        self,
-        field_name: typing.Literal[
-            "_dispatch_token",
-            b"_dispatch_token",
-            "_error_message",
-            b"_error_message",
-            "_error_type",
-            b"_error_type",
-            "action_id",
-            b"action_id",
-            "dispatch_token",
-            b"dispatch_token",
-            "error_message",
-            b"error_message",
-            "error_type",
-            b"error_type",
-            "payload",
-            b"payload",
-            "success",
-            b"success",
-            "worker_end_ns",
-            b"worker_end_ns",
-            "worker_start_ns",
-            b"worker_start_ns",
-        ],
-    ) -> None: ...
+    def HasField(self, field_name: typing.Literal["_dispatch_token", b"_dispatch_token", "_error_message", b"_error_message", "_error_type", b"_error_type", "dispatch_token", b"dispatch_token", "error_message", b"error_message", "error_type", b"error_type", "payload", b"payload"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["_dispatch_token", b"_dispatch_token", "_error_message", b"_error_message", "_error_type", b"_error_type", "action_id", b"action_id", "dispatch_token", b"dispatch_token", "error_message", b"error_message", "error_type", b"error_type", "payload", b"payload", "success", b"success", "worker_end_ns", b"worker_end_ns", "worker_start_ns", b"worker_start_ns"]) -> None: ...
     @typing.overload
-    def WhichOneof(
-        self, oneof_group: typing.Literal["_dispatch_token", b"_dispatch_token"]
-    ) -> typing.Literal["dispatch_token"] | None: ...
+    def WhichOneof(self, oneof_group: typing.Literal["_dispatch_token", b"_dispatch_token"]) -> typing.Literal["dispatch_token"] | None: ...
     @typing.overload
-    def WhichOneof(
-        self, oneof_group: typing.Literal["_error_message", b"_error_message"]
-    ) -> typing.Literal["error_message"] | None: ...
+    def WhichOneof(self, oneof_group: typing.Literal["_error_message", b"_error_message"]) -> typing.Literal["error_message"] | None: ...
     @typing.overload
-    def WhichOneof(
-        self, oneof_group: typing.Literal["_error_type", b"_error_type"]
-    ) -> typing.Literal["error_type"] | None: ...
+    def WhichOneof(self, oneof_group: typing.Literal["_error_type", b"_error_type"]) -> typing.Literal["error_type"] | None: ...
 
 Global___ActionResult: typing_extensions.TypeAlias = ActionResult
 
@@ -394,9 +260,7 @@ class Ack(google.protobuf.message.Message):
         *,
         acked_delivery_id: builtins.int = ...,
     ) -> None: ...
-    def ClearField(
-        self, field_name: typing.Literal["acked_delivery_id", b"acked_delivery_id"]
-    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["acked_delivery_id", b"acked_delivery_id"]) -> None: ...
 
 Global___Ack: typing_extensions.TypeAlias = Ack
 
@@ -456,52 +320,9 @@ class WorkflowArgumentValue(google.protobuf.message.Message):
         tuple_value: Global___WorkflowTupleArgument | None = ...,
         dict_value: Global___WorkflowDictArgument | None = ...,
     ) -> None: ...
-    def HasField(
-        self,
-        field_name: typing.Literal[
-            "basemodel",
-            b"basemodel",
-            "dict_value",
-            b"dict_value",
-            "exception",
-            b"exception",
-            "kind",
-            b"kind",
-            "list_value",
-            b"list_value",
-            "primitive",
-            b"primitive",
-            "tuple_value",
-            b"tuple_value",
-        ],
-    ) -> builtins.bool: ...
-    def ClearField(
-        self,
-        field_name: typing.Literal[
-            "basemodel",
-            b"basemodel",
-            "dict_value",
-            b"dict_value",
-            "exception",
-            b"exception",
-            "kind",
-            b"kind",
-            "list_value",
-            b"list_value",
-            "primitive",
-            b"primitive",
-            "tuple_value",
-            b"tuple_value",
-        ],
-    ) -> None: ...
-    def WhichOneof(
-        self, oneof_group: typing.Literal["kind", b"kind"]
-    ) -> (
-        typing.Literal[
-            "primitive", "basemodel", "exception", "list_value", "tuple_value", "dict_value"
-        ]
-        | None
-    ): ...
+    def HasField(self, field_name: typing.Literal["basemodel", b"basemodel", "dict_value", b"dict_value", "exception", b"exception", "kind", b"kind", "list_value", b"list_value", "primitive", b"primitive", "tuple_value", b"tuple_value"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["basemodel", b"basemodel", "dict_value", b"dict_value", "exception", b"exception", "kind", b"kind", "list_value", b"list_value", "primitive", b"primitive", "tuple_value", b"tuple_value"]) -> None: ...
+    def WhichOneof(self, oneof_group: typing.Literal["kind", b"kind"]) -> typing.Literal["primitive", "basemodel", "exception", "list_value", "tuple_value", "dict_value"] | None: ...
 
 Global___WorkflowArgumentValue: typing_extensions.TypeAlias = WorkflowArgumentValue
 
@@ -531,11 +352,7 @@ class WorkflowArguments(google.protobuf.message.Message):
 
     ARGUMENTS_FIELD_NUMBER: builtins.int
     @property
-    def arguments(
-        self,
-    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
-        Global___WorkflowArgument
-    ]: ...
+    def arguments(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[Global___WorkflowArgument]: ...
     def __init__(
         self,
         *,
@@ -568,46 +385,9 @@ class PrimitiveWorkflowArgument(google.protobuf.message.Message):
         bool_value: builtins.bool = ...,
         null_value: google.protobuf.struct_pb2.NullValue.ValueType = ...,
     ) -> None: ...
-    def HasField(
-        self,
-        field_name: typing.Literal[
-            "bool_value",
-            b"bool_value",
-            "double_value",
-            b"double_value",
-            "int_value",
-            b"int_value",
-            "kind",
-            b"kind",
-            "null_value",
-            b"null_value",
-            "string_value",
-            b"string_value",
-        ],
-    ) -> builtins.bool: ...
-    def ClearField(
-        self,
-        field_name: typing.Literal[
-            "bool_value",
-            b"bool_value",
-            "double_value",
-            b"double_value",
-            "int_value",
-            b"int_value",
-            "kind",
-            b"kind",
-            "null_value",
-            b"null_value",
-            "string_value",
-            b"string_value",
-        ],
-    ) -> None: ...
-    def WhichOneof(
-        self, oneof_group: typing.Literal["kind", b"kind"]
-    ) -> (
-        typing.Literal["string_value", "double_value", "int_value", "bool_value", "null_value"]
-        | None
-    ): ...
+    def HasField(self, field_name: typing.Literal["bool_value", b"bool_value", "double_value", b"double_value", "int_value", b"int_value", "kind", b"kind", "null_value", b"null_value", "string_value", b"string_value"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["bool_value", b"bool_value", "double_value", b"double_value", "int_value", b"int_value", "kind", b"kind", "null_value", b"null_value", "string_value", b"string_value"]) -> None: ...
+    def WhichOneof(self, oneof_group: typing.Literal["kind", b"kind"]) -> typing.Literal["string_value", "double_value", "int_value", "bool_value", "null_value"] | None: ...
 
 Global___PrimitiveWorkflowArgument: typing_extensions.TypeAlias = PrimitiveWorkflowArgument
 
@@ -632,9 +412,7 @@ class BaseModelWorkflowArgument(google.protobuf.message.Message):
         data: Global___WorkflowDictArgument | None = ...,
     ) -> None: ...
     def HasField(self, field_name: typing.Literal["data", b"data"]) -> builtins.bool: ...
-    def ClearField(
-        self, field_name: typing.Literal["data", b"data", "module", b"module", "name", b"name"]
-    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["data", b"data", "module", b"module", "name", b"name"]) -> None: ...
 
 Global___BaseModelWorkflowArgument: typing_extensions.TypeAlias = BaseModelWorkflowArgument
 
@@ -657,9 +435,7 @@ class WorkflowErrorValue(google.protobuf.message.Message):
     @property
     def values(self) -> Global___WorkflowDictArgument: ...
     @property
-    def type_hierarchy(
-        self,
-    ) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[builtins.str]:
+    def type_hierarchy(self) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[builtins.str]:
         """Exception class hierarchy (MRO) for proper except matching.
         e.g., for KeyError: ["KeyError", "LookupError", "Exception", "BaseException"]
         This allows `except LookupError:` to catch KeyError.
@@ -676,23 +452,7 @@ class WorkflowErrorValue(google.protobuf.message.Message):
         type_hierarchy: collections.abc.Iterable[builtins.str] | None = ...,
     ) -> None: ...
     def HasField(self, field_name: typing.Literal["values", b"values"]) -> builtins.bool: ...
-    def ClearField(
-        self,
-        field_name: typing.Literal[
-            "message",
-            b"message",
-            "module",
-            b"module",
-            "traceback",
-            b"traceback",
-            "type",
-            b"type",
-            "type_hierarchy",
-            b"type_hierarchy",
-            "values",
-            b"values",
-        ],
-    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["message", b"message", "module", b"module", "traceback", b"traceback", "type", b"type", "type_hierarchy", b"type_hierarchy", "values", b"values"]) -> None: ...
 
 Global___WorkflowErrorValue: typing_extensions.TypeAlias = WorkflowErrorValue
 
@@ -702,11 +462,7 @@ class WorkflowListArgument(google.protobuf.message.Message):
 
     ITEMS_FIELD_NUMBER: builtins.int
     @property
-    def items(
-        self,
-    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
-        Global___WorkflowArgumentValue
-    ]: ...
+    def items(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[Global___WorkflowArgumentValue]: ...
     def __init__(
         self,
         *,
@@ -722,11 +478,7 @@ class WorkflowTupleArgument(google.protobuf.message.Message):
 
     ITEMS_FIELD_NUMBER: builtins.int
     @property
-    def items(
-        self,
-    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
-        Global___WorkflowArgumentValue
-    ]: ...
+    def items(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[Global___WorkflowArgumentValue]: ...
     def __init__(
         self,
         *,
@@ -742,11 +494,7 @@ class WorkflowDictArgument(google.protobuf.message.Message):
 
     ENTRIES_FIELD_NUMBER: builtins.int
     @property
-    def entries(
-        self,
-    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
-        Global___WorkflowArgument
-    ]: ...
+    def entries(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[Global___WorkflowArgument]: ...
     def __init__(
         self,
         *,
@@ -771,6 +519,7 @@ class WorkflowRegistration(google.protobuf.message.Message):
     WORKFLOW_NAME_FIELD_NUMBER: builtins.int
     IR_FIELD_NUMBER: builtins.int
     IR_HASH_FIELD_NUMBER: builtins.int
+    WORKFLOW_VERSION_FIELD_NUMBER: builtins.int
     INITIAL_CONTEXT_FIELD_NUMBER: builtins.int
     CONCURRENT_FIELD_NUMBER: builtins.int
     PRIORITY_FIELD_NUMBER: builtins.int
@@ -778,7 +527,9 @@ class WorkflowRegistration(google.protobuf.message.Message):
     ir: builtins.bytes
     """Serialized IR program (from ast.proto)"""
     ir_hash: builtins.str
-    """Hash of the IR for versioning"""
+    """Hash of the IR for immutability checks"""
+    workflow_version: builtins.str
+    """User-defined version identifier"""
     concurrent: builtins.bool
     """Whether multiple instances can run"""
     priority: builtins.int
@@ -791,43 +542,14 @@ class WorkflowRegistration(google.protobuf.message.Message):
         workflow_name: builtins.str = ...,
         ir: builtins.bytes = ...,
         ir_hash: builtins.str = ...,
+        workflow_version: builtins.str = ...,
         initial_context: Global___WorkflowArguments | None = ...,
         concurrent: builtins.bool = ...,
         priority: builtins.int | None = ...,
     ) -> None: ...
-    def HasField(
-        self,
-        field_name: typing.Literal[
-            "_priority",
-            b"_priority",
-            "initial_context",
-            b"initial_context",
-            "priority",
-            b"priority",
-        ],
-    ) -> builtins.bool: ...
-    def ClearField(
-        self,
-        field_name: typing.Literal[
-            "_priority",
-            b"_priority",
-            "concurrent",
-            b"concurrent",
-            "initial_context",
-            b"initial_context",
-            "ir",
-            b"ir",
-            "ir_hash",
-            b"ir_hash",
-            "priority",
-            b"priority",
-            "workflow_name",
-            b"workflow_name",
-        ],
-    ) -> None: ...
-    def WhichOneof(
-        self, oneof_group: typing.Literal["_priority", b"_priority"]
-    ) -> typing.Literal["priority"] | None: ...
+    def HasField(self, field_name: typing.Literal["_priority", b"_priority", "initial_context", b"initial_context", "priority", b"priority"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["_priority", b"_priority", "concurrent", b"concurrent", "initial_context", b"initial_context", "ir", b"ir", "ir_hash", b"ir_hash", "priority", b"priority", "workflow_name", b"workflow_name", "workflow_version", b"workflow_version"]) -> None: ...
+    def WhichOneof(self, oneof_group: typing.Literal["_priority", b"_priority"]) -> typing.Literal["priority"] | None: ...
 
 Global___WorkflowRegistration: typing_extensions.TypeAlias = WorkflowRegistration
 
@@ -843,9 +565,7 @@ class RegisterWorkflowRequest(google.protobuf.message.Message):
         *,
         registration: Global___WorkflowRegistration | None = ...,
     ) -> None: ...
-    def HasField(
-        self, field_name: typing.Literal["registration", b"registration"]
-    ) -> builtins.bool: ...
+    def HasField(self, field_name: typing.Literal["registration", b"registration"]) -> builtins.bool: ...
     def ClearField(self, field_name: typing.Literal["registration", b"registration"]) -> None: ...
 
 Global___RegisterWorkflowRequest: typing_extensions.TypeAlias = RegisterWorkflowRequest
@@ -864,15 +584,7 @@ class RegisterWorkflowResponse(google.protobuf.message.Message):
         workflow_version_id: builtins.str = ...,
         workflow_instance_id: builtins.str = ...,
     ) -> None: ...
-    def ClearField(
-        self,
-        field_name: typing.Literal[
-            "workflow_instance_id",
-            b"workflow_instance_id",
-            "workflow_version_id",
-            b"workflow_version_id",
-        ],
-    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["workflow_instance_id", b"workflow_instance_id", "workflow_version_id", b"workflow_version_id"]) -> None: ...
 
 Global___RegisterWorkflowResponse: typing_extensions.TypeAlias = RegisterWorkflowResponse
 
@@ -899,11 +611,7 @@ class RegisterWorkflowBatchRequest(google.protobuf.message.Message):
         """Base inputs to apply to each instance when inputs_list is empty."""
 
     @property
-    def inputs_list(
-        self,
-    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
-        Global___WorkflowArguments
-    ]:
+    def inputs_list(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[Global___WorkflowArguments]:
         """Per-instance inputs (overrides count/inputs when provided)."""
 
     def __init__(
@@ -916,26 +624,8 @@ class RegisterWorkflowBatchRequest(google.protobuf.message.Message):
         batch_size: builtins.int = ...,
         include_instance_ids: builtins.bool = ...,
     ) -> None: ...
-    def HasField(
-        self, field_name: typing.Literal["inputs", b"inputs", "registration", b"registration"]
-    ) -> builtins.bool: ...
-    def ClearField(
-        self,
-        field_name: typing.Literal[
-            "batch_size",
-            b"batch_size",
-            "count",
-            b"count",
-            "include_instance_ids",
-            b"include_instance_ids",
-            "inputs",
-            b"inputs",
-            "inputs_list",
-            b"inputs_list",
-            "registration",
-            b"registration",
-        ],
-    ) -> None: ...
+    def HasField(self, field_name: typing.Literal["inputs", b"inputs", "registration", b"registration"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["batch_size", b"batch_size", "count", b"count", "include_instance_ids", b"include_instance_ids", "inputs", b"inputs", "inputs_list", b"inputs_list", "registration", b"registration"]) -> None: ...
 
 Global___RegisterWorkflowBatchRequest: typing_extensions.TypeAlias = RegisterWorkflowBatchRequest
 
@@ -949,9 +639,7 @@ class RegisterWorkflowBatchResponse(google.protobuf.message.Message):
     workflow_version_id: builtins.str
     queued: builtins.int
     @property
-    def workflow_instance_ids(
-        self,
-    ) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[builtins.str]: ...
+    def workflow_instance_ids(self) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[builtins.str]: ...
     def __init__(
         self,
         *,
@@ -959,17 +647,7 @@ class RegisterWorkflowBatchResponse(google.protobuf.message.Message):
         workflow_instance_ids: collections.abc.Iterable[builtins.str] | None = ...,
         queued: builtins.int = ...,
     ) -> None: ...
-    def ClearField(
-        self,
-        field_name: typing.Literal[
-            "queued",
-            b"queued",
-            "workflow_instance_ids",
-            b"workflow_instance_ids",
-            "workflow_version_id",
-            b"workflow_version_id",
-        ],
-    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["queued", b"queued", "workflow_instance_ids", b"workflow_instance_ids", "workflow_version_id", b"workflow_version_id"]) -> None: ...
 
 Global___RegisterWorkflowBatchResponse: typing_extensions.TypeAlias = RegisterWorkflowBatchResponse
 
@@ -987,12 +665,7 @@ class WaitForInstanceRequest(google.protobuf.message.Message):
         instance_id: builtins.str = ...,
         poll_interval_secs: builtins.float = ...,
     ) -> None: ...
-    def ClearField(
-        self,
-        field_name: typing.Literal[
-            "instance_id", b"instance_id", "poll_interval_secs", b"poll_interval_secs"
-        ],
-    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["instance_id", b"instance_id", "poll_interval_secs", b"poll_interval_secs"]) -> None: ...
 
 Global___WaitForInstanceRequest: typing_extensions.TypeAlias = WaitForInstanceRequest
 
@@ -1038,28 +711,9 @@ class WorkflowStreamRequest(google.protobuf.message.Message):
         action_result: Global___ActionResult | None = ...,
         skip_sleep: builtins.bool = ...,
     ) -> None: ...
-    def HasField(
-        self,
-        field_name: typing.Literal[
-            "action_result", b"action_result", "kind", b"kind", "registration", b"registration"
-        ],
-    ) -> builtins.bool: ...
-    def ClearField(
-        self,
-        field_name: typing.Literal[
-            "action_result",
-            b"action_result",
-            "kind",
-            b"kind",
-            "registration",
-            b"registration",
-            "skip_sleep",
-            b"skip_sleep",
-        ],
-    ) -> None: ...
-    def WhichOneof(
-        self, oneof_group: typing.Literal["kind", b"kind"]
-    ) -> typing.Literal["registration", "action_result"] | None: ...
+    def HasField(self, field_name: typing.Literal["action_result", b"action_result", "kind", b"kind", "registration", b"registration"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["action_result", b"action_result", "kind", b"kind", "registration", b"registration", "skip_sleep", b"skip_sleep"]) -> None: ...
+    def WhichOneof(self, oneof_group: typing.Literal["kind", b"kind"]) -> typing.Literal["registration", "action_result"] | None: ...
 
 Global___WorkflowStreamRequest: typing_extensions.TypeAlias = WorkflowStreamRequest
 
@@ -1098,31 +752,9 @@ class WorkflowStreamResponse(google.protobuf.message.Message):
         action_dispatch: Global___ActionDispatch | None = ...,
         workflow_result: Global___WorkflowExecutionResult | None = ...,
     ) -> None: ...
-    def HasField(
-        self,
-        field_name: typing.Literal[
-            "action_dispatch",
-            b"action_dispatch",
-            "kind",
-            b"kind",
-            "workflow_result",
-            b"workflow_result",
-        ],
-    ) -> builtins.bool: ...
-    def ClearField(
-        self,
-        field_name: typing.Literal[
-            "action_dispatch",
-            b"action_dispatch",
-            "kind",
-            b"kind",
-            "workflow_result",
-            b"workflow_result",
-        ],
-    ) -> None: ...
-    def WhichOneof(
-        self, oneof_group: typing.Literal["kind", b"kind"]
-    ) -> typing.Literal["action_dispatch", "workflow_result"] | None: ...
+    def HasField(self, field_name: typing.Literal["action_dispatch", b"action_dispatch", "kind", b"kind", "workflow_result", b"workflow_result"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["action_dispatch", b"action_dispatch", "kind", b"kind", "workflow_result", b"workflow_result"]) -> None: ...
+    def WhichOneof(self, oneof_group: typing.Literal["kind", b"kind"]) -> typing.Literal["action_dispatch", "workflow_result"] | None: ...
 
 Global___WorkflowStreamResponse: typing_extensions.TypeAlias = WorkflowStreamResponse
 
@@ -1149,19 +781,7 @@ class ScheduleDefinition(google.protobuf.message.Message):
         interval_seconds: builtins.int = ...,
         jitter_seconds: builtins.int = ...,
     ) -> None: ...
-    def ClearField(
-        self,
-        field_name: typing.Literal[
-            "cron_expression",
-            b"cron_expression",
-            "interval_seconds",
-            b"interval_seconds",
-            "jitter_seconds",
-            b"jitter_seconds",
-            "type",
-            b"type",
-        ],
-    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["cron_expression", b"cron_expression", "interval_seconds", b"interval_seconds", "jitter_seconds", b"jitter_seconds", "type", b"type"]) -> None: ...
 
 Global___ScheduleDefinition: typing_extensions.TypeAlias = ScheduleDefinition
 
@@ -1212,56 +832,12 @@ class RegisterScheduleRequest(google.protobuf.message.Message):
         priority: builtins.int | None = ...,
         allow_duplicate: builtins.bool | None = ...,
     ) -> None: ...
-    def HasField(
-        self,
-        field_name: typing.Literal[
-            "_allow_duplicate",
-            b"_allow_duplicate",
-            "_priority",
-            b"_priority",
-            "allow_duplicate",
-            b"allow_duplicate",
-            "inputs",
-            b"inputs",
-            "priority",
-            b"priority",
-            "registration",
-            b"registration",
-            "schedule",
-            b"schedule",
-        ],
-    ) -> builtins.bool: ...
-    def ClearField(
-        self,
-        field_name: typing.Literal[
-            "_allow_duplicate",
-            b"_allow_duplicate",
-            "_priority",
-            b"_priority",
-            "allow_duplicate",
-            b"allow_duplicate",
-            "inputs",
-            b"inputs",
-            "priority",
-            b"priority",
-            "registration",
-            b"registration",
-            "schedule",
-            b"schedule",
-            "schedule_name",
-            b"schedule_name",
-            "workflow_name",
-            b"workflow_name",
-        ],
-    ) -> None: ...
+    def HasField(self, field_name: typing.Literal["_allow_duplicate", b"_allow_duplicate", "_priority", b"_priority", "allow_duplicate", b"allow_duplicate", "inputs", b"inputs", "priority", b"priority", "registration", b"registration", "schedule", b"schedule"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["_allow_duplicate", b"_allow_duplicate", "_priority", b"_priority", "allow_duplicate", b"allow_duplicate", "inputs", b"inputs", "priority", b"priority", "registration", b"registration", "schedule", b"schedule", "schedule_name", b"schedule_name", "workflow_name", b"workflow_name"]) -> None: ...
     @typing.overload
-    def WhichOneof(
-        self, oneof_group: typing.Literal["_allow_duplicate", b"_allow_duplicate"]
-    ) -> typing.Literal["allow_duplicate"] | None: ...
+    def WhichOneof(self, oneof_group: typing.Literal["_allow_duplicate", b"_allow_duplicate"]) -> typing.Literal["allow_duplicate"] | None: ...
     @typing.overload
-    def WhichOneof(
-        self, oneof_group: typing.Literal["_priority", b"_priority"]
-    ) -> typing.Literal["priority"] | None: ...
+    def WhichOneof(self, oneof_group: typing.Literal["_priority", b"_priority"]) -> typing.Literal["priority"] | None: ...
 
 Global___RegisterScheduleRequest: typing_extensions.TypeAlias = RegisterScheduleRequest
 
@@ -1280,10 +856,7 @@ class RegisterScheduleResponse(google.protobuf.message.Message):
         schedule_id: builtins.str = ...,
         next_run_at: builtins.str = ...,
     ) -> None: ...
-    def ClearField(
-        self,
-        field_name: typing.Literal["next_run_at", b"next_run_at", "schedule_id", b"schedule_id"],
-    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["next_run_at", b"next_run_at", "schedule_id", b"schedule_id"]) -> None: ...
 
 Global___RegisterScheduleResponse: typing_extensions.TypeAlias = RegisterScheduleResponse
 
@@ -1305,17 +878,7 @@ class UpdateScheduleStatusRequest(google.protobuf.message.Message):
         status: Global___ScheduleStatus.ValueType = ...,
         schedule_name: builtins.str = ...,
     ) -> None: ...
-    def ClearField(
-        self,
-        field_name: typing.Literal[
-            "schedule_name",
-            b"schedule_name",
-            "status",
-            b"status",
-            "workflow_name",
-            b"workflow_name",
-        ],
-    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["schedule_name", b"schedule_name", "status", b"status", "workflow_name", b"workflow_name"]) -> None: ...
 
 Global___UpdateScheduleStatusRequest: typing_extensions.TypeAlias = UpdateScheduleStatusRequest
 
@@ -1349,12 +912,7 @@ class DeleteScheduleRequest(google.protobuf.message.Message):
         workflow_name: builtins.str = ...,
         schedule_name: builtins.str = ...,
     ) -> None: ...
-    def ClearField(
-        self,
-        field_name: typing.Literal[
-            "schedule_name", b"schedule_name", "workflow_name", b"workflow_name"
-        ],
-    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["schedule_name", b"schedule_name", "workflow_name", b"workflow_name"]) -> None: ...
 
 Global___DeleteScheduleRequest: typing_extensions.TypeAlias = DeleteScheduleRequest
 
@@ -1385,21 +943,9 @@ class ListSchedulesRequest(google.protobuf.message.Message):
         *,
         status_filter: builtins.str | None = ...,
     ) -> None: ...
-    def HasField(
-        self,
-        field_name: typing.Literal[
-            "_status_filter", b"_status_filter", "status_filter", b"status_filter"
-        ],
-    ) -> builtins.bool: ...
-    def ClearField(
-        self,
-        field_name: typing.Literal[
-            "_status_filter", b"_status_filter", "status_filter", b"status_filter"
-        ],
-    ) -> None: ...
-    def WhichOneof(
-        self, oneof_group: typing.Literal["_status_filter", b"_status_filter"]
-    ) -> typing.Literal["status_filter"] | None: ...
+    def HasField(self, field_name: typing.Literal["_status_filter", b"_status_filter", "status_filter", b"status_filter"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing.Literal["_status_filter", b"_status_filter", "status_filter", b"status_filter"]) -> None: ...
+    def WhichOneof(self, oneof_group: typing.Literal["_status_filter", b"_status_filter"]) -> typing.Literal["status_filter"] | None: ...
 
 Global___ListSchedulesRequest: typing_extensions.TypeAlias = ListSchedulesRequest
 
@@ -1463,39 +1009,7 @@ class ScheduleInfo(google.protobuf.message.Message):
         jitter_seconds: builtins.int = ...,
         allow_duplicate: builtins.bool = ...,
     ) -> None: ...
-    def ClearField(
-        self,
-        field_name: typing.Literal[
-            "allow_duplicate",
-            b"allow_duplicate",
-            "created_at",
-            b"created_at",
-            "cron_expression",
-            b"cron_expression",
-            "id",
-            b"id",
-            "interval_seconds",
-            b"interval_seconds",
-            "jitter_seconds",
-            b"jitter_seconds",
-            "last_instance_id",
-            b"last_instance_id",
-            "last_run_at",
-            b"last_run_at",
-            "next_run_at",
-            b"next_run_at",
-            "schedule_name",
-            b"schedule_name",
-            "schedule_type",
-            b"schedule_type",
-            "status",
-            b"status",
-            "updated_at",
-            b"updated_at",
-            "workflow_name",
-            b"workflow_name",
-        ],
-    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["allow_duplicate", b"allow_duplicate", "created_at", b"created_at", "cron_expression", b"cron_expression", "id", b"id", "interval_seconds", b"interval_seconds", "jitter_seconds", b"jitter_seconds", "last_instance_id", b"last_instance_id", "last_run_at", b"last_run_at", "next_run_at", b"next_run_at", "schedule_name", b"schedule_name", "schedule_type", b"schedule_type", "status", b"status", "updated_at", b"updated_at", "workflow_name", b"workflow_name"]) -> None: ...
 
 Global___ScheduleInfo: typing_extensions.TypeAlias = ScheduleInfo
 
@@ -1505,11 +1019,7 @@ class ListSchedulesResponse(google.protobuf.message.Message):
 
     SCHEDULES_FIELD_NUMBER: builtins.int
     @property
-    def schedules(
-        self,
-    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
-        Global___ScheduleInfo
-    ]: ...
+    def schedules(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[Global___ScheduleInfo]: ...
     def __init__(
         self,
         *,

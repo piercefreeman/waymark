@@ -62,14 +62,12 @@
                                 <pre class="font-mono text-xs text-zinc-500 dark:text-zinc-500 whitespace-pre-wrap break-all line-clamp-3">{{ invocation.input_preview }}</pre>
                             </td>
                             <td class="px-4 py-3 text-right">
-                                {% if invocation.workflow_version_id %}
-                                    <a href="/workflows/{{ invocation.workflow_version_id }}/run/{{ invocation.id }}" class="inline-flex items-center gap-1 text-sm font-medium text-zinc-600 dark:text-zinc-400 transition hover:text-zinc-900 dark:hover:text-white">
-                                        View
-                                        <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-                                        </svg>
-                                    </a>
-                                {% endif %}
+                                <a href="/instance/{{ invocation.id }}" class="inline-flex items-center gap-1 text-sm font-medium text-zinc-600 dark:text-zinc-400 transition hover:text-zinc-900 dark:hover:text-white">
+                                    View
+                                    <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                                    </svg>
+                                </a>
                             </td>
                         </tr>
                     {% endfor %}

@@ -4,19 +4,19 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: mountaineer_daemons
-      POSTGRES_USER: mountaineer
-      POSTGRES_PASSWORD: mountaineer
+      POSTGRES_DB: rappel
+      POSTGRES_USER: rappel
+      POSTGRES_PASSWORD: rappel
     ports:
       - "5433:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U mountaineer"]
+      test: ["CMD-SHELL", "pg_isready -U rappel"]
       interval: 5s
       timeout: 3s
       retries: 5
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - rappel-postgres-data:/var/lib/postgresql/data
 
 volumes:
-  postgres-data:
+  rappel-postgres-data:
     driver: local

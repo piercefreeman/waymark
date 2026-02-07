@@ -1,7 +1,7 @@
 PY_PROTO_OUT := python/proto
 PY_CORE_PROTO_OUT := core-python/proto
 
-.PHONY: all build-proto clean lint lint-verify python-lint python-lint-verify rust-lint rust-lint-verify coverage python-coverage rust-coverage
+.PHONY: all build-proto clean lint lint-verify python-lint python-lint-verify rust-lint rust-lint-verify coverage python-coverage rust-coverage benchmark benchmark-console benchmark-console-run benchmark-trace
 
 all: build-proto
 
@@ -16,7 +16,7 @@ build-proto:
 		--mypy_out=../$(PY_PROTO_OUT) \
 		--mypy_grpc_out=../$(PY_PROTO_OUT) \
 		../proto/messages.proto ../proto/ast.proto
-	cd core-python && uv run python -m grpc_tools.protoc \
+	cd python && uv run python -m grpc_tools.protoc \
 		--proto_path=../proto \
 		--plugin=protoc-gen-mypy="$$(pwd)/.venv/bin/protoc-gen-mypy" \
 		--plugin=protoc-gen-mypy_grpc="$$(pwd)/.venv/bin/protoc-gen-mypy_grpc" \
@@ -40,7 +40,7 @@ lint-verify: python-lint-verify rust-lint-verify
 python-lint:
 	cd python && uv run ruff format .
 	cd python && uv run ruff check . --fix
-	cd python && uv run ty check . --exclude proto/messages_pb2_grpc.py
+	cd python && uv run ty check . --exclude proto/messages_pb2_grpc.py --extra-search-path proto
 	cd scripts && uv run ruff format .
 	cd scripts && uv run ruff check . --fix
 	cd scripts && PYTHONPATH=../python/src:../python uv run ty check .
@@ -48,7 +48,7 @@ python-lint:
 python-lint-verify:
 	cd python && uv run ruff format --check .
 	cd python && uv run ruff check .
-	cd python && uv run ty check . --exclude proto/messages_pb2_grpc.py
+	cd python && uv run ty check . --exclude proto/messages_pb2_grpc.py --extra-search-path proto
 	cd scripts && uv run ruff format --check .
 	cd scripts && uv run ruff check .
 	cd scripts && PYTHONPATH=../python/src:../python uv run ty check .
@@ -70,3 +70,37 @@ python-coverage:
 rust-coverage:
 	cargo llvm-cov --lcov --output-path target/rust-coverage.lcov
 	cargo llvm-cov --html --output-dir target/rust-htmlcov
+
+BENCH_ARGS ?= --count 1000
+BENCH_TRACE ?= target/benchmark-trace.json
+BENCH_TRACE_PREFIX ?= $(BENCH_TRACE:.json=)
+BENCH_TRACE_TOP ?= 30
+BENCH_CONSOLE_BIND ?= 127.0.0.1:6669
+BENCH_CONSOLE_ARGS ?= --observe
+BENCH_RUSTFLAGS ?= --cfg tokio_unstable
+BENCH_CONCURRENCY_SWEEP ?= 25 100 250 1000
+BENCH_RELEASE ?= 0
+BENCH_PROFILE_FLAG := $(if $(filter 1 true yes,$(BENCH_RELEASE)),--release,)
+BENCH_BIN := target/$(if $(filter 1 true yes,$(BENCH_RELEASE)),release,debug)/benchmark
+benchmark: benchmark-trace
+
+benchmark-console:
+	tmux has-session -t rappel-benchmark 2>/dev/null && tmux kill-session -t rappel-benchmark || true
+	tmux new-session -d -s rappel-benchmark 'bash -lc "make benchmark-console-run; exec $$SHELL"'
+	tmux split-window -h -t rappel-benchmark 'bash -lc "TOKIO_CONSOLE_BIND=$(BENCH_CONSOLE_BIND) tokio-console || { echo \"tokio-console not found (run: cargo install tokio-console)\"; exec $$SHELL; }"'
+	tmux select-layout -t rappel-benchmark even-horizontal
+	tmux select-pane -t rappel-benchmark:0.0
+	tmux attach -t rappel-benchmark
+
+benchmark-console-run:
+	TOKIO_CONSOLE_BIND="$(BENCH_CONSOLE_BIND)" RUSTFLAGS="$(BENCH_RUSTFLAGS)" cargo build $(BENCH_PROFILE_FLAG) --bin benchmark --features observability
+	TOKIO_CONSOLE_BIND="$(BENCH_CONSOLE_BIND)" RUSTFLAGS="$(BENCH_RUSTFLAGS)" $(BENCH_BIN) $(BENCH_CONSOLE_ARGS) $(BENCH_ARGS)
+
+benchmark-trace:
+	cargo build $(BENCH_PROFILE_FLAG) --bin benchmark --features trace
+	@for max in $(BENCH_CONCURRENCY_SWEEP); do \
+		trace_file="$(BENCH_TRACE_PREFIX)-$${max}.json"; \
+		echo "=== BENCH: max_concurrent_instances=$${max} ==="; \
+		RAPPEL_MAX_CONCURRENT_INSTANCES=$${max} $(BENCH_BIN) --trace $$trace_file $(BENCH_ARGS); \
+		uv run python scripts/parse_chrome_trace.py $$trace_file --top $(BENCH_TRACE_TOP); \
+	done

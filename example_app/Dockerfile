@@ -9,6 +9,7 @@ WORKDIR /repo
 COPY Cargo.toml Cargo.lock build.rs /repo/
 COPY src /repo/src
 COPY proto /repo/proto
+COPY rappel-observability-macros /repo/rappel-observability-macros
 RUN cargo chef prepare --recipe-path recipe.json
 
 # =============================================================================
@@ -62,6 +63,7 @@ COPY --from=cacher /repo/target target
 COPY Cargo.toml Cargo.lock build.rs README.md /repo/
 COPY src /repo/src
 COPY proto /repo/proto
+COPY rappel-observability-macros /repo/rappel-observability-macros
 COPY python /repo/python
 COPY scripts /repo/scripts
 COPY templates /repo/templates

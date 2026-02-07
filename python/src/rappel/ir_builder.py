@@ -92,6 +92,12 @@ RECOMMENDATIONS = {
         "    async def my_function(x: int) -> int:\n"
         "        return x * 2"
     ),
+    "sleep_assignment": (
+        "Assigning the result of asyncio.sleep() is not supported.\n"
+        "sleep() always returns None and should be used as a standalone statement.\n\n"
+        "Use:\n\n"
+        "    await asyncio.sleep(1)\n"
+    ),
     "sync_function_call": (
         "Calling a synchronous function directly in workflow code is not supported.\n"
         "All computation must happen inside @action decorated async functions.\n\n"
@@ -1312,6 +1318,19 @@ class IRBuilder(ast.NodeVisitor):
                     stmt.assignment.CopyFrom(assign)
                     return stmt
 
+        # Disallow assigning the result of asyncio.sleep()
+        if isinstance(node.value, ast.Await) and isinstance(node.value.value, ast.Call):
+            awaited = node.value.value
+            if self._is_asyncio_sleep_call(awaited):
+                line = getattr(node, "lineno", None)
+                col = getattr(node, "col_offset", None)
+                raise UnsupportedPatternError(
+                    "Assigning the result of asyncio.sleep() is not supported",
+                    RECOMMENDATIONS["sleep_assignment"],
+                    line=line,
+                    col=col,
+                )
+
         # Check if this is an action call - wrap in Assignment for uniform unpacking
         action_call = self._extract_action_call(node.value)
         if action_call:
@@ -1352,6 +1371,14 @@ class IRBuilder(ast.NodeVisitor):
                         assign = ir.Assignment(targets=[], value=value)
                         stmt.assignment.CopyFrom(assign)
                         return stmt
+
+        # Check for asyncio.sleep() - convert to SleepStmt
+        if isinstance(node.value, ast.Await) and isinstance(node.value.value, ast.Call):
+            awaited = node.value.value
+            if self._is_asyncio_sleep_call(awaited):
+                sleep_stmt = self._convert_asyncio_sleep_to_sleep_stmt(awaited)
+                stmt.sleep_stmt.CopyFrom(sleep_stmt)
+                return stmt
 
         # Check if this is an action call (side effect only)
         action_call = self._extract_action_call(node.value)
@@ -2591,9 +2618,6 @@ class IRBuilder(ast.NodeVisitor):
                         # Extract policies from run_action kwargs (retry, timeout)
                         self._extract_policies_from_run_action(awaited, action_call)
                     return action_call
-            # Check for asyncio.sleep() - convert to @sleep action
-            if self._is_asyncio_sleep_call(awaited):
-                return self._convert_asyncio_sleep_to_action(awaited)
             # Try to extract as action call
             action_call = self._extract_action_call_from_call(awaited)
             if action_call:
@@ -2758,30 +2782,26 @@ class IRBuilder(ast.NodeVisitor):
                 return imported.module == "asyncio" and imported.original_name == "sleep"
         return False
 
-    def _convert_asyncio_sleep_to_action(self, node: ast.Call) -> ir.ActionCall:
-        """Convert asyncio.sleep(duration) to @sleep(duration=X) action call.
-
-        This creates a built-in sleep action that the scheduler handles as a
-        durable sleep - stored in the DB with a future scheduled_at time.
-        """
-        action_call = ir.ActionCall(action_name="sleep")
+    def _convert_asyncio_sleep_to_sleep_stmt(self, node: ast.Call) -> ir.SleepStmt:
+        """Convert asyncio.sleep(duration) to a SleepStmt."""
+        sleep_stmt = ir.SleepStmt()
 
         # Extract duration argument (positional or keyword)
         if node.args:
             # asyncio.sleep(1) - positional
             expr = self._expr_to_ir_with_model_coercion(node.args[0])
             if expr:
-                action_call.kwargs.append(ir.Kwarg(name="duration", value=expr))
+                sleep_stmt.duration.CopyFrom(expr)
         elif node.keywords:
             # asyncio.sleep(seconds=1) - keyword (less common)
             for kw in node.keywords:
                 if kw.arg in ("seconds", "delay", "duration"):
                     expr = self._expr_to_ir_with_model_coercion(kw.value)
                     if expr:
-                        action_call.kwargs.append(ir.Kwarg(name="duration", value=expr))
+                        sleep_stmt.duration.CopyFrom(expr)
                     break
 
-        return action_call
+        return sleep_stmt
 
     def _is_asyncio_gather_call(self, node: ast.Call) -> bool:
         """Check if this is an asyncio.gather(...) call.

@@ -1,1 +1,0 @@
-ALTER TABLE worker_status RENAME COLUMN avg_instance_duration_secs TO median_instance_duration_secs;

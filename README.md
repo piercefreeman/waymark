@@ -148,7 +148,7 @@ If you have a particular workflow that you think should be working but isn't yet
 ### Rust tests (unit + integration)
 
 Integration tests are regular Rust tests in `tests/` and run against a real Postgres database. The test harness:
-- Loads `.env` (via `dotenvy`) for `RAPPEL_DATABASE_URL`
+- Uses a fixed DSN: `postgresql://rappel:rappel@127.0.0.1:5433/rappel`
 - Runs DB migrations automatically on connect
 - Truncates integration tables before each test
 - Creates a temporary Python environment using `uv` and spawns `python/.venv/bin/rappel-worker`
@@ -168,13 +168,13 @@ cargo test gather_listcomp_matches_in_memory --test integration_test
 ```
 
 Prereqs:
-- Ensure Postgres is running and `RAPPEL_DATABASE_URL` is explicitly set to mirror `docker-compose.yml`
+- Ensure Postgres is running on `127.0.0.1:5433` with credentials from `docker-compose.yml`
 - Ensure `uv` is installed (the tests call `uv sync` under the hood)
 
 Example (matches `docker-compose.yml` in this repo):
 
 ```bash
-export RAPPEL_DATABASE_URL=postgresql://mountaineer:mountaineer@localhost:5433/mountaineer_daemons
+docker compose up -d postgres
 ```
 
 ### Python tests
@@ -186,35 +186,55 @@ uv run pytest
 
 ## Configuration
 
-The main rappel configuration is done through env vars, which is what you'll typically use in production when using a docker deployment pipeline. If we can't find an environment parameter we will fallback to looking for an .env that specifies it within your local filesystem.
+Rappel runtime configuration is environment-variable driven.
+Rappel reads the process environment directly; it does not auto-load `.env` files.
 
-These are the primary environment parameters that you'll likely want to customize for your deployment:
+### `start-workers` runtime (`WorkerConfig::from_env`)
 
-| Environment Variable | Description | Default | Example |
-|---------------------|-------------|---------|---------|
-| `RAPPEL_DATABASE_URL` | PostgreSQL connection string for the rappel server | (required on bridge &workers ) | `postgresql://user:pass@localhost:5433/rappel` |
-| `RAPPEL_WORKER_COUNT` | Number of Python worker processes | `num_cpus` | `8` |
-| `RAPPEL_CONCURRENT_PER_WORKER` | Max concurrent actions per worker | `10` | `20` |
-| `RAPPEL_USER_MODULE` | Python module preloaded into each worker | none | `my_app.actions` |
-| `RAPPEL_POLL_INTERVAL_MS` | Poll interval for the dispatch loop (ms) | `100` | `50` |
-| `RAPPEL_MAX_ACTION_LIFECYCLE` | Max actions per worker before recycling (see below) | none (no limit) | `1000` |
-| `RAPPEL_INSTANCE_CLAIM_BATCH_SIZE` | Max workflow instances to claim per DB query | `50` | `25` |
-| `RAPPEL_MAX_CONCURRENT_INSTANCES` | Max workflow instances a runner can hold concurrently | `100` | `200` |
-| `RAPPEL_WEBAPP_ENABLED` | Enable the web dashboard | `false` | `true` |
-| `RAPPEL_WEBAPP_ADDR` | Web dashboard bind address | `0.0.0.0:24119` | `0.0.0.0:8080` |
-| `RAPPEL_WEBAPP_DB_MAX_CONNECTIONS` | Max DB connections for the webapp pool | `2` | `4` |
-| `RAPPEL_DB_MAX_CONNECTIONS` | Max DB connections for the primary pool | `10` | `30` |
+| Environment Variable | Description | Default |
+|---------------------|-------------|---------|
+| `RAPPEL_DATABASE_URL` | PostgreSQL DSN for worker runtime state/backend | required |
+| `RAPPEL_WORKER_GRPC_ADDR` | gRPC bind addr used by the Python worker bridge server | `127.0.0.1:24118` |
+| `RAPPEL_WORKER_COUNT` | Number of Python worker processes | host CPU count (`available_parallelism`) |
+| `RAPPEL_CONCURRENT_PER_WORKER` | Max concurrent actions per Python worker | `10` |
+| `RAPPEL_USER_MODULE` | Comma-separated Python modules preloaded in workers | unset |
+| `RAPPEL_MAX_ACTION_LIFECYCLE` | Max actions per worker before worker recycle | unset (no recycle limit) |
+| `RAPPEL_POLL_INTERVAL_MS` | Queue poll interval for runloop | `100` |
+| `RAPPEL_MAX_CONCURRENT_INSTANCES` | Max in-memory instances across runloop shards | `500` |
+| `RAPPEL_EXECUTOR_SHARDS` | Number of executor shards | host CPU count (`available_parallelism`) |
+| `RAPPEL_INSTANCE_DONE_BATCH_SIZE` | Batch size for persisting completed instances | unset (uses claim batch behavior) |
+| `RAPPEL_PERSIST_INTERVAL_MS` | Persistence flush interval | `500` |
+| `RAPPEL_LOCK_TTL_MS` | Queue lock TTL | `15000` |
+| `RAPPEL_LOCK_HEARTBEAT_MS` | Queue lock heartbeat interval | `5000` |
+| `RAPPEL_EVICT_SLEEP_THRESHOLD_MS` | Sleep threshold for evicting idle instances from memory | `10000` |
+| `RAPPEL_EXPIRED_LOCK_RECLAIMER_INTERVAL_MS` | Expired lock reclaim sweep interval | `1000` (clamped to min `1`) |
+| `RAPPEL_EXPIRED_LOCK_RECLAIMER_BATCH_SIZE` | Max locks reclaimed per sweep | `1000` (clamped to min `1`) |
+| `RAPPEL_SCHEDULER_POLL_INTERVAL_MS` | Scheduler poll interval | `1000` |
+| `RAPPEL_SCHEDULER_BATCH_SIZE` | Scheduler due-item batch size | `100` |
+| `RAPPEL_WEBAPP_ENABLED` | Enable embedded webapp | `false` |
+| `RAPPEL_WEBAPP_ADDR` | Webapp bind address | `0.0.0.0:24119` |
+| `RAPPEL_RUNNER_PROFILE_INTERVAL_MS` | Worker status/profile publish interval | `5000` (clamped to min `1`) |
 
-We expect that you won't need to modify the following env parameters, but we provide them for convenience:
+### `rappel-bridge` runtime
 
-| Environment Variable | Description | Default | Example |
-|---------------------|-------------|---------|---------|
-| `RAPPEL_HTTP_ADDR` | HTTP bind address for `rappel-bridge` | `127.0.0.1:24117` | `0.0.0.0:24117` |
-| `RAPPEL_GRPC_ADDR` | gRPC bind address for `rappel-bridge` | HTTP port + 1 | `0.0.0.0:24118` |
-| `RAPPEL_BATCH_SIZE` | Max actions fetched per poll | `workers * concurrent_per_worker` | `200` |
-| `RAPPEL_GC_INTERVAL_MS` | Garbage collection interval (ms) | `none` (disabled) | `60000` |
-| `RAPPEL_GC_RETENTION_SECONDS` | Minimum age for completed/failed instances before cleanup | `86400` | `604800` |
-| `RAPPEL_GC_BATCH_SIZE` | Max instances cleaned per GC cycle | `100` | `500` |
+| Environment Variable | Description | Default |
+|---------------------|-------------|---------|
+| `RAPPEL_BRIDGE_GRPC_ADDR` | gRPC bind address for bridge server | `127.0.0.1:24117` |
+| `RAPPEL_BRIDGE_IN_MEMORY` | Enables in-memory mode (no Postgres backend) | `false` |
+| `RAPPEL_DATABASE_URL` | PostgreSQL DSN (required unless in-memory mode) | required unless `RAPPEL_BRIDGE_IN_MEMORY` is truthy |
+
+### Bootstrap / Python SDK overrides
+
+| Environment Variable | Description | Default |
+|---------------------|-------------|---------|
+| `RAPPEL_BOOT_COMMAND` | Full command used by Python SDK to boot singleton bridge | unset |
+| `RAPPEL_BOOT_BINARY` | Boot binary used when `RAPPEL_BOOT_COMMAND` is unset | `boot-rappel-singleton` |
+| `RAPPEL_BRIDGE_GRPC_ADDR` | Explicit bridge gRPC target (`host:port`) for Python SDK + singleton helper | unset |
+| `RAPPEL_BRIDGE_GRPC_HOST` | Bridge gRPC host used by singleton probing/boot + Python SDK | `127.0.0.1` |
+| `RAPPEL_BRIDGE_GRPC_PORT` | Bridge gRPC base port used by singleton probing/boot + Python SDK | `24117` |
+| `RAPPEL_BRIDGE_BASE_PORT` | Fallback alias for `RAPPEL_BRIDGE_GRPC_PORT` in singleton helper | unset |
+| `RAPPEL_SKIP_WAIT_FOR_INSTANCE` | Python SDK: return immediately after queueing workflow run | `false` |
+| `RAPPEL_LOG_LEVEL` | Python SDK logger level (`DEBUG`, `INFO`, etc.) | `INFO` |
 
 ### Worker Recycling
 
@@ -301,14 +321,14 @@ The script compiles every Rust binary (release profile), stages the required ent
 
 ### Local Server Runtime
 
-The Rust runtime exposes both HTTP and gRPC APIs via the `rappel-bridge` binary:
+The Rust runtime exposes a gRPC API (plus gRPC health check) via the `rappel-bridge` binary:
 
 ```bash
 $ cargo run --bin rappel-bridge
 ```
 
 Developers can either launch it directly or rely on the `boot-rappel-singleton` helper which finds (or starts) a single shared instance on
-`127.0.0.1:24117`. The helper prints the active HTTP port to stdout so Python clients can connect without additional
+`127.0.0.1:24117`. The helper prints the active gRPC port to stdout so Python clients can connect without additional
 configuration:
 
 ```bash
@@ -316,11 +336,41 @@ $ cargo run --bin boot-rappel-singleton
 24117
 ```
 
-The Python bridge automatically shells out to the helper unless you provide `RAPPEL_SERVER_URL`
-(`RAPPEL_GRPC_ADDR` for direct sockets) overrides. Once the ports are known it opens a gRPC channel to the
+The Python bridge automatically shells out to the helper unless you provide
+`RAPPEL_BRIDGE_GRPC_ADDR` (or `RAPPEL_BRIDGE_GRPC_HOST` + `RAPPEL_BRIDGE_GRPC_PORT`) overrides.
+Once the port is known it opens a gRPC channel to the
 `WorkflowService`.
 
 ### Benchmarking
+
+Run the Rust benchmark harness (defaults to `--count 1000`) via:
+
+```bash
+$ make benchmark
+```
+
+`make benchmark` builds with `--features trace`, writes a tracing-chrome file, and prints
+a pyinstrument-style summary via `scripts/parse_chrome_trace.py`. Override the trace path
+with `BENCH_TRACE=...`, the summary size with `BENCH_TRACE_TOP=...`, or benchmark args with
+`BENCH_ARGS="--count 200 --batch-size 50"`. Set `BENCH_RELEASE=1` to run the benchmark binary
+from the release profile. `make benchmark-trace` is an alias if you want the explicit target
+name.
+
+To inspect task waits and blocking points via tokio-console, use:
+
+```bash
+$ make benchmark-console
+```
+
+This opens a tmux session with the benchmark on the left and `tokio-console` on the right.
+`make benchmark-console` requires tmux, and `tokio-console` must be installed (`cargo install
+tokio-console --locked`). Tokio console also requires building with
+`RUSTFLAGS="--cfg tokio_unstable"`, which the make target sets by default (override with
+`BENCH_RUSTFLAGS=...`). The console listens on `127.0.0.1:6669` by default; override with
+`TOKIO_CONSOLE_BIND`. This is a tokio-console socket, not an HTTP endpoint, so it won’t
+load in a browser. If tokio-console shows "RECONNECTING", reinstall it so the client/server
+protocols match. We track the latest `console-subscriber` (0.5.x), while the CLI is still
+0.1.x, so a stale install often causes reconnect loops.
 
 Stream benchmark output directly into our parser to summarize throughput and latency samples:
 

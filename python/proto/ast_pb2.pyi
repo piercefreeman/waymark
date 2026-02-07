@@ -265,6 +265,7 @@ class Statement(google.protobuf.message.Message):
     BREAK_STMT_FIELD_NUMBER: builtins.int
     CONTINUE_STMT_FIELD_NUMBER: builtins.int
     WHILE_LOOP_FIELD_NUMBER: builtins.int
+    SLEEP_STMT_FIELD_NUMBER: builtins.int
     SPAN_FIELD_NUMBER: builtins.int
     @property
     def assignment(self) -> Global___Assignment: ...
@@ -291,6 +292,8 @@ class Statement(google.protobuf.message.Message):
     @property
     def while_loop(self) -> Global___WhileLoop: ...
     @property
+    def sleep_stmt(self) -> Global___SleepStmt: ...
+    @property
     def span(self) -> Global___Span: ...
     def __init__(
         self,
@@ -307,6 +310,7 @@ class Statement(google.protobuf.message.Message):
         break_stmt: Global___BreakStmt | None = ...,
         continue_stmt: Global___ContinueStmt | None = ...,
         while_loop: Global___WhileLoop | None = ...,
+        sleep_stmt: Global___SleepStmt | None = ...,
         span: Global___Span | None = ...,
     ) -> None: ...
     def HasField(
@@ -332,6 +336,8 @@ class Statement(google.protobuf.message.Message):
             b"parallel_block",
             "return_stmt",
             b"return_stmt",
+            "sleep_stmt",
+            b"sleep_stmt",
             "span",
             b"span",
             "spread_action",
@@ -365,6 +371,8 @@ class Statement(google.protobuf.message.Message):
             b"parallel_block",
             "return_stmt",
             b"return_stmt",
+            "sleep_stmt",
+            b"sleep_stmt",
             "span",
             b"span",
             "spread_action",
@@ -391,6 +399,7 @@ class Statement(google.protobuf.message.Message):
             "break_stmt",
             "continue_stmt",
             "while_loop",
+            "sleep_stmt",
         ]
         | None
     ): ...
@@ -958,6 +967,32 @@ class ExprStmt(google.protobuf.message.Message):
     def ClearField(self, field_name: typing.Literal["expr", b"expr"]) -> None: ...
 
 Global___ExprStmt: typing_extensions.TypeAlias = ExprStmt
+
+@typing.final
+class SleepStmt(google.protobuf.message.Message):
+    """Sleep statement (durable sleep handled by scheduler)"""
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    DURATION_FIELD_NUMBER: builtins.int
+    @property
+    def duration(self) -> Global___Expr: ...
+    def __init__(
+        self,
+        *,
+        duration: Global___Expr | None = ...,
+    ) -> None: ...
+    def HasField(
+        self, field_name: typing.Literal["_duration", b"_duration", "duration", b"duration"]
+    ) -> builtins.bool: ...
+    def ClearField(
+        self, field_name: typing.Literal["_duration", b"_duration", "duration", b"duration"]
+    ) -> None: ...
+    def WhichOneof(
+        self, oneof_group: typing.Literal["_duration", b"_duration"]
+    ) -> typing.Literal["duration"] | None: ...
+
+Global___SleepStmt: typing_extensions.TypeAlias = SleepStmt
 
 @typing.final
 class Expr(google.protobuf.message.Message):

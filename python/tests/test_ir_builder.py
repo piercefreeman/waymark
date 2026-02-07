@@ -2,7 +2,7 @@
 
 This module contains comprehensive tests for the Python AST to IR conversion.
 The tests are organized by category:
-- TestAsyncioSleepDetection: asyncio.sleep() -> @sleep action
+- TestAsyncioSleepDetection: asyncio.sleep() -> SleepStmt
 - TestAsyncioGatherDetection: asyncio.gather() -> ParallelBlock/SpreadAction
 - TestPolicyParsing: RetryPolicy and TimeoutPolicy extraction
 - TestForLoopConversion: for loop IR generation
@@ -68,22 +68,20 @@ def iter_block_statements(block: ir.Block) -> Iterator[ir.Statement]:
 
 
 class TestAsyncioSleepDetection:
-    """Test that asyncio.sleep is detected and converted to @sleep action."""
+    """Test that asyncio.sleep is detected and converted to SleepStmt."""
 
-    def _find_sleep_action(self, program: ir.Program) -> ir.ActionCall | None:
-        """Find a @sleep action call in the program."""
+    def _find_sleep_stmt(self, program: ir.Program) -> ir.SleepStmt | None:
+        """Find a sleep statement in the program."""
         for fn in program.functions:
             for stmt in fn.body.statements:
-                if stmt.HasField("action_call"):
-                    if stmt.action_call.action_name == "sleep":
-                        return stmt.action_call
+                if stmt.HasField("sleep_stmt"):
+                    return stmt.sleep_stmt
         return None
 
-    def _get_duration_kwarg(self, action_call: ir.ActionCall) -> ir.Kwarg | None:
-        """Get the duration kwarg from a sleep action."""
-        for kw in action_call.kwargs:
-            if kw.name == "duration":
-                return kw
+    def _get_duration_expr(self, sleep_stmt: ir.SleepStmt) -> ir.Expr | None:
+        """Get the duration expression from a sleep statement."""
+        if sleep_stmt.HasField("duration"):
+            return sleep_stmt.duration
         return None
 
     def test_asyncio_dot_sleep_pattern(self) -> None:
@@ -92,13 +90,13 @@ class TestAsyncioSleepDetection:
 
         program = SleepImportAsyncioWorkflow.workflow_ir()
 
-        sleep_action = self._find_sleep_action(program)
-        assert sleep_action is not None, "Expected @sleep action in IR"
+        sleep_stmt = self._find_sleep_stmt(program)
+        assert sleep_stmt is not None, "Expected sleep statement in IR"
 
-        duration = self._get_duration_kwarg(sleep_action)
-        assert duration is not None, "Expected duration kwarg"
-        assert duration.value.HasField("literal"), "Expected literal value"
-        assert duration.value.literal.int_value == 1
+        duration = self._get_duration_expr(sleep_stmt)
+        assert duration is not None, "Expected duration expression"
+        assert duration.HasField("literal"), "Expected literal value"
+        assert duration.literal.int_value == 1
 
     def test_from_asyncio_import_sleep_pattern(self) -> None:
         """Test: from asyncio import sleep; sleep(2)"""
@@ -106,13 +104,13 @@ class TestAsyncioSleepDetection:
 
         program = SleepFromImportWorkflow.workflow_ir()
 
-        sleep_action = self._find_sleep_action(program)
-        assert sleep_action is not None, "Expected @sleep action in IR"
+        sleep_stmt = self._find_sleep_stmt(program)
+        assert sleep_stmt is not None, "Expected sleep statement in IR"
 
-        duration = self._get_duration_kwarg(sleep_action)
-        assert duration is not None, "Expected duration kwarg"
-        assert duration.value.HasField("literal"), "Expected literal value"
-        assert duration.value.literal.int_value == 2
+        duration = self._get_duration_expr(sleep_stmt)
+        assert duration is not None, "Expected duration expression"
+        assert duration.HasField("literal"), "Expected literal value"
+        assert duration.literal.int_value == 2
 
     def test_from_asyncio_import_sleep_as_alias_pattern(self) -> None:
         """Test: from asyncio import sleep as async_sleep; async_sleep(3)"""
@@ -120,13 +118,13 @@ class TestAsyncioSleepDetection:
 
         program = SleepAliasedImportWorkflow.workflow_ir()
 
-        sleep_action = self._find_sleep_action(program)
-        assert sleep_action is not None, "Expected @sleep action in IR"
+        sleep_stmt = self._find_sleep_stmt(program)
+        assert sleep_stmt is not None, "Expected sleep statement in IR"
 
-        duration = self._get_duration_kwarg(sleep_action)
-        assert duration is not None, "Expected duration kwarg"
-        assert duration.value.HasField("literal"), "Expected literal value"
-        assert duration.value.literal.int_value == 3
+        duration = self._get_duration_expr(sleep_stmt)
+        assert duration is not None, "Expected duration expression"
+        assert duration.HasField("literal"), "Expected literal value"
+        assert duration.literal.int_value == 3
 
 
 class TestVariableReferenceValidation:

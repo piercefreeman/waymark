@@ -771,6 +771,7 @@ class WorkflowRegistration(google.protobuf.message.Message):
     WORKFLOW_NAME_FIELD_NUMBER: builtins.int
     IR_FIELD_NUMBER: builtins.int
     IR_HASH_FIELD_NUMBER: builtins.int
+    WORKFLOW_VERSION_FIELD_NUMBER: builtins.int
     INITIAL_CONTEXT_FIELD_NUMBER: builtins.int
     CONCURRENT_FIELD_NUMBER: builtins.int
     PRIORITY_FIELD_NUMBER: builtins.int
@@ -778,7 +779,9 @@ class WorkflowRegistration(google.protobuf.message.Message):
     ir: builtins.bytes
     """Serialized IR program (from ast.proto)"""
     ir_hash: builtins.str
-    """Hash of the IR for versioning"""
+    """Hash of the IR for immutability checks"""
+    workflow_version: builtins.str
+    """User-defined version identifier"""
     concurrent: builtins.bool
     """Whether multiple instances can run"""
     priority: builtins.int
@@ -791,6 +794,7 @@ class WorkflowRegistration(google.protobuf.message.Message):
         workflow_name: builtins.str = ...,
         ir: builtins.bytes = ...,
         ir_hash: builtins.str = ...,
+        workflow_version: builtins.str = ...,
         initial_context: Global___WorkflowArguments | None = ...,
         concurrent: builtins.bool = ...,
         priority: builtins.int | None = ...,
@@ -823,6 +827,8 @@ class WorkflowRegistration(google.protobuf.message.Message):
             b"priority",
             "workflow_name",
             b"workflow_name",
+            "workflow_version",
+            b"workflow_version",
         ],
     ) -> None: ...
     def WhichOneof(
