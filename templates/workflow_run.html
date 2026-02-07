@@ -307,7 +307,11 @@ function buildPendingActionLogs(actionInfoLookup, resolvedLogs) {
       if (!isPendingStatus(info.status)) return false;
       const latest = latestByActionId.get(actionId);
       if (!latest) return true;
-      return !isPendingStatus(latest.status) || latest.completed_at;
+      const latestStatus = String(latest.status || '').toLowerCase();
+      if (latest.success === true || latestStatus === 'completed' || latestStatus === 'success') {
+        return false;
+      }
+      return true;
     })
     .map(([actionId, info]) => {
       const latest = latestByActionId.get(actionId);

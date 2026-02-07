@@ -314,25 +314,36 @@ impl WorkflowRegistryBackend for MemoryBackend {
 impl SchedulerBackend for MemoryBackend {
     async fn upsert_schedule(&self, params: &CreateScheduleParams) -> BackendResult<ScheduleId> {
         let mut guard = self.schedules.lock().expect("schedules poisoned");
-        let existing_id = guard.iter().find_map(|(id, schedule)| {
+        let existing_schedule = guard.iter().find_map(|(id, schedule)| {
             if schedule.workflow_name == params.workflow_name
                 && schedule.schedule_name == params.schedule_name
             {
-                Some(*id)
+                Some((*id, schedule.clone()))
             } else {
                 None
             }
         });
-        let schedule_id = existing_id.unwrap_or_else(ScheduleId::new);
+        let schedule_id = existing_schedule
+            .as_ref()
+            .map(|(id, _)| *id)
+            .unwrap_or_else(ScheduleId::new);
         let now = Utc::now();
-        let next_run_at = compute_next_run(
-            params.schedule_type,
-            params.cron_expression.as_deref(),
-            params.interval_seconds,
-            params.jitter_seconds,
-            None,
-        )
-        .map_err(BackendError::Message)?;
+        let next_run_at = match existing_schedule
+            .as_ref()
+            .and_then(|(_, schedule)| schedule.next_run_at)
+        {
+            Some(next_run_at) => Some(next_run_at),
+            None => Some(
+                compute_next_run(
+                    params.schedule_type,
+                    params.cron_expression.as_deref(),
+                    params.interval_seconds,
+                    params.jitter_seconds,
+                    None,
+                )
+                .map_err(BackendError::Message)?,
+            ),
+        };
         let schedule = WorkflowSchedule {
             id: schedule_id.0,
             workflow_name: params.workflow_name.clone(),
@@ -343,12 +354,16 @@ impl SchedulerBackend for MemoryBackend {
             jitter_seconds: params.jitter_seconds,
             input_payload: params.input_payload.clone(),
             status: "active".to_string(),
-            next_run_at: Some(next_run_at),
-            last_run_at: None,
-            last_instance_id: None,
-            created_at: guard
-                .get(&schedule_id)
-                .map(|existing| existing.created_at)
+            next_run_at,
+            last_run_at: existing_schedule
+                .as_ref()
+                .and_then(|(_, schedule)| schedule.last_run_at),
+            last_instance_id: existing_schedule
+                .as_ref()
+                .and_then(|(_, schedule)| schedule.last_instance_id),
+            created_at: existing_schedule
+                .as_ref()
+                .map(|(_, schedule)| schedule.created_at)
                 .unwrap_or(now),
             updated_at: now,
             priority: params.priority,

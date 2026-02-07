@@ -33,7 +33,7 @@ impl SchedulerBackend for PostgresBackend {
                 interval_seconds = EXCLUDED.interval_seconds,
                 jitter_seconds = EXCLUDED.jitter_seconds,
                 input_payload = EXCLUDED.input_payload,
-                next_run_at = EXCLUDED.next_run_at,
+                next_run_at = COALESCE(workflow_schedules.next_run_at, EXCLUDED.next_run_at),
                 priority = EXCLUDED.priority,
                 allow_duplicate = EXCLUDED.allow_duplicate,
                 status = 'active',
@@ -331,6 +331,43 @@ mod tests {
             .expect("select schedule");
 
         assert_eq!(row.get::<Uuid, _>("id"), id.0);
+    }
+
+    #[serial(postgres)]
+    #[tokio::test]
+    async fn scheduler_upsert_schedule_preserves_existing_next_run_at() {
+        let backend = setup_backend().await;
+
+        let id = insert_schedule(&backend, "preserve-next-run").await;
+        sqlx::query(
+            "UPDATE workflow_schedules SET next_run_at = NOW() + INTERVAL '2 days' WHERE id = $1",
+        )
+        .bind(id.0)
+        .execute(backend.pool())
+        .await
+        .expect("force next_run_at");
+
+        let before: Option<chrono::DateTime<Utc>> =
+            sqlx::query_scalar("SELECT next_run_at FROM workflow_schedules WHERE id = $1")
+                .bind(id.0)
+                .fetch_one(backend.pool())
+                .await
+                .expect("select next_run_at before");
+
+        let upserted_id =
+            SchedulerBackend::upsert_schedule(&backend, &sample_params("preserve-next-run"))
+                .await
+                .expect("upsert existing schedule");
+        assert_eq!(upserted_id.0, id.0);
+
+        let after: Option<chrono::DateTime<Utc>> =
+            sqlx::query_scalar("SELECT next_run_at FROM workflow_schedules WHERE id = $1")
+                .bind(id.0)
+                .fetch_one(backend.pool())
+                .await
+                .expect("select next_run_at after");
+
+        assert_eq!(after, before);
     }
 
     #[serial(postgres)]
