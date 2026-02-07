@@ -3,6 +3,8 @@
 pub mod backends;
 pub mod config;
 pub mod db;
+#[cfg(feature = "fuzzing")]
+pub mod fuzzer;
 pub mod messages;
 pub mod observability;
 pub mod pool_status;

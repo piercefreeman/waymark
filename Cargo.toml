@@ -18,6 +18,11 @@ path = "src/bin/benchmark.rs"
 name = "smoke"
 path = "src/bin/smoke.rs"
 
+[[bin]]
+name = "rappel-fuzz"
+path = "src/bin/rappel-fuzz.rs"
+required-features = ["fuzzing"]
+
 [dependencies]
 anyhow = "1"
 axum = "0.8"
@@ -35,6 +40,7 @@ sha2 = "0.10"
 rustc-hash = "2"
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 rand = "0.8"
+proptest = { version = "1.9", optional = true }
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres", "macros", "migrate", "chrono", "uuid"] }
 tera = "1"
 uuid = { version = "1", features = ["serde", "v4"] }
@@ -55,6 +61,7 @@ console-subscriber = { version = "0.5", optional = true }
 [features]
 trace = []
 observability = ["trace", "dep:console-subscriber"]
+fuzzing = ["dep:proptest"]
 
 [build-dependencies]
 tonic-build = "0.11"
@@ -63,4 +70,3 @@ tonic-build = "0.11"
 serial_test = "2"
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
-proptest = "1.4"
