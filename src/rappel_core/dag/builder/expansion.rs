@@ -455,3 +455,52 @@ impl DAGConverter {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use super::super::super::models::{DAG, DAGEdge};
+    use super::super::super::nodes::{ActionCallNode, ActionCallParams, InputNode};
+    use super::*;
+
+    #[test]
+    fn test_remap_exception_targets_happy_path() {
+        let mut dag = DAG::default();
+        dag.add_node(InputNode::new("main_input", vec![], Some("main".to_string())).into());
+        dag.add_node(
+            ActionCallNode::new(
+                "call_1:action_2",
+                "work",
+                ActionCallParams {
+                    module_name: None,
+                    kwargs: HashMap::new(),
+                    kwarg_exprs: HashMap::new(),
+                    policies: Vec::new(),
+                    targets: None,
+                    target: None,
+                    parallel_index: None,
+                    aggregates_to: None,
+                    spread_loop_var: None,
+                    spread_collection_expr: None,
+                    function_name: Some("main".to_string()),
+                },
+            )
+            .into(),
+        );
+        dag.add_edge(DAGEdge::state_machine_with_exception(
+            "main_input",
+            "call_1",
+            vec!["Exception".to_string()],
+        ));
+
+        DAGConverter::new().remap_exception_targets(&mut dag);
+
+        assert!(
+            dag.edges
+                .iter()
+                .any(|edge| edge.target == "call_1:action_2"),
+            "remap should resolve exception edge target to expanded call entry"
+        );
+    }
+}

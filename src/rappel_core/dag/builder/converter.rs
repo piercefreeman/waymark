@@ -346,3 +346,58 @@ impl DAGConverter {
 pub fn convert_to_dag(program: &ir::Program) -> Result<DAG, DagConversionError> {
     DAGConverter::new().convert(program)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::test_helpers::{build_dag, parse_program_source};
+    use super::*;
+
+    #[test]
+    fn test_convert_with_pointers_keeps_function_call_node() {
+        let program = parse_program_source(
+            r#"
+            fn helper(input: [x], output: [y]):
+                y = x + 1
+                return y
+
+            fn main(input: [a], output: [b]):
+                b = helper(a)
+                return b
+            "#,
+        );
+
+        let mut converter = DAGConverter::new();
+        let dag = converter
+            .convert_with_pointers(&program)
+            .expect("convert with pointers");
+
+        assert!(
+            dag.nodes.values().any(|node| node.node_type() == "fn_call"),
+            "convert_with_pointers should preserve fn_call nodes"
+        );
+    }
+
+    #[test]
+    fn test_convert_to_dag_happy_path_expands_function_calls() {
+        let dag = build_dag(
+            r#"
+            fn helper(input: [x], output: [y]):
+                y = x + 1
+                return y
+
+            fn main(input: [a], output: [b]):
+                b = helper(a)
+                return b
+            "#,
+        );
+
+        assert!(
+            dag.nodes.values().all(|node| node.node_type() != "fn_call"),
+            "convert_to_dag should inline function calls in the expanded DAG"
+        );
+        assert!(
+            !dag.edges.is_empty(),
+            "expanded DAG should contain state/data-flow edges"
+        );
+    }
+}

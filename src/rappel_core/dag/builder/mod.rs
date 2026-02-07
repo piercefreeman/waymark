@@ -13,4 +13,4 @@ mod utils;
 pub use converter::{DAGConverter, convert_to_dag};
 
 #[cfg(test)]
-mod tests;
+mod test_helpers;

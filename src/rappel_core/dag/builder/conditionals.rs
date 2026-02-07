@@ -207,3 +207,31 @@ impl DAGConverter {
         Ok(result)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::test_helpers::build_dag_with_pointers;
+
+    #[test]
+    fn test_convert_conditional_happy_path() {
+        let dag = build_dag_with_pointers(
+            r#"
+            fn main(input: [x], output: [y]):
+                if x > 0:
+                    y = 1
+                else:
+                    y = 2
+                return y
+            "#,
+        );
+
+        assert!(
+            dag.nodes.values().any(|node| node.node_type() == "branch"),
+            "conditional should create a branch node"
+        );
+        assert!(
+            dag.nodes.values().any(|node| node.node_type() == "join"),
+            "conditional should create a join node"
+        );
+    }
+}

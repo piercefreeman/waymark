@@ -297,3 +297,32 @@ impl DAGConverter {
         result_nodes
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::test_helpers::build_dag_with_pointers;
+
+    #[test]
+    fn test_convert_spread_expr_happy_path() {
+        let dag = build_dag_with_pointers(
+            r#"
+            fn main(input: [], output: [results]):
+                results = spread [1, 2]: item -> @noop()
+                return results
+            "#,
+        );
+
+        assert!(
+            dag.nodes
+                .values()
+                .any(|node| node.node_type() == "action_call"),
+            "spread expression should create action call node"
+        );
+        assert!(
+            dag.nodes
+                .values()
+                .any(|node| node.node_type() == "aggregator"),
+            "spread expression should create aggregator node"
+        );
+    }
+}

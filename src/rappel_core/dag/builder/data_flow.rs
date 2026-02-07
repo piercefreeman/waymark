@@ -709,3 +709,28 @@ impl DAGConverter {
         order
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::super::models::EdgeType;
+    use super::super::test_helpers::build_dag;
+
+    #[test]
+    fn test_add_global_data_flow_edges_happy_path() {
+        let dag = build_dag(
+            r#"
+            fn main(input: [x], output: [y]):
+                z = x + 1
+                y = z + 2
+                return y
+            "#,
+        );
+
+        assert!(
+            dag.edges.iter().any(|edge| {
+                edge.edge_type == EdgeType::DataFlow && edge.variable.as_deref() == Some("z")
+            }),
+            "expanded DAG should include global data-flow edges for derived variables"
+        );
+    }
+}

@@ -171,3 +171,34 @@ impl DAGConverter {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::test_helpers::build_dag_with_pointers;
+
+    #[test]
+    fn test_convert_try_except_happy_path() {
+        let dag = build_dag_with_pointers(
+            r#"
+            fn main(input: [], output: []):
+                try:
+                    @work()
+                except Exception as err:
+                    @handle()
+            "#,
+        );
+
+        assert!(
+            dag.edges
+                .iter()
+                .any(|edge| { edge.exception_types.is_some() && edge.exception_depth == Some(1) }),
+            "try/except should emit exception edges with depth metadata"
+        );
+        assert!(
+            dag.nodes
+                .values()
+                .any(|node| node.node_type() == "assignment"),
+            "try/except with `as err` should prepend exception binding assignment"
+        );
+    }
+}

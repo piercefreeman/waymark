@@ -405,3 +405,44 @@ impl DAGConverter {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::test_helpers::build_dag_with_pointers;
+
+    #[test]
+    fn test_convert_for_loop_happy_path() {
+        let dag = build_dag_with_pointers(
+            r#"
+            fn main(input: [items], output: [total]):
+                total = 0
+                for item in items:
+                    total = total + item
+                return total
+            "#,
+        );
+
+        assert!(
+            dag.nodes
+                .keys()
+                .any(|node_id| node_id.starts_with("loop_init")),
+            "for loop should create loop init node"
+        );
+        assert!(
+            dag.nodes
+                .keys()
+                .any(|node_id| node_id.starts_with("loop_cond")),
+            "for loop should create loop condition node"
+        );
+        assert!(
+            dag.nodes
+                .keys()
+                .any(|node_id| node_id.starts_with("loop_exit")),
+            "for loop should create loop exit node"
+        );
+        assert!(
+            dag.edges.iter().any(|edge| edge.is_loop_back),
+            "for loop should emit at least one loop-back edge"
+        );
+    }
+}

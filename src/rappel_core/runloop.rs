@@ -1524,6 +1524,7 @@ fn main(input: [x], output: [y]):
         let instances_done = backend.instances_done();
         assert_eq!(instances_done.len(), 1);
         let done = &instances_done[0];
+        println!("instance done: {:?}", done);
         let output = done.result.clone().expect("instance result");
         let Value::Object(map) = output else {
             panic!("expected output object");
@@ -1618,5 +1619,138 @@ fn main(input: [x], output: [y]):
             .and_then(Value::as_str)
             .expect("error message");
         assert!(message.contains("variable not found: x"));
+    }
+
+    #[tokio::test]
+    async fn test_runloop_executes_for_loop_action_assignments() {
+        let source = r#"
+fn main(input: [limit], output: [result]):
+    current = 0
+    iterations = 0
+    for _ in range(limit):
+        current = @tests.fixtures.test_actions.increment(value=current)
+        iterations = iterations + 1
+    result = @tests.fixtures.test_actions.pack(limit=limit, final=current, iterations=iterations)
+    return result
+"#;
+        let program = parse_program(source.trim()).expect("parse program");
+        let program_proto = program.encode_to_vec();
+        let ir_hash = format!("{:x}", Sha256::digest(&program_proto));
+        let dag = Arc::new(convert_to_dag(&program).expect("convert to dag"));
+
+        let mut state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
+        let _ = state
+            .record_assignment(
+                vec!["limit".to_string()],
+                &ir::Expr {
+                    kind: Some(ir::expr::Kind::Literal(ir::Literal {
+                        value: Some(ir::literal::Value::IntValue(4)),
+                    })),
+                    span: None,
+                },
+                None,
+                Some("input limit = 4".to_string()),
+            )
+            .expect("record assignment");
+        let entry_node = dag
+            .entry_node
+            .as_ref()
+            .expect("DAG entry node not found")
+            .clone();
+        let entry_exec = state
+            .queue_template_node(&entry_node, None)
+            .expect("queue entry node");
+
+        let queue = Arc::new(Mutex::new(VecDeque::new()));
+        let backend = MemoryBackend::with_queue(queue.clone());
+        let workflow_version_id = backend
+            .upsert_workflow_version(&WorkflowRegistration {
+                workflow_name: "test_loop_actions".to_string(),
+                workflow_version: ir_hash.clone(),
+                ir_hash,
+                program_proto,
+                concurrent: false,
+            })
+            .await
+            .expect("register workflow version");
+
+        let mut actions: HashMap<String, ActionCallable> = HashMap::new();
+        actions.insert(
+            "increment".to_string(),
+            Arc::new(|kwargs| {
+                Box::pin(async move {
+                    let value = kwargs
+                        .get("value")
+                        .and_then(|value| value.as_i64())
+                        .unwrap_or(0);
+                    Ok(Value::Number((value + 1).into()))
+                })
+            }),
+        );
+        actions.insert(
+            "pack".to_string(),
+            Arc::new(|kwargs| {
+                Box::pin(async move {
+                    let limit = kwargs.get("limit").cloned().unwrap_or(Value::Null);
+                    let final_value = kwargs.get("final").cloned().unwrap_or(Value::Null);
+                    let iterations = kwargs.get("iterations").cloned().unwrap_or(Value::Null);
+                    Ok(Value::Object(
+                        [
+                            ("limit".to_string(), limit),
+                            ("final".to_string(), final_value),
+                            ("iterations".to_string(), iterations),
+                        ]
+                        .into_iter()
+                        .collect(),
+                    ))
+                })
+            }),
+        );
+        let worker_pool = crate::workers::InlineWorkerPool::new(actions);
+
+        let mut runloop = RunLoop::new(
+            worker_pool,
+            backend.clone(),
+            RunLoopSupervisorConfig {
+                max_concurrent_instances: 25,
+                executor_shards: 1,
+                instance_done_batch_size: None,
+                poll_interval: Duration::from_secs_f64(0.0),
+                persistence_interval: Duration::from_secs_f64(0.1),
+                lock_uuid: Uuid::new_v4(),
+                lock_ttl: Duration::from_secs(15),
+                lock_heartbeat: Duration::from_secs(5),
+                evict_sleep_threshold: Duration::from_secs(10),
+                active_instance_gauge: None,
+            },
+        );
+        queue.lock().expect("queue lock").push_back(QueuedInstance {
+            workflow_version_id,
+            dag: None,
+            entry_node: entry_exec.node_id,
+            state: Some(state),
+            action_results: HashMap::new(),
+            instance_id: Uuid::new_v4(),
+            scheduled_at: None,
+        });
+
+        runloop.run().await.expect("runloop");
+        let instances_done = backend.instances_done();
+        assert_eq!(instances_done.len(), 1);
+        let done = &instances_done[0];
+        let output = done.result.clone().expect("instance result");
+        let Value::Object(map) = output else {
+            panic!("expected output object");
+        };
+        let Value::Object(result_map) = map
+            .get("result")
+            .cloned()
+            .expect("result payload should include result")
+        else {
+            panic!("expected nested result object");
+        };
+        assert_eq!(result_map.get("limit"), Some(&Value::Number(4.into())));
+        assert_eq!(result_map.get("final"), Some(&Value::Number(4.into())));
+        assert_eq!(result_map.get("iterations"), Some(&Value::Number(4.into())));
     }
 }

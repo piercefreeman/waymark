@@ -159,3 +159,41 @@ impl DAGConverter {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::super::models::DAGNode;
+    use super::super::super::nodes::AssignmentNode;
+    use super::*;
+
+    #[test]
+    fn test_utils_happy_path_track_and_targets() {
+        let mut converter = DAGConverter::new();
+        converter.track_var_definition("value", "node_1");
+        assert_eq!(
+            converter
+                .current_scope_vars
+                .get("value")
+                .map(String::as_str),
+            Some("node_1")
+        );
+
+        let mut targets = vec!["value".to_string()];
+        DAGConverter::push_unique_target(&mut targets, "value");
+        DAGConverter::push_unique_target(&mut targets, "other");
+        assert_eq!(targets, vec!["value".to_string(), "other".to_string()]);
+
+        let assignment = DAGNode::Assignment(AssignmentNode::new(
+            "assign_1",
+            vec!["value".to_string()],
+            None,
+            None,
+            None,
+            Some("main".to_string()),
+        ));
+        assert_eq!(
+            DAGConverter::targets_for_node(&assignment),
+            vec!["value".to_string()]
+        );
+    }
+}
