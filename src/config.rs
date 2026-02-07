@@ -9,7 +9,7 @@ use anyhow::{Context, Result};
 use crate::{SchedulerConfig, WebappConfig};
 
 const DEFAULT_WORKER_GRPC_ADDR: &str = "127.0.0.1:24118";
-const DEFAULT_WORKER_CONCURRENCY: usize = 10;
+const DEFAULT_CONCURRENT_PER_WORKER: usize = 10;
 const DEFAULT_POLL_INTERVAL_MS: u64 = 100;
 const DEFAULT_MAX_CONCURRENT_INSTANCES: usize = 500;
 const DEFAULT_PERSIST_INTERVAL_MS: u64 = 500;
@@ -57,9 +57,8 @@ impl WorkerConfig {
 
         let worker_count = env_usize("RAPPEL_WORKER_COUNT").unwrap_or_else(default_worker_count);
 
-        let concurrent_per_worker = env_usize("RAPPEL_CONCURRENT_PER_WORKER")
-            .or_else(|| env_usize("RAPPEL_WORKER_CONCURRENCY"))
-            .unwrap_or(DEFAULT_WORKER_CONCURRENCY);
+        let concurrent_per_worker =
+            env_usize("RAPPEL_CONCURRENT_PER_WORKER").unwrap_or(DEFAULT_CONCURRENT_PER_WORKER);
 
         let user_modules = env::var("RAPPEL_USER_MODULE")
             .ok()
