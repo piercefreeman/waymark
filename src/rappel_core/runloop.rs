@@ -1192,6 +1192,16 @@ impl RunLoop {
             }
         }
 
+        let remaining_locks = lock_tracker.snapshot();
+        if !remaining_locks.is_empty()
+            && let Err(err) = self
+                .core_backend
+                .release_instance_locks(self.lock_uuid, &remaining_locks)
+                .await
+        {
+            warn!(error = %err, count = remaining_locks.len(), "failed to release instance locks on shutdown");
+        }
+
         if let Some(gauge) = &self.active_instance_gauge {
             gauge.store(0, Ordering::SeqCst);
         }

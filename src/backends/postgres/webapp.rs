@@ -9,7 +9,7 @@ use uuid::Uuid;
 use super::PostgresBackend;
 use crate::backends::base::{BackendError, BackendResult, GraphUpdate, WebappBackend};
 use crate::rappel_core::runner::state::{ActionCallSpec, ExecutionNode, NodeStatus};
-use crate::rappel_core::runner::{RunnerState, format_value, replay_action_kwargs};
+use crate::rappel_core::runner::{RunnerState, ValueExpr, format_value, replay_action_kwargs};
 use crate::webapp::{
     ExecutionEdgeView, ExecutionGraphView, ExecutionNodeView, InstanceDetail, InstanceStatus,
     InstanceSummary, ScheduleDetail, ScheduleSummary, TimelineEntry, WorkerActionRow,
@@ -115,8 +115,8 @@ impl WebappBackend for PostgresBackend {
         let workflow_name: String = row.get("workflow_name");
 
         let status = determine_status(&state_bytes, &result_bytes, &error_bytes);
-        let input_payload = format_state_preview(&state_bytes);
-        let result_payload = format_result(&result_bytes);
+        let input_payload = format_input_payload(&state_bytes);
+        let result_payload = format_instance_result_payload(status, &result_bytes, &error_bytes);
         let error_payload = format_error(&error_bytes);
 
         Ok(InstanceDetail {
@@ -706,6 +706,12 @@ fn determine_status(
     if error_bytes.is_some() {
         return InstanceStatus::Failed;
     }
+    if result_bytes
+        .as_deref()
+        .is_some_and(result_payload_is_error_wrapper)
+    {
+        return InstanceStatus::Failed;
+    }
     if result_bytes.is_some() {
         return InstanceStatus::Completed;
     }
@@ -729,41 +735,142 @@ fn extract_input_preview(state_bytes: &Option<Vec<u8>>) -> String {
     }
 }
 
-fn format_state_preview(state_bytes: &Option<Vec<u8>>) -> String {
+fn format_input_payload(state_bytes: &Option<Vec<u8>>) -> String {
     let Some(bytes) = state_bytes else {
-        return "(no state)".to_string();
+        return "{}".to_string();
     };
 
     match rmp_serde::from_slice::<GraphUpdate>(bytes) {
-        Ok(graph) => {
-            let summary = serde_json::json!({
-                "node_count": graph.nodes.len(),
-                "edge_count": graph.edges.len(),
-            });
-            serde_json::to_string_pretty(&summary).unwrap_or_else(|_| "{}".to_string())
-        }
-        Err(_) => "(decode error)".to_string(),
+        Ok(graph) => format_extracted_inputs(&graph.nodes),
+        Err(_) => "{}".to_string(),
     }
 }
 
-fn format_result(result_bytes: &Option<Vec<u8>>) -> String {
-    let Some(bytes) = result_bytes else {
-        return "(pending)".to_string();
+fn format_extracted_inputs(nodes: &HashMap<Uuid, ExecutionNode>) -> String {
+    let mut input_pairs: Vec<(String, Value)> = nodes
+        .values()
+        .filter_map(extract_input_assignment)
+        .collect();
+    if input_pairs.is_empty() {
+        return "{}".to_string();
+    }
+    input_pairs.sort_by(|(left, _), (right, _)| left.cmp(right));
+    let input_map: serde_json::Map<String, Value> = input_pairs.into_iter().collect();
+    pretty_json(&Value::Object(input_map))
+}
+
+fn extract_input_assignment(node: &ExecutionNode) -> Option<(String, Value)> {
+    let (name, raw_value) = parse_input_assignment_label(&node.label)?;
+
+    if let Ok(value) = serde_json::from_str::<Value>(raw_value) {
+        return Some((name.to_string(), value));
+    }
+
+    if let Some(value_expr) = node.assignments.get(name) {
+        return Some((name.to_string(), value_expr_to_json(value_expr)));
+    }
+
+    Some((name.to_string(), Value::String(raw_value.to_string())))
+}
+
+fn parse_input_assignment_label(label: &str) -> Option<(&str, &str)> {
+    let payload = label.strip_prefix("input ")?;
+    payload.split_once(" = ")
+}
+
+fn value_expr_to_json(value_expr: &ValueExpr) -> Value {
+    match value_expr {
+        ValueExpr::Literal(value) => value.value.clone(),
+        ValueExpr::List(value) => {
+            Value::Array(value.elements.iter().map(value_expr_to_json).collect())
+        }
+        ValueExpr::Dict(value) => {
+            let mut map = serde_json::Map::new();
+            for entry in &value.entries {
+                let key = match value_expr_to_json(&entry.key) {
+                    Value::String(key) => key,
+                    other => other.to_string(),
+                };
+                map.insert(key, value_expr_to_json(&entry.value));
+            }
+            Value::Object(map)
+        }
+        _ => Value::String(format_value(value_expr)),
+    }
+}
+
+fn format_instance_result_payload(
+    status: InstanceStatus,
+    result_bytes: &Option<Vec<u8>>,
+    error_bytes: &Option<Vec<u8>>,
+) -> String {
+    match status {
+        InstanceStatus::Failed => {
+            let payload = error_bytes.as_deref().or(result_bytes.as_deref());
+            let Some(bytes) = payload else {
+                return "(failed)".to_string();
+            };
+            match rmp_serde::from_slice::<serde_json::Value>(bytes) {
+                Ok(value) => pretty_json(&normalize_error_payload(value)),
+                Err(_) => "(decode error)".to_string(),
+            }
+        }
+        InstanceStatus::Completed => {
+            let Some(bytes) = result_bytes else {
+                return "(pending)".to_string();
+            };
+            match rmp_serde::from_slice::<serde_json::Value>(bytes) {
+                Ok(value) => pretty_json(&normalize_success_payload(value)),
+                Err(_) => "(decode error)".to_string(),
+            }
+        }
+        InstanceStatus::Running | InstanceStatus::Queued => "(pending)".to_string(),
+    }
+}
+
+fn normalize_success_payload(value: Value) -> Value {
+    let Value::Object(mut map) = value else {
+        return value;
+    };
+    map.remove("result").unwrap_or(Value::Object(map))
+}
+
+fn normalize_error_payload(value: Value) -> Value {
+    let Value::Object(mut map) = value else {
+        return value;
     };
 
-    match rmp_serde::from_slice::<serde_json::Value>(bytes) {
-        Ok(value) => serde_json::to_string_pretty(&value).unwrap_or_else(|_| "{}".to_string()),
-        Err(_) => "(decode error)".to_string(),
+    if let Some(error) = map.remove("error") {
+        return normalize_error_payload(error);
     }
+    if let Some(exception) = map.remove("__exception__") {
+        return normalize_error_payload(exception);
+    }
+    if let Some(exception) = map.remove("exception") {
+        return normalize_error_payload(exception);
+    }
+
+    Value::Object(map)
+}
+
+fn result_payload_is_error_wrapper(bytes: &[u8]) -> bool {
+    let Ok(value) = rmp_serde::from_slice::<serde_json::Value>(bytes) else {
+        return false;
+    };
+    let Value::Object(map) = value else {
+        return false;
+    };
+    map.len() == 1
+        && (map.contains_key("error")
+            || map.contains_key("__exception__")
+            || map.contains_key("exception"))
 }
 
 fn format_error(error_bytes: &Option<Vec<u8>>) -> Option<String> {
     let bytes = error_bytes.as_ref()?;
 
     match rmp_serde::from_slice::<serde_json::Value>(bytes) {
-        Ok(value) => {
-            Some(serde_json::to_string_pretty(&value).unwrap_or_else(|_| "{}".to_string()))
-        }
+        Ok(value) => Some(pretty_json(&normalize_error_payload(value))),
         Err(_) => Some("(decode error)".to_string()),
     }
 }
@@ -798,6 +905,111 @@ mod tests {
     };
     use crate::scheduler::{CreateScheduleParams, ScheduleType};
     use crate::test_support::postgres_setup;
+
+    #[test]
+    fn format_extracted_inputs_happy_path() {
+        let mut nodes = HashMap::new();
+        let mut first_assignments = HashMap::new();
+        first_assignments.insert(
+            "iterations".to_string(),
+            ValueExpr::Literal(LiteralValue {
+                value: serde_json::json!(3),
+            }),
+        );
+        nodes.insert(
+            Uuid::new_v4(),
+            ExecutionNode {
+                node_id: Uuid::new_v4(),
+                node_type: "assignment".to_string(),
+                label: "input iterations = 3".to_string(),
+                status: NodeStatus::Completed,
+                template_id: None,
+                targets: vec!["iterations".to_string()],
+                action: None,
+                value_expr: None,
+                assignments: first_assignments,
+                action_attempt: 0,
+                scheduled_at: None,
+            },
+        );
+
+        let mut second_assignments = HashMap::new();
+        second_assignments.insert(
+            "sleep_seconds".to_string(),
+            ValueExpr::Literal(LiteralValue {
+                value: serde_json::json!(20),
+            }),
+        );
+        nodes.insert(
+            Uuid::new_v4(),
+            ExecutionNode {
+                node_id: Uuid::new_v4(),
+                node_type: "assignment".to_string(),
+                label: "input sleep_seconds = 20".to_string(),
+                status: NodeStatus::Completed,
+                template_id: None,
+                targets: vec!["sleep_seconds".to_string()],
+                action: None,
+                value_expr: None,
+                assignments: second_assignments,
+                action_attempt: 0,
+                scheduled_at: None,
+            },
+        );
+
+        let rendered = format_extracted_inputs(&nodes);
+        let value: Value = serde_json::from_str(&rendered).expect("decode rendered input payload");
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "iterations": 3,
+                "sleep_seconds": 20
+            })
+        );
+    }
+
+    #[test]
+    fn format_instance_result_payload_unwraps_success_result_wrapper() {
+        let result_bytes =
+            rmp_serde::to_vec_named(&serde_json::json!({"result": {"total_iterations": 3}}))
+                .expect("encode result");
+        let rendered =
+            format_instance_result_payload(InstanceStatus::Completed, &Some(result_bytes), &None);
+        let value: Value = serde_json::from_str(&rendered).expect("decode result payload");
+        assert_eq!(value, serde_json::json!({"total_iterations": 3}));
+    }
+
+    #[test]
+    fn format_instance_result_payload_unwraps_error_wrapper() {
+        let error_bytes = rmp_serde::to_vec_named(&serde_json::json!({
+            "error": {
+                "__exception__": {
+                    "type": "ValueError",
+                    "message": "boom"
+                }
+            }
+        }))
+        .expect("encode error");
+        let rendered =
+            format_instance_result_payload(InstanceStatus::Failed, &None, &Some(error_bytes));
+        let value: Value = serde_json::from_str(&rendered).expect("decode result payload");
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "type": "ValueError",
+                "message": "boom"
+            })
+        );
+    }
+
+    #[test]
+    fn determine_status_marks_wrapped_result_errors_as_failed() {
+        let result_bytes =
+            rmp_serde::to_vec_named(&serde_json::json!({"error": {"message": "boom"}}))
+                .expect("encode result error");
+        let status = determine_status(&None, &Some(result_bytes), &None);
+        assert_eq!(status, InstanceStatus::Failed);
+    }
 
     async fn setup_backend() -> PostgresBackend {
         let pool = postgres_setup().await;

@@ -45,7 +45,25 @@
         <pre class="overflow-x-auto whitespace-pre-wrap rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 p-4 font-mono text-xs text-zinc-700 dark:text-zinc-300">{{ instance.input_payload }}</pre>
     </div>
     <div class="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-5">
-        <p class="text-xs uppercase tracking-[0.3em] text-zinc-500 mb-3">Result Payload</p>
+        <div class="mb-3 flex items-center justify-between gap-3">
+            <p class="text-xs uppercase tracking-[0.3em] text-zinc-500">Result Payload</p>
+            {% if instance.status == "completed" %}
+            <span class="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/50 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.15em] text-emerald-700 dark:text-emerald-300">
+                <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+                Success
+            </span>
+            {% elif instance.status == "failed" %}
+            <span class="inline-flex items-center gap-1.5 rounded-full border border-red-500/50 bg-red-500/10 px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.15em] text-red-700 dark:text-red-300">
+                <span class="h-1.5 w-1.5 rounded-full bg-red-500"></span>
+                Failed
+            </span>
+            {% else %}
+            <span class="inline-flex items-center gap-1.5 rounded-full border border-amber-500/50 bg-amber-500/10 px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.15em] text-amber-700 dark:text-amber-300">
+                <span class="h-1.5 w-1.5 rounded-full bg-amber-500"></span>
+                Pending
+            </span>
+            {% endif %}
+        </div>
         <pre class="max-h-64 overflow-auto whitespace-pre-wrap rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 p-4 font-mono text-xs text-zinc-700 dark:text-zinc-300">{{ instance.result_payload }}</pre>
     </div>
 </section>

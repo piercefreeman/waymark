@@ -6,12 +6,15 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+use serde_json::Value;
 use tokio::sync::watch;
 use tracing::{debug, error, info};
 use uuid::Uuid;
 
 use super::types::{ScheduleId, WorkflowSchedule};
 use crate::backends::{CoreBackend, QueuedInstance, SchedulerBackend};
+use crate::messages;
+use crate::messages::ast as ir;
 use crate::rappel_core::dag::DAG;
 
 #[derive(Clone)]
@@ -169,6 +172,20 @@ where
 
         let mut state =
             crate::rappel_core::runner::RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
+        if let Some(input_payload) = schedule.input_payload.as_deref() {
+            let inputs = messages::workflow_arguments_to_json(input_payload)
+                .ok_or_else(|| "failed to decode schedule input payload".to_string())?;
+            let Value::Object(input_map) = inputs else {
+                return Err("schedule input payload must decode to an object".into());
+            };
+            for (name, value) in input_map {
+                let expr = literal_from_json_value(&value);
+                let label = format!("input {name} = {value}");
+                state
+                    .record_assignment(vec![name.clone()], &expr, None, Some(label))
+                    .map_err(|err| err.0)?;
+            }
+        }
         let entry_exec = state
             .queue_template_node(entry_node_str, None)
             .map_err(|err| err.0)?;
@@ -204,6 +221,67 @@ where
     }
 }
 
+fn literal_from_json_value(value: &Value) -> ir::Expr {
+    match value {
+        Value::Bool(value) => ir::Expr {
+            kind: Some(ir::expr::Kind::Literal(ir::Literal {
+                value: Some(ir::literal::Value::BoolValue(*value)),
+            })),
+            span: None,
+        },
+        Value::Number(number) => {
+            if let Some(value) = number.as_i64() {
+                ir::Expr {
+                    kind: Some(ir::expr::Kind::Literal(ir::Literal {
+                        value: Some(ir::literal::Value::IntValue(value)),
+                    })),
+                    span: None,
+                }
+            } else {
+                ir::Expr {
+                    kind: Some(ir::expr::Kind::Literal(ir::Literal {
+                        value: Some(ir::literal::Value::FloatValue(
+                            number.as_f64().unwrap_or(0.0),
+                        )),
+                    })),
+                    span: None,
+                }
+            }
+        }
+        Value::String(value) => ir::Expr {
+            kind: Some(ir::expr::Kind::Literal(ir::Literal {
+                value: Some(ir::literal::Value::StringValue(value.clone())),
+            })),
+            span: None,
+        },
+        Value::Array(items) => ir::Expr {
+            kind: Some(ir::expr::Kind::List(ir::ListExpr {
+                elements: items.iter().map(literal_from_json_value).collect(),
+            })),
+            span: None,
+        },
+        Value::Object(map) => {
+            let entries = map
+                .iter()
+                .map(|(key, value)| ir::DictEntry {
+                    key: Some(literal_from_json_value(&Value::String(key.clone()))),
+                    value: Some(literal_from_json_value(value)),
+                })
+                .collect();
+            ir::Expr {
+                kind: Some(ir::expr::Kind::Dict(ir::DictExpr { entries })),
+                span: None,
+            }
+        }
+        Value::Null => ir::Expr {
+            kind: Some(ir::expr::Kind::Literal(ir::Literal {
+                value: Some(ir::literal::Value::IsNone(true)),
+            })),
+            span: None,
+        },
+    }
+}
+
 /// Convenience function to spawn a scheduler task.
 pub fn spawn_scheduler<B>(
     backend: B,
@@ -217,4 +295,124 @@ where
     let task = SchedulerTask::new(backend, config, shutdown_rx, dag_resolver);
     let handle = tokio::spawn(task.run());
     (handle, shutdown_tx)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::VecDeque;
+    use std::sync::{Arc, Mutex};
+
+    use chrono::{Duration as ChronoDuration, Utc};
+    use prost::Message;
+    use serde_json::Value;
+
+    use super::*;
+    use crate::backends::{CoreBackend, LockClaim, MemoryBackend, SchedulerBackend};
+    use crate::messages::proto;
+    use crate::rappel_core::dag::convert_to_dag;
+    use crate::rappel_core::ir_parser::parse_program;
+    use crate::rappel_core::runner::RunnerExecutor;
+    use crate::scheduler::{CreateScheduleParams, ScheduleType};
+
+    fn workflow_args_payload(key: &str, value: i64) -> Vec<u8> {
+        proto::WorkflowArguments {
+            arguments: vec![proto::WorkflowArgument {
+                key: key.to_string(),
+                value: Some(proto::WorkflowArgumentValue {
+                    kind: Some(proto::workflow_argument_value::Kind::Primitive(
+                        proto::PrimitiveWorkflowArgument {
+                            kind: Some(proto::primitive_workflow_argument::Kind::IntValue(value)),
+                        },
+                    )),
+                }),
+            }],
+        }
+        .encode_to_vec()
+    }
+
+    #[tokio::test]
+    async fn scheduler_fire_schedule_applies_input_payload_to_state() {
+        let queue = Arc::new(Mutex::new(VecDeque::new()));
+        let backend = MemoryBackend::with_queue(queue);
+        let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+
+        let source = r#"
+fn main(input: [number], output: [result]):
+    result = @double(value=number)
+    return result
+"#;
+        let program = parse_program(source.trim()).expect("parse program");
+        let dag = Arc::new(convert_to_dag(&program).expect("convert dag"));
+        let workflow_name = "scheduled_math".to_string();
+        let resolver_name = workflow_name.clone();
+        let resolver_dag = Arc::clone(&dag);
+        let dag_resolver: DagResolver = Arc::new(move |name: &str| {
+            if name == resolver_name {
+                Some(WorkflowDag {
+                    version_id: Uuid::new_v4(),
+                    dag: Arc::clone(&resolver_dag),
+                })
+            } else {
+                None
+            }
+        });
+
+        let scheduler = SchedulerTask::new(
+            backend.clone(),
+            SchedulerConfig::default(),
+            shutdown_rx,
+            dag_resolver,
+        );
+        SchedulerBackend::upsert_schedule(
+            &backend,
+            &CreateScheduleParams {
+                workflow_name: workflow_name.clone(),
+                schedule_name: "default".to_string(),
+                schedule_type: ScheduleType::Interval,
+                cron_expression: None,
+                interval_seconds: Some(60),
+                jitter_seconds: 0,
+                input_payload: Some(workflow_args_payload("number", 7)),
+                priority: 0,
+                allow_duplicate: false,
+            },
+        )
+        .await
+        .expect("upsert schedule");
+        let schedule = SchedulerBackend::get_schedule_by_name(&backend, &workflow_name, "default")
+            .await
+            .expect("get schedule by name")
+            .expect("schedule exists");
+
+        scheduler
+            .fire_schedule(&schedule)
+            .await
+            .expect("fire schedule");
+
+        let claim = LockClaim {
+            lock_uuid: Uuid::new_v4(),
+            lock_expires_at: Utc::now() + ChronoDuration::seconds(30),
+        };
+        let batch = CoreBackend::get_queued_instances(&backend, 1, claim)
+            .await
+            .expect("claim queued");
+        assert_eq!(batch.instances.len(), 1);
+
+        let queued = &batch.instances[0];
+        let state = queued.state.clone().expect("queued state");
+        let mut executor =
+            RunnerExecutor::new(Arc::clone(&dag), state, queued.action_results.clone(), None);
+        let replay = crate::rappel_core::runner::replay_variables(
+            executor.state(),
+            executor.action_results(),
+        )
+        .expect("replay inputs");
+        assert_eq!(
+            replay.variables.get("number"),
+            Some(&Value::Number(7.into()))
+        );
+
+        let step = executor.increment(&[queued.entry_node]).expect("increment");
+        assert_eq!(step.actions.len(), 1);
+    }
 }
