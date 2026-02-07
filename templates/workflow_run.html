@@ -102,7 +102,7 @@
     <div>
         <p class="text-xs uppercase tracking-[0.3em] text-zinc-500">Log</p>
         <h2 class="text-2xl font-semibold text-zinc-900 dark:text-white">Execution Log</h2>
-        <p class="text-sm text-zinc-500 dark:text-zinc-500">Pending actions from current state first, then chronological execution history</p>
+        <p class="text-sm text-zinc-500 dark:text-zinc-500">Pending actions first, then reverse-chronological execution history</p>
     </div>
     <div id="log-container" class="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 overflow-hidden">
         <div id="log-empty" class="text-center py-8 text-zinc-500 dark:text-zinc-500">
@@ -295,6 +295,26 @@ function resolveTimelineLogs(actionInfoLookup) {
   });
 }
 
+function toMillis(value) {
+  if (!value) return null;
+  const ms = new Date(value).getTime();
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function compareByRecencyDesc(left, right) {
+  const leftMs = toMillis(left.completed_at) ?? toMillis(left.dispatched_at) ?? -Infinity;
+  const rightMs = toMillis(right.completed_at) ?? toMillis(right.dispatched_at) ?? -Infinity;
+  if (leftMs !== rightMs) return rightMs - leftMs;
+
+  const leftAttempt = Number(left.attempt_number);
+  const rightAttempt = Number(right.attempt_number);
+  if (Number.isFinite(leftAttempt) && Number.isFinite(rightAttempt) && leftAttempt !== rightAttempt) {
+    return rightAttempt - leftAttempt;
+  }
+
+  return String(left.actionName || '').localeCompare(String(right.actionName || ''));
+}
+
 function buildPendingActionLogs(actionInfoLookup, resolvedLogs) {
   const latestByActionId = new Map();
   resolvedLogs.forEach((log) => {
@@ -329,6 +349,7 @@ function buildPendingActionLogs(actionInfoLookup, resolvedLogs) {
         request_payload: latest?.request_payload ?? '{}',
         result_payload: '',
         error_message: null,
+        sort_timestamp: latest?.completed_at || latest?.dispatched_at || null,
       });
     });
 
@@ -336,6 +357,9 @@ function buildPendingActionLogs(actionInfoLookup, resolvedLogs) {
     const leftRunning = String(left.status || '').toLowerCase() === 'running';
     const rightRunning = String(right.status || '').toLowerCase() === 'running';
     if (leftRunning !== rightRunning) return leftRunning ? -1 : 1;
+    const leftMs = toMillis(left.sort_timestamp) ?? -Infinity;
+    const rightMs = toMillis(right.sort_timestamp) ?? -Infinity;
+    if (leftMs !== rightMs) return rightMs - leftMs;
     return String(left.actionName || '').localeCompare(String(right.actionName || ''));
   });
 
@@ -1026,7 +1050,7 @@ function renderExecutionLog(actionLookup, actionInfoLookup = buildActionInfoLook
   const loadMoreContainer = document.getElementById('log-load-more-container');
   if (!logEmpty || !logContent) return;
 
-  const resolvedLogs = resolveTimelineLogs(actionInfoLookup);
+  const resolvedLogs = resolveTimelineLogs(actionInfoLookup).sort(compareByRecencyDesc);
   const pendingLogs = buildPendingActionLogs(actionInfoLookup, resolvedLogs);
   const combinedLogs = pendingLogs.concat(resolvedLogs);
 
