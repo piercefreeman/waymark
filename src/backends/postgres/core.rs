@@ -941,7 +941,12 @@ mod tests {
         assert_eq!(refreshed.len(), 1);
         assert_eq!(refreshed[0].instance_id, instance_id);
         assert_eq!(refreshed[0].lock_uuid, Some(claim.lock_uuid));
-        assert_eq!(refreshed[0].lock_expires_at, Some(refreshed_expiry));
+        assert_eq!(
+            refreshed[0]
+                .lock_expires_at
+                .map(|value| value.timestamp_micros()),
+            Some(refreshed_expiry.timestamp_micros()),
+        );
     }
 
     #[serial(postgres)]
@@ -1043,7 +1048,10 @@ mod tests {
 
         let live_lock = lock_rows.get(&live_id).expect("live lock row");
         assert_eq!(live_lock.0, Some(claim.lock_uuid));
-        assert_eq!(live_lock.1, Some(live_at));
+        assert_eq!(
+            live_lock.1.map(|value| value.timestamp_micros()),
+            Some(live_at.timestamp_micros()),
+        );
     }
 
     #[serial(postgres)]

@@ -387,7 +387,7 @@ mod tests {
         match node {
             DAGNode::Assignment(assignment) => {
                 assert_eq!(assignment.targets, vec!["x".to_string()]);
-                assert!(assignment.target.is_none());
+                assert_eq!(assignment.target.as_deref(), Some("x"));
                 assert!(assignment.assign_expr.is_some());
             }
             other => panic!("expected assignment node, got {}", other.node_type()),

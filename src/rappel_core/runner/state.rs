@@ -470,7 +470,7 @@ impl RunnerState {
             &spec.action_name,
             targets.as_deref(),
             iteration_index,
-            false,
+            true,
         )?;
         if let Some(node_mut) = self.nodes.get_mut(&node.node_id) {
             node_mut.value_expr = Some(ValueExpr::ActionResult(result.clone()));
@@ -798,7 +798,7 @@ impl RunnerState {
                     action_name,
                     targets.as_deref(),
                     iteration_index,
-                    false,
+                    true,
                 )?;
                 if let Some(node_mut) = self.nodes.get_mut(&exec_node.node_id) {
                     node_mut.value_expr = Some(ValueExpr::ActionResult(result));
@@ -860,6 +860,17 @@ impl RunnerState {
     ///
     /// Use this when an action produces one or more results that are assigned
     /// to variables (including tuple unpacking).
+    ///
+    /// `update_latest` controls whether assigned targets are published into
+    /// `latest_assignments` for downstream variable/data-flow resolution.
+    ///
+    /// Use `update_latest = true` for user-visible assignments so later nodes
+    /// can resolve those target names through `latest_assignments`.
+    ///
+    /// Use `update_latest = false` for internal/synthetic bindings that should
+    /// not become globally visible variable definitions. Example: spread action
+    /// unroll nodes can bind an internal `_spread_result`, and the aggregator
+    /// later publishes the final user target.
     ///
     /// Example IR:
     /// - a, b = @pair()
@@ -1456,7 +1467,7 @@ impl RunnerState {
             &spec.action_name,
             targets.as_deref(),
             iteration_index,
-            false,
+            true,
         )?;
         if let Some(node) = self.nodes.get_mut(&node.node_id) {
             node.value_expr = Some(ValueExpr::ActionResult(result.clone()));
