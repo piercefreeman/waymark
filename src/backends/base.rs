@@ -136,7 +136,7 @@ impl GraphUpdate {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-/// Batch payload representing a completed action execution.
+/// Batch payload representing a finished action attempt (success or failure).
 pub struct ActionDone {
     pub execution_id: Uuid,
     pub attempt: i32,
@@ -182,7 +182,7 @@ pub trait CoreBackend: Send + Sync {
         graphs: &[GraphUpdate],
     ) -> BackendResult<Vec<InstanceLockStatus>>;
 
-    /// Persist completed action executions.
+    /// Persist finished action attempts (success or failure).
     async fn save_actions_done(&self, actions: &[ActionDone]) -> BackendResult<()>;
 
     /// Return up to size queued instances without blocking.

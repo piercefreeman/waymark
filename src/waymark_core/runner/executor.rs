@@ -365,11 +365,22 @@ impl RunnerExecutor {
             let action_value = self.action_results.get(&node_id).cloned().ok_or_else(|| {
                 RunnerExecutorError(format!("missing action result for {}", node_id))
             })?;
+            let attempt = {
+                let node = self.state.nodes.get(&node_id).ok_or_else(|| {
+                    RunnerExecutorError(format!("execution node not found: {node_id}"))
+                })?;
+                node.action_attempt
+            };
             if is_exception_value(&action_value) {
-                exception_value = Some(action_value);
+                exception_value = Some(action_value.clone());
+                action_done = Some(ActionDone {
+                    execution_id: node_id,
+                    attempt,
+                    result: action_value.clone(),
+                });
                 if let Some(node) = self.handle_action_failure(node_id, exception_value.as_ref())? {
                     retry_action = Some(node);
-                    return Ok((None, None, None, retry_action));
+                    return Ok((None, None, action_done, retry_action));
                 }
             } else {
                 self.state
@@ -384,12 +395,6 @@ impl RunnerExecutor {
                 if !assignments.is_empty() {
                     self.state.mark_latest_assignments(node_id, &assignments);
                 }
-                let attempt = {
-                    let node = self.state.nodes.get(&node_id).ok_or_else(|| {
-                        RunnerExecutorError(format!("execution node not found: {node_id}"))
-                    })?;
-                    node.action_attempt
-                };
                 action_done = Some(ActionDone {
                     execution_id: node_id,
                     attempt,
@@ -1235,6 +1240,7 @@ mod tests {
     use std::collections::{HashMap, HashSet};
     use std::sync::Arc;
 
+    use crate::backends::MemoryBackend;
     use crate::messages::ast as ir;
     use crate::waymark_core::dag::{
         ActionCallNode, ActionCallParams, AggregatorNode, AssignmentNode, DAG, DAGEdge,
@@ -2232,6 +2238,139 @@ fn main(input: [], output: [done]):
         let node = rehydrated.state().nodes.get(&exec1.node_id).unwrap();
         assert_eq!(node.status, NodeStatus::Queued);
         assert_eq!(node.action_attempt, 2);
+    }
+
+    #[test]
+    fn test_increment_records_failed_action_attempt() {
+        let mut dag = DAG::default();
+        let action = action_node(
+            "action1",
+            "work",
+            HashMap::new(),
+            vec!["x".to_string()],
+            ActionNodeOptions::default(),
+        );
+        dag.add_node(crate::waymark_core::dag::DAGNode::ActionCall(
+            action.clone(),
+        ));
+
+        let dag = Arc::new(dag);
+        let mut state = RunnerState::new(Some(dag.clone()), None, None, false);
+        let exec = state.queue_template_node(&action.id, None).expect("queue");
+
+        let mut executor = RunnerExecutor::new(
+            dag,
+            state,
+            HashMap::new(),
+            Some(Arc::new(MemoryBackend::new())),
+        );
+        executor.set_instance_id(Uuid::new_v4());
+        executor.set_action_result(
+            exec.node_id,
+            serde_json::json!({"type": "ValueError", "message": "boom"}),
+        );
+
+        let step = executor.increment(&[exec.node_id]).expect("increment");
+        let updates = step.updates.expect("durable updates");
+        assert_eq!(updates.actions_done.len(), 1);
+        assert_eq!(updates.actions_done[0].execution_id, exec.node_id);
+        assert_eq!(updates.actions_done[0].attempt, 1);
+        assert_eq!(
+            updates.actions_done[0]
+                .result
+                .get("type")
+                .and_then(Value::as_str),
+            Some("ValueError")
+        );
+        assert_eq!(
+            executor
+                .state()
+                .nodes
+                .get(&exec.node_id)
+                .map(|n| n.status.clone()),
+            Some(NodeStatus::Failed)
+        );
+    }
+
+    #[test]
+    fn test_increment_records_failed_attempt_before_retry() {
+        let mut dag = DAG::default();
+        let action = action_node(
+            "action1",
+            "work",
+            HashMap::new(),
+            vec!["x".to_string()],
+            ActionNodeOptions {
+                policies: vec![ir::PolicyBracket {
+                    kind: Some(ir::policy_bracket::Kind::Retry(ir::RetryPolicy {
+                        max_retries: 2,
+                        backoff: None,
+                        exception_types: Vec::new(),
+                    })),
+                }],
+                ..ActionNodeOptions::default()
+            },
+        );
+        dag.add_node(crate::waymark_core::dag::DAGNode::ActionCall(
+            action.clone(),
+        ));
+
+        let dag = Arc::new(dag);
+        let mut state = RunnerState::new(Some(dag.clone()), None, None, false);
+        let exec = state.queue_template_node(&action.id, None).expect("queue");
+
+        let mut executor = RunnerExecutor::new(
+            dag,
+            state,
+            HashMap::new(),
+            Some(Arc::new(MemoryBackend::new())),
+        );
+        executor.set_instance_id(Uuid::new_v4());
+        executor.set_action_result(
+            exec.node_id,
+            serde_json::json!({"type": "ValueError", "message": "retry me"}),
+        );
+
+        let first_step = executor
+            .increment(&[exec.node_id])
+            .expect("first increment");
+        assert_eq!(first_step.actions.len(), 1);
+        assert_eq!(first_step.actions[0].node_id, exec.node_id);
+        let first_updates = first_step.updates.expect("first durable updates");
+        assert_eq!(first_updates.actions_done.len(), 1);
+        assert_eq!(first_updates.actions_done[0].attempt, 1);
+        assert_eq!(
+            executor
+                .state()
+                .nodes
+                .get(&exec.node_id)
+                .map(|n| n.status.clone()),
+            Some(NodeStatus::Queued)
+        );
+        assert_eq!(
+            executor
+                .state()
+                .nodes
+                .get(&exec.node_id)
+                .map(|n| n.action_attempt),
+            Some(2)
+        );
+
+        executor.set_action_result(exec.node_id, Value::String("ok".to_string()));
+        let second_step = executor
+            .increment(&[exec.node_id])
+            .expect("second increment");
+        let second_updates = second_step.updates.expect("second durable updates");
+        assert_eq!(second_updates.actions_done.len(), 1);
+        assert_eq!(second_updates.actions_done[0].attempt, 2);
+        assert_eq!(
+            executor
+                .state()
+                .nodes
+                .get(&exec.node_id)
+                .map(|n| n.status.clone()),
+            Some(NodeStatus::Completed)
+        );
     }
 
     #[test]
