@@ -14,7 +14,7 @@ use crate::rappel_core::runner::expression_evaluator::{
     range_from_args, value_in,
 };
 use crate::rappel_core::runner::state::{ActionResultValue, FunctionCallValue, RunnerState};
-use crate::rappel_core::runner::value_visitor::ValueExprEvaluator;
+use crate::rappel_core::runner::value_visitor::{ValueExpr, ValueExprEvaluator};
 
 /// Raised when replay cannot reconstruct variable values.
 #[derive(Debug, thiserror::Error)]
@@ -102,6 +102,31 @@ impl<'a> ReplayEngine<'a> {
         Ok(ReplayResult { variables })
     }
 
+    /// Replay concrete kwargs for an action execution node.
+    ///
+    /// This resolves symbolic kwargs from the action node in the context of
+    /// the node's incoming data-flow edges.
+    pub fn replay_action_kwargs(
+        &self,
+        node_id: Uuid,
+    ) -> Result<HashMap<String, Value>, ReplayError> {
+        let node = self
+            .state
+            .nodes
+            .get(&node_id)
+            .ok_or_else(|| ReplayError(format!("action node not found: {node_id}")))?;
+        let action = node
+            .action
+            .as_ref()
+            .ok_or_else(|| ReplayError(format!("node is not an action call: {node_id}")))?;
+        let mut resolved = HashMap::new();
+        for (name, expr) in &action.kwargs {
+            let value = self.evaluate_value_expr_at_node(node_id, expr)?;
+            resolved.insert(name.clone(), value);
+        }
+        Ok(resolved)
+    }
+
     /// Evaluate a single assignment expression with cycle detection.
     ///
     /// We memoize evaluated (node, target) pairs and guard against recursive
@@ -167,6 +192,41 @@ impl<'a> ReplayEngine<'a> {
         stack.borrow_mut().remove(&key);
         self.cache.borrow_mut().insert(key, value.clone());
         Ok(value)
+    }
+
+    fn evaluate_value_expr_at_node(
+        &self,
+        node_id: Uuid,
+        expr: &ValueExpr,
+    ) -> Result<Value, ReplayError> {
+        let stack = Rc::new(RefCell::new(HashSet::new()));
+        let resolve_variable = {
+            let stack = stack.clone();
+            let this = self;
+            move |name: &str| this.resolve_variable(node_id, name, stack.clone())
+        };
+        let resolve_action_result = {
+            let this = self;
+            move |value: &ActionResultValue| this.resolve_action_result(value)
+        };
+        let resolve_function_call = {
+            let this = self;
+            move |value: &FunctionCallValue, args, kwargs| {
+                this.evaluate_function_call(value, args, kwargs)
+            }
+        };
+        let apply_binary = |op, left, right| apply_binary(op, left, right);
+        let apply_unary = |op, operand| apply_unary(op, operand);
+        let error_factory = |message: &str| ReplayError(message.to_string());
+        let evaluator = ValueExprEvaluator::new(
+            &resolve_variable,
+            &resolve_action_result,
+            &resolve_function_call,
+            &apply_binary,
+            &apply_unary,
+            &error_factory,
+        );
+        evaluator.visit(expr)
     }
 
     /// Resolve a variable reference via data-flow edges.
@@ -443,11 +503,21 @@ pub fn replay_variables(
     ReplayEngine::new(state, action_results).replay_variables()
 }
 
+/// Replay concrete kwargs for a specific action node from a state snapshot.
+pub fn replay_action_kwargs(
+    state: &RunnerState,
+    action_results: &HashMap<Uuid, Value>,
+    node_id: Uuid,
+) -> Result<HashMap<String, Value>, ReplayError> {
+    ReplayEngine::new(state, action_results).replay_action_kwargs(node_id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::messages::ast as ir;
-    use crate::rappel_core::runner::state::RunnerState;
+    use crate::rappel_core::runner::state::{RunnerState, VariableValue};
+    use crate::rappel_core::runner::value_visitor::ValueExpr;
 
     fn action_plus_two_expr() -> ir::Expr {
         ir::Expr {
@@ -538,5 +608,51 @@ mod tests {
             replayed.variables.get("results"),
             Some(&Value::Array(vec![3.into(), 4.into()])),
         );
+    }
+
+    #[test]
+    fn test_replay_action_kwargs_resolves_variable_inputs() {
+        let mut state = RunnerState::new(None, None, None, true);
+
+        let number_expr = ir::Expr {
+            kind: Some(ir::expr::Kind::Literal(ir::Literal {
+                value: Some(ir::literal::Value::IntValue(7)),
+            })),
+            span: None,
+        };
+        state
+            .record_assignment(
+                vec!["number".to_string()],
+                &number_expr,
+                None,
+                Some("number = 7".to_string()),
+            )
+            .expect("record assignment");
+
+        let kwargs = HashMap::from([(
+            "value".to_string(),
+            ValueExpr::Variable(VariableValue {
+                name: "number".to_string(),
+            }),
+        )]);
+
+        let action = state
+            .queue_action(
+                "compute",
+                Some(vec!["result".to_string()]),
+                Some(kwargs),
+                Some("tests".to_string()),
+                None,
+            )
+            .expect("queue action");
+
+        let kwargs = replay_action_kwargs(
+            &state,
+            &HashMap::from([(action.node_id, Value::Number(14.into()))]),
+            action.node_id,
+        )
+        .expect("replay kwargs");
+
+        assert_eq!(kwargs.get("value"), Some(&Value::Number(7.into())));
     }
 }

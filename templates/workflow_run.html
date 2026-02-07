@@ -214,6 +214,35 @@ let timelinePage = 1;
 let timelineHasMore = false;
 const timelinePerPage = 200;
 
+function statusToSuccess(status) {
+  const normalized = String(status || '').toLowerCase();
+  if (normalized === 'completed' || normalized === 'success') return true;
+  if (normalized === 'failed' || normalized === 'error') return false;
+  return null;
+}
+
+function normalizeTimelineEntry(entry) {
+  return {
+    ...entry,
+    success: statusToSuccess(entry.status),
+    actionName: entry.actionName || entry.action_name || 'Unknown',
+    moduleName: entry.moduleName || entry.module_name || '',
+    request_payload: entry.request_payload ?? entry.request_preview ?? '{}',
+    result_payload: entry.result_payload ?? entry.response_preview ?? '',
+    error_message: entry.error_message ?? entry.error ?? null,
+  };
+}
+
+function normalizeActionLogEntry(log) {
+  return {
+    ...log,
+    success: statusToSuccess(log.status),
+    request_payload: log.request_payload ?? log.request ?? '{}',
+    result_payload: log.result_payload ?? log.response ?? '',
+    error_message: log.error_message ?? log.error ?? null,
+  };
+}
+
 async function loadRunData({ page = 1, append = false } = {}) {
   const emptyTimeline = document.querySelector('#timeline-empty p');
   if (emptyTimeline && page === 1 && !append) {
@@ -236,7 +265,9 @@ async function loadRunData({ page = 1, append = false } = {}) {
   if (!append) {
     nodeData = Array.isArray(payload.nodes) ? payload.nodes : [];
   }
-  const pageEntries = Array.isArray(payload.timeline) ? payload.timeline : [];
+  const pageEntries = Array.isArray(payload.timeline)
+    ? payload.timeline.map(normalizeTimelineEntry)
+    : [];
   timelineEntries = append ? timelineEntries.concat(pageEntries) : pageEntries;
   timelinePage = Number.isFinite(payload.page) ? payload.page : page;
   timelineHasMore = Boolean(payload.has_more);
@@ -253,7 +284,9 @@ async function loadActionLogs(actionId) {
   }
 
   const payload = await response.json();
-  const logs = Array.isArray(payload.logs) ? payload.logs : [];
+  const logs = Array.isArray(payload.logs)
+    ? payload.logs.map(normalizeActionLogEntry)
+    : [];
   actionLogsCache[actionId] = logs;
   return logs;
 }
@@ -262,7 +295,7 @@ function payloadHasException(payloadText) {
   if (!payloadText) return false;
   try {
     const parsed = JSON.parse(payloadText);
-    if (parsed && typeof parsed === 'object' && parsed.error) {
+    if (parsed && typeof parsed === 'object' && (parsed.error || (parsed.type && parsed.message))) {
       return true;
     }
   } catch (_err) {
@@ -275,16 +308,20 @@ function payloadHasException(payloadText) {
 
 function deriveNodeStatus(node) {
   if (!node) return 'pending';
-  if (node.status === 'failed' || node.status === 'exhausted' || node.status === 'timed_out') {
+  const status = String(node.status || 'pending').toLowerCase();
+  if (status === 'failed' || status === 'exhausted' || status === 'timed_out') {
     return 'failed';
   }
-  if (node.last_error) {
+  if (status === 'running') {
+    return 'dispatched';
+  }
+  if (payloadHasException(node.response_payload || node.result_payload || node.response_preview)) {
     return 'failed';
   }
-  if (payloadHasException(node.response_payload)) {
-    return 'failed';
+  if (status === 'completed' || status === 'queued' || status === 'pending' || status === 'dispatched') {
+    return status;
   }
-  return node.status || 'pending';
+  return 'pending';
 }
 
 /**
@@ -733,7 +770,7 @@ function openDrawer(entry, nodeInfo) {
   }
 
   // Request/Response
-  const requestPayload = nodeInfo?.request_payload || '{}';
+  const requestPayload = entry.request_payload || nodeInfo?.request_payload || '{}';
   const responsePayload = entry.result_payload || nodeInfo?.response_payload || '{}';
   document.getElementById('drawer-request').textContent = requestPayload;
   document.getElementById('drawer-response').textContent = responsePayload;
@@ -759,7 +796,7 @@ function openDrawer(entry, nodeInfo) {
           : '-';
         row.innerHTML = `
           <div class="flex items-center justify-between">
-            <span class="font-semibold text-zinc-200">Attempt ${log.attempt_number + 1}</span>
+            <span class="font-semibold text-zinc-200">Attempt ${log.attempt_number}</span>
             <span class="font-semibold ${statusColor}">${statusText}</span>
           </div>
           <div class="mt-1 text-zinc-500">Started: ${log.dispatched_at} | Duration: ${logDuration}</div>
@@ -813,14 +850,20 @@ function initRunPage(loadError) {
   nodeData.forEach(n => { nodeLookup[n.id] = n; });
 
   const actionLookup = {};
-  nodeData.forEach(n => { if (n.action_id) actionLookup[n.action_id] = n; });
+  timelineEntries.forEach(entry => {
+    if (!entry.action_id) return;
+    actionLookup[entry.action_id] = {
+      request_payload: entry.request_payload || '{}',
+      response_payload: entry.result_payload || '',
+    };
+  });
 
   const nodes = graphData?.nodes || [];
   nodes.forEach(n => {
     if (nodeLookup[n.id]) {
       const d = nodeLookup[n.id];
-      n.module = d.module;
-      n.action = d.action;
+      n.module = d.module_name || d.module || n.module;
+      n.action = d.action_name || d.action || n.action;
       n.status = deriveNodeStatus(d);
     }
   });
@@ -866,11 +909,23 @@ function renderGanttTimeline(actionLookup) {
   }
 
   const actionInfoLookup = {};
-  nodeData.forEach(n => { actionInfoLookup[n.action_id] = { nodeId: n.id, action: n.action, module: n.module }; });
+  nodeData.forEach(n => {
+    if (n.node_type !== 'action_call') return;
+    actionInfoLookup[n.id] = {
+      nodeId: n.id,
+      action: n.action_name || n.action || 'Unknown',
+      module: n.module_name || n.module || '',
+    };
+  });
 
   const resolvedLogs = timelineEntries.map((log) => {
     const info = actionInfoLookup[log.action_id];
-    return { ...log, nodeId: info?.nodeId || log.node_id || log.action_id, actionName: info?.action || log.action_name || 'Unknown', moduleName: info?.module || log.module_name || '' };
+    return {
+      ...log,
+      nodeId: info?.nodeId || log.node_id || log.action_id,
+      actionName: info?.action || log.actionName || log.action_name || 'Unknown',
+      moduleName: info?.module || log.moduleName || log.module_name || '',
+    };
   });
 
   timelineEmpty.classList.add('hidden');
@@ -897,11 +952,23 @@ function renderExecutionLog(actionLookup) {
   }
 
   const actionInfoLookup = {};
-  nodeData.forEach(n => { actionInfoLookup[n.action_id] = { nodeId: n.id, action: n.action, module: n.module }; });
+  nodeData.forEach(n => {
+    if (n.node_type !== 'action_call') return;
+    actionInfoLookup[n.id] = {
+      nodeId: n.id,
+      action: n.action_name || n.action || 'Unknown',
+      module: n.module_name || n.module || '',
+    };
+  });
 
   const resolvedLogs = timelineEntries.map((log) => {
     const info = actionInfoLookup[log.action_id];
-    return { ...log, nodeId: info?.nodeId || log.node_id || log.action_id, actionName: info?.action || log.action_name || 'Unknown', moduleName: info?.module || log.module_name || '' };
+    return {
+      ...log,
+      nodeId: info?.nodeId || log.node_id || log.action_id,
+      actionName: info?.action || log.actionName || log.action_name || 'Unknown',
+      moduleName: info?.module || log.moduleName || log.module_name || '',
+    };
   });
 
   logEmpty.classList.add('hidden');
@@ -949,7 +1016,7 @@ function renderExecutionLog(actionLookup) {
       durationText = log.duration_ms < 1000 ? log.duration_ms + 'ms' : (log.duration_ms / 1000).toFixed(2) + 's';
     }
 
-    const hasDetails = log.result_payload || log.error_message;
+    const hasDetails = log.request_payload || log.result_payload || log.error_message;
     const expandId = `log-expand-${idx}`;
 
     row.innerHTML = `
@@ -969,12 +1036,16 @@ function renderExecutionLog(actionLookup) {
           </div>
         </div>
         <div class="flex items-center gap-3">
-          <span class="text-xs text-zinc-400 tabular-nums">Attempt ${log.attempt_number + 1}</span>
+          <span class="text-xs text-zinc-400 tabular-nums">Attempt ${log.attempt_number}</span>
           ${hasDetails ? `<svg class="w-4 h-4 text-zinc-400 transition-transform" id="${expandId}-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>` : ''}
         </div>
       </div>
       ${hasDetails ? `
       <div id="${expandId}" class="hidden border-t border-zinc-100 dark:border-zinc-800/50 px-4 py-4 ml-6 space-y-3 bg-zinc-50 dark:bg-zinc-900/30">
+        <div>
+          <p class="text-xs uppercase tracking-wider text-zinc-500 mb-1.5 font-medium">Request</p>
+          <pre class="text-xs text-zinc-600 dark:text-zinc-300 bg-zinc-100 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 p-3 rounded-lg whitespace-pre-wrap break-words font-mono overflow-x-auto max-h-64">${escapeHtml(log.request_payload || '{}')}</pre>
+        </div>
         ${log.error_message ? `
         <div>
           <p class="text-xs uppercase tracking-wider text-red-500 dark:text-red-400 mb-1.5 font-medium">Error</p>

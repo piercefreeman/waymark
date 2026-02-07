@@ -1,13 +1,15 @@
 use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
+use serde_json::Value;
 use sqlx::Row;
 use tonic::async_trait;
 use uuid::Uuid;
 
 use super::PostgresBackend;
 use crate::backends::base::{BackendError, BackendResult, GraphUpdate, WebappBackend};
-use crate::rappel_core::runner::state::NodeStatus;
+use crate::rappel_core::runner::state::{ActionCallSpec, ExecutionNode, NodeStatus};
+use crate::rappel_core::runner::{RunnerState, format_value, replay_action_kwargs};
 use crate::webapp::{
     ExecutionEdgeView, ExecutionGraphView, ExecutionNodeView, InstanceDetail, InstanceStatus,
     InstanceSummary, ScheduleDetail, ScheduleSummary, TimelineEntry, WorkerActionRow,
@@ -165,72 +167,109 @@ impl WebappBackend for PostgresBackend {
     }
 
     async fn get_action_results(&self, instance_id: Uuid) -> BackendResult<Vec<TimelineEntry>> {
-        let graph = self.get_execution_graph(instance_id).await?;
-        let node_map: HashMap<String, &ExecutionNodeView> = graph
-            .as_ref()
-            .map(|g| g.nodes.iter().map(|n| (n.id.clone(), n)).collect())
-            .unwrap_or_default();
+        let row = sqlx::query(
+            r#"
+            SELECT state
+            FROM runner_instances
+            WHERE instance_id = $1
+            "#,
+        )
+        .bind(instance_id)
+        .fetch_optional(&self.pool)
+        .await?;
 
-        let execution_ids: Vec<Uuid> = graph
-            .as_ref()
-            .map(|g| {
-                g.nodes
-                    .iter()
-                    .filter_map(|n| Uuid::parse_str(&n.id).ok())
-                    .collect()
-            })
-            .unwrap_or_default();
+        let Some(row) = row else {
+            return Ok(Vec::new());
+        };
+        let state_bytes: Option<Vec<u8>> = row.get("state");
+        let Some(state_bytes) = state_bytes else {
+            return Ok(Vec::new());
+        };
+        let graph_update: GraphUpdate = rmp_serde::from_slice(&state_bytes)
+            .map_err(|e| BackendError::Message(format!("failed to decode state: {}", e)))?;
 
-        if execution_ids.is_empty() {
+        let runner_state = RunnerState::new(
+            None,
+            Some(graph_update.nodes.clone()),
+            Some(graph_update.edges),
+            false,
+        );
+        let action_nodes: HashMap<Uuid, ExecutionNode> = graph_update
+            .nodes
+            .into_iter()
+            .filter(|(_, node)| node.is_action_call())
+            .collect();
+        if action_nodes.is_empty() {
             return Ok(Vec::new());
         }
+        let execution_ids: Vec<Uuid> = action_nodes.keys().copied().collect();
 
         let rows = sqlx::query(
             r#"
-            SELECT id, created_at, execution_id, attempt, result
+            SELECT created_at, execution_id, attempt, result
             FROM runner_actions_done
             WHERE execution_id = ANY($1)
-            ORDER BY created_at ASC
+            ORDER BY created_at ASC, attempt ASC
             "#,
         )
         .bind(&execution_ids)
         .fetch_all(&self.pool)
         .await?;
 
-        let mut entries = Vec::new();
+        let mut decoded_rows = Vec::with_capacity(rows.len());
         for row in rows {
+            let created_at: DateTime<Utc> = row.get("created_at");
             let execution_id: Uuid = row.get("execution_id");
             let attempt: i32 = row.get("attempt");
-            let created_at: DateTime<Utc> = row.get("created_at");
             let result_bytes: Option<Vec<u8>> = row.get("result");
+            let result = result_bytes
+                .as_deref()
+                .map(decode_msgpack_json)
+                .transpose()?;
+            decoded_rows.push(DecodedActionResultRow {
+                created_at,
+                execution_id,
+                attempt,
+                result,
+            });
+        }
 
-            let node_id_str = execution_id.to_string();
-            let node = node_map.get(&node_id_str);
+        // Replay needs the current known action outputs by execution id.
+        let mut action_results = HashMap::new();
+        for row in &decoded_rows {
+            if let Some(result) = &row.result {
+                action_results.insert(row.execution_id, result.clone());
+            }
+        }
+
+        let mut request_preview_cache: HashMap<Uuid, String> = HashMap::new();
+        let mut entries = Vec::with_capacity(decoded_rows.len());
+        for row in decoded_rows {
+            let node = action_nodes.get(&row.execution_id);
             let action_name = node
-                .and_then(|entry| entry.action_name.clone())
+                .and_then(|n| n.action.as_ref().map(|a| a.action_name.clone()))
                 .unwrap_or_default();
+            let module_name =
+                node.and_then(|n| n.action.as_ref().and_then(|a| a.module_name.clone()));
 
-            let (response_preview, error) = if let Some(bytes) = &result_bytes {
-                match rmp_serde::from_slice::<serde_json::Value>(bytes) {
-                    Ok(value) => {
-                        let preview = serde_json::to_string_pretty(&value)
-                            .unwrap_or_else(|_| "{}".to_string());
-                        if value.get("error").is_some() {
-                            let err = value
-                                .get("error")
-                                .and_then(|e| e.as_str())
-                                .map(|s| s.to_string());
-                            (preview, err)
-                        } else {
-                            (preview, None)
-                        }
-                    }
-                    Err(_) => ("(decode error)".to_string(), None),
-                }
-            } else {
-                ("(no result)".to_string(), None)
+            let request_preview =
+                if let Some(existing) = request_preview_cache.get(&row.execution_id) {
+                    existing.clone()
+                } else {
+                    let rendered = render_action_request_preview(
+                        node.and_then(|n| n.action.as_ref()),
+                        &runner_state,
+                        &action_results,
+                        row.execution_id,
+                    );
+                    request_preview_cache.insert(row.execution_id, rendered.clone());
+                    rendered
+                };
+
+            let (response_preview, error) = match &row.result {
+                Some(value) => format_action_result(value),
+                None => ("(no result)".to_string(), None),
             };
-
             let status = if error.is_some() {
                 "failed".to_string()
             } else {
@@ -238,15 +277,15 @@ impl WebappBackend for PostgresBackend {
             };
 
             entries.push(TimelineEntry {
-                action_id: node_id_str,
+                action_id: row.execution_id.to_string(),
                 action_name,
-                module_name: node.and_then(|n| n.module_name.clone()),
+                module_name,
                 status,
-                attempt_number: attempt,
-                dispatched_at: Some(created_at.to_rfc3339()),
-                completed_at: Some(created_at.to_rfc3339()),
+                attempt_number: row.attempt,
+                dispatched_at: Some(row.created_at.to_rfc3339()),
+                completed_at: Some(row.created_at.to_rfc3339()),
                 duration_ms: None,
-                request_preview: "{}".to_string(),
+                request_preview,
                 response_preview,
                 error,
             });
@@ -571,6 +610,73 @@ impl WebappBackend for PostgresBackend {
     }
 }
 
+struct DecodedActionResultRow {
+    created_at: DateTime<Utc>,
+    execution_id: Uuid,
+    attempt: i32,
+    result: Option<Value>,
+}
+
+fn decode_msgpack_json(bytes: &[u8]) -> BackendResult<Value> {
+    rmp_serde::from_slice::<Value>(bytes)
+        .map_err(|err| BackendError::Message(format!("failed to decode action result: {err}")))
+}
+
+fn render_action_request_preview(
+    action: Option<&ActionCallSpec>,
+    state: &RunnerState,
+    action_results: &HashMap<Uuid, Value>,
+    node_id: Uuid,
+) -> String {
+    let Some(action) = action else {
+        return "{}".to_string();
+    };
+
+    match replay_action_kwargs(state, action_results, node_id) {
+        Ok(kwargs) => {
+            let rendered_map: serde_json::Map<String, Value> = kwargs.into_iter().collect();
+            pretty_json(&Value::Object(rendered_map))
+        }
+        Err(_) => format_symbolic_kwargs(action),
+    }
+}
+
+fn format_symbolic_kwargs(action: &ActionCallSpec) -> String {
+    if action.kwargs.is_empty() {
+        return "{}".to_string();
+    }
+    let rendered_map: serde_json::Map<String, Value> = action
+        .kwargs
+        .iter()
+        .map(|(name, expr)| (name.clone(), Value::String(format_value(expr))))
+        .collect();
+    pretty_json(&Value::Object(rendered_map))
+}
+
+fn format_action_result(value: &Value) -> (String, Option<String>) {
+    let preview = pretty_json(value);
+    let error = extract_action_error(value);
+    (preview, error)
+}
+
+fn extract_action_error(value: &Value) -> Option<String> {
+    let Value::Object(map) = value else {
+        return None;
+    };
+    let message = map.get("message").and_then(Value::as_str);
+    let is_exception = map.contains_key("type") && map.contains_key("message");
+    if is_exception {
+        return Some(message.unwrap_or("action failed").to_string());
+    }
+    map.get("error")
+        .and_then(Value::as_str)
+        .map(|msg| msg.to_string())
+}
+
+fn pretty_json(value: &Value) -> String {
+    serde_json::to_string_pretty(value).unwrap_or_else(|_| "{}".to_string())
+}
+
 fn determine_status(
     state_bytes: &Option<Vec<u8>>,
     result_bytes: &Option<Vec<u8>>,
@@ -676,8 +782,9 @@ mod tests {
         SchedulerBackend, WebappBackend, WorkerStatusBackend, WorkerStatusUpdate,
     };
     use crate::rappel_core::dag::EdgeType;
+    use crate::rappel_core::runner::ValueExpr;
     use crate::rappel_core::runner::state::{
-        ActionCallSpec, ExecutionEdge, ExecutionNode, NodeStatus,
+        ActionCallSpec, ExecutionEdge, ExecutionNode, LiteralValue, NodeStatus,
     };
     use crate::scheduler::{CreateScheduleParams, ScheduleType};
     use crate::test_support::postgres_setup;
@@ -718,7 +825,12 @@ mod tests {
             action: Some(ActionCallSpec {
                 action_name: "tests.action".to_string(),
                 module_name: Some("tests".to_string()),
-                kwargs: HashMap::new(),
+                kwargs: HashMap::from([(
+                    "value".to_string(),
+                    ValueExpr::Literal(LiteralValue {
+                        value: serde_json::json!(7),
+                    }),
+                )]),
             }),
             value_expr: None,
             assignments: HashMap::new(),
@@ -900,6 +1012,7 @@ mod tests {
         assert_eq!(entries[0].action_id, execution_id.to_string());
         assert_eq!(entries[0].action_name, "tests.action");
         assert_eq!(entries[0].status, "completed");
+        assert!(entries[0].request_preview.contains("\"value\": 7"));
     }
 
     #[serial(postgres)]
