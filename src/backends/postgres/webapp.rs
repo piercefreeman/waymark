@@ -40,9 +40,17 @@ impl WebappBackend for PostgresBackend {
     ) -> BackendResult<Vec<InstanceSummary>> {
         let rows = sqlx::query(
             r#"
-            SELECT instance_id, entry_node, created_at, state, result, error
-            FROM runner_instances
-            ORDER BY created_at DESC, instance_id DESC
+            SELECT
+                ri.instance_id,
+                ri.entry_node,
+                ri.created_at,
+                ri.state,
+                ri.result,
+                ri.error,
+                wv.workflow_name
+            FROM runner_instances ri
+            JOIN workflow_versions wv ON wv.id = ri.workflow_version_id
+            ORDER BY ri.created_at DESC, ri.instance_id DESC
             LIMIT $1 OFFSET $2
             "#,
         )
@@ -59,9 +67,9 @@ impl WebappBackend for PostgresBackend {
             let state_bytes: Option<Vec<u8>> = row.get("state");
             let result_bytes: Option<Vec<u8>> = row.get("result");
             let error_bytes: Option<Vec<u8>> = row.get("error");
+            let workflow_name: String = row.get("workflow_name");
 
             let status = determine_status(&state_bytes, &result_bytes, &error_bytes);
-            let workflow_name = extract_workflow_name(&state_bytes);
             let input_preview = extract_input_preview(&state_bytes);
 
             instances.push(InstanceSummary {
@@ -69,7 +77,7 @@ impl WebappBackend for PostgresBackend {
                 entry_node,
                 created_at,
                 status,
-                workflow_name,
+                workflow_name: Some(workflow_name),
                 input_preview,
             });
         }
@@ -80,9 +88,17 @@ impl WebappBackend for PostgresBackend {
     async fn get_instance(&self, instance_id: Uuid) -> BackendResult<InstanceDetail> {
         let row = sqlx::query(
             r#"
-            SELECT instance_id, entry_node, created_at, state, result, error
-            FROM runner_instances
-            WHERE instance_id = $1
+            SELECT
+                ri.instance_id,
+                ri.entry_node,
+                ri.created_at,
+                ri.state,
+                ri.result,
+                ri.error,
+                wv.workflow_name
+            FROM runner_instances ri
+            JOIN workflow_versions wv ON wv.id = ri.workflow_version_id
+            WHERE ri.instance_id = $1
             "#,
         )
         .bind(instance_id)
@@ -96,9 +112,9 @@ impl WebappBackend for PostgresBackend {
         let state_bytes: Option<Vec<u8>> = row.get("state");
         let result_bytes: Option<Vec<u8>> = row.get("result");
         let error_bytes: Option<Vec<u8>> = row.get("error");
+        let workflow_name: String = row.get("workflow_name");
 
         let status = determine_status(&state_bytes, &result_bytes, &error_bytes);
-        let workflow_name = extract_workflow_name(&state_bytes);
         let input_payload = format_state_preview(&state_bytes);
         let result_payload = format_result(&result_bytes);
         let error_payload = format_error(&error_bytes);
@@ -108,7 +124,7 @@ impl WebappBackend for PostgresBackend {
             entry_node,
             created_at,
             status,
-            workflow_name,
+            workflow_name: Some(workflow_name),
             input_payload,
             result_payload,
             error_payload,
@@ -694,18 +710,6 @@ fn determine_status(
     InstanceStatus::Queued
 }
 
-fn extract_workflow_name(state_bytes: &Option<Vec<u8>>) -> Option<String> {
-    let bytes = state_bytes.as_ref()?;
-    let graph: GraphUpdate = rmp_serde::from_slice(bytes).ok()?;
-
-    for node in graph.nodes.values() {
-        if let Some(action) = &node.action {
-            return Some(action.action_name.clone());
-        }
-    }
-    None
-}
-
 fn extract_input_preview(state_bytes: &Option<Vec<u8>>) -> String {
     let Some(bytes) = state_bytes else {
         return "{}".to_string();
@@ -780,6 +784,7 @@ mod tests {
     use super::*;
     use crate::backends::{
         SchedulerBackend, WebappBackend, WorkerStatusBackend, WorkerStatusUpdate,
+        WorkflowRegistration, WorkflowRegistryBackend,
     };
     use crate::rappel_core::dag::EdgeType;
     use crate::rappel_core::runner::ValueExpr;
@@ -854,24 +859,33 @@ mod tests {
         }
     }
 
-    async fn insert_instance_with_graph(backend: &PostgresBackend) -> (Uuid, Uuid, Uuid) {
+    async fn insert_instance_with_graph_with_workflow(
+        backend: &PostgresBackend,
+        workflow_name: &str,
+    ) -> (Uuid, Uuid, Uuid) {
         let instance_id = Uuid::new_v4();
         let entry_node = Uuid::new_v4();
         let execution_id = Uuid::new_v4();
+        let workflow_version_id = insert_workflow_version(backend, workflow_name).await;
         let graph = sample_graph(instance_id, execution_id);
         let state_payload = rmp_serde::to_vec_named(&graph).expect("encode graph update");
 
         sqlx::query(
-            "INSERT INTO runner_instances (instance_id, entry_node, state) VALUES ($1, $2, $3)",
+            "INSERT INTO runner_instances (instance_id, entry_node, workflow_version_id, state) VALUES ($1, $2, $3, $4)",
         )
         .bind(instance_id)
         .bind(entry_node)
+        .bind(workflow_version_id)
         .bind(state_payload)
         .execute(backend.pool())
         .await
         .expect("insert runner instance");
 
         (instance_id, entry_node, execution_id)
+    }
+
+    async fn insert_instance_with_graph(backend: &PostgresBackend) -> (Uuid, Uuid, Uuid) {
+        insert_instance_with_graph_with_workflow(backend, "tests.workflow").await
     }
 
     async fn insert_action_result(backend: &PostgresBackend, execution_id: Uuid) {
@@ -886,6 +900,21 @@ mod tests {
         .execute(backend.pool())
         .await
         .expect("insert action result");
+    }
+
+    async fn insert_workflow_version(backend: &PostgresBackend, workflow_name: &str) -> Uuid {
+        WorkflowRegistryBackend::upsert_workflow_version(
+            backend,
+            &WorkflowRegistration {
+                workflow_name: workflow_name.to_string(),
+                workflow_version: "v1".to_string(),
+                ir_hash: format!("hash-{workflow_name}"),
+                program_proto: vec![1, 2, 3],
+                concurrent: false,
+            },
+        )
+        .await
+        .expect("insert workflow version")
     }
 
     async fn insert_schedule(backend: &PostgresBackend, schedule_name: &str) -> Uuid {
@@ -962,7 +991,10 @@ mod tests {
         assert_eq!(instances.len(), 1);
         assert_eq!(instances[0].id, instance_id);
         assert_eq!(instances[0].status, InstanceStatus::Running);
-        assert_eq!(instances[0].workflow_name, Some("tests.action".to_string()));
+        assert_eq!(
+            instances[0].workflow_name,
+            Some("tests.workflow".to_string())
+        );
     }
 
     #[serial(postgres)]
@@ -977,7 +1009,47 @@ mod tests {
 
         assert_eq!(instance.id, instance_id);
         assert_eq!(instance.status, InstanceStatus::Running);
-        assert_eq!(instance.workflow_name, Some("tests.action".to_string()));
+        assert_eq!(instance.workflow_name, Some("tests.workflow".to_string()));
+    }
+
+    #[serial(postgres)]
+    #[tokio::test]
+    async fn webapp_workflow_name_prefers_registered_workflow_name() {
+        let backend = setup_backend().await;
+        let (instance_id, entry_node, execution_id) =
+            insert_instance_with_graph_with_workflow(&backend, "tests.workflow_name").await;
+
+        let list = WebappBackend::list_instances(&backend, None, 10, 0)
+            .await
+            .expect("list instances");
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].id, instance_id);
+        assert_eq!(
+            list[0].workflow_name,
+            Some("tests.workflow_name".to_string())
+        );
+
+        let detail = WebappBackend::get_instance(&backend, instance_id)
+            .await
+            .expect("get instance");
+        assert_eq!(detail.id, instance_id);
+        assert_eq!(detail.entry_node, entry_node);
+        assert_eq!(
+            detail.workflow_name,
+            Some("tests.workflow_name".to_string())
+        );
+
+        let graph = WebappBackend::get_execution_graph(&backend, instance_id)
+            .await
+            .expect("get graph")
+            .expect("graph");
+        assert!(
+            graph
+                .nodes
+                .iter()
+                .any(|node| node.id == execution_id.to_string()),
+            "expected action node to remain intact"
+        );
     }
 
     #[serial(postgres)]

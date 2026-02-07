@@ -39,6 +39,7 @@ impl PostgresBackend {
             runner_payloads.push((
                 instance.instance_id,
                 instance.entry_node,
+                instance.workflow_version_id,
                 Self::serialize(&graph)?,
             ));
         }
@@ -55,14 +56,16 @@ impl PostgresBackend {
             },
         );
 
-        let mut runner_builder: QueryBuilder<Postgres> =
-            QueryBuilder::new("INSERT INTO runner_instances (instance_id, entry_node, state) ");
+        let mut runner_builder: QueryBuilder<Postgres> = QueryBuilder::new(
+            "INSERT INTO runner_instances (instance_id, entry_node, workflow_version_id, state) ",
+        );
         runner_builder.push_values(
             runner_payloads.iter(),
-            |mut builder, (id, entry, payload)| {
+            |mut builder, (id, entry, workflow_version_id, payload)| {
                 builder
                     .push_bind(*id)
                     .push_bind(*entry)
+                    .push_bind(*workflow_version_id)
                     .push_bind(payload.as_slice());
             },
         );
@@ -659,6 +662,7 @@ mod tests {
         let instance_id = Uuid::new_v4();
         let entry_node = Uuid::new_v4();
         let queued = sample_queued_instance(instance_id, entry_node);
+        let expected_workflow_version_id = queued.workflow_version_id;
 
         CoreBackend::queue_instances(&backend, &[queued])
             .await
@@ -679,6 +683,15 @@ mod tests {
                 .await
                 .expect("runner count");
         assert_eq!(runner_count, 1);
+
+        let workflow_version_id: Option<Uuid> = sqlx::query_scalar(
+            "SELECT workflow_version_id FROM runner_instances WHERE instance_id = $1",
+        )
+        .bind(instance_id)
+        .fetch_one(backend.pool())
+        .await
+        .expect("runner workflow version");
+        assert_eq!(workflow_version_id, Some(expected_workflow_version_id));
     }
 
     #[serial(postgres)]
