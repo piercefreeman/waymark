@@ -1413,89 +1413,143 @@ mod tests {
         )
     }
 
-    fn advance_executor_one_increment<F>(
-        executor: &mut RunnerExecutor,
-        action_result_for: F,
-    ) -> Result<bool, RunnerExecutorError>
-    where
-        F: Fn(&ExecutionNode) -> Value + Copy,
-    {
-        let queued_actions: Vec<ExecutionNode> = executor
-            .state()
-            .nodes
-            .values()
-            .filter(|node| node.status == NodeStatus::Queued && node.is_action_call())
-            .cloned()
-            .collect();
-        for action in &queued_actions {
-            if !executor.action_results().contains_key(&action.node_id) {
-                executor.set_action_result(action.node_id, action_result_for(action));
+    type ActionResultFor = fn(&ExecutionNode) -> Value;
+
+    struct RehydrateBranchHarness {
+        dag: Arc<DAG>,
+        canonical: RunnerExecutor,
+        branches: Vec<RunnerExecutor>,
+        action_result_for: ActionResultFor,
+    }
+
+    impl RehydrateBranchHarness {
+        const MAX_TICKS: usize = 256;
+
+        fn new(
+            dag: Arc<DAG>,
+            canonical: RunnerExecutor,
+            action_result_for: ActionResultFor,
+        ) -> Self {
+            let mut harness = Self {
+                dag,
+                canonical,
+                branches: Vec::new(),
+                action_result_for,
+            };
+            harness.fork_from_canonical();
+            harness
+        }
+
+        fn run_and_assert(mut self) {
+            self.advance_canonical_with_forks();
+            for (index, branch) in self.branches.iter_mut().enumerate() {
+                Self::advance_executor_to_completion(branch, self.action_result_for)
+                    .unwrap_or_else(|err| panic!("branch {index} failed to complete: {err}"));
+                Self::assert_completed_executor_equivalent(&self.canonical, branch);
             }
         }
 
-        let mut finished_nodes: Vec<Uuid> =
-            queued_actions.iter().map(|node| node.node_id).collect();
-        finished_nodes.extend(
-            executor
+        fn fork_from_canonical(&mut self) {
+            let (nodes_snap, edges_snap, results_snap) =
+                snapshot_state(self.canonical.state(), self.canonical.action_results());
+            self.branches.push(create_rehydrated_executor(
+                &self.dag,
+                nodes_snap,
+                edges_snap,
+                results_snap,
+            ));
+        }
+
+        fn advance_canonical_with_forks(&mut self) {
+            let mut converged = false;
+            for _ in 0..Self::MAX_TICKS {
+                let progressed = Self::advance_executor_one_increment(
+                    &mut self.canonical,
+                    self.action_result_for,
+                )
+                .expect("advance canonical executor");
+                if !progressed {
+                    converged = true;
+                    break;
+                }
+                self.fork_from_canonical();
+            }
+            assert!(converged, "canonical executor did not converge");
+            assert!(
+                !self.branches.is_empty(),
+                "expected at least one rehydrated branch"
+            );
+        }
+
+        fn advance_executor_one_increment(
+            executor: &mut RunnerExecutor,
+            action_result_for: ActionResultFor,
+        ) -> Result<bool, RunnerExecutorError> {
+            let queued_actions: Vec<ExecutionNode> = executor
                 .state()
                 .nodes
                 .values()
-                .filter(|node| {
-                    node.status == NodeStatus::Queued
-                        && node.is_sleep()
-                        && node.scheduled_at.is_some()
-                })
-                .map(|node| node.node_id),
-        );
-
-        if finished_nodes.is_empty() {
-            return Ok(false);
-        }
-
-        let step = executor.increment(&finished_nodes)?;
-        for action in &step.actions {
-            if !executor.action_results().contains_key(&action.node_id) {
-                executor.set_action_result(action.node_id, action_result_for(action));
+                .filter(|node| node.status == NodeStatus::Queued && node.is_action_call())
+                .cloned()
+                .collect();
+            for action in &queued_actions {
+                if !executor.action_results().contains_key(&action.node_id) {
+                    executor.set_action_result(action.node_id, action_result_for(action));
+                }
             }
-        }
-        for sleep_request in &step.sleep_requests {
-            executor
-                .state_mut()
-                .set_node_scheduled_at(
-                    sleep_request.node_id,
-                    Some(Utc::now() - chrono::Duration::seconds(1)),
-                )
-                .map_err(|err| RunnerExecutorError(err.0))?;
-        }
-        Ok(true)
-    }
 
-    fn advance_executor_to_completion<F>(
-        executor: &mut RunnerExecutor,
-        action_result_for: F,
-    ) -> Result<(), RunnerExecutorError>
-    where
-        F: Fn(&ExecutionNode) -> Value + Copy,
-    {
-        const MAX_TICKS: usize = 256;
-        for _ in 0..MAX_TICKS {
-            if !advance_executor_one_increment(executor, action_result_for)? {
-                return Ok(());
+            let mut finished_nodes: Vec<Uuid> =
+                queued_actions.iter().map(|node| node.node_id).collect();
+            finished_nodes.extend(
+                executor
+                    .state()
+                    .nodes
+                    .values()
+                    .filter(|node| {
+                        node.status == NodeStatus::Queued
+                            && node.is_sleep()
+                            && node.scheduled_at.is_some()
+                    })
+                    .map(|node| node.node_id),
+            );
+
+            if finished_nodes.is_empty() {
+                return Ok(false);
             }
+
+            let step = executor.increment(&finished_nodes)?;
+            for action in &step.actions {
+                if !executor.action_results().contains_key(&action.node_id) {
+                    executor.set_action_result(action.node_id, action_result_for(action));
+                }
+            }
+            for sleep_request in &step.sleep_requests {
+                executor
+                    .state_mut()
+                    .set_node_scheduled_at(
+                        sleep_request.node_id,
+                        Some(Utc::now() - chrono::Duration::seconds(1)),
+                    )
+                    .map_err(|err| RunnerExecutorError(err.0))?;
+            }
+            Ok(true)
         }
 
-        Err(RunnerExecutorError(
-            "executor did not converge to completion".to_string(),
-        ))
-    }
+        fn advance_executor_to_completion(
+            executor: &mut RunnerExecutor,
+            action_result_for: ActionResultFor,
+        ) -> Result<(), RunnerExecutorError> {
+            for _ in 0..Self::MAX_TICKS {
+                if !Self::advance_executor_one_increment(executor, action_result_for)? {
+                    return Ok(());
+                }
+            }
 
-    fn assert_rehydrate_completion_equivalent<F>(
-        dag: &Arc<DAG>,
-        mut executor: RunnerExecutor,
-        action_result_for: F,
-    ) where
-        F: Fn(&ExecutionNode) -> Value + Copy,
-    {
+            Err(RunnerExecutorError(
+                "executor did not converge to completion".to_string(),
+            ))
+        }
+
         fn count_keyed(items: impl IntoIterator<Item = String>) -> HashMap<String, usize> {
             let mut counts: HashMap<String, usize> = HashMap::new();
             for item in items {
@@ -1505,7 +1559,7 @@ mod tests {
         }
 
         fn node_shape_counts(executor: &RunnerExecutor) -> HashMap<String, usize> {
-            count_keyed(executor.state().nodes.values().map(|node| {
+            Self::count_keyed(executor.state().nodes.values().map(|node| {
                 let mut targets = node.targets.clone();
                 targets.sort();
                 let mut assignment_keys: Vec<String> = node.assignments.keys().cloned().collect();
@@ -1532,7 +1586,7 @@ mod tests {
         }
 
         fn edge_shape_counts(executor: &RunnerExecutor) -> HashMap<String, usize> {
-            count_keyed(executor.state().edges.iter().map(|edge| {
+            Self::count_keyed(executor.state().edges.iter().map(|edge| {
                 let source = executor
                     .state()
                     .nodes
@@ -1554,7 +1608,7 @@ mod tests {
         }
 
         fn action_result_counts(executor: &RunnerExecutor) -> HashMap<String, usize> {
-            count_keyed(executor.action_results().iter().map(|(node_id, value)| {
+            Self::count_keyed(executor.action_results().iter().map(|(node_id, value)| {
                 let template_id = executor
                     .state()
                     .nodes
@@ -1571,15 +1625,21 @@ mod tests {
             canonical: &RunnerExecutor,
             rehydrated: &RunnerExecutor,
         ) {
-            assert_eq!(node_shape_counts(canonical), node_shape_counts(rehydrated));
-            assert_eq!(edge_shape_counts(canonical), edge_shape_counts(rehydrated));
+            assert_eq!(
+                Self::node_shape_counts(canonical),
+                Self::node_shape_counts(rehydrated)
+            );
+            assert_eq!(
+                Self::edge_shape_counts(canonical),
+                Self::edge_shape_counts(rehydrated)
+            );
             assert_eq!(
                 canonical.state().timeline.len(),
                 rehydrated.state().timeline.len()
             );
             assert_eq!(
-                action_result_counts(canonical),
-                action_result_counts(rehydrated)
+                Self::action_result_counts(canonical),
+                Self::action_result_counts(rehydrated)
             );
             assert_eq!(
                 canonical.state().ready_queue.is_empty(),
@@ -1614,47 +1674,6 @@ mod tests {
                 .filter(|(name, _)| assignment_counts.get(name).copied().unwrap_or(0) <= 1)
                 .collect();
             assert_eq!(stable_canonical, stable_rehydrated);
-        }
-
-        let mut branches: Vec<RunnerExecutor> = Vec::new();
-        let (nodes_snap, edges_snap, results_snap) =
-            snapshot_state(executor.state(), executor.action_results());
-        branches.push(create_rehydrated_executor(
-            dag,
-            nodes_snap,
-            edges_snap,
-            results_snap,
-        ));
-
-        const MAX_TICKS: usize = 256;
-        let mut converged = false;
-        for _ in 0..MAX_TICKS {
-            let progressed = advance_executor_one_increment(&mut executor, action_result_for)
-                .expect("advance canonical executor");
-            if !progressed {
-                converged = true;
-                break;
-            }
-
-            let (nodes_snap, edges_snap, results_snap) =
-                snapshot_state(executor.state(), executor.action_results());
-            branches.push(create_rehydrated_executor(
-                dag,
-                nodes_snap,
-                edges_snap,
-                results_snap,
-            ));
-        }
-        assert!(converged, "canonical executor did not converge");
-        assert!(
-            !branches.is_empty(),
-            "expected at least one rehydrated branch"
-        );
-
-        for (index, branch) in branches.iter_mut().enumerate() {
-            advance_executor_to_completion(branch, action_result_for)
-                .unwrap_or_else(|err| panic!("branch {index} failed to complete: {err}"));
-            assert_completed_executor_equivalent(&executor, branch);
         }
     }
 
@@ -2276,25 +2295,16 @@ fn main(input: [], output: [done]):
     #[test]
     fn test_rehydrate_completion_equivalent_across_ir_scenarios() {
         let (linear_dag, linear_executor) = setup_linear_assignment_checkpoint();
-        assert_rehydrate_completion_equivalent(
-            &linear_dag,
-            linear_executor,
-            completion_action_result,
-        );
+        RehydrateBranchHarness::new(linear_dag, linear_executor, completion_action_result)
+            .run_and_assert();
 
         let (sleep_dag, sleep_executor) = setup_sleep_resume_checkpoint();
-        assert_rehydrate_completion_equivalent(
-            &sleep_dag,
-            sleep_executor,
-            completion_action_result,
-        );
+        RehydrateBranchHarness::new(sleep_dag, sleep_executor, completion_action_result)
+            .run_and_assert();
 
         let (spread_dag, spread_executor) = setup_spread_checkpoint();
-        assert_rehydrate_completion_equivalent(
-            &spread_dag,
-            spread_executor,
-            completion_action_result,
-        );
+        RehydrateBranchHarness::new(spread_dag, spread_executor, completion_action_result)
+            .run_and_assert();
     }
 
     #[test]
