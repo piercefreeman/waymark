@@ -168,7 +168,9 @@ impl ShardExecutor {
                 .state_mut()
                 .mark_running(action.node_id)
                 .map_err(|err| RunLoopError::Message(err.0))?;
-            let kwargs = self.executor.resolve_action_kwargs(&action_spec)?;
+            let kwargs = self
+                .executor
+                .resolve_action_kwargs(action.node_id, &action_spec)?;
             actions.push(ActionRequest {
                 executor_id: self.executor_id,
                 execution_id: action.node_id,
@@ -1524,7 +1526,6 @@ fn main(input: [x], output: [y]):
         let instances_done = backend.instances_done();
         assert_eq!(instances_done.len(), 1);
         let done = &instances_done[0];
-        println!("instance done: {:?}", done);
         let output = done.result.clone().expect("instance result");
         let Value::Object(map) = output else {
             panic!("expected output object");

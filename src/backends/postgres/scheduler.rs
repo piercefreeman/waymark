@@ -290,36 +290,13 @@ impl From<ScheduleRow> for WorkflowSchedule {
 mod tests {
     use chrono::Utc;
     use serial_test::serial;
-    use sqlx::{PgPool, Row};
+    use sqlx::Row;
     use uuid::Uuid;
 
+    use super::super::test_helpers::setup_backend;
     use super::*;
     use crate::backends::SchedulerBackend;
     use crate::scheduler::CreateScheduleParams;
-    use crate::test_support::postgres_setup;
-
-    async fn setup_backend() -> PostgresBackend {
-        let pool = postgres_setup().await;
-        reset_database(&pool).await;
-        PostgresBackend::new(pool)
-    }
-
-    async fn reset_database(pool: &PgPool) {
-        sqlx::query(
-            r#"
-            TRUNCATE runner_actions_done,
-                     queued_instances,
-                     runner_instances,
-                     workflow_versions,
-                     workflow_schedules,
-                     worker_status
-            RESTART IDENTITY CASCADE
-            "#,
-        )
-        .execute(pool)
-        .await
-        .expect("truncate postgres tables");
-    }
 
     fn sample_params(schedule_name: &str) -> CreateScheduleParams {
         CreateScheduleParams {

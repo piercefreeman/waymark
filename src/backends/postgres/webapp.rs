@@ -890,9 +890,9 @@ mod tests {
 
     use chrono::Utc;
     use serial_test::serial;
-    use sqlx::PgPool;
     use uuid::Uuid;
 
+    use super::super::test_helpers::setup_backend;
     use super::*;
     use crate::backends::{
         SchedulerBackend, WebappBackend, WorkerStatusBackend, WorkerStatusUpdate,
@@ -904,7 +904,6 @@ mod tests {
         ActionCallSpec, ExecutionEdge, ExecutionNode, LiteralValue, NodeStatus,
     };
     use crate::scheduler::{CreateScheduleParams, ScheduleType};
-    use crate::test_support::postgres_setup;
 
     #[test]
     fn format_extracted_inputs_happy_path() {
@@ -1009,29 +1008,6 @@ mod tests {
                 .expect("encode result error");
         let status = determine_status(&None, &Some(result_bytes), &None);
         assert_eq!(status, InstanceStatus::Failed);
-    }
-
-    async fn setup_backend() -> PostgresBackend {
-        let pool = postgres_setup().await;
-        reset_database(&pool).await;
-        PostgresBackend::new(pool)
-    }
-
-    async fn reset_database(pool: &PgPool) {
-        sqlx::query(
-            r#"
-            TRUNCATE runner_actions_done,
-                     queued_instances,
-                     runner_instances,
-                     workflow_versions,
-                     workflow_schedules,
-                     worker_status
-            RESTART IDENTITY CASCADE
-            "#,
-        )
-        .execute(pool)
-        .await
-        .expect("truncate postgres tables");
     }
 
     fn sample_execution_node(execution_id: Uuid) -> ExecutionNode {

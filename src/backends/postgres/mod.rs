@@ -3,6 +3,8 @@
 mod core;
 mod registry;
 mod scheduler;
+#[cfg(test)]
+mod test_helpers;
 mod webapp;
 
 use std::collections::HashMap;

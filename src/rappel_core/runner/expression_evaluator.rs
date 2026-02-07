@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use crate::messages::ast as ir;
 use crate::observability::obs;
-use crate::rappel_core::dag::DAGEdge;
+use crate::rappel_core::dag::{DAGEdge, EdgeType};
 use crate::rappel_core::runner::state::{
     ActionCallSpec, ActionResultValue, BinaryOpValue, DictEntryValue, DictValue, DotValue,
     FunctionCallValue, IndexValue, ListValue, LiteralValue, UnaryOpValue, VariableValue,
@@ -155,12 +155,15 @@ impl RunnerExecutor {
     #[obs]
     pub fn resolve_action_kwargs(
         &self,
+        node_id: Uuid,
         action: &ActionCallSpec,
     ) -> Result<HashMap<String, Value>, RunnerExecutorError> {
         let mut resolved = HashMap::new();
         for (name, expr) in &action.kwargs {
-            let materialized = self.state().materialize_value(expr.clone());
-            resolved.insert(name.clone(), self.evaluate_value_expr(&materialized)?);
+            resolved.insert(
+                name.clone(),
+                self.evaluate_value_expr_for_node(expr, Some(node_id))?,
+            );
         }
         Ok(resolved)
     }
@@ -171,11 +174,21 @@ impl RunnerExecutor {
         &self,
         expr: &ValueExpr,
     ) -> Result<Value, RunnerExecutorError> {
+        self.evaluate_value_expr_for_node(expr, None)
+    }
+
+    fn evaluate_value_expr_for_node(
+        &self,
+        expr: &ValueExpr,
+        current_node_id: Option<Uuid>,
+    ) -> Result<Value, RunnerExecutorError> {
         let stack = Rc::new(RefCell::new(HashSet::new()));
         let resolve_variable = {
             let stack = stack.clone();
             let this = self;
-            move |name: &str| this.evaluate_variable(name, stack.clone())
+            move |name: &str| {
+                this.evaluate_variable_with_context(current_node_id, name, stack.clone())
+            }
         };
         let resolve_action_result = {
             let this = self;
@@ -201,16 +214,49 @@ impl RunnerExecutor {
         evaluator.visit(expr)
     }
 
+    fn find_variable_source_node(&self, current_node_id: Uuid, name: &str) -> Option<Uuid> {
+        let timeline_index: HashMap<Uuid, usize> = self
+            .state()
+            .timeline
+            .iter()
+            .enumerate()
+            .map(|(idx, node_id)| (*node_id, idx))
+            .collect();
+
+        self.state()
+            .edges
+            .iter()
+            .filter(|edge| edge.edge_type == EdgeType::DataFlow && edge.target == current_node_id)
+            .map(|edge| edge.source)
+            .filter(|source| {
+                self.state()
+                    .nodes
+                    .get(source)
+                    .map(|node| node.assignments.contains_key(name))
+                    .unwrap_or(false)
+            })
+            .max_by_key(|source| timeline_index.get(source).copied().unwrap_or(0))
+    }
+
+    fn evaluate_variable_with_context(
+        &self,
+        current_node_id: Option<Uuid>,
+        name: &str,
+        stack: Rc<RefCell<HashSet<(Uuid, String)>>>,
+    ) -> Result<Value, RunnerExecutorError> {
+        let node_id = current_node_id
+            .and_then(|node_id| self.find_variable_source_node(node_id, name))
+            .or_else(|| self.state().latest_assignment(name))
+            .ok_or_else(|| RunnerExecutorError(format!("variable not found: {name}")))?;
+        self.evaluate_assignment(node_id, name, stack)
+    }
+
     pub(super) fn evaluate_variable(
         &self,
         name: &str,
         stack: Rc<RefCell<HashSet<(Uuid, String)>>>,
     ) -> Result<Value, RunnerExecutorError> {
-        let node_id = self
-            .state()
-            .latest_assignment(name)
-            .ok_or_else(|| RunnerExecutorError(format!("variable not found: {name}")))?;
-        self.evaluate_assignment(node_id, name, stack)
+        self.evaluate_variable_with_context(None, name, stack)
     }
 
     pub(super) fn evaluate_assignment(
@@ -712,9 +758,49 @@ mod tests {
             )]),
         };
         let resolved = executor
-            .resolve_action_kwargs(&action)
+            .resolve_action_kwargs(Uuid::new_v4(), &action)
             .expect("resolve kwargs");
         assert_eq!(resolved.get("value"), Some(&Value::Number(10.into())));
+    }
+
+    #[test]
+    fn test_resolve_action_kwargs_uses_data_flow_for_self_referential_targets() {
+        let dag = Arc::new(DAG::default());
+        let mut state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
+        state
+            .record_assignment_value(
+                vec!["current".to_string()],
+                literal_int(0),
+                None,
+                Some("current = 0".to_string()),
+            )
+            .expect("record current");
+        let action_result = state
+            .queue_action(
+                "increment",
+                Some(vec!["current".to_string()]),
+                Some(HashMap::from([(
+                    "value".to_string(),
+                    ValueExpr::Variable(VariableValue {
+                        name: "current".to_string(),
+                    }),
+                )])),
+                None,
+                None,
+            )
+            .expect("queue increment");
+        let action_node = state
+            .nodes
+            .get(&action_result.node_id)
+            .expect("action node")
+            .clone();
+        let action_spec = action_node.action.expect("action spec");
+
+        let executor = RunnerExecutor::new(dag, state, HashMap::new(), None);
+        let resolved = executor
+            .resolve_action_kwargs(action_result.node_id, &action_spec)
+            .expect("resolve kwargs");
+        assert_eq!(resolved.get("value"), Some(&Value::Number(0.into())));
     }
 
     #[test]

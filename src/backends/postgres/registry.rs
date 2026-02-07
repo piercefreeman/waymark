@@ -94,18 +94,8 @@ impl WorkflowRegistryBackend for PostgresBackend {
 mod tests {
     use serial_test::serial;
 
-    use super::*;
+    use super::super::test_helpers::setup_backend;
     use crate::backends::{WorkflowRegistration, WorkflowRegistryBackend};
-    use crate::test_support::postgres_setup;
-
-    async fn setup_backend() -> PostgresBackend {
-        let pool = postgres_setup().await;
-        sqlx::query("TRUNCATE workflow_versions RESTART IDENTITY")
-            .execute(&pool)
-            .await
-            .expect("truncate workflow_versions");
-        PostgresBackend::new(pool)
-    }
 
     fn sample_registration(version: &str) -> WorkflowRegistration {
         WorkflowRegistration {
