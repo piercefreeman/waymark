@@ -4,7 +4,7 @@ use std::collections::HashSet;
 
 use crate::messages::ast as ir;
 
-use super::models::{DAG, DAGNode, DagConversionError, EdgeType};
+use super::models::{DAG, DAGNode, DagConversionError, EXCEPTION_SCOPE_VAR, EdgeType};
 
 pub fn validate_dag(dag: &DAG) -> Result<(), DagConversionError> {
     validate_edges_reference_existing_nodes(dag)?;
@@ -145,7 +145,13 @@ pub fn validate_variable_references_have_data_flow(dag: &DAG) -> Result<(), DagC
     for (node_id, node) in &dag.nodes {
         let mut referenced_vars = node_referenced_variables(node);
         referenced_vars.extend(node_guard_variables(dag, node_id));
+        for bound_var in node_locally_bound_variables(node) {
+            referenced_vars.remove(&bound_var);
+        }
         for var_name in referenced_vars {
+            if var_name == EXCEPTION_SCOPE_VAR {
+                continue;
+            }
             if !incoming_data_flow.contains(&(node_id.clone(), var_name.clone())) {
                 missing_references.push(format!(
                     "node '{}' ({}) references variable '{}' without incoming data-flow",
@@ -234,6 +240,16 @@ fn node_referenced_variables(node: &DAGNode) -> HashSet<String> {
         | DAGNode::Break(_)
         | DAGNode::Continue(_)
         | DAGNode::Expression(_) => {}
+    }
+    vars
+}
+
+fn node_locally_bound_variables(node: &DAGNode) -> HashSet<String> {
+    let mut vars = HashSet::new();
+    if let DAGNode::ActionCall(action) = node
+        && let Some(loop_var) = action.spread_loop_var.as_ref()
+    {
+        vars.insert(loop_var.clone());
     }
     vars
 }
@@ -365,6 +381,18 @@ fn main(input: [input_text], output: [result]):
 fn main(input: [input_text], output: [result]):
     result = @double(value=input_text)
     return result
+"#;
+        let program = parse_program(source.trim()).expect("parse program");
+        let dag = convert_to_dag(&program).expect("convert dag");
+        validate_dag(&dag).expect("validate dag");
+    }
+
+    #[test]
+    fn validate_dag_allows_spread_loop_variable_reference() {
+        let source = r#"
+fn main(input: [values], output: [doubles]):
+    doubles = spread values:item -> @double(value=item)
+    return doubles
 "#;
         let program = parse_program(source.trim()).expect("parse program");
         let dag = convert_to_dag(&program).expect("convert dag");
