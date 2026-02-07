@@ -118,7 +118,7 @@ This keeps loops in the same push-based model without a separate scheduler mode.
 - **No duplicate enqueues**: nodes are enqueued only when all predecessors complete.
 - **No stale data**: results are stored alongside status updates.
 - **Crash safety**: execution graphs are persisted periodically; reclaimed instances resume from last checkpoint.
-- **Idempotent completion**: each completion is tied to a delivery token.
+- **Durable action history**: successful action outputs are appended by `execution_id` and `attempt`, then rehydrated on reclaim.
 
 ---
 

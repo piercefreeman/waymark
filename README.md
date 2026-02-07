@@ -202,7 +202,7 @@ Waymark reads the process environment directly; it does not auto-load `.env` fil
 | `WAYMARK_POLL_INTERVAL_MS` | Queue poll interval for runloop | `100` |
 | `WAYMARK_MAX_CONCURRENT_INSTANCES` | Max in-memory instances across runloop shards | `500` |
 | `WAYMARK_EXECUTOR_SHARDS` | Number of executor shards | host CPU count (`available_parallelism`) |
-| `WAYMARK_INSTANCE_DONE_BATCH_SIZE` | Batch size for persisting completed instances | unset (uses claim batch behavior) |
+| `WAYMARK_INSTANCE_DONE_BATCH_SIZE` | Batch size for persisting completed instances | unset (uses `WAYMARK_MAX_CONCURRENT_INSTANCES`) |
 | `WAYMARK_PERSIST_INTERVAL_MS` | Persistence flush interval | `500` |
 | `WAYMARK_LOCK_TTL_MS` | Queue lock TTL | `15000` |
 | `WAYMARK_LOCK_HEARTBEAT_MS` | Queue lock heartbeat interval | `5000` |

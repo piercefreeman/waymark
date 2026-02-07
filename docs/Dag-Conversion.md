@@ -8,7 +8,7 @@ We start with the parsed IR (Waymark AST) and produce a graph the runner can exe
 - State machine edges encode "what can run after this completes".
 - Data-flow edges encode "which variable values should be written into a node's inbox".
 
-A node is runnable when its state machine predecessors have completed and its required inbox values are present. See `docs/specs/unified-readiness-model.md` for readiness rules.
+A node is runnable when its state machine predecessors have completed and its required inbox values are present. See `docs/Action-Readiness-Model.md` for readiness rules.
 
 ## Two-phase conversion
 

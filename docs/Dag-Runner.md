@@ -1,88 +1,95 @@
 # DAG Runner
 
-The runner is the runtime that polls Postgres, dispatches work to Python workers, executes inline nodes, and keeps the DAG moving.
+The runner coordinates durable workflow execution from queued instance claim through completion.
 
-## Big pieces
+## Core pieces
 
-- **DAG cache**: caches DAGs by workflow version so we do not decode the proto on every completion.
-- **Execution graph**: single protobuf blob per instance containing all runtime state.
-- **Worker slot tracker**: per-worker capacity accounting for concurrent actions.
-- **Python worker pool**: long-lived gRPC connections to Python workers.
-- **In-flight tracker**: maps delivery tokens to dispatched actions and watches timeouts.
-- **Completion handler**: applies completions to the execution graph and determines newly ready nodes.
+- `RunLoop` supervisor with restart/backoff.
+- Executor shards (OS threads) for CPU-bound graph advancement.
+- Shared `CoreBackend` for queue claims and durable writes.
+- `WorkflowRegistryBackend` for DAG hydration from `workflow_versions`.
+- `RemoteWorkerPool` for Python action dispatch/completion.
+- Lock heartbeat + lock reclaimer for lease ownership.
 
-## Data in Postgres
+## Runtime state model
 
-- `workflow_instances`: active instances with stripped execution graphs (work queue).
-- `workflow_versions`: immutable DAG definitions.
-- `node_payloads`: action inputs/results for cold start recovery (INSERT-only).
-- `completed_instances`: archived workflows with full execution graphs.
-- `workflow_schedules`: cron/interval schedule definitions.
-- `worker_status`: per-pool throughput and health metrics.
+Each active instance owns one runtime execution graph:
 
-## Execution graph
+- `nodes`: execution nodes keyed by `execution_id` (UUID)
+- `edges`: runtime edges
+- action attempt counters (`action_attempt`) on action nodes
+- queued/running/completed/failed status
+- optional `scheduled_at` for sleep/delay semantics
 
-Each instance has a single execution graph that tracks:
+Durable snapshot type: `GraphUpdate { instance_id, nodes, edges }`.
+Stored in `runner_instances.state` as MessagePack.
 
-- **Node map**: status, attempts, inputs, results for each node
-- **Ready queue**: nodes waiting to be dispatched
-- **Variables**: workflow scope (inputs, intermediate values, outputs)
-- **Exceptions**: caught and uncaught errors
+## Postgres tables used by the runner
 
-The graph is stored as a compressed protobuf blob. During active execution, we store **stripped graphs** (~2KB) without payload data. Full graphs with all inputs/outputs are only written to `completed_instances` when workflows finish.
+- `queued_instances`: active queue rows, scheduling, and lock lease columns
+- `runner_instances`: current graph snapshot plus final result/error
+- `runner_actions_done`: append-only successful action outputs by attempt
+- `workflow_versions`: IR payload for DAG hydration
 
-## Claim + dispatch loop
+## Claim and hydrate
 
-The runner operates in a tight loop:
+Claiming is done with `FOR UPDATE SKIP LOCKED`:
 
-1. **Claim instances**: acquire ownership of unclaimed instances via lease
-2. **Process completions**: apply worker results to execution graphs
-3. **Collect ready nodes**: find nodes ready to dispatch
-4. **Dispatch to workers**: send actions to Python workers
-5. **Finalize**: persist state changes, complete/fail finished instances
+1. Pick due queue rows (`scheduled_at <= now`) with no lock or expired lock.
+2. Set lock ownership (`lock_uuid`, `lock_expires_at`).
+3. Join to `runner_instances.state`.
+4. Decode queued payload + graph snapshot.
 
-Each claimed instance is held in memory with its execution graph. The runner maintains a lease that must be periodically renewed. If a runner crashes, its leases expire and another runner can reclaim the instances.
+Hydration also restores prior successful action outputs by querying the latest `runner_actions_done` record per `execution_id`.
 
-## Completion flow
+## Step execution
 
-When an action completes:
+Per event batch (new claims, action completions, sleep wakes), shards:
 
-1. Mark the node as completed in the execution graph
-2. Store result in the node and update variables
-3. Evaluate outgoing edges and guards
-4. Mark successor nodes as ready if all predecessors are done
-5. For barriers/joins, aggregate predecessor results
+1. apply finished node updates
+2. execute inline nodes in-memory
+3. emit newly runnable action requests
+4. emit durable deltas:
+   - `ActionDone` rows
+   - `GraphUpdate` snapshots
+5. emit `InstanceDone` when terminal
 
-The execution graph handles all state transitions in memory. Changes are batched and persisted periodically rather than on every completion.
+## Durable write ordering
 
-## Storage tiers
+Write ordering is explicit:
 
-**Hot path** (workflow_instances)
-- Stripped graphs: node statuses, ready queue, variables
-- No payload data (inputs/results stripped)
-- Fast reads/writes during active execution
+1. insert `runner_actions_done` first
+2. update `runner_instances.state`
+3. update `queued_instances.scheduled_at`
 
-**Warm storage** (node_payloads)
-- Action inputs and results
-- INSERT-only, no updates
-- Used for cold start recovery when reclaiming instances
-- Cleaned up when instances complete
+If lock ownership no longer matches, the instance is evicted from memory and its lock is released.
 
-**Cold storage** (completed_instances)
-- Full graphs with all inputs/outputs
-- Written asynchronously on completion
-- Supports dashboard and historical queries
+## Completion path
 
-## Spread, parallel, and joins
+When an instance finishes:
 
-- Spread nodes create N action instances (one per item)
-- Each spread action writes its result with a spread index
-- Barrier nodes wait for all predecessors, then aggregate results
-- Join nodes with `required_count = 1` are inline; multi-predecessor joins are barriers
+1. write terminal `result` or `error` to `runner_instances`
+2. delete its row from `queued_instances`
 
-## Failures, retries, and timeouts
+The completed instance remains queryable in `runner_instances`.
 
-- Action failures route through exception handling to either retry or propagate
-- Retry + timeout policies come from the DAG node (see `docs/Action-Retries.md`)
-- A background timeout loop marks timed-out actions and triggers retries or failures
-- Exhausted retries without an exception handler fail the workflow
+## Lock lifecycle
+
+- Claim: set `lock_uuid` + `lock_expires_at`
+- Heartbeat: extend `lock_expires_at` for owned instances
+- Release: clear lock columns when evicting/shutting down
+- Reclaim: periodic sweep clears expired locks in batches
+
+## Sleep and eviction behavior
+
+Sleep nodes set per-node `scheduled_at` in graph state.
+If an instance is blocked on long sleeps (beyond `WAYMARK_EVICT_SLEEP_THRESHOLD_MS`) and has no inflight actions, runloop evicts it and releases the queue lock. It can be reclaimed later from durable state.
+
+## Retries and failures
+
+- Retry decisions are evaluated in `RunnerExecutor` from action policy brackets.
+- Retry increments `action_attempt` and re-queues the same execution node.
+- Exhausted retries mark the action as failed and propagate exception edges.
+- Successful attempts are appended to `runner_actions_done`.
+
+Details and current limitations are documented in `docs/Action-Retries.md`.

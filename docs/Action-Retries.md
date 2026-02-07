@@ -1,10 +1,15 @@
 # Action Retries
 
-Actions support retry policies for automatic error recovery. Retry configuration exists at two levels: the Waymark IR syntax and the Python workflow API via `run_action`.
+Waymark supports action retry policies, but enforcement today is split:
 
-## IR Syntax
+- Parsed policy surface: retry count, exception filters, backoff, timeout
+- Runtime-enforced policy: retry count + exception filters
 
-In the Waymark IR, retry policies are specified in brackets after action calls. Timeout is a separate bracket since it's independent of exception handling:
+This document describes what is actually implemented now.
+
+## Policy surface (IR + Python API)
+
+In IR, policy brackets are attached to action calls:
 
 ```waymark
 # Catch all exceptions, retry up to 3 times with 60s exponential backoff
@@ -23,88 +28,62 @@ result = @api_call() [RateLimitError -> retry: 10, backoff: 1m] [NetworkError ->
 result = @slow_action() [retry: 3, backoff: 60] [timeout: 2m]
 ```
 
-Retry parameters:
-- `retry: N` - Maximum retry attempts before permanent failure
-- `backoff: DURATION` - Base backoff duration (exponential: `backoff * 2^attempt`)
-
-Duration formats: bare numbers are seconds, or use suffixes like `30s`, `2m`, `1h`.
-
-## Python Workflow API
-
-Retry and timeout policies are attached at the call site using `Workflow.run_action`. The action itself is still decorated with `@action`, but retries are not configured on the decorator.
+Python API maps onto those same IR policies via `Workflow.run_action(...)`:
 
 ```python
-from datetime import timedelta
-
-from waymark import action, workflow
-from waymark.workflow import RetryPolicy, Workflow
-
-
-@action
-async def my_action() -> str:
-    ...
-
-
-@workflow
-class ExampleWorkflow(Workflow):
-    async def run(self) -> str:
-        return await self.run_action(
-            my_action(),
-            retry=RetryPolicy(
-                attempts=3,
-                exception_types=["NetworkError"],
-                backoff_seconds=60,
-            ),
-            timeout=timedelta(minutes=2),
-        )
+await self.run_action(
+    my_action(),
+    retry=RetryPolicy(
+        attempts=3,
+        exception_types=["NetworkError"],
+        backoff_seconds=60,
+    ),
+    timeout=timedelta(minutes=2),
+)
 ```
 
-Parameters:
-- `RetryPolicy.attempts`: Total attempts (initial try + retries)
-- `RetryPolicy.exception_types`: Exception type names to match; empty/None catches all
-- `RetryPolicy.backoff_seconds`: Base backoff duration in seconds
-- `timeout`: Per-attempt timeout (int/float seconds or `timedelta`)
+## Runtime behavior implemented today
 
-## Database Representation
+Action failure handling happens in `RunnerExecutor`:
 
-The `action_queue` table stores retry configuration per action:
+1. Action result is treated as failure if payload looks like an exception object (`type` / `message`).
+2. Retry policy match is computed from:
+   - current `action_attempt`
+   - matched `retry` brackets on the action node
+   - optional exception type filter
+3. If retry is allowed:
+   - increment `action_attempt`
+   - set node status back to `queued`
+   - re-enqueue the same execution node
+4. If retry is exhausted:
+   - mark node `failed`
+   - propagate via exception edges
 
-| Column | Type | Description |
-|--------|------|-------------|
-| `max_retries` | int | Maximum retry attempts |
-| `attempt_number` | int | Current attempt (0-indexed) |
-| `timeout_seconds` | int | Per-attempt timeout |
-| `timeout_retry_limit` | int | Retries remaining for timeout failures |
-| `backoff_kind` | enum | `none`, `linear`, or `exponential` |
-| `backoff_base_delay_ms` | int | Base delay for backoff calculation |
-| `retry_kind` | string | What triggered the retry |
+Retry decision logic today:
 
-## Runtime Behavior
+- `max_retries` is the max across matching retry brackets.
+- Attempt counter starts at `1`.
+- Retry allowed when `attempt - 1 < max_retries`.
 
-Timeouts are stored as `NOW() + timeout` in the database, allowing the runner to fetch timed-out actions:
+## What gets persisted
 
-```sql
-SELECT ... WHERE timeout_at < NOW() AND status = 'dispatched' FOR UPDATE SKIP LOCKED
-```
+Retry metadata is persisted in graph state, not in a separate action queue table.
 
-Each runnable action gets a `delivery_token` (UUID) assigned at dispatch time. Only the owner holding this token can update the action status, preventing race conditions when multiple runners poll the queue.
+- `runner_instances.state` stores each execution node (including `action_attempt`).
+- `runner_actions_done` stores successful action outputs as append-only rows:
+  - `execution_id`
+  - `attempt`
+  - `result`
+- Failed attempts are not inserted into `runner_actions_done`.
 
-When an action times out or fails:
+When reclaiming an instance, the backend restores latest successful action output per `execution_id` from `runner_actions_done`.
 
-1. The handler checks if retries remain
-2. If retries remain:
-   - Decrement the retry count
-   - Calculate next attempt time: `base_delay * 2^attempt` for exponential backoff
-   - Re-queue with `scheduled_at` set to the backoff time
-3. If no retries remain:
-   - Mark action as permanently failed
-   - Trigger exception handling in the DAG (propagate to handlers or fail the workflow)
+## Current limitations
 
-## Exception-Specific Policies
+These fields are parsed but currently not enforced by the runtime dispatch path:
 
-The IR supports different retry policies per exception type. At runtime:
+- Retry backoff delay (`backoff`) is not applied before requeue.
+- Timeout policy (`timeout`) is not enforced by the runloop scheduler.
+- Worker dispatch currently sends `timeout_seconds = 0` and `max_retries = 0` in `ActionDispatch`.
 
-1. When an action fails, the exception type is extracted from the result
-2. The runner checks outgoing edges from the action node for matching `exception_types`
-3. If a matching policy exists with retries remaining, the action is re-queued
-4. If no match or retries exhausted, the exception propagates to handlers defined in the DAG
+In short: retries are currently immediate and executor-driven.
