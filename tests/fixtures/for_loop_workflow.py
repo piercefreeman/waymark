@@ -4,8 +4,8 @@ This tests the classic for-loop pattern where items are processed
 one at a time in a loop with results appended to a list.
 """
 
-from rappel import action, workflow
-from rappel.workflow import Workflow
+from waymark import action, workflow
+from waymark.workflow import Workflow
 
 
 @action

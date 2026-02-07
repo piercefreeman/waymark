@@ -9,9 +9,9 @@ from typing import Annotated
 
 import pytest
 
-from rappel import Workflow, workflow
-from rappel.actions import action
-from rappel.dependencies import Depend
+from waymark import Workflow, workflow
+from waymark.actions import action
+from waymark.dependencies import Depend
 
 # Track whether dependencies were actually resolved
 dependency_calls: list[str] = []
@@ -130,7 +130,7 @@ class TestDependencyResolutionMechanism:
         # Get the wrapped function's signature to inspect the annotations
         import inspect
 
-        from rappel.dependencies import DependMarker
+        from waymark.dependencies import DependMarker
 
         # The wrapper has __wrapped__ pointing to the original function
         original_func = action_with_dependency.__wrapped__  # type: ignore[attr-defined]

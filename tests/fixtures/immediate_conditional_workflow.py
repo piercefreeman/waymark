@@ -4,8 +4,8 @@ This workflow tests the case where conditional branches occur immediately at wor
 start, with guards that depend on input values (not action results).
 """
 
-from rappel import action, workflow
-from rappel.workflow import Workflow
+from waymark import action, workflow
+from waymark.workflow import Workflow
 
 
 @action

@@ -10,8 +10,8 @@ os.environ["PYTEST_CURRENT_TEST"] = "true"
 sys.path.insert(0, "src")
 sys.path.insert(0, "../proto")
 
-from rappel import action, workflow
-from rappel.workflow import Workflow
+from waymark import action, workflow
+from waymark.workflow import Workflow
 
 
 @action

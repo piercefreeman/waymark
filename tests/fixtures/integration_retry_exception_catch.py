@@ -17,8 +17,8 @@ Bug behavior:
 - Workflow stalls with "workflow stalled without pending work"
 """
 
-from rappel import RetryPolicy, action, workflow
-from rappel.workflow import Workflow
+from waymark import RetryPolicy, action, workflow
+from waymark.workflow import Workflow
 
 
 @action

@@ -1,4 +1,4 @@
--- Rappel core schema (baseline)
+-- Waymark core schema (baseline)
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 

@@ -5,8 +5,8 @@ This tests workflows with:
 - Sequential transformations
 - Multiple string operations chained together
 """
-from rappel import action, workflow
-from rappel.workflow import Workflow
+from waymark import action, workflow
+from waymark.workflow import Workflow
 
 
 @action

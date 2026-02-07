@@ -1,6 +1,6 @@
 """Fixture: with statements (context managers) are not supported."""
 
-from rappel import Workflow, action, workflow
+from waymark import Workflow, action, workflow
 
 
 @action

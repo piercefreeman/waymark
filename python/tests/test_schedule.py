@@ -10,9 +10,9 @@ import pytest
 from grpc import aio  # type: ignore[attr-defined]
 
 from proto import messages_pb2 as pb2
-from rappel import schedule as schedule_module
-from rappel.exceptions import ScheduleAlreadyExistsError
-from rappel.schedule import (
+from waymark import schedule as schedule_module
+from waymark.exceptions import ScheduleAlreadyExistsError
+from waymark.schedule import (
     ScheduleInfo,
     _parse_iso_datetime,
     _proto_schedule_status_to_str,
@@ -23,8 +23,8 @@ from rappel.schedule import (
     resume_schedule,
     schedule_workflow,
 )
-from rappel.serialization import arguments_to_kwargs
-from rappel.workflow import Workflow, workflow
+from waymark.serialization import arguments_to_kwargs
+from waymark.workflow import Workflow, workflow
 
 
 @workflow

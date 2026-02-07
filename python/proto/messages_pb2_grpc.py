@@ -41,7 +41,7 @@ class WorkerBridgeStub(object):
             channel: A grpc.Channel.
         """
         self.Attach = channel.stream_stream(
-                '/rappel.messages.WorkerBridge/Attach',
+                '/waymark.messages.WorkerBridge/Attach',
                 request_serializer=messages__pb2.Envelope.SerializeToString,
                 response_deserializer=messages__pb2.Envelope.FromString,
                 _registered_method=True)
@@ -72,9 +72,9 @@ def add_WorkerBridgeServicer_to_server(servicer, server):
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
-            'rappel.messages.WorkerBridge', rpc_method_handlers)
+            'waymark.messages.WorkerBridge', rpc_method_handlers)
     server.add_generic_rpc_handlers((generic_handler,))
-    server.add_registered_method_handlers('rappel.messages.WorkerBridge', rpc_method_handlers)
+    server.add_registered_method_handlers('waymark.messages.WorkerBridge', rpc_method_handlers)
 
 
  # This class is part of an EXPERIMENTAL API.
@@ -101,7 +101,7 @@ class WorkerBridge(object):
         return grpc.experimental.stream_stream(
             request_iterator,
             target,
-            '/rappel.messages.WorkerBridge/Attach',
+            '/waymark.messages.WorkerBridge/Attach',
             messages__pb2.Envelope.SerializeToString,
             messages__pb2.Envelope.FromString,
             options,
@@ -126,42 +126,42 @@ class WorkflowServiceStub(object):
             channel: A grpc.Channel.
         """
         self.RegisterWorkflow = channel.unary_unary(
-                '/rappel.messages.WorkflowService/RegisterWorkflow',
+                '/waymark.messages.WorkflowService/RegisterWorkflow',
                 request_serializer=messages__pb2.RegisterWorkflowRequest.SerializeToString,
                 response_deserializer=messages__pb2.RegisterWorkflowResponse.FromString,
                 _registered_method=True)
         self.RegisterWorkflowBatch = channel.unary_unary(
-                '/rappel.messages.WorkflowService/RegisterWorkflowBatch',
+                '/waymark.messages.WorkflowService/RegisterWorkflowBatch',
                 request_serializer=messages__pb2.RegisterWorkflowBatchRequest.SerializeToString,
                 response_deserializer=messages__pb2.RegisterWorkflowBatchResponse.FromString,
                 _registered_method=True)
         self.WaitForInstance = channel.unary_unary(
-                '/rappel.messages.WorkflowService/WaitForInstance',
+                '/waymark.messages.WorkflowService/WaitForInstance',
                 request_serializer=messages__pb2.WaitForInstanceRequest.SerializeToString,
                 response_deserializer=messages__pb2.WaitForInstanceResponse.FromString,
                 _registered_method=True)
         self.ExecuteWorkflow = channel.stream_stream(
-                '/rappel.messages.WorkflowService/ExecuteWorkflow',
+                '/waymark.messages.WorkflowService/ExecuteWorkflow',
                 request_serializer=messages__pb2.WorkflowStreamRequest.SerializeToString,
                 response_deserializer=messages__pb2.WorkflowStreamResponse.FromString,
                 _registered_method=True)
         self.RegisterSchedule = channel.unary_unary(
-                '/rappel.messages.WorkflowService/RegisterSchedule',
+                '/waymark.messages.WorkflowService/RegisterSchedule',
                 request_serializer=messages__pb2.RegisterScheduleRequest.SerializeToString,
                 response_deserializer=messages__pb2.RegisterScheduleResponse.FromString,
                 _registered_method=True)
         self.UpdateScheduleStatus = channel.unary_unary(
-                '/rappel.messages.WorkflowService/UpdateScheduleStatus',
+                '/waymark.messages.WorkflowService/UpdateScheduleStatus',
                 request_serializer=messages__pb2.UpdateScheduleStatusRequest.SerializeToString,
                 response_deserializer=messages__pb2.UpdateScheduleStatusResponse.FromString,
                 _registered_method=True)
         self.DeleteSchedule = channel.unary_unary(
-                '/rappel.messages.WorkflowService/DeleteSchedule',
+                '/waymark.messages.WorkflowService/DeleteSchedule',
                 request_serializer=messages__pb2.DeleteScheduleRequest.SerializeToString,
                 response_deserializer=messages__pb2.DeleteScheduleResponse.FromString,
                 _registered_method=True)
         self.ListSchedules = channel.unary_unary(
-                '/rappel.messages.WorkflowService/ListSchedules',
+                '/waymark.messages.WorkflowService/ListSchedules',
                 request_serializer=messages__pb2.ListSchedulesRequest.SerializeToString,
                 response_deserializer=messages__pb2.ListSchedulesResponse.FromString,
                 _registered_method=True)
@@ -265,9 +265,9 @@ def add_WorkflowServiceServicer_to_server(servicer, server):
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
-            'rappel.messages.WorkflowService', rpc_method_handlers)
+            'waymark.messages.WorkflowService', rpc_method_handlers)
     server.add_generic_rpc_handlers((generic_handler,))
-    server.add_registered_method_handlers('rappel.messages.WorkflowService', rpc_method_handlers)
+    server.add_registered_method_handlers('waymark.messages.WorkflowService', rpc_method_handlers)
 
 
  # This class is part of an EXPERIMENTAL API.
@@ -289,7 +289,7 @@ class WorkflowService(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/rappel.messages.WorkflowService/RegisterWorkflow',
+            '/waymark.messages.WorkflowService/RegisterWorkflow',
             messages__pb2.RegisterWorkflowRequest.SerializeToString,
             messages__pb2.RegisterWorkflowResponse.FromString,
             options,
@@ -316,7 +316,7 @@ class WorkflowService(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/rappel.messages.WorkflowService/RegisterWorkflowBatch',
+            '/waymark.messages.WorkflowService/RegisterWorkflowBatch',
             messages__pb2.RegisterWorkflowBatchRequest.SerializeToString,
             messages__pb2.RegisterWorkflowBatchResponse.FromString,
             options,
@@ -343,7 +343,7 @@ class WorkflowService(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/rappel.messages.WorkflowService/WaitForInstance',
+            '/waymark.messages.WorkflowService/WaitForInstance',
             messages__pb2.WaitForInstanceRequest.SerializeToString,
             messages__pb2.WaitForInstanceResponse.FromString,
             options,
@@ -370,7 +370,7 @@ class WorkflowService(object):
         return grpc.experimental.stream_stream(
             request_iterator,
             target,
-            '/rappel.messages.WorkflowService/ExecuteWorkflow',
+            '/waymark.messages.WorkflowService/ExecuteWorkflow',
             messages__pb2.WorkflowStreamRequest.SerializeToString,
             messages__pb2.WorkflowStreamResponse.FromString,
             options,
@@ -397,7 +397,7 @@ class WorkflowService(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/rappel.messages.WorkflowService/RegisterSchedule',
+            '/waymark.messages.WorkflowService/RegisterSchedule',
             messages__pb2.RegisterScheduleRequest.SerializeToString,
             messages__pb2.RegisterScheduleResponse.FromString,
             options,
@@ -424,7 +424,7 @@ class WorkflowService(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/rappel.messages.WorkflowService/UpdateScheduleStatus',
+            '/waymark.messages.WorkflowService/UpdateScheduleStatus',
             messages__pb2.UpdateScheduleStatusRequest.SerializeToString,
             messages__pb2.UpdateScheduleStatusResponse.FromString,
             options,
@@ -451,7 +451,7 @@ class WorkflowService(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/rappel.messages.WorkflowService/DeleteSchedule',
+            '/waymark.messages.WorkflowService/DeleteSchedule',
             messages__pb2.DeleteScheduleRequest.SerializeToString,
             messages__pb2.DeleteScheduleResponse.FromString,
             options,
@@ -478,7 +478,7 @@ class WorkflowService(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/rappel.messages.WorkflowService/ListSchedules',
+            '/waymark.messages.WorkflowService/ListSchedules',
             messages__pb2.ListSchedulesRequest.SerializeToString,
             messages__pb2.ListSchedulesResponse.FromString,
             options,

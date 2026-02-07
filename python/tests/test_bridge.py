@@ -9,8 +9,8 @@ import pytest
 from grpc import aio  # type: ignore[attr-defined]
 
 from proto import messages_pb2 as pb2
-from rappel import bridge
-from rappel.bridge import (
+from waymark import bridge
+from waymark.bridge import (
     RunBatchResult,
     RunInstanceResult,
     run_instance,
@@ -21,7 +21,7 @@ from rappel.bridge import (
 
 class TestWorkflowStub:
     def test_workflow_stub_is_scoped_to_event_loop(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("RAPPEL_BRIDGE_GRPC_ADDR", "test:123")
+        monkeypatch.setenv("WAYMARK_BRIDGE_GRPC_ADDR", "test:123")
 
         bridge._GRPC_TARGET = None
         bridge._GRPC_CHANNEL = None

@@ -1,18 +1,18 @@
 """
-Tests for the public API surface of the rappel package.
+Tests for the public API surface of the waymark package.
 
 These tests verify that all exported symbols are importable and that
 the package's __all__ matches what's actually available.
 """
 
-import rappel
+import waymark
 
 
 def test_all_exports_importable() -> None:
-    """Verify every name in __all__ is actually importable from rappel."""
+    """Verify every name in __all__ is actually importable from waymark."""
     missing = []
-    for name in rappel.__all__:
-        if not hasattr(rappel, name):
+    for name in waymark.__all__:
+        if not hasattr(waymark, name):
             missing.append(name)
 
     assert not missing, f"These names are in __all__ but not importable: {missing}"
@@ -21,7 +21,7 @@ def test_all_exports_importable() -> None:
 def test_public_api_imports() -> None:
     """Verify key public API symbols can be imported directly."""
     # These imports should not raise any errors
-    from rappel import (
+    from waymark import (
         action,
         build_workflow_ir,
         schedule_workflow,

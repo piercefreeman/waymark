@@ -7,8 +7,8 @@ exit the loop and continue with code after the loop, not raise an exception.
 
 from datetime import timedelta
 
-from rappel import RetryPolicy, action, workflow
-from rappel.workflow import Workflow
+from waymark import RetryPolicy, action, workflow
+from waymark.workflow import Workflow
 
 
 class CrawlFetchError(Exception):

@@ -1,4 +1,4 @@
-from rappel.exceptions import ExhaustedRetries
+from waymark.exceptions import ExhaustedRetries
 
 
 def test_exhausted_retries_inherits_exception() -> None:

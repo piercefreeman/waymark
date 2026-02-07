@@ -1,4 +1,4 @@
-//! Rappel - worker pool infrastructure plus the core IR/runtime port.
+//! Waymark - worker pool infrastructure plus the core IR/runtime port.
 
 pub mod backends;
 pub mod config;
@@ -8,11 +8,11 @@ pub mod fuzzer;
 pub mod messages;
 pub mod observability;
 pub mod pool_status;
-pub mod rappel_core;
 pub mod scheduler;
 pub mod server_worker;
 #[cfg(test)]
 pub mod test_support;
+pub mod waymark_core;
 pub mod webapp;
 pub mod workers;
 

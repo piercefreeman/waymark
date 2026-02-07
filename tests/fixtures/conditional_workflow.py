@@ -1,7 +1,7 @@
 """Conditional workflow fixture - tests if/elif/else branching."""
 
-from rappel import action, workflow
-from rappel.workflow import Workflow
+from waymark import action, workflow
+from waymark.workflow import Workflow
 
 
 @action

@@ -1,5 +1,5 @@
 """
-Benchmark workflow for stress testing the Rappel runtime.
+Benchmark workflow for stress testing the Waymark runtime.
 
 This workflow is designed to saturate the host CPU and test throughput:
 1. Fan-out: Spawns many parallel action calls
@@ -17,8 +17,8 @@ import asyncio
 import hashlib
 from typing import Any
 
-from rappel import action, workflow
-from rappel.workflow import Workflow
+from waymark import action, workflow
+from waymark.workflow import Workflow
 
 
 # =============================================================================

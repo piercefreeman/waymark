@@ -1,7 +1,7 @@
 """Test fixture: Simple try/except with single action in try."""
 
-from rappel import action, workflow
-from rappel.workflow import Workflow
+from waymark import action, workflow
+from waymark.workflow import Workflow
 
 
 @action

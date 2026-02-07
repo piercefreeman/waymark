@@ -1,7 +1,7 @@
 """Test fixture: Instance attribute policy references."""
 
-from rappel import action, workflow
-from rappel.workflow import RetryPolicy, Workflow
+from waymark import action, workflow
+from waymark.workflow import RetryPolicy, Workflow
 
 
 @action

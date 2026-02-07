@@ -1,7 +1,7 @@
 [project]
 name = "example-app"
 version = "0.1.0"
-description = "FastAPI playground that exercises rappel workflows"
+description = "FastAPI playground that exercises waymark workflows"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -10,7 +10,7 @@ dependencies = [
     "jinja2>=3.1,<4",
     "pydantic>=2.6,<3",
     "asyncpg>=0.29,<1",
-    "rappel"
+    "waymark"
 ]
 
 [project.optional-dependencies]
@@ -36,4 +36,4 @@ where = ["src"]
 "example_app" = ["templates/*.html"]
 
 [tool.uv.sources]
-rappel = { path = "../python" }
+waymark = { path = "../python" }

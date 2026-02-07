@@ -515,7 +515,7 @@ COMPLETED_ACTIONS_QUERY = "SELECT COUNT(*) FROM action_logs"
 
 def get_database_url() -> str:
     """Return the database URL from the environment or defaults."""
-    db_url = os.environ.get("RAPPEL_DATABASE_URL")
+    db_url = os.environ.get("WAYMARK_DATABASE_URL")
     return db_url if db_url else DEFAULT_DB_URL
 
 
@@ -578,7 +578,7 @@ def ensure_database_available() -> DatabaseConfig:
         config = parse_database_url(db_url)
     except ValueError as exc:
         print(
-            f"Invalid RAPPEL_DATABASE_URL: {db_url}",
+            f"Invalid WAYMARK_DATABASE_URL: {db_url}",
             file=sys.stderr,
         )
         print(
@@ -737,7 +737,7 @@ def run_benchmark(
     """Run the benchmark binary with --json flag and parse the JSON output."""
     cmd = ["./target/release/benchmark", "--json"] + args
     env = os.environ.copy()
-    env["RAPPEL_DATABASE_URL"] = get_database_url()
+    env["WAYMARK_DATABASE_URL"] = get_database_url()
 
     print(f"Running: {' '.join(cmd)}", file=sys.stderr)
 
@@ -920,7 +920,7 @@ def run_perf_record(
 
 @click.group()
 def cli():
-    """Run Rappel benchmarks."""
+    """Run Waymark benchmarks."""
     pass
 
 
@@ -1058,7 +1058,7 @@ def profile(
     """Profile the benchmark binary with flamegraph or perf."""
     repo_root = Path(__file__).resolve().parents[1]
     env = os.environ.copy()
-    env["RAPPEL_DATABASE_URL"] = get_database_url()
+    env["WAYMARK_DATABASE_URL"] = get_database_url()
 
     benchmark_args = build_benchmark_args(
         benchmark=benchmark,
@@ -1087,7 +1087,7 @@ def profile(
 @cli.command()
 @click.option(
     "--pattern",
-    default="rappel|benchmark|start-workers|uvicorn",
+    default="waymark|benchmark|start-workers|uvicorn",
     help="Regex to match process command lines",
 )
 @click.option("--limit", default=10, help="Number of processes to show")

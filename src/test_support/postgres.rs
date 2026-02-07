@@ -10,7 +10,7 @@ use tokio::sync::OnceCell;
 
 use crate::db;
 
-const POSTGRES_DSN: &str = "postgresql://rappel:rappel@127.0.0.1:5433/rappel";
+const POSTGRES_DSN: &str = "postgresql://waymark:waymark@127.0.0.1:5433/waymark";
 const READY_TIMEOUT: Duration = Duration::from_secs(45);
 const RETRY_DELAY: Duration = Duration::from_millis(500);
 const POOL_MAX_CONNECTIONS: u32 = 32;

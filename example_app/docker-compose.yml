@@ -8,13 +8,13 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: rappel_example
-      POSTGRES_USER: rappel
-      POSTGRES_PASSWORD: rappel
+      POSTGRES_DB: waymark_example
+      POSTGRES_USER: waymark
+      POSTGRES_PASSWORD: waymark
     ports:
       - "5435:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U rappel"]
+      test: ["CMD-SHELL", "pg_isready -U waymark"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -23,33 +23,33 @@ services:
 
   daemons:
     build: *app-build
-    image: rappel-example-app
+    image: waymark-example-app
     command: ["start-workers"]
     depends_on:
       postgres:
         condition: service_healthy
     environment:
-      RAPPEL_DATABASE_URL: postgresql://rappel:rappel@postgres:5432/rappel_example
-      RAPPEL_USER_MODULE: example_app.workflows
-      RAPPEL_CONCURRENT_PER_WORKER: 500
-      RAPPEL_MAX_CONCURRENT_INSTANCES: 5000
-      RUST_LOG: rappel::rappel_core::runloop=debug,rappel::rappel_core::lock=debug,rappel::workers::remote=trace,rappel::server_worker=debug,rappel::backends::postgres=debug,rappel=info,start_workers=info
-      RAPPEL_LOG_LEVEL: DEBUG
-      RAPPEL_WEBAPP_ENABLED: "true"
-      RAPPEL_WEBAPP_ADDR: "0.0.0.0:24119"
-      RAPPEL_RUNNER_PROFILE_INTERVAL_MS: "5000"
+      WAYMARK_DATABASE_URL: postgresql://waymark:waymark@postgres:5432/waymark_example
+      WAYMARK_USER_MODULE: example_app.workflows
+      WAYMARK_CONCURRENT_PER_WORKER: 500
+      WAYMARK_MAX_CONCURRENT_INSTANCES: 5000
+      RUST_LOG: waymark::waymark_core::runloop=debug,waymark::waymark_core::lock=debug,waymark::workers::remote=trace,waymark::server_worker=debug,waymark::backends::postgres=debug,waymark=info,start_workers=info
+      WAYMARK_LOG_LEVEL: DEBUG
+      WAYMARK_WEBAPP_ENABLED: "true"
+      WAYMARK_WEBAPP_ADDR: "0.0.0.0:24119"
+      WAYMARK_RUNNER_PROFILE_INTERVAL_MS: "5000"
     ports:
       - "24119:24119"
 
   webapp:
     build: *app-build
-    image: rappel-example-app
+    image: waymark-example-app
     depends_on:
       daemons:
         condition: service_started
     environment:
-      RAPPEL_DATABASE_URL: postgresql://rappel:rappel@postgres:5432/rappel_example
-      RAPPEL_LOG_LEVEL: debug
+      WAYMARK_DATABASE_URL: postgresql://waymark:waymark@postgres:5432/waymark_example
+      WAYMARK_LOG_LEVEL: debug
     ports:
       - "8000:8000"
 

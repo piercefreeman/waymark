@@ -19,8 +19,8 @@ def reset_registries():
     This prevents conflicts when multiple test fixtures use the same
     action/workflow names (e.g., 'process', 'get_value').
     """
-    from rappel.registry import registry as action_registry
-    from rappel.workflow import workflow_registry
+    from waymark.registry import registry as action_registry
+    from waymark.workflow import workflow_registry
 
     # Clear registries before test
     action_registry.reset()

@@ -1,7 +1,7 @@
 """Test fixture: Base workflow with async helper method."""
 
-from rappel import action
-from rappel.workflow import Workflow
+from waymark import action
+from waymark.workflow import Workflow
 
 
 @action

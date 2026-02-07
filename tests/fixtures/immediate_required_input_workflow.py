@@ -1,7 +1,7 @@
 """Immediate conditional workflow with required input."""
 
-from rappel import action, workflow
-from rappel.workflow import Workflow
+from waymark import action, workflow
+from waymark.workflow import Workflow
 
 
 @action

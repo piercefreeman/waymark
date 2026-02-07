@@ -1,6 +1,6 @@
 """Fixture: list comprehension with ternary expression expands via loop."""
 
-from rappel import Workflow, workflow
+from waymark import Workflow, workflow
 
 
 @workflow

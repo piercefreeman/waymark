@@ -131,8 +131,8 @@ class TestVariableReferenceValidation:
     """Tests for workflow input extraction in IR building."""
 
     def test_kwonly_inputs_included(self) -> None:
-        from rappel import action, workflow
-        from rappel.workflow import Workflow
+        from waymark import action, workflow
+        from waymark.workflow import Workflow
 
         @action
         async def echo(value: float | None) -> None:
@@ -158,8 +158,8 @@ class TestAnnotatedAssignment:
     """Tests for annotated assignment handling in IR building."""
 
     def test_ann_assign_generates_assignment(self) -> None:
-        from rappel import action, workflow
-        from rappel.workflow import Workflow
+        from waymark import action, workflow
+        from waymark.workflow import Workflow
 
         @action
         async def echo(value: int | None) -> None:
@@ -188,8 +188,8 @@ class TestEnumAttribute:
     """Tests for enum attribute handling in IR building."""
 
     def test_enum_attribute_is_literal(self) -> None:
-        from rappel import action, workflow
-        from rappel.workflow import Workflow
+        from waymark import action, workflow
+        from waymark.workflow import Workflow
 
         @action
         async def echo(value: object) -> None:
@@ -1318,10 +1318,10 @@ class TestUnsupportedPatternDetection:
         """Test: asyncio.gather(*tasks, return_exceptions=True) raises error."""
         import pytest
 
-        from rappel import UnsupportedPatternError
         from tests.fixtures_gather.gather_unsupported_variable import (
             GatherUnsupportedVariableWorkflow,
         )
+        from waymark import UnsupportedPatternError
 
         with pytest.raises(UnsupportedPatternError) as exc_info:
             GatherUnsupportedVariableWorkflow.workflow_ir()
@@ -1340,8 +1340,8 @@ class TestUnsupportedPatternDetection:
 
         import pytest
 
-        from rappel import UnsupportedPatternError, action, workflow
-        from rappel.workflow import Workflow
+        from waymark import UnsupportedPatternError, action, workflow
+        from waymark.workflow import Workflow
 
         @action
         async def action_a() -> int:
@@ -1370,8 +1370,8 @@ class TestUnsupportedPatternDetection:
         """Test: f-strings raise error with recommendation."""
         import pytest
 
-        from rappel import UnsupportedPatternError, action, workflow
-        from rappel.workflow import Workflow
+        from waymark import UnsupportedPatternError, action, workflow
+        from waymark.workflow import Workflow
 
         @action(name="fstring_test_action")
         async def fstring_action() -> int:
@@ -1395,8 +1395,8 @@ class TestUnsupportedPatternDetection:
         """Test: with statements raise error with recommendation."""
         import pytest
 
-        from rappel import UnsupportedPatternError, workflow
-        from rappel.workflow import Workflow
+        from waymark import UnsupportedPatternError, workflow
+        from waymark.workflow import Workflow
 
         @workflow
         class WithWorkflow(Workflow):
@@ -1416,8 +1416,8 @@ class TestUnsupportedPatternDetection:
         """Test: lambda expressions raise error with recommendation."""
         import pytest
 
-        from rappel import UnsupportedPatternError, workflow
-        from rappel.workflow import Workflow
+        from waymark import UnsupportedPatternError, workflow
+        from waymark.workflow import Workflow
 
         @workflow
         class LambdaWorkflow(Workflow):
@@ -1550,8 +1550,8 @@ class TestUnsupportedPatternDetection:
         """Test: del statements raise error with recommendation."""
         import pytest
 
-        from rappel import UnsupportedPatternError, workflow
-        from rappel.workflow import Workflow
+        from waymark import UnsupportedPatternError, workflow
+        from waymark.workflow import Workflow
 
         @workflow
         class DeleteWorkflow(Workflow):
@@ -1571,10 +1571,10 @@ class TestUnsupportedPatternDetection:
         """Test: errors include line number for debugging."""
         import pytest
 
-        from rappel import UnsupportedPatternError
         from tests.fixtures_gather.gather_unsupported_variable import (
             GatherUnsupportedVariableWorkflow,
         )
+        from waymark import UnsupportedPatternError
 
         with pytest.raises(UnsupportedPatternError) as exc_info:
             GatherUnsupportedVariableWorkflow.workflow_ir()
@@ -1588,8 +1588,8 @@ class TestUnsupportedPatternDetection:
         """Test: global statements raise error."""
         import pytest
 
-        from rappel import UnsupportedPatternError, action, workflow
-        from rappel.workflow import Workflow
+        from waymark import UnsupportedPatternError, action, workflow
+        from waymark.workflow import Workflow
 
         @action(name="global_test_action")
         async def global_action() -> int:
@@ -1613,8 +1613,8 @@ class TestUnsupportedPatternDetection:
         """Test: nonlocal statements raise error."""
         import pytest
 
-        from rappel import UnsupportedPatternError, workflow
-        from rappel.workflow import Workflow
+        from waymark import UnsupportedPatternError, workflow
+        from waymark.workflow import Workflow
 
         @workflow
         class NonlocalWorkflow(Workflow):
@@ -1640,8 +1640,8 @@ class TestUnsupportedPatternDetection:
         """Test: import statements inside run() raise error."""
         import pytest
 
-        from rappel import UnsupportedPatternError, workflow
-        from rappel.workflow import Workflow
+        from waymark import UnsupportedPatternError, workflow
+        from waymark.workflow import Workflow
 
         @workflow
         class ImportWorkflow(Workflow):
@@ -1661,8 +1661,8 @@ class TestUnsupportedPatternDetection:
         """Test: class definitions inside run() raise error."""
         import pytest
 
-        from rappel import UnsupportedPatternError, workflow
-        from rappel.workflow import Workflow
+        from waymark import UnsupportedPatternError, workflow
+        from waymark.workflow import Workflow
 
         @workflow
         class ClassDefWorkflow(Workflow):
@@ -1683,8 +1683,8 @@ class TestUnsupportedPatternDetection:
         """Test: nested function definitions raise error."""
         import pytest
 
-        from rappel import UnsupportedPatternError, workflow
-        from rappel.workflow import Workflow
+        from waymark import UnsupportedPatternError, workflow
+        from waymark.workflow import Workflow
 
         @workflow
         class NestedFuncWorkflow(Workflow):
@@ -1793,8 +1793,8 @@ class TestReturnStatements:
 
     def test_return_with_variable(self) -> None:
         """Test: return with a variable reference."""
-        from rappel import action, workflow
-        from rappel.workflow import Workflow
+        from waymark import action, workflow
+        from waymark.workflow import Workflow
 
         @action(name="return_test_action")
         async def return_action() -> int:
@@ -1822,8 +1822,8 @@ class TestReturnStatements:
 
     def test_return_with_literal(self) -> None:
         """Test: return with a literal value."""
-        from rappel import workflow
-        from rappel.workflow import Workflow
+        from waymark import workflow
+        from waymark.workflow import Workflow
 
         @workflow
         class ReturnLiteralWorkflow(Workflow):
@@ -1845,8 +1845,8 @@ class TestReturnStatements:
 
     def test_return_without_value(self) -> None:
         """Test: return without a value."""
-        from rappel import workflow
-        from rappel.workflow import Workflow
+        from waymark import workflow
+        from waymark.workflow import Workflow
 
         @workflow
         class ReturnNoneWorkflow(Workflow):
@@ -1870,8 +1870,8 @@ class TestAugmentedAssignment:
 
     def test_plus_equals_assignment(self) -> None:
         """Test: x += 1 is converted to x = x + 1."""
-        from rappel import action, workflow
-        from rappel.workflow import Workflow
+        from waymark import action, workflow
+        from waymark.workflow import Workflow
 
         @action(name="aug_test_action")
         async def aug_action() -> int:
@@ -1905,8 +1905,8 @@ class TestExpressionTypes:
 
     def test_list_expression(self) -> None:
         """Test: [1, 2, 3] list literals."""
-        from rappel import workflow
-        from rappel.workflow import Workflow
+        from waymark import workflow
+        from waymark.workflow import Workflow
 
         @workflow
         class ListWorkflow(Workflow):
@@ -1930,8 +1930,8 @@ class TestExpressionTypes:
 
     def test_dict_expression(self) -> None:
         """Test: {"key": "value"} dict literals."""
-        from rappel import workflow
-        from rappel.workflow import Workflow
+        from waymark import workflow
+        from waymark.workflow import Workflow
 
         @workflow
         class DictWorkflow(Workflow):
@@ -1955,8 +1955,8 @@ class TestExpressionTypes:
 
     def test_index_expression(self) -> None:
         """Test: items[0] index access."""
-        from rappel import workflow
-        from rappel.workflow import Workflow
+        from waymark import workflow
+        from waymark.workflow import Workflow
 
         @workflow
         class IndexWorkflow(Workflow):
@@ -1985,8 +1985,8 @@ class TestExpressionTypes:
 
     def test_dot_expression(self) -> None:
         """Test: obj.attr dot access."""
-        from rappel import workflow
-        from rappel.workflow import Workflow
+        from waymark import workflow
+        from waymark.workflow import Workflow
 
         @workflow
         class DotWorkflow(Workflow):
@@ -2001,8 +2001,8 @@ class TestExpressionTypes:
 
     def test_unary_not_expression(self) -> None:
         """Test: not x unary operator."""
-        from rappel import workflow
-        from rappel.workflow import Workflow
+        from waymark import workflow
+        from waymark.workflow import Workflow
 
         @workflow
         class UnaryNotWorkflow(Workflow):
@@ -2026,8 +2026,8 @@ class TestExpressionTypes:
 
     def test_comparison_operators(self) -> None:
         """Test: various comparison operators."""
-        from rappel import workflow
-        from rappel.workflow import Workflow
+        from waymark import workflow
+        from waymark.workflow import Workflow
 
         @workflow
         class ComparisonWorkflow(Workflow):
@@ -2054,8 +2054,8 @@ class TestExpressionTypes:
 
     def test_boolean_operators(self) -> None:
         """Test: and/or boolean operators."""
-        from rappel import workflow
-        from rappel.workflow import Workflow
+        from waymark import workflow
+        from waymark.workflow import Workflow
 
         @workflow
         class BooleanWorkflow(Workflow):
@@ -2077,8 +2077,8 @@ class TestExpressionTypes:
 
     def test_arithmetic_operators(self) -> None:
         """Test: +, -, *, / arithmetic operators."""
-        from rappel import workflow
-        from rappel.workflow import Workflow
+        from waymark import workflow
+        from waymark.workflow import Workflow
 
         @workflow
         class ArithmeticWorkflow(Workflow):
@@ -2098,8 +2098,8 @@ class TestLiteralTypes:
 
     def test_string_literal(self) -> None:
         """Test: string literals."""
-        from rappel import workflow
-        from rappel.workflow import Workflow
+        from waymark import workflow
+        from waymark.workflow import Workflow
 
         @workflow
         class StringWorkflow(Workflow):
@@ -2123,8 +2123,8 @@ class TestLiteralTypes:
 
     def test_float_literal(self) -> None:
         """Test: float literals."""
-        from rappel import workflow
-        from rappel.workflow import Workflow
+        from waymark import workflow
+        from waymark.workflow import Workflow
 
         @workflow
         class FloatWorkflow(Workflow):
@@ -2148,8 +2148,8 @@ class TestLiteralTypes:
 
     def test_bool_literal(self) -> None:
         """Test: bool literals."""
-        from rappel import workflow
-        from rappel.workflow import Workflow
+        from waymark import workflow
+        from waymark.workflow import Workflow
 
         @workflow
         class BoolWorkflow(Workflow):
@@ -2173,8 +2173,8 @@ class TestLiteralTypes:
 
     def test_none_literal(self) -> None:
         """Test: None literals."""
-        from rappel import workflow
-        from rappel.workflow import Workflow
+        from waymark import workflow
+        from waymark.workflow import Workflow
 
         @workflow
         class NoneWorkflow(Workflow):
@@ -2204,8 +2204,8 @@ class TestMoreUnsupportedPatterns:
         """Test: dict comprehensions raise error."""
         import pytest
 
-        from rappel import UnsupportedPatternError, workflow
-        from rappel.workflow import Workflow
+        from waymark import UnsupportedPatternError, workflow
+        from waymark.workflow import Workflow
 
         @workflow
         class DictCompWorkflow(Workflow):
@@ -2223,8 +2223,8 @@ class TestMoreUnsupportedPatterns:
         """Test: set comprehensions raise error."""
         import pytest
 
-        from rappel import UnsupportedPatternError, workflow
-        from rappel.workflow import Workflow
+        from waymark import UnsupportedPatternError, workflow
+        from waymark.workflow import Workflow
 
         @workflow
         class SetCompWorkflow(Workflow):
@@ -2242,8 +2242,8 @@ class TestMoreUnsupportedPatterns:
         """Test: generator expressions raise error."""
         import pytest
 
-        from rappel import UnsupportedPatternError, workflow
-        from rappel.workflow import Workflow
+        from waymark import UnsupportedPatternError, workflow
+        from waymark.workflow import Workflow
 
         @workflow
         class GeneratorWorkflow(Workflow):
@@ -2261,8 +2261,8 @@ class TestMoreUnsupportedPatterns:
         """Test: walrus operator raises error."""
         import pytest
 
-        from rappel import UnsupportedPatternError, workflow
-        from rappel.workflow import Workflow
+        from waymark import UnsupportedPatternError, workflow
+        from waymark.workflow import Workflow
 
         @workflow
         class WalrusWorkflow(Workflow):
@@ -2287,10 +2287,9 @@ class TestMoreUnsupportedPatterns:
 
         import pytest
 
-        from rappel import UnsupportedPatternError
-
         # Use fixture file to test match statement (requires source code access)
         from tests.fixtures_unsupported.match_workflow import MatchWorkflow
+        from waymark import UnsupportedPatternError
 
         with pytest.raises(UnsupportedPatternError) as exc_info:
             MatchWorkflow.workflow_ir()
@@ -2305,8 +2304,8 @@ class TestForLoopEnumerate:
 
     def test_for_enumerate_unpacking(self) -> None:
         """Test: for i, item in enumerate(items) creates correct loop vars."""
-        from rappel import action, workflow
-        from rappel.workflow import Workflow
+        from waymark import action, workflow
+        from waymark.workflow import Workflow
 
         @action(name="enumerate_action")
         async def process_item(idx: int, item: str) -> str:
@@ -2374,8 +2373,8 @@ class TestUnaryOperators:
 
     def test_unary_minus(self) -> None:
         """Test: -x unary negation."""
-        from rappel import workflow
-        from rappel.workflow import Workflow
+        from waymark import workflow
+        from waymark.workflow import Workflow
 
         @workflow
         class UnaryMinusWorkflow(Workflow):
@@ -2403,8 +2402,8 @@ class TestElseBranch:
 
     def test_if_else_with_actions(self) -> None:
         """Test: if/else with action in else branch."""
-        from rappel import action, workflow
-        from rappel.workflow import Workflow
+        from waymark import action, workflow
+        from waymark.workflow import Workflow
 
         @action(name="if_action")
         async def if_action() -> int:
@@ -2448,8 +2447,8 @@ class TestMoreBinaryOperators:
 
     def test_modulo_operator(self) -> None:
         """Test: x % y modulo operator."""
-        from rappel import workflow
-        from rappel.workflow import Workflow
+        from waymark import workflow
+        from waymark.workflow import Workflow
 
         @workflow
         class ModuloWorkflow(Workflow):
@@ -2463,8 +2462,8 @@ class TestMoreBinaryOperators:
         """Test: x ** y power operator."""
         import pytest
 
-        from rappel import UnsupportedPatternError, workflow
-        from rappel.workflow import Workflow
+        from waymark import UnsupportedPatternError, workflow
+        from waymark.workflow import Workflow
 
         @workflow
         class PowerWorkflow(Workflow):
@@ -2476,8 +2475,8 @@ class TestMoreBinaryOperators:
 
     def test_floor_division(self) -> None:
         """Test: x // y floor division."""
-        from rappel import workflow
-        from rappel.workflow import Workflow
+        from waymark import workflow
+        from waymark.workflow import Workflow
 
         @workflow
         class FloorDivWorkflow(Workflow):
@@ -2489,8 +2488,8 @@ class TestMoreBinaryOperators:
 
     def test_true_division(self) -> None:
         """Test: x / y true division."""
-        from rappel import workflow
-        from rappel.workflow import Workflow
+        from waymark import workflow
+        from waymark.workflow import Workflow
 
         @workflow
         class TrueDivWorkflow(Workflow):
@@ -2506,8 +2505,8 @@ class TestNestedExpressions:
 
     def test_nested_binary_ops(self) -> None:
         """Test: (a + b) * c nested operations."""
-        from rappel import workflow
-        from rappel.workflow import Workflow
+        from waymark import workflow
+        from waymark.workflow import Workflow
 
         @workflow
         class NestedOpsWorkflow(Workflow):
@@ -2530,8 +2529,8 @@ class TestNestedExpressions:
 
     def test_list_with_expressions(self) -> None:
         """Test: [a + 1, b * 2] list with expressions."""
-        from rappel import workflow
-        from rappel.workflow import Workflow
+        from waymark import workflow
+        from waymark.workflow import Workflow
 
         @workflow
         class ListExprWorkflow(Workflow):
@@ -2559,8 +2558,8 @@ class TestAugmentedAssignmentTypes:
 
     def test_minus_equals(self) -> None:
         """Test: x -= 1"""
-        from rappel import workflow
-        from rappel.workflow import Workflow
+        from waymark import workflow
+        from waymark.workflow import Workflow
 
         @workflow
         class MinusEqualsWorkflow(Workflow):
@@ -2585,8 +2584,8 @@ class TestAugmentedAssignmentTypes:
 
     def test_times_equals(self) -> None:
         """Test: x *= 2"""
-        from rappel import workflow
-        from rappel.workflow import Workflow
+        from waymark import workflow
+        from waymark.workflow import Workflow
 
         @workflow
         class TimesEqualsWorkflow(Workflow):
@@ -3205,7 +3204,7 @@ class TestUnsupportedPatternValidation:
 
         import pytest
 
-        from rappel.ir_builder import UnsupportedPatternError
+        from waymark.ir_builder import UnsupportedPatternError
 
         with pytest.raises(UnsupportedPatternError) as exc_info:
             from tests.fixtures_unsupported.constructor_return import ConstructorReturnWorkflow
@@ -3229,7 +3228,7 @@ class TestUnsupportedPatternValidation:
 
         import pytest
 
-        from rappel.ir_builder import UnsupportedPatternError
+        from waymark.ir_builder import UnsupportedPatternError
 
         with pytest.raises(UnsupportedPatternError) as exc_info:
             from tests.fixtures_unsupported.constructor_assignment import (
@@ -3248,7 +3247,7 @@ class TestUnsupportedPatternValidation:
 
         import pytest
 
-        from rappel.ir_builder import UnsupportedPatternError
+        from waymark.ir_builder import UnsupportedPatternError
 
         with pytest.raises(UnsupportedPatternError) as exc_info:
             from tests.fixtures_unsupported.non_action_await import NonActionAwaitWorkflow
@@ -3265,7 +3264,7 @@ class TestUnsupportedPatternValidation:
 
         import pytest
 
-        from rappel.ir_builder import UnsupportedPatternError
+        from waymark.ir_builder import UnsupportedPatternError
 
         with pytest.raises(UnsupportedPatternError) as exc_info:
             from tests.fixtures_unsupported.fstring_usage import FstringWorkflow
@@ -3282,7 +3281,7 @@ class TestUnsupportedPatternValidation:
 
         import pytest
 
-        from rappel.ir_builder import UnsupportedPatternError
+        from waymark.ir_builder import UnsupportedPatternError
 
         with pytest.raises(UnsupportedPatternError) as exc_info:
             from tests.fixtures_unsupported.list_comprehension import ListComprehensionWorkflow
@@ -3298,7 +3297,7 @@ class TestUnsupportedPatternValidation:
 
         import pytest
 
-        from rappel.ir_builder import UnsupportedPatternError
+        from waymark.ir_builder import UnsupportedPatternError
 
         with pytest.raises(UnsupportedPatternError) as exc_info:
             from tests.fixtures_unsupported.lambda_expression import LambdaExpressionWorkflow
@@ -3315,7 +3314,7 @@ class TestUnsupportedPatternValidation:
 
         import pytest
 
-        from rappel.ir_builder import UnsupportedPatternError
+        from waymark.ir_builder import UnsupportedPatternError
 
         with pytest.raises(UnsupportedPatternError) as exc_info:
             from tests.fixtures_unsupported.with_statement import WithStatementWorkflow
@@ -3332,7 +3331,7 @@ class TestUnsupportedPatternValidation:
 
         import pytest
 
-        from rappel.ir_builder import UnsupportedPatternError
+        from waymark.ir_builder import UnsupportedPatternError
 
         with pytest.raises(UnsupportedPatternError) as exc_info:
             from tests.fixtures_unsupported.match_workflow import MatchWorkflow
@@ -3350,9 +3349,9 @@ class TestUnsupportedPatternValidation:
 
         import pytest
 
-        from rappel import workflow
-        from rappel.ir_builder import UnsupportedPatternError
-        from rappel.workflow import Workflow
+        from waymark import workflow
+        from waymark.ir_builder import UnsupportedPatternError
+        from waymark.workflow import Workflow
 
         @workflow
         class SyncCallAssignmentWorkflow(Workflow):
@@ -3375,9 +3374,9 @@ class TestUnsupportedPatternValidation:
 
         import pytest
 
-        from rappel import workflow
-        from rappel.ir_builder import UnsupportedPatternError
-        from rappel.workflow import Workflow
+        from waymark import workflow
+        from waymark.ir_builder import UnsupportedPatternError
+        from waymark.workflow import Workflow
 
         @workflow
         class SyncCallReturnWorkflow(Workflow):
@@ -3399,9 +3398,9 @@ class TestUnsupportedPatternValidation:
 
         import pytest
 
-        from rappel import action, workflow
-        from rappel.ir_builder import UnsupportedPatternError
-        from rappel.workflow import Workflow
+        from waymark import action, workflow
+        from waymark.ir_builder import UnsupportedPatternError
+        from waymark.workflow import Workflow
 
         @action
         async def record_timestamp(timestamp: datetime) -> datetime:
@@ -3426,9 +3425,9 @@ class TestUnsupportedPatternValidation:
 
         import pytest
 
-        from rappel import workflow
-        from rappel.ir_builder import UnsupportedPatternError
-        from rappel.workflow import Workflow
+        from waymark import workflow
+        from waymark.ir_builder import UnsupportedPatternError
+        from waymark.workflow import Workflow
 
         def log_event(value: int) -> None:
             _ = value
@@ -3452,9 +3451,9 @@ class TestUnsupportedPatternValidation:
 
         import pytest
 
-        from rappel import workflow
-        from rappel.ir_builder import UnsupportedPatternError
-        from rappel.workflow import Workflow
+        from waymark import workflow
+        from waymark.ir_builder import UnsupportedPatternError
+        from waymark.workflow import Workflow
 
         @workflow
         class AttributeFunctionCallWorkflow(Workflow):
@@ -3508,8 +3507,8 @@ class TestValidPatterns:
 
     def test_self_method_call_in_action_arg_is_valid(self) -> None:
         """Test: self.method() inside action args is valid."""
-        from rappel import action, workflow
-        from rappel.workflow import Workflow
+        from waymark import action, workflow
+        from waymark.workflow import Workflow
 
         @action
         async def use_value(value: int) -> int:
@@ -3528,8 +3527,8 @@ class TestValidPatterns:
 
     def test_len_global_function_is_allowed(self) -> None:
         """Test: len() is allowed and tagged as a global function."""
-        from rappel import workflow
-        from rappel.workflow import Workflow
+        from waymark import workflow
+        from waymark.workflow import Workflow
 
         @workflow
         class LenWorkflow(Workflow):
@@ -3554,8 +3553,8 @@ class TestIsinstanceToIsexception:
 
     def test_isinstance_single_exception_transforms_to_isexception(self) -> None:
         """Test: isinstance(err, ValueError) transforms to isexception(err, "ValueError")."""
-        from rappel import action, workflow
-        from rappel.workflow import Workflow
+        from waymark import action, workflow
+        from waymark.workflow import Workflow
 
         @action
         async def boom() -> None:
@@ -3603,8 +3602,8 @@ class TestIsinstanceToIsexception:
 
     def test_isinstance_tuple_of_exceptions_transforms_to_isexception_with_list(self) -> None:
         """Test: isinstance(err, (ValueError, TypeError)) transforms to isexception(err, ["ValueError", "TypeError"])."""
-        from rappel import action, workflow
-        from rappel.workflow import Workflow
+        from waymark import action, workflow
+        from waymark.workflow import Workflow
 
         @action
         async def boom() -> None:
@@ -3656,9 +3655,9 @@ class TestIsinstanceToIsexception:
         """Test: isinstance(x, str) raises UnsupportedPatternError."""
         import pytest
 
-        from rappel import action, workflow
-        from rappel.ir_builder import UnsupportedPatternError
-        from rappel.workflow import Workflow
+        from waymark import action, workflow
+        from waymark.ir_builder import UnsupportedPatternError
+        from waymark.workflow import Workflow
 
         @action
         async def get_val() -> str:
@@ -3677,8 +3676,8 @@ class TestIsinstanceToIsexception:
 
     def test_isinstance_assignment_transforms_correctly(self) -> None:
         """Test: is_value = isinstance(err, ValueError) transforms correctly."""
-        from rappel import action, workflow
-        from rappel.workflow import Workflow
+        from waymark import action, workflow
+        from waymark.workflow import Workflow
 
         @action
         async def boom() -> None:

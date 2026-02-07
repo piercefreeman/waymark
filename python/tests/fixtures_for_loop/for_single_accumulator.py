@@ -1,7 +1,7 @@
 """Fixture: for loop with single list accumulator via append."""
 
-from rappel import action, workflow
-from rappel.workflow import Workflow
+from waymark import action, workflow
+from waymark.workflow import Workflow
 
 
 @action(name="single_accum_process_value")

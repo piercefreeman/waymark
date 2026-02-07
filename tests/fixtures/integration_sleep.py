@@ -6,8 +6,8 @@ sleep node that can survive worker restarts.
 import asyncio
 from datetime import datetime
 
-from rappel import action, workflow
-from rappel.workflow import Workflow
+from waymark import action, workflow
+from waymark.workflow import Workflow
 
 
 @action

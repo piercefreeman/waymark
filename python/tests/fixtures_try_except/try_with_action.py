@@ -1,7 +1,7 @@
 """Test fixture: try/except with action call."""
 
-from rappel import action, workflow
-from rappel.workflow import Workflow
+from waymark import action, workflow
+from waymark.workflow import Workflow
 
 
 @action(name="try_action")

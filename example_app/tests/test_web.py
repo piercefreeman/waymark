@@ -7,7 +7,7 @@ from example_app.web import app
 
 
 def _enable_real_cluster(monkeypatch: pytest.MonkeyPatch) -> None:
-    if os.environ.get("RAPPEL_RUN_REAL_CLUSTER") == "1":
+    if os.environ.get("WAYMARK_RUN_REAL_CLUSTER") == "1":
         monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
 
 

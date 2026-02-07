@@ -1,6 +1,6 @@
 # DAG Conversion
 
-We start with the parsed IR (Rappel AST) and produce a graph the runner can execute. It is a DAG for most workflows, with a single back-edge for loops. The conversion step is where control flow and data flow are made explicit.
+We start with the parsed IR (Waymark AST) and produce a graph the runner can execute. It is a DAG for most workflows, with a single back-edge for loops. The conversion step is where control flow and data flow are made explicit.
 
 ## Mental model
 
@@ -8,7 +8,7 @@ We start with the parsed IR (Rappel AST) and produce a graph the runner can exec
 - State machine edges encode "what can run after this completes".
 - Data-flow edges encode "which variable values should be written into a node's inbox".
 
-A node is runnable when its state machine predecessors have completed and its required inbox values are present. See `docs/specs/unified-readiness-model.md` for readiness rules.
+A node is runnable when its state machine predecessors have completed and its required inbox values are present. See `docs/Action-Readiness-Model.md` for readiness rules.
 
 ## Two-phase conversion
 
@@ -59,7 +59,7 @@ A `branch` node fans out to guarded edges for `if` / `elif` and an `else` edge f
 
 ### Try/except
 
-Try bodies are flattened. Every node inside the try body can emit exception edges to handlers. Success edges flow to a join node. If the handler binds an exception variable, we insert an assignment from `__rappel_exception__` before the handler body.
+Try bodies are flattened. Every node inside the try body can emit exception edges to handlers. Success edges flow to a join node. If the handler binds an exception variable, we insert an assignment from `__waymark_exception__` before the handler body.
 
 ### For/while loops
 

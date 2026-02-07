@@ -8,8 +8,8 @@ This tests the case where:
 4. The exception should be caught by the except handler
 """
 
-from rappel import RetryPolicy, action, workflow
-from rappel.workflow import Workflow
+from waymark import RetryPolicy, action, workflow
+from waymark.workflow import Workflow
 
 
 @action

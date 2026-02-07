@@ -7,7 +7,7 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
-from rappel.actions import (
+from waymark.actions import (
     deserialize_result_payload,
     serialize_error_payload,
     serialize_result_payload,

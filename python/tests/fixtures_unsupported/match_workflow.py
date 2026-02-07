@@ -4,8 +4,8 @@ This uses match statement syntax (Python 3.10+) which is not supported
 and should raise UnsupportedPatternError.
 """
 
-from rappel import workflow
-from rappel.workflow import Workflow
+from waymark import workflow
+from waymark.workflow import Workflow
 
 
 @workflow

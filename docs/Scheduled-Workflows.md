@@ -1,167 +1,111 @@
 # Scheduled Workflows
 
-Rappel supports scheduling workflows to run automatically on a recurring basis. You define your workflow once, then register a schedule to have it execute at regular intervals or according to a cron expression.
+Waymark supports recurring workflow execution via cron or interval schedules.
 
-## Overview
+## What a schedule targets
 
-Scheduled workflows are useful for:
+Schedules are keyed by `(workflow_name, schedule_name)`.
 
-- **Periodic data processing**: Run ETL jobs every hour
-- **Maintenance tasks**: Clean up stale data nightly
-- **Report generation**: Generate daily/weekly reports
-- **Health checks**: Monitor external services at fixed intervals
+- `workflow_name` comes from `Workflow.short_name()`.
+- `schedule_name` is required and lets one workflow have multiple schedules.
 
-Schedules are tied to workflow names, not specific versions. When a schedule fires, Rappel executes the latest registered version of that workflow.
+At fire time, the scheduler resolves the DAG by workflow name and uses the most recently created workflow version in `workflow_versions`.
 
 ## Python API
 
-### Scheduling a Workflow
-
-Use `schedule_workflow` to register a recurring schedule:
+### Create or update a schedule
 
 ```python
 from datetime import timedelta
-from rappel import Workflow, action, workflow, schedule_workflow
+from waymark import Workflow, workflow, schedule_workflow
 
-@action
-async def fetch_data() -> dict:
-    # Fetch data from external source
-    return {"items": [...]}
-
-@action
-async def process_batch(data: dict) -> int:
-    # Process the fetched data
-    return len(data["items"])
 
 @workflow
 class DataSyncWorkflow(Workflow):
     name = "data_sync"
 
-    async def run(self) -> int:
-        data = await fetch_data()
-        return await process_batch(data)
-
-
-# Schedule with a cron expression (runs at minute 0 of every hour)
-schedule_id = await schedule_workflow(
-    DataSyncWorkflow,
-    schedule="0 * * * *"
-)
-
-# Or schedule with an interval (runs every 5 minutes)
-schedule_id = await schedule_workflow(
-    DataSyncWorkflow,
-    schedule=timedelta(minutes=5)
-)
-```
-
-### Passing Inputs to Scheduled Runs
-
-You can provide inputs that will be passed to each scheduled execution:
-
-```python
-@workflow
-class ReportWorkflow(Workflow):
-    name = "daily_report"
-
-    async def run(self, region: str, include_debug: bool = False) -> str:
-        # Generate report for the specified region
+    async def run(self, region: str) -> None:
         ...
 
-# Each scheduled run receives these inputs
-await schedule_workflow(
-    ReportWorkflow,
-    schedule="0 0 * * *",  # Daily at midnight
-    inputs={"region": "us-east", "include_debug": True}
+
+# Cron schedule
+schedule_id = await schedule_workflow(
+    DataSyncWorkflow,
+    schedule_name="hourly-us-east",
+    schedule="0 * * * *",
+    inputs={"region": "us-east"},
+)
+
+# Interval schedule
+schedule_id = await schedule_workflow(
+    DataSyncWorkflow,
+    schedule_name="every-5-min",
+    schedule=timedelta(minutes=5),
+    inputs={"region": "us-west"},
 )
 ```
 
-### Managing Schedules
-
-#### Pause and Resume
-
-Temporarily stop a schedule without deleting it:
+### Pause/resume/delete a schedule
 
 ```python
-from rappel import pause_schedule, resume_schedule
+from waymark import pause_schedule, resume_schedule, delete_schedule
 
-# Pause the schedule (it won't fire until resumed)
-await pause_schedule(DataSyncWorkflow)
-
-# Resume the schedule
-await resume_schedule(DataSyncWorkflow)
+await pause_schedule(DataSyncWorkflow, schedule_name="hourly-us-east")
+await resume_schedule(DataSyncWorkflow, schedule_name="hourly-us-east")
+await delete_schedule(DataSyncWorkflow, schedule_name="hourly-us-east")
 ```
 
-#### Delete a Schedule
-
-Remove a schedule entirely:
+### List schedules
 
 ```python
-from rappel import delete_schedule
+from waymark import list_schedules
 
-await delete_schedule(DataSyncWorkflow)
+all_schedules = await list_schedules()
+active_only = await list_schedules(status_filter="active")
+paused_only = await list_schedules(status_filter="paused")
 ```
 
-Deleted schedules can be recreated by calling `schedule_workflow` again.
+## Schedule semantics
 
-#### List Schedules
+### Cron
 
-Query all registered schedules:
-
-```python
-from rappel import list_schedules, ScheduleInfo
-
-# List all non-deleted schedules
-schedules = await list_schedules()
-for s in schedules:
-    print(f"{s.workflow_name}: {s.status} (next run: {s.next_run_at})")
-
-# Filter by status
-active_schedules = await list_schedules(status_filter="active")
-paused_schedules = await list_schedules(status_filter="paused")
-```
-
-## Schedule Types
-
-### Cron Expressions
-
-Standard 5-field cron expressions:
-
-```
-┌───────────── minute (0-59)
-│ ┌───────────── hour (0-23)
-│ │ ┌───────────── day of month (1-31)
-│ │ │ ┌───────────── month (1-12)
-│ │ │ │ ┌───────────── day of week (0-6, Sunday=0)
-│ │ │ │ │
-* * * * *
-```
+Waymark accepts standard 5-field cron syntax and normalizes to 6 fields internally.
 
 Examples:
 
-| Expression | Description |
-|------------|-------------|
-| `0 * * * *` | Every hour at minute 0 |
-| `*/15 * * * *` | Every 15 minutes |
-| `0 0 * * *` | Daily at midnight |
-| `0 9 * * 1-5` | Weekdays at 9 AM |
-| `0 0 1 * *` | First day of each month at midnight |
+- `0 * * * *`: hourly
+- `*/15 * * * *`: every 15 minutes
+- `0 0 * * *`: daily at midnight
 
-### Interval Schedules
+### Interval
 
-Use `timedelta` for fixed-interval scheduling:
+For interval schedules, next run is:
 
-```python
-from datetime import timedelta
+- `now + interval` on creation
+- `last_run_at + interval` after each successful fire
 
-# Every 30 seconds
-await schedule_workflow(MyWorkflow, schedule=timedelta(seconds=30))
+Optional jitter adds a random delay in `[0, jitter_seconds]`.
 
-# Every 2 hours
-await schedule_workflow(MyWorkflow, schedule=timedelta(hours=2))
+## Persistence model
 
-# Every 1 day and 6 hours
-await schedule_workflow(MyWorkflow, schedule=timedelta(days=1, hours=6))
-```
+Schedules are stored in `workflow_schedules` with:
 
-Interval schedules compute the next run as `last_run_at + interval`. If the workflow has never run, the first execution is scheduled immediately.
+- scheduling fields (`schedule_type`, `cron_expression`, `interval_seconds`, `jitter_seconds`)
+- state fields (`status`, `next_run_at`, `last_run_at`, `last_instance_id`)
+- behavior fields (`priority`, `allow_duplicate`)
+
+Upsert behavior (`workflow_name`, `schedule_name` conflict):
+
+- updates schedule settings
+- recomputes `next_run_at`
+- sets `status = 'active'`
+
+## Runtime behavior and caveats
+
+- Due schedules are polled by the scheduler task and converted to normal queued workflow instances.
+- Input payload is converted into input assignments in the new instance `RunnerState`.
+- After queueing, schedule execution metadata is updated (`last_run_at`, `last_instance_id`, next `next_run_at`).
+
+Current caveat:
+
+- `allow_duplicate=False` is stored but duplicate suppression is not currently enforced because `has_running_instance` returns `false` in current backend implementations.

@@ -10,8 +10,8 @@ Minimal reproduction case where:
 This isolates the issue from any complications with returns inside try blocks.
 """
 
-from rappel import RetryPolicy, action, workflow
-from rappel.workflow import Workflow
+from waymark import RetryPolicy, action, workflow
+from waymark.workflow import Workflow
 
 
 @action

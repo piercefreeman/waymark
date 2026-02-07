@@ -1,6 +1,6 @@
 """Fixture: list comprehensions outside gather or assignment are not supported."""
 
-from rappel import Workflow, action, workflow
+from waymark import Workflow, action, workflow
 
 
 @action

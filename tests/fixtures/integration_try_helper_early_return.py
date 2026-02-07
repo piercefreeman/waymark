@@ -23,8 +23,8 @@ Pattern that causes the bug:
         return final
 """
 
-from rappel import action, workflow
-from rappel.workflow import Workflow
+from waymark import action, workflow
+from waymark.workflow import Workflow
 
 
 class ProcessingError(Exception):

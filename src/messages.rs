@@ -12,19 +12,19 @@ use thiserror::Error;
 /// Re-export generated protobuf types
 pub mod proto {
     // Messages for worker bridge communication
-    tonic::include_proto!("rappel.messages");
+    tonic::include_proto!("waymark.messages");
 }
 
 /// AST types from ast.proto for IR representation
 pub mod ast {
     // IR AST types
-    tonic::include_proto!("rappel.ast");
+    tonic::include_proto!("waymark.ast");
 }
 
 /// Execution graph types from execution.proto
 pub mod execution {
     // Execution state types
-    tonic::include_proto!("rappel.execution");
+    tonic::include_proto!("waymark.execution");
 }
 
 /// Errors that can occur during message encoding/decoding

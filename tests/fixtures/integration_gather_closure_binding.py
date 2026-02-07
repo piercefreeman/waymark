@@ -8,8 +8,8 @@ each coroutine should receive the value at the time it was created, not the last
 import asyncio
 from uuid import UUID, uuid4
 
-from rappel import action, workflow
-from rappel.workflow import Workflow
+from waymark import action, workflow
+from waymark.workflow import Workflow
 
 
 @action

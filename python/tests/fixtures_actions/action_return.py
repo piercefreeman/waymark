@@ -1,6 +1,6 @@
 """Fixture: returning an action result directly is valid."""
 
-from rappel import Workflow, action, workflow
+from waymark import Workflow, action, workflow
 
 
 @action

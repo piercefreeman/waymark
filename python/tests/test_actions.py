@@ -1,6 +1,6 @@
 import pytest
 
-from rappel.actions import action
+from waymark.actions import action
 
 
 def test_action_decorator_registers_async_function() -> None:
@@ -8,8 +8,8 @@ def test_action_decorator_registers_async_function() -> None:
     async def sample() -> None:  # pragma: no cover
         raise NotImplementedError
 
-    assert sample.__rappel_action_name__ == "custom"
-    assert sample.__rappel_action_module__ == sample.__module__
+    assert sample.__waymark_action_name__ == "custom"
+    assert sample.__waymark_action_module__ == sample.__module__
 
 
 def test_action_decorator_rejects_sync_functions() -> None:

@@ -15,10 +15,10 @@ use crate::backends::{
     MemoryBackend, QueuedInstance, WorkflowRegistration, WorkflowRegistryBackend,
 };
 use crate::messages::ast as ir;
-use crate::rappel_core::dag::convert_to_dag;
-use crate::rappel_core::ir_parser::parse_program;
-use crate::rappel_core::runloop::{RunLoop, RunLoopSupervisorConfig};
-use crate::rappel_core::runner::RunnerState;
+use crate::waymark_core::dag::convert_to_dag;
+use crate::waymark_core::ir_parser::parse_program;
+use crate::waymark_core::runloop::{RunLoop, RunLoopSupervisorConfig};
+use crate::waymark_core::runner::RunnerState;
 use crate::workers::{ActionCallable, InlineWorkerPool, WorkerPoolError};
 
 pub async fn run_case(case_index: usize, case: &GeneratedCase) -> Result<()> {
@@ -117,7 +117,7 @@ async fn register_workflow(
 fn build_instance(
     instance_id: Uuid,
     workflow_version_id: Uuid,
-    dag: Arc<crate::rappel_core::dag::DAG>,
+    dag: Arc<crate::waymark_core::dag::DAG>,
     base: i64,
 ) -> Result<QueuedInstance> {
     let mut state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);

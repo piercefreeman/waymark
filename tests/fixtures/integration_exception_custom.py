@@ -1,5 +1,5 @@
-from rappel import action, workflow
-from rappel.workflow import Workflow, RetryPolicy
+from waymark import action, workflow
+from waymark.workflow import Workflow, RetryPolicy
 
 
 class CustomError(Exception):

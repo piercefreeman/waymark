@@ -25,11 +25,11 @@ impl Default for WebappConfig {
 impl WebappConfig {
     /// Create config from environment variables.
     pub fn from_env() -> Self {
-        let enabled = std::env::var("RAPPEL_WEBAPP_ENABLED")
+        let enabled = std::env::var("WAYMARK_WEBAPP_ENABLED")
             .map(|v| v == "true" || v == "1")
             .unwrap_or(false);
 
-        let (host, port) = std::env::var("RAPPEL_WEBAPP_ADDR")
+        let (host, port) = std::env::var("WAYMARK_WEBAPP_ADDR")
             .ok()
             .and_then(|addr| {
                 let parts: Vec<&str> = addr.split(':').collect();

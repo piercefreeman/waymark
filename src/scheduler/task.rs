@@ -15,7 +15,7 @@ use super::types::{ScheduleId, WorkflowSchedule};
 use crate::backends::{CoreBackend, QueuedInstance, SchedulerBackend};
 use crate::messages;
 use crate::messages::ast as ir;
-use crate::rappel_core::dag::DAG;
+use crate::waymark_core::dag::DAG;
 
 #[derive(Clone)]
 pub struct WorkflowDag {
@@ -170,8 +170,12 @@ where
             .as_ref()
             .ok_or_else(|| "DAG has no entry node".to_string())?;
 
-        let mut state =
-            crate::rappel_core::runner::RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
+        let mut state = crate::waymark_core::runner::RunnerState::new(
+            Some(Arc::clone(&dag)),
+            None,
+            None,
+            false,
+        );
         if let Some(input_payload) = schedule.input_payload.as_deref() {
             let inputs = messages::workflow_arguments_to_json(input_payload)
                 .ok_or_else(|| "failed to decode schedule input payload".to_string())?;
@@ -309,10 +313,10 @@ mod tests {
     use super::*;
     use crate::backends::{CoreBackend, LockClaim, MemoryBackend, SchedulerBackend};
     use crate::messages::proto;
-    use crate::rappel_core::dag::convert_to_dag;
-    use crate::rappel_core::ir_parser::parse_program;
-    use crate::rappel_core::runner::RunnerExecutor;
     use crate::scheduler::{CreateScheduleParams, ScheduleType};
+    use crate::waymark_core::dag::convert_to_dag;
+    use crate::waymark_core::ir_parser::parse_program;
+    use crate::waymark_core::runner::RunnerExecutor;
 
     fn workflow_args_payload(key: &str, value: i64) -> Vec<u8> {
         proto::WorkflowArguments {
@@ -402,7 +406,7 @@ fn main(input: [number], output: [result]):
         let state = queued.state.clone().expect("queued state");
         let mut executor =
             RunnerExecutor::new(Arc::clone(&dag), state, queued.action_results.clone(), None);
-        let replay = crate::rappel_core::runner::replay_variables(
+        let replay = crate::waymark_core::runner::replay_variables(
             executor.state(),
             executor.action_results(),
         )

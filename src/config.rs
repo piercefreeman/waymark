@@ -1,4 +1,4 @@
-//! Shared configuration helpers for Rappel binaries.
+//! Shared configuration helpers for Waymark binaries.
 
 use std::env;
 use std::net::SocketAddr;
@@ -48,71 +48,71 @@ pub struct WorkerConfig {
 impl WorkerConfig {
     pub fn from_env() -> Result<Self> {
         let database_url =
-            env::var("RAPPEL_DATABASE_URL").context("RAPPEL_DATABASE_URL must be set")?;
+            env::var("WAYMARK_DATABASE_URL").context("WAYMARK_DATABASE_URL must be set")?;
 
-        let worker_grpc_addr = env::var("RAPPEL_WORKER_GRPC_ADDR")
+        let worker_grpc_addr = env::var("WAYMARK_WORKER_GRPC_ADDR")
             .unwrap_or_else(|_| DEFAULT_WORKER_GRPC_ADDR.to_string())
             .parse()
-            .context("invalid RAPPEL_WORKER_GRPC_ADDR")?;
+            .context("invalid WAYMARK_WORKER_GRPC_ADDR")?;
 
-        let worker_count = env_usize("RAPPEL_WORKER_COUNT").unwrap_or_else(default_worker_count);
+        let worker_count = env_usize("WAYMARK_WORKER_COUNT").unwrap_or_else(default_worker_count);
 
         let concurrent_per_worker =
-            env_usize("RAPPEL_CONCURRENT_PER_WORKER").unwrap_or(DEFAULT_CONCURRENT_PER_WORKER);
+            env_usize("WAYMARK_CONCURRENT_PER_WORKER").unwrap_or(DEFAULT_CONCURRENT_PER_WORKER);
 
-        let user_modules = env::var("RAPPEL_USER_MODULE")
+        let user_modules = env::var("WAYMARK_USER_MODULE")
             .ok()
             .map(parse_modules)
             .unwrap_or_default();
 
-        let max_action_lifecycle = env_u64("RAPPEL_MAX_ACTION_LIFECYCLE");
+        let max_action_lifecycle = env_u64("WAYMARK_MAX_ACTION_LIFECYCLE");
 
         let poll_interval = Duration::from_millis(
-            env_u64("RAPPEL_POLL_INTERVAL_MS").unwrap_or(DEFAULT_POLL_INTERVAL_MS),
+            env_u64("WAYMARK_POLL_INTERVAL_MS").unwrap_or(DEFAULT_POLL_INTERVAL_MS),
         );
 
-        let max_concurrent_instances = env_usize("RAPPEL_MAX_CONCURRENT_INSTANCES")
+        let max_concurrent_instances = env_usize("WAYMARK_MAX_CONCURRENT_INSTANCES")
             .unwrap_or(DEFAULT_MAX_CONCURRENT_INSTANCES);
 
         let executor_shards =
-            env_usize("RAPPEL_EXECUTOR_SHARDS").unwrap_or_else(default_executor_shards);
+            env_usize("WAYMARK_EXECUTOR_SHARDS").unwrap_or_else(default_executor_shards);
 
-        let instance_done_batch_size = env_usize("RAPPEL_INSTANCE_DONE_BATCH_SIZE");
+        let instance_done_batch_size = env_usize("WAYMARK_INSTANCE_DONE_BATCH_SIZE");
 
         let persistence_interval = Duration::from_millis(
-            env_u64("RAPPEL_PERSIST_INTERVAL_MS").unwrap_or(DEFAULT_PERSIST_INTERVAL_MS),
+            env_u64("WAYMARK_PERSIST_INTERVAL_MS").unwrap_or(DEFAULT_PERSIST_INTERVAL_MS),
         );
 
         let lock_ttl =
-            Duration::from_millis(env_u64("RAPPEL_LOCK_TTL_MS").unwrap_or(DEFAULT_LOCK_TTL_MS));
+            Duration::from_millis(env_u64("WAYMARK_LOCK_TTL_MS").unwrap_or(DEFAULT_LOCK_TTL_MS));
         let lock_heartbeat = Duration::from_millis(
-            env_u64("RAPPEL_LOCK_HEARTBEAT_MS").unwrap_or(DEFAULT_LOCK_HEARTBEAT_MS),
+            env_u64("WAYMARK_LOCK_HEARTBEAT_MS").unwrap_or(DEFAULT_LOCK_HEARTBEAT_MS),
         );
         let evict_sleep_threshold = Duration::from_millis(
-            env_u64("RAPPEL_EVICT_SLEEP_THRESHOLD_MS").unwrap_or(DEFAULT_EVICT_SLEEP_THRESHOLD_MS),
+            env_u64("WAYMARK_EVICT_SLEEP_THRESHOLD_MS").unwrap_or(DEFAULT_EVICT_SLEEP_THRESHOLD_MS),
         );
         let expired_lock_reclaimer_interval = Duration::from_millis(
-            env_u64("RAPPEL_EXPIRED_LOCK_RECLAIMER_INTERVAL_MS")
+            env_u64("WAYMARK_EXPIRED_LOCK_RECLAIMER_INTERVAL_MS")
                 .unwrap_or(DEFAULT_EXPIRED_LOCK_RECLAIMER_INTERVAL_MS)
                 .max(1),
         );
         let expired_lock_reclaimer_batch_size =
-            env_usize("RAPPEL_EXPIRED_LOCK_RECLAIMER_BATCH_SIZE")
+            env_usize("WAYMARK_EXPIRED_LOCK_RECLAIMER_BATCH_SIZE")
                 .unwrap_or(DEFAULT_EXPIRED_LOCK_RECLAIMER_BATCH_SIZE)
                 .max(1);
 
         let scheduler = SchedulerConfig {
             poll_interval: Duration::from_millis(
-                env_u64("RAPPEL_SCHEDULER_POLL_INTERVAL_MS")
+                env_u64("WAYMARK_SCHEDULER_POLL_INTERVAL_MS")
                     .unwrap_or(DEFAULT_SCHEDULER_POLL_INTERVAL_MS),
             ),
-            batch_size: env_i32("RAPPEL_SCHEDULER_BATCH_SIZE")
+            batch_size: env_i32("WAYMARK_SCHEDULER_BATCH_SIZE")
                 .unwrap_or(DEFAULT_SCHEDULER_BATCH_SIZE),
         };
 
         let webapp = WebappConfig::from_env();
 
-        let profile_interval_ms = env_u64("RAPPEL_RUNNER_PROFILE_INTERVAL_MS")
+        let profile_interval_ms = env_u64("WAYMARK_RUNNER_PROFILE_INTERVAL_MS")
             .unwrap_or(DEFAULT_PROFILE_INTERVAL_MS)
             .max(1);
         let profile_interval = Duration::from_millis(profile_interval_ms);

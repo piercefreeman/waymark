@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package rappel.messages;
+package waymark.messages;
 
 import "google/protobuf/struct.proto";
 

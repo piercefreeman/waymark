@@ -8,26 +8,26 @@
 //! - Optionally starts the scheduler and web dashboard
 //!
 //! Configuration is via environment variables:
-//! - RAPPEL_DATABASE_URL: PostgreSQL connection string (required)
-//! - RAPPEL_WORKER_GRPC_ADDR: gRPC server for worker connections (default: 127.0.0.1:24118)
-//! - RAPPEL_USER_MODULE: Python module(s) to preload (comma-separated)
-//! - RAPPEL_WORKER_COUNT: Number of workers (default: num_cpus)
-//! - RAPPEL_CONCURRENT_PER_WORKER: Max concurrent actions per worker (default: 10)
-//! - RAPPEL_POLL_INTERVAL_MS: Poll interval for queued instances (default: 100)
-//! - RAPPEL_MAX_CONCURRENT_INSTANCES: Max workflow instances held concurrently (default: 500)
-//! - RAPPEL_EXECUTOR_SHARDS: Executor shard thread count (default: num_cpus)
-//! - RAPPEL_INSTANCE_DONE_BATCH_SIZE: Instance completion flush batch size (default: claim size)
-//! - RAPPEL_PERSIST_INTERVAL_MS: Result persistence tick (default: 500)
-//! - RAPPEL_LOCK_TTL_MS: Instance lock TTL (default: 15000)
-//! - RAPPEL_LOCK_HEARTBEAT_MS: Lock refresh heartbeat interval (default: 5000)
-//! - RAPPEL_EVICT_SLEEP_THRESHOLD_MS: Sleep duration before evicting idle instances (default: 10000)
-//! - RAPPEL_EXPIRED_LOCK_RECLAIMER_INTERVAL_MS: Sweep interval for expired queue locks (default: 1000)
-//! - RAPPEL_EXPIRED_LOCK_RECLAIMER_BATCH_SIZE: Max expired locks to reclaim per sweep (default: 1000)
-//! - RAPPEL_MAX_ACTION_LIFECYCLE: Max actions per worker before recycling
-//! - RAPPEL_SCHEDULER_POLL_INTERVAL_MS: Scheduler poll interval (default: 1000)
-//! - RAPPEL_SCHEDULER_BATCH_SIZE: Scheduler batch size (default: 100)
-//! - RAPPEL_WEBAPP_ENABLED / RAPPEL_WEBAPP_ADDR: Web dashboard configuration
-//! - RAPPEL_RUNNER_PROFILE_INTERVAL_MS: Status reporting interval (default: 5000)
+//! - WAYMARK_DATABASE_URL: PostgreSQL connection string (required)
+//! - WAYMARK_WORKER_GRPC_ADDR: gRPC server for worker connections (default: 127.0.0.1:24118)
+//! - WAYMARK_USER_MODULE: Python module(s) to preload (comma-separated)
+//! - WAYMARK_WORKER_COUNT: Number of workers (default: num_cpus)
+//! - WAYMARK_CONCURRENT_PER_WORKER: Max concurrent actions per worker (default: 10)
+//! - WAYMARK_POLL_INTERVAL_MS: Poll interval for queued instances (default: 100)
+//! - WAYMARK_MAX_CONCURRENT_INSTANCES: Max workflow instances held concurrently (default: 500)
+//! - WAYMARK_EXECUTOR_SHARDS: Executor shard thread count (default: num_cpus)
+//! - WAYMARK_INSTANCE_DONE_BATCH_SIZE: Instance completion flush batch size (default: claim size)
+//! - WAYMARK_PERSIST_INTERVAL_MS: Result persistence tick (default: 500)
+//! - WAYMARK_LOCK_TTL_MS: Instance lock TTL (default: 15000)
+//! - WAYMARK_LOCK_HEARTBEAT_MS: Lock refresh heartbeat interval (default: 5000)
+//! - WAYMARK_EVICT_SLEEP_THRESHOLD_MS: Sleep duration before evicting idle instances (default: 10000)
+//! - WAYMARK_EXPIRED_LOCK_RECLAIMER_INTERVAL_MS: Sweep interval for expired queue locks (default: 1000)
+//! - WAYMARK_EXPIRED_LOCK_RECLAIMER_BATCH_SIZE: Max expired locks to reclaim per sweep (default: 1000)
+//! - WAYMARK_MAX_ACTION_LIFECYCLE: Max actions per worker before recycling
+//! - WAYMARK_SCHEDULER_POLL_INTERVAL_MS: Scheduler poll interval (default: 1000)
+//! - WAYMARK_SCHEDULER_BATCH_SIZE: Scheduler batch size (default: 100)
+//! - WAYMARK_WEBAPP_ENABLED / WAYMARK_WEBAPP_ADDR: Web dashboard configuration
+//! - WAYMARK_RUNNER_PROFILE_INTERVAL_MS: Status reporting interval (default: 5000)
 
 use std::sync::{Arc, atomic::AtomicUsize};
 use std::time::Duration;
@@ -40,24 +40,24 @@ use tokio::sync::watch;
 use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-use rappel::backends::PostgresBackend;
-use rappel::config::WorkerConfig;
-use rappel::db;
-use rappel::messages::ast as ir;
-use rappel::rappel_core::dag::convert_to_dag;
-use rappel::rappel_core::runloop::{RunLoopSupervisorConfig, runloop_supervisor};
-use rappel::scheduler::{DagResolver, WorkflowDag};
-use rappel::{
+use uuid::Uuid;
+use waymark::backends::PostgresBackend;
+use waymark::config::WorkerConfig;
+use waymark::db;
+use waymark::messages::ast as ir;
+use waymark::scheduler::{DagResolver, WorkflowDag};
+use waymark::waymark_core::dag::convert_to_dag;
+use waymark::waymark_core::runloop::{RunLoopSupervisorConfig, runloop_supervisor};
+use waymark::{
     PythonWorkerConfig, RemoteWorkerPool, WebappServer, spawn_scheduler, spawn_status_reporter,
 };
-use uuid::Uuid;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "rappel=info,start_workers=info".into()),
+                .unwrap_or_else(|_| "waymark=info,start_workers=info".into()),
         )
         .with(tracing_subscriber::fmt::layer())
         .init();

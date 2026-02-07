@@ -2082,58 +2082,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rappel"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum 0.8.8",
- "bytes",
- "chrono",
- "clap",
- "console-subscriber",
- "cron",
- "dotenvy",
- "futures",
- "http-body-util",
- "metrics",
- "once_cell",
- "proptest",
- "prost 0.12.6",
- "prost-types 0.12.6",
- "rand 0.8.5",
- "rappel-observability-macros",
- "regex",
- "rmp-serde",
- "rustc-hash",
- "serde",
- "serde_json",
- "serial_test",
- "sha2",
- "sqlx",
- "tera",
- "thiserror 1.0.69",
- "tokio",
- "tokio-stream",
- "tonic 0.11.0",
- "tonic-build",
- "tonic-health",
- "tower 0.5.2",
- "tracing",
- "tracing-chrome",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
-name = "rappel-observability-macros"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "redox_syscall"
 version = "0.5.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3398,6 +3346,58 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "76f218a38c84bcb33c25ec7059b07847d465ce0e0a76b995e134a45adcb6af76"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "waymark"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum 0.8.8",
+ "bytes",
+ "chrono",
+ "clap",
+ "console-subscriber",
+ "cron",
+ "dotenvy",
+ "futures",
+ "http-body-util",
+ "metrics",
+ "once_cell",
+ "proptest",
+ "prost 0.12.6",
+ "prost-types 0.12.6",
+ "rand 0.8.5",
+ "regex",
+ "rmp-serde",
+ "rustc-hash",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "sha2",
+ "sqlx",
+ "tera",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-stream",
+ "tonic 0.11.0",
+ "tonic-build",
+ "tonic-health",
+ "tower 0.5.2",
+ "tracing",
+ "tracing-chrome",
+ "tracing-subscriber",
+ "uuid",
+ "waymark-observability-macros",
+]
+
+[[package]]
+name = "waymark-observability-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

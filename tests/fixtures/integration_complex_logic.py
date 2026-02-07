@@ -6,8 +6,8 @@ This tests workflows with:
 - Variable reassignment
 - Multiple action results combined
 """
-from rappel import action, workflow
-from rappel.workflow import Workflow
+from waymark import action, workflow
+from waymark.workflow import Workflow
 
 
 @action

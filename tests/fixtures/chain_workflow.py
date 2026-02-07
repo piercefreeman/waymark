@@ -5,8 +5,8 @@ This matches the SequentialChainWorkflow pattern from example_app:
 2. Final action takes all intermediate results and produces combined output
 """
 
-from rappel import action, workflow
-from rappel.workflow import Workflow
+from waymark import action, workflow
+from waymark.workflow import Workflow
 
 
 @action

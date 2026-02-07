@@ -1,7 +1,7 @@
 """Test fixture: Action call without assignment (side effect only)."""
 
-from rappel import action, workflow
-from rappel.workflow import Workflow
+from waymark import action, workflow
+from waymark.workflow import Workflow
 
 
 @action

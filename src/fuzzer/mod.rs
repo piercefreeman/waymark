@@ -11,7 +11,10 @@ use proptest::test_runner::{Config, RngSeed, TestRunner};
 
 /// CLI args for the fuzz harness.
 #[derive(Parser, Debug, Clone)]
-#[command(name = "rappel-fuzz", about = "Run randomized IR workflow fuzz cases.")]
+#[command(
+    name = "waymark-fuzz",
+    about = "Run randomized IR workflow fuzz cases."
+)]
 pub struct FuzzArgs {
     /// Number of random workflow cases to execute.
     #[arg(long, default_value_t = 50)]

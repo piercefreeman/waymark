@@ -1,3 +1,3 @@
 fn main() {
-    rappel::rappel_core::cli::smoke::main();
+    waymark::waymark_core::cli::smoke::main();
 }

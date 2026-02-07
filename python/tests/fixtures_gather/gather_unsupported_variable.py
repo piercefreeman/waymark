@@ -2,8 +2,8 @@
 
 import asyncio
 
-from rappel import workflow
-from rappel.workflow import Workflow
+from waymark import workflow
+from waymark.workflow import Workflow
 
 
 @workflow

@@ -65,7 +65,7 @@ rust-lint-verify:
 coverage: python-coverage rust-coverage
 
 python-coverage:
-	cd python && uv run pytest tests --cov=rappel --cov-report=term-missing --cov-report=xml:coverage.xml --cov-report=html:htmlcov
+	cd python && uv run pytest tests --cov=waymark --cov-report=term-missing --cov-report=xml:coverage.xml --cov-report=html:htmlcov
 
 rust-coverage:
 	cargo llvm-cov --lcov --output-path target/rust-coverage.lcov
@@ -85,12 +85,12 @@ BENCH_BIN := target/$(if $(filter 1 true yes,$(BENCH_RELEASE)),release,debug)/be
 benchmark: benchmark-trace
 
 benchmark-console:
-	tmux has-session -t rappel-benchmark 2>/dev/null && tmux kill-session -t rappel-benchmark || true
-	tmux new-session -d -s rappel-benchmark 'bash -lc "make benchmark-console-run; exec $$SHELL"'
-	tmux split-window -h -t rappel-benchmark 'bash -lc "TOKIO_CONSOLE_BIND=$(BENCH_CONSOLE_BIND) tokio-console || { echo \"tokio-console not found (run: cargo install tokio-console)\"; exec $$SHELL; }"'
-	tmux select-layout -t rappel-benchmark even-horizontal
-	tmux select-pane -t rappel-benchmark:0.0
-	tmux attach -t rappel-benchmark
+	tmux has-session -t waymark-benchmark 2>/dev/null && tmux kill-session -t waymark-benchmark || true
+	tmux new-session -d -s waymark-benchmark 'bash -lc "make benchmark-console-run; exec $$SHELL"'
+	tmux split-window -h -t waymark-benchmark 'bash -lc "TOKIO_CONSOLE_BIND=$(BENCH_CONSOLE_BIND) tokio-console || { echo \"tokio-console not found (run: cargo install tokio-console)\"; exec $$SHELL; }"'
+	tmux select-layout -t waymark-benchmark even-horizontal
+	tmux select-pane -t waymark-benchmark:0.0
+	tmux attach -t waymark-benchmark
 
 benchmark-console-run:
 	TOKIO_CONSOLE_BIND="$(BENCH_CONSOLE_BIND)" RUSTFLAGS="$(BENCH_RUSTFLAGS)" cargo build $(BENCH_PROFILE_FLAG) --bin benchmark --features observability
@@ -101,6 +101,6 @@ benchmark-trace:
 	@for max in $(BENCH_CONCURRENCY_SWEEP); do \
 		trace_file="$(BENCH_TRACE_PREFIX)-$${max}.json"; \
 		echo "=== BENCH: max_concurrent_instances=$${max} ==="; \
-		RAPPEL_MAX_CONCURRENT_INSTANCES=$${max} $(BENCH_BIN) --trace $$trace_file $(BENCH_ARGS); \
+		WAYMARK_MAX_CONCURRENT_INSTANCES=$${max} $(BENCH_BIN) --trace $$trace_file $(BENCH_ARGS); \
 		uv run python scripts/parse_chrome_trace.py $$trace_file --top $(BENCH_TRACE_TOP); \
 	done

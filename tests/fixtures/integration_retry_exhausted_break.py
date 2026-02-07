@@ -6,8 +6,8 @@ never starts because guard evaluation lacks variables that only exist in the
 next loop's inbox.
 """
 
-from rappel import RetryPolicy, action, workflow
-from rappel.workflow import Workflow
+from waymark import RetryPolicy, action, workflow
+from waymark.workflow import Workflow
 
 
 @action

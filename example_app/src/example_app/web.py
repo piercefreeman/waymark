@@ -1,4 +1,4 @@
-"""FastAPI surface for the rappel example app."""
+"""FastAPI surface for the waymark example app."""
 
 import inspect
 import json
@@ -15,7 +15,7 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
-from rappel import bridge, delete_schedule, pause_schedule, resume_schedule, schedule_workflow
+from waymark import bridge, delete_schedule, pause_schedule, resume_schedule, schedule_workflow
 
 from example_app.workflows import (
     BranchRequest,
@@ -67,7 +67,7 @@ from example_app.workflows import (
     WhileLoopWorkflow,
 )
 
-app = FastAPI(title="Rappel Example")
+app = FastAPI(title="Waymark Example")
 
 templates = Jinja2Templates(
     directory=str(Path(__file__).resolve().parent / "templates")
@@ -666,10 +666,10 @@ class ResetResponse(BaseModel):
 @app.post("/api/reset", response_model=ResetResponse)
 async def reset_database() -> ResetResponse:
     """Reset workflow-related tables for a clean slate. Development use only."""
-    database_url = os.environ.get("RAPPEL_DATABASE_URL")
+    database_url = os.environ.get("WAYMARK_DATABASE_URL")
     if not database_url:
         return ResetResponse(
-            success=False, message="RAPPEL_DATABASE_URL not configured"
+            success=False, message="WAYMARK_DATABASE_URL not configured"
         )
 
     try:

@@ -1,6 +1,6 @@
 # Unified Readiness Model
 
-This document explains how Rappel decides when a node is runnable. The same model also defines our push-based scheduling behavior: completions push readiness forward; we never rescan the DAG to find work.
+This document explains how Waymark decides when a node is runnable. The same model also defines our push-based scheduling behavior: completions push readiness forward; we never rescan the DAG to find work.
 
 ## Core principle
 
@@ -118,7 +118,7 @@ This keeps loops in the same push-based model without a separate scheduler mode.
 - **No duplicate enqueues**: nodes are enqueued only when all predecessors complete.
 - **No stale data**: results are stored alongside status updates.
 - **Crash safety**: execution graphs are persisted periodically; reclaimed instances resume from last checkpoint.
-- **Idempotent completion**: each completion is tied to a delivery token.
+- **Durable action history**: successful action outputs are appended by `execution_id` and `attempt`, then rehydrated on reclaim.
 
 ---
 

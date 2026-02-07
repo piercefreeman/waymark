@@ -2,7 +2,7 @@
 
 import builtins
 
-from rappel.actions import action
+from waymark.actions import action
 
 
 @action

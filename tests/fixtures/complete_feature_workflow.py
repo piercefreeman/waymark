@@ -1,7 +1,7 @@
 """
-Rappel Workflow demonstrating all language features.
+Waymark Workflow demonstrating all language features.
 
-This workflow showcases every supported pattern in the Rappel IR:
+This workflow showcases every supported pattern in the Waymark IR:
 1. Simple assignments (literals, expressions)
 2. Action calls with keyword arguments
 3. Parallel execution (asyncio.gather)
@@ -17,8 +17,8 @@ This workflow showcases every supported pattern in the Rappel IR:
 import asyncio
 from typing import Any
 
-from rappel import action, workflow
-from rappel.workflow import Workflow
+from waymark import action, workflow
+from waymark.workflow import Workflow
 
 
 # =============================================================================
@@ -112,7 +112,7 @@ async def aggregate_results(items: list, status_a: dict, status_b: dict, final_s
 @workflow
 class CompleteFeatureWorkflow(Workflow):
     """
-    A workflow demonstrating all Rappel language features.
+    A workflow demonstrating all Waymark language features.
 
     This workflow:
     1. Initializes variables with simple assignments

@@ -1,7 +1,7 @@
 """Fixture: for loop with dict accumulation."""
 
-from rappel import action, workflow
-from rappel.workflow import Workflow
+from waymark import action, workflow
+from waymark.workflow import Workflow
 
 
 @action(name="dict_accum_get_key_value")

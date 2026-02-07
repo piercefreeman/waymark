@@ -1,7 +1,7 @@
 """Test fixture: Try/except with multiple actions in try (needs wrapping)."""
 
-from rappel import action, workflow
-from rappel.workflow import Workflow
+from waymark import action, workflow
+from waymark.workflow import Workflow
 
 
 @action

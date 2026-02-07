@@ -7,8 +7,8 @@ only the first matching handler should execute, not all handlers.
 
 from datetime import timedelta
 
-from rappel import RetryPolicy, action, workflow
-from rappel.workflow import Workflow
+from waymark import RetryPolicy, action, workflow
+from waymark.workflow import Workflow
 
 
 class SpecificError(Exception):

@@ -3,8 +3,8 @@ from typing import Any, cast
 
 import pytest
 
-from rappel import action
-from rappel import registry as action_registry
+from waymark import action
+from waymark import registry as action_registry
 
 
 @pytest.fixture(autouse=True)

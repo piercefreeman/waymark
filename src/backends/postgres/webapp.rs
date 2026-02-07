@@ -8,8 +8,8 @@ use uuid::Uuid;
 
 use super::PostgresBackend;
 use crate::backends::base::{BackendError, BackendResult, GraphUpdate, WebappBackend};
-use crate::rappel_core::runner::state::{ActionCallSpec, ExecutionNode, NodeStatus};
-use crate::rappel_core::runner::{RunnerState, ValueExpr, format_value, replay_action_kwargs};
+use crate::waymark_core::runner::state::{ActionCallSpec, ExecutionNode, NodeStatus};
+use crate::waymark_core::runner::{RunnerState, ValueExpr, format_value, replay_action_kwargs};
 use crate::webapp::{
     ExecutionEdgeView, ExecutionGraphView, ExecutionNodeView, InstanceDetail, InstanceStatus,
     InstanceSummary, ScheduleDetail, ScheduleSummary, TimelineEntry, WorkerActionRow,
@@ -898,12 +898,12 @@ mod tests {
         SchedulerBackend, WebappBackend, WorkerStatusBackend, WorkerStatusUpdate,
         WorkflowRegistration, WorkflowRegistryBackend,
     };
-    use crate::rappel_core::dag::EdgeType;
-    use crate::rappel_core::runner::ValueExpr;
-    use crate::rappel_core::runner::state::{
+    use crate::scheduler::{CreateScheduleParams, ScheduleType};
+    use crate::waymark_core::dag::EdgeType;
+    use crate::waymark_core::runner::ValueExpr;
+    use crate::waymark_core::runner::state::{
         ActionCallSpec, ExecutionEdge, ExecutionNode, LiteralValue, NodeStatus,
     };
-    use crate::scheduler::{CreateScheduleParams, ScheduleType};
 
     #[test]
     fn format_extracted_inputs_happy_path() {

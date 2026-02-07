@@ -5,8 +5,8 @@ Tests if the issue is specifically the return inside try, or just having
 multiple actions in the try block.
 """
 
-from rappel import RetryPolicy, action, workflow
-from rappel.workflow import Workflow
+from waymark import RetryPolicy, action, workflow
+from waymark.workflow import Workflow
 
 
 @action

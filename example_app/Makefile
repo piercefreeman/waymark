@@ -1,4 +1,4 @@
-IMAGE_NAME ?= rappel-example-app
+IMAGE_NAME ?= waymark-example-app
 COMPOSE_CMD ?= docker compose -f docker-compose.yml
 DOCKER_TEST_TIMEOUT ?= 300
 DOCKER_LOG_TAIL ?= 200
@@ -22,7 +22,7 @@ docker-test:
 	@echo "Running tests in docker-compose environment (timeout $(DOCKER_TEST_TIMEOUT)s)"
 	$(COMPOSE_CMD) up -d postgres daemons
 	@echo "Waiting for postgres to be healthy..."
-	@timeout 30 sh -c 'until docker compose exec postgres pg_isready -U rappel > /dev/null 2>&1; do sleep 1; done' || (echo "Postgres failed to become healthy" && exit 1)
+	@timeout 30 sh -c 'until docker compose exec postgres pg_isready -U waymark > /dev/null 2>&1; do sleep 1; done' || (echo "Postgres failed to become healthy" && exit 1)
 	@echo "Waiting for workers to be ready..."
 	@sleep 3
 	@echo "Checking that daemons are running and ready..."
@@ -30,7 +30,7 @@ docker-test:
 	@timeout 60 sh -c 'until $(COMPOSE_CMD) exec -T daemons python -c "import socket; s = socket.create_connection((\"127.0.0.1\", 24118), 1); s.close()" >/dev/null 2>&1; do sleep 1; done' || (echo "Daemons never opened worker bridge port 24118" && $(COMPOSE_CMD) logs daemons || true; $(COMPOSE_CMD) down -v; exit 1)
 	@set -e; \
 	TEST_EXIT_CODE=0; \
-	timeout $(DOCKER_TEST_TIMEOUT) $(COMPOSE_CMD) run --rm -e RAPPEL_DATABASE_URL=postgresql://rappel:rappel@postgres:5432/rappel_example webapp pytest -vvv || TEST_EXIT_CODE=$$?; \
+	timeout $(DOCKER_TEST_TIMEOUT) $(COMPOSE_CMD) run --rm -e WAYMARK_DATABASE_URL=postgresql://waymark:waymark@postgres:5432/waymark_example webapp pytest -vvv || TEST_EXIT_CODE=$$?; \
 	echo ""; \
 	echo "=== Daemon Logs ==="; \
 	$(COMPOSE_CMD) logs --tail=$(DOCKER_LOG_TAIL) daemons || true; \

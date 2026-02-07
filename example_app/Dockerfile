@@ -9,7 +9,7 @@ WORKDIR /repo
 COPY Cargo.toml Cargo.lock build.rs /repo/
 COPY src /repo/src
 COPY proto /repo/proto
-COPY rappel-observability-macros /repo/rappel-observability-macros
+COPY waymark-observability-macros /repo/waymark-observability-macros
 RUN cargo chef prepare --recipe-path recipe.json
 
 # =============================================================================
@@ -63,7 +63,7 @@ COPY --from=cacher /repo/target target
 COPY Cargo.toml Cargo.lock build.rs README.md /repo/
 COPY src /repo/src
 COPY proto /repo/proto
-COPY rappel-observability-macros /repo/rappel-observability-macros
+COPY waymark-observability-macros /repo/waymark-observability-macros
 COPY python /repo/python
 COPY scripts /repo/scripts
 COPY templates /repo/templates
@@ -101,11 +101,11 @@ ENV PATH="/opt/venv/bin:${PATH}"
 
 COPY --from=wheel-builder /repo/target/wheels /tmp/wheels
 RUN --mount=type=cache,target=/root/.cache/uv \
-    set -eux; wheel=$(ls /tmp/wheels/rappel-*.whl | head -n 1); uv pip install --no-cache-dir "$wheel"
+    set -eux; wheel=$(ls /tmp/wheels/waymark-*.whl | head -n 1); uv pip install --no-cache-dir "$wheel"
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --no-cache-dir --no-sources ".[tests]"
 
-ENV RAPPEL_HTTP_PORT=24117 \
-    RAPPEL_GRPC_PORT=24118
+ENV WAYMARK_HTTP_PORT=24117 \
+    WAYMARK_GRPC_PORT=24118
 
 CMD ["uvicorn", "example_app.web:app", "--host", "0.0.0.0", "--port", "8000"]

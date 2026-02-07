@@ -1,6 +1,6 @@
 # Benchmarks
 
-Rappel includes a benchmark suite for measuring throughput and latency under various configurations. The benchmarks test the full execution path: DAG registration, action dispatch, Python worker execution, and completion handling.
+Waymark includes a benchmark suite for measuring throughput and latency under various configurations. The benchmarks test the full execution path: DAG registration, action dispatch, Python worker execution, and completion handling.
 
 ## Benchmark Types
 

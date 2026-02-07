@@ -1,7 +1,7 @@
 """Exception workflow fixture - tests try/except handling."""
 
-from rappel import action, workflow
-from rappel.workflow import Workflow
+from waymark import action, workflow
+from waymark.workflow import Workflow
 
 
 @action

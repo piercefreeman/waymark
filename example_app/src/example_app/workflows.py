@@ -1,5 +1,5 @@
 """
-Workflow definitions showcasing different rappel patterns.
+Workflow definitions showcasing different waymark patterns.
 
 This module contains example workflows demonstrating:
 1. Parallel execution with asyncio.gather
@@ -16,8 +16,8 @@ import asyncio
 from typing import Literal
 
 from pydantic import BaseModel, Field
-from rappel import Workflow, action, workflow
-from rappel.workflow import RetryPolicy
+from waymark import Workflow, action, workflow
+from waymark.workflow import RetryPolicy
 
 # =============================================================================
 # Shared Models
@@ -504,7 +504,7 @@ class ConditionalBranchWorkflow(Workflow):
     Demonstrates conditional branching with if/else.
 
     Different actions are executed based on the input value,
-    showing how rappel handles control flow.
+    showing how waymark handles control flow.
     """
 
     async def run(self, value: int) -> BranchResult:
@@ -590,7 +590,7 @@ class ErrorHandlingWorkflow(Workflow):
     """
     Demonstrates error handling with try/except.
 
-    Shows how rappel handles exceptions and allows
+    Shows how waymark handles exceptions and allows
     recovery through exception handlers.
     """
 

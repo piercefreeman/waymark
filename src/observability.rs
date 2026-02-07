@@ -1,6 +1,6 @@
 //! Observability helpers for optional tracing instrumentation.
 
-pub use rappel_observability_macros::obs;
+pub use waymark_observability_macros::obs;
 
 use std::sync::OnceLock;
 

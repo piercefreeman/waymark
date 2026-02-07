@@ -1,4 +1,4 @@
-"""Example rappel FastAPI application."""
+"""Example waymark FastAPI application."""
 
 from .workflows import ComputationRequest, ComputationResult, ExampleMathWorkflow
 

@@ -1,7 +1,7 @@
 """Fixture: for loop with counter accumulation."""
 
-from rappel import action, workflow
-from rappel.workflow import Workflow
+from waymark import action, workflow
+from waymark.workflow import Workflow
 
 
 @action(name="counter_accum_check_valid")

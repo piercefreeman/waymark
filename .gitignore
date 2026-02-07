@@ -141,7 +141,7 @@ celerybeat.pid
 .envrc
 .venv
 python/.venv/
-python/src/rappel/bin/
+python/src/waymark/bin/
 env/
 venv/
 ENV/

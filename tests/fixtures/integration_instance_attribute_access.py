@@ -7,8 +7,8 @@ in workflow method code should work correctly.
 
 from datetime import timedelta
 
-from rappel import RetryPolicy, action, workflow
-from rappel.workflow import Workflow
+from waymark import RetryPolicy, action, workflow
+from waymark.workflow import Workflow
 
 
 class RetryConfig:

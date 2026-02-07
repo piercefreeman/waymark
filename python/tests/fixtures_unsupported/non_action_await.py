@@ -1,6 +1,6 @@
 """Fixture: awaiting a non-action function is not supported."""
 
-from rappel import Workflow, workflow
+from waymark import Workflow, workflow
 
 
 # This function is NOT decorated with @action

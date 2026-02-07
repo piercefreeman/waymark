@@ -115,7 +115,7 @@ class Program(google.protobuf.message.Message):
     Top-Level Structure
     -----------------------------------------------------------------------------
 
-    A complete Rappel program (one or more function definitions)
+    A complete Waymark program (one or more function definitions)
     """
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor

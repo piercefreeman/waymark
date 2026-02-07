@@ -1,11 +1,11 @@
 syntax = "proto3";
 
-package rappel.ast;
+package waymark.ast;
 
 // =============================================================================
-// Rappel IR Abstract Syntax Tree
+// Waymark IR Abstract Syntax Tree
 // =============================================================================
-// This defines the intermediate representation for Rappel workflows.
+// This defines the intermediate representation for Waymark workflows.
 // Both Rust (via parser) and Python (via AST walking) produce these structures.
 //
 // Design principles:
@@ -18,7 +18,7 @@ package rappel.ast;
 // Top-Level Structure
 // -----------------------------------------------------------------------------
 
-// A complete Rappel program (one or more function definitions)
+// A complete Waymark program (one or more function definitions)
 message Program {
   repeated FunctionDef functions = 1;
 }

@@ -6,8 +6,8 @@ which is the supported pattern for processing collections.
 
 import asyncio
 
-from rappel import action, workflow
-from rappel.workflow import Workflow
+from waymark import action, workflow
+from waymark.workflow import Workflow
 
 
 @action

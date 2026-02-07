@@ -1,6 +1,6 @@
 """Fixture: dict comprehension assignment with tuple unpacking."""
 
-from rappel import Workflow, workflow
+from waymark import Workflow, workflow
 
 
 @workflow

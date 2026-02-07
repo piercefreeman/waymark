@@ -1,13 +1,13 @@
 [package]
-name = "rappel"
+name = "waymark"
 version = "0.1.0"
 edition = "2024"
 
 [workspace]
-members = ["rappel-observability-macros"]
+members = ["waymark-observability-macros"]
 
 [lib]
-name = "rappel"
+name = "waymark"
 crate-type = ["rlib"]
 
 [[bin]]
@@ -19,8 +19,8 @@ name = "smoke"
 path = "src/bin/smoke.rs"
 
 [[bin]]
-name = "rappel-fuzz"
-path = "src/bin/rappel-fuzz.rs"
+name = "waymark-fuzz"
+path = "src/bin/waymark-fuzz.rs"
 required-features = ["fuzzing"]
 
 [dependencies]
@@ -55,7 +55,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-chrome = "0.7"
 metrics = "0.24"
 regex = "1"
-rappel-observability-macros = { path = "rappel-observability-macros" }
+waymark-observability-macros = { path = "waymark-observability-macros" }
 console-subscriber = { version = "0.5", optional = true }
 
 [features]

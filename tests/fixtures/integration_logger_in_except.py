@@ -10,8 +10,8 @@ This test verifies that the workaround (using actions in except handlers) works 
 
 from datetime import timedelta
 
-from rappel import RetryPolicy, action, workflow
-from rappel.workflow import Workflow
+from waymark import RetryPolicy, action, workflow
+from waymark.workflow import Workflow
 
 
 class FetchError(Exception):

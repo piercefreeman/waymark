@@ -13,8 +13,8 @@ This should be converted to a dict expression in the IR, just like:
 
 from pydantic import BaseModel
 
-from rappel import action, workflow
-from rappel.workflow import Workflow
+from waymark import action, workflow
+from waymark.workflow import Workflow
 
 
 class RequestModel(BaseModel):

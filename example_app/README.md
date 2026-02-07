@@ -1,15 +1,15 @@
-## Rappel example app
+## Waymark example app
 
-![Webapp Demo](https://raw.githubusercontent.com/piercefreeman/rappel/main/media/webapp_demo.png)
+![Webapp Demo](https://raw.githubusercontent.com/piercefreeman/waymark/main/media/webapp_demo.png)
 
 `example_app` contains a minimal FastAPI webapp that dispatches a
-rappel workflow. This is intended to show in miniature what it would take to actually deploy a background task cluster to production:
+waymark workflow. This is intended to show in miniature what it would take to actually deploy a background task cluster to production:
 
 `docker-compose.yml` starts Postgres, a `daemons` container (running
 `start-workers`), and a `webapp` container that serves the FastAPI UI and boots
-its own `rappel-bridge` automatically via the Python client bridge.
+its own `waymark-bridge` automatically via the Python client bridge.
 
-Our Dockerfile is a bit more complicated than you would need, because we actually run it against our locally build rappel wheel. In your project you can accomplish this by just `uv add rappel`.
+Our Dockerfile is a bit more complicated than you would need, because we actually run it against our locally build waymark wheel. In your project you can accomplish this by just `uv add waymark`.
 
 ## Running locally
 
@@ -29,10 +29,10 @@ summary payload before responding to the browser.
 
 Environment notes:
 
-- `webapp` relies on the default rappel behavior of booting a singleton server
+- `webapp` relies on the default waymark behavior of booting a singleton server
   inside the container whenever a workflow is invoked, so no extra env vars are
   required.
-- `daemons` runs `start-workers` with `RAPPEL_USER_MODULE=example_app.workflows`
+- `daemons` runs `start-workers` with `WAYMARK_USER_MODULE=example_app.workflows`
   so the worker dispatcher preloads the module that defines the sample actions.
 
 ## Tests

@@ -12,7 +12,7 @@ use crate::backends::base::{
     WorkerStatusUpdate,
 };
 use crate::observability::obs;
-use crate::rappel_core::runner::state::RunnerState;
+use crate::waymark_core::runner::state::RunnerState;
 
 impl PostgresBackend {
     /// Insert queued instances for run-loop consumption.
@@ -632,8 +632,8 @@ mod tests {
     use super::super::test_helpers::setup_backend;
     use super::*;
     use crate::backends::{CoreBackend, WorkerStatusBackend};
-    use crate::rappel_core::dag::EdgeType;
-    use crate::rappel_core::runner::state::{ActionCallSpec, ExecutionNode, NodeStatus};
+    use crate::waymark_core::dag::EdgeType;
+    use crate::waymark_core::runner::state::{ActionCallSpec, ExecutionNode, NodeStatus};
 
     fn sample_runner_state() -> RunnerState {
         RunnerState::new(None, None, None, false)
@@ -832,7 +832,7 @@ mod tests {
             instance_id,
             nodes,
             edges: std::collections::HashSet::from([
-                crate::rappel_core::runner::state::ExecutionEdge {
+                crate::waymark_core::runner::state::ExecutionEdge {
                     source: execution_id,
                     target: execution_id,
                     edge_type: EdgeType::StateMachine,

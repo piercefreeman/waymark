@@ -1,7 +1,7 @@
 """Test fixture: Child workflow calls async helper in base class."""
 
-from rappel import workflow
 from tests.fixtures_workflow.workflow_helper_inheritance_base import BaseWorkflowWithHelper
+from waymark import workflow
 
 
 @workflow

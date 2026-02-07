@@ -12,11 +12,11 @@ from pydantic import BaseModel
 
 from proto import ast_pb2 as ir
 from proto import messages_pb2 as pb2
-from rappel import bridge
-from rappel.actions import action, serialize_result_payload
-from rappel.serialization import arguments_to_kwargs
+from waymark import bridge
+from waymark.actions import action, serialize_result_payload
+from waymark.serialization import arguments_to_kwargs
 
-workflow_module = importlib.import_module("rappel.workflow")
+workflow_module = importlib.import_module("waymark.workflow")
 Workflow = workflow_module.Workflow
 workflow_decorator = workflow_module.workflow
 workflow_registry = workflow_module.workflow_registry

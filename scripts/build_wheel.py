@@ -27,8 +27,8 @@ class EntryPoint:
 
 
 ENTRYPOINTS: Sequence[EntryPoint] = (
-    EntryPoint("rappel-bridge", "rappel-bridge"),
-    EntryPoint("boot-rappel-singleton", "boot-rappel-singleton"),
+    EntryPoint("waymark-bridge", "waymark-bridge"),
+    EntryPoint("boot-waymark-singleton", "boot-waymark-singleton"),
     EntryPoint("start-workers", "start-workers"),
 )
 
@@ -218,7 +218,7 @@ def install_scripts_in_wheel(out_dir: Path, stage_dir: Path) -> None:
 def assert_entrypoints_in_wheel(out_dir: Path) -> None:
     wheels = _wheel_files(out_dir)
     suffix = ".exe" if sys.platform == "win32" else ""
-    package_expected = {f"rappel/bin/{entry.packaged_name}{suffix}" for entry in ENTRYPOINTS}
+    package_expected = {f"waymark/bin/{entry.packaged_name}{suffix}" for entry in ENTRYPOINTS}
     for wheel in wheels:
         with zipfile.ZipFile(wheel) as archive:
             contents = set(archive.namelist())
@@ -245,7 +245,7 @@ def assert_entrypoints_in_wheel(out_dir: Path) -> None:
     help="Directory to write the built wheel into.",
 )
 def main(out_dir: str) -> None:
-    """Build rappel Python wheel with bundled binaries."""
+    """Build waymark Python wheel with bundled binaries."""
     repo_root = Path(__file__).resolve().parents[1]
     out_path = (repo_root / out_dir).resolve()
     out_path.mkdir(parents=True, exist_ok=True)
@@ -253,7 +253,7 @@ def main(out_dir: str) -> None:
     console.log("[green]Building Rust binaries via cargo ...")
     run(["cargo", "build", "--release", "--bins"], cwd=repo_root)
 
-    stage_dir = repo_root / "python" / "src" / "rappel" / "bin"
+    stage_dir = repo_root / "python" / "src" / "waymark" / "bin"
     console.log(f"[green]Staging binaries in {stage_dir} ...")
     staged = copy_binaries(repo_root, stage_dir)
 

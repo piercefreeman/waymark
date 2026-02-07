@@ -1,7 +1,7 @@
 """Try/except workflow that mutates state and consumes it after the block."""
 
-from rappel import action, workflow
-from rappel.workflow import Workflow
+from waymark import action, workflow
+from waymark.workflow import Workflow
 
 
 @action(name="risky_action")

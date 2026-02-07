@@ -11,8 +11,8 @@ Bug: After the exception handler runs, the loop-back edge is not followed,
 causing the workflow to stall.
 """
 
-from rappel import action, workflow
-from rappel.workflow import Workflow, RetryPolicy
+from waymark import action, workflow
+from waymark.workflow import Workflow, RetryPolicy
 
 
 class ItemProcessingError(Exception):

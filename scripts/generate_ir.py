@@ -22,12 +22,12 @@ sys.path.insert(0, str(proto_path))
 if TYPE_CHECKING:
     sys.path.insert(0, str(python_src))
     sys.path.insert(0, str(proto_path))
-    from rappel.workflow import Workflow
+    from waymark.workflow import Workflow
 
 
 def load_workflow_from_file(file_path: str) -> type["Workflow"]:
     """Load a workflow class from a Python file."""
-    from rappel.workflow import Workflow
+    from waymark.workflow import Workflow
 
     path = Path(file_path).resolve()
 
@@ -65,7 +65,7 @@ def load_workflow_from_file(file_path: str) -> type["Workflow"]:
 
 
 def main():
-    from rappel.ir_builder import build_workflow_ir
+    from waymark.ir_builder import build_workflow_ir
 
     parser = argparse.ArgumentParser(description="Generate IR from a Python workflow file")
     parser.add_argument("file", help="Path to Python workflow file")

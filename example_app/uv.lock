@@ -125,7 +125,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "jinja2" },
     { name = "pydantic" },
-    { name = "rappel" },
+    { name = "waymark" },
     { name = "uvicorn" },
 ]
 
@@ -149,7 +149,7 @@ requires-dist = [
     { name = "jinja2", specifier = ">=3.1,<4" },
     { name = "pydantic", specifier = ">=2.6,<3" },
     { name = "pytest", marker = "extra == 'tests'", specifier = ">=8.3" },
-    { name = "rappel", directory = "../python" },
+    { name = "waymark", directory = "../python" },
     { name = "uvicorn", specifier = ">=0.25,<0.29" },
 ]
 provides-extras = ["tests"]
@@ -635,7 +635,7 @@ wheels = [
 ]
 
 [[package]]
-name = "rappel"
+name = "waymark"
 version = "0.1.0"
 source = { directory = "../python" }
 dependencies = [

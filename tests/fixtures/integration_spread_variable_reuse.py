@@ -3,7 +3,7 @@
 This tests the exact production pattern where:
 1. A variable name (comment_id) is used in an earlier for loop to build a list
 2. The SAME variable name is reused in the spread comprehension
-3. This could cause variable shadowing issues in rappel's IR
+3. This could cause variable shadowing issues in waymark's IR
 
 Expected: Each action receives its own distinct comment_id.
 Bug: All actions receive the same (last) comment_id from the earlier loop.
@@ -15,8 +15,8 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
-from rappel import action, workflow
-from rappel.workflow import RetryPolicy, Workflow
+from waymark import action, workflow
+from waymark.workflow import RetryPolicy, Workflow
 
 
 class SpawnEngageRequest(BaseModel):
@@ -36,7 +36,7 @@ class PollSelfPostRequest(BaseModel):
 
 
 @action
-async def spawn_engage_rappel(request: SpawnEngageRequest) -> dict:
+async def spawn_engage_waymark(request: SpawnEngageRequest) -> dict:
     """Echo back what was received."""
     return {
         "post_id": str(request.post_id),
@@ -46,7 +46,7 @@ async def spawn_engage_rappel(request: SpawnEngageRequest) -> dict:
 
 
 @action
-async def fetch_new_comments_rappel(post_id: UUID, iteration: int) -> FetchCommentsResponse:
+async def fetch_new_comments_waymark(post_id: UUID, iteration: int) -> FetchCommentsResponse:
     """Simulate fetching comments - returns different IDs each iteration."""
     if iteration == 0:
         return FetchCommentsResponse(
@@ -92,7 +92,7 @@ class SpreadVariableReuseWorkflow(Workflow):
         iteration = 0
 
         while True:
-            new_comments = await fetch_new_comments_rappel(
+            new_comments = await fetch_new_comments_waymark(
                 post_id=request.post_id,
                 iteration=iteration,
             )
@@ -112,7 +112,7 @@ class SpreadVariableReuseWorkflow(Workflow):
         spawn_payloads = await asyncio.gather(
             *[
                 self.run_action(
-                    spawn_engage_rappel(
+                    spawn_engage_waymark(
                         SpawnEngageRequest(
                             post_id=request.post_id,
                             comment_id=comment_id,

@@ -4,7 +4,7 @@ Note: Pydantic models and dataclasses ARE supported and will be converted
 to dict expressions. This test uses a regular class which is NOT supported.
 """
 
-from rappel import Workflow, action, workflow
+from waymark import Workflow, action, workflow
 
 
 class CustomConfig:

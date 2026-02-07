@@ -1,7 +1,7 @@
 """Test fixture: if branch with multiple action calls (triggers body wrapping)."""
 
-from rappel import action, workflow
-from rappel.workflow import Workflow
+from waymark import action, workflow
+from waymark.workflow import Workflow
 
 
 @action(name="if_step_one")

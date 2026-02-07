@@ -79,7 +79,7 @@ jobs:
       - name: Rust cache
         uses: Swatinem/rust-cache@v2.8.2
         with:
-          shared-key: rappel
+          shared-key: waymark
 
       - name: Rust lint
         run: make rust-lint-verify
@@ -123,15 +123,15 @@ jobs:
       - name: Rust cache
         uses: Swatinem/rust-cache@v2.8.2
         with:
-          shared-key: rappel
+          shared-key: waymark
 
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
 
       - name: Run tests with coverage
         env:
-          RAPPEL_DATABASE_URL: postgresql://mountaineer:mountaineer@localhost:5432/mountaineer_daemons
-          RAPPEL_SKIP_UV_SYNC: "1"
+          WAYMARK_DATABASE_URL: postgresql://mountaineer:mountaineer@localhost:5432/mountaineer_daemons
+          WAYMARK_SKIP_UV_SYNC: "1"
         run: make rust-coverage
 
       - name: Upload Rust coverage LCOV
@@ -187,7 +187,7 @@ jobs:
       - name: Rust cache
         uses: Swatinem/rust-cache@v2.8.2
         with:
-          shared-key: rappel
+          shared-key: waymark
 
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
@@ -197,8 +197,8 @@ jobs:
 
       - name: Rust tests with coverage
         env:
-          RAPPEL_DATABASE_URL: postgresql://mountaineer:mountaineer@localhost:5432/mountaineer_daemons
-          RAPPEL_SKIP_UV_SYNC: "1"
+          WAYMARK_DATABASE_URL: postgresql://mountaineer:mountaineer@localhost:5432/mountaineer_daemons
+          WAYMARK_SKIP_UV_SYNC: "1"
         run: make rust-coverage
 
       - name: Upload main Python coverage XML
@@ -325,14 +325,14 @@ jobs:
       - name: Rust cache
         uses: Swatinem/rust-cache@v2.8.2
         with:
-          shared-key: rappel
+          shared-key: waymark
 
       - name: Build release binary
         run: cargo build --release
 
       - name: Run benchmarks on PR branch
         env:
-          RAPPEL_DATABASE_URL: postgresql://mountaineer:mountaineer@localhost:5432/mountaineer_daemons
+          WAYMARK_DATABASE_URL: postgresql://mountaineer:mountaineer@localhost:5432/mountaineer_daemons
         run: uv run scripts/run_benchmarks.py suite --format json --output benchmark-pr.json --benchmark-config "for-loop:1000:0,fan-out:1000:0,queue-noop:5000:0"
 
       - name: Save benchmark code diff
@@ -369,10 +369,10 @@ jobs:
       - name: Rust cache
         uses: Swatinem/rust-cache@v2.8.2
         with:
-          shared-key: rappel
+          shared-key: waymark
 
       - name: Run fuzzer (sanity)
-        run: cargo run --release --features fuzzing --bin rappel-fuzz -- --cases 5
+        run: cargo run --release --features fuzzing --bin waymark-fuzz -- --cases 5
 
   fuzz-extended:
     runs-on: ubuntu-latest
@@ -398,10 +398,10 @@ jobs:
       - name: Rust cache
         uses: Swatinem/rust-cache@v2.8.2
         with:
-          shared-key: rappel
+          shared-key: waymark
 
       - name: Run fuzzer (extended)
-        run: cargo run --release --features fuzzing --bin rappel-fuzz -- --cases 100 --max-steps 12
+        run: cargo run --release --features fuzzing --bin waymark-fuzz -- --cases 100 --max-steps 12
 
   integration:
     runs-on: ubuntu-latest
@@ -443,15 +443,15 @@ jobs:
       - name: Rust cache
         uses: Swatinem/rust-cache@v2.8.2
         with:
-          shared-key: rappel
+          shared-key: waymark
 
       - name: Wait for Postgres
         run: pg_isready --host=localhost --port=5432 --username=mountaineer --dbname=mountaineer_daemons
 
       - name: Run integration tests
         env:
-          RAPPEL_DATABASE_URL: postgresql://mountaineer:mountaineer@localhost:5432/mountaineer_daemons
-          RAPPEL_SKIP_UV_SYNC: "1"
+          WAYMARK_DATABASE_URL: postgresql://mountaineer:mountaineer@localhost:5432/mountaineer_daemons
+          WAYMARK_SKIP_UV_SYNC: "1"
         run: cargo test --test integration_test -- --nocapture
 
   example-app-tests:
@@ -476,16 +476,16 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            artifact-name: rappel-wheel-Linux-x86_64
+            artifact-name: waymark-wheel-Linux-x86_64
             build-sdist: true
           - os: ubuntu-24.04-arm
-            artifact-name: rappel-wheel-Linux-aarch64
+            artifact-name: waymark-wheel-Linux-aarch64
             build-sdist: false
           - os: macos-latest
-            artifact-name: rappel-wheel-macOS
+            artifact-name: waymark-wheel-macOS
             build-sdist: false
           - os: windows-latest
-            artifact-name: rappel-wheel-Windows
+            artifact-name: waymark-wheel-Windows
             build-sdist: false
     steps:
       - uses: actions/checkout@v4
@@ -512,7 +512,7 @@ jobs:
       - name: Rust cache
         uses: Swatinem/rust-cache@v2.8.2
         with:
-          shared-key: rappel
+          shared-key: waymark
 
       - name: Update project version
         if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'pull_request' && contains(toJson(github.event.pull_request.labels), 'full-build'))
@@ -529,7 +529,7 @@ jobs:
         if: matrix.build-sdist
         uses: actions/upload-artifact@v4
         with:
-          name: rappel-sdist
+          name: waymark-sdist
           path: target/sdist/*.tar.gz
 
       - name: Upload wheel artifact
@@ -556,31 +556,31 @@ jobs:
       - name: Download Linux x86_64 wheel
         uses: actions/download-artifact@v4
         with:
-          name: rappel-wheel-Linux-x86_64
+          name: waymark-wheel-Linux-x86_64
           path: artifacts/linux-x86_64
 
       - name: Download Linux aarch64 wheel
         uses: actions/download-artifact@v4
         with:
-          name: rappel-wheel-Linux-aarch64
+          name: waymark-wheel-Linux-aarch64
           path: artifacts/linux-aarch64
 
       - name: Download macOS wheel
         uses: actions/download-artifact@v4
         with:
-          name: rappel-wheel-macOS
+          name: waymark-wheel-macOS
           path: artifacts/macos
 
       - name: Download Windows wheel
         uses: actions/download-artifact@v4
         with:
-          name: rappel-wheel-Windows
+          name: waymark-wheel-Windows
           path: artifacts/windows
 
       - name: Download sdist
         uses: actions/download-artifact@v4
         with:
-          name: rappel-sdist
+          name: waymark-sdist
           path: artifacts/sdist
 
       - name: Assemble wheels
@@ -596,7 +596,7 @@ jobs:
       - name: Upload consolidated wheels
         uses: actions/upload-artifact@v4
         with:
-          name: rappel-wheels
+          name: waymark-wheels
           path: target/release-wheels
 
       - name: Publish wheels to PyPI

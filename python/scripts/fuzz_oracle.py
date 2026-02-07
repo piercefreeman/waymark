@@ -7,7 +7,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any, Protocol, cast
 
-from rappel.workflow import Workflow
+from waymark.workflow import Workflow
 
 
 class FuzzModule(Protocol):

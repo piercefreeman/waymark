@@ -81,7 +81,7 @@ const THROUGHPUT_WINDOW_SECS: u64 = 1;
 /// Configuration for spawning Python workers.
 #[derive(Clone, Debug)]
 pub struct PythonWorkerConfig {
-    /// Path to the script/executable to run (e.g., "uv" or "rappel-worker")
+    /// Path to the script/executable to run (e.g., "uv" or "waymark-worker")
     pub script_path: PathBuf,
     /// Arguments to pass before the worker-specific args
     pub script_args: Vec<String>,
@@ -129,9 +129,9 @@ impl PythonWorkerConfig {
 }
 
 /// Find the default Python runner.
-/// Prefers `rappel-worker` if in PATH, otherwise uses `uv run`.
+/// Prefers `waymark-worker` if in PATH, otherwise uses `uv run`.
 fn default_runner() -> (PathBuf, Vec<String>) {
-    if let Some(path) = find_executable("rappel-worker") {
+    if let Some(path) = find_executable("waymark-worker") {
         return (path, Vec::new());
     }
     (
@@ -140,7 +140,7 @@ fn default_runner() -> (PathBuf, Vec<String>) {
             "run".to_string(),
             "python".to_string(),
             "-m".to_string(),
-            "rappel.worker".to_string(),
+            "waymark.worker".to_string(),
         ],
     )
 }
@@ -1414,14 +1414,14 @@ mod tests {
 
     #[test]
     fn test_default_runner_detection() {
-        // Should return uv as fallback if rappel-worker not in PATH
+        // Should return uv as fallback if waymark-worker not in PATH
         let (path, args) = default_runner();
-        // Either rappel-worker was found, or we get uv with args
+        // Either waymark-worker was found, or we get uv with args
         if args.is_empty() {
-            assert!(path.to_string_lossy().contains("rappel-worker"));
+            assert!(path.to_string_lossy().contains("waymark-worker"));
         } else {
             assert_eq!(path, PathBuf::from("uv"));
-            assert_eq!(args, vec!["run", "python", "-m", "rappel.worker"]);
+            assert_eq!(args, vec!["run", "python", "-m", "waymark.worker"]);
         }
     }
 

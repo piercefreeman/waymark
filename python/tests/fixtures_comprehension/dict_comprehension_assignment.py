@@ -1,6 +1,6 @@
 """Fixture: dict comprehension assignment expands to loop-based accumulator."""
 
-from rappel import Workflow, workflow
+from waymark import Workflow, workflow
 
 
 @workflow

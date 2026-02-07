@@ -1,4 +1,4 @@
-//! Web application server for the Rappel workflow dashboard.
+//! Web application server for the Waymark workflow dashboard.
 
 use std::{net::SocketAddr, sync::Arc};
 
@@ -50,7 +50,7 @@ impl WebappServer {
         database: Arc<dyn WebappBackend>,
     ) -> Result<Option<Self>> {
         if !config.enabled {
-            info!("webapp disabled (set RAPPEL_WEBAPP_ENABLED=true to enable)");
+            info!("webapp disabled (set WAYMARK_WEBAPP_ENABLED=true to enable)");
             return Ok(None);
         }
 
@@ -187,7 +187,7 @@ fn build_router(state: WebappState) -> Router {
 async fn healthz() -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "ok",
-        service: "rappel-webapp",
+        service: "waymark-webapp",
     })
 }
 
@@ -1248,14 +1248,14 @@ mod tests {
         let (status, body) = call_route(backend, "/healthz").await;
         assert_eq!(status, StatusCode::OK);
         assert!(body.contains("\"status\":\"ok\""));
-        assert!(body.contains("\"service\":\"rappel-webapp\""));
+        assert!(body.contains("\"service\":\"waymark-webapp\""));
     }
 
     #[tokio::test]
     async fn high_level_pages_resolve_with_postgres_backend_when_db_is_unavailable() {
         let pool = PgPoolOptions::new()
             .acquire_timeout(Duration::from_millis(100))
-            .connect_lazy("postgres://rappel:rappel@127.0.0.1:1/rappel")
+            .connect_lazy("postgres://waymark:waymark@127.0.0.1:1/waymark")
             .expect("lazy postgres pool");
         let backend: Arc<dyn WebappBackend> = Arc::new(PostgresBackend::new(pool));
         let routes: Vec<(String, &str)> = vec![
@@ -1286,7 +1286,7 @@ mod tests {
         let (status, body) = call_route(backend, "/healthz").await;
         assert_eq!(status, StatusCode::OK);
         assert!(body.contains("\"status\":\"ok\""));
-        assert!(body.contains("\"service\":\"rappel-webapp\""));
+        assert!(body.contains("\"service\":\"waymark-webapp\""));
     }
 
     #[tokio::test]
@@ -1352,7 +1352,7 @@ mod tests {
         let (status, health_body) = call_route(backend_dyn, "/healthz").await;
         assert_eq!(status, StatusCode::OK);
         assert!(health_body.contains("\"status\":\"ok\""));
-        assert!(health_body.contains("\"service\":\"rappel-webapp\""));
+        assert!(health_body.contains("\"service\":\"waymark-webapp\""));
 
         sqlx::query("DELETE FROM worker_status WHERE pool_id = $1")
             .bind(pool_id)

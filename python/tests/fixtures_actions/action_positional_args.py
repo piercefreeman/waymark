@@ -4,8 +4,8 @@ The IR builder converts positional arguments to keyword arguments using
 signature introspection. This ensures all arguments are named in the IR.
 """
 
-from rappel import action, workflow
-from rappel.workflow import Workflow
+from waymark import action, workflow
+from waymark.workflow import Workflow
 
 
 @action

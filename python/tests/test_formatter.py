@@ -2,7 +2,7 @@ import io
 
 import pytest
 
-from rappel.formatter import Formatter, supports_color
+from waymark.formatter import Formatter, supports_color
 
 
 class DummyStream(io.StringIO):

@@ -1,6 +1,6 @@
 """Fixture: calling built-in functions directly is not supported."""
 
-from rappel import Workflow, action, workflow
+from waymark import Workflow, action, workflow
 
 
 @action

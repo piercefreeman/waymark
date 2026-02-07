@@ -1,91 +1,107 @@
 # Architecture
 
-Within our workers, every bit of Python logic that's run is technically an action. These can be explicit actions which are defined via an `@action` decorator or these can be implicit actions which are the bits of `Workflow.run` control flow that actually require a python interpreter to run.
+Waymark is built around a Postgres-backed instance queue plus an in-memory runner.
 
-Python Client Lib -> Rust Client Bridge -> DB
-DB -> Rust Workflow Runner -> Python action runners
+High-level flow:
 
-This is the semantic flow of how we expect things to work and be scaled. The implementation is a bit different: clients are expected to install a single Python library (wheel bundled for machine code) that will give them both the declarative syntax to define workflows/actions and the CLI entrypoint to be able to kick off action workers.
+`Python SDK -> waymark-bridge (gRPC) -> Postgres -> start-workers runloop -> Python worker pool`
 
-_Let's say you are trying to queue up a new workflow and have it run_
+## Runtime components
 
-When clients interact with rappel-py (client), we will auto-boot a system-wide rappel-rs (server) singleton that's bound on a known port. grpc is our communication protocol between client languages and our core code. For every Workflow implementation decorated by `@workflow`, rappel-py will parse the AST of the run() implementation and convert it into our custom DAG format. Python is in charge of determining where to break the business logic to create both explicit and implicit actions. It's in a better place to do this with rust because it can actually perform runtime-introspection of the dependent modules and functions without having to resort to static analysis. Python will send these DAG definitions to the server.
+- `waymark-bridge`: accepts workflow registrations and queue requests from the Python SDK.
+- `start-workers`: owns the runloop, scheduler, worker bridge, status reporter, and webapp server.
+- `RemoteWorkerPool`: dispatches action calls to Python worker processes over gRPC.
+- `PostgresBackend`: shared persistence implementation for core runtime, schedules, and webapp queries.
 
-The server will receive the DAG definitions. It will then upsert these definitions into the database. If the logic has changed we will automatically create a new version of the workflow instance - users will have to manually migrate old ones to the new version otherwise they will continue attempting to run with the older flow. If it's the same definition nothing will be done. We'll just rely on the old defined instance. Workflow definitions are intended to be immutable once they are created. The server will send the `definition-id` of this resolved version to the client, since all subsequent interactions with this workflow have to be specified in terms of the definition id.
+## Current persistence model
 
-On a separate machine, the rappel-rs is running in `worker` mode. Unlike our client singleton we will launch on the first available grpc port - we don't need to ensure the 1-instance-per-host trait like we do for the implicitly launched python clients. At launch time this will spawn N different Python interpreters set to a CLI entrypoint of our rappel-py package. This entrypoint will connect to the grpc server and loop indefinitely. The server adds each of these connections to a pool with a long running bidirectional grpc link. It's intended to receive work, handle work, and report results. It has no database communication - all work is passed by our server. In other job queues this would be known as the job broker.
+There are six primary tables in active use:
 
-rappel-rs polls the database centrally so we only need 1 connection per host machine. It finds actions that haven't yet been completed and distributes them to the connected grpc worker clients. The clients read these jobs, import the necessary modules with `importlib` since we should be running in a virtualenv that has the user packages installed, runs the logic, and sends the results back to grpc.
+- `workflow_versions`: immutable workflow IR payloads (`program_proto`) keyed by `(workflow_name, workflow_version)`.
+- `queued_instances`: dequeue/claim table with `scheduled_at`, `lock_uuid`, and `lock_expires_at`.
+- `runner_instances`: per-instance state snapshot (`state`) plus terminal `result`/`error`.
+- `runner_actions_done`: append-only completed action results by `(execution_id, attempt)`.
+- `workflow_schedules`: recurring schedule definitions and run metadata.
+- `worker_status`: per-pool throughput and latency snapshots.
 
-The server receives these completed actions and uses them to increment a state machine build off of the workflow DAG. This state machine determines if any other actions have been "unlocked" by the completion of this action, or if we need to wait for subsequent actions. If they have been unlocked we will insert them into the database for subsequent queuing. The cycle continues until we have a final result that can be set as the output of the full workflow instance. At that point we can wake up any waiting callers.
+State payloads are serialized as MessagePack (`rmp_serde`) byte blobs, not protobuf blobs.
 
-## Execution Model
+## Insert and upsert strategy
 
-Each workflow instance has a single **execution graph** that tracks all runtime state:
+### Workflow registration
 
-- **Node statuses**: pending, running, completed, failed
-- **Ready queue**: nodes waiting to be dispatched
-- **Variables**: workflow scope (inputs, intermediate results, outputs)
-- **Attempts**: retry history for each node
+`WorkflowRegistryBackend::upsert_workflow_version` does:
 
-The execution graph is stored as a compressed protobuf blob in `workflow_instances.execution_graph`. This replaces the previous multi-table model and provides better performance through reduced database round-trips.
+1. `INSERT ... ON CONFLICT (workflow_name, workflow_version) DO NOTHING RETURNING id`
+2. If conflict, `SELECT id, ir_hash`
+3. Reject if `ir_hash` changed for the same `(workflow_name, workflow_version)`
 
-### Storage tiers
+This keeps version keys immutable while preserving idempotent registration.
 
-**workflow_instances** (work queue)
-- Stores **stripped graphs**: node statuses and ready queue only, no payloads
-- Kept small (~2KB) for fast reads/writes during active execution
-- Instances are claimed by runners via lease-based ownership
+### Queueing new instances
 
-**node_payloads** (temporary storage)
-- Stores action inputs and results separately
-- INSERT-only for performance (no updates)
-- Used to hydrate stripped graphs on cold start recovery
-- Cleaned up when instances complete
+`CoreBackend::queue_instances` writes both queue and runner rows in one transaction:
 
-**completed_instances** (archive)
-- Stores **full graphs** with all inputs/outputs for historical queries
-- Written asynchronously when workflows complete or fail
-- Supports the dashboard and debugging
+1. Batch insert into `queued_instances(instance_id, scheduled_at, payload)`
+2. Batch insert into `runner_instances(instance_id, entry_node, workflow_version_id, state)`
 
-## Workers
+This dual-write in a single transaction prevents queue rows from existing without a corresponding runner state row.
 
-The `start-workers` binary polls for the work to be done. Launch this a single
-time for each physical worker node you have in your cluster. Worker processes read their
-configuration from `RAPPEL_DATABASE_URL` plus optional `RAPPEL_*` environment
-variables (poll interval, batch size, worker count, etc.) so the loop can be
-tuned per deployment without CLI flags. The dispatcher shares a single
-`Database` handle with the worker bridge, repeatedly calls `dispatch_actions()`
-to dequeue pending actions, and streams the resulting payloads through the
-round-robin worker pool. Workers still have no direct database access – they
-only handle gRPC traffic from the dispatcher.
+### Claiming work
 
-```
-         +-------------------+       SQL poll/update      +------------+
-         | Polling Dispatcher| -------------------------> | PostgreSQL |
-         |   (dispatch loop) | <------------------------- |   Ledger   |
-         +-------------------+                           +------------+
-                    |
-                    | gRPC dispatch/results
-                    v
-         +-------------------+      gRPC only      +-----------------+
-         | PythonWorkerPool  | <-----------------> | Python workers  |
-         |   (bridge server) |                    | (rappel-worker)
-         +-------------------+                    +-----------------+
-```
+`CoreBackend::get_queued_instances` uses `FOR UPDATE SKIP LOCKED` to claim due rows:
 
-Tuning notes:
+- selects rows where `scheduled_at <= now` and lock is missing/expired
+- sets `lock_uuid` + `lock_expires_at`
+- joins `runner_instances` to hydrate graph state
 
-- `poll_interval_ms` balances latency and database load. The 100ms default
-  yields at most 10 queries per second per worker process while keeping queued
-  actions responsive.
-- `batch_size` controls how many dequeued actions get fanned out per poll.
-  Defaults to `workers * concurrent_per_worker` (the max available slots),
-  ensuring we can fully utilize worker capacity without over-fetching.
-- `concurrent_per_worker` controls how many actions can run simultaneously on
-  each worker. The default of 10 provides enough in-flight buffering to keep
-  workers busy while waiting for I/O-bound actions.
+On hydrate, it backfills `action_results` by selecting the latest row per `execution_id` from `runner_actions_done` (`DISTINCT ON ... ORDER BY attempt DESC, id DESC`).
 
-The dispatcher automatically handles completion batching and graceful
-shutdowns so a single host can service the entire queue with one outbound
-connection.
+### Persisting progress
+
+Runloop persistence order is intentional:
+
+1. Insert `runner_actions_done` rows first (append-only history)
+2. Update `runner_instances.state` for claimed rows
+3. Update `queued_instances.scheduled_at` from `GraphUpdate::next_scheduled_at()`
+
+The state updates are lock-gated (`WHERE qi.lock_uuid = $lock_uuid` and unexpired), so stale owners cannot overwrite live state.
+
+### Completing instances
+
+`CoreBackend::save_instances_done`:
+
+1. Batch updates `runner_instances.result/error`
+2. Deletes matching rows from `queued_instances`
+
+This keeps completed instances queryable in `runner_instances` while removing them from the active queue.
+
+### Schedules and worker status
+
+- `upsert_schedule`: `INSERT ... ON CONFLICT (workflow_name, schedule_name) DO UPDATE`, recalculates `next_run_at`, and resets status to `active`.
+- `upsert_worker_status`: `INSERT ... ON CONFLICT (pool_id, worker_id) DO UPDATE` for rolling metrics.
+
+## Instance lifecycle
+
+1. Python workflow class compiles to IR and calls bridge registration.
+2. Bridge upserts `workflow_versions` and queues a `QueuedInstance`.
+3. Runloop claims due instances, hydrates DAG + state, and fans work into executor shards.
+4. Action completions update in-memory state; durable deltas are persisted through `PostgresBackend`.
+5. Finished instances are written to `runner_instances.result/error` and removed from `queued_instances`.
+
+## Locking and recovery
+
+- Locks are leases on `queued_instances` rows (`lock_uuid`, `lock_expires_at`).
+- A heartbeat refreshes lock expiry for active in-memory instances.
+- An expired-lock reclaimer periodically clears expired leases in batches (`FOR UPDATE SKIP LOCKED`).
+- If lock ownership changes, the runloop evicts that in-memory executor and releases local state.
+
+## Scheduler behavior
+
+Schedules are keyed by `(workflow_name, schedule_name)` and resolve workflows by name.
+
+- The scheduler fetches due schedules from `workflow_schedules`.
+- It resolves a DAG by loading the most recent `workflow_versions` row for that `workflow_name` (`ORDER BY created_at DESC LIMIT 1`).
+- It queues a normal `QueuedInstance` and then marks schedule execution (`last_run_at`, `last_instance_id`, next `next_run_at`).
+
+Current caveat: `has_running_instance` returns `false` in the Postgres backend, so `allow_duplicate=false` is not yet enforced by runtime checks.

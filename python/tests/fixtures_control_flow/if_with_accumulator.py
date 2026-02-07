@@ -4,8 +4,8 @@ This tests that out-of-scope variable modifications in conditionals
 are properly handled when the body is wrapped into a synthetic function.
 """
 
-from rappel import action, workflow
-from rappel.workflow import Workflow
+from waymark import action, workflow
+from waymark.workflow import Workflow
 
 
 @action(name="if_accum_process_high")

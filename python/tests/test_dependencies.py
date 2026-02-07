@@ -2,7 +2,7 @@ import asyncio
 from contextlib import asynccontextmanager, contextmanager
 from typing import Annotated, Any, AsyncIterator, Iterator
 
-from rappel.dependencies import Depend, provide_dependencies
+from waymark.dependencies import Depend, provide_dependencies
 
 
 def test_provide_dependencies_resolves_regular_values() -> None:
