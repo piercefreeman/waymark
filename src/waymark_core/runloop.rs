@@ -24,6 +24,9 @@ use crate::messages::ast as ir;
 use crate::observability::obs;
 use crate::waymark_core::dag::{DAG, DAGNode, OutputNode, ReturnNode, convert_to_dag};
 use crate::waymark_core::lock::{InstanceLockTracker, spawn_lock_heartbeat};
+use crate::waymark_core::runner::synthetic_exceptions::{
+    SyntheticExceptionType, build_synthetic_exception_value,
+};
 use crate::waymark_core::runner::{
     DurableUpdates, ExecutorStep, RunnerExecutor, RunnerExecutorError, SleepRequest,
     replay_variables,
@@ -1570,26 +1573,22 @@ fn error_value(kind: &str, message: &str) -> Value {
 }
 
 fn action_timeout_value(execution_id: Uuid, attempt_number: u32, timeout_seconds: u32) -> Value {
-    let mut map = serde_json::Map::new();
-    map.insert(
-        "type".to_string(),
-        Value::String("ActionTimeout".to_string()),
-    );
-    map.insert(
-        "message".to_string(),
-        Value::String(format!(
+    build_synthetic_exception_value(
+        SyntheticExceptionType::ActionTimeout,
+        format!(
             "action {execution_id} attempt {attempt_number} timed out after {timeout_seconds}s"
-        )),
-    );
-    map.insert(
-        "timeout_seconds".to_string(),
-        Value::Number(serde_json::Number::from(timeout_seconds)),
-    );
-    map.insert(
-        "attempt".to_string(),
-        Value::Number(serde_json::Number::from(attempt_number)),
-    );
-    Value::Object(map)
+        ),
+        vec![
+            (
+                "timeout_seconds".to_string(),
+                Value::Number(serde_json::Number::from(timeout_seconds)),
+            ),
+            (
+                "attempt".to_string(),
+                Value::Number(serde_json::Number::from(attempt_number)),
+            ),
+        ],
+    )
 }
 
 fn compute_instance_payload(executor: &RunnerExecutor) -> (Option<Value>, Option<Value>) {

@@ -17,9 +17,15 @@ use crate::waymark_core::dag::{
     ActionCallNode, AggregatorNode, DAG, DAGEdge, DagEdgeIndex, EXCEPTION_SCOPE_VAR, EdgeType,
 };
 use crate::waymark_core::runner::expression_evaluator::is_exception_value;
+use crate::waymark_core::runner::retry::{
+    RetryDecision, RetryPolicyEvaluator, timeout_seconds_from_policies,
+};
 use crate::waymark_core::runner::state::{
     ActionCallSpec, ExecutionEdge, ExecutionNode, ExecutionNodeType, IndexValue, ListValue,
     LiteralValue, NodeStatus, QueueNodeParams, RunnerState,
+};
+use crate::waymark_core::runner::synthetic_exceptions::{
+    SyntheticExceptionType, build_synthetic_exception_value,
 };
 use crate::waymark_core::runner::value_visitor::ValueExpr;
 
@@ -76,16 +82,6 @@ enum TemplateKind {
 enum SleepDecision {
     Completed,
     Blocked(DateTime<Utc>),
-}
-
-#[derive(Clone, Debug)]
-struct RetryDecision {
-    should_retry: bool,
-}
-
-struct RetryPolicyEvaluator<'a> {
-    policies: &'a [ir::PolicyBracket],
-    exception_name: Option<&'a str>,
 }
 
 /// Advance a DAG template using the current runner state and action results.
@@ -225,8 +221,16 @@ impl RunnerExecutor {
         for (node_id, node) in &self.state.nodes {
             if node.is_action_call() && node.status == NodeStatus::Running {
                 finished_nodes.push(*node_id);
-                self.action_results
-                    .insert(*node_id, Self::resume_exception_value(*node_id));
+                self.action_results.insert(
+                    *node_id,
+                    build_synthetic_exception_value(
+                        SyntheticExceptionType::ExecutorResume,
+                        format!(
+                            "action {node_id} was running during resume and is treated as failed"
+                        ),
+                        Vec::new(),
+                    ),
+                );
             }
         }
         if finished_nodes.is_empty() {
@@ -407,6 +411,8 @@ impl RunnerExecutor {
             .is_action_call();
 
         if node_is_action {
+            // Action nodes are completed from worker payloads, then converted into
+            // ActionDone rows (success, failed, timed_out) for durable reporting.
             let action_value = self.action_results.get(&node_id).cloned().ok_or_else(|| {
                 RunnerExecutorError(format!("missing action result for {}", node_id))
             })?;
@@ -417,6 +423,8 @@ impl RunnerExecutor {
                 (node.action_attempt, node.started_at)
             };
             if is_exception_value(&action_value) {
+                // Exception payload path: handle retry bookkeeping first. If retry
+                // is scheduled, stop here and let a later increment process it.
                 exception_value = Some(action_value.clone());
                 let status = action_done_status_for_exception(&action_value);
                 let finished_at = Utc::now();
@@ -434,6 +442,8 @@ impl RunnerExecutor {
                     ));
                     return Ok((None, None, action_done, retry_action));
                 }
+                // Non-retry failure path: propagate terminal error when no exception
+                // handler edge exists and store final ActionDone metadata.
                 if !self.failure_has_exception_handler(node_id, &action_value)?
                     && self.terminal_error.is_none()
                 {
@@ -454,6 +464,8 @@ impl RunnerExecutor {
                     action_value.clone(),
                 ));
             } else {
+                // Success payload path: mark node complete and publish assignment
+                // targets so downstream variable replay sees the action output.
                 self.state
                     .mark_completed(node_id)
                     .map_err(|err| RunnerExecutorError(err.0))?;
@@ -482,6 +494,7 @@ impl RunnerExecutor {
                 ));
             }
         } else {
+            // Non-action nodes are inline runtime steps; completion is a status flip.
             self.state
                 .mark_completed(node_id)
                 .map_err(|err| RunnerExecutorError(err.0))?;
@@ -593,26 +606,8 @@ impl RunnerExecutor {
             }
         };
         let exception_name = exception_value.and_then(exception_type);
-        let evaluator = RetryPolicyEvaluator {
-            policies: &action.policies,
-            exception_name,
-        };
+        let evaluator = RetryPolicyEvaluator::new(&action.policies, exception_name);
         Ok(evaluator.decision(node.action_attempt))
-    }
-
-    fn resume_exception_value(node_id: Uuid) -> Value {
-        let mut map = serde_json::Map::new();
-        map.insert(
-            "type".to_string(),
-            Value::String("ExecutorResume".to_string()),
-        );
-        map.insert(
-            "message".to_string(),
-            Value::String(format!(
-                "action {node_id} was running during resume and is treated as failed"
-            )),
-        );
-        Value::Object(map)
     }
 
     /// Select outgoing edges based on guards and exception state.
@@ -1306,57 +1301,6 @@ impl RunnerExecutor {
     }
 }
 
-impl<'a> RetryPolicyEvaluator<'a> {
-    fn decision(&self, attempt: i32) -> RetryDecision {
-        let mut max_retries: i32 = 0;
-        let mut matched_policy = false;
-
-        for policy in self.policies {
-            let Some(ir::policy_bracket::Kind::Retry(retry)) = policy.kind.as_ref() else {
-                continue;
-            };
-            let matches_exception = if retry.exception_types.is_empty() {
-                true
-            } else if let Some(name) = self.exception_name {
-                retry.exception_types.iter().any(|value| value == name)
-            } else {
-                false
-            };
-            if !matches_exception {
-                continue;
-            }
-            matched_policy = true;
-            max_retries = max_retries.max(retry.max_retries as i32);
-        }
-
-        let should_retry = matched_policy && attempt - 1 < max_retries;
-
-        RetryDecision { should_retry }
-    }
-}
-
-fn timeout_seconds_from_policies(policies: &[ir::PolicyBracket]) -> Option<u32> {
-    let mut timeout_seconds: Option<u64> = None;
-    for policy in policies {
-        let Some(ir::policy_bracket::Kind::Timeout(timeout)) = policy.kind.as_ref() else {
-            continue;
-        };
-        let seconds = timeout
-            .timeout
-            .as_ref()
-            .map(|duration| duration.seconds)
-            .unwrap_or(0);
-        if seconds == 0 {
-            continue;
-        }
-        timeout_seconds = Some(match timeout_seconds {
-            Some(existing) => existing.min(seconds),
-            None => seconds,
-        });
-    }
-    timeout_seconds.map(|seconds| seconds.min(u64::from(u32::MAX)) as u32)
-}
-
 fn exception_type(value: &Value) -> Option<&str> {
     match value {
         Value::Object(map) => map.get("type").and_then(|value| value.as_str()),
@@ -1365,13 +1309,10 @@ fn exception_type(value: &Value) -> Option<&str> {
 }
 
 fn action_done_status_for_exception(value: &Value) -> ActionAttemptStatus {
-    let normalized = exception_type(value)
-        .map(|name| name.to_ascii_lowercase())
-        .unwrap_or_default();
-    if normalized == "executorresume" || normalized.contains("timeout") {
-        ActionAttemptStatus::TimedOut
-    } else {
-        ActionAttemptStatus::Failed
+    match SyntheticExceptionType::from_value(value) {
+        Some(SyntheticExceptionType::ExecutorResume)
+        | Some(SyntheticExceptionType::ActionTimeout) => ActionAttemptStatus::TimedOut,
+        None => ActionAttemptStatus::Failed,
     }
 }
 
@@ -1466,10 +1407,36 @@ mod tests {
     }
 
     #[test]
+    fn test_action_done_status_for_action_timeout_exception_is_timed_out() {
+        let value = serde_json::json!({
+            "type": "ActionTimeout",
+            "message": "action timed out",
+            "timeout_seconds": 1,
+            "attempt": 1,
+        });
+        assert_eq!(
+            action_done_status_for_exception(&value),
+            ActionAttemptStatus::TimedOut
+        );
+    }
+
+    #[test]
     fn test_action_done_status_for_generic_exception_is_failed() {
         let value = serde_json::json!({
             "type": "ValueError",
             "message": "boom",
+        });
+        assert_eq!(
+            action_done_status_for_exception(&value),
+            ActionAttemptStatus::Failed
+        );
+    }
+
+    #[test]
+    fn test_action_done_status_for_non_synthetic_timeout_error_is_failed() {
+        let value = serde_json::json!({
+            "type": "TimeoutError",
+            "message": "user action raised timeout",
         });
         assert_eq!(
             action_done_status_for_exception(&value),

@@ -3,7 +3,9 @@
 pub mod executor;
 pub mod expression_evaluator;
 pub mod replay;
+pub(crate) mod retry;
 pub mod state;
+pub(crate) mod synthetic_exceptions;
 pub mod value_visitor;
 
 pub use executor::{
