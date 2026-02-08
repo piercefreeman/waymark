@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
+use prost::Message;
 use serde_json::Value;
 use sqlx::Row;
 use tonic::async_trait;
@@ -8,6 +9,8 @@ use uuid::Uuid;
 
 use super::PostgresBackend;
 use crate::backends::base::{BackendError, BackendResult, GraphUpdate, WebappBackend};
+use crate::messages::ast as ir;
+use crate::waymark_core::dag::{DAGNode, EdgeType, convert_to_dag};
 use crate::waymark_core::runner::state::{ActionCallSpec, ExecutionNode, NodeStatus};
 use crate::waymark_core::runner::{RunnerState, ValueExpr, format_value, replay_action_kwargs};
 use crate::webapp::{
@@ -182,6 +185,98 @@ impl WebappBackend for PostgresBackend {
         Ok(Some(ExecutionGraphView { nodes, edges }))
     }
 
+    async fn get_workflow_graph(
+        &self,
+        instance_id: Uuid,
+    ) -> BackendResult<Option<ExecutionGraphView>> {
+        let row = sqlx::query(
+            r#"
+            SELECT ri.state, wv.program_proto
+            FROM runner_instances ri
+            JOIN workflow_versions wv ON wv.id = ri.workflow_version_id
+            WHERE ri.instance_id = $1
+            "#,
+        )
+        .bind(instance_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        let Some(row) = row else {
+            return Ok(None);
+        };
+
+        let program_proto: Vec<u8> = row.get("program_proto");
+        let program = ir::Program::decode(&program_proto[..])
+            .map_err(|err| BackendError::Message(format!("failed to decode workflow IR: {err}")))?;
+        let dag = convert_to_dag(&program).map_err(|err| {
+            BackendError::Message(format!("failed to convert workflow DAG: {err}"))
+        })?;
+
+        let mut template_statuses: HashMap<String, NodeStatus> = HashMap::new();
+        let state_bytes: Option<Vec<u8>> = row.get("state");
+        if let Some(state_bytes) = state_bytes {
+            let graph_update: GraphUpdate = rmp_serde::from_slice(&state_bytes)
+                .map_err(|err| BackendError::Message(format!("failed to decode state: {err}")))?;
+
+            for node in graph_update.nodes.values() {
+                let Some(template_id) = node.template_id.as_ref() else {
+                    continue;
+                };
+                template_statuses
+                    .entry(template_id.clone())
+                    .and_modify(|existing| {
+                        *existing = merge_template_status(existing, &node.status);
+                    })
+                    .or_insert_with(|| node.status.clone());
+            }
+        }
+
+        let mut node_ids: Vec<String> = dag.nodes.keys().cloned().collect();
+        node_ids.sort();
+        let nodes: Vec<ExecutionNodeView> = node_ids
+            .into_iter()
+            .filter_map(|node_id| {
+                let node = dag.nodes.get(&node_id)?;
+                let status = template_statuses
+                    .get(&node_id)
+                    .map(format_node_status)
+                    .unwrap_or_else(|| "pending".to_string());
+                let (action_name, module_name) = match node {
+                    DAGNode::ActionCall(action) => {
+                        (Some(action.action_name.clone()), action.module_name.clone())
+                    }
+                    _ => (None, None),
+                };
+
+                Some(ExecutionNodeView {
+                    id: node_id,
+                    node_type: node.node_type().to_string(),
+                    label: node.label(),
+                    status,
+                    action_name,
+                    module_name,
+                })
+            })
+            .collect();
+
+        let edges: Vec<ExecutionEdgeView> = dag
+            .edges
+            .iter()
+            .filter(|edge| edge.edge_type == EdgeType::StateMachine)
+            .map(|edge| ExecutionEdgeView {
+                source: edge.source.clone(),
+                target: edge.target.clone(),
+                edge_type: if edge.is_loop_back {
+                    "state_machine_loop_back".to_string()
+                } else {
+                    "state_machine".to_string()
+                },
+            })
+            .collect();
+
+        Ok(Some(ExecutionGraphView { nodes, edges }))
+    }
+
     async fn get_action_results(&self, instance_id: Uuid) -> BackendResult<Vec<TimelineEntry>> {
         let row = sqlx::query(
             r#"
@@ -222,7 +317,7 @@ impl WebappBackend for PostgresBackend {
 
         let rows = sqlx::query(
             r#"
-            SELECT created_at, execution_id, attempt, result
+            SELECT created_at, execution_id, attempt, status, started_at, completed_at, duration_ms, result
             FROM runner_actions_done
             WHERE execution_id = ANY($1)
             ORDER BY created_at ASC, attempt ASC
@@ -237,6 +332,10 @@ impl WebappBackend for PostgresBackend {
             let created_at: DateTime<Utc> = row.get("created_at");
             let execution_id: Uuid = row.get("execution_id");
             let attempt: i32 = row.get("attempt");
+            let status: Option<String> = row.get("status");
+            let started_at: Option<DateTime<Utc>> = row.get("started_at");
+            let completed_at: Option<DateTime<Utc>> = row.get("completed_at");
+            let duration_ms: Option<i64> = row.get("duration_ms");
             let result_bytes: Option<Vec<u8>> = row.get("result");
             let result = result_bytes
                 .as_deref()
@@ -246,6 +345,10 @@ impl WebappBackend for PostgresBackend {
                 created_at,
                 execution_id,
                 attempt,
+                status,
+                started_at,
+                completed_at,
+                duration_ms,
                 result,
             });
         }
@@ -286,10 +389,24 @@ impl WebappBackend for PostgresBackend {
                 Some(value) => format_action_result(value),
                 None => ("(no result)".to_string(), None),
             };
-            let status = if error.is_some() {
-                "failed".to_string()
+            let status = row.status.clone().unwrap_or_else(|| {
+                if error.is_some() {
+                    "failed".to_string()
+                } else {
+                    "completed".to_string()
+                }
+            });
+            let (dispatched_at, completed_at, duration_ms) = if row.started_at.is_some()
+                || row.completed_at.is_some()
+                || row.duration_ms.is_some()
+            {
+                (
+                    Some(row.started_at.unwrap_or(row.created_at).to_rfc3339()),
+                    Some(row.completed_at.unwrap_or(row.created_at).to_rfc3339()),
+                    row.duration_ms,
+                )
             } else {
-                "completed".to_string()
+                action_timing_from_state(node, row.attempt, row.created_at)
             };
 
             entries.push(TimelineEntry {
@@ -298,9 +415,9 @@ impl WebappBackend for PostgresBackend {
                 module_name,
                 status,
                 attempt_number: row.attempt,
-                dispatched_at: Some(row.created_at.to_rfc3339()),
-                completed_at: Some(row.created_at.to_rfc3339()),
-                duration_ms: None,
+                dispatched_at,
+                completed_at,
+                duration_ms,
                 request_preview,
                 response_preview,
                 error,
@@ -686,6 +803,10 @@ struct DecodedActionResultRow {
     created_at: DateTime<Utc>,
     execution_id: Uuid,
     attempt: i32,
+    status: Option<String>,
+    started_at: Option<DateTime<Utc>>,
+    completed_at: Option<DateTime<Utc>>,
+    duration_ms: Option<i64>,
     result: Option<Value>,
 }
 
@@ -723,6 +844,40 @@ fn format_symbolic_kwargs(action: &ActionCallSpec) -> String {
         .map(|(name, expr)| (name.clone(), Value::String(format_value(expr))))
         .collect();
     pretty_json(&Value::Object(rendered_map))
+}
+
+fn action_timing_from_state(
+    node: Option<&ExecutionNode>,
+    attempt: i32,
+    fallback_completed_at: DateTime<Utc>,
+) -> (Option<String>, Option<String>, Option<i64>) {
+    // Node timing fields represent the latest attempt for this execution id.
+    // For historical retries, fall back to row timestamps from actions_done.
+    let Some(node) = node else {
+        let at = fallback_completed_at.to_rfc3339();
+        return (Some(at.clone()), Some(at), None);
+    };
+    if node.action_attempt != attempt {
+        let at = fallback_completed_at.to_rfc3339();
+        return (Some(at.clone()), Some(at), None);
+    }
+
+    let dispatched_at = node
+        .started_at
+        .map(|value| value.to_rfc3339())
+        .unwrap_or_else(|| fallback_completed_at.to_rfc3339());
+    let completed_dt = node.completed_at.unwrap_or(fallback_completed_at);
+    let completed_at = completed_dt.to_rfc3339();
+    let duration_ms = node
+        .started_at
+        .map(|started_at| {
+            completed_dt
+                .signed_duration_since(started_at)
+                .num_milliseconds()
+        })
+        .filter(|duration| *duration >= 0);
+
+    (Some(dispatched_at), Some(completed_at), duration_ms)
 }
 
 fn format_action_result(value: &Value) -> (String, Option<String>) {
@@ -935,11 +1090,29 @@ fn format_node_status(status: &NodeStatus) -> String {
     }
 }
 
+fn merge_template_status(existing: &NodeStatus, new_status: &NodeStatus) -> NodeStatus {
+    if node_status_rank(new_status) > node_status_rank(existing) {
+        new_status.clone()
+    } else {
+        existing.clone()
+    }
+}
+
+fn node_status_rank(status: &NodeStatus) -> u8 {
+    match status {
+        NodeStatus::Completed => 0,
+        NodeStatus::Queued => 1,
+        NodeStatus::Running => 2,
+        NodeStatus::Failed => 3,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::{HashMap, HashSet};
 
     use chrono::{Duration as ChronoDuration, Utc};
+    use prost::Message;
     use serial_test::serial;
     use uuid::Uuid;
 
@@ -951,6 +1124,7 @@ mod tests {
     };
     use crate::scheduler::{CreateScheduleParams, ScheduleType};
     use crate::waymark_core::dag::EdgeType;
+    use crate::waymark_core::ir_parser::parse_program;
     use crate::waymark_core::runner::ValueExpr;
     use crate::waymark_core::runner::state::{
         ActionCallSpec, ExecutionEdge, ExecutionNode, LiteralValue, NodeStatus,
@@ -979,6 +1153,8 @@ mod tests {
                 value_expr: None,
                 assignments: first_assignments,
                 action_attempt: 0,
+                started_at: None,
+                completed_at: None,
                 scheduled_at: None,
             },
         );
@@ -1003,6 +1179,8 @@ mod tests {
                 value_expr: None,
                 assignments: second_assignments,
                 action_attempt: 0,
+                started_at: None,
+                completed_at: None,
                 scheduled_at: None,
             },
         );
@@ -1061,6 +1239,70 @@ mod tests {
         assert_eq!(status, InstanceStatus::Failed);
     }
 
+    #[test]
+    fn action_timing_from_state_uses_state_timestamps_for_latest_attempt() {
+        let started_at = Utc::now() - ChronoDuration::milliseconds(1500);
+        let completed_at = started_at + ChronoDuration::milliseconds(450);
+        let fallback = Utc::now();
+        let node = ExecutionNode {
+            node_id: Uuid::new_v4(),
+            node_type: "action_call".to_string(),
+            label: "@tests.action()".to_string(),
+            status: NodeStatus::Completed,
+            template_id: Some("n0".to_string()),
+            targets: Vec::new(),
+            action: Some(ActionCallSpec {
+                action_name: "tests.action".to_string(),
+                module_name: Some("tests".to_string()),
+                kwargs: HashMap::new(),
+            }),
+            value_expr: None,
+            assignments: HashMap::new(),
+            action_attempt: 2,
+            started_at: Some(started_at),
+            completed_at: Some(completed_at),
+            scheduled_at: None,
+        };
+
+        let (dispatched_at, finished_at, duration_ms) =
+            action_timing_from_state(Some(&node), 2, fallback);
+        assert_eq!(dispatched_at, Some(started_at.to_rfc3339()));
+        assert_eq!(finished_at, Some(completed_at.to_rfc3339()));
+        assert_eq!(duration_ms, Some(450));
+    }
+
+    #[test]
+    fn action_timing_from_state_falls_back_for_prior_attempt_rows() {
+        let started_at = Utc::now() - ChronoDuration::milliseconds(1200);
+        let completed_at = started_at + ChronoDuration::milliseconds(600);
+        let fallback = Utc::now();
+        let node = ExecutionNode {
+            node_id: Uuid::new_v4(),
+            node_type: "action_call".to_string(),
+            label: "@tests.action()".to_string(),
+            status: NodeStatus::Completed,
+            template_id: Some("n0".to_string()),
+            targets: Vec::new(),
+            action: Some(ActionCallSpec {
+                action_name: "tests.action".to_string(),
+                module_name: Some("tests".to_string()),
+                kwargs: HashMap::new(),
+            }),
+            value_expr: None,
+            assignments: HashMap::new(),
+            action_attempt: 3,
+            started_at: Some(started_at),
+            completed_at: Some(completed_at),
+            scheduled_at: None,
+        };
+
+        let (dispatched_at, finished_at, duration_ms) =
+            action_timing_from_state(Some(&node), 2, fallback);
+        assert_eq!(dispatched_at, Some(fallback.to_rfc3339()));
+        assert_eq!(finished_at, Some(fallback.to_rfc3339()));
+        assert_eq!(duration_ms, None);
+    }
+
     fn sample_execution_node(execution_id: Uuid) -> ExecutionNode {
         ExecutionNode {
             node_id: execution_id,
@@ -1082,6 +1324,8 @@ mod tests {
             value_expr: None,
             assignments: HashMap::new(),
             action_attempt: 1,
+            started_at: None,
+            completed_at: None,
             scheduled_at: Some(Utc::now()),
         }
     }
@@ -1144,6 +1388,28 @@ mod tests {
         .expect("insert action result");
     }
 
+    fn sample_program_proto() -> Vec<u8> {
+        let source = r#"
+fn main(input: [x], output: [y]):
+    y = @tests.action(value=x)
+    return y
+"#;
+        let program = parse_program(source.trim()).expect("parse program");
+        program.encode_to_vec()
+    }
+
+    fn loop_program_proto() -> Vec<u8> {
+        let source = r#"
+fn main(input: [items], output: [total]):
+    total = 0
+    for item in items:
+        total = total + item
+    return total
+"#;
+        let program = parse_program(source.trim()).expect("parse loop program");
+        program.encode_to_vec()
+    }
+
     async fn insert_workflow_version(backend: &PostgresBackend, workflow_name: &str) -> Uuid {
         WorkflowRegistryBackend::upsert_workflow_version(
             backend,
@@ -1151,12 +1417,27 @@ mod tests {
                 workflow_name: workflow_name.to_string(),
                 workflow_version: "v1".to_string(),
                 ir_hash: format!("hash-{workflow_name}"),
-                program_proto: vec![1, 2, 3],
+                program_proto: sample_program_proto(),
                 concurrent: false,
             },
         )
         .await
         .expect("insert workflow version")
+    }
+
+    async fn insert_loop_workflow_version(backend: &PostgresBackend, workflow_name: &str) -> Uuid {
+        WorkflowRegistryBackend::upsert_workflow_version(
+            backend,
+            &WorkflowRegistration {
+                workflow_name: workflow_name.to_string(),
+                workflow_version: "v1-loop".to_string(),
+                ir_hash: format!("hash-loop-{workflow_name}"),
+                program_proto: loop_program_proto(),
+                concurrent: false,
+            },
+        )
+        .await
+        .expect("insert loop workflow version")
     }
 
     async fn insert_schedule(backend: &PostgresBackend, schedule_name: &str) -> Uuid {
@@ -1348,6 +1629,71 @@ mod tests {
         assert_eq!(graph.edges.len(), 1);
         assert_eq!(graph.nodes[0].id, execution_id.to_string());
         assert_eq!(graph.nodes[0].action_name, Some("tests.action".to_string()));
+    }
+
+    #[serial(postgres)]
+    #[tokio::test]
+    async fn webapp_get_workflow_graph_uses_template_node_ids() {
+        let backend = setup_backend().await;
+        let (instance_id, _, execution_id) = insert_instance_with_graph(&backend).await;
+
+        let graph = WebappBackend::get_workflow_graph(&backend, instance_id)
+            .await
+            .expect("get workflow graph")
+            .expect("expected workflow graph");
+
+        assert!(!graph.nodes.is_empty(), "workflow graph should have nodes");
+        assert!(
+            graph
+                .nodes
+                .iter()
+                .all(|node| node.id != execution_id.to_string()),
+            "workflow graph should use template node ids, not runtime execution ids"
+        );
+        assert!(
+            graph
+                .nodes
+                .iter()
+                .any(|node| node.node_type == "action_call"),
+            "workflow graph should include action_call template nodes"
+        );
+    }
+
+    #[serial(postgres)]
+    #[tokio::test]
+    async fn webapp_get_workflow_graph_marks_loop_back_edges() {
+        let backend = setup_backend().await;
+        let instance_id = Uuid::new_v4();
+        let entry_node = Uuid::new_v4();
+        let execution_id = Uuid::new_v4();
+        let workflow_version_id =
+            insert_loop_workflow_version(&backend, "tests.loop_workflow").await;
+        let graph = sample_graph(instance_id, execution_id);
+        let state_payload = rmp_serde::to_vec_named(&graph).expect("encode graph update");
+
+        sqlx::query(
+            "INSERT INTO runner_instances (instance_id, entry_node, workflow_version_id, state) VALUES ($1, $2, $3, $4)",
+        )
+        .bind(instance_id)
+        .bind(entry_node)
+        .bind(workflow_version_id)
+        .bind(state_payload)
+        .execute(backend.pool())
+        .await
+        .expect("insert loop runner instance");
+
+        let workflow_graph = WebappBackend::get_workflow_graph(&backend, instance_id)
+            .await
+            .expect("get workflow graph")
+            .expect("expected workflow graph");
+
+        assert!(
+            workflow_graph
+                .edges
+                .iter()
+                .any(|edge| edge.edge_type == "state_machine_loop_back"),
+            "loop workflows should emit at least one loop_back edge"
+        );
     }
 
     #[serial(postgres)]

@@ -260,10 +260,10 @@ async fn instance_detail(
         }
     };
 
-    // Get execution graph
+    // Get workflow DAG graph
     let graph = state
         .database
-        .get_execution_graph(instance_id)
+        .get_workflow_graph(instance_id)
         .await
         .unwrap_or(None);
 
@@ -804,7 +804,10 @@ struct GraphNode {
     id: String,
     action: String,
     module: String,
+    status: String,
     depends_on: Vec<String>,
+    loop_back_from: Vec<String>,
+    is_sleep: bool,
 }
 
 fn render_instance_detail_page(
@@ -812,37 +815,10 @@ fn render_instance_detail_page(
     instance: &super::types::InstanceDetail,
     graph: Option<super::types::ExecutionGraphView>,
 ) -> String {
-    let graph_data = if let Some(g) = graph {
-        // Build depends_on from edges
-        let edges_by_target: std::collections::HashMap<String, Vec<String>> =
-            g.edges
-                .iter()
-                .fold(std::collections::HashMap::new(), |mut acc, e| {
-                    acc.entry(e.target.clone())
-                        .or_default()
-                        .push(e.source.clone());
-                    acc
-                });
-
-        let nodes: Vec<GraphNode> = g
-            .nodes
-            .iter()
-            .filter(|n| n.action_name.is_some()) // Only show action nodes
-            .map(|n| GraphNode {
-                id: n.id.clone(),
-                action: n.action_name.clone().unwrap_or_default(),
-                module: n
-                    .module_name
-                    .clone()
-                    .unwrap_or_else(|| "workflow".to_string()),
-                depends_on: edges_by_target.get(&n.id).cloned().unwrap_or_default(),
-            })
-            .collect();
-
-        GraphData { nodes }
-    } else {
-        GraphData { nodes: Vec::new() }
-    };
+    let graph_data = graph
+        .as_ref()
+        .map(build_graph_data)
+        .unwrap_or_else(|| GraphData { nodes: Vec::new() });
 
     let context = InstanceDetailPageContext {
         title: format!("Instance {}", instance.id),
@@ -865,6 +841,169 @@ fn render_instance_detail_page(
     };
 
     render_template(templates, "workflow_run.html", &context)
+}
+
+fn build_graph_data(graph: &super::types::ExecutionGraphView) -> GraphData {
+    let action_nodes: Vec<&super::types::ExecutionNodeView> = graph
+        .nodes
+        .iter()
+        .filter(|node| is_action_node(&node.node_type))
+        .collect();
+    let action_ids: std::collections::HashSet<String> =
+        action_nodes.iter().map(|node| node.id.clone()).collect();
+
+    let mut outgoing_edges: std::collections::HashMap<String, Vec<(String, bool)>> =
+        std::collections::HashMap::new();
+    for edge in &graph.edges {
+        if !is_state_machine_edge(&edge.edge_type) {
+            continue;
+        }
+        outgoing_edges
+            .entry(edge.source.clone())
+            .or_default()
+            .push((edge.target.clone(), is_loop_back_edge(&edge.edge_type)));
+    }
+
+    let mut forward_edges_by_target: std::collections::HashMap<
+        String,
+        std::collections::HashSet<String>,
+    > = std::collections::HashMap::new();
+    let mut loop_back_edges_by_target: std::collections::HashMap<
+        String,
+        std::collections::HashSet<String>,
+    > = std::collections::HashMap::new();
+
+    // Project the full DAG to direct action->action relationships by traversing
+    // through internal nodes until we hit the next action boundary.
+    for source_id in &action_ids {
+        let mut queue: std::collections::VecDeque<(String, bool, usize)> =
+            std::collections::VecDeque::new();
+        let mut best_visit_distance: std::collections::HashMap<(String, bool), usize> =
+            std::collections::HashMap::new();
+        let mut forward_targets: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        let mut loop_back_targets: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+
+        if let Some(initial_edges) = outgoing_edges.get(source_id) {
+            for (target_id, loop_back) in initial_edges {
+                queue.push_back((target_id.clone(), *loop_back, 1));
+            }
+        }
+
+        while let Some((node_id, has_loop_back, distance)) = queue.pop_front() {
+            let visit_key = (node_id.clone(), has_loop_back);
+            if best_visit_distance
+                .get(&visit_key)
+                .is_some_and(|best| *best <= distance)
+            {
+                continue;
+            }
+            best_visit_distance.insert(visit_key, distance);
+
+            if action_ids.contains(&node_id) {
+                if node_id != *source_id {
+                    if has_loop_back {
+                        loop_back_targets
+                            .entry(node_id.clone())
+                            .and_modify(|best| *best = (*best).min(distance))
+                            .or_insert(distance);
+                    } else {
+                        forward_targets
+                            .entry(node_id.clone())
+                            .and_modify(|best| *best = (*best).min(distance))
+                            .or_insert(distance);
+                    }
+                }
+                continue;
+            }
+
+            if let Some(next_edges) = outgoing_edges.get(&node_id) {
+                for (next_id, loop_back_edge) in next_edges {
+                    queue.push_back((
+                        next_id.clone(),
+                        has_loop_back || *loop_back_edge,
+                        distance + 1,
+                    ));
+                }
+            }
+        }
+
+        for target_id in forward_targets.keys() {
+            forward_edges_by_target
+                .entry(target_id.clone())
+                .or_default()
+                .insert(source_id.clone());
+        }
+
+        // Keep only the nearest loop-back action target(s) from this source so
+        // the UI shows direct loop closure edges rather than full loop reachability.
+        if let Some(min_loop_distance) = loop_back_targets.values().copied().min() {
+            for (target_id, distance) in loop_back_targets {
+                if distance != min_loop_distance {
+                    continue;
+                }
+                loop_back_edges_by_target
+                    .entry(target_id)
+                    .or_default()
+                    .insert(source_id.clone());
+            }
+        }
+    }
+
+    let mut nodes: Vec<GraphNode> = action_nodes
+        .into_iter()
+        .map(|node| GraphNode {
+            id: node.id.clone(),
+            action: node
+                .action_name
+                .clone()
+                .unwrap_or_else(|| node.label.clone()),
+            module: node
+                .module_name
+                .clone()
+                .unwrap_or_else(|| node.node_type.clone()),
+            status: node.status.clone(),
+            depends_on: sorted_dependencies(&forward_edges_by_target, &node.id),
+            loop_back_from: sorted_dependencies(&loop_back_edges_by_target, &node.id),
+            is_sleep: node.node_type == "sleep",
+        })
+        .collect();
+    nodes.sort_by(|left, right| left.id.cmp(&right.id));
+
+    GraphData { nodes }
+}
+
+fn sorted_dependencies(
+    index: &std::collections::HashMap<String, std::collections::HashSet<String>>,
+    node_id: &str,
+) -> Vec<String> {
+    let mut deps: Vec<String> = index
+        .get(node_id)
+        .into_iter()
+        .flat_map(|values| values.iter().cloned())
+        .collect();
+    deps.sort();
+    deps
+}
+
+fn is_state_machine_edge(edge_type: &str) -> bool {
+    let normalized = edge_type.to_ascii_lowercase();
+    normalized.contains("state_machine")
+        || normalized == "statemachine"
+        || normalized == "state-machine"
+}
+
+fn is_loop_back_edge(edge_type: &str) -> bool {
+    let normalized = edge_type.to_ascii_lowercase();
+    normalized.contains("loop_back")
+        || normalized.contains("loopback")
+        || normalized.contains("loop-back")
+}
+
+fn is_action_node(node_type: &str) -> bool {
+    let normalized = node_type.to_ascii_lowercase();
+    normalized == "action_call" || normalized == "actioncall" || normalized == "action-call"
 }
 
 fn render_error_page(templates: &Tera, title: &str, message: &str) -> String {
@@ -1235,11 +1374,92 @@ mod tests {
     use tower::util::ServiceExt;
     use uuid::Uuid;
 
-    use super::{WebappState, build_router, init_templates};
+    use super::{WebappState, build_graph_data, build_router, init_templates};
     use crate::backends::{
         MemoryBackend, PostgresBackend, WebappBackend, WorkerStatusBackend, WorkerStatusUpdate,
     };
     use crate::test_support::postgres_setup;
+    use crate::webapp::{ExecutionEdgeView, ExecutionGraphView, ExecutionNodeView};
+
+    #[test]
+    fn build_graph_data_projects_internal_nodes_to_action_dependencies() {
+        let graph = ExecutionGraphView {
+            nodes: vec![
+                ExecutionNodeView {
+                    id: "action_a".to_string(),
+                    node_type: "action_call".to_string(),
+                    label: "@tests.action_a()".to_string(),
+                    status: "completed".to_string(),
+                    action_name: Some("tests.action_a".to_string()),
+                    module_name: Some("tests".to_string()),
+                },
+                ExecutionNodeView {
+                    id: "branch_1".to_string(),
+                    node_type: "branch".to_string(),
+                    label: "if x > 0".to_string(),
+                    status: "pending".to_string(),
+                    action_name: None,
+                    module_name: None,
+                },
+                ExecutionNodeView {
+                    id: "action_b".to_string(),
+                    node_type: "action_call".to_string(),
+                    label: "@tests.action_b()".to_string(),
+                    status: "running".to_string(),
+                    action_name: Some("tests.action_b".to_string()),
+                    module_name: Some("tests".to_string()),
+                },
+            ],
+            edges: vec![
+                ExecutionEdgeView {
+                    source: "action_a".to_string(),
+                    target: "branch_1".to_string(),
+                    edge_type: "StateMachine".to_string(),
+                },
+                ExecutionEdgeView {
+                    source: "branch_1".to_string(),
+                    target: "action_b".to_string(),
+                    edge_type: "state_machine".to_string(),
+                },
+                ExecutionEdgeView {
+                    source: "action_b".to_string(),
+                    target: "branch_1".to_string(),
+                    edge_type: "state_machine_loop_back".to_string(),
+                },
+                ExecutionEdgeView {
+                    source: "branch_1".to_string(),
+                    target: "action_a".to_string(),
+                    edge_type: "state_machine".to_string(),
+                },
+                ExecutionEdgeView {
+                    source: "action_a".to_string(),
+                    target: "branch_1".to_string(),
+                    edge_type: "DataFlow".to_string(),
+                },
+            ],
+        };
+
+        let projected = build_graph_data(&graph);
+        assert_eq!(projected.nodes.len(), 2);
+
+        let action_node = projected
+            .nodes
+            .iter()
+            .find(|node| node.id == "action_a")
+            .expect("action node");
+        assert_eq!(action_node.depends_on, Vec::<String>::new());
+        assert_eq!(action_node.loop_back_from, vec!["action_b".to_string()]);
+
+        let action_b_node = projected
+            .nodes
+            .iter()
+            .find(|node| node.id == "action_b")
+            .expect("action_b node");
+        assert_eq!(action_b_node.depends_on, vec!["action_a".to_string()]);
+        assert_eq!(action_b_node.loop_back_from, Vec::<String>::new());
+        assert_eq!(action_b_node.action, "tests.action_b");
+        assert_eq!(action_b_node.module, "tests");
+    }
 
     async fn call_route(backend: Arc<dyn WebappBackend>, uri: &str) -> (StatusCode, String) {
         let templates = Arc::new(init_templates().expect("templates initialize"));

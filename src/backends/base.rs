@@ -142,7 +142,29 @@ impl GraphUpdate {
 pub struct ActionDone {
     pub execution_id: Uuid,
     pub attempt: i32,
+    pub status: ActionAttemptStatus,
+    pub started_at: Option<DateTime<Utc>>,
+    pub completed_at: Option<DateTime<Utc>>,
+    pub duration_ms: Option<i64>,
     pub result: Value,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ActionAttemptStatus {
+    Completed,
+    Failed,
+    TimedOut,
+}
+
+impl std::fmt::Display for ActionAttemptStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Completed => write!(f, "completed"),
+            Self::Failed => write!(f, "failed"),
+            Self::TimedOut => write!(f, "timed_out"),
+        }
+    }
 }
 
 /// Worker status update for persistence.
@@ -284,6 +306,10 @@ pub trait WebappBackend: Send + Sync {
     ) -> BackendResult<Vec<InstanceSummary>>;
     async fn get_instance(&self, instance_id: Uuid) -> BackendResult<InstanceDetail>;
     async fn get_execution_graph(
+        &self,
+        instance_id: Uuid,
+    ) -> BackendResult<Option<ExecutionGraphView>>;
+    async fn get_workflow_graph(
         &self,
         instance_id: Uuid,
     ) -> BackendResult<Option<ExecutionGraphView>>;

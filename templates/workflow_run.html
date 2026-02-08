@@ -71,8 +71,8 @@
 <section class="space-y-3">
     <div>
         <p class="text-xs uppercase tracking-[0.3em] text-zinc-500">DAG</p>
-        <h2 class="text-2xl font-semibold text-zinc-900 dark:text-white">Execution Graph</h2>
-        <p class="text-sm text-zinc-500 dark:text-zinc-500">Workflow dependency structure</p>
+        <h2 class="text-2xl font-semibold text-zinc-900 dark:text-white">Workflow DAG</h2>
+        <p class="text-sm text-zinc-500 dark:text-zinc-500">Template dependency structure (including loop back-edges)</p>
     </div>
     <!-- Horizontal DAG -->
     <div id="execution-graph" class="relative min-h-[300px] max-h-[500px] overflow-auto rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 bg-grid p-4">
@@ -235,7 +235,7 @@ const timelinePerPage = 200;
 function statusToSuccess(status) {
   const normalized = String(status || '').toLowerCase();
   if (normalized === 'completed' || normalized === 'success') return true;
-  if (normalized === 'failed' || normalized === 'error') return false;
+  if (normalized === 'failed' || normalized === 'error' || normalized === 'timed_out' || normalized === 'exhausted') return false;
   return null;
 }
 
@@ -505,6 +505,12 @@ class DAGLayout {
         text: isDark ? '#fbbf24' : '#d97706',
         label: isDark ? '#fcd34d' : '#b45309'
       },
+      'running': {
+        bg: isDark ? 'rgba(245, 158, 11, 0.1)' : 'rgba(245, 158, 11, 0.08)',
+        border: isDark ? 'rgba(245, 158, 11, 0.5)' : 'rgba(245, 158, 11, 0.4)',
+        text: isDark ? '#fbbf24' : '#d97706',
+        label: isDark ? '#fcd34d' : '#b45309'
+      },
       'pending': {
         bg: isDark ? 'rgba(113, 113, 122, 0.1)' : 'rgba(113, 113, 122, 0.08)',
         border: isDark ? 'rgba(113, 113, 122, 0.4)' : 'rgba(113, 113, 122, 0.3)',
@@ -616,29 +622,53 @@ class DAGLayout {
 
     const isDark = document.documentElement.classList.contains('dark');
     const strokeColor = isDark ? 'rgba(113, 113, 122, 0.4)' : 'rgba(161, 161, 170, 0.5)';
+    const loopBackColor = isDark ? 'rgba(248, 113, 113, 0.75)' : 'rgba(220, 38, 38, 0.75)';
+
+    const createPath = (start, end, isLoopBack) => {
+      const startWidth = start.width || this.options.minNodeWidth;
+      const endWidth = end.width || this.options.minNodeWidth;
+      if (orientation === 'vertical') {
+        if (isLoopBack) {
+          const controlX = Math.min(start.x, end.x) - 56;
+          return `M${start.x},${start.y - nodeHeight/2} C${controlX},${start.y - nodeHeight/2} ${controlX},${end.y + nodeHeight/2} ${end.x},${end.y + nodeHeight/2}`;
+        }
+        const midY = (start.y + end.y) / 2;
+        return `M${start.x},${start.y + nodeHeight/2} C${start.x},${midY} ${end.x},${midY} ${end.x},${end.y - nodeHeight/2}`;
+      }
+
+      if (isLoopBack) {
+        const liftY = Math.min(start.y, end.y) - (nodeHeight + 24);
+        return `M${start.x - startWidth/2},${start.y} C${start.x - startWidth/2 - 36},${start.y} ${end.x + endWidth/2 + 36},${liftY} ${end.x + endWidth/2},${end.y}`;
+      }
+
+      const midX = (start.x + end.x) / 2;
+      return `M${start.x + startWidth/2},${start.y} C${midX},${start.y} ${midX},${end.y} ${end.x - endWidth/2},${end.y}`;
+    };
+
+    const drawEdge = (sourceId, targetId, isLoopBack) => {
+      const start = this.positions.get(sourceId);
+      const end = this.positions.get(targetId);
+      if (!start || !end) return;
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', createPath(start, end, isLoopBack));
+      path.setAttribute('fill', 'none');
+      path.setAttribute('stroke', isLoopBack ? loopBackColor : strokeColor);
+      path.setAttribute('stroke-width', isLoopBack ? '1.75' : '1.5');
+      path.setAttribute('stroke-linecap', 'round');
+      if (isLoopBack) {
+        path.setAttribute('stroke-dasharray', '6 4');
+      }
+      svg.appendChild(path);
+    };
+
     nodes.forEach(node => {
       if (!node.depends_on) return;
       node.depends_on.forEach(depId => {
-        const start = this.positions.get(depId);
-        const end = this.positions.get(node.id);
-        if (!start || !end) return;
-        const startWidth = start.width || this.options.minNodeWidth;
-        const endWidth = end.width || this.options.minNodeWidth;
-        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        let d;
-        if (orientation === 'vertical') {
-          const midY = (start.y + end.y) / 2;
-          d = `M${start.x},${start.y + nodeHeight/2} C${start.x},${midY} ${end.x},${midY} ${end.x},${end.y - nodeHeight/2}`;
-        } else {
-          const midX = (start.x + end.x) / 2;
-          d = `M${start.x + startWidth/2},${start.y} C${midX},${start.y} ${midX},${end.y} ${end.x - endWidth/2},${end.y}`;
-        }
-        path.setAttribute('d', d);
-        path.setAttribute('fill', 'none');
-        path.setAttribute('stroke', strokeColor);
-        path.setAttribute('stroke-width', '1.5');
-        path.setAttribute('stroke-linecap', 'round');
-        svg.appendChild(path);
+        drawEdge(depId, node.id, false);
+      });
+      if (!node.loop_back_from) return;
+      node.loop_back_from.forEach(depId => {
+        drawEdge(depId, node.id, true);
       });
     });
   }

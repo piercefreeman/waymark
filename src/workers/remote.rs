@@ -1136,10 +1136,15 @@ async fn execute_remote_request(
 ) -> ActionCompletion {
     let executor_id = request.executor_id;
     let execution_id = request.execution_id;
+    let attempt_number = request.attempt_number;
+    let dispatch_token = request.dispatch_token;
+    let timeout_seconds = request.timeout_seconds;
     let Some(module_name) = request.module_name.clone() else {
         return ActionCompletion {
             executor_id,
             execution_id,
+            attempt_number,
+            dispatch_token,
             result: error_to_value(&WorkerPoolError::new(
                 "RemoteWorkerPoolError",
                 "missing module name for action request",
@@ -1162,10 +1167,10 @@ async fn execute_remote_request(
         action_name: request.action_name,
         module_name,
         kwargs: kwargs_to_workflow_arguments(&request.kwargs),
-        timeout_seconds: 0,
+        timeout_seconds,
         max_retries: 0,
-        attempt_number: 0,
-        dispatch_token: Uuid::new_v4(),
+        attempt_number,
+        dispatch_token,
     };
 
     match worker.send_action(dispatch).await {
@@ -1175,6 +1180,8 @@ async fn execute_remote_request(
             ActionCompletion {
                 executor_id,
                 execution_id,
+                attempt_number,
+                dispatch_token,
                 result: decode_action_result(&metrics),
             }
         }
@@ -1183,6 +1190,8 @@ async fn execute_remote_request(
             ActionCompletion {
                 executor_id,
                 execution_id,
+                attempt_number,
+                dispatch_token,
                 result: error_to_value(&WorkerPoolError::new(
                     "RemoteWorkerPoolError",
                     err.to_string(),
@@ -1667,6 +1676,9 @@ mod tests {
             action_name: "double".to_string(),
             module_name: Some("tests.actions".to_string()),
             kwargs: HashMap::from([("value".to_string(), Value::Number(9.into()))]),
+            timeout_seconds: 0,
+            attempt_number: 1,
+            dispatch_token: Uuid::new_v4(),
         };
 
         let responder = tokio::spawn(async move {
@@ -1729,6 +1741,9 @@ mod tests {
             action_name: "square".to_string(),
             module_name: Some("tests.actions".to_string()),
             kwargs: HashMap::from([("value".to_string(), Value::Number(5.into()))]),
+            timeout_seconds: 0,
+            attempt_number: 1,
+            dispatch_token: Uuid::new_v4(),
         };
         let execution_id = request.execution_id;
 

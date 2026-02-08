@@ -68,6 +68,8 @@ impl BaseWorkerPool for InlineWorkerPool {
         let sender = self.sender.clone();
         let executor_id = request.executor_id;
         let execution_id = request.execution_id;
+        let attempt_number = request.attempt_number;
+        let dispatch_token = request.dispatch_token;
         let kwargs = request.kwargs;
 
         tokio::runtime::Handle::try_current().map_err(|_| {
@@ -86,6 +88,8 @@ impl BaseWorkerPool for InlineWorkerPool {
                 .send(ActionCompletion {
                     executor_id,
                     execution_id,
+                    attempt_number,
+                    dispatch_token,
                     result,
                 })
                 .await;

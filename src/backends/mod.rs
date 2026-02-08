@@ -5,9 +5,9 @@ mod memory;
 mod postgres;
 
 pub use base::{
-    ActionDone, BackendError, BackendResult, CoreBackend, GraphUpdate, InstanceDone,
-    InstanceLockStatus, LockClaim, QueuedInstance, QueuedInstanceBatch, SchedulerBackend,
-    WebappBackend, WorkerStatusBackend, WorkerStatusUpdate, WorkflowRegistration,
+    ActionAttemptStatus, ActionDone, BackendError, BackendResult, CoreBackend, GraphUpdate,
+    InstanceDone, InstanceLockStatus, LockClaim, QueuedInstance, QueuedInstanceBatch,
+    SchedulerBackend, WebappBackend, WorkerStatusBackend, WorkerStatusUpdate, WorkflowRegistration,
     WorkflowRegistryBackend, WorkflowVersion,
 };
 pub use memory::MemoryBackend;

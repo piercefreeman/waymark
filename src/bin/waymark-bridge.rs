@@ -367,7 +367,14 @@ impl WorkflowRegistryBackend for InMemoryBackend {
 struct StreamWorkerPool {
     dispatch_tx: mpsc::Sender<proto::WorkflowStreamResponse>,
     completion_rx: Arc<AsyncMutex<mpsc::Receiver<ActionCompletion>>>,
-    inflight: Arc<Mutex<HashMap<String, Uuid>>>,
+    inflight: Arc<Mutex<HashMap<String, StreamInflightAction>>>,
+}
+
+#[derive(Clone, Copy)]
+struct StreamInflightAction {
+    executor_id: Uuid,
+    attempt_number: u32,
+    dispatch_token: Uuid,
 }
 
 impl StreamWorkerPool {
@@ -382,7 +389,7 @@ impl StreamWorkerPool {
         }
     }
 
-    fn inflight(&self) -> Arc<Mutex<HashMap<String, Uuid>>> {
+    fn inflight(&self) -> Arc<Mutex<HashMap<String, StreamInflightAction>>> {
         Arc::clone(&self.inflight)
     }
 }
@@ -396,7 +403,14 @@ impl BaseWorkerPool for StreamWorkerPool {
         let action_id = request.execution_id.to_string();
 
         if let Ok(mut inflight) = self.inflight.lock() {
-            inflight.insert(action_id.clone(), request.executor_id);
+            inflight.insert(
+                action_id.clone(),
+                StreamInflightAction {
+                    executor_id: request.executor_id,
+                    attempt_number: request.attempt_number,
+                    dispatch_token: request.dispatch_token,
+                },
+            );
         }
 
         let dispatch = proto::ActionDispatch {
@@ -406,10 +420,10 @@ impl BaseWorkerPool for StreamWorkerPool {
             action_name: request.action_name,
             module_name,
             kwargs: Some(kwargs_to_workflow_arguments(&request.kwargs)),
-            timeout_seconds: None,
+            timeout_seconds: Some(request.timeout_seconds),
             max_retries: None,
-            attempt_number: None,
-            dispatch_token: None,
+            attempt_number: Some(request.attempt_number),
+            dispatch_token: Some(request.dispatch_token.to_string()),
         };
 
         let response = proto::WorkflowStreamResponse {
@@ -1065,10 +1079,10 @@ fn kwargs_to_workflow_arguments(kwargs: &HashMap<String, Value>) -> proto::Workf
 
 fn action_result_to_completion(
     result: proto::ActionResult,
-    inflight: &Arc<Mutex<HashMap<String, Uuid>>>,
+    inflight: &Arc<Mutex<HashMap<String, StreamInflightAction>>>,
 ) -> Option<ActionCompletion> {
     let action_id = result.action_id.clone();
-    let executor_id = inflight
+    let inflight_action = inflight
         .lock()
         .ok()
         .and_then(|mut map| map.remove(&action_id))?;
@@ -1095,8 +1109,10 @@ fn action_result_to_completion(
     };
 
     Some(ActionCompletion {
-        executor_id,
+        executor_id: inflight_action.executor_id,
         execution_id,
+        attempt_number: inflight_action.attempt_number,
+        dispatch_token: inflight_action.dispatch_token,
         result: value,
     })
 }

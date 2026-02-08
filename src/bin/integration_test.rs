@@ -147,6 +147,12 @@ const CASES: &[FixtureCase] = &[
         workflow_class: "StringProcessingWorkflow",
         kwargs_json: r#"{"text":"Alpha123"}"#,
     },
+    FixtureCase {
+        id: "timeout",
+        module_name: "integration_timeout_workflow",
+        workflow_class: "TimeoutWorkflow",
+        kwargs_json: r#"{}"#,
+    },
 ];
 
 #[derive(Clone, Debug, Deserialize)]
@@ -230,13 +236,24 @@ async fn main() -> Result<()> {
             };
             comparisons += 1;
 
-            if actual != prepared.expected {
-                failures.push(format!(
-                    "case={} backend={}\nexpected={}\nactual={}",
-                    prepared.case.id,
-                    backend_kind.label(),
+            let mismatch = if prepared.case.id == "timeout" {
+                validate_timeout_outcome(&actual)
+            } else if actual != prepared.expected {
+                Some(format!(
+                    "expected={}\nactual={}",
                     serde_json::to_string(&prepared.expected).expect("serialize expected"),
                     serde_json::to_string(&actual).expect("serialize actual"),
+                ))
+            } else {
+                None
+            };
+
+            if let Some(mismatch) = mismatch {
+                failures.push(format!(
+                    "case={} backend={}\n{}",
+                    prepared.case.id,
+                    backend_kind.label(),
+                    mismatch,
                 ));
             }
         }
@@ -734,6 +751,48 @@ fn canonicalize_outcome(outcome: CaseOutcome) -> CaseOutcome {
         status: outcome.status,
         value: canonicalize_json(outcome.value),
     }
+}
+
+fn validate_timeout_outcome(actual: &CaseOutcome) -> Option<String> {
+    if actual.status != "error" {
+        return Some(format!(
+            "expected timeout status=error\nactual={}",
+            serde_json::to_string(actual).expect("serialize actual")
+        ));
+    }
+
+    let Value::Object(payload) = &actual.value else {
+        return Some(format!(
+            "expected timeout payload object\nactual={}",
+            serde_json::to_string(actual).expect("serialize actual")
+        ));
+    };
+
+    let error_type = payload.get("type").and_then(Value::as_str);
+    if error_type != Some("ActionTimeout") {
+        return Some(format!(
+            "expected error type ActionTimeout\nactual={}",
+            serde_json::to_string(actual).expect("serialize actual")
+        ));
+    }
+
+    let timeout_seconds = payload.get("timeout_seconds").and_then(Value::as_i64);
+    if timeout_seconds != Some(1) {
+        return Some(format!(
+            "expected timeout_seconds=1\nactual={}",
+            serde_json::to_string(actual).expect("serialize actual")
+        ));
+    }
+
+    let attempt = payload.get("attempt").and_then(Value::as_i64);
+    if attempt != Some(1) {
+        return Some(format!(
+            "expected attempt=1\nactual={}",
+            serde_json::to_string(actual).expect("serialize actual")
+        ));
+    }
+
+    None
 }
 
 fn canonicalize_json(value: Value) -> Value {

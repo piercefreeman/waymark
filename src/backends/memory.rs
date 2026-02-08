@@ -541,6 +541,13 @@ impl WebappBackend for MemoryBackend {
         Ok(None)
     }
 
+    async fn get_workflow_graph(
+        &self,
+        _instance_id: Uuid,
+    ) -> BackendResult<Option<ExecutionGraphView>> {
+        Ok(None)
+    }
+
     async fn get_action_results(&self, _instance_id: Uuid) -> BackendResult<Vec<TimelineEntry>> {
         Ok(Vec::new())
     }

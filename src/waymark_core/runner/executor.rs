@@ -10,16 +10,22 @@ use rustc_hash::FxHashMap;
 use serde_json::Value;
 use uuid::Uuid;
 
-use crate::backends::{ActionDone, CoreBackend, GraphUpdate};
+use crate::backends::{ActionAttemptStatus, ActionDone, CoreBackend, GraphUpdate};
 use crate::messages::ast as ir;
 use crate::observability::obs;
 use crate::waymark_core::dag::{
     ActionCallNode, AggregatorNode, DAG, DAGEdge, DagEdgeIndex, EXCEPTION_SCOPE_VAR, EdgeType,
 };
 use crate::waymark_core::runner::expression_evaluator::is_exception_value;
+use crate::waymark_core::runner::retry::{
+    RetryDecision, RetryPolicyEvaluator, timeout_seconds_from_policies,
+};
 use crate::waymark_core::runner::state::{
     ActionCallSpec, ExecutionEdge, ExecutionNode, ExecutionNodeType, IndexValue, ListValue,
-    LiteralValue, NodeStatus, QueueNodeParams, RunnerState,
+    LiteralValue, NodeStatus, QueueNodeParams, RunnerState, RunnerStateError,
+};
+use crate::waymark_core::runner::synthetic_exceptions::{
+    SyntheticExceptionType, build_synthetic_exception_value,
 };
 use crate::waymark_core::runner::value_visitor::ValueExpr;
 
@@ -55,16 +61,68 @@ pub struct SleepRequest {
 /// Action result payloads keyed by execution node id.
 type ExecutionResultMap = HashMap<Uuid, Value>;
 
-type FinishedNodeResult = (
-    Option<ExecutionNode>,
-    Option<Value>,
-    Option<ActionDone>,
-    Option<ExecutionNode>,
-);
+struct FinishedNodeOutcome {
+    /// Node to continue graph traversal from.
+    start: Option<ExecutionNode>,
+    /// Exception payload forwarded to exception edges.
+    exception_value: Option<Value>,
+    /// Durable attempt metadata for this finished action (if applicable).
+    action_done: Option<ActionDone>,
+    /// Retry action to dispatch immediately after state transition.
+    retry_action: Option<ExecutionNode>,
+}
+
+#[derive(Default)]
+struct IncrementAccumulator {
+    actions_done: Vec<ActionDone>,
+    pending_starts: Vec<(ExecutionNode, Option<Value>)>,
+    actions: Vec<ExecutionNode>,
+    sleep_requests: Vec<SleepRequest>,
+    seen_actions: HashSet<Uuid>,
+    seen_sleep_nodes: HashSet<Uuid>,
+}
+
+impl IncrementAccumulator {
+    fn absorb_finished_outcome(&mut self, outcome: FinishedNodeOutcome) {
+        if let Some(start) = outcome.start {
+            self.pending_starts.push((start, outcome.exception_value));
+        }
+        if let Some(done) = outcome.action_done {
+            self.actions_done.push(done);
+        }
+        if let Some(retry_action) = outcome.retry_action {
+            self.record_action(retry_action);
+        }
+    }
+
+    fn record_action(&mut self, action: ExecutionNode) {
+        // Multiple finished nodes can converge on the same queued action.
+        if self.seen_actions.insert(action.node_id) {
+            self.actions.push(action);
+        }
+    }
+
+    fn record_sleep_request(&mut self, sleep_request: SleepRequest) {
+        if self.seen_sleep_nodes.insert(sleep_request.node_id) {
+            self.sleep_requests.push(sleep_request);
+        }
+    }
+}
 
 struct WalkOutcome {
     actions: Vec<ExecutionNode>,
     sleep_requests: Vec<SleepRequest>,
+}
+
+struct FinishedActionMetadata {
+    attempt: i32,
+    started_at: Option<DateTime<Utc>>,
+    result: Value,
+}
+
+enum ActionFailureTransition {
+    RetryQueued(Box<ExecutionNode>),
+    Failed,
 }
 
 enum TemplateKind {
@@ -76,16 +134,6 @@ enum TemplateKind {
 enum SleepDecision {
     Completed,
     Blocked(DateTime<Utc>),
-}
-
-#[derive(Clone, Debug)]
-struct RetryDecision {
-    should_retry: bool,
-}
-
-struct RetryPolicyEvaluator<'a> {
-    policies: &'a [ir::PolicyBracket],
-    exception_name: Option<&'a str>,
 }
 
 /// Advance a DAG template using the current runner state and action results.
@@ -194,6 +242,18 @@ impl RunnerExecutor {
         self.action_results.remove(&node_id);
     }
 
+    /// Resolve timeout policy seconds for an action node.
+    pub fn action_timeout_seconds(&self, node_id: Uuid) -> Result<u32, RunnerExecutorError> {
+        let node = self.execution_node(node_id)?;
+        if !node.is_action_call() {
+            return Ok(0);
+        }
+        let Some(action_template) = self.template_action_for_execution_node(node)? else {
+            return Ok(0);
+        };
+        Ok(timeout_seconds_from_policies(&action_template.policies).unwrap_or(0))
+    }
+
     /// Fail inflight actions and return any that should be retried.
     ///
     /// Use this after recovering from a crash: running actions are treated as
@@ -204,9 +264,16 @@ impl RunnerExecutor {
         for (node_id, node) in &self.state.nodes {
             if node.is_action_call() && node.status == NodeStatus::Running {
                 finished_nodes.push(*node_id);
-                self.action_results
-                    .entry(*node_id)
-                    .or_insert_with(|| Self::resume_exception_value(*node_id));
+                self.action_results.insert(
+                    *node_id,
+                    build_synthetic_exception_value(
+                        SyntheticExceptionType::ExecutorResume,
+                        format!(
+                            "action {node_id} was running during resume and is treated as failed"
+                        ),
+                        Vec::new(),
+                    ),
+                );
             }
         }
         if finished_nodes.is_empty() {
@@ -230,54 +297,69 @@ impl RunnerExecutor {
         finished_nodes: &[Uuid],
     ) -> Result<ExecutorStep, RunnerExecutorError> {
         self.eval_cache.borrow_mut().clear();
-        let mut actions_done: Vec<ActionDone> = Vec::new();
-        let mut pending_starts: Vec<(ExecutionNode, Option<Value>)> = Vec::new();
-        let mut actions: Vec<ExecutionNode> = Vec::new();
-        let mut sleep_requests: Vec<SleepRequest> = Vec::new();
-        let mut seen_actions: HashSet<Uuid> = HashSet::new();
-        let mut seen_sleep_nodes: HashSet<Uuid> = HashSet::new();
+        let mut accum = IncrementAccumulator::default();
+        self.collect_increment_results(finished_nodes, &mut accum)?;
+        self.walk_pending_starts(&mut accum)?;
 
-        for finished_node in finished_nodes {
-            let node_id = *finished_node;
-            let (start, exception_value, done, retry_action) = self.apply_finished_node(node_id)?;
-            if let Some(start) = start {
-                pending_starts.push((start, exception_value));
-            }
-            if let Some(done) = done {
-                actions_done.push(done);
-            }
-            if let Some(retry_action) = retry_action
-                && seen_actions.insert(retry_action.node_id)
-            {
-                actions.push(retry_action);
-            }
-        }
-
-        while let Some((start, exception_value)) = pending_starts.pop() {
-            let outcome = self.walk_from(start, exception_value.clone())?;
-            for action in outcome.actions {
-                // Multiple finished nodes can converge on the same action; avoid duplicates.
-                if seen_actions.insert(action.node_id) {
-                    actions.push(action);
-                }
-            }
-            for sleep_request in outcome.sleep_requests {
-                if seen_sleep_nodes.insert(sleep_request.node_id) {
-                    sleep_requests.push(sleep_request);
-                }
-            }
-        }
-
+        let IncrementAccumulator {
+            actions_done,
+            actions,
+            sleep_requests,
+            ..
+        } = accum;
+        let running_actions = self.mark_actions_running(&actions)?;
         let updates = self.collect_updates(actions_done)?;
 
         // Note: Action timeouts and delayed retries require wall-clock tracking in the run loop.
         // The executor only handles timeout failures once they surface as action results.
 
         Ok(ExecutorStep {
-            actions,
+            actions: running_actions,
             sleep_requests,
             updates,
         })
+    }
+
+    fn collect_increment_results(
+        &mut self,
+        finished_nodes: &[Uuid],
+        accum: &mut IncrementAccumulator,
+    ) -> Result<(), RunnerExecutorError> {
+        for &node_id in finished_nodes {
+            accum.absorb_finished_outcome(self.apply_finished_node(node_id)?);
+        }
+        Ok(())
+    }
+
+    fn walk_pending_starts(
+        &mut self,
+        accum: &mut IncrementAccumulator,
+    ) -> Result<(), RunnerExecutorError> {
+        while let Some((start, exception_value)) = accum.pending_starts.pop() {
+            let outcome = self.walk_from(start, exception_value)?;
+            for action in outcome.actions {
+                accum.record_action(action);
+            }
+            for sleep_request in outcome.sleep_requests {
+                accum.record_sleep_request(sleep_request);
+            }
+        }
+        Ok(())
+    }
+
+    fn mark_actions_running(
+        &mut self,
+        actions: &[ExecutionNode],
+    ) -> Result<Vec<ExecutionNode>, RunnerExecutorError> {
+        let mut running_actions = Vec::with_capacity(actions.len());
+        for action in actions {
+            self.clear_action_result(action.node_id);
+            self.state
+                .mark_running(action.node_id)
+                .map_err(Self::state_error)?;
+            running_actions.push(self.execution_node_clone(action.node_id)?);
+        }
+        Ok(running_actions)
     }
 
     /// Walk downstream from a node, executing inline nodes until blocked by an action node.
@@ -307,40 +389,13 @@ impl RunnerExecutor {
             for edge in edges {
                 let successors = self.queue_successor(&current, &edge)?;
                 for successor in successors {
-                    if successor.status == NodeStatus::Completed {
-                        if forwarded_completed.insert(successor.node_id) {
-                            // Rehydrated runs can revisit completed paths to recover
-                            // downstream sleep/action work without re-creating nodes.
-                            pending.push((successor, None));
-                        }
-                        continue;
-                    }
-                    if successor.is_action_call() {
-                        actions.push(successor);
-                        continue;
-                    }
-                    if successor.is_sleep() {
-                        if !self.inline_ready(&successor) {
-                            continue;
-                        }
-                        match self.handle_sleep_node(&successor)? {
-                            SleepDecision::Completed => {
-                                pending.push((successor, None));
-                            }
-                            SleepDecision::Blocked(wake_at) => {
-                                sleep_requests.push(SleepRequest {
-                                    node_id: successor.node_id,
-                                    wake_at,
-                                });
-                            }
-                        }
-                        continue;
-                    }
-                    if !self.inline_ready(&successor) {
-                        continue;
-                    }
-                    self.execute_inline_node(&successor)?;
-                    pending.push((successor, None));
+                    self.handle_walk_successor(
+                        successor,
+                        &mut pending,
+                        &mut actions,
+                        &mut sleep_requests,
+                        &mut forwarded_completed,
+                    )?;
                 }
             }
         }
@@ -350,125 +405,287 @@ impl RunnerExecutor {
         })
     }
 
+    fn handle_walk_successor(
+        &mut self,
+        successor: ExecutionNode,
+        pending: &mut Vec<(ExecutionNode, Option<Value>)>,
+        actions: &mut Vec<ExecutionNode>,
+        sleep_requests: &mut Vec<SleepRequest>,
+        forwarded_completed: &mut HashSet<Uuid>,
+    ) -> Result<(), RunnerExecutorError> {
+        if self.forward_completed_successor(&successor, pending, forwarded_completed) {
+            return Ok(());
+        }
+        if successor.is_action_call() {
+            actions.push(successor);
+            return Ok(());
+        }
+        if successor.is_sleep() {
+            self.handle_sleep_successor(successor, pending, sleep_requests)?;
+            return Ok(());
+        }
+        self.handle_inline_successor(successor, pending)
+    }
+
+    fn forward_completed_successor(
+        &self,
+        successor: &ExecutionNode,
+        pending: &mut Vec<(ExecutionNode, Option<Value>)>,
+        forwarded_completed: &mut HashSet<Uuid>,
+    ) -> bool {
+        if successor.status != NodeStatus::Completed {
+            return false;
+        }
+        if forwarded_completed.insert(successor.node_id) {
+            // Rehydrated runs can revisit completed paths to recover downstream
+            // sleep/action work without mutating already completed nodes.
+            pending.push((successor.clone(), None));
+        }
+        true
+    }
+
+    fn handle_sleep_successor(
+        &mut self,
+        successor: ExecutionNode,
+        pending: &mut Vec<(ExecutionNode, Option<Value>)>,
+        sleep_requests: &mut Vec<SleepRequest>,
+    ) -> Result<(), RunnerExecutorError> {
+        if !self.inline_ready(&successor) {
+            return Ok(());
+        }
+        match self.handle_sleep_node(&successor)? {
+            SleepDecision::Completed => pending.push((successor, None)),
+            SleepDecision::Blocked(wake_at) => sleep_requests.push(SleepRequest {
+                node_id: successor.node_id,
+                wake_at,
+            }),
+        }
+        Ok(())
+    }
+
+    fn handle_inline_successor(
+        &mut self,
+        successor: ExecutionNode,
+        pending: &mut Vec<(ExecutionNode, Option<Value>)>,
+    ) -> Result<(), RunnerExecutorError> {
+        if !self.inline_ready(&successor) {
+            return Ok(());
+        }
+        self.execute_inline_node(&successor)?;
+        pending.push((successor, None));
+        Ok(())
+    }
+
     /// Update state for a finished node and return replay metadata.
     #[obs]
     fn apply_finished_node(
         &mut self,
         node_id: Uuid,
-    ) -> Result<FinishedNodeResult, RunnerExecutorError> {
-        let mut exception_value: Option<Value> = None;
-        let mut action_done: Option<ActionDone> = None;
-        let mut retry_action: Option<ExecutionNode> = None;
-
-        let node_is_action = self
-            .state
-            .nodes
-            .get(&node_id)
-            .ok_or_else(|| RunnerExecutorError(format!("execution node not found: {node_id}")))?
-            .is_action_call();
-
-        if node_is_action {
-            let action_value = self.action_results.get(&node_id).cloned().ok_or_else(|| {
-                RunnerExecutorError(format!("missing action result for {}", node_id))
-            })?;
-            let attempt = {
-                let node = self.state.nodes.get(&node_id).ok_or_else(|| {
-                    RunnerExecutorError(format!("execution node not found: {node_id}"))
-                })?;
-                node.action_attempt
-            };
-            if is_exception_value(&action_value) {
-                exception_value = Some(action_value.clone());
-                action_done = Some(ActionDone {
-                    execution_id: node_id,
-                    attempt,
-                    result: action_value.clone(),
-                });
-                if let Some(node) = self.handle_action_failure(node_id, exception_value.as_ref())? {
-                    retry_action = Some(node);
-                    return Ok((None, None, action_done, retry_action));
-                }
-                if !self.failure_has_exception_handler(node_id, &action_value)?
-                    && self.terminal_error.is_none()
-                {
-                    self.terminal_error = Some(action_value);
-                }
-            } else {
-                self.state
-                    .mark_completed(node_id)
-                    .map_err(|err| RunnerExecutorError(err.0))?;
-                let assignments = self
-                    .state
-                    .nodes
-                    .get(&node_id)
-                    .map(|node| node.assignments.clone())
-                    .unwrap_or_default();
-                if !assignments.is_empty() {
-                    self.state.mark_latest_assignments(node_id, &assignments);
-                }
-                action_done = Some(ActionDone {
-                    execution_id: node_id,
-                    attempt,
-                    result: action_value,
-                });
-            }
-        } else {
-            self.state
-                .mark_completed(node_id)
-                .map_err(|err| RunnerExecutorError(err.0))?;
+    ) -> Result<FinishedNodeOutcome, RunnerExecutorError> {
+        if self.execution_node(node_id)?.is_action_call() {
+            return self.apply_finished_action_node(node_id);
         }
-
-        let node =
-            self.state.nodes.get(&node_id).cloned().ok_or_else(|| {
-                RunnerExecutorError(format!("execution node not found: {node_id}"))
-            })?;
-        Ok((Some(node), exception_value, action_done, retry_action))
+        // Non-action nodes are inline runtime steps; completion is a status flip.
+        self.state
+            .mark_completed(node_id)
+            .map_err(Self::state_error)?;
+        Ok(FinishedNodeOutcome {
+            start: Some(self.execution_node_clone(node_id)?),
+            exception_value: None,
+            action_done: None,
+            retry_action: None,
+        })
     }
 
-    fn handle_action_failure(
+    fn apply_finished_action_node(
+        &mut self,
+        node_id: Uuid,
+    ) -> Result<FinishedNodeOutcome, RunnerExecutorError> {
+        let metadata = self.finished_action_metadata(node_id)?;
+        if is_exception_value(&metadata.result) {
+            return self.apply_exception_action_completion(node_id, metadata);
+        }
+        self.apply_successful_action_completion(node_id, metadata)
+    }
+
+    fn finished_action_metadata(
+        &self,
+        node_id: Uuid,
+    ) -> Result<FinishedActionMetadata, RunnerExecutorError> {
+        let node = self.execution_node(node_id)?;
+        let result =
+            self.action_results.get(&node_id).cloned().ok_or_else(|| {
+                RunnerExecutorError(format!("missing action result for {node_id}"))
+            })?;
+        Ok(FinishedActionMetadata {
+            attempt: node.action_attempt,
+            started_at: node.started_at,
+            result,
+        })
+    }
+
+    fn apply_successful_action_completion(
+        &mut self,
+        node_id: Uuid,
+        metadata: FinishedActionMetadata,
+    ) -> Result<FinishedNodeOutcome, RunnerExecutorError> {
+        self.state
+            .mark_completed(node_id)
+            .map_err(Self::state_error)?;
+        let assignments = self.execution_node(node_id)?.assignments.clone();
+        if !assignments.is_empty() {
+            self.state.mark_latest_assignments(node_id, &assignments);
+        }
+        let completed_at = self
+            .execution_node(node_id)?
+            .completed_at
+            .unwrap_or_else(Utc::now);
+        let action_done = build_action_done(
+            node_id,
+            metadata.attempt,
+            ActionAttemptStatus::Completed,
+            metadata.started_at,
+            completed_at,
+            metadata.result,
+        );
+        Ok(FinishedNodeOutcome {
+            start: Some(self.execution_node_clone(node_id)?),
+            exception_value: None,
+            action_done: Some(action_done),
+            retry_action: None,
+        })
+    }
+
+    fn apply_exception_action_completion(
+        &mut self,
+        node_id: Uuid,
+        metadata: FinishedActionMetadata,
+    ) -> Result<FinishedNodeOutcome, RunnerExecutorError> {
+        let exception_value = metadata.result;
+        let status = action_done_status_for_exception(&exception_value);
+        let finished_at = Utc::now();
+
+        match self.apply_action_failure_transition(node_id, Some(&exception_value), finished_at)? {
+            ActionFailureTransition::RetryQueued(retry_action) => {
+                // Retries are re-queued and dispatched in this same increment pass.
+                let action_done = build_action_done(
+                    node_id,
+                    metadata.attempt,
+                    status,
+                    metadata.started_at,
+                    finished_at,
+                    exception_value,
+                );
+                Ok(FinishedNodeOutcome {
+                    start: None,
+                    exception_value: None,
+                    action_done: Some(action_done),
+                    retry_action: Some(*retry_action),
+                })
+            }
+            ActionFailureTransition::Failed => {
+                // Terminal failures keep exception payloads on the node so exception
+                // handler edges can bind $__exception in downstream inline nodes.
+                if !self.failure_has_exception_handler(node_id, &exception_value)?
+                    && self.terminal_error.is_none()
+                {
+                    self.terminal_error = Some(exception_value.clone());
+                }
+                let completed_at = self
+                    .execution_node(node_id)?
+                    .completed_at
+                    .unwrap_or(finished_at);
+                let action_done = build_action_done(
+                    node_id,
+                    metadata.attempt,
+                    status,
+                    metadata.started_at,
+                    completed_at,
+                    exception_value.clone(),
+                );
+                Ok(FinishedNodeOutcome {
+                    start: Some(self.execution_node_clone(node_id)?),
+                    exception_value: Some(exception_value),
+                    action_done: Some(action_done),
+                    retry_action: None,
+                })
+            }
+        }
+    }
+
+    fn apply_action_failure_transition(
         &mut self,
         node_id: Uuid,
         exception_value: Option<&Value>,
-    ) -> Result<Option<ExecutionNode>, RunnerExecutorError> {
-        let node =
-            self.state.nodes.get(&node_id).ok_or_else(|| {
-                RunnerExecutorError(format!("execution node not found: {node_id}"))
-            })?;
-        let decision = self.retry_decision(node, exception_value)?;
-        if decision.should_retry {
-            self.state
-                .increment_action_attempt(node_id)
-                .map_err(|err| RunnerExecutorError(err.0))?;
-            let should_queue = !self.state.ready_queue.contains(&node_id);
-            if let Some(node) = self.state.nodes.get_mut(&node_id) {
-                node.status = NodeStatus::Queued;
-            }
-            if should_queue {
-                self.state.ready_queue.push(node_id);
-            }
-            let retry_node = self.state.nodes.get(&node_id).cloned().ok_or_else(|| {
-                RunnerExecutorError(format!("execution node not found: {node_id}"))
-            })?;
-            return Ok(Some(retry_node));
+        finished_at: DateTime<Utc>,
+    ) -> Result<ActionFailureTransition, RunnerExecutorError> {
+        let should_retry = {
+            let node = self.execution_node(node_id)?;
+            self.retry_decision(node, exception_value)?.should_retry
+        };
+        if should_retry {
+            let retry_node = self.transition_action_to_retry(node_id, finished_at)?;
+            return Ok(ActionFailureTransition::RetryQueued(Box::new(retry_node)));
         }
+        self.transition_action_to_failed(node_id, exception_value, finished_at)?;
+        Ok(ActionFailureTransition::Failed)
+    }
 
+    fn transition_action_to_retry(
+        &mut self,
+        node_id: Uuid,
+        finished_at: DateTime<Utc>,
+    ) -> Result<ExecutionNode, RunnerExecutorError> {
+        // Retry transition invariants:
+        // 1) bump attempt counter before re-dispatch
+        // 2) return to queued status
+        // 3) keep completion timestamp for the failed attempt
         self.state
-            .mark_failed(node_id)
-            .map_err(|err| RunnerExecutorError(err.0))?;
-        if let Some(exception_value) = exception_value {
-            let exception_expr = ValueExpr::Literal(LiteralValue {
-                value: exception_value.clone(),
-            });
-            let mut exception_assignment = HashMap::new();
-            exception_assignment.insert(EXCEPTION_SCOPE_VAR.to_string(), exception_expr.clone());
-            if let Some(node) = self.state.nodes.get_mut(&node_id) {
-                node.assignments
-                    .insert(EXCEPTION_SCOPE_VAR.to_string(), exception_expr);
-            }
-            self.state
-                .mark_latest_assignments(node_id, &exception_assignment);
+            .increment_action_attempt(node_id)
+            .map_err(Self::state_error)?;
+        let should_queue = !self.state.ready_queue.contains(&node_id);
+        {
+            let node = self.execution_node_mut(node_id)?;
+            node.status = NodeStatus::Queued;
+            node.started_at = None;
+            node.completed_at = Some(finished_at);
         }
-        Ok(None)
+        if should_queue {
+            self.state.ready_queue.push(node_id);
+        }
+        self.execution_node_clone(node_id)
+    }
+
+    fn transition_action_to_failed(
+        &mut self,
+        node_id: Uuid,
+        exception_value: Option<&Value>,
+        finished_at: DateTime<Utc>,
+    ) -> Result<(), RunnerExecutorError> {
+        self.state.mark_failed(node_id).map_err(Self::state_error)?;
+        self.execution_node_mut(node_id)?.completed_at = Some(finished_at);
+        if let Some(exception_value) = exception_value {
+            self.assign_exception_scope(node_id, exception_value.clone())?;
+        }
+        Ok(())
+    }
+
+    fn assign_exception_scope(
+        &mut self,
+        node_id: Uuid,
+        exception_value: Value,
+    ) -> Result<(), RunnerExecutorError> {
+        let exception_expr = ValueExpr::Literal(LiteralValue {
+            value: exception_value,
+        });
+        let mut exception_assignment = HashMap::new();
+        exception_assignment.insert(EXCEPTION_SCOPE_VAR.to_string(), exception_expr.clone());
+        self.execution_node_mut(node_id)?
+            .assignments
+            .insert(EXCEPTION_SCOPE_VAR.to_string(), exception_expr);
+        self.state
+            .mark_latest_assignments(node_id, &exception_assignment);
+        Ok(())
     }
 
     fn failure_has_exception_handler(
@@ -476,10 +693,7 @@ impl RunnerExecutor {
         node_id: Uuid,
         exception_value: &Value,
     ) -> Result<bool, RunnerExecutorError> {
-        let node =
-            self.state.nodes.get(&node_id).ok_or_else(|| {
-                RunnerExecutorError(format!("execution node not found: {node_id}"))
-            })?;
+        let node = self.execution_node(node_id)?;
         let template_id = match &node.template_id {
             Some(id) => id,
             None => return Ok(false),
@@ -499,46 +713,14 @@ impl RunnerExecutor {
         node: &ExecutionNode,
         exception_value: Option<&Value>,
     ) -> Result<RetryDecision, RunnerExecutorError> {
-        let template_id = match &node.template_id {
-            Some(id) => id.clone(),
-            None => {
-                return Ok(RetryDecision {
-                    should_retry: false,
-                });
-            }
-        };
-        let template = self.dag.nodes.get(&template_id).ok_or_else(|| {
-            RunnerExecutorError(format!("template node not found: {template_id}"))
-        })?;
-        let action = match template {
-            crate::waymark_core::dag::DAGNode::ActionCall(action) => action,
-            _ => {
-                return Ok(RetryDecision {
-                    should_retry: false,
-                });
-            }
+        let Some(action) = self.template_action_for_execution_node(node)? else {
+            return Ok(RetryDecision {
+                should_retry: false,
+            });
         };
         let exception_name = exception_value.and_then(exception_type);
-        let evaluator = RetryPolicyEvaluator {
-            policies: &action.policies,
-            exception_name,
-        };
+        let evaluator = RetryPolicyEvaluator::new(&action.policies, exception_name);
         Ok(evaluator.decision(node.action_attempt))
-    }
-
-    fn resume_exception_value(node_id: Uuid) -> Value {
-        let mut map = serde_json::Map::new();
-        map.insert(
-            "type".to_string(),
-            Value::String("ExecutorResume".to_string()),
-        );
-        map.insert(
-            "message".to_string(),
-            Value::String(format!(
-                "action {node_id} was running during resume and is treated as failed"
-            )),
-        );
-        Value::Object(map)
     }
 
     /// Select outgoing edges based on guards and exception state.
@@ -1205,6 +1387,47 @@ impl RunnerExecutor {
         Ok(node)
     }
 
+    fn execution_node(&self, node_id: Uuid) -> Result<&ExecutionNode, RunnerExecutorError> {
+        self.state
+            .nodes
+            .get(&node_id)
+            .ok_or_else(|| RunnerExecutorError(format!("execution node not found: {node_id}")))
+    }
+
+    fn execution_node_mut(
+        &mut self,
+        node_id: Uuid,
+    ) -> Result<&mut ExecutionNode, RunnerExecutorError> {
+        self.state
+            .nodes
+            .get_mut(&node_id)
+            .ok_or_else(|| RunnerExecutorError(format!("execution node not found: {node_id}")))
+    }
+
+    fn execution_node_clone(&self, node_id: Uuid) -> Result<ExecutionNode, RunnerExecutorError> {
+        self.execution_node(node_id).cloned()
+    }
+
+    fn template_action_for_execution_node(
+        &self,
+        node: &ExecutionNode,
+    ) -> Result<Option<&ActionCallNode>, RunnerExecutorError> {
+        let Some(template_id) = node.template_id.as_ref() else {
+            return Ok(None);
+        };
+        let template = self.dag.nodes.get(template_id).ok_or_else(|| {
+            RunnerExecutorError(format!("template node not found: {template_id}"))
+        })?;
+        match template {
+            crate::waymark_core::dag::DAGNode::ActionCall(action) => Ok(Some(action)),
+            _ => Ok(None),
+        }
+    }
+
+    fn state_error(err: RunnerStateError) -> RunnerExecutorError {
+        RunnerExecutorError(err.0)
+    }
+
     fn collect_updates(
         &mut self,
         actions_done: Vec<ActionDone>,
@@ -1232,39 +1455,50 @@ impl RunnerExecutor {
     }
 }
 
-impl<'a> RetryPolicyEvaluator<'a> {
-    fn decision(&self, attempt: i32) -> RetryDecision {
-        let mut max_retries: i32 = 0;
-        let mut matched_policy = false;
-
-        for policy in self.policies {
-            let Some(ir::policy_bracket::Kind::Retry(retry)) = policy.kind.as_ref() else {
-                continue;
-            };
-            let matches_exception = if retry.exception_types.is_empty() {
-                true
-            } else if let Some(name) = self.exception_name {
-                retry.exception_types.iter().any(|value| value == name)
-            } else {
-                false
-            };
-            if !matches_exception {
-                continue;
-            }
-            matched_policy = true;
-            max_retries = max_retries.max(retry.max_retries as i32);
-        }
-
-        let should_retry = matched_policy && attempt - 1 < max_retries;
-
-        RetryDecision { should_retry }
-    }
-}
-
 fn exception_type(value: &Value) -> Option<&str> {
     match value {
         Value::Object(map) => map.get("type").and_then(|value| value.as_str()),
         _ => None,
+    }
+}
+
+fn action_done_status_for_exception(value: &Value) -> ActionAttemptStatus {
+    match SyntheticExceptionType::from_value(value) {
+        Some(SyntheticExceptionType::ExecutorResume)
+        | Some(SyntheticExceptionType::ActionTimeout) => ActionAttemptStatus::TimedOut,
+        None => ActionAttemptStatus::Failed,
+    }
+}
+
+fn compute_action_duration_ms(
+    started_at: Option<DateTime<Utc>>,
+    completed_at: DateTime<Utc>,
+) -> Option<i64> {
+    started_at
+        .map(|started_at| {
+            completed_at
+                .signed_duration_since(started_at)
+                .num_milliseconds()
+        })
+        .filter(|duration| *duration >= 0)
+}
+
+fn build_action_done(
+    execution_id: Uuid,
+    attempt: i32,
+    status: ActionAttemptStatus,
+    started_at: Option<DateTime<Utc>>,
+    completed_at: DateTime<Utc>,
+    result: Value,
+) -> ActionDone {
+    ActionDone {
+        execution_id,
+        attempt,
+        status,
+        started_at,
+        completed_at: Some(completed_at),
+        duration_ms: compute_action_duration_ms(started_at, completed_at),
+        result,
     }
 }
 
@@ -1312,6 +1546,78 @@ mod tests {
             }))),
             span: None,
         }
+    }
+
+    #[test]
+    fn test_action_done_status_for_resume_exception_is_timed_out() {
+        let value = serde_json::json!({
+            "type": "ExecutorResume",
+            "message": "resumed action timed out",
+        });
+        assert_eq!(
+            action_done_status_for_exception(&value),
+            ActionAttemptStatus::TimedOut
+        );
+    }
+
+    #[test]
+    fn test_action_done_status_for_action_timeout_exception_is_timed_out() {
+        let value = serde_json::json!({
+            "type": "ActionTimeout",
+            "message": "action timed out",
+            "timeout_seconds": 1,
+            "attempt": 1,
+        });
+        assert_eq!(
+            action_done_status_for_exception(&value),
+            ActionAttemptStatus::TimedOut
+        );
+    }
+
+    #[test]
+    fn test_action_done_status_for_generic_exception_is_failed() {
+        let value = serde_json::json!({
+            "type": "ValueError",
+            "message": "boom",
+        });
+        assert_eq!(
+            action_done_status_for_exception(&value),
+            ActionAttemptStatus::Failed
+        );
+    }
+
+    #[test]
+    fn test_action_done_status_for_non_synthetic_timeout_error_is_failed() {
+        let value = serde_json::json!({
+            "type": "TimeoutError",
+            "message": "user action raised timeout",
+        });
+        assert_eq!(
+            action_done_status_for_exception(&value),
+            ActionAttemptStatus::Failed
+        );
+    }
+
+    #[test]
+    fn test_build_action_done_sets_duration_from_started_and_completed() {
+        let execution_id = Uuid::new_v4();
+        let started_at = Utc::now();
+        let completed_at = started_at + chrono::Duration::milliseconds(275);
+        let done = build_action_done(
+            execution_id,
+            2,
+            ActionAttemptStatus::Completed,
+            Some(started_at),
+            completed_at,
+            serde_json::json!({"ok": true}),
+        );
+
+        assert_eq!(done.execution_id, execution_id);
+        assert_eq!(done.attempt, 2);
+        assert_eq!(done.status, ActionAttemptStatus::Completed);
+        assert_eq!(done.started_at, Some(started_at));
+        assert_eq!(done.completed_at, Some(completed_at));
+        assert_eq!(done.duration_ms, Some(275));
     }
 
     #[derive(Default)]
@@ -1525,21 +1831,24 @@ mod tests {
             executor: &mut RunnerExecutor,
             action_result_for: ActionResultFor,
         ) -> Result<bool, RunnerExecutorError> {
-            let queued_actions: Vec<ExecutionNode> = executor
+            let active_actions: Vec<ExecutionNode> = executor
                 .state()
                 .nodes
                 .values()
-                .filter(|node| node.status == NodeStatus::Queued && node.is_action_call())
+                .filter(|node| {
+                    node.is_action_call()
+                        && matches!(node.status, NodeStatus::Queued | NodeStatus::Running)
+                })
                 .cloned()
                 .collect();
-            for action in &queued_actions {
+            for action in &active_actions {
                 if !executor.action_results().contains_key(&action.node_id) {
                     executor.set_action_result(action.node_id, action_result_for(action));
                 }
             }
 
             let mut finished_nodes: Vec<Uuid> =
-                queued_actions.iter().map(|node| node.node_id).collect();
+                active_actions.iter().map(|node| node.node_id).collect();
             finished_nodes.extend(
                 executor
                     .state()
@@ -1967,7 +2276,7 @@ fn main(input: [], output: [done]):
         let node1 = rehydrated.state().nodes.get(&exec1.node_id).unwrap();
         assert_eq!(node1.status, NodeStatus::Completed);
         let node2 = rehydrated.state().nodes.get(&exec2.node_id).unwrap();
-        assert_eq!(node2.status, NodeStatus::Queued);
+        assert_eq!(node2.status, NodeStatus::Running);
     }
 
     #[test]
@@ -2270,8 +2579,9 @@ fn main(input: [], output: [done]):
         assert_eq!(step.actions.len(), 1);
         assert_eq!(step.actions[0].node_id, exec1.node_id);
         let node = rehydrated.state().nodes.get(&exec1.node_id).unwrap();
-        assert_eq!(node.status, NodeStatus::Queued);
+        assert_eq!(node.status, NodeStatus::Running);
         assert_eq!(node.action_attempt, 2);
+        assert!(node.started_at.is_some());
     }
 
     #[test]
@@ -2379,7 +2689,7 @@ fn main(input: [], output: [done]):
                 .nodes
                 .get(&exec.node_id)
                 .map(|n| n.status.clone()),
-            Some(NodeStatus::Queued)
+            Some(NodeStatus::Running)
         );
         assert_eq!(
             executor
@@ -2719,7 +3029,7 @@ fn main(input: [], output: [done]):
     }
 
     #[test]
-    fn test_rehydrate_ready_queue_rebuilt() {
+    fn test_rehydrate_ready_queue_rebuilt_for_running_actions() {
         let mut dag = DAG::default();
         let action1 = action_node(
             "action1",
@@ -2767,7 +3077,18 @@ fn main(input: [], output: [done]):
             .values()
             .filter(|node| node.status == NodeStatus::Queued)
             .collect();
-        assert_eq!(queued_nodes.len(), 1);
-        assert_eq!(queued_nodes[0].node_id, exec2.node_id);
+        assert!(queued_nodes.is_empty());
+        let running_nodes: Vec<_> = rehydrated
+            .state()
+            .nodes
+            .values()
+            .filter(|node| node.status == NodeStatus::Running)
+            .collect();
+        assert_eq!(running_nodes.len(), 1);
+        assert_eq!(running_nodes[0].node_id, exec2.node_id);
+        assert!(
+            rehydrated.state().ready_queue.is_empty(),
+            "rehydration should not requeue running action nodes"
+        );
     }
 }

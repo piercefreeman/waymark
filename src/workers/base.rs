@@ -16,6 +16,9 @@ pub struct ActionRequest {
     pub action_name: String,
     pub module_name: Option<String>,
     pub kwargs: HashMap<String, Value>,
+    pub timeout_seconds: u32,
+    pub attempt_number: u32,
+    pub dispatch_token: Uuid,
 }
 
 /// Completed action result emitted by the worker pool.
@@ -23,6 +26,8 @@ pub struct ActionRequest {
 pub struct ActionCompletion {
     pub executor_id: Uuid,
     pub execution_id: Uuid,
+    pub attempt_number: u32,
+    pub dispatch_token: Uuid,
     pub result: Value,
 }
 

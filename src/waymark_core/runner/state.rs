@@ -204,6 +204,10 @@ pub struct ExecutionNode {
     pub assignments: HashMap<String, ValueExpr>,
     pub action_attempt: i32,
     #[serde(default)]
+    pub started_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub completed_at: Option<DateTime<Utc>>,
+    #[serde(default)]
     pub scheduled_at: Option<DateTime<Utc>>,
 }
 
@@ -383,6 +387,8 @@ impl RunnerState {
             } else {
                 0
             },
+            started_at: None,
+            completed_at: None,
             scheduled_at: None,
         };
 
@@ -430,6 +436,8 @@ impl RunnerState {
             value_expr,
             assignments: HashMap::new(),
             action_attempt,
+            started_at: None,
+            completed_at: None,
             scheduled_at,
         };
         self.register_node(node.clone())?;
@@ -479,24 +487,56 @@ impl RunnerState {
     }
 
     pub fn mark_running(&mut self, node_id: Uuid) -> Result<(), RunnerStateError> {
-        let node = self.get_node_mut(node_id)?;
-        node.status = NodeStatus::Running;
+        let is_action = {
+            let node = self.get_node_mut(node_id)?;
+            node.status = NodeStatus::Running;
+            let is_action = node.is_action_call();
+            if is_action {
+                node.started_at = Some(Utc::now());
+                node.completed_at = None;
+            }
+            is_action
+        };
+        self.ready_queue.retain(|id| id != &node_id);
+        if is_action {
+            self.mark_graph_dirty();
+        }
         Ok(())
     }
 
     pub fn mark_completed(&mut self, node_id: Uuid) -> Result<(), RunnerStateError> {
-        let node = self.get_node_mut(node_id)?;
-        node.status = NodeStatus::Completed;
-        node.scheduled_at = None;
+        let is_action = {
+            let node = self.get_node_mut(node_id)?;
+            node.status = NodeStatus::Completed;
+            let is_action = node.is_action_call();
+            if is_action {
+                node.completed_at = Some(Utc::now());
+            }
+            node.scheduled_at = None;
+            is_action
+        };
         self.ready_queue.retain(|id| id != &node_id);
+        if is_action {
+            self.mark_graph_dirty();
+        }
         Ok(())
     }
 
     pub fn mark_failed(&mut self, node_id: Uuid) -> Result<(), RunnerStateError> {
-        let node = self.get_node_mut(node_id)?;
-        node.status = NodeStatus::Failed;
-        node.scheduled_at = None;
+        let is_action = {
+            let node = self.get_node_mut(node_id)?;
+            node.status = NodeStatus::Failed;
+            let is_action = node.is_action_call();
+            if is_action {
+                node.completed_at = Some(Utc::now());
+            }
+            node.scheduled_at = None;
+            is_action
+        };
         self.ready_queue.retain(|id| id != &node_id);
+        if is_action {
+            self.mark_graph_dirty();
+        }
         Ok(())
     }
 
@@ -1957,5 +1997,64 @@ mod tests {
             .expect("record assignment");
 
         assert!(!state.consume_graph_dirty_for_durable_execution());
+    }
+
+    #[test]
+    fn test_runner_state_records_action_start_stop_timestamps() {
+        let mut state = RunnerState::new(None, None, None, true);
+        let action_result = state
+            .queue_action(
+                "action",
+                Some(vec!["action_result".to_string()]),
+                None,
+                None,
+                None,
+            )
+            .expect("queue action");
+
+        // Clear queue-time dirty bit so lifecycle transitions are isolated.
+        assert!(state.consume_graph_dirty_for_durable_execution());
+
+        state
+            .mark_running(action_result.node_id)
+            .expect("mark running");
+        let started_at = state
+            .nodes
+            .get(&action_result.node_id)
+            .and_then(|node| node.started_at);
+        assert!(
+            started_at.is_some(),
+            "running action should record started_at"
+        );
+        assert!(
+            state
+                .nodes
+                .get(&action_result.node_id)
+                .and_then(|node| node.completed_at)
+                .is_none(),
+            "running action should clear completed_at"
+        );
+        assert!(
+            !state.ready_queue.contains(&action_result.node_id),
+            "running action should be removed from ready_queue"
+        );
+        assert!(state.consume_graph_dirty_for_durable_execution());
+
+        state
+            .mark_completed(action_result.node_id)
+            .expect("mark completed");
+        let completed_at = state
+            .nodes
+            .get(&action_result.node_id)
+            .and_then(|node| node.completed_at);
+        assert!(
+            completed_at.is_some(),
+            "completed action should record completed_at"
+        );
+        assert!(
+            completed_at >= started_at,
+            "completed_at should be at or after started_at"
+        );
+        assert!(state.consume_graph_dirty_for_durable_execution());
     }
 }

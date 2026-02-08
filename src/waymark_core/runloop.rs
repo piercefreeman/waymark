@@ -24,6 +24,9 @@ use crate::messages::ast as ir;
 use crate::observability::obs;
 use crate::waymark_core::dag::{DAG, DAGNode, OutputNode, ReturnNode, convert_to_dag};
 use crate::waymark_core::lock::{InstanceLockTracker, spawn_lock_heartbeat};
+use crate::waymark_core::runner::synthetic_exceptions::{
+    SyntheticExceptionType, build_synthetic_exception_value,
+};
 use crate::waymark_core::runner::{
     DurableUpdates, ExecutorStep, RunnerExecutor, RunnerExecutorError, SleepRequest,
     replay_variables,
@@ -69,6 +72,7 @@ struct EvictionState<'a> {
     shard_senders: &'a [std_mpsc::Sender<ShardCommand>],
     lock_tracker: &'a InstanceLockTracker,
     inflight_actions: &'a mut HashMap<Uuid, usize>,
+    inflight_dispatches: &'a mut HashMap<Uuid, InflightActionDispatch>,
     sleeping_nodes: &'a mut HashMap<Uuid, SleepRequest>,
     sleeping_by_instance: &'a mut HashMap<Uuid, HashSet<Uuid>>,
     blocked_until_by_instance: &'a mut HashMap<Uuid, DateTime<Utc>>,
@@ -89,11 +93,21 @@ struct SleepWake {
     node_id: Uuid,
 }
 
+#[derive(Clone, Debug)]
+struct InflightActionDispatch {
+    executor_id: Uuid,
+    attempt_number: u32,
+    dispatch_token: Uuid,
+    timeout_seconds: u32,
+    deadline_at: Option<DateTime<Utc>>,
+}
+
 enum CoordinatorEvent {
     Completions(Vec<ActionCompletion>),
     Instance(InstanceMessage),
     Shard(ShardEvent),
     SleepWake(SleepWake),
+    ActionTimeoutTick,
 }
 
 struct ShardExecutor {
@@ -163,20 +177,25 @@ impl ShardExecutor {
             if self.inflight.contains(&action.node_id) {
                 continue;
             }
-            self.executor.clear_action_result(action.node_id);
-            self.executor
-                .state_mut()
-                .mark_running(action.node_id)
-                .map_err(|err| RunLoopError::Message(err.0))?;
             let kwargs = self
                 .executor
                 .resolve_action_kwargs(action.node_id, &action_spec)?;
+            let timeout_seconds = self.executor.action_timeout_seconds(action.node_id)?;
+            let attempt_number = u32::try_from(action.action_attempt).map_err(|_| {
+                RunLoopError::Message(format!(
+                    "invalid negative action attempt for node {}",
+                    action.node_id
+                ))
+            })?;
             actions.push(ActionRequest {
                 executor_id: self.executor_id,
                 execution_id: action.node_id,
                 action_name: action_spec.action_name,
                 module_name: action_spec.module_name.clone(),
                 kwargs,
+                timeout_seconds,
+                attempt_number,
+                dispatch_token: Uuid::new_v4(),
             });
             self.inflight.insert(action.node_id);
         }
@@ -612,6 +631,7 @@ impl RunLoop {
             return Ok(());
         }
         let mut by_shard: HashMap<usize, Vec<Uuid>> = HashMap::new();
+        let evicted_instance_ids: HashSet<Uuid> = instance_ids.iter().copied().collect();
         for instance_id in instance_ids {
             if let Some(shard_idx) = state.executor_shards.remove(instance_id) {
                 by_shard.entry(shard_idx).or_default().push(*instance_id);
@@ -624,6 +644,9 @@ impl RunLoop {
             }
             state.blocked_until_by_instance.remove(instance_id);
         }
+        state
+            .inflight_dispatches
+            .retain(|_, dispatch| !evicted_instance_ids.contains(&dispatch.executor_id));
         state.lock_tracker.remove_all(instance_ids.iter().copied());
         for (shard_idx, ids) in by_shard {
             if let Some(sender) = state.shard_senders.get(shard_idx) {
@@ -802,10 +825,21 @@ impl RunLoop {
             Duration::from_secs(3600)
         };
         let mut persistence_tick = tokio::time::interval(persistence_interval);
+        let timeout_scan_interval = if self.poll_interval > Duration::ZERO {
+            std::cmp::max(
+                Duration::from_millis(25),
+                std::cmp::min(self.poll_interval, Duration::from_millis(250)),
+            )
+        } else {
+            Duration::from_millis(100)
+        };
+        let mut action_timeout_tick = tokio::time::interval(timeout_scan_interval);
+        action_timeout_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
         let mut next_shard = 0usize;
         let mut executor_shards: HashMap<Uuid, usize> = HashMap::new();
         let mut inflight_actions: HashMap<Uuid, usize> = HashMap::new();
+        let mut inflight_dispatches: HashMap<Uuid, InflightActionDispatch> = HashMap::new();
         let mut sleeping_nodes: HashMap<Uuid, SleepRequest> = HashMap::new();
         let mut sleeping_by_instance: HashMap<Uuid, HashSet<Uuid>> = HashMap::new();
         let mut blocked_until_by_instance: HashMap<Uuid, DateTime<Utc>> = HashMap::new();
@@ -867,6 +901,9 @@ impl RunLoop {
                     }
                     None
                 }
+                _ = action_timeout_tick.tick() => {
+                    Some(CoordinatorEvent::ActionTimeoutTick)
+                }
                 else => {
                     warn!("runloop exiting: event channels closed");
                     break;
@@ -921,6 +958,7 @@ impl RunLoop {
                 CoordinatorEvent::SleepWake(wake) => {
                     all_wakes.push(wake);
                 }
+                CoordinatorEvent::ActionTimeoutTick => {}
             }
 
             while let Ok(completions) = completion_rx.try_recv() {
@@ -971,8 +1009,76 @@ impl RunLoop {
                 all_wakes.push(wake);
             }
 
+            if !inflight_dispatches.is_empty() {
+                let now = Utc::now();
+                let timed_out_ids: Vec<Uuid> = inflight_dispatches
+                    .iter()
+                    .filter_map(|(execution_id, dispatch)| {
+                        dispatch
+                            .deadline_at
+                            .filter(|deadline| *deadline <= now)
+                            .map(|_| *execution_id)
+                    })
+                    .collect();
+                if !timed_out_ids.is_empty() {
+                    let mut timeout_completions = Vec::with_capacity(timed_out_ids.len());
+                    for execution_id in timed_out_ids {
+                        let Some(dispatch) = inflight_dispatches.get(&execution_id) else {
+                            continue;
+                        };
+                        timeout_completions.push(ActionCompletion {
+                            executor_id: dispatch.executor_id,
+                            execution_id,
+                            attempt_number: dispatch.attempt_number,
+                            dispatch_token: dispatch.dispatch_token,
+                            result: action_timeout_value(
+                                execution_id,
+                                dispatch.attempt_number,
+                                dispatch.timeout_seconds,
+                            ),
+                        });
+                    }
+                    if !timeout_completions.is_empty() {
+                        timeout_completions.append(&mut all_completions);
+                        all_completions = timeout_completions;
+                    }
+                }
+            }
+
             if !all_completions.is_empty() {
-                for completion in &all_completions {
+                let mut accepted = Vec::new();
+                for completion in all_completions {
+                    let Some(expected) = inflight_dispatches.get(&completion.execution_id) else {
+                        debug!(
+                            executor_id = %completion.executor_id,
+                            execution_id = %completion.execution_id,
+                            "dropping completion for unknown inflight action"
+                        );
+                        continue;
+                    };
+                    if expected.executor_id != completion.executor_id {
+                        debug!(
+                            expected_executor_id = %expected.executor_id,
+                            completion_executor_id = %completion.executor_id,
+                            execution_id = %completion.execution_id,
+                            "dropping completion with mismatched executor ownership"
+                        );
+                        continue;
+                    }
+                    if expected.dispatch_token != completion.dispatch_token
+                        || expected.attempt_number != completion.attempt_number
+                    {
+                        debug!(
+                            execution_id = %completion.execution_id,
+                            expected_attempt = expected.attempt_number,
+                            completion_attempt = completion.attempt_number,
+                            expected_dispatch_token = %expected.dispatch_token,
+                            completion_dispatch_token = %completion.dispatch_token,
+                            "dropping stale completion for prior attempt"
+                        );
+                        continue;
+                    }
+                    inflight_dispatches.remove(&completion.execution_id);
                     if let Some(count) = inflight_actions.get_mut(&completion.executor_id) {
                         if *count > 0 {
                             *count -= 1;
@@ -981,21 +1087,26 @@ impl RunLoop {
                             inflight_actions.remove(&completion.executor_id);
                         }
                     }
+                    accepted.push(completion);
                 }
-                let mut by_shard: HashMap<usize, Vec<ActionCompletion>> = HashMap::new();
-                for completion in all_completions {
-                    if let Some(shard_idx) = executor_shards.get(&completion.executor_id).copied() {
-                        by_shard.entry(shard_idx).or_default().push(completion);
-                    } else {
-                        warn!(
-                            executor_id = %completion.executor_id,
-                            "completion for unknown executor"
-                        );
+                if !accepted.is_empty() {
+                    let mut by_shard: HashMap<usize, Vec<ActionCompletion>> = HashMap::new();
+                    for completion in accepted {
+                        if let Some(shard_idx) =
+                            executor_shards.get(&completion.executor_id).copied()
+                        {
+                            by_shard.entry(shard_idx).or_default().push(completion);
+                        } else {
+                            warn!(
+                                executor_id = %completion.executor_id,
+                                "completion for unknown executor"
+                            );
+                        }
                     }
-                }
-                for (shard_idx, batch) in by_shard {
-                    if let Some(sender) = shard_senders.get(shard_idx) {
-                        let _ = sender.send(ShardCommand::ActionCompletions(batch));
+                    for (shard_idx, batch) in by_shard {
+                        if let Some(sender) = shard_senders.get(shard_idx) {
+                            let _ = sender.send(ShardCommand::ActionCompletions(batch));
+                        }
                     }
                 }
             }
@@ -1083,6 +1194,10 @@ impl RunLoop {
                         replaced = replaced_instance_ids.len(),
                         "replacing active executors for reclaimed queued instances"
                     );
+                    let replaced_set: HashSet<Uuid> =
+                        replaced_instance_ids.iter().copied().collect();
+                    inflight_dispatches
+                        .retain(|_, dispatch| !replaced_set.contains(&dispatch.executor_id));
                 }
                 let claimed_count = claimed_instance_ids.len();
                 lock_tracker.insert_all(claimed_instance_ids);
@@ -1113,6 +1228,8 @@ impl RunLoop {
                     );
                     executor_shards.remove(&instance_done.executor_id);
                     inflight_actions.remove(&instance_done.executor_id);
+                    inflight_dispatches
+                        .retain(|_, dispatch| dispatch.executor_id != instance_done.executor_id);
                     lock_tracker.remove_all([instance_done.executor_id]);
                     if let Some(nodes) = sleeping_by_instance.remove(&instance_done.executor_id) {
                         for node_id in nodes {
@@ -1142,6 +1259,7 @@ impl RunLoop {
                                 shard_senders: &shard_senders,
                                 lock_tracker: &lock_tracker,
                                 inflight_actions: &mut inflight_actions,
+                                inflight_dispatches: &mut inflight_dispatches,
                                 sleeping_nodes: &mut sleeping_nodes,
                                 sleeping_by_instance: &mut sleeping_by_instance,
                                 blocked_until_by_instance: &mut blocked_until_by_instance,
@@ -1160,11 +1278,32 @@ impl RunLoop {
                         continue;
                     }
                     for request in step.actions {
+                        let dispatch = request.clone();
                         if let Err(err) = self.worker_pool.queue(request) {
                             run_result = Err(err.into());
                             break;
                         }
                         *inflight_actions.entry(step.executor_id).or_insert(0) += 1;
+                        let deadline_at = if dispatch.timeout_seconds > 0 {
+                            Some(
+                                Utc::now()
+                                    + chrono::Duration::seconds(i64::from(
+                                        dispatch.timeout_seconds,
+                                    )),
+                            )
+                        } else {
+                            None
+                        };
+                        inflight_dispatches.insert(
+                            dispatch.execution_id,
+                            InflightActionDispatch {
+                                executor_id: dispatch.executor_id,
+                                attempt_number: dispatch.attempt_number,
+                                dispatch_token: dispatch.dispatch_token,
+                                timeout_seconds: dispatch.timeout_seconds,
+                                deadline_at,
+                            },
+                        );
                     }
                     if run_result.is_err() {
                         break;
@@ -1217,6 +1356,9 @@ impl RunLoop {
                     if let Some(instance_done) = step.instance_done {
                         executor_shards.remove(&instance_done.executor_id);
                         inflight_actions.remove(&instance_done.executor_id);
+                        inflight_dispatches.retain(|_, dispatch| {
+                            dispatch.executor_id != instance_done.executor_id
+                        });
                         lock_tracker.remove_all([instance_done.executor_id]);
                         if let Some(nodes) = sleeping_by_instance.remove(&instance_done.executor_id)
                         {
@@ -1259,6 +1401,7 @@ impl RunLoop {
                                 shard_senders: &shard_senders,
                                 lock_tracker: &lock_tracker,
                                 inflight_actions: &mut inflight_actions,
+                                inflight_dispatches: &mut inflight_dispatches,
                                 sleeping_nodes: &mut sleeping_nodes,
                                 sleeping_by_instance: &mut sleeping_by_instance,
                                 blocked_until_by_instance: &mut blocked_until_by_instance,
@@ -1429,6 +1572,25 @@ fn error_value(kind: &str, message: &str) -> Value {
     Value::Object(map)
 }
 
+fn action_timeout_value(execution_id: Uuid, attempt_number: u32, timeout_seconds: u32) -> Value {
+    build_synthetic_exception_value(
+        SyntheticExceptionType::ActionTimeout,
+        format!(
+            "action {execution_id} attempt {attempt_number} timed out after {timeout_seconds}s"
+        ),
+        vec![
+            (
+                "timeout_seconds".to_string(),
+                Value::Number(serde_json::Number::from(timeout_seconds)),
+            ),
+            (
+                "attempt".to_string(),
+                Value::Number(serde_json::Number::from(attempt_number)),
+            ),
+        ],
+    )
+}
+
 fn compute_instance_payload(executor: &RunnerExecutor) -> (Option<Value>, Option<Value>) {
     let outputs = output_vars(executor.dag());
     match replay_variables(executor.state(), executor.action_results()) {
@@ -1490,11 +1652,14 @@ mod tests {
     use prost::Message;
     use sha2::{Digest, Sha256};
 
-    use crate::backends::{MemoryBackend, WorkflowRegistration, WorkflowRegistryBackend};
+    use crate::backends::{
+        ActionAttemptStatus, MemoryBackend, WorkflowRegistration, WorkflowRegistryBackend,
+    };
     use crate::messages::ast as ir;
     use crate::waymark_core::dag::convert_to_dag;
     use crate::waymark_core::ir_parser::parse_program;
     use crate::waymark_core::runner::RunnerState;
+    use crate::waymark_core::runner::state::NodeStatus;
     use crate::workers::ActionCallable;
 
     #[tokio::test]
@@ -1597,6 +1762,128 @@ fn main(input: [x], output: [y]):
             panic!("expected output object");
         };
         assert_eq!(map.get("y"), Some(&Value::Number(8.into())));
+    }
+
+    #[tokio::test]
+    async fn test_runloop_times_out_action_and_persists_timestamps() {
+        let source = r#"
+fn main(input: [], output: [y]):
+    y = @tests.fixtures.test_actions.hang()[timeout: 1 s]
+    return y
+"#;
+        let program = parse_program(source.trim()).expect("parse program");
+        let program_proto = program.encode_to_vec();
+        let ir_hash = format!("{:x}", Sha256::digest(&program_proto));
+        let dag = Arc::new(convert_to_dag(&program).expect("convert to dag"));
+
+        let mut state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
+        let entry_node = dag
+            .entry_node
+            .as_ref()
+            .expect("DAG entry node not found")
+            .clone();
+        let entry_exec = state
+            .queue_template_node(&entry_node, None)
+            .expect("queue entry node");
+
+        let queue = Arc::new(Mutex::new(VecDeque::new()));
+        let backend = MemoryBackend::with_queue(queue.clone());
+        let workflow_version_id = backend
+            .upsert_workflow_version(&WorkflowRegistration {
+                workflow_name: "test_timeout".to_string(),
+                workflow_version: ir_hash.clone(),
+                ir_hash,
+                program_proto,
+                concurrent: false,
+            })
+            .await
+            .expect("register workflow version");
+
+        let mut actions: HashMap<String, ActionCallable> = HashMap::new();
+        actions.insert(
+            "hang".to_string(),
+            Arc::new(|_kwargs| {
+                Box::pin(async move {
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                    Ok(Value::String("late".to_string()))
+                })
+            }),
+        );
+        let worker_pool = crate::workers::InlineWorkerPool::new(actions);
+
+        let mut runloop = RunLoop::new(
+            worker_pool,
+            backend.clone(),
+            RunLoopSupervisorConfig {
+                max_concurrent_instances: 25,
+                executor_shards: 1,
+                instance_done_batch_size: None,
+                poll_interval: Duration::from_secs_f64(0.0),
+                persistence_interval: Duration::from_secs_f64(0.05),
+                lock_uuid: Uuid::new_v4(),
+                lock_ttl: Duration::from_secs(15),
+                lock_heartbeat: Duration::from_secs(5),
+                evict_sleep_threshold: Duration::from_secs(10),
+                skip_sleep: false,
+                active_instance_gauge: None,
+            },
+        );
+        queue.lock().expect("queue lock").push_back(QueuedInstance {
+            workflow_version_id,
+            schedule_id: None,
+            dag: None,
+            entry_node: entry_exec.node_id,
+            state: Some(state),
+            action_results: HashMap::new(),
+            instance_id: Uuid::new_v4(),
+            scheduled_at: None,
+        });
+
+        runloop.run().await.expect("runloop");
+
+        let actions_done = backend.actions_done();
+        assert_eq!(actions_done.len(), 1);
+        let action_done = &actions_done[0];
+        assert_eq!(action_done.status, ActionAttemptStatus::TimedOut);
+        assert!(action_done.started_at.is_some());
+        assert!(action_done.completed_at.is_some());
+        assert!(action_done.duration_ms.is_some());
+
+        let execution_id = action_done.execution_id;
+        let graph_updates = backend.graph_updates();
+        let mut saw_running_snapshot = false;
+        let mut saw_failed_snapshot = false;
+        for update in graph_updates {
+            let Some(node) = update.nodes.get(&execution_id) else {
+                continue;
+            };
+            if node.status == NodeStatus::Running && node.started_at.is_some() {
+                saw_running_snapshot = true;
+            }
+            if node.status == NodeStatus::Failed
+                && node.started_at.is_some()
+                && node.completed_at.is_some()
+            {
+                saw_failed_snapshot = true;
+            }
+        }
+        assert!(saw_running_snapshot, "expected running graph snapshot");
+        assert!(saw_failed_snapshot, "expected failed graph snapshot");
+
+        let instances_done = backend.instances_done();
+        assert_eq!(instances_done.len(), 1);
+        assert!(instances_done[0].result.is_none());
+        let Value::Object(error_obj) = instances_done[0]
+            .error
+            .clone()
+            .expect("instance error payload")
+        else {
+            panic!("expected error payload object");
+        };
+        assert_eq!(
+            error_obj.get("type"),
+            Some(&Value::String("ActionTimeout".to_string()))
+        );
     }
 
     #[tokio::test]

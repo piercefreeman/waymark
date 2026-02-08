@@ -326,16 +326,25 @@ impl PostgresBackend {
             payloads.push((
                 action.execution_id,
                 action.attempt,
+                action.status.to_string(),
+                action.started_at,
+                action.completed_at,
+                action.duration_ms,
                 Self::serialize(&action.result)?,
             ));
         }
-        let mut builder: QueryBuilder<Postgres> =
-            QueryBuilder::new("INSERT INTO runner_actions_done (execution_id, attempt, result) ");
+        let mut builder: QueryBuilder<Postgres> = QueryBuilder::new(
+            "INSERT INTO runner_actions_done (execution_id, attempt, status, started_at, completed_at, duration_ms, result) ",
+        );
         builder.push_values(
             payloads.iter(),
-            |mut b, (execution_id, attempt, payload)| {
+            |mut b, (execution_id, attempt, status, started_at, completed_at, duration_ms, payload)| {
                 b.push_bind(*execution_id)
                     .push_bind(*attempt)
+                    .push_bind(status.as_str())
+                    .push_bind(*started_at)
+                    .push_bind(*completed_at)
+                    .push_bind(*duration_ms)
                     .push_bind(payload.as_slice());
             },
         );
@@ -626,14 +635,14 @@ impl WorkerStatusBackend for PostgresBackend {
 mod tests {
     use std::collections::HashMap;
 
-    use chrono::{Duration, Utc};
+    use chrono::{DateTime, Duration, Utc};
     use serial_test::serial;
     use sqlx::Row;
     use uuid::Uuid;
 
     use super::super::test_helpers::setup_backend;
     use super::*;
-    use crate::backends::{CoreBackend, WorkerStatusBackend};
+    use crate::backends::{ActionAttemptStatus, CoreBackend, WorkerStatusBackend};
     use crate::waymark_core::dag::EdgeType;
     use crate::waymark_core::runner::state::{ActionCallSpec, ExecutionNode, NodeStatus};
 
@@ -670,6 +679,8 @@ mod tests {
             value_expr: None,
             assignments: HashMap::new(),
             action_attempt: 1,
+            started_at: None,
+            completed_at: None,
             scheduled_at: Some(Utc::now() + Duration::seconds(15)),
         }
     }
@@ -796,6 +807,10 @@ mod tests {
             &[ActionDone {
                 execution_id,
                 attempt: 1,
+                status: ActionAttemptStatus::Completed,
+                started_at: None,
+                completed_at: Some(Utc::now()),
+                duration_ms: None,
                 result: serde_json::json!({"ok": true}),
             }],
         )
@@ -873,6 +888,10 @@ mod tests {
             &[ActionDone {
                 execution_id,
                 attempt: 1,
+                status: ActionAttemptStatus::Completed,
+                started_at: None,
+                completed_at: Some(Utc::now()),
+                duration_ms: None,
                 result: serde_json::json!({"ok": true}),
             }],
         )
@@ -880,7 +899,7 @@ mod tests {
         .expect("save actions done");
 
         let row = sqlx::query(
-            "SELECT execution_id, attempt, result FROM runner_actions_done WHERE execution_id = $1",
+            "SELECT execution_id, attempt, status, started_at, completed_at, duration_ms, result FROM runner_actions_done WHERE execution_id = $1",
         )
         .bind(execution_id)
         .fetch_one(backend.pool())
@@ -889,6 +908,11 @@ mod tests {
 
         assert_eq!(row.get::<Uuid, _>("execution_id"), execution_id);
         assert_eq!(row.get::<i32, _>("attempt"), 1);
+        assert_eq!(row.get::<String, _>("status"), "completed");
+        assert!(
+            row.get::<Option<DateTime<Utc>>, _>("completed_at")
+                .is_some()
+        );
         let payload: Option<Vec<u8>> = row.get("result");
         let decoded: serde_json::Value =
             rmp_serde::from_slice(&payload.expect("action payload")).expect("decode action");
