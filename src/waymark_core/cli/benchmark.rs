@@ -17,6 +17,7 @@ use crate::backends::{
     PostgresBackend, QueuedInstance, WorkflowRegistration, WorkflowRegistryBackend,
 };
 use crate::db;
+use crate::integration_support::{LOCAL_POSTGRES_DSN, ensure_local_postgres};
 use crate::messages::ast as ir;
 use crate::observability::obs;
 use crate::waymark_core::cli::smoke::{
@@ -28,7 +29,7 @@ use crate::waymark_core::runloop::{RunLoop, RunLoopSupervisorConfig};
 use crate::waymark_core::runner::RunnerState;
 use crate::workers::{ActionCallable, InlineWorkerPool, WorkerPoolError};
 
-const DEFAULT_DSN: &str = "postgresql://waymark:waymark@localhost:5432/waymark_core";
+const DEFAULT_DSN: &str = LOCAL_POSTGRES_DSN;
 const DEFAULT_MAX_CONCURRENT_INSTANCES: usize = 500;
 
 #[derive(Parser, Debug)]
@@ -310,6 +311,11 @@ async fn run_benchmark(
     executor_shards: usize,
 ) -> BenchmarkStats {
     let cases = build_cases(base);
+    if dsn == LOCAL_POSTGRES_DSN {
+        ensure_local_postgres()
+            .await
+            .expect("bootstrap local postgres");
+    }
     let pool = PgPool::connect(dsn).await.expect("connect postgres");
     drop_benchmark_tables(&pool).await;
     db::run_migrations(&pool).await.expect("run migrations");
