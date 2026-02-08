@@ -231,11 +231,9 @@ async def run_retry_counter_workflow(
 async def run_timeout_probe_workflow(
     payload: TimeoutProbeRequest,
 ) -> TimeoutProbeResult:
-    """Run timeout workflow with configurable timeout and success attempt."""
+    """Run timeout workflow that always times out for the configured attempts."""
     workflow = TimeoutProbeWorkflow()
     return await workflow.run(
-        timeout_seconds=payload.timeout_seconds,
-        succeed_on_attempt=payload.succeed_on_attempt,
         max_attempts=payload.max_attempts,
         counter_slot=payload.counter_slot,
     )

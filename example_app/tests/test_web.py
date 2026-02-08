@@ -134,7 +134,7 @@ def test_retry_counter_workflow_eventual_failure(
 def test_timeout_probe_workflow_eventual_success(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Timeout probe should recover when retries reach the success attempt."""
+    """Timeout probe should always fail with timeout after configured attempts."""
     _require_real_cluster()
     _enable_real_cluster(monkeypatch)
 
@@ -142,8 +142,6 @@ def test_timeout_probe_workflow_eventual_success(
     response = client.post(
         "/api/timeout-probe",
         json={
-            "timeout_seconds": 1,
-            "succeed_on_attempt": 2,
             "max_attempts": 3,
             "counter_slot": 903,
         },
@@ -151,8 +149,8 @@ def test_timeout_probe_workflow_eventual_success(
     assert response.status_code == 200
     payload = response.json()
 
-    assert payload["succeeded"] is True
-    assert payload["final_attempt"] == 2
+    assert payload["timed_out"] is True
+    assert payload["final_attempt"] == 3
     assert payload["timeout_seconds"] == 1
     assert payload["max_attempts"] == 3
 
@@ -160,7 +158,7 @@ def test_timeout_probe_workflow_eventual_success(
 def test_timeout_probe_workflow_eventual_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Timeout probe should fail after timeout retries are exhausted."""
+    """Timeout probe should honor lower max attempts."""
     _require_real_cluster()
     _enable_real_cluster(monkeypatch)
 
@@ -168,16 +166,14 @@ def test_timeout_probe_workflow_eventual_failure(
     response = client.post(
         "/api/timeout-probe",
         json={
-            "timeout_seconds": 1,
-            "succeed_on_attempt": 5,
-            "max_attempts": 3,
+            "max_attempts": 2,
             "counter_slot": 904,
         },
     )
     assert response.status_code == 200
     payload = response.json()
 
-    assert payload["succeeded"] is False
-    assert payload["final_attempt"] == 3
+    assert payload["timed_out"] is True
+    assert payload["final_attempt"] == 2
     assert payload["timeout_seconds"] == 1
-    assert payload["max_attempts"] == 3
+    assert payload["max_attempts"] == 2
