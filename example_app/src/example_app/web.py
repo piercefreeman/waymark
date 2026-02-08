@@ -15,7 +15,13 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
-from waymark import bridge, delete_schedule, pause_schedule, resume_schedule, schedule_workflow
+from waymark import (
+    bridge,
+    delete_schedule,
+    pause_schedule,
+    resume_schedule,
+    schedule_workflow,
+)
 
 from example_app.workflows import (
     BranchRequest,
@@ -50,6 +56,9 @@ from example_app.workflows import (
     LoopingSleepRequest,
     LoopingSleepResult,
     LoopingSleepWorkflow,
+    RetryCounterRequest,
+    RetryCounterResult,
+    RetryCounterWorkflow,
     ManyActionsRequest,
     ManyActionsResult,
     ManyActionsWorkflow,
@@ -193,6 +202,24 @@ async def run_exception_metadata_workflow(payload: ErrorRequest) -> ErrorResult:
 
 
 # =============================================================================
+# Retry Behavior (file-backed counter)
+# =============================================================================
+
+
+@app.post("/api/retry-counter", response_model=RetryCounterResult)
+async def run_retry_counter_workflow(
+    payload: RetryCounterRequest,
+) -> RetryCounterResult:
+    """Run retry workflow with a configurable success threshold and retry count."""
+    workflow = RetryCounterWorkflow()
+    return await workflow.run(
+        succeed_on_attempt=payload.succeed_on_attempt,
+        max_attempts=payload.max_attempts,
+        counter_slot=payload.counter_slot,
+    )
+
+
+# =============================================================================
 # Durable Sleep
 # =============================================================================
 
@@ -308,7 +335,9 @@ async def run_many_actions_workflow(payload: ManyActionsRequest) -> ManyActionsR
     Executes a configurable number of actions either in parallel or sequentially.
     """
     workflow = ManyActionsWorkflow()
-    return await workflow.run(action_count=payload.action_count, parallel=payload.parallel)
+    return await workflow.run(
+        action_count=payload.action_count, parallel=payload.parallel
+    )
 
 
 # =============================================================================
@@ -317,7 +346,9 @@ async def run_many_actions_workflow(payload: ManyActionsRequest) -> ManyActionsR
 
 
 @app.post("/api/looping-sleep", response_model=LoopingSleepResult)
-async def run_looping_sleep_workflow(payload: LoopingSleepRequest) -> LoopingSleepResult:
+async def run_looping_sleep_workflow(
+    payload: LoopingSleepRequest,
+) -> LoopingSleepResult:
     """
     Run the looping sleep workflow demonstrating durable sleep in loops.
 
@@ -344,6 +375,7 @@ WORKFLOW_REGISTRY = {
     "LoopExceptionWorkflow": LoopExceptionWorkflow,
     "ErrorHandlingWorkflow": ErrorHandlingWorkflow,
     "ExceptionMetadataWorkflow": ExceptionMetadataWorkflow,
+    "RetryCounterWorkflow": RetryCounterWorkflow,
     "DurableSleepWorkflow": DurableSleepWorkflow,
     "GuardFallbackWorkflow": GuardFallbackWorkflow,
     "EarlyReturnLoopWorkflow": EarlyReturnLoopWorkflow,
@@ -418,6 +450,7 @@ class BatchRunRequest(BaseModel):
 
 def _sse_event(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+
 
 def _required_workflow_inputs(workflow_cls: type) -> set[str]:
     try:
@@ -529,7 +562,9 @@ async def run_batch_workflow(payload: BatchRunRequest) -> StreamingResponse:
                 },
             )
 
-            registration = workflow_cls._build_registration_payload(priority=payload.priority)
+            registration = workflow_cls._build_registration_payload(
+                priority=payload.priority
+            )
             if inputs_list is not None:
                 batch_inputs = [
                     workflow_cls._build_initial_context((), inputs)

@@ -716,6 +716,53 @@
             <div class="result" id="looping-sleep-result" hidden></div>
         </section>
 
+        <!-- Retry Counter -->
+        <section class="workflow-section">
+            <h3>20. Retry Counter (Filesystem-backed)</h3>
+            <p>
+                Exercise retry behavior with a file-backed counter that
+                increments once per action attempt. Set "succeed on" less than
+                or equal to "max attempts" for eventual success; otherwise the
+                workflow exhausts retries and returns a failure result.
+            </p>
+            <form id="retry-counter-form">
+                <label for="retry-counter-succeed-on">Succeed On:</label>
+                <input
+                    type="number"
+                    id="retry-counter-succeed-on"
+                    name="succeed_on_attempt"
+                    min="1"
+                    max="20"
+                    value="3"
+                />
+                <label for="retry-counter-max-attempts">Max Attempts:</label>
+                <input
+                    type="number"
+                    id="retry-counter-max-attempts"
+                    name="max_attempts"
+                    min="1"
+                    max="6"
+                    value="3"
+                />
+                <label for="retry-counter-slot">Counter Slot:</label>
+                <input
+                    type="number"
+                    id="retry-counter-slot"
+                    name="counter_slot"
+                    min="1"
+                    max="1000"
+                    value="1"
+                />
+                <button type="submit">Run Retry Counter</button>
+            </form>
+            <div class="hint">
+                Examples: succeed_on=2,max_attempts=3 => success;
+                succeed_on=5,max_attempts=3 => failure.
+            </div>
+            <div class="status" id="retry-counter-status"></div>
+            <div class="result" id="retry-counter-result" hidden></div>
+        </section>
+
         <!-- Admin Section -->
         <section class="admin-section">
             <h3>Development Tools</h3>
@@ -1051,6 +1098,40 @@
                         sleep_seconds >= 1 &&
                         sleep_seconds <= 30
                         ? { iterations, sleep_seconds }
+                        : null;
+                },
+                (data) => JSON.stringify(data, null, 2),
+            );
+
+            // 20. Retry Counter
+            runWorkflow(
+                "retry-counter-form",
+                "/api/retry-counter",
+                (form) => {
+                    const succeed_on_attempt = Number(
+                        form.querySelector("#retry-counter-succeed-on").value,
+                    );
+                    const max_attempts = Number(
+                        form.querySelector("#retry-counter-max-attempts")
+                            .value,
+                    );
+                    const counter_slot = Number(
+                        form.querySelector("#retry-counter-slot").value,
+                    );
+                    return Number.isFinite(succeed_on_attempt) &&
+                        succeed_on_attempt >= 1 &&
+                        succeed_on_attempt <= 20 &&
+                        Number.isFinite(max_attempts) &&
+                        max_attempts >= 1 &&
+                        max_attempts <= 6 &&
+                        Number.isFinite(counter_slot) &&
+                        counter_slot >= 1 &&
+                        counter_slot <= 1000
+                        ? {
+                              succeed_on_attempt,
+                              max_attempts,
+                              counter_slot,
+                          }
                         : null;
                 },
                 (data) => JSON.stringify(data, null, 2),

@@ -74,3 +74,51 @@ def test_while_loop_workflow(monkeypatch: pytest.MonkeyPatch) -> None:
     assert payload["limit"] == 4
     assert payload["final"] == 4
     assert payload["iterations"] == 4
+
+
+def test_retry_counter_workflow_eventual_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Retry workflow should succeed when threshold is within max attempts."""
+    _enable_real_cluster(monkeypatch)
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/retry-counter",
+        json={
+            "succeed_on_attempt": 3,
+            "max_attempts": 4,
+            "counter_slot": 901,
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert payload["succeeded"] is True
+    assert payload["final_attempt"] == 3
+    assert payload["succeed_on_attempt"] == 3
+    assert payload["max_attempts"] == 4
+
+
+def test_retry_counter_workflow_eventual_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Retry workflow should fail when threshold exceeds max attempts."""
+    _enable_real_cluster(monkeypatch)
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/retry-counter",
+        json={
+            "succeed_on_attempt": 5,
+            "max_attempts": 3,
+            "counter_slot": 902,
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert payload["succeeded"] is False
+    assert payload["final_attempt"] == 3
+    assert payload["succeed_on_attempt"] == 5
+    assert payload["max_attempts"] == 3

@@ -10,9 +10,11 @@ This module contains example workflows demonstrating:
 6. Return inside a loop
 7. Error handling with try/except
 8. Durable sleep
+9. Retry behavior with configurable eventual success/failure
 """
 
 import asyncio
+from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -117,6 +119,39 @@ class ErrorResult(BaseModel):
 
 class ErrorRequest(BaseModel):
     should_fail: bool = Field(description="Whether the action should fail")
+
+
+class RetryCounterRequest(BaseModel):
+    """Request for retry behavior workflow."""
+
+    succeed_on_attempt: int = Field(
+        ge=1,
+        le=20,
+        description="Attempt number that should first succeed.",
+    )
+    max_attempts: int = Field(
+        ge=1,
+        le=6,
+        description="Maximum attempts allowed by retry policy.",
+    )
+    counter_slot: int = Field(
+        default=1,
+        ge=1,
+        le=1000,
+        description="Filesystem counter slot to isolate concurrent demos.",
+    )
+
+
+class RetryCounterResult(BaseModel):
+    """Result from retry behavior workflow."""
+
+    succeed_on_attempt: int
+    max_attempts: int
+    counter_slot: int
+    final_attempt: int
+    succeeded: bool
+    counter_path: str
+    message: str
 
 
 class SleepResult(BaseModel):
@@ -422,6 +457,95 @@ async def build_error_result(
 
 
 # =============================================================================
+# Actions - Retry Counter Workflow
+# =============================================================================
+
+
+class RetryCounterError(Exception):
+    """Raised while waiting for the configured success attempt."""
+
+    def __init__(self, attempt: int, succeed_on_attempt: int) -> None:
+        super().__init__(
+            f"attempt {attempt} has not reached success attempt {succeed_on_attempt}"
+        )
+        self.attempt = attempt
+        self.succeed_on_attempt = succeed_on_attempt
+
+
+def _retry_counter_path(counter_slot: int) -> Path:
+    root = Path("/tmp/waymark-example-retry-counters")
+    root.mkdir(parents=True, exist_ok=True)
+    return root / f"counter-{counter_slot}.txt"
+
+
+def _read_counter(path: Path) -> int:
+    if not path.exists():
+        return 0
+    raw_value = path.read_text(encoding="utf-8").strip()
+    if raw_value == "":
+        return 0
+    return int(raw_value)
+
+
+@action
+async def reset_retry_counter(counter_slot: int) -> str:
+    """Reset the file-backed retry counter before dispatching retries."""
+    counter_path = _retry_counter_path(counter_slot)
+    counter_path.write_text("0", encoding="utf-8")
+    return str(counter_path)
+
+
+@action
+async def increment_retry_counter(counter_path: str, succeed_on_attempt: int) -> int:
+    """Increment a file-backed counter and fail until reaching the target attempt."""
+    path = Path(counter_path)
+    attempt = _read_counter(path) + 1
+    path.write_text(str(attempt), encoding="utf-8")
+    await asyncio.sleep(0.05)
+    if attempt < succeed_on_attempt:
+        raise RetryCounterError(attempt=attempt, succeed_on_attempt=succeed_on_attempt)
+    return attempt
+
+
+@action
+async def read_retry_counter(counter_path: str) -> int:
+    """Read the final attempt count from disk."""
+    return _read_counter(Path(counter_path))
+
+
+@action
+async def build_retry_counter_result(
+    *,
+    succeed_on_attempt: int,
+    max_attempts: int,
+    counter_slot: int,
+    final_attempt: int,
+    succeeded: bool,
+    counter_path: str,
+) -> RetryCounterResult:
+    """Build the retry counter result payload."""
+    if succeeded:
+        message = (
+            f"Succeeded on attempt {final_attempt} with retry policy max_attempts="
+            f"{max_attempts}"
+        )
+    else:
+        message = (
+            f"Failed after {final_attempt} attempts; success threshold was "
+            f"{succeed_on_attempt}"
+        )
+    return RetryCounterResult(
+        succeed_on_attempt=succeed_on_attempt,
+        max_attempts=max_attempts,
+        counter_slot=counter_slot,
+        final_attempt=final_attempt,
+        succeeded=succeeded,
+        counter_path=counter_path,
+        message=message,
+    )
+
+
+# =============================================================================
 # Actions - Sleep Workflow
 # =============================================================================
 
@@ -654,6 +778,88 @@ class ExceptionMetadataWorkflow(Workflow):
             error_type,
             error_code,
             error_detail,
+        )
+
+
+@workflow
+class RetryCounterWorkflow(Workflow):
+    """
+    Demonstrate retries with a file-backed attempt counter.
+
+    `succeed_on_attempt` controls when the action should first succeed.
+    `max_attempts` controls the retry policy (1-6). Set `succeed_on_attempt`
+    above `max_attempts` to force eventual failure.
+    """
+
+    async def run(
+        self,
+        succeed_on_attempt: int,
+        max_attempts: int,
+        counter_slot: int = 1,
+    ) -> RetryCounterResult:
+        counter_path = await reset_retry_counter(counter_slot)
+        succeeded = True
+
+        try:
+            if max_attempts == 1:
+                final_attempt = await self.run_action(
+                    increment_retry_counter(counter_path, succeed_on_attempt),
+                    retry=RetryPolicy(
+                        attempts=1,
+                        exception_types=["RetryCounterError"],
+                    ),
+                )
+            elif max_attempts == 2:
+                final_attempt = await self.run_action(
+                    increment_retry_counter(counter_path, succeed_on_attempt),
+                    retry=RetryPolicy(
+                        attempts=2,
+                        exception_types=["RetryCounterError"],
+                    ),
+                )
+            elif max_attempts == 3:
+                final_attempt = await self.run_action(
+                    increment_retry_counter(counter_path, succeed_on_attempt),
+                    retry=RetryPolicy(
+                        attempts=3,
+                        exception_types=["RetryCounterError"],
+                    ),
+                )
+            elif max_attempts == 4:
+                final_attempt = await self.run_action(
+                    increment_retry_counter(counter_path, succeed_on_attempt),
+                    retry=RetryPolicy(
+                        attempts=4,
+                        exception_types=["RetryCounterError"],
+                    ),
+                )
+            elif max_attempts == 5:
+                final_attempt = await self.run_action(
+                    increment_retry_counter(counter_path, succeed_on_attempt),
+                    retry=RetryPolicy(
+                        attempts=5,
+                        exception_types=["RetryCounterError"],
+                    ),
+                )
+            else:
+                final_attempt = await self.run_action(
+                    increment_retry_counter(counter_path, succeed_on_attempt),
+                    retry=RetryPolicy(
+                        attempts=6,
+                        exception_types=["RetryCounterError"],
+                    ),
+                )
+        except RetryCounterError:
+            succeeded = False
+            final_attempt = await read_retry_counter(counter_path)
+
+        return await build_retry_counter_result(
+            succeed_on_attempt=succeed_on_attempt,
+            max_attempts=max_attempts,
+            counter_slot=counter_slot,
+            final_attempt=final_attempt,
+            succeeded=succeeded,
+            counter_path=counter_path,
         )
 
 
