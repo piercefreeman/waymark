@@ -763,6 +763,61 @@
             <div class="result" id="retry-counter-result" hidden></div>
         </section>
 
+        <!-- Timeout Probe -->
+        <section class="workflow-section">
+            <h3>21. Timeout Probe (Retry + Timeout)</h3>
+            <p>
+                Test timeout enforcement. Attempts before "succeed on" sleep
+                longer than timeout and should be timed out by the runner.
+                Retries continue until success or attempts are exhausted.
+            </p>
+            <form id="timeout-probe-form">
+                <label for="timeout-probe-timeout-seconds">Timeout (sec):</label>
+                <input
+                    type="number"
+                    id="timeout-probe-timeout-seconds"
+                    name="timeout_seconds"
+                    min="1"
+                    max="10"
+                    value="1"
+                />
+                <label for="timeout-probe-succeed-on">Succeed On:</label>
+                <input
+                    type="number"
+                    id="timeout-probe-succeed-on"
+                    name="succeed_on_attempt"
+                    min="1"
+                    max="20"
+                    value="2"
+                />
+                <label for="timeout-probe-max-attempts">Max Attempts:</label>
+                <input
+                    type="number"
+                    id="timeout-probe-max-attempts"
+                    name="max_attempts"
+                    min="1"
+                    max="6"
+                    value="3"
+                />
+                <label for="timeout-probe-slot">Counter Slot:</label>
+                <input
+                    type="number"
+                    id="timeout-probe-slot"
+                    name="counter_slot"
+                    min="1"
+                    max="1000"
+                    value="101"
+                />
+                <button type="submit">Run Timeout Probe</button>
+            </form>
+            <div class="hint">
+                Examples: timeout=1,succeed_on=2,max_attempts=3 => success;
+                timeout=1,succeed_on=5,max_attempts=3 => failure.
+            </div>
+            <div class="status" id="timeout-probe-status"></div>
+            <div class="result" id="timeout-probe-result" hidden></div>
+        </section>
+
         <!-- Admin Section -->
         <section class="admin-section">
             <h3>Development Tools</h3>
@@ -1128,6 +1183,47 @@
                         counter_slot >= 1 &&
                         counter_slot <= 1000
                         ? {
+                              succeed_on_attempt,
+                              max_attempts,
+                              counter_slot,
+                          }
+                        : null;
+                },
+                (data) => JSON.stringify(data, null, 2),
+            );
+
+            // 21. Timeout Probe
+            runWorkflow(
+                "timeout-probe-form",
+                "/api/timeout-probe",
+                (form) => {
+                    const timeout_seconds = Number(
+                        form.querySelector("#timeout-probe-timeout-seconds")
+                            .value,
+                    );
+                    const succeed_on_attempt = Number(
+                        form.querySelector("#timeout-probe-succeed-on").value,
+                    );
+                    const max_attempts = Number(
+                        form.querySelector("#timeout-probe-max-attempts").value,
+                    );
+                    const counter_slot = Number(
+                        form.querySelector("#timeout-probe-slot").value,
+                    );
+                    return Number.isFinite(timeout_seconds) &&
+                        timeout_seconds >= 1 &&
+                        timeout_seconds <= 10 &&
+                        Number.isFinite(succeed_on_attempt) &&
+                        succeed_on_attempt >= 1 &&
+                        succeed_on_attempt <= 20 &&
+                        Number.isFinite(max_attempts) &&
+                        max_attempts >= 1 &&
+                        max_attempts <= 6 &&
+                        Number.isFinite(counter_slot) &&
+                        counter_slot >= 1 &&
+                        counter_slot <= 1000
+                        ? {
+                              timeout_seconds,
                               succeed_on_attempt,
                               max_attempts,
                               counter_slot,

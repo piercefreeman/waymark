@@ -11,6 +11,11 @@ def _enable_real_cluster(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
 
 
+def _require_real_cluster() -> None:
+    if os.environ.get("WAYMARK_RUN_REAL_CLUSTER") != "1":
+        pytest.skip("requires WAYMARK_RUN_REAL_CLUSTER=1")
+
+
 def test_run_task_endpoint_executes_workflow(monkeypatch: pytest.MonkeyPatch) -> None:
     _enable_real_cluster(monkeypatch)
 
@@ -80,6 +85,7 @@ def test_retry_counter_workflow_eventual_success(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Retry workflow should succeed when threshold is within max attempts."""
+    _require_real_cluster()
     _enable_real_cluster(monkeypatch)
 
     client = TestClient(app)
@@ -104,6 +110,7 @@ def test_retry_counter_workflow_eventual_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Retry workflow should fail when threshold exceeds max attempts."""
+    _require_real_cluster()
     _enable_real_cluster(monkeypatch)
 
     client = TestClient(app)
@@ -121,4 +128,56 @@ def test_retry_counter_workflow_eventual_failure(
     assert payload["succeeded"] is False
     assert payload["final_attempt"] == 3
     assert payload["succeed_on_attempt"] == 5
+    assert payload["max_attempts"] == 3
+
+
+def test_timeout_probe_workflow_eventual_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Timeout probe should recover when retries reach the success attempt."""
+    _require_real_cluster()
+    _enable_real_cluster(monkeypatch)
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/timeout-probe",
+        json={
+            "timeout_seconds": 1,
+            "succeed_on_attempt": 2,
+            "max_attempts": 3,
+            "counter_slot": 903,
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert payload["succeeded"] is True
+    assert payload["final_attempt"] == 2
+    assert payload["timeout_seconds"] == 1
+    assert payload["max_attempts"] == 3
+
+
+def test_timeout_probe_workflow_eventual_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Timeout probe should fail after timeout retries are exhausted."""
+    _require_real_cluster()
+    _enable_real_cluster(monkeypatch)
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/timeout-probe",
+        json={
+            "timeout_seconds": 1,
+            "succeed_on_attempt": 5,
+            "max_attempts": 3,
+            "counter_slot": 904,
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert payload["succeeded"] is False
+    assert payload["final_attempt"] == 3
+    assert payload["timeout_seconds"] == 1
     assert payload["max_attempts"] == 3

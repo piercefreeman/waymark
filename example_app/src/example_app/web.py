@@ -59,6 +59,9 @@ from example_app.workflows import (
     RetryCounterRequest,
     RetryCounterResult,
     RetryCounterWorkflow,
+    TimeoutProbeRequest,
+    TimeoutProbeResult,
+    TimeoutProbeWorkflow,
     ManyActionsRequest,
     ManyActionsResult,
     ManyActionsWorkflow,
@@ -213,6 +216,25 @@ async def run_retry_counter_workflow(
     """Run retry workflow with a configurable success threshold and retry count."""
     workflow = RetryCounterWorkflow()
     return await workflow.run(
+        succeed_on_attempt=payload.succeed_on_attempt,
+        max_attempts=payload.max_attempts,
+        counter_slot=payload.counter_slot,
+    )
+
+
+# =============================================================================
+# Timeout Behavior
+# =============================================================================
+
+
+@app.post("/api/timeout-probe", response_model=TimeoutProbeResult)
+async def run_timeout_probe_workflow(
+    payload: TimeoutProbeRequest,
+) -> TimeoutProbeResult:
+    """Run timeout workflow with configurable timeout and success attempt."""
+    workflow = TimeoutProbeWorkflow()
+    return await workflow.run(
+        timeout_seconds=payload.timeout_seconds,
         succeed_on_attempt=payload.succeed_on_attempt,
         max_attempts=payload.max_attempts,
         counter_slot=payload.counter_slot,
@@ -376,6 +398,7 @@ WORKFLOW_REGISTRY = {
     "ErrorHandlingWorkflow": ErrorHandlingWorkflow,
     "ExceptionMetadataWorkflow": ExceptionMetadataWorkflow,
     "RetryCounterWorkflow": RetryCounterWorkflow,
+    "TimeoutProbeWorkflow": TimeoutProbeWorkflow,
     "DurableSleepWorkflow": DurableSleepWorkflow,
     "GuardFallbackWorkflow": GuardFallbackWorkflow,
     "EarlyReturnLoopWorkflow": EarlyReturnLoopWorkflow,

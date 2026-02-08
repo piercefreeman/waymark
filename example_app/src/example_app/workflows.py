@@ -154,6 +154,46 @@ class RetryCounterResult(BaseModel):
     message: str
 
 
+class TimeoutProbeRequest(BaseModel):
+    """Request for timeout behavior workflow."""
+
+    timeout_seconds: int = Field(
+        ge=1,
+        le=10,
+        description="Timeout to enforce per action attempt.",
+    )
+    succeed_on_attempt: int = Field(
+        ge=1,
+        le=20,
+        description="Attempt number that should first complete before timeout.",
+    )
+    max_attempts: int = Field(
+        ge=1,
+        le=6,
+        description="Maximum attempts allowed by retry policy.",
+    )
+    counter_slot: int = Field(
+        default=1,
+        ge=1,
+        le=1000,
+        description="Filesystem counter slot to isolate concurrent demos.",
+    )
+
+
+class TimeoutProbeResult(BaseModel):
+    """Result from timeout behavior workflow."""
+
+    timeout_seconds: int
+    succeed_on_attempt: int
+    max_attempts: int
+    counter_slot: int
+    final_attempt: int
+    succeeded: bool
+    counter_path: str
+    error_type: str | None
+    message: str
+
+
 class SleepResult(BaseModel):
     """Result from the durable sleep workflow."""
 
@@ -546,6 +586,78 @@ async def build_retry_counter_result(
 
 
 # =============================================================================
+# Actions - Timeout Probe Workflow
+# =============================================================================
+
+
+@action
+async def reset_timeout_counter(counter_slot: int) -> str:
+    """Reset the file-backed timeout attempt counter."""
+    counter_path = _retry_counter_path(10_000 + counter_slot)
+    counter_path.write_text("0", encoding="utf-8")
+    return str(counter_path)
+
+
+@action
+async def timeout_probe_attempt(
+    counter_path: str,
+    succeed_on_attempt: int,
+    timeout_seconds: int,
+) -> int:
+    """Timeout until the configured attempt, then complete quickly."""
+    path = Path(counter_path)
+    attempt = _read_counter(path) + 1
+    path.write_text(str(attempt), encoding="utf-8")
+    if attempt < succeed_on_attempt:
+        await asyncio.sleep(timeout_seconds + 1)
+        return attempt
+    await asyncio.sleep(0.05)
+    return attempt
+
+
+@action
+async def read_timeout_counter(counter_path: str) -> int:
+    """Read the timeout probe attempt counter from disk."""
+    return _read_counter(Path(counter_path))
+
+
+@action
+async def build_timeout_probe_result(
+    *,
+    timeout_seconds: int,
+    succeed_on_attempt: int,
+    max_attempts: int,
+    counter_slot: int,
+    final_attempt: int,
+    succeeded: bool,
+    counter_path: str,
+    error_type: str | None,
+) -> TimeoutProbeResult:
+    """Build timeout probe result payload."""
+    if succeeded:
+        message = (
+            f"Action completed before timeout on attempt {final_attempt} "
+            f"(timeout={timeout_seconds}s)"
+        )
+    else:
+        message = (
+            f"Timed out/exhausted after {final_attempt} attempts with timeout="
+            f"{timeout_seconds}s and success threshold {succeed_on_attempt}"
+        )
+    return TimeoutProbeResult(
+        timeout_seconds=timeout_seconds,
+        succeed_on_attempt=succeed_on_attempt,
+        max_attempts=max_attempts,
+        counter_slot=counter_slot,
+        final_attempt=final_attempt,
+        succeeded=succeeded,
+        counter_path=counter_path,
+        error_type=error_type,
+        message=message,
+    )
+
+
+# =============================================================================
 # Actions - Sleep Workflow
 # =============================================================================
 
@@ -860,6 +972,105 @@ class RetryCounterWorkflow(Workflow):
             final_attempt=final_attempt,
             succeeded=succeeded,
             counter_path=counter_path,
+        )
+
+
+@workflow
+class TimeoutProbeWorkflow(Workflow):
+    """
+    Demonstrate action timeouts with retry attempts.
+
+    Attempts before `succeed_on_attempt` intentionally sleep longer than
+    `timeout_seconds`, so they should time out and retry until retries are
+    exhausted or the success attempt is reached.
+    """
+
+    async def run(
+        self,
+        timeout_seconds: int,
+        succeed_on_attempt: int,
+        max_attempts: int,
+        counter_slot: int = 1,
+    ) -> TimeoutProbeResult:
+        counter_path = await reset_timeout_counter(counter_slot)
+        succeeded = True
+        error_type = None
+
+        try:
+            if max_attempts == 1:
+                final_attempt = await self.run_action(
+                    timeout_probe_attempt(
+                        counter_path=counter_path,
+                        succeed_on_attempt=succeed_on_attempt,
+                        timeout_seconds=timeout_seconds,
+                    ),
+                    retry=RetryPolicy(attempts=1),
+                    timeout=timeout_seconds,
+                )
+            elif max_attempts == 2:
+                final_attempt = await self.run_action(
+                    timeout_probe_attempt(
+                        counter_path=counter_path,
+                        succeed_on_attempt=succeed_on_attempt,
+                        timeout_seconds=timeout_seconds,
+                    ),
+                    retry=RetryPolicy(attempts=2),
+                    timeout=timeout_seconds,
+                )
+            elif max_attempts == 3:
+                final_attempt = await self.run_action(
+                    timeout_probe_attempt(
+                        counter_path=counter_path,
+                        succeed_on_attempt=succeed_on_attempt,
+                        timeout_seconds=timeout_seconds,
+                    ),
+                    retry=RetryPolicy(attempts=3),
+                    timeout=timeout_seconds,
+                )
+            elif max_attempts == 4:
+                final_attempt = await self.run_action(
+                    timeout_probe_attempt(
+                        counter_path=counter_path,
+                        succeed_on_attempt=succeed_on_attempt,
+                        timeout_seconds=timeout_seconds,
+                    ),
+                    retry=RetryPolicy(attempts=4),
+                    timeout=timeout_seconds,
+                )
+            elif max_attempts == 5:
+                final_attempt = await self.run_action(
+                    timeout_probe_attempt(
+                        counter_path=counter_path,
+                        succeed_on_attempt=succeed_on_attempt,
+                        timeout_seconds=timeout_seconds,
+                    ),
+                    retry=RetryPolicy(attempts=5),
+                    timeout=timeout_seconds,
+                )
+            else:
+                final_attempt = await self.run_action(
+                    timeout_probe_attempt(
+                        counter_path=counter_path,
+                        succeed_on_attempt=succeed_on_attempt,
+                        timeout_seconds=timeout_seconds,
+                    ),
+                    retry=RetryPolicy(attempts=6),
+                    timeout=timeout_seconds,
+                )
+        except Exception as err:
+            succeeded = False
+            error_type = err.__class__.__name__
+            final_attempt = await read_timeout_counter(counter_path)
+
+        return await build_timeout_probe_result(
+            timeout_seconds=timeout_seconds,
+            succeed_on_attempt=succeed_on_attempt,
+            max_attempts=max_attempts,
+            counter_slot=counter_slot,
+            final_attempt=final_attempt,
+            succeeded=succeeded,
+            counter_path=counter_path,
+            error_type=error_type,
         )
 
 
