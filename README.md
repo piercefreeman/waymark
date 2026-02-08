@@ -16,7 +16,8 @@ Once installed, Waymark exposes `start-workers` as a runnable bin entrypoint in 
 You can boot the worker pool directly with `uv run`:
 
 ```bash
-WAYMARK_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/waymark uv run start-workers
+export WAYMARK_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/waymark
+uv run start-workers
 ```
 
 ## Usage
