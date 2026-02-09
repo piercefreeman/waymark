@@ -7,10 +7,10 @@ use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use super::base::{
-    ActionDone, BackendError, BackendResult, CoreBackend, GraphUpdate, InstanceDone,
-    InstanceLockStatus, LockClaim, QueuedInstance, QueuedInstanceBatch, SchedulerBackend,
-    WebappBackend, WorkerStatusBackend, WorkerStatusUpdate, WorkflowRegistration,
-    WorkflowRegistryBackend, WorkflowVersion,
+    ActionDone, BackendError, BackendResult, CoreBackend, GarbageCollectionResult,
+    GarbageCollectorBackend, GraphUpdate, InstanceDone, InstanceLockStatus, LockClaim,
+    QueuedInstance, QueuedInstanceBatch, SchedulerBackend, WebappBackend, WorkerStatusBackend,
+    WorkerStatusUpdate, WorkflowRegistration, WorkflowRegistryBackend, WorkflowVersion,
 };
 use crate::scheduler::compute_next_run;
 use crate::scheduler::{CreateScheduleParams, ScheduleId, ScheduleType, WorkflowSchedule};
@@ -510,6 +510,17 @@ impl SchedulerBackend for MemoryBackend {
         schedule.next_run_at = Some(next_run_at);
         schedule.updated_at = Utc::now();
         Ok(())
+    }
+}
+
+#[async_trait]
+impl GarbageCollectorBackend for MemoryBackend {
+    async fn collect_done_instances(
+        &self,
+        _older_than: DateTime<Utc>,
+        _limit: usize,
+    ) -> BackendResult<GarbageCollectionResult> {
+        Ok(GarbageCollectionResult::default())
     }
 }
 

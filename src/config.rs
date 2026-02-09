@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 
-use crate::{SchedulerConfig, WebappConfig};
+use crate::{GarbageCollectorConfig, SchedulerConfig, WebappConfig};
 
 const DEFAULT_WORKER_GRPC_ADDR: &str = "127.0.0.1:24118";
 const DEFAULT_CONCURRENT_PER_WORKER: usize = 10;
@@ -15,6 +15,9 @@ const DEFAULT_MAX_CONCURRENT_INSTANCES: usize = 500;
 const DEFAULT_PERSIST_INTERVAL_MS: u64 = 500;
 const DEFAULT_SCHEDULER_POLL_INTERVAL_MS: u64 = 1000;
 const DEFAULT_SCHEDULER_BATCH_SIZE: i32 = 100;
+const DEFAULT_GARBAGE_COLLECTOR_INTERVAL_MS: u64 = 5 * 60 * 1000;
+const DEFAULT_GARBAGE_COLLECTOR_BATCH_SIZE: usize = 100;
+const DEFAULT_GARBAGE_COLLECTOR_RETENTION_HOURS: u64 = 24;
 const DEFAULT_PROFILE_INTERVAL_MS: u64 = 5000;
 const DEFAULT_EVICT_SLEEP_THRESHOLD_MS: u64 = 10_000;
 const DEFAULT_LOCK_HEARTBEAT_MS: u64 = 5_000;
@@ -41,6 +44,7 @@ pub struct WorkerConfig {
     pub expired_lock_reclaimer_interval: Duration,
     pub expired_lock_reclaimer_batch_size: usize,
     pub scheduler: SchedulerConfig,
+    pub garbage_collector: GarbageCollectorConfig,
     pub webapp: WebappConfig,
     pub profile_interval: Duration,
 }
@@ -110,6 +114,24 @@ impl WorkerConfig {
                 .unwrap_or(DEFAULT_SCHEDULER_BATCH_SIZE),
         };
 
+        let garbage_collector = GarbageCollectorConfig {
+            interval: Duration::from_millis(
+                env_u64("WAYMARK_GARBAGE_COLLECTOR_INTERVAL_MS")
+                    .unwrap_or(DEFAULT_GARBAGE_COLLECTOR_INTERVAL_MS)
+                    .max(1),
+            ),
+            batch_size: env_usize("WAYMARK_GARBAGE_COLLECTOR_BATCH_SIZE")
+                .unwrap_or(DEFAULT_GARBAGE_COLLECTOR_BATCH_SIZE)
+                .max(1),
+            retention: Duration::from_secs(
+                env_u64("WAYMARK_GARBAGE_COLLECTOR_RETENTION_HOURS")
+                    .unwrap_or(DEFAULT_GARBAGE_COLLECTOR_RETENTION_HOURS)
+                    .max(1)
+                    * 60
+                    * 60,
+            ),
+        };
+
         let webapp = WebappConfig::from_env();
 
         let profile_interval_ms = env_u64("WAYMARK_RUNNER_PROFILE_INTERVAL_MS")
@@ -135,6 +157,7 @@ impl WorkerConfig {
             expired_lock_reclaimer_interval,
             expired_lock_reclaimer_batch_size,
             scheduler,
+            garbage_collector,
             webapp,
             profile_interval,
         })

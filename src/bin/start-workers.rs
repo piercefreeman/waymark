@@ -26,6 +26,9 @@
 //! - WAYMARK_MAX_ACTION_LIFECYCLE: Max actions per worker before recycling
 //! - WAYMARK_SCHEDULER_POLL_INTERVAL_MS: Scheduler poll interval (default: 1000)
 //! - WAYMARK_SCHEDULER_BATCH_SIZE: Scheduler batch size (default: 100)
+//! - WAYMARK_GARBAGE_COLLECTOR_INTERVAL_MS: Garbage collector interval (default: 300000)
+//! - WAYMARK_GARBAGE_COLLECTOR_BATCH_SIZE: Garbage collector batch size (default: 100)
+//! - WAYMARK_GARBAGE_COLLECTOR_RETENTION_HOURS: Done-instance retention window (default: 24)
 //! - WAYMARK_WEBAPP_ENABLED / WAYMARK_WEBAPP_ADDR: Web dashboard configuration
 //! - WAYMARK_RUNNER_PROFILE_INTERVAL_MS: Status reporting interval (default: 5000)
 
@@ -49,7 +52,8 @@ use waymark::scheduler::{DagResolver, WorkflowDag};
 use waymark::waymark_core::dag::convert_to_dag;
 use waymark::waymark_core::runloop::{RunLoopSupervisorConfig, runloop_supervisor};
 use waymark::{
-    PythonWorkerConfig, RemoteWorkerPool, WebappServer, spawn_scheduler, spawn_status_reporter,
+    PythonWorkerConfig, RemoteWorkerPool, WebappServer, spawn_garbage_collector, spawn_scheduler,
+    spawn_status_reporter,
 };
 
 #[tokio::main]
@@ -75,6 +79,9 @@ async fn main() -> Result<()> {
         evict_sleep_threshold_ms = config.evict_sleep_threshold.as_millis(),
         expired_lock_reclaimer_interval_ms = config.expired_lock_reclaimer_interval.as_millis(),
         expired_lock_reclaimer_batch_size = config.expired_lock_reclaimer_batch_size,
+        garbage_collector_interval_ms = config.garbage_collector.interval.as_millis(),
+        garbage_collector_batch_size = config.garbage_collector.batch_size,
+        garbage_collector_retention_secs = config.garbage_collector.retention.as_secs(),
         max_action_lifecycle = ?config.max_action_lifecycle,
         "starting worker infrastructure"
     );
@@ -117,6 +124,14 @@ async fn main() -> Result<()> {
         batch_size = config.scheduler.batch_size,
         "scheduler task started"
     );
+    let (garbage_collector_handle, garbage_collector_shutdown) =
+        spawn_garbage_collector(backend.clone(), config.garbage_collector.clone());
+    info!(
+        interval_ms = config.garbage_collector.interval.as_millis(),
+        batch_size = config.garbage_collector.batch_size,
+        retention_secs = config.garbage_collector.retention.as_secs(),
+        "garbage collector task started"
+    );
 
     // Wire shutdown coordination.
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
@@ -142,6 +157,7 @@ async fn main() -> Result<()> {
     let shutdown_handle = tokio::spawn({
         let shutdown_tx = shutdown_tx.clone();
         let scheduler_shutdown = scheduler_shutdown.clone();
+        let garbage_collector_shutdown = garbage_collector_shutdown.clone();
         async move {
             if let Err(err) = wait_for_shutdown().await {
                 error!(error = %err, "shutdown signal listener failed");
@@ -150,6 +166,7 @@ async fn main() -> Result<()> {
             info!("shutdown signal received");
             let _ = shutdown_tx.send(true);
             let _ = scheduler_shutdown.send(true);
+            let _ = garbage_collector_shutdown.send(true);
         }
     });
 
@@ -177,6 +194,7 @@ async fn main() -> Result<()> {
 
     let _ = shutdown_handle.await;
     let _ = tokio::time::timeout(Duration::from_secs(5), scheduler_handle).await;
+    let _ = tokio::time::timeout(Duration::from_secs(5), garbage_collector_handle).await;
     let _ = tokio::time::timeout(Duration::from_secs(2), status_reporter_handle).await;
     let _ = tokio::time::timeout(Duration::from_secs(2), expired_lock_reclaimer_handle).await;
 

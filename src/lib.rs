@@ -5,6 +5,7 @@ pub mod config;
 pub mod db;
 #[cfg(feature = "fuzzing")]
 pub mod fuzzer;
+pub mod garbage_collector;
 pub mod integration_support;
 pub mod messages;
 pub mod observability;
@@ -18,6 +19,9 @@ pub mod webapp;
 pub mod workers;
 
 // Worker infrastructure (preserved from the legacy Rust core).
+pub use garbage_collector::{
+    GarbageCollectorConfig, GarbageCollectorTask, spawn_garbage_collector,
+};
 pub use messages::{MessageError, ast as ir_ast, proto, workflow_argument_value_to_json};
 pub use observability::obs;
 pub use pool_status::{PoolTimeSeries, TimeSeriesEntry, TimeSeriesJsonEntry};

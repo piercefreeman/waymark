@@ -1,15 +1,16 @@
 use std::collections::HashMap;
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use sqlx::{Postgres, QueryBuilder, Row};
 use tonic::async_trait;
+use tracing::warn;
 use uuid::Uuid;
 
 use super::PostgresBackend;
 use crate::backends::base::{
-    ActionDone, BackendError, BackendResult, CoreBackend, GraphUpdate, InstanceDone,
-    InstanceLockStatus, LockClaim, QueuedInstance, QueuedInstanceBatch, WorkerStatusBackend,
-    WorkerStatusUpdate,
+    ActionDone, BackendError, BackendResult, CoreBackend, GarbageCollectionResult,
+    GarbageCollectorBackend, GraphUpdate, InstanceDone, InstanceLockStatus, LockClaim,
+    QueuedInstance, QueuedInstanceBatch, WorkerStatusBackend, WorkerStatusUpdate,
 };
 use crate::observability::obs;
 use crate::waymark_core::runner::state::RunnerState;
@@ -206,6 +207,114 @@ impl PostgresBackend {
         }
 
         Ok(rows.len())
+    }
+
+    /// Delete old finished instances and their action attempt rows.
+    #[obs]
+    pub async fn collect_done_instances_impl(
+        &self,
+        older_than: DateTime<Utc>,
+        limit: usize,
+    ) -> BackendResult<GarbageCollectionResult> {
+        if limit == 0 {
+            return Ok(GarbageCollectionResult::default());
+        }
+
+        let mut tx = self.pool.begin().await?;
+        Self::count_query(&self.query_counts, "select:runner_instances_gc_candidates");
+        let candidate_rows = sqlx::query(
+            r#"
+            SELECT instance_id, state
+            FROM runner_instances
+            WHERE created_at < $1
+              AND (result IS NOT NULL OR error IS NOT NULL)
+            ORDER BY created_at, instance_id
+            LIMIT $2
+            FOR UPDATE SKIP LOCKED
+            "#,
+        )
+        .bind(older_than)
+        .bind(limit as i64)
+        .fetch_all(&mut *tx)
+        .await?;
+
+        if candidate_rows.is_empty() {
+            tx.commit().await?;
+            return Ok(GarbageCollectionResult::default());
+        }
+
+        let mut instance_ids = Vec::with_capacity(candidate_rows.len());
+        let mut action_execution_ids = Vec::new();
+        for row in candidate_rows {
+            let instance_id: Uuid = row.get("instance_id");
+            let state_payload: Option<Vec<u8>> = row.get("state");
+            instance_ids.push(instance_id);
+
+            let Some(state_payload) = state_payload else {
+                continue;
+            };
+            match Self::deserialize::<GraphUpdate>(&state_payload) {
+                Ok(graph) => {
+                    for (execution_id, node) in graph.nodes {
+                        if node.is_action_call() {
+                            action_execution_ids.push(execution_id);
+                        }
+                    }
+                }
+                Err(err) => {
+                    warn!(
+                        %instance_id,
+                        error = %err,
+                        "failed to decode runner state while collecting garbage"
+                    );
+                }
+            }
+        }
+
+        action_execution_ids.sort_unstable();
+        action_execution_ids.dedup();
+        let deleted_actions = if action_execution_ids.is_empty() {
+            0
+        } else {
+            Self::count_query(&self.query_counts, "delete:runner_actions_done_gc");
+            let result =
+                sqlx::query("DELETE FROM runner_actions_done WHERE execution_id = ANY($1)")
+                    .bind(&action_execution_ids)
+                    .execute(&mut *tx)
+                    .await?;
+            let rows = result.rows_affected() as usize;
+            Self::count_batch_size(
+                &self.batch_size_counts,
+                "delete:runner_actions_done_gc",
+                rows,
+            );
+            rows
+        };
+
+        Self::count_query(&self.query_counts, "delete:queued_instances_gc");
+        let _ = sqlx::query("DELETE FROM queued_instances WHERE instance_id = ANY($1)")
+            .bind(&instance_ids)
+            .execute(&mut *tx)
+            .await?;
+
+        Self::count_query(&self.query_counts, "delete:runner_instances_gc");
+        let deleted_instances_result =
+            sqlx::query("DELETE FROM runner_instances WHERE instance_id = ANY($1)")
+                .bind(&instance_ids)
+                .execute(&mut *tx)
+                .await?;
+        let deleted_instances = deleted_instances_result.rows_affected() as usize;
+        Self::count_batch_size(
+            &self.batch_size_counts,
+            "delete:runner_instances_gc",
+            deleted_instances,
+        );
+        tx.commit().await?;
+
+        Ok(GarbageCollectionResult {
+            deleted_instances,
+            deleted_actions,
+        })
     }
 
     #[obs]
@@ -625,6 +734,17 @@ impl CoreBackend for PostgresBackend {
 }
 
 #[async_trait]
+impl GarbageCollectorBackend for PostgresBackend {
+    async fn collect_done_instances(
+        &self,
+        older_than: DateTime<Utc>,
+        limit: usize,
+    ) -> BackendResult<GarbageCollectionResult> {
+        self.collect_done_instances_impl(older_than, limit).await
+    }
+}
+
+#[async_trait]
 impl WorkerStatusBackend for PostgresBackend {
     async fn upsert_worker_status(&self, status: &WorkerStatusUpdate) -> BackendResult<()> {
         PostgresBackend::upsert_worker_status(self, status).await
@@ -633,7 +753,7 @@ impl WorkerStatusBackend for PostgresBackend {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
 
     use chrono::{DateTime, Duration, Utc};
     use serial_test::serial;
@@ -642,7 +762,9 @@ mod tests {
 
     use super::super::test_helpers::setup_backend;
     use super::*;
-    use crate::backends::{ActionAttemptStatus, CoreBackend, WorkerStatusBackend};
+    use crate::backends::{
+        ActionAttemptStatus, CoreBackend, GarbageCollectorBackend, WorkerStatusBackend,
+    };
     use crate::waymark_core::dag::EdgeType;
     use crate::waymark_core::runner::state::{ActionCallSpec, ExecutionNode, NodeStatus};
 
@@ -1097,6 +1219,127 @@ mod tests {
                 .await
                 .expect("queued count");
         assert_eq!(queued_count, 0);
+    }
+
+    #[serial(postgres)]
+    #[tokio::test]
+    async fn garbage_collector_deletes_old_done_instances_and_actions() {
+        let backend = setup_backend().await;
+        let instance_id = Uuid::new_v4();
+        let execution_id = Uuid::new_v4();
+        let entry_node = Uuid::new_v4();
+        let workflow_version_id = Uuid::new_v4();
+
+        let state = GraphUpdate {
+            instance_id,
+            nodes: HashMap::from([(execution_id, sample_execution_node(execution_id))]),
+            edges: HashSet::new(),
+        };
+        let state_payload = PostgresBackend::serialize(&state).expect("serialize state");
+        let result_payload =
+            PostgresBackend::serialize(&serde_json::json!({"ok": true})).expect("serialize done");
+        let action_payload =
+            PostgresBackend::serialize(&serde_json::json!({"value": 1})).expect("serialize action");
+
+        sqlx::query(
+            "INSERT INTO runner_instances (instance_id, entry_node, workflow_version_id, created_at, state, result) VALUES ($1, $2, $3, $4, $5, $6)",
+        )
+        .bind(instance_id)
+        .bind(entry_node)
+        .bind(workflow_version_id)
+        .bind(Utc::now() - Duration::hours(30))
+        .bind(state_payload)
+        .bind(result_payload)
+        .execute(backend.pool())
+        .await
+        .expect("insert old done instance");
+
+        sqlx::query(
+            "INSERT INTO runner_actions_done (execution_id, attempt, status, result) VALUES ($1, $2, $3, $4)",
+        )
+        .bind(execution_id)
+        .bind(1_i32)
+        .bind("completed")
+        .bind(action_payload)
+        .execute(backend.pool())
+        .await
+        .expect("insert action row");
+
+        let result = GarbageCollectorBackend::collect_done_instances(
+            &backend,
+            Utc::now() - Duration::hours(24),
+            100,
+        )
+        .await
+        .expect("collect done instances");
+
+        assert_eq!(result.deleted_instances, 1);
+        assert_eq!(result.deleted_actions, 1);
+
+        let remaining_instances: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM runner_instances WHERE instance_id = $1")
+                .bind(instance_id)
+                .fetch_one(backend.pool())
+                .await
+                .expect("count instances");
+        assert_eq!(remaining_instances, 0);
+
+        let remaining_actions: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM runner_actions_done WHERE execution_id = $1")
+                .bind(execution_id)
+                .fetch_one(backend.pool())
+                .await
+                .expect("count actions");
+        assert_eq!(remaining_actions, 0);
+    }
+
+    #[serial(postgres)]
+    #[tokio::test]
+    async fn garbage_collector_keeps_recent_done_instances() {
+        let backend = setup_backend().await;
+        let instance_id = Uuid::new_v4();
+        let entry_node = Uuid::new_v4();
+        let workflow_version_id = Uuid::new_v4();
+        let state_payload = PostgresBackend::serialize(&GraphUpdate {
+            instance_id,
+            nodes: HashMap::new(),
+            edges: HashSet::new(),
+        })
+        .expect("serialize state");
+        let result_payload =
+            PostgresBackend::serialize(&serde_json::json!({"ok": true})).expect("serialize done");
+
+        sqlx::query(
+            "INSERT INTO runner_instances (instance_id, entry_node, workflow_version_id, created_at, state, result) VALUES ($1, $2, $3, $4, $5, $6)",
+        )
+        .bind(instance_id)
+        .bind(entry_node)
+        .bind(workflow_version_id)
+        .bind(Utc::now() - Duration::hours(1))
+        .bind(state_payload)
+        .bind(result_payload)
+        .execute(backend.pool())
+        .await
+        .expect("insert recent done instance");
+
+        let result = GarbageCollectorBackend::collect_done_instances(
+            &backend,
+            Utc::now() - Duration::hours(24),
+            100,
+        )
+        .await
+        .expect("collect done instances");
+
+        assert_eq!(result.deleted_instances, 0);
+        assert_eq!(result.deleted_actions, 0);
+
+        let remaining_instances: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM runner_instances WHERE instance_id = $1")
+                .bind(instance_id)
+                .fetch_one(backend.pool())
+                .await
+                .expect("count instances");
+        assert_eq!(remaining_instances, 1);
     }
 
     #[serial(postgres)]
