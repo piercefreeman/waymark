@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import importlib
 import logging
+import os
 import sys
 import time
 from typing import Any, AsyncIterator, cast
@@ -19,6 +20,18 @@ from .logger import configure as configure_logger
 
 LOGGER = configure_logger("waymark.worker")
 aio = cast(Any, grpc).aio
+
+DEFAULT_CLEANUP_TIMEOUT_BUFFER_SECONDS = 5
+
+
+def _cleanup_timeout_buffer_seconds() -> int:
+    raw = os.getenv("WAYMARK_PYTHON_CLEANUP_TIMEOUT_BUFFER_SECONDS")
+    if raw is None:
+        return DEFAULT_CLEANUP_TIMEOUT_BUFFER_SECONDS
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return DEFAULT_CLEANUP_TIMEOUT_BUFFER_SECONDS
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
@@ -76,7 +89,8 @@ async def _handle_dispatch(
     # Python-side timeout is a safety net for cleanup only.
     # Rust handles the primary timeout enforcement.
     # Add buffer so Rust always times out first.
-    python_timeout = timeout_seconds + 30 if timeout_seconds > 0 else 0
+    cleanup_timeout_buffer = _cleanup_timeout_buffer_seconds()
+    python_timeout = timeout_seconds + cleanup_timeout_buffer if timeout_seconds > 0 else 0
 
     worker_start = time.perf_counter_ns()
     success = True
@@ -100,12 +114,13 @@ async def _handle_dispatch(
         # Log internally but don't treat as special error type.
         LOGGER.warning(
             "Action %s hit Python cleanup timeout after %ss (Rust already timed out at %ss) "
-            "for action_id=%s sequence=%s",
+            "for action_id=%s sequence=%s attempt=%s",
             action_name,
             python_timeout,
             timeout_seconds,
             dispatch.action_id,
             dispatch.sequence,
+            dispatch.attempt_number,
         )
         success = False
         # Return generic error - Rust will likely ignore this late response
@@ -139,7 +154,13 @@ async def _handle_dispatch(
         payload=response.SerializeToString(),
     )
     await outgoing.put(response_envelope)
-    LOGGER.debug("Handled action=%s seq=%s success=%s", action_name, dispatch.sequence, success)
+    LOGGER.debug(
+        "Handled action=%s seq=%s attempt=%s success=%s",
+        action_name,
+        dispatch.sequence,
+        dispatch.attempt_number,
+        success,
+    )
 
 
 async def _handle_incoming_stream(

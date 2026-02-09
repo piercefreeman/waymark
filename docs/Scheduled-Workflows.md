@@ -100,12 +100,9 @@ Upsert behavior (`workflow_name`, `schedule_name` conflict):
 - recomputes `next_run_at`
 - sets `status = 'active'`
 
-## Runtime behavior and caveats
+## Runtime behavior
 
 - Due schedules are polled by the scheduler task and converted to normal queued workflow instances.
 - Input payload is converted into input assignments in the new instance `RunnerState`.
 - After queueing, schedule execution metadata is updated (`last_run_at`, `last_instance_id`, next `next_run_at`).
-
-Current caveat:
-
-- `allow_duplicate=False` is stored but duplicate suppression is not currently enforced because `has_running_instance` returns `false` in current backend implementations.
+- For `allow_duplicate=false`, Postgres suppresses overlap by checking for existing queued instances tied to the same `schedule_id` before firing a new run.

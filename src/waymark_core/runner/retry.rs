@@ -12,6 +12,10 @@ pub(crate) struct RetryPolicyEvaluator<'a> {
     exception_name: Option<&'a str>,
 }
 
+fn is_synthetic_runtime_exception(exception_name: Option<&str>) -> bool {
+    matches!(exception_name, Some("ExecutorResume" | "ActionTimeout"))
+}
+
 impl<'a> RetryPolicyEvaluator<'a> {
     pub(crate) fn new(policies: &'a [ir::PolicyBracket], exception_name: Option<&'a str>) -> Self {
         Self {
@@ -29,7 +33,10 @@ impl<'a> RetryPolicyEvaluator<'a> {
                 continue;
             };
             let matches_exception = if retry.exception_types.is_empty() {
-                true
+                // Synthetic runtime exceptions (resume/timeout) can represent in-flight
+                // work that may still be running out-of-band. Require explicit opt-in
+                // exception filters before retrying these cases.
+                !is_synthetic_runtime_exception(self.exception_name)
             } else if let Some(name) = self.exception_name {
                 retry.exception_types.iter().any(|value| value == name)
             } else {
@@ -106,6 +113,20 @@ mod tests {
 
         let exhausted = RetryPolicyEvaluator::new(&policies, Some("ValueError")).decision(4);
         assert!(!exhausted.should_retry);
+    }
+
+    #[test]
+    fn retry_policy_evaluator_wildcard_does_not_retry_synthetic_timeout() {
+        let policies = vec![retry_policy(3, Vec::new())];
+        let decision = RetryPolicyEvaluator::new(&policies, Some("ActionTimeout")).decision(1);
+        assert!(!decision.should_retry);
+    }
+
+    #[test]
+    fn retry_policy_evaluator_explicit_timeout_retry_happy_path() {
+        let policies = vec![retry_policy(2, vec!["ActionTimeout"])];
+        let decision = RetryPolicyEvaluator::new(&policies, Some("ActionTimeout")).decision(1);
+        assert!(decision.should_retry);
     }
 
     #[test]

@@ -174,8 +174,22 @@ impl SchedulerBackend for PostgresBackend {
         Ok(rows.into_iter().map(Into::into).collect())
     }
 
-    async fn has_running_instance(&self, _schedule_id: ScheduleId) -> BackendResult<bool> {
-        Ok(false)
+    async fn has_running_instance(&self, schedule_id: ScheduleId) -> BackendResult<bool> {
+        let has_running = sqlx::query_scalar::<_, bool>(
+            r#"
+            SELECT EXISTS(
+                SELECT 1
+                FROM runner_instances ri
+                JOIN queued_instances qi ON qi.instance_id = ri.instance_id
+                WHERE ri.schedule_id = $1
+            )
+            "#,
+        )
+        .bind(schedule_id.0)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(has_running)
     }
 
     async fn mark_schedule_executed(
@@ -502,6 +516,35 @@ mod tests {
             .await
             .expect("has running instance");
         assert!(!has_running);
+    }
+
+    #[serial(postgres)]
+    #[tokio::test]
+    async fn scheduler_has_running_instance_true_with_queued_instance() {
+        let backend = setup_backend().await;
+
+        let schedule_id = insert_schedule(&backend, "running-instance").await;
+        let instance_id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO runner_instances (instance_id, entry_node, schedule_id) VALUES ($1, $2, $3)",
+        )
+        .bind(instance_id)
+        .bind(Uuid::new_v4())
+        .bind(schedule_id.0)
+        .execute(backend.pool())
+        .await
+        .expect("insert runner instance");
+        sqlx::query("INSERT INTO queued_instances (instance_id, payload) VALUES ($1, $2)")
+            .bind(instance_id)
+            .bind(vec![0_u8])
+            .execute(backend.pool())
+            .await
+            .expect("insert queued instance");
+
+        let has_running = SchedulerBackend::has_running_instance(&backend, schedule_id)
+            .await
+            .expect("has running instance");
+        assert!(has_running);
     }
 
     #[serial(postgres)]

@@ -103,5 +103,4 @@ Schedules are keyed by `(workflow_name, schedule_name)` and resolve workflows by
 - The scheduler fetches due schedules from `workflow_schedules`.
 - It resolves a DAG by loading the most recent `workflow_versions` row for that `workflow_name` (`ORDER BY created_at DESC LIMIT 1`).
 - It queues a normal `QueuedInstance` and then marks schedule execution (`last_run_at`, `last_instance_id`, next `next_run_at`).
-
-Current caveat: `has_running_instance` returns `false` in the Postgres backend, so `allow_duplicate=false` is not yet enforced by runtime checks.
+- For schedules with `allow_duplicate=false`, Postgres checks for an existing queued instance for the same `schedule_id` before firing a new run.
