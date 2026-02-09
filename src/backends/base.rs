@@ -202,7 +202,7 @@ pub trait CoreBackend: Send + Sync {
     /// Persist updated execution graphs.
     async fn save_graphs(
         &self,
-        lock_uuid: Uuid,
+        claim: LockClaim,
         graphs: &[GraphUpdate],
     ) -> BackendResult<Vec<InstanceLockStatus>>;
 

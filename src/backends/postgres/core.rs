@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::future::Future;
+use std::time::Duration as StdDuration;
 
 use chrono::{DateTime, Utc};
 use sqlx::{Postgres, QueryBuilder, Row};
@@ -19,6 +21,11 @@ const INSTANCE_STATUS_QUEUED: &str = "queued";
 const INSTANCE_STATUS_RUNNING: &str = "running";
 const INSTANCE_STATUS_COMPLETED: &str = "completed";
 const INSTANCE_STATUS_FAILED: &str = "failed";
+const TRANSIENT_DEADLOCK_SQLSTATE: &str = "40P01";
+const TRANSIENT_SERIALIZATION_SQLSTATE: &str = "40001";
+const TRANSIENT_RETRY_MAX_ATTEMPTS: usize = 3;
+const TRANSIENT_RETRY_INITIAL_BACKOFF_MS: u64 = 25;
+const TRANSIENT_RETRY_MAX_BACKOFF_MS: u64 = 250;
 
 fn instance_result_is_error_wrapper(result: &serde_json::Value) -> bool {
     let serde_json::Value::Object(map) = result else {
@@ -40,6 +47,59 @@ fn instance_done_status(instance: &InstanceDone) -> &'static str {
         INSTANCE_STATUS_FAILED
     } else {
         INSTANCE_STATUS_COMPLETED
+    }
+}
+
+fn is_transient_sqlstate(code: &str) -> bool {
+    matches!(
+        code,
+        TRANSIENT_DEADLOCK_SQLSTATE | TRANSIENT_SERIALIZATION_SQLSTATE
+    )
+}
+
+fn is_transient_backend_error(err: &BackendError) -> bool {
+    match err {
+        BackendError::Sqlx(sqlx::Error::Database(db_err)) => {
+            db_err.code().as_deref().is_some_and(is_transient_sqlstate)
+        }
+        // Fallback for cases where sqlstate is not preserved in wrapping.
+        BackendError::Message(message) => {
+            message.contains("deadlock detected")
+                || message.contains("could not serialize access due to")
+        }
+        _ => false,
+    }
+}
+
+async fn retry_transient_backend<T, Op, Fut>(
+    operation: &'static str,
+    mut op: Op,
+) -> BackendResult<T>
+where
+    Op: FnMut() -> Fut,
+    Fut: Future<Output = BackendResult<T>>,
+{
+    let mut attempt = 0usize;
+    let mut backoff_ms = TRANSIENT_RETRY_INITIAL_BACKOFF_MS;
+    loop {
+        match op().await {
+            Ok(value) => return Ok(value),
+            Err(err)
+                if attempt < TRANSIENT_RETRY_MAX_ATTEMPTS && is_transient_backend_error(&err) =>
+            {
+                attempt += 1;
+                warn!(
+                    operation,
+                    attempt,
+                    error = %err,
+                    "transient database error; retrying"
+                );
+                tokio::time::sleep(StdDuration::from_millis(backoff_ms)).await;
+                backoff_ms =
+                    std::cmp::min(backoff_ms.saturating_mul(2), TRANSIENT_RETRY_MAX_BACKOFF_MS);
+            }
+            Err(err) => return Err(err),
+        }
     }
 }
 
@@ -251,8 +311,7 @@ impl PostgresBackend {
             )
             UPDATE queued_instances AS qi
             SET lock_uuid = NULL,
-                lock_expires_at = NULL,
-                current_status = 'queued'
+                lock_expires_at = NULL
             FROM expired
             WHERE qi.instance_id = expired.instance_id
             RETURNING qi.instance_id
@@ -398,47 +457,33 @@ impl PostgresBackend {
     #[obs]
     async fn save_graphs_impl(
         &self,
-        lock_uuid: Uuid,
+        claim: LockClaim,
+        graphs: &[GraphUpdate],
+    ) -> BackendResult<Vec<InstanceLockStatus>> {
+        retry_transient_backend("save_graphs_impl", || {
+            let claim = claim.clone();
+            async move { self.save_graphs_once(claim, graphs).await }
+        })
+        .await
+    }
+
+    async fn save_graphs_once(
+        &self,
+        claim: LockClaim,
         graphs: &[GraphUpdate],
     ) -> BackendResult<Vec<InstanceLockStatus>> {
         if graphs.is_empty() {
             return Ok(Vec::new());
         }
-        Self::count_query(&self.query_counts, "update:runner_instances_state");
-        Self::count_batch_size(
-            &self.batch_size_counts,
-            "update:runner_instances_state",
-            graphs.len(),
-        );
         let mut payloads = Vec::with_capacity(graphs.len());
         for graph in graphs {
             payloads.push((
                 graph.instance_id,
                 graph.next_scheduled_at(),
+                claim.lock_expires_at,
                 Self::serialize(graph)?,
             ));
         }
-        let now = Utc::now();
-        let mut builder: QueryBuilder<Postgres> = QueryBuilder::new(
-            "UPDATE runner_instances AS ri SET state = v.state, current_status = 'running' FROM (",
-        );
-        builder.push_values(
-            payloads.iter(),
-            |mut b, (instance_id, _scheduled_at, payload)| {
-                b.push_bind(*instance_id).push_bind(payload.as_slice());
-            },
-        );
-        builder.push(
-            ") AS v(instance_id, state)
-             JOIN queued_instances qi ON qi.instance_id = v.instance_id
-             WHERE ri.instance_id = v.instance_id
-               AND qi.lock_uuid = ",
-        );
-        builder.push_bind(lock_uuid);
-        builder.push(" AND (qi.lock_expires_at IS NULL OR qi.lock_expires_at > ");
-        builder.push_bind(now);
-        builder.push(")");
-        builder.build().execute(&self.pool).await?;
 
         Self::count_query(&self.query_counts, "update:queued_instances_scheduled_at");
         Self::count_batch_size(
@@ -446,25 +491,54 @@ impl PostgresBackend {
             "update:queued_instances_scheduled_at",
             payloads.len(),
         );
+        let now = Utc::now();
         let mut schedule_builder: QueryBuilder<Postgres> = QueryBuilder::new(
-            "UPDATE queued_instances AS qi SET scheduled_at = v.scheduled_at, current_status = 'running' FROM (",
+            "UPDATE queued_instances AS qi SET scheduled_at = v.scheduled_at, lock_expires_at = CASE WHEN qi.lock_expires_at IS NULL OR qi.lock_expires_at < v.lock_expires_at THEN v.lock_expires_at ELSE qi.lock_expires_at END FROM (",
         );
         schedule_builder.push_values(
             payloads.iter(),
-            |mut b, (instance_id, scheduled_at, _payload)| {
-                b.push_bind(*instance_id).push_bind(*scheduled_at);
+            |mut b, (instance_id, scheduled_at, lock_expires_at, _payload)| {
+                b.push_bind(*instance_id)
+                    .push_bind(*scheduled_at)
+                    .push_bind(*lock_expires_at);
             },
         );
         schedule_builder.push(
-            ") AS v(instance_id, scheduled_at)
+            ") AS v(instance_id, scheduled_at, lock_expires_at)
              WHERE qi.instance_id = v.instance_id
                AND qi.lock_uuid = ",
         );
-        schedule_builder.push_bind(lock_uuid);
+        schedule_builder.push_bind(claim.lock_uuid);
         schedule_builder.push(" AND (qi.lock_expires_at IS NULL OR qi.lock_expires_at > ");
         schedule_builder.push_bind(now);
         schedule_builder.push(")");
         schedule_builder.build().execute(&self.pool).await?;
+
+        Self::count_query(&self.query_counts, "update:runner_instances_state");
+        Self::count_batch_size(
+            &self.batch_size_counts,
+            "update:runner_instances_state",
+            payloads.len(),
+        );
+        let mut runner_builder: QueryBuilder<Postgres> =
+            QueryBuilder::new("UPDATE runner_instances AS ri SET state = v.state FROM (");
+        runner_builder.push_values(
+            payloads.iter(),
+            |mut b, (instance_id, _scheduled_at, _lock_expires_at, payload)| {
+                b.push_bind(*instance_id).push_bind(payload.as_slice());
+            },
+        );
+        runner_builder.push(
+            ") AS v(instance_id, state)
+             JOIN queued_instances qi ON qi.instance_id = v.instance_id
+             WHERE ri.instance_id = v.instance_id
+               AND qi.lock_uuid = ",
+        );
+        runner_builder.push_bind(claim.lock_uuid);
+        runner_builder.push(" AND (qi.lock_expires_at IS NULL OR qi.lock_expires_at > ");
+        runner_builder.push_bind(now);
+        runner_builder.push(")");
+        runner_builder.build().execute(&self.pool).await?;
 
         let ids: Vec<Uuid> = graphs.iter().map(|graph| graph.instance_id).collect();
         let lock_rows = sqlx::query(
@@ -546,6 +620,18 @@ impl PostgresBackend {
         size: usize,
         claim: LockClaim,
     ) -> BackendResult<QueuedInstanceBatch> {
+        retry_transient_backend("get_queued_instances_impl", || {
+            let claim = claim.clone();
+            async move { self.get_queued_instances_once(size, claim).await }
+        })
+        .await
+    }
+
+    async fn get_queued_instances_once(
+        &self,
+        size: usize,
+        claim: LockClaim,
+    ) -> BackendResult<QueuedInstanceBatch> {
         if size == 0 {
             return Ok(QueuedInstanceBatch {
                 instances: Vec::new(),
@@ -568,8 +654,7 @@ impl PostgresBackend {
             updated AS (
                 UPDATE queued_instances AS qi
                 SET lock_uuid = $3,
-                    lock_expires_at = $4,
-                    current_status = 'running'
+                    lock_expires_at = $4
                 FROM claimed
                 WHERE qi.instance_id = claimed.instance_id
                 RETURNING qi.instance_id, claimed.payload
@@ -690,9 +775,28 @@ impl PostgresBackend {
 
     #[obs]
     async fn save_instances_done_impl(&self, instances: &[InstanceDone]) -> BackendResult<()> {
+        retry_transient_backend("save_instances_done_impl", || async move {
+            self.save_instances_done_once(instances).await
+        })
+        .await
+    }
+
+    async fn save_instances_done_once(&self, instances: &[InstanceDone]) -> BackendResult<()> {
         if instances.is_empty() {
             return Ok(());
         }
+        let ids: Vec<Uuid> = instances
+            .iter()
+            .map(|instance| instance.executor_id)
+            .collect();
+
+        let mut tx = self.pool.begin().await?;
+        Self::count_query(&self.query_counts, "delete:queued_instances_by_id");
+        sqlx::query("DELETE FROM queued_instances WHERE instance_id = ANY($1)")
+            .bind(&ids)
+            .execute(&mut *tx)
+            .await?;
+
         Self::count_query(&self.query_counts, "update:runner_instances_result");
         Self::count_batch_size(
             &self.batch_size_counts,
@@ -727,16 +831,8 @@ impl PostgresBackend {
         builder.push(
             ") AS v(instance_id, current_status, result, error) WHERE ri.instance_id = v.instance_id",
         );
-        builder.build().execute(&self.pool).await?;
-        let ids: Vec<Uuid> = instances
-            .iter()
-            .map(|instance| instance.executor_id)
-            .collect();
-        Self::count_query(&self.query_counts, "delete:queued_instances_by_id");
-        sqlx::query("DELETE FROM queued_instances WHERE instance_id = ANY($1)")
-            .bind(&ids)
-            .execute(&self.pool)
-            .await?;
+        builder.build().execute(&mut *tx).await?;
+        tx.commit().await?;
         Ok(())
     }
 }
@@ -749,10 +845,10 @@ impl CoreBackend for PostgresBackend {
 
     async fn save_graphs(
         &self,
-        lock_uuid: Uuid,
+        claim: LockClaim,
         graphs: &[GraphUpdate],
     ) -> BackendResult<Vec<InstanceLockStatus>> {
-        self.save_graphs_impl(lock_uuid, graphs).await
+        self.save_graphs_impl(claim, graphs).await
     }
 
     async fn save_actions_done(&self, actions: &[ActionDone]) -> BackendResult<()> {
@@ -776,33 +872,11 @@ impl CoreBackend for PostgresBackend {
         claim: LockClaim,
         instance_ids: &[Uuid],
     ) -> BackendResult<Vec<InstanceLockStatus>> {
-        if instance_ids.is_empty() {
-            return Ok(Vec::new());
-        }
-        Self::count_query(&self.query_counts, "update:queued_instances_lock");
-        sqlx::query(
-            "UPDATE queued_instances SET lock_expires_at = $1 WHERE instance_id = ANY($2) AND lock_uuid = $3",
-        )
-        .bind(claim.lock_expires_at)
-        .bind(instance_ids)
-        .bind(claim.lock_uuid)
-        .execute(&self.pool)
-        .await?;
-        let rows = sqlx::query(
-            "SELECT instance_id, lock_uuid, lock_expires_at FROM queued_instances WHERE instance_id = ANY($1)",
-        )
-        .bind(instance_ids)
-        .fetch_all(&self.pool)
-        .await?;
-        let mut locks = Vec::with_capacity(rows.len());
-        for row in rows {
-            locks.push(InstanceLockStatus {
-                instance_id: row.get(0),
-                lock_uuid: row.get(1),
-                lock_expires_at: row.get(2),
-            });
-        }
-        Ok(locks)
+        retry_transient_backend("refresh_instance_locks", || {
+            let claim = claim.clone();
+            async move { self.refresh_instance_locks_once(claim, instance_ids).await }
+        })
+        .await
     }
 
     async fn release_instance_locks(
@@ -815,11 +889,27 @@ impl CoreBackend for PostgresBackend {
         }
         Self::count_query(&self.query_counts, "update:queued_instances_release");
         let released_rows = sqlx::query(
-            "UPDATE queued_instances SET lock_uuid = NULL, lock_expires_at = NULL, current_status = $3 WHERE instance_id = ANY($1) AND lock_uuid = $2 RETURNING instance_id",
+            r#"
+            WITH releasable AS (
+                SELECT instance_id
+                FROM queued_instances
+                WHERE instance_id = ANY($1)
+                  AND lock_uuid = $2
+                FOR UPDATE SKIP LOCKED
+            ),
+            released AS (
+                UPDATE queued_instances AS qi
+                SET lock_uuid = NULL,
+                    lock_expires_at = NULL
+                FROM releasable
+                WHERE qi.instance_id = releasable.instance_id
+                RETURNING qi.instance_id
+            )
+            SELECT instance_id FROM released
+            "#,
         )
         .bind(instance_ids)
         .bind(lock_uuid)
-        .bind(INSTANCE_STATUS_QUEUED)
         .fetch_all(&self.pool)
         .await?;
 
@@ -845,6 +935,54 @@ impl CoreBackend for PostgresBackend {
     }
 }
 
+impl PostgresBackend {
+    async fn refresh_instance_locks_once(
+        &self,
+        claim: LockClaim,
+        instance_ids: &[Uuid],
+    ) -> BackendResult<Vec<InstanceLockStatus>> {
+        if instance_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        Self::count_query(&self.query_counts, "update:queued_instances_lock");
+        sqlx::query(
+            r#"
+            WITH claimable AS (
+                SELECT instance_id
+                FROM queued_instances
+                WHERE instance_id = ANY($2)
+                  AND lock_uuid = $3
+                FOR UPDATE SKIP LOCKED
+            )
+            UPDATE queued_instances AS qi
+            SET lock_expires_at = $1
+            FROM claimable
+            WHERE qi.instance_id = claimable.instance_id
+            "#,
+        )
+        .bind(claim.lock_expires_at)
+        .bind(instance_ids)
+        .bind(claim.lock_uuid)
+        .execute(&self.pool)
+        .await?;
+        let rows = sqlx::query(
+            "SELECT instance_id, lock_uuid, lock_expires_at FROM queued_instances WHERE instance_id = ANY($1)",
+        )
+        .bind(instance_ids)
+        .fetch_all(&self.pool)
+        .await?;
+        let mut locks = Vec::with_capacity(rows.len());
+        for row in rows {
+            locks.push(InstanceLockStatus {
+                instance_id: row.get(0),
+                lock_uuid: row.get(1),
+                lock_expires_at: row.get(2),
+            });
+        }
+        Ok(locks)
+    }
+}
+
 #[async_trait]
 impl GarbageCollectorBackend for PostgresBackend {
     async fn collect_done_instances(
@@ -866,6 +1004,9 @@ impl WorkerStatusBackend for PostgresBackend {
 #[cfg(test)]
 mod tests {
     use std::collections::{HashMap, HashSet};
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration as StdDuration;
 
     use chrono::{DateTime, Duration, Utc};
     use serial_test::serial;
@@ -1055,7 +1196,7 @@ mod tests {
 
     #[serial(postgres)]
     #[tokio::test]
-    async fn core_get_queued_instances_happy_path() {
+    async fn core_get_queued_instances_updates_runner_status_without_mutating_queue_status() {
         let backend = setup_backend().await;
         let instance_id = Uuid::new_v4();
         let entry_node = Uuid::new_v4();
@@ -1086,7 +1227,7 @@ mod tests {
         .fetch_one(backend.pool())
         .await
         .expect("queued current status");
-        assert_eq!(queued_status.as_deref(), Some(INSTANCE_STATUS_RUNNING));
+        assert_eq!(queued_status.as_deref(), Some(INSTANCE_STATUS_QUEUED));
 
         let runner_status: Option<String> = sqlx::query_scalar(
             "SELECT current_status FROM runner_instances WHERE instance_id = $1",
@@ -1126,7 +1267,7 @@ mod tests {
         };
         CoreBackend::save_graphs(
             &backend,
-            initial_claim.lock_uuid,
+            initial_claim.clone(),
             std::slice::from_ref(&graph),
         )
         .await
@@ -1205,14 +1346,27 @@ mod tests {
                 },
             ]),
         };
+        let extended_claim = LockClaim {
+            lock_uuid: claim.lock_uuid,
+            lock_expires_at: claim.lock_expires_at + Duration::seconds(120),
+        };
 
-        let locks =
-            CoreBackend::save_graphs(&backend, claim.lock_uuid, std::slice::from_ref(&graph))
-                .await
-                .expect("save graphs");
+        let locks = CoreBackend::save_graphs(
+            &backend,
+            extended_claim.clone(),
+            std::slice::from_ref(&graph),
+        )
+        .await
+        .expect("save graphs");
         assert_eq!(locks.len(), 1);
         assert_eq!(locks[0].instance_id, instance_id);
         assert_eq!(locks[0].lock_uuid, Some(claim.lock_uuid));
+        assert_eq!(
+            locks[0]
+                .lock_expires_at
+                .map(|value| value.timestamp_micros()),
+            Some(extended_claim.lock_expires_at.timestamp_micros()),
+        );
 
         let state_payload: Option<Vec<u8>> =
             sqlx::query_scalar("SELECT state FROM runner_instances WHERE instance_id = $1")
@@ -1298,6 +1452,51 @@ mod tests {
                 .lock_expires_at
                 .map(|value| value.timestamp_micros()),
             Some(refreshed_expiry.timestamp_micros()),
+        );
+    }
+
+    #[serial(postgres)]
+    #[tokio::test]
+    async fn core_refresh_instance_locks_skip_locked_does_not_block_or_override() {
+        let backend = setup_backend().await;
+        let instance_id = Uuid::new_v4();
+        let entry_node = Uuid::new_v4();
+        CoreBackend::queue_instances(&backend, &[sample_queued_instance(instance_id, entry_node)])
+            .await
+            .expect("queue instances");
+        let claim = claim_instance(&backend, instance_id).await;
+
+        let mut tx = backend.pool().begin().await.expect("begin lock tx");
+        sqlx::query("SELECT instance_id FROM queued_instances WHERE instance_id = $1 FOR UPDATE")
+            .bind(instance_id)
+            .fetch_one(&mut *tx)
+            .await
+            .expect("lock queued row");
+
+        let refreshed_expiry = Utc::now() + Duration::seconds(120);
+        let refreshed = tokio::time::timeout(
+            StdDuration::from_millis(300),
+            CoreBackend::refresh_instance_locks(
+                &backend,
+                LockClaim {
+                    lock_uuid: claim.lock_uuid,
+                    lock_expires_at: refreshed_expiry,
+                },
+                &[instance_id],
+            ),
+        )
+        .await
+        .expect("refresh should not block")
+        .expect("refresh locks");
+
+        assert_eq!(refreshed.len(), 1);
+        assert_eq!(refreshed[0].instance_id, instance_id);
+        assert_eq!(refreshed[0].lock_uuid, Some(claim.lock_uuid));
+        assert_eq!(
+            refreshed[0]
+                .lock_expires_at
+                .map(|value| value.timestamp_micros()),
+            Some(claim.lock_expires_at.timestamp_micros()),
         );
     }
 
@@ -1493,6 +1692,96 @@ mod tests {
         .await
         .expect("runner status");
         assert_eq!(runner_status.as_deref(), Some(INSTANCE_STATUS_COMPLETED));
+    }
+
+    #[serial(postgres)]
+    #[tokio::test]
+    async fn core_save_instances_done_updates_runner_even_if_queue_row_missing() {
+        let backend = setup_backend().await;
+        let instance_id = Uuid::new_v4();
+        let entry_node = Uuid::new_v4();
+        CoreBackend::queue_instances(&backend, &[sample_queued_instance(instance_id, entry_node)])
+            .await
+            .expect("queue instances");
+
+        sqlx::query("DELETE FROM queued_instances WHERE instance_id = $1")
+            .bind(instance_id)
+            .execute(backend.pool())
+            .await
+            .expect("delete queued row");
+
+        CoreBackend::save_instances_done(
+            &backend,
+            &[InstanceDone {
+                executor_id: instance_id,
+                entry_node,
+                result: Some(serde_json::json!({"value": 11})),
+                error: None,
+            }],
+        )
+        .await
+        .expect("save instances done without queue row");
+
+        let runner_status: Option<String> = sqlx::query_scalar(
+            "SELECT current_status FROM runner_instances WHERE instance_id = $1",
+        )
+        .bind(instance_id)
+        .fetch_one(backend.pool())
+        .await
+        .expect("runner status");
+        assert_eq!(runner_status.as_deref(), Some(INSTANCE_STATUS_COMPLETED));
+    }
+
+    #[serial(postgres)]
+    #[tokio::test]
+    async fn core_retry_transient_deadlock_sqlstate_happy_path() {
+        let backend = setup_backend().await;
+        let pool = backend.pool().clone();
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let result = retry_transient_backend("core_retry_test", || {
+            let pool = pool.clone();
+            let attempts = Arc::clone(&attempts);
+            async move {
+                let attempt = attempts.fetch_add(1, Ordering::SeqCst);
+                if attempt < 2 {
+                    sqlx::query(
+                        "DO $$ BEGIN RAISE EXCEPTION 'simulated deadlock' USING ERRCODE='40P01'; END $$;",
+                    )
+                    .execute(&pool)
+                    .await?;
+                }
+                Ok(())
+            }
+        })
+        .await;
+
+        assert!(result.is_ok());
+        assert_eq!(attempts.load(Ordering::SeqCst), 3);
+    }
+
+    #[serial(postgres)]
+    #[tokio::test]
+    async fn core_retry_non_transient_sqlstate_fails_without_retry() {
+        let backend = setup_backend().await;
+        let pool = backend.pool().clone();
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let result = retry_transient_backend("core_retry_non_transient_test", || {
+            let pool = pool.clone();
+            let attempts = Arc::clone(&attempts);
+            async move {
+                attempts.fetch_add(1, Ordering::SeqCst);
+                sqlx::query(
+                    "DO $$ BEGIN RAISE EXCEPTION 'simulated unique violation' USING ERRCODE='23505'; END $$;",
+                )
+                .execute(&pool)
+                .await?;
+                Ok::<(), BackendError>(())
+            }
+        })
+        .await;
+
+        assert!(result.is_err());
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
     }
 
     #[serial(postgres)]

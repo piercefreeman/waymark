@@ -107,14 +107,20 @@ impl CoreBackend for MemoryBackend {
 
     async fn save_graphs(
         &self,
-        _lock_uuid: Uuid,
+        claim: LockClaim,
         graphs: &[GraphUpdate],
     ) -> BackendResult<Vec<InstanceLockStatus>> {
         let mut stored = self.graph_updates.lock().expect("graph updates poisoned");
         stored.extend(graphs.iter().cloned());
-        let guard = self.instance_locks.lock().expect("instance locks poisoned");
+        let mut guard = self.instance_locks.lock().expect("instance locks poisoned");
         let mut locks = Vec::with_capacity(graphs.len());
         for graph in graphs {
+            if let Some((Some(lock_uuid), lock_expires_at)) = guard.get_mut(&graph.instance_id)
+                && *lock_uuid == claim.lock_uuid
+                && lock_expires_at.is_none_or(|expires_at| expires_at < claim.lock_expires_at)
+            {
+                *lock_expires_at = Some(claim.lock_expires_at);
+            }
             let (lock_uuid, lock_expires_at) = guard
                 .get(&graph.instance_id)
                 .cloned()

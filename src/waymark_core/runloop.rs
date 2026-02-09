@@ -110,6 +110,35 @@ enum CoordinatorEvent {
     ActionTimeoutTick,
 }
 
+async fn send_instance_message_with_stop(
+    instance_tx: &mpsc::Sender<InstanceMessage>,
+    message: InstanceMessage,
+    stop_notify: &Notify,
+) -> bool {
+    let send_fut = instance_tx.send(message);
+    tokio::pin!(send_fut);
+    let mut warned = false;
+    loop {
+        tokio::select! {
+            res = &mut send_fut => {
+                if res.is_err() {
+                    warn!("instance poller receiver dropped");
+                    return false;
+                }
+                return true;
+            }
+            _ = stop_notify.notified() => {
+                info!("instance poller stop notified during send");
+                return false;
+            }
+            _ = tokio::time::sleep(Duration::from_secs(2)), if !warned => {
+                warn!("instance poller send pending >2s");
+                warned = true;
+            }
+        }
+    }
+}
+
 struct ShardExecutor {
     executor_id: Uuid,
     executor: RunnerExecutor,
@@ -602,9 +631,18 @@ impl RunLoop {
             self.core_backend.save_actions_done(&actions_done).await?;
         }
         if !graph_updates.is_empty() {
+            let lock_expires_at = Utc::now()
+                + chrono::Duration::from_std(self.lock_ttl)
+                    .unwrap_or_else(|_| chrono::Duration::seconds(0));
             return Ok(self
                 .core_backend
-                .save_graphs(self.lock_uuid, &graph_updates)
+                .save_graphs(
+                    LockClaim {
+                        lock_uuid: self.lock_uuid,
+                        lock_expires_at,
+                    },
+                    &graph_updates,
+                )
                 .await?);
         }
         Ok(Vec::new())
@@ -805,8 +843,7 @@ impl RunLoop {
                     }
                     Err(err) => InstanceMessage::Error(err),
                 };
-                if instance_tx.send(message).await.is_err() {
-                    warn!("instance poller receiver dropped");
+                if !send_instance_message_with_stop(&instance_tx, message, &instance_notify).await {
                     break;
                 }
                 if poll_interval > Duration::ZERO {
@@ -2110,5 +2147,63 @@ fn main(input: [limit], output: [result]):
         assert_eq!(result_map.get("limit"), Some(&Value::Number(4.into())));
         assert_eq!(result_map.get("final"), Some(&Value::Number(4.into())));
         assert_eq!(result_map.get("iterations"), Some(&Value::Number(4.into())));
+    }
+
+    #[tokio::test]
+    async fn test_instance_poller_send_unblocks_on_stop_notification() {
+        let (instance_tx, mut instance_rx) = mpsc::channel::<InstanceMessage>(1);
+        instance_tx
+            .send(InstanceMessage::Batch {
+                instances: Vec::new(),
+            })
+            .await
+            .expect("seed channel");
+
+        let stop_notify = Arc::new(Notify::new());
+        let send_task = tokio::spawn({
+            let instance_tx = instance_tx.clone();
+            let stop_notify = Arc::clone(&stop_notify);
+            async move {
+                send_instance_message_with_stop(
+                    &instance_tx,
+                    InstanceMessage::Batch {
+                        instances: Vec::new(),
+                    },
+                    &stop_notify,
+                )
+                .await
+            }
+        });
+
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        stop_notify.notify_waiters();
+        let sent = tokio::time::timeout(Duration::from_millis(300), send_task)
+            .await
+            .expect("send task should complete")
+            .expect("send task should not panic");
+        assert!(!sent, "send should abort when stop is notified");
+
+        let _ = instance_rx.recv().await;
+    }
+
+    #[tokio::test]
+    async fn test_instance_poller_send_succeeds_when_channel_has_capacity() {
+        let (instance_tx, mut instance_rx) = mpsc::channel::<InstanceMessage>(1);
+        let stop_notify = Notify::new();
+        let sent = send_instance_message_with_stop(
+            &instance_tx,
+            InstanceMessage::Batch {
+                instances: Vec::new(),
+            },
+            &stop_notify,
+        )
+        .await;
+        assert!(sent);
+
+        let received = instance_rx.recv().await.expect("queued message");
+        match received {
+            InstanceMessage::Batch { instances } => assert!(instances.is_empty()),
+            InstanceMessage::Error(err) => panic!("unexpected error message: {err}"),
+        }
     }
 }
