@@ -58,7 +58,7 @@ struct SoakArgs {
     skip_worker_launch: bool,
     #[arg(long, default_value_t = false)]
     keep_existing_data: bool,
-    #[arg(long, default_value = "waymark.soak_actions")]
+    #[arg(long, default_value = "tests.fixtures_actions.soak_actions")]
     user_module: String,
     #[arg(long, default_value_t = 8)]
     worker_count: usize,
@@ -320,14 +320,20 @@ async fn main() -> Result<()> {
         return Err(err);
     }
 
-    let workflow =
-        match register_workflow(&backend, args.timeout_seconds, args.actions_per_workflow).await {
-            Ok(workflow) => workflow,
-            Err(err) => {
-                shutdown_worker_if_running(&mut worker).await;
-                return Err(err);
-            }
-        };
+    let workflow = match register_workflow(
+        &backend,
+        args.timeout_seconds,
+        args.actions_per_workflow,
+        &args.user_module,
+    )
+    .await
+    {
+        Ok(workflow) => workflow,
+        Err(err) => {
+            shutdown_worker_if_running(&mut worker).await;
+            return Err(err);
+        }
+    };
     info!(
         workflow_name = %workflow.workflow_name,
         workflow_version_id = %workflow.workflow_version_id,
@@ -650,8 +656,9 @@ async fn register_workflow(
     backend: &PostgresBackend,
     timeout_seconds: u32,
     actions_per_workflow: usize,
+    user_module: &str,
 ) -> Result<RegisteredWorkflow> {
-    let source = workflow_source(timeout_seconds, actions_per_workflow);
+    let source = workflow_source(user_module, timeout_seconds, actions_per_workflow);
 
     let program = parse_program(source.trim()).map_err(|err| anyhow!(err.to_string()))?;
     let program_proto = program.encode_to_vec();
@@ -681,7 +688,7 @@ async fn register_workflow(
     })
 }
 
-fn workflow_source(timeout_seconds: u32, actions_per_workflow: usize) -> String {
+fn workflow_source(user_module: &str, timeout_seconds: u32, actions_per_workflow: usize) -> String {
     let mut input_names = Vec::with_capacity(actions_per_workflow * 3);
     let mut lines = Vec::with_capacity(actions_per_workflow + 3);
     lines.push("fn main(input: [".to_string());
@@ -699,7 +706,7 @@ fn workflow_source(timeout_seconds: u32, actions_per_workflow: usize) -> String 
     for step in 0..actions_per_workflow {
         let idx = step + 1;
         lines.push(format!(
-            "    step_{idx} = @waymark.soak_actions.simulated_action(delay_ms=delay_ms_{idx}, should_fail=should_fail_{idx}, payload_bytes=payload_bytes_{idx})[ActionTimeout -> retry: 1, backoff: 1 s][timeout: {timeout_seconds} s]"
+            "    step_{idx} = @{user_module}.simulated_action(delay_ms=delay_ms_{idx}, should_fail=should_fail_{idx}, payload_bytes=payload_bytes_{idx})[ActionTimeout -> retry: 1, backoff: 1 s][timeout: {timeout_seconds} s]"
         ));
     }
 
