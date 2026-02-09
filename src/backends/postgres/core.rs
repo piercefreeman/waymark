@@ -15,6 +15,34 @@ use crate::backends::base::{
 use crate::observability::obs;
 use crate::waymark_core::runner::state::RunnerState;
 
+const INSTANCE_STATUS_QUEUED: &str = "queued";
+const INSTANCE_STATUS_RUNNING: &str = "running";
+const INSTANCE_STATUS_COMPLETED: &str = "completed";
+const INSTANCE_STATUS_FAILED: &str = "failed";
+
+fn instance_result_is_error_wrapper(result: &serde_json::Value) -> bool {
+    let serde_json::Value::Object(map) = result else {
+        return false;
+    };
+    map.len() == 1
+        && (map.contains_key("error")
+            || map.contains_key("__exception__")
+            || map.contains_key("exception"))
+}
+
+fn instance_done_status(instance: &InstanceDone) -> &'static str {
+    if instance.error.is_some()
+        || instance
+            .result
+            .as_ref()
+            .is_some_and(instance_result_is_error_wrapper)
+    {
+        INSTANCE_STATUS_FAILED
+    } else {
+        INSTANCE_STATUS_COMPLETED
+    }
+}
+
 impl PostgresBackend {
     /// Insert queued instances for run-loop consumption.
     #[obs]
@@ -22,6 +50,21 @@ impl PostgresBackend {
         if instances.is_empty() {
             return Ok(());
         }
+        let workflow_version_ids: Vec<Uuid> = instances
+            .iter()
+            .map(|instance| instance.workflow_version_id)
+            .collect();
+        let workflow_rows =
+            sqlx::query("SELECT id, workflow_name FROM workflow_versions WHERE id = ANY($1)")
+                .bind(&workflow_version_ids)
+                .fetch_all(&self.pool)
+                .await?;
+        let mut workflow_names_by_version_id: HashMap<Uuid, String> =
+            HashMap::with_capacity(workflow_rows.len());
+        for row in workflow_rows {
+            workflow_names_by_version_id.insert(row.get("id"), row.get("workflow_name"));
+        }
+
         let mut queued_payloads = Vec::new();
         let mut runner_payloads = Vec::new();
         for instance in instances {
@@ -29,11 +72,16 @@ impl PostgresBackend {
                 BackendError::Message("queued instance missing runner state".to_string())
             })?;
             let scheduled_at = instance.scheduled_at.unwrap_or_else(Utc::now);
+            let workflow_name = workflow_names_by_version_id
+                .get(&instance.workflow_version_id)
+                .cloned();
             let mut payload_instance = instance.clone();
             payload_instance.scheduled_at = Some(scheduled_at);
             queued_payloads.push((
                 payload_instance.instance_id,
                 scheduled_at,
+                workflow_name.clone(),
+                INSTANCE_STATUS_QUEUED,
                 Self::serialize(&payload_instance)?,
             ));
             let graph = GraphUpdate::from_state(instance.instance_id, state);
@@ -42,33 +90,49 @@ impl PostgresBackend {
                 instance.entry_node,
                 instance.workflow_version_id,
                 instance.schedule_id,
+                workflow_name,
+                INSTANCE_STATUS_QUEUED,
                 Self::serialize(&graph)?,
             ));
         }
 
-        let mut queued_builder: QueryBuilder<Postgres> =
-            QueryBuilder::new("INSERT INTO queued_instances (instance_id, scheduled_at, payload) ");
+        let mut queued_builder: QueryBuilder<Postgres> = QueryBuilder::new(
+            "INSERT INTO queued_instances (instance_id, scheduled_at, workflow_name, current_status, payload) ",
+        );
         queued_builder.push_values(
             queued_payloads.iter(),
-            |mut builder, (id, scheduled_at, payload)| {
+            |mut builder, (id, scheduled_at, workflow_name, current_status, payload)| {
                 builder
                     .push_bind(*id)
                     .push_bind(*scheduled_at)
+                    .push_bind(workflow_name.as_deref())
+                    .push_bind(*current_status)
                     .push_bind(payload.as_slice());
             },
         );
 
         let mut runner_builder: QueryBuilder<Postgres> = QueryBuilder::new(
-            "INSERT INTO runner_instances (instance_id, entry_node, workflow_version_id, schedule_id, state) ",
+            "INSERT INTO runner_instances (instance_id, entry_node, workflow_version_id, schedule_id, workflow_name, current_status, state) ",
         );
         runner_builder.push_values(
             runner_payloads.iter(),
-            |mut builder, (id, entry, workflow_version_id, schedule_id, payload)| {
+            |mut builder,
+             (
+                id,
+                entry,
+                workflow_version_id,
+                schedule_id,
+                workflow_name,
+                current_status,
+                payload,
+            )| {
                 builder
                     .push_bind(*id)
                     .push_bind(*entry)
                     .push_bind(*workflow_version_id)
                     .push_bind(*schedule_id)
+                    .push_bind(workflow_name.as_deref())
+                    .push_bind(*current_status)
                     .push_bind(payload.as_slice());
             },
         );
@@ -186,7 +250,9 @@ impl PostgresBackend {
                 FOR UPDATE SKIP LOCKED
             )
             UPDATE queued_instances AS qi
-            SET lock_uuid = NULL, lock_expires_at = NULL
+            SET lock_uuid = NULL,
+                lock_expires_at = NULL,
+                current_status = 'queued'
             FROM expired
             WHERE qi.instance_id = expired.instance_id
             RETURNING qi.instance_id
@@ -196,6 +262,18 @@ impl PostgresBackend {
         .bind(size as i64)
         .fetch_all(&mut *tx)
         .await?;
+
+        if !rows.is_empty() {
+            let instance_ids: Vec<Uuid> = rows.iter().map(|row| row.get("instance_id")).collect();
+            sqlx::query(
+                "UPDATE runner_instances SET current_status = $2 WHERE instance_id = ANY($1) AND result IS NULL AND error IS NULL",
+            )
+            .bind(&instance_ids)
+            .bind(INSTANCE_STATUS_QUEUED)
+            .execute(&mut *tx)
+            .await?;
+        }
+
         tx.commit().await?;
 
         if !rows.is_empty() {
@@ -341,8 +419,9 @@ impl PostgresBackend {
             ));
         }
         let now = Utc::now();
-        let mut builder: QueryBuilder<Postgres> =
-            QueryBuilder::new("UPDATE runner_instances AS ri SET state = v.state FROM (");
+        let mut builder: QueryBuilder<Postgres> = QueryBuilder::new(
+            "UPDATE runner_instances AS ri SET state = v.state, current_status = 'running' FROM (",
+        );
         builder.push_values(
             payloads.iter(),
             |mut b, (instance_id, _scheduled_at, payload)| {
@@ -368,7 +447,7 @@ impl PostgresBackend {
             payloads.len(),
         );
         let mut schedule_builder: QueryBuilder<Postgres> = QueryBuilder::new(
-            "UPDATE queued_instances AS qi SET scheduled_at = v.scheduled_at FROM (",
+            "UPDATE queued_instances AS qi SET scheduled_at = v.scheduled_at, current_status = 'running' FROM (",
         );
         schedule_builder.push_values(
             payloads.iter(),
@@ -488,7 +567,9 @@ impl PostgresBackend {
             ),
             updated AS (
                 UPDATE queued_instances AS qi
-                SET lock_uuid = $3, lock_expires_at = $4
+                SET lock_uuid = $3,
+                    lock_expires_at = $4,
+                    current_status = 'running'
                 FROM claimed
                 WHERE qi.instance_id = claimed.instance_id
                 RETURNING qi.instance_id, claimed.payload
@@ -511,6 +592,14 @@ impl PostgresBackend {
                 instances: Vec::new(),
             });
         }
+
+        let claimed_instance_ids: Vec<Uuid> =
+            rows.iter().map(|row| row.get("instance_id")).collect();
+        sqlx::query("UPDATE runner_instances SET current_status = $2 WHERE instance_id = ANY($1)")
+            .bind(&claimed_instance_ids)
+            .bind(INSTANCE_STATUS_RUNNING)
+            .execute(&mut *tx)
+            .await?;
 
         Self::count_batch_size(
             &self.batch_size_counts,
@@ -612,6 +701,7 @@ impl PostgresBackend {
         );
         let mut payloads = Vec::with_capacity(instances.len());
         for instance in instances {
+            let current_status = instance_done_status(instance);
             let result = match &instance.result {
                 Some(value) => Some(Self::serialize(value)?),
                 None => None,
@@ -620,17 +710,23 @@ impl PostgresBackend {
                 Some(value) => Some(Self::serialize(value)?),
                 None => None,
             };
-            payloads.push((instance.executor_id, result, error));
+            payloads.push((instance.executor_id, current_status, result, error));
         }
         let mut builder: QueryBuilder<Postgres> = QueryBuilder::new(
-            "UPDATE runner_instances AS ri SET result = v.result, error = v.error FROM (",
+            "UPDATE runner_instances AS ri SET result = v.result, error = v.error, current_status = v.current_status FROM (",
         );
-        builder.push_values(payloads.iter(), |mut b, (instance_id, result, error)| {
-            b.push_bind(*instance_id)
-                .push_bind(result.as_deref())
-                .push_bind(error.as_deref());
-        });
-        builder.push(") AS v(instance_id, result, error) WHERE ri.instance_id = v.instance_id");
+        builder.push_values(
+            payloads.iter(),
+            |mut b, (instance_id, current_status, result, error)| {
+                b.push_bind(*instance_id)
+                    .push_bind(*current_status)
+                    .push_bind(result.as_deref())
+                    .push_bind(error.as_deref());
+            },
+        );
+        builder.push(
+            ") AS v(instance_id, current_status, result, error) WHERE ri.instance_id = v.instance_id",
+        );
         builder.build().execute(&self.pool).await?;
         let ids: Vec<Uuid> = instances
             .iter()
@@ -718,13 +814,29 @@ impl CoreBackend for PostgresBackend {
             return Ok(());
         }
         Self::count_query(&self.query_counts, "update:queued_instances_release");
-        sqlx::query(
-            "UPDATE queued_instances SET lock_uuid = NULL, lock_expires_at = NULL WHERE instance_id = ANY($1) AND lock_uuid = $2",
+        let released_rows = sqlx::query(
+            "UPDATE queued_instances SET lock_uuid = NULL, lock_expires_at = NULL, current_status = $3 WHERE instance_id = ANY($1) AND lock_uuid = $2 RETURNING instance_id",
         )
         .bind(instance_ids)
         .bind(lock_uuid)
-        .execute(&self.pool)
+        .bind(INSTANCE_STATUS_QUEUED)
+        .fetch_all(&self.pool)
         .await?;
+
+        if !released_rows.is_empty() {
+            let released_instance_ids: Vec<Uuid> = released_rows
+                .iter()
+                .map(|row| row.get("instance_id"))
+                .collect();
+            sqlx::query(
+                "UPDATE runner_instances SET current_status = $2 WHERE instance_id = ANY($1) AND result IS NULL AND error IS NULL",
+            )
+            .bind(&released_instance_ids)
+            .bind(INSTANCE_STATUS_QUEUED)
+            .execute(&self.pool)
+            .await?;
+        }
+
         Ok(())
     }
 
@@ -814,6 +926,25 @@ mod tests {
         }
     }
 
+    async fn insert_workflow_version_row(
+        backend: &PostgresBackend,
+        workflow_version_id: Uuid,
+        workflow_name: &str,
+    ) {
+        sqlx::query(
+            "INSERT INTO workflow_versions (id, workflow_name, workflow_version, ir_hash, program_proto, concurrent) VALUES ($1, $2, $3, $4, $5, $6)",
+        )
+        .bind(workflow_version_id)
+        .bind(workflow_name)
+        .bind("v1")
+        .bind(format!("hash-{workflow_name}"))
+        .bind(vec![0_u8])
+        .bind(false)
+        .execute(backend.pool())
+        .await
+        .expect("insert workflow version row");
+    }
+
     async fn claim_instance(backend: &PostgresBackend, instance_id: Uuid) -> LockClaim {
         let claim = sample_lock_claim();
         let batch = CoreBackend::get_queued_instances(backend, 10, claim.clone())
@@ -861,6 +992,65 @@ mod tests {
         .await
         .expect("runner workflow version");
         assert_eq!(workflow_version_id, Some(expected_workflow_version_id));
+
+        let runner_status: Option<String> = sqlx::query_scalar(
+            "SELECT current_status FROM runner_instances WHERE instance_id = $1",
+        )
+        .bind(instance_id)
+        .fetch_one(backend.pool())
+        .await
+        .expect("runner current status");
+        assert_eq!(runner_status.as_deref(), Some(INSTANCE_STATUS_QUEUED));
+
+        let queued_status: Option<String> = sqlx::query_scalar(
+            "SELECT current_status FROM queued_instances WHERE instance_id = $1",
+        )
+        .bind(instance_id)
+        .fetch_one(backend.pool())
+        .await
+        .expect("queued current status");
+        assert_eq!(queued_status.as_deref(), Some(INSTANCE_STATUS_QUEUED));
+    }
+
+    #[serial(postgres)]
+    #[tokio::test]
+    async fn core_queue_instances_persists_workflow_name_when_registered() {
+        let backend = setup_backend().await;
+        let instance_id = Uuid::new_v4();
+        let entry_node = Uuid::new_v4();
+        let workflow_version_id = Uuid::new_v4();
+        insert_workflow_version_row(&backend, workflow_version_id, "tests.searchable").await;
+
+        let queued = QueuedInstance {
+            workflow_version_id,
+            schedule_id: None,
+            dag: None,
+            entry_node,
+            state: Some(sample_runner_state()),
+            action_results: HashMap::new(),
+            instance_id,
+            scheduled_at: Some(Utc::now()),
+        };
+
+        CoreBackend::queue_instances(&backend, &[queued])
+            .await
+            .expect("queue instances");
+
+        let runner_workflow_name: Option<String> =
+            sqlx::query_scalar("SELECT workflow_name FROM runner_instances WHERE instance_id = $1")
+                .bind(instance_id)
+                .fetch_one(backend.pool())
+                .await
+                .expect("runner workflow_name");
+        assert_eq!(runner_workflow_name.as_deref(), Some("tests.searchable"));
+
+        let queued_workflow_name: Option<String> =
+            sqlx::query_scalar("SELECT workflow_name FROM queued_instances WHERE instance_id = $1")
+                .bind(instance_id)
+                .fetch_one(backend.pool())
+                .await
+                .expect("queued workflow_name");
+        assert_eq!(queued_workflow_name.as_deref(), Some("tests.searchable"));
     }
 
     #[serial(postgres)]
@@ -888,6 +1078,24 @@ mod tests {
             .expect("queued lock row");
         let lock_uuid: Option<Uuid> = row.get("lock_uuid");
         assert_eq!(lock_uuid, Some(claim.lock_uuid));
+
+        let queued_status: Option<String> = sqlx::query_scalar(
+            "SELECT current_status FROM queued_instances WHERE instance_id = $1",
+        )
+        .bind(instance_id)
+        .fetch_one(backend.pool())
+        .await
+        .expect("queued current status");
+        assert_eq!(queued_status.as_deref(), Some(INSTANCE_STATUS_RUNNING));
+
+        let runner_status: Option<String> = sqlx::query_scalar(
+            "SELECT current_status FROM runner_instances WHERE instance_id = $1",
+        )
+        .bind(instance_id)
+        .fetch_one(backend.pool())
+        .await
+        .expect("runner current status");
+        assert_eq!(runner_status.as_deref(), Some(INSTANCE_STATUS_RUNNING));
     }
 
     #[serial(postgres)]
@@ -942,6 +1150,24 @@ mod tests {
         CoreBackend::release_instance_locks(&backend, initial_claim.lock_uuid, &[instance_id])
             .await
             .expect("release initial lock");
+
+        let queued_status: Option<String> = sqlx::query_scalar(
+            "SELECT current_status FROM queued_instances WHERE instance_id = $1",
+        )
+        .bind(instance_id)
+        .fetch_one(backend.pool())
+        .await
+        .expect("queued current status after release");
+        assert_eq!(queued_status.as_deref(), Some(INSTANCE_STATUS_QUEUED));
+
+        let runner_status: Option<String> = sqlx::query_scalar(
+            "SELECT current_status FROM runner_instances WHERE instance_id = $1",
+        )
+        .bind(instance_id)
+        .fetch_one(backend.pool())
+        .await
+        .expect("runner current status after release");
+        assert_eq!(runner_status.as_deref(), Some(INSTANCE_STATUS_QUEUED));
 
         let second_claim = sample_lock_claim();
         let batch = CoreBackend::get_queued_instances(&backend, 1, second_claim)
@@ -1101,6 +1327,24 @@ mod tests {
         let lock_expires_at: Option<chrono::DateTime<Utc>> = row.get("lock_expires_at");
         assert!(lock_uuid.is_none());
         assert!(lock_expires_at.is_none());
+
+        let queued_status: Option<String> = sqlx::query_scalar(
+            "SELECT current_status FROM queued_instances WHERE instance_id = $1",
+        )
+        .bind(instance_id)
+        .fetch_one(backend.pool())
+        .await
+        .expect("queued current status after release");
+        assert_eq!(queued_status.as_deref(), Some(INSTANCE_STATUS_QUEUED));
+
+        let runner_status: Option<String> = sqlx::query_scalar(
+            "SELECT current_status FROM runner_instances WHERE instance_id = $1",
+        )
+        .bind(instance_id)
+        .fetch_one(backend.pool())
+        .await
+        .expect("runner current status after release");
+        assert_eq!(runner_status.as_deref(), Some(INSTANCE_STATUS_QUEUED));
     }
 
     #[serial(postgres)]
@@ -1172,12 +1416,33 @@ mod tests {
         let expired_lock = lock_rows.get(&expired_id).expect("expired lock row");
         assert_eq!(*expired_lock, (None, None));
 
+        let expired_runner_status: Option<String> = sqlx::query_scalar(
+            "SELECT current_status FROM runner_instances WHERE instance_id = $1",
+        )
+        .bind(expired_id)
+        .fetch_one(backend.pool())
+        .await
+        .expect("expired runner status");
+        assert_eq!(
+            expired_runner_status.as_deref(),
+            Some(INSTANCE_STATUS_QUEUED)
+        );
+
         let live_lock = lock_rows.get(&live_id).expect("live lock row");
         assert_eq!(live_lock.0, Some(claim.lock_uuid));
         assert_eq!(
             live_lock.1.map(|value| value.timestamp_micros()),
             Some(live_at.timestamp_micros()),
         );
+
+        let live_runner_status: Option<String> = sqlx::query_scalar(
+            "SELECT current_status FROM runner_instances WHERE instance_id = $1",
+        )
+        .bind(live_id)
+        .fetch_one(backend.pool())
+        .await
+        .expect("live runner status");
+        assert_eq!(live_runner_status.as_deref(), Some(INSTANCE_STATUS_RUNNING));
     }
 
     #[serial(postgres)]
@@ -1219,6 +1484,15 @@ mod tests {
                 .await
                 .expect("queued count");
         assert_eq!(queued_count, 0);
+
+        let runner_status: Option<String> = sqlx::query_scalar(
+            "SELECT current_status FROM runner_instances WHERE instance_id = $1",
+        )
+        .bind(instance_id)
+        .fetch_one(backend.pool())
+        .await
+        .expect("runner status");
+        assert_eq!(runner_status.as_deref(), Some(INSTANCE_STATUS_COMPLETED));
     }
 
     #[serial(postgres)]

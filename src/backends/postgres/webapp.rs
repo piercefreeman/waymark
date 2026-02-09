@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use prost::Message;
 use serde_json::Value;
-use sqlx::Row;
+use sqlx::{Postgres, QueryBuilder, Row};
 use tonic::async_trait;
 use uuid::Uuid;
 
@@ -19,29 +19,277 @@ use crate::webapp::{
     WorkerActionRow, WorkerAggregateStats, WorkerStatus,
 };
 
+const INSTANCE_STATUS_FALLBACK_SQL: &str = r#"
+CASE
+    WHEN ri.error IS NOT NULL THEN 'failed'
+    WHEN ri.result IS NOT NULL THEN 'completed'
+    WHEN ri.state IS NOT NULL THEN 'running'
+    ELSE 'queued'
+END
+"#;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum InstanceSearchToken {
+    Term(String),
+    And,
+    Or,
+    LParen,
+    RParen,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum InstanceSearchExpr {
+    Term(String),
+    And(Box<InstanceSearchExpr>, Box<InstanceSearchExpr>),
+    Or(Box<InstanceSearchExpr>, Box<InstanceSearchExpr>),
+}
+
+struct InstanceSearchParser {
+    tokens: Vec<InstanceSearchToken>,
+    position: usize,
+}
+
+impl InstanceSearchParser {
+    fn new(tokens: Vec<InstanceSearchToken>) -> Self {
+        Self {
+            tokens,
+            position: 0,
+        }
+    }
+
+    fn parse(mut self) -> Option<InstanceSearchExpr> {
+        let expr = self.parse_or()?;
+        if self.position == self.tokens.len() {
+            Some(expr)
+        } else {
+            None
+        }
+    }
+
+    fn parse_or(&mut self) -> Option<InstanceSearchExpr> {
+        let mut expr = self.parse_and()?;
+        while self.consume_or() {
+            let rhs = self.parse_and()?;
+            expr = InstanceSearchExpr::Or(Box::new(expr), Box::new(rhs));
+        }
+        Some(expr)
+    }
+
+    fn parse_and(&mut self) -> Option<InstanceSearchExpr> {
+        let mut expr = self.parse_primary()?;
+        loop {
+            if self.consume_and() || self.peek_is_primary_start() {
+                let rhs = self.parse_primary()?;
+                expr = InstanceSearchExpr::And(Box::new(expr), Box::new(rhs));
+                continue;
+            }
+            break;
+        }
+        Some(expr)
+    }
+
+    fn parse_primary(&mut self) -> Option<InstanceSearchExpr> {
+        match self.peek()? {
+            InstanceSearchToken::Term(term) => {
+                let term = term.clone();
+                self.position += 1;
+                Some(InstanceSearchExpr::Term(term))
+            }
+            InstanceSearchToken::LParen => {
+                self.position += 1;
+                let expr = self.parse_or()?;
+                if !self.consume_rparen() {
+                    return None;
+                }
+                Some(expr)
+            }
+            InstanceSearchToken::And | InstanceSearchToken::Or | InstanceSearchToken::RParen => {
+                None
+            }
+        }
+    }
+
+    fn consume_and(&mut self) -> bool {
+        if matches!(self.peek(), Some(InstanceSearchToken::And)) {
+            self.position += 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn consume_or(&mut self) -> bool {
+        if matches!(self.peek(), Some(InstanceSearchToken::Or)) {
+            self.position += 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn consume_rparen(&mut self) -> bool {
+        if matches!(self.peek(), Some(InstanceSearchToken::RParen)) {
+            self.position += 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn peek_is_primary_start(&self) -> bool {
+        matches!(
+            self.peek(),
+            Some(InstanceSearchToken::Term(_)) | Some(InstanceSearchToken::LParen)
+        )
+    }
+
+    fn peek(&self) -> Option<&InstanceSearchToken> {
+        self.tokens.get(self.position)
+    }
+}
+
+fn tokenize_instance_search(search: &str) -> Vec<InstanceSearchToken> {
+    let mut chars = search.chars().peekable();
+    let mut tokens = Vec::new();
+
+    while let Some(ch) = chars.peek().copied() {
+        if ch.is_whitespace() {
+            chars.next();
+            continue;
+        }
+        if ch == '(' {
+            chars.next();
+            tokens.push(InstanceSearchToken::LParen);
+            continue;
+        }
+        if ch == ')' {
+            chars.next();
+            tokens.push(InstanceSearchToken::RParen);
+            continue;
+        }
+        if ch == '"' {
+            chars.next();
+            let mut quoted = String::new();
+            for next in chars.by_ref() {
+                if next == '"' {
+                    break;
+                }
+                quoted.push(next);
+            }
+            if !quoted.is_empty() {
+                tokens.push(InstanceSearchToken::Term(quoted));
+            }
+            continue;
+        }
+
+        let mut term = String::new();
+        while let Some(next) = chars.peek().copied() {
+            if next.is_whitespace() || next == '(' || next == ')' {
+                break;
+            }
+            term.push(next);
+            chars.next();
+        }
+        if term.is_empty() {
+            continue;
+        }
+
+        match term.to_ascii_uppercase().as_str() {
+            "AND" => tokens.push(InstanceSearchToken::And),
+            "OR" => tokens.push(InstanceSearchToken::Or),
+            _ => tokens.push(InstanceSearchToken::Term(term)),
+        }
+    }
+
+    tokens
+}
+
+fn parse_instance_search_expr(search: &str) -> Option<InstanceSearchExpr> {
+    let trimmed = search.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let tokens = tokenize_instance_search(trimmed);
+    if tokens.is_empty() {
+        return None;
+    }
+
+    InstanceSearchParser::new(tokens)
+        .parse()
+        .or_else(|| Some(InstanceSearchExpr::Term(trimmed.to_string())))
+}
+
+fn push_instance_search_expr_sql(
+    builder: &mut QueryBuilder<'_, Postgres>,
+    expr: &InstanceSearchExpr,
+) {
+    match expr {
+        InstanceSearchExpr::Term(term) => {
+            let pattern = format!("%{term}%");
+            builder.push("(");
+            builder.push("COALESCE(ri.workflow_name, wv.workflow_name, '') ILIKE ");
+            builder.push_bind(pattern.clone());
+            builder.push(" OR COALESCE(ri.current_status, ");
+            builder.push(INSTANCE_STATUS_FALLBACK_SQL);
+            builder.push(", '') ILIKE ");
+            builder.push_bind(pattern);
+            builder.push(")");
+        }
+        InstanceSearchExpr::And(left, right) => {
+            builder.push("(");
+            push_instance_search_expr_sql(builder, left);
+            builder.push(" AND ");
+            push_instance_search_expr_sql(builder, right);
+            builder.push(")");
+        }
+        InstanceSearchExpr::Or(left, right) => {
+            builder.push("(");
+            push_instance_search_expr_sql(builder, left);
+            builder.push(" OR ");
+            push_instance_search_expr_sql(builder, right);
+            builder.push(")");
+        }
+    }
+}
+
+fn parse_instance_status(status: &str) -> Option<InstanceStatus> {
+    match status {
+        "queued" => Some(InstanceStatus::Queued),
+        "running" => Some(InstanceStatus::Running),
+        "completed" => Some(InstanceStatus::Completed),
+        "failed" => Some(InstanceStatus::Failed),
+        _ => None,
+    }
+}
+
 #[async_trait]
 impl WebappBackend for PostgresBackend {
     async fn count_instances(&self, search: Option<&str>) -> BackendResult<i64> {
-        let count = if let Some(_search) = search {
-            // For now, simple search not implemented - would need to decode state.
-            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM runner_instances")
-                .fetch_one(&self.pool)
-                .await?
-        } else {
-            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM runner_instances")
-                .fetch_one(&self.pool)
-                .await?
-        };
+        let mut builder: QueryBuilder<Postgres> = QueryBuilder::new(
+            r#"
+            SELECT COUNT(*)::BIGINT
+            FROM runner_instances ri
+            LEFT JOIN workflow_versions wv ON wv.id = ri.workflow_version_id
+            "#,
+        );
+
+        if let Some(search_expr) = search.and_then(parse_instance_search_expr) {
+            builder.push(" WHERE ");
+            push_instance_search_expr_sql(&mut builder, &search_expr);
+        }
+
+        let count: i64 = builder.build_query_scalar().fetch_one(&self.pool).await?;
         Ok(count)
     }
 
     async fn list_instances(
         &self,
-        _search: Option<&str>,
+        search: Option<&str>,
         limit: i64,
         offset: i64,
     ) -> BackendResult<Vec<InstanceSummary>> {
-        let rows = sqlx::query(
+        let mut builder: QueryBuilder<Postgres> = QueryBuilder::new(
             r#"
             SELECT
                 ri.instance_id,
@@ -50,17 +298,28 @@ impl WebappBackend for PostgresBackend {
                 ri.state,
                 ri.result,
                 ri.error,
-                wv.workflow_name
+                COALESCE(ri.workflow_name, wv.workflow_name) AS workflow_name,
+                COALESCE(ri.current_status, 
+                    CASE
+                        WHEN ri.error IS NOT NULL THEN 'failed'
+                        WHEN ri.result IS NOT NULL THEN 'completed'
+                        WHEN ri.state IS NOT NULL THEN 'running'
+                        ELSE 'queued'
+                    END
+                ) AS current_status
             FROM runner_instances ri
-            JOIN workflow_versions wv ON wv.id = ri.workflow_version_id
-            ORDER BY ri.created_at DESC, ri.instance_id DESC
-            LIMIT $1 OFFSET $2
+            LEFT JOIN workflow_versions wv ON wv.id = ri.workflow_version_id
             "#,
-        )
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(&self.pool)
-        .await?;
+        );
+        if let Some(search_expr) = search.and_then(parse_instance_search_expr) {
+            builder.push(" WHERE ");
+            push_instance_search_expr_sql(&mut builder, &search_expr);
+        }
+        builder.push(" ORDER BY ri.created_at DESC, ri.instance_id DESC LIMIT ");
+        builder.push_bind(limit);
+        builder.push(" OFFSET ");
+        builder.push_bind(offset);
+        let rows = builder.build().fetch_all(&self.pool).await?;
 
         let mut instances = Vec::new();
         for row in rows {
@@ -70,9 +329,13 @@ impl WebappBackend for PostgresBackend {
             let state_bytes: Option<Vec<u8>> = row.get("state");
             let result_bytes: Option<Vec<u8>> = row.get("result");
             let error_bytes: Option<Vec<u8>> = row.get("error");
-            let workflow_name: String = row.get("workflow_name");
+            let workflow_name: Option<String> = row.get("workflow_name");
+            let current_status: Option<String> = row.get("current_status");
 
-            let status = determine_status(&state_bytes, &result_bytes, &error_bytes);
+            let status = current_status
+                .as_deref()
+                .and_then(parse_instance_status)
+                .unwrap_or_else(|| determine_status(&state_bytes, &result_bytes, &error_bytes));
             let input_preview = extract_input_preview(&state_bytes);
 
             instances.push(InstanceSummary {
@@ -80,7 +343,7 @@ impl WebappBackend for PostgresBackend {
                 entry_node,
                 created_at,
                 status,
-                workflow_name: Some(workflow_name),
+                workflow_name,
                 input_preview,
             });
         }
@@ -98,9 +361,17 @@ impl WebappBackend for PostgresBackend {
                 ri.state,
                 ri.result,
                 ri.error,
-                wv.workflow_name
+                COALESCE(ri.workflow_name, wv.workflow_name) AS workflow_name,
+                COALESCE(ri.current_status, 
+                    CASE
+                        WHEN ri.error IS NOT NULL THEN 'failed'
+                        WHEN ri.result IS NOT NULL THEN 'completed'
+                        WHEN ri.state IS NOT NULL THEN 'running'
+                        ELSE 'queued'
+                    END
+                ) AS current_status
             FROM runner_instances ri
-            JOIN workflow_versions wv ON wv.id = ri.workflow_version_id
+            LEFT JOIN workflow_versions wv ON wv.id = ri.workflow_version_id
             WHERE ri.instance_id = $1
             "#,
         )
@@ -115,9 +386,13 @@ impl WebappBackend for PostgresBackend {
         let state_bytes: Option<Vec<u8>> = row.get("state");
         let result_bytes: Option<Vec<u8>> = row.get("result");
         let error_bytes: Option<Vec<u8>> = row.get("error");
-        let workflow_name: String = row.get("workflow_name");
+        let workflow_name: Option<String> = row.get("workflow_name");
+        let current_status: Option<String> = row.get("current_status");
 
-        let status = determine_status(&state_bytes, &result_bytes, &error_bytes);
+        let status = current_status
+            .as_deref()
+            .and_then(parse_instance_status)
+            .unwrap_or_else(|| determine_status(&state_bytes, &result_bytes, &error_bytes));
         let input_payload = format_input_payload(&state_bytes);
         let result_payload = format_instance_result_payload(status, &result_bytes, &error_bytes);
         let error_payload = format_error(&error_bytes);
@@ -127,7 +402,7 @@ impl WebappBackend for PostgresBackend {
             entry_node,
             created_at,
             status,
-            workflow_name: Some(workflow_name),
+            workflow_name,
             input_payload,
             result_payload,
             error_payload,
@@ -428,7 +703,24 @@ impl WebappBackend for PostgresBackend {
     }
 
     async fn get_distinct_workflows(&self) -> BackendResult<Vec<String>> {
-        Ok(Vec::new())
+        let rows = sqlx::query(
+            r#"
+            SELECT DISTINCT COALESCE(ri.workflow_name, wv.workflow_name) AS workflow_name
+            FROM runner_instances ri
+            LEFT JOIN workflow_versions wv ON wv.id = ri.workflow_version_id
+            WHERE COALESCE(ri.workflow_name, wv.workflow_name) IS NOT NULL
+            ORDER BY workflow_name
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut workflows = Vec::with_capacity(rows.len());
+        for row in rows {
+            let workflow_name: String = row.get("workflow_name");
+            workflows.push(workflow_name);
+        }
+        Ok(workflows)
     }
 
     async fn get_distinct_statuses(&self) -> BackendResult<Vec<String>> {
@@ -1240,6 +1532,30 @@ mod tests {
     }
 
     #[test]
+    fn parse_instance_search_expr_handles_boolean_operators() {
+        let parsed = parse_instance_search_expr("(alpha OR beta) AND running");
+        assert_eq!(
+            parsed,
+            Some(InstanceSearchExpr::And(
+                Box::new(InstanceSearchExpr::Or(
+                    Box::new(InstanceSearchExpr::Term("alpha".to_string())),
+                    Box::new(InstanceSearchExpr::Term("beta".to_string())),
+                )),
+                Box::new(InstanceSearchExpr::Term("running".to_string())),
+            ))
+        );
+    }
+
+    #[test]
+    fn parse_instance_search_expr_falls_back_for_unbalanced_parentheses() {
+        let parsed = parse_instance_search_expr("(alpha OR beta");
+        assert_eq!(
+            parsed,
+            Some(InstanceSearchExpr::Term("(alpha OR beta".to_string()))
+        );
+    }
+
+    #[test]
     fn action_timing_from_state_uses_state_timestamps_for_latest_attempt() {
         let started_at = Utc::now() - ChronoDuration::milliseconds(1500);
         let completed_at = started_at + ChronoDuration::milliseconds(450);
@@ -1542,6 +1858,45 @@ fn main(input: [items], output: [total]):
 
     #[serial(postgres)]
     #[tokio::test]
+    async fn webapp_count_instances_applies_search_expression() {
+        let backend = setup_backend().await;
+        let (alpha_id, _, _) =
+            insert_instance_with_graph_with_workflow(&backend, "tests.alpha").await;
+        let (beta_id, _, _) =
+            insert_instance_with_graph_with_workflow(&backend, "tests.beta").await;
+        assert_ne!(alpha_id, beta_id);
+
+        let completed_payload =
+            rmp_serde::to_vec_named(&serde_json::json!({"result": {"ok": true}}))
+                .expect("encode completed payload");
+        sqlx::query(
+            "UPDATE runner_instances SET result = $2, current_status = $3 WHERE instance_id = $1",
+        )
+        .bind(beta_id)
+        .bind(completed_payload)
+        .bind("completed")
+        .execute(backend.pool())
+        .await
+        .expect("mark beta completed");
+
+        let alpha_count = WebappBackend::count_instances(&backend, Some("alpha"))
+            .await
+            .expect("count alpha");
+        assert_eq!(alpha_count, 1);
+
+        let completed_count = WebappBackend::count_instances(&backend, Some("completed"))
+            .await
+            .expect("count completed");
+        assert_eq!(completed_count, 1);
+
+        let combined = WebappBackend::count_instances(&backend, Some("(alpha OR completed)"))
+            .await
+            .expect("count combined");
+        assert_eq!(combined, 2);
+    }
+
+    #[serial(postgres)]
+    #[tokio::test]
     async fn webapp_list_instances_happy_path() {
         let backend = setup_backend().await;
         let (instance_id, _, _) = insert_instance_with_graph(&backend).await;
@@ -1557,6 +1912,27 @@ fn main(input: [items], output: [total]):
             instances[0].workflow_name,
             Some("tests.workflow".to_string())
         );
+    }
+
+    #[serial(postgres)]
+    #[tokio::test]
+    async fn webapp_list_instances_applies_search_expression() {
+        let backend = setup_backend().await;
+        let (alpha_id, _, _) =
+            insert_instance_with_graph_with_workflow(&backend, "tests.alpha").await;
+        let _ = insert_instance_with_graph_with_workflow(&backend, "tests.beta").await;
+
+        let alpha_instances = WebappBackend::list_instances(&backend, Some("alpha"), 10, 0)
+            .await
+            .expect("list alpha");
+        assert_eq!(alpha_instances.len(), 1);
+        assert_eq!(alpha_instances[0].id, alpha_id);
+
+        let running_instances =
+            WebappBackend::list_instances(&backend, Some("(alpha OR beta) AND running"), 10, 0)
+                .await
+                .expect("list running instances");
+        assert_eq!(running_instances.len(), 2);
     }
 
     #[serial(postgres)]
@@ -1718,11 +2094,19 @@ fn main(input: [items], output: [total]):
     #[tokio::test]
     async fn webapp_get_distinct_workflows_happy_path() {
         let backend = setup_backend().await;
+        insert_instance_with_graph_with_workflow(&backend, "tests.workflow_a").await;
+        insert_instance_with_graph_with_workflow(&backend, "tests.workflow_b").await;
 
         let workflows = WebappBackend::get_distinct_workflows(&backend)
             .await
             .expect("get distinct workflows");
-        assert!(workflows.is_empty());
+        assert_eq!(
+            workflows,
+            vec![
+                "tests.workflow_a".to_string(),
+                "tests.workflow_b".to_string()
+            ]
+        );
     }
 
     #[serial(postgres)]

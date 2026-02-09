@@ -48,7 +48,7 @@
     <header class="border-b border-zinc-200 bg-white/80 dark:border-zinc-900 dark:bg-zinc-950/80 backdrop-blur">
         <div class="mx-auto max-w-6xl px-4 py-4">
             <div class="flex items-center justify-between">
-                <a href="/" class="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-white">Waymark</a>
+                <a href="/invocations" class="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-white">Waymark</a>
                 <div class="flex items-center gap-4">
                     <span class="text-xs uppercase tracking-[0.4em] text-zinc-500">Workflow Dashboard</span>
                     <button id="theme-toggle" class="rounded-lg p-2 text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors" title="Toggle theme">
@@ -62,7 +62,7 @@
                 </div>
             </div>
             <nav class="flex gap-6 mt-4">
-                <a href="/" class="text-sm font-medium pb-2 border-b-2 transition-colors {% if active_tab == "invocations" %}border-indigo-500 text-indigo-600 dark:text-indigo-400{% else %}border-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200{% endif %}">Invocations</a>
+                <a href="/invocations" class="text-sm font-medium pb-2 border-b-2 transition-colors {% if active_tab == "invocations" %}border-indigo-500 text-indigo-600 dark:text-indigo-400{% else %}border-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200{% endif %}">Invocations</a>
                 <a href="/workers" class="text-sm font-medium pb-2 border-b-2 transition-colors {% if active_tab == "workers" %}border-indigo-500 text-indigo-600 dark:text-indigo-400{% else %}border-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200{% endif %}">Workers</a>
                 <a href="/scheduled" class="text-sm font-medium pb-2 border-b-2 transition-colors {% if active_tab == "scheduled" %}border-indigo-500 text-indigo-600 dark:text-indigo-400{% else %}border-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200{% endif %}">Scheduled</a>
             </nav>
