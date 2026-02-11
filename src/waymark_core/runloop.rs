@@ -2068,14 +2068,21 @@ fn main(input: [limit], output: [result]):
             .expect("register workflow version");
 
         let mut actions: HashMap<String, ActionCallable> = HashMap::new();
+        let increment_inputs = Arc::new(Mutex::new(Vec::new()));
+        let increment_inputs_clone = Arc::clone(&increment_inputs);
         actions.insert(
             "increment".to_string(),
-            Arc::new(|kwargs| {
+            Arc::new(move |kwargs| {
+                let increment_inputs = Arc::clone(&increment_inputs_clone);
                 Box::pin(async move {
                     let value = kwargs
                         .get("value")
                         .and_then(|value| value.as_i64())
                         .unwrap_or(0);
+                    increment_inputs
+                        .lock()
+                        .expect("increment inputs lock")
+                        .push(value);
                     Ok(Value::Number((value + 1).into()))
                 })
             }),
@@ -2144,6 +2151,10 @@ fn main(input: [limit], output: [result]):
         else {
             panic!("expected nested result object");
         };
+        assert_eq!(
+            *increment_inputs.lock().expect("increment inputs lock"),
+            vec![0, 1, 2, 3]
+        );
         assert_eq!(result_map.get("limit"), Some(&Value::Number(4.into())));
         assert_eq!(result_map.get("final"), Some(&Value::Number(4.into())));
         assert_eq!(result_map.get("iterations"), Some(&Value::Number(4.into())));

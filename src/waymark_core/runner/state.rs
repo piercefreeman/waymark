@@ -1095,6 +1095,15 @@ impl RunnerState {
                 });
             }
         };
+        // Avoid inlining self-referential updates such as `i = i + 1`.
+        // Returning the raw assignment here would inject one "extra step"
+        // into materialized consumers (e.g. loop guards), causing off-by-one
+        // behavior and deep recursive expression trees.
+        if value_expr_contains_variable(&assigned, name) {
+            return ValueExpr::Variable(VariableValue {
+                name: name.to_string(),
+            });
+        }
         if let ValueExpr::Variable(var) = &assigned {
             seen.insert(name.to_string());
             return self.resolve_variable_value(&var.name, seen);
@@ -1676,6 +1685,49 @@ fn format_value_inner(expr: &ValueExpr, parent_prec: i32) -> String {
     }
 }
 
+fn value_expr_contains_variable(expr: &ValueExpr, name: &str) -> bool {
+    match expr {
+        ValueExpr::Variable(var) => var.name == name,
+        ValueExpr::BinaryOp(value) => {
+            value_expr_contains_variable(&value.left, name)
+                || value_expr_contains_variable(&value.right, name)
+        }
+        ValueExpr::UnaryOp(value) => value_expr_contains_variable(&value.operand, name),
+        ValueExpr::List(value) => value
+            .elements
+            .iter()
+            .any(|item| value_expr_contains_variable(item, name)),
+        ValueExpr::Dict(value) => value.entries.iter().any(|entry| {
+            value_expr_contains_variable(&entry.key, name)
+                || value_expr_contains_variable(&entry.value, name)
+        }),
+        ValueExpr::Index(value) => {
+            value_expr_contains_variable(&value.object, name)
+                || value_expr_contains_variable(&value.index, name)
+        }
+        ValueExpr::Dot(value) => value_expr_contains_variable(&value.object, name),
+        ValueExpr::FunctionCall(value) => {
+            value
+                .args
+                .iter()
+                .any(|arg| value_expr_contains_variable(arg, name))
+                || value
+                    .kwargs
+                    .values()
+                    .any(|kwarg| value_expr_contains_variable(kwarg, name))
+        }
+        ValueExpr::Spread(value) => {
+            value_expr_contains_variable(&value.collection, name)
+                || value
+                    .action
+                    .kwargs
+                    .values()
+                    .any(|kwarg| value_expr_contains_variable(kwarg, name))
+        }
+        ValueExpr::Literal(_) | ValueExpr::ActionResult(_) => false,
+    }
+}
+
 /// Map binary operator enums to (symbol, precedence) for formatting.
 fn binary_operator(op: i32) -> (&'static str, i32) {
     match ir::BinaryOperator::try_from(op).ok() {
@@ -2009,6 +2061,45 @@ mod tests {
         assert_eq!(dict.entries.len(), 1);
         match &dict.entries[0].value {
             ValueExpr::Variable(value) => assert_eq!(value.name, "result"),
+            other => panic!("expected VariableValue, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_materialize_value_keeps_self_referential_variable_symbolic() {
+        let mut state = RunnerState::new(None, None, None, true);
+        state
+            .record_assignment_value(
+                vec!["count".to_string()],
+                ValueExpr::Literal(LiteralValue {
+                    value: Value::Number(0.into()),
+                }),
+                None,
+                None,
+            )
+            .expect("record initial count");
+        state
+            .record_assignment_value(
+                vec!["count".to_string()],
+                ValueExpr::BinaryOp(BinaryOpValue {
+                    left: Box::new(ValueExpr::Variable(VariableValue {
+                        name: "count".to_string(),
+                    })),
+                    op: ir::BinaryOperator::BinaryOpAdd as i32,
+                    right: Box::new(ValueExpr::Literal(LiteralValue {
+                        value: Value::Number(1.into()),
+                    })),
+                }),
+                None,
+                None,
+            )
+            .expect("record count update");
+
+        let materialized = state.materialize_value(ValueExpr::Variable(VariableValue {
+            name: "count".to_string(),
+        }));
+        match materialized {
+            ValueExpr::Variable(value) => assert_eq!(value.name, "count"),
             other => panic!("expected VariableValue, got {other:?}"),
         }
     }

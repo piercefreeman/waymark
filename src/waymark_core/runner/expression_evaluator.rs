@@ -251,14 +251,6 @@ impl RunnerExecutor {
         self.evaluate_assignment(node_id, name, stack)
     }
 
-    pub(super) fn evaluate_variable(
-        &self,
-        name: &str,
-        stack: Rc<RefCell<HashSet<(Uuid, String)>>>,
-    ) -> Result<Value, RunnerExecutorError> {
-        self.evaluate_variable_with_context(None, name, stack)
-    }
-
     pub(super) fn evaluate_assignment(
         &self,
         node_id: Uuid,
@@ -289,7 +281,9 @@ impl RunnerExecutor {
         let resolve_variable = {
             let stack = stack.clone();
             let this = self;
-            move |name: &str| this.evaluate_variable(name, stack.clone())
+            move |name: &str| {
+                this.evaluate_variable_with_context(Some(node_id), name, stack.clone())
+            }
         };
         let resolve_action_result = {
             let this = self;
@@ -685,7 +679,8 @@ mod tests {
     use crate::waymark_core::ir_parser::IRParser;
     use crate::waymark_core::runner::RunnerState;
     use crate::waymark_core::runner::state::{
-        ActionCallSpec, ActionResultValue, FunctionCallValue, LiteralValue, VariableValue,
+        ActionCallSpec, ActionResultValue, BinaryOpValue, FunctionCallValue, LiteralValue,
+        VariableValue,
     };
     use crate::waymark_core::runner::value_visitor::ValueExpr;
 
@@ -824,7 +819,7 @@ mod tests {
         let executor = executor_with_assignment("value", literal_int(5));
         let stack = Rc::new(RefCell::new(HashSet::new()));
         let value = executor
-            .evaluate_variable("value", stack)
+            .evaluate_variable_with_context(None, "value", stack)
             .expect("evaluate variable");
         assert_eq!(value, Value::Number(5.into()));
     }
@@ -841,6 +836,45 @@ mod tests {
             .evaluate_assignment(node_id, "value", stack)
             .expect("evaluate assignment");
         assert_eq!(value, Value::Number(9.into()));
+    }
+
+    #[test]
+    fn test_evaluate_assignment_uses_data_flow_for_self_referential_updates() {
+        let dag = Arc::new(DAG::default());
+        let mut state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
+        state
+            .record_assignment_value(
+                vec!["count".to_string()],
+                literal_int(0),
+                None,
+                Some("count = 0".to_string()),
+            )
+            .expect("record initial count");
+        state
+            .record_assignment_value(
+                vec!["count".to_string()],
+                ValueExpr::BinaryOp(BinaryOpValue {
+                    left: Box::new(ValueExpr::Variable(VariableValue {
+                        name: "count".to_string(),
+                    })),
+                    op: ir::BinaryOperator::BinaryOpAdd as i32,
+                    right: Box::new(literal_int(1)),
+                }),
+                None,
+                Some("count = count + 1".to_string()),
+            )
+            .expect("record updated count");
+
+        let executor = RunnerExecutor::new(dag, state, HashMap::new(), None);
+        let node_id = executor
+            .state()
+            .latest_assignment("count")
+            .expect("latest assignment");
+        let stack = Rc::new(RefCell::new(HashSet::new()));
+        let value = executor
+            .evaluate_assignment(node_id, "count", stack)
+            .expect("evaluate self-referential assignment");
+        assert_eq!(value, Value::Number(1.into()));
     }
 
     #[test]
