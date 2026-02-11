@@ -68,7 +68,7 @@ struct ShardStep {
     instance_done: Option<InstanceDone>,
 }
 
-struct EvictionState<'a> {
+struct CoordinatorState<'a> {
     executor_shards: &'a mut HashMap<Uuid, usize>,
     shard_senders: &'a [std_mpsc::Sender<ShardCommand>],
     lock_tracker: &'a InstanceLockTracker,
@@ -77,6 +77,9 @@ struct EvictionState<'a> {
     sleeping_nodes: &'a mut HashMap<Uuid, SleepRequest>,
     sleeping_by_instance: &'a mut HashMap<Uuid, HashSet<Uuid>>,
     blocked_until_by_instance: &'a mut HashMap<Uuid, DateTime<Utc>>,
+    commit_barrier: &'a mut CommitBarrier<ShardStep>,
+    instances_done_pending: &'a mut Vec<InstanceDone>,
+    sleep_tx: &'a mpsc::UnboundedSender<SleepWake>,
 }
 
 enum ShardEvent {
@@ -112,14 +115,12 @@ enum CoordinatorEvent {
     ActionTimeoutTick,
 }
 
-enum PersistCommand {
-    PersistSteps {
-        batch_id: u64,
-        instance_ids: HashSet<Uuid>,
-        graph_instance_ids: HashSet<Uuid>,
-        actions_done: Vec<ActionDone>,
-        graph_updates: Vec<GraphUpdate>,
-    },
+struct PersistCommand {
+    batch_id: u64,
+    instance_ids: HashSet<Uuid>,
+    graph_instance_ids: HashSet<Uuid>,
+    actions_done: Vec<ActionDone>,
+    graph_updates: Vec<GraphUpdate>,
 }
 
 enum PersistAck {
@@ -131,14 +132,6 @@ enum PersistAck {
         batch_id: u64,
         error: RunLoopError,
     },
-}
-
-struct PersistStepCommand {
-    batch_id: u64,
-    instance_ids: HashSet<Uuid>,
-    graph_instance_ids: HashSet<Uuid>,
-    actions_done: Vec<ActionDone>,
-    graph_updates: Vec<GraphUpdate>,
 }
 
 async fn send_instance_message_with_stop(
@@ -729,10 +722,110 @@ impl RunLoop {
         Ok(())
     }
 
+    fn apply_confirmed_step(
+        &self,
+        step: ShardStep,
+        state: &mut CoordinatorState<'_>,
+    ) -> Result<(), RunLoopError> {
+        for request in step.actions {
+            let dispatch = request.clone();
+            self.worker_pool.queue(request)?;
+            *state.inflight_actions.entry(step.executor_id).or_insert(0) += 1;
+            let deadline_at = if dispatch.timeout_seconds > 0 {
+                Some(Utc::now() + chrono::Duration::seconds(i64::from(dispatch.timeout_seconds)))
+            } else {
+                None
+            };
+            state.inflight_dispatches.insert(
+                dispatch.execution_id,
+                InflightActionDispatch {
+                    executor_id: dispatch.executor_id,
+                    attempt_number: dispatch.attempt_number,
+                    dispatch_token: dispatch.dispatch_token,
+                    timeout_seconds: dispatch.timeout_seconds,
+                    deadline_at,
+                },
+            );
+        }
+        for mut sleep_request in step.sleep_requests {
+            if self.skip_sleep {
+                sleep_request.wake_at = Utc::now();
+            }
+            let existing = state.sleeping_nodes.get(&sleep_request.node_id);
+            let should_update = match existing {
+                Some(existing) => sleep_request.wake_at < existing.wake_at,
+                None => true,
+            };
+            let wake_at = match existing {
+                Some(existing) if !should_update => existing.wake_at,
+                _ => sleep_request.wake_at,
+            };
+            state
+                .sleeping_by_instance
+                .entry(step.executor_id)
+                .or_default()
+                .insert(sleep_request.node_id);
+            state
+                .blocked_until_by_instance
+                .entry(step.executor_id)
+                .and_modify(|existing| {
+                    if wake_at < *existing {
+                        *existing = wake_at;
+                    }
+                })
+                .or_insert(wake_at);
+
+            if should_update {
+                state
+                    .sleeping_nodes
+                    .insert(sleep_request.node_id, sleep_request.clone());
+                let sleep_tx = state.sleep_tx.clone();
+                let executor_id = step.executor_id;
+                let node_id = sleep_request.node_id;
+                let wake_at = sleep_request.wake_at;
+                tokio::spawn(async move {
+                    if let Ok(wait) = wake_at.signed_duration_since(Utc::now()).to_std()
+                        && wait > Duration::ZERO
+                    {
+                        tokio::time::sleep(wait).await;
+                    }
+                    let _ = sleep_tx.send(SleepWake {
+                        executor_id,
+                        node_id,
+                    });
+                });
+            }
+        }
+        if let Some(instance_done) = step.instance_done {
+            state.executor_shards.remove(&instance_done.executor_id);
+            state.inflight_actions.remove(&instance_done.executor_id);
+            state
+                .inflight_dispatches
+                .retain(|_, dispatch| dispatch.executor_id != instance_done.executor_id);
+            state.lock_tracker.remove_all([instance_done.executor_id]);
+            if let Some(nodes) = state
+                .sleeping_by_instance
+                .remove(&instance_done.executor_id)
+            {
+                for node_id in nodes {
+                    state.sleeping_nodes.remove(&node_id);
+                }
+            }
+            state
+                .blocked_until_by_instance
+                .remove(&instance_done.executor_id);
+            state
+                .commit_barrier
+                .remove_instance(instance_done.executor_id);
+            state.instances_done_pending.push(instance_done);
+        }
+        Ok(())
+    }
+
     async fn evict_instances(
         &self,
         instance_ids: &[Uuid],
-        state: &mut EvictionState<'_>,
+        state: &mut CoordinatorState<'_>,
     ) -> Result<(), RunLoopError> {
         if instance_ids.is_empty() {
             return Ok(());
@@ -934,28 +1027,13 @@ impl RunLoop {
         let persist_lock_uuid = self.lock_uuid;
         let persist_lock_ttl = self.lock_ttl;
         let persist_handle = tokio::spawn(async move {
-            let to_step_command = |command: PersistCommand| match command {
-                PersistCommand::PersistSteps {
-                    batch_id,
-                    instance_ids,
-                    graph_instance_ids,
-                    actions_done,
-                    graph_updates,
-                } => PersistStepCommand {
-                    batch_id,
-                    instance_ids,
-                    graph_instance_ids,
-                    actions_done,
-                    graph_updates,
-                },
-            };
             loop {
                 let first_command = persist_rx.recv().await;
                 let Some(first_command) = first_command else {
                     info!("persistence task channel closed");
                     break;
                 };
-                let mut step_commands = vec![to_step_command(first_command)];
+                let mut step_commands = vec![first_command];
                 let mut channel_closed = false;
                 let deadline = Instant::now() + PERSIST_COALESCE_WINDOW;
                 while step_commands.len() < PERSIST_COALESCE_MAX_COMMANDS {
@@ -965,7 +1043,7 @@ impl RunLoop {
                     }
                     let wait = deadline.saturating_duration_since(now);
                     match tokio::time::timeout(wait, persist_rx.recv()).await {
-                        Ok(Some(command)) => step_commands.push(to_step_command(command)),
+                        Ok(Some(command)) => step_commands.push(command),
                         Ok(None) => {
                             channel_closed = true;
                             break;
@@ -1323,21 +1401,24 @@ impl RunLoop {
                                 .into_iter()
                                 .filter(|instance_id| batch.instance_ids.contains(instance_id))
                                 .collect();
+                            let mut state = CoordinatorState {
+                                executor_shards: &mut executor_shards,
+                                shard_senders: &shard_senders,
+                                lock_tracker: &lock_tracker,
+                                inflight_actions: &mut inflight_actions,
+                                inflight_dispatches: &mut inflight_dispatches,
+                                sleeping_nodes: &mut sleeping_nodes,
+                                sleeping_by_instance: &mut sleeping_by_instance,
+                                blocked_until_by_instance: &mut blocked_until_by_instance,
+                                commit_barrier: &mut commit_barrier,
+                                instances_done_pending: &mut instances_done_pending,
+                                sleep_tx: &sleep_tx,
+                            };
                             if !evict_ids.is_empty()
                                 && let Err(err) = self
                                     .evict_instances(
                                         &evict_ids.iter().copied().collect::<Vec<_>>(),
-                                        &mut EvictionState {
-                                            executor_shards: &mut executor_shards,
-                                            shard_senders: &shard_senders,
-                                            lock_tracker: &lock_tracker,
-                                            inflight_actions: &mut inflight_actions,
-                                            inflight_dispatches: &mut inflight_dispatches,
-                                            sleeping_nodes: &mut sleeping_nodes,
-                                            sleeping_by_instance: &mut sleeping_by_instance,
-                                            blocked_until_by_instance:
-                                                &mut blocked_until_by_instance,
-                                        },
+                                        &mut state,
                                     )
                                     .await
                             {
@@ -1351,106 +1432,14 @@ impl RunLoop {
                                 if evict_ids.contains(&step.executor_id) {
                                     continue;
                                 }
-                                if !executor_shards.contains_key(&step.executor_id)
+                                if !state.executor_shards.contains_key(&step.executor_id)
                                     && step.instance_done.is_none()
                                 {
                                     continue;
                                 }
-                                for request in step.actions {
-                                    let dispatch = request.clone();
-                                    if let Err(err) = self.worker_pool.queue(request) {
-                                        run_result = Err(err.into());
-                                        break;
-                                    }
-                                    *inflight_actions.entry(step.executor_id).or_insert(0) += 1;
-                                    let deadline_at = if dispatch.timeout_seconds > 0 {
-                                        Some(
-                                            Utc::now()
-                                                + chrono::Duration::seconds(i64::from(
-                                                    dispatch.timeout_seconds,
-                                                )),
-                                        )
-                                    } else {
-                                        None
-                                    };
-                                    inflight_dispatches.insert(
-                                        dispatch.execution_id,
-                                        InflightActionDispatch {
-                                            executor_id: dispatch.executor_id,
-                                            attempt_number: dispatch.attempt_number,
-                                            dispatch_token: dispatch.dispatch_token,
-                                            timeout_seconds: dispatch.timeout_seconds,
-                                            deadline_at,
-                                        },
-                                    );
-                                }
-                                if run_result.is_err() {
+                                if let Err(err) = self.apply_confirmed_step(step, &mut state) {
+                                    run_result = Err(err);
                                     break;
-                                }
-                                for mut sleep_request in step.sleep_requests {
-                                    if self.skip_sleep {
-                                        sleep_request.wake_at = Utc::now();
-                                    }
-                                    let existing = sleeping_nodes.get(&sleep_request.node_id);
-                                    let should_update = match existing {
-                                        Some(existing) => sleep_request.wake_at < existing.wake_at,
-                                        None => true,
-                                    };
-                                    let wake_at = match existing {
-                                        Some(existing) if !should_update => existing.wake_at,
-                                        _ => sleep_request.wake_at,
-                                    };
-                                    sleeping_by_instance
-                                        .entry(step.executor_id)
-                                        .or_default()
-                                        .insert(sleep_request.node_id);
-                                    blocked_until_by_instance
-                                        .entry(step.executor_id)
-                                        .and_modify(|existing| {
-                                            if wake_at < *existing {
-                                                *existing = wake_at;
-                                            }
-                                        })
-                                        .or_insert(wake_at);
-
-                                    if should_update {
-                                        sleeping_nodes
-                                            .insert(sleep_request.node_id, sleep_request.clone());
-                                        let sleep_tx = sleep_tx.clone();
-                                        let executor_id = step.executor_id;
-                                        let node_id = sleep_request.node_id;
-                                        let wake_at = sleep_request.wake_at;
-                                        tokio::spawn(async move {
-                                            if let Ok(wait) =
-                                                wake_at.signed_duration_since(Utc::now()).to_std()
-                                                && wait > Duration::ZERO
-                                            {
-                                                tokio::time::sleep(wait).await;
-                                            }
-                                            let _ = sleep_tx.send(SleepWake {
-                                                executor_id,
-                                                node_id,
-                                            });
-                                        });
-                                    }
-                                }
-                                if let Some(instance_done) = step.instance_done {
-                                    executor_shards.remove(&instance_done.executor_id);
-                                    inflight_actions.remove(&instance_done.executor_id);
-                                    inflight_dispatches.retain(|_, dispatch| {
-                                        dispatch.executor_id != instance_done.executor_id
-                                    });
-                                    lock_tracker.remove_all([instance_done.executor_id]);
-                                    if let Some(nodes) =
-                                        sleeping_by_instance.remove(&instance_done.executor_id)
-                                    {
-                                        for node_id in nodes {
-                                            sleeping_nodes.remove(&node_id);
-                                        }
-                                    }
-                                    blocked_until_by_instance.remove(&instance_done.executor_id);
-                                    commit_barrier.remove_instance(instance_done.executor_id);
-                                    instances_done_pending.push(instance_done);
                                 }
                             }
                             if run_result.is_err() {
@@ -1458,15 +1447,15 @@ impl RunLoop {
                             }
                             for instance_id in batch.instance_ids {
                                 if evict_ids.contains(&instance_id) {
-                                    commit_barrier.remove_instance(instance_id);
+                                    state.commit_barrier.remove_instance(instance_id);
                                     continue;
                                 }
-                                let events = commit_barrier.unblock_instance(instance_id);
+                                let events = state.commit_barrier.unblock_instance(instance_id);
                                 flush_deferred_instance_events(
                                     instance_id,
                                     events,
-                                    &executor_shards,
-                                    &shard_senders,
+                                    state.executor_shards,
+                                    state.shard_senders,
                                 );
                             }
                         }
@@ -1697,7 +1686,7 @@ impl RunLoop {
                 let batch_id = commit_barrier.register_batch(instance_ids.clone(), all_steps);
                 if !send_persist_command_with_stop(
                     &persist_tx,
-                    PersistCommand::PersistSteps {
+                    PersistCommand {
                         batch_id,
                         instance_ids,
                         graph_instance_ids,
@@ -1737,28 +1726,27 @@ impl RunLoop {
                         }
                     })
                     .collect();
-                if !evict_ids.is_empty()
-                    && let Err(err) = self
-                        .evict_instances(
-                            &evict_ids,
-                            &mut EvictionState {
-                                executor_shards: &mut executor_shards,
-                                shard_senders: &shard_senders,
-                                lock_tracker: &lock_tracker,
-                                inflight_actions: &mut inflight_actions,
-                                inflight_dispatches: &mut inflight_dispatches,
-                                sleeping_nodes: &mut sleeping_nodes,
-                                sleeping_by_instance: &mut sleeping_by_instance,
-                                blocked_until_by_instance: &mut blocked_until_by_instance,
-                            },
-                        )
-                        .await
-                {
-                    run_result = Err(err);
-                    break;
-                }
-                for instance_id in evict_ids {
-                    commit_barrier.remove_instance(instance_id);
+                if !evict_ids.is_empty() {
+                    let mut state = CoordinatorState {
+                        executor_shards: &mut executor_shards,
+                        shard_senders: &shard_senders,
+                        lock_tracker: &lock_tracker,
+                        inflight_actions: &mut inflight_actions,
+                        inflight_dispatches: &mut inflight_dispatches,
+                        sleeping_nodes: &mut sleeping_nodes,
+                        sleeping_by_instance: &mut sleeping_by_instance,
+                        blocked_until_by_instance: &mut blocked_until_by_instance,
+                        commit_barrier: &mut commit_barrier,
+                        instances_done_pending: &mut instances_done_pending,
+                        sleep_tx: &sleep_tx,
+                    };
+                    if let Err(err) = self.evict_instances(&evict_ids, &mut state).await {
+                        run_result = Err(err);
+                        break;
+                    }
+                    for instance_id in evict_ids {
+                        state.commit_barrier.remove_instance(instance_id);
+                    }
                 }
             }
 
