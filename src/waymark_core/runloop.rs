@@ -22,6 +22,7 @@ use crate::backends::{
 };
 use crate::messages::ast as ir;
 use crate::observability::obs;
+use crate::waymark_core::commit_barrier::{CommitBarrier, DeferredInstanceEvent};
 use crate::waymark_core::dag::{DAG, DAGNode, OutputNode, ReturnNode, convert_to_dag};
 use crate::waymark_core::lock::{InstanceLockTracker, spawn_lock_heartbeat};
 use crate::waymark_core::runner::synthetic_exceptions::{
@@ -111,11 +112,6 @@ enum CoordinatorEvent {
     ActionTimeoutTick,
 }
 
-struct PendingPersistBatch {
-    instance_ids: HashSet<Uuid>,
-    steps: Vec<ShardStep>,
-}
-
 enum PersistCommand {
     PersistSteps {
         batch_id: u64,
@@ -133,11 +129,6 @@ enum PersistAck {
         batch_id: u64,
         error: RunLoopError,
     },
-}
-
-enum DeferredInstanceEvent {
-    Completion(ActionCompletion),
-    Wake(Uuid),
 }
 
 async fn send_instance_message_with_stop(
@@ -216,13 +207,10 @@ fn collect_step_updates(steps: &[ShardStep]) -> (Vec<ActionDone>, Vec<GraphUpdat
 
 fn flush_deferred_instance_events(
     instance_id: Uuid,
-    deferred_events: &mut HashMap<Uuid, VecDeque<DeferredInstanceEvent>>,
+    events: VecDeque<DeferredInstanceEvent>,
     executor_shards: &HashMap<Uuid, usize>,
     shard_senders: &[std_mpsc::Sender<ShardCommand>],
 ) {
-    let Some(events) = deferred_events.remove(&instance_id) else {
-        return;
-    };
     let Some(shard_idx) = executor_shards.get(&instance_id).copied() else {
         return;
     };
@@ -1017,10 +1005,7 @@ impl RunLoop {
         let mut sleeping_nodes: HashMap<Uuid, SleepRequest> = HashMap::new();
         let mut sleeping_by_instance: HashMap<Uuid, HashSet<Uuid>> = HashMap::new();
         let mut blocked_until_by_instance: HashMap<Uuid, DateTime<Utc>> = HashMap::new();
-        let mut blocked_instances: HashSet<Uuid> = HashSet::new();
-        let mut deferred_events: HashMap<Uuid, VecDeque<DeferredInstanceEvent>> = HashMap::new();
-        let mut pending_persist_batches: HashMap<u64, PendingPersistBatch> = HashMap::new();
-        let mut next_persist_batch_id = 1u64;
+        let mut commit_barrier: CommitBarrier<ShardStep> = CommitBarrier::new();
         let mut instances_idle = false;
         let mut instances_done_pending: Vec<InstanceDone> = Vec::new();
         let mut run_result = Ok(());
@@ -1240,7 +1225,7 @@ impl RunLoop {
                             batch_id,
                             lock_statuses,
                         } => {
-                            let Some(batch) = pending_persist_batches.remove(&batch_id) else {
+                            let Some(batch) = commit_barrier.take_batch(batch_id) else {
                                 warn!(batch_id, "received ack for unknown persist batch");
                                 continue;
                             };
@@ -1267,6 +1252,9 @@ impl RunLoop {
                                 break;
                             }
                             for step in batch.steps {
+                                if !batch.instance_ids.contains(&step.executor_id) {
+                                    continue;
+                                }
                                 if evict_ids.contains(&step.executor_id) {
                                     continue;
                                 }
@@ -1368,7 +1356,7 @@ impl RunLoop {
                                         }
                                     }
                                     blocked_until_by_instance.remove(&instance_done.executor_id);
-                                    deferred_events.remove(&instance_done.executor_id);
+                                    commit_barrier.remove_instance(instance_done.executor_id);
                                     instances_done_pending.push(instance_done);
                                 }
                             }
@@ -1376,14 +1364,14 @@ impl RunLoop {
                                 break;
                             }
                             for instance_id in batch.instance_ids {
-                                blocked_instances.remove(&instance_id);
                                 if evict_ids.contains(&instance_id) {
-                                    deferred_events.remove(&instance_id);
+                                    commit_barrier.remove_instance(instance_id);
                                     continue;
                                 }
+                                let events = commit_barrier.unblock_instance(instance_id);
                                 flush_deferred_instance_events(
                                     instance_id,
-                                    &mut deferred_events,
+                                    events,
                                     &executor_shards,
                                     &shard_senders,
                                 );
@@ -1448,13 +1436,9 @@ impl RunLoop {
                 if !accepted.is_empty() {
                     let mut by_shard: HashMap<usize, Vec<ActionCompletion>> = HashMap::new();
                     for completion in accepted {
-                        if blocked_instances.contains(&completion.executor_id) {
-                            deferred_events
-                                .entry(completion.executor_id)
-                                .or_default()
-                                .push_back(DeferredInstanceEvent::Completion(completion));
+                        let Some(completion) = commit_barrier.route_completion(completion) else {
                             continue;
-                        }
+                        };
                         if let Some(shard_idx) =
                             executor_shards.get(&completion.executor_id).copied()
                         {
@@ -1506,14 +1490,12 @@ impl RunLoop {
                         }
                     }
                     if let Some(shard_idx) = executor_shards.get(&wake.executor_id).copied() {
-                        if blocked_instances.contains(&wake.executor_id) {
-                            deferred_events
-                                .entry(wake.executor_id)
-                                .or_default()
-                                .push_back(DeferredInstanceEvent::Wake(wake.node_id));
+                        let Some(node_id) =
+                            commit_barrier.route_wake(wake.executor_id, wake.node_id)
+                        else {
                             continue;
-                        }
-                        by_shard.entry(shard_idx).or_default().push(wake.node_id);
+                        };
+                        by_shard.entry(shard_idx).or_default().push(node_id);
                     }
                 }
                 for (shard_idx, nodes) in by_shard {
@@ -1569,8 +1551,7 @@ impl RunLoop {
                     inflight_dispatches
                         .retain(|_, dispatch| !replaced_set.contains(&dispatch.executor_id));
                     for instance_id in &replaced_set {
-                        blocked_instances.remove(instance_id);
-                        deferred_events.remove(instance_id);
+                        commit_barrier.remove_instance(*instance_id);
                     }
                 }
                 let claimed_count = claimed_instance_ids.len();
@@ -1607,28 +1588,16 @@ impl RunLoop {
                         }
                     }
                     blocked_until_by_instance.remove(&instance_done.executor_id);
-                    blocked_instances.remove(&instance_done.executor_id);
-                    deferred_events.remove(&instance_done.executor_id);
+                    commit_barrier.remove_instance(instance_done.executor_id);
                     instances_done_pending.push(instance_done);
                 }
             }
 
             if !all_steps.is_empty() {
-                let batch_id = next_persist_batch_id;
-                next_persist_batch_id = next_persist_batch_id.wrapping_add(1);
                 let instance_ids: HashSet<Uuid> =
                     all_steps.iter().map(|step| step.executor_id).collect();
-                for instance_id in &instance_ids {
-                    blocked_instances.insert(*instance_id);
-                }
                 let (actions_done, graph_updates) = collect_step_updates(&all_steps);
-                pending_persist_batches.insert(
-                    batch_id,
-                    PendingPersistBatch {
-                        instance_ids: instance_ids.clone(),
-                        steps: all_steps,
-                    },
-                );
+                let batch_id = commit_barrier.register_batch(instance_ids.clone(), all_steps);
                 if !send_persist_command_with_stop(
                     &persist_tx,
                     PersistCommand::PersistSteps {
@@ -1640,9 +1609,10 @@ impl RunLoop {
                 )
                 .await
                 {
-                    pending_persist_batches.remove(&batch_id);
-                    for instance_id in &instance_ids {
-                        blocked_instances.remove(instance_id);
+                    if let Some(batch) = commit_barrier.take_batch(batch_id) {
+                        for instance_id in batch.instance_ids {
+                            commit_barrier.remove_instance(instance_id);
+                        }
                     }
                     run_result = Err(RunLoopError::Message(
                         "failed to submit persist batch to persistence task".to_string(),
@@ -1689,8 +1659,7 @@ impl RunLoop {
                     break;
                 }
                 for instance_id in evict_ids {
-                    blocked_instances.remove(&instance_id);
-                    deferred_events.remove(&instance_id);
+                    commit_barrier.remove_instance(instance_id);
                 }
             }
 
@@ -1715,9 +1684,9 @@ impl RunLoop {
         if let Err(err) = &run_result {
             error!(error = %err, "runloop stopping due to error");
         }
-        if !pending_persist_batches.is_empty() {
+        if commit_barrier.pending_batch_count() > 0 {
             warn!(
-                pending = pending_persist_batches.len(),
+                pending = commit_barrier.pending_batch_count(),
                 "runloop stopping with unacked persist batches"
             );
         }
