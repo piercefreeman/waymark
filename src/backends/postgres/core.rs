@@ -563,11 +563,16 @@ impl PostgresBackend {
 
         let mut locks = Vec::with_capacity(ids.len());
         for instance_id in ids {
-            locks.push(lock_map.remove(&instance_id).unwrap_or(InstanceLockStatus {
-                instance_id,
-                lock_uuid: None,
-                lock_expires_at: None,
-            }));
+            locks.push(
+                lock_map
+                    .get(&instance_id)
+                    .cloned()
+                    .unwrap_or(InstanceLockStatus {
+                        instance_id,
+                        lock_uuid: None,
+                        lock_expires_at: None,
+                    }),
+            );
         }
         Ok(locks)
     }
@@ -1378,6 +1383,44 @@ mod tests {
             .expect("decode graph update");
         assert_eq!(decoded.nodes.len(), 1);
         assert_eq!(decoded.edges.len(), 1);
+    }
+
+    #[serial(postgres)]
+    #[tokio::test]
+    async fn core_save_graphs_returns_lock_status_for_duplicate_instance_updates() {
+        let backend = setup_backend().await;
+        let instance_id = Uuid::new_v4();
+        let entry_node = Uuid::new_v4();
+        CoreBackend::queue_instances(&backend, &[sample_queued_instance(instance_id, entry_node)])
+            .await
+            .expect("queue instances");
+        let claim = claim_instance(&backend, instance_id).await;
+
+        let first_node_id = Uuid::new_v4();
+        let second_node_id = Uuid::new_v4();
+        let first_graph = GraphUpdate {
+            instance_id,
+            nodes: HashMap::from([(first_node_id, sample_execution_node(first_node_id))]),
+            edges: HashSet::new(),
+        };
+        let second_graph = GraphUpdate {
+            instance_id,
+            nodes: HashMap::from([(second_node_id, sample_execution_node(second_node_id))]),
+            edges: HashSet::new(),
+        };
+
+        let locks = CoreBackend::save_graphs(
+            &backend,
+            claim.clone(),
+            &[first_graph.clone(), second_graph.clone()],
+        )
+        .await
+        .expect("save duplicate instance graphs");
+        assert_eq!(locks.len(), 2);
+        assert_eq!(locks[0].instance_id, instance_id);
+        assert_eq!(locks[1].instance_id, instance_id);
+        assert_eq!(locks[0].lock_uuid, Some(claim.lock_uuid));
+        assert_eq!(locks[1].lock_uuid, Some(claim.lock_uuid));
     }
 
     #[serial(postgres)]
