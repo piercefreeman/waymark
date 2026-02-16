@@ -20,7 +20,7 @@ run:
 	docker run -d --name $(CONTAINER) --rm -e POSTGRES_PASSWORD=pass -p 5432:5432 postgres:17-alpine >/dev/null
 	until docker exec $(CONTAINER) pg_isready >/dev/null 2>&1; do sleep 0.1; done
 	$(ENV) .venv/bin/start-workers >/dev/null 2>&1 & echo $$! > $(PID_FILE)
-	sleep 1
+	until nc -z 127.0.0.1 24118 2>/dev/null; do sleep 0.1; done
 	$(ENV) WAYMARK_RUN_REAL_CLUSTER=1 .venv/bin/pytest . -vvv -o asyncio_mode=strict -o asyncio_default_fixture_loop_scope=function; \
 	TEST_EXIT=$$?; \
 	kill $$(cat $(PID_FILE) 2>/dev/null) 2>/dev/null || true; \
