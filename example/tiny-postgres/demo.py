@@ -10,13 +10,18 @@
 import asyncio
 import os
 from pathlib import Path
+import sys
+
 
 os.environ["WAYMARK_DATABASE_URL"] = (
     "postgresql://waymark:waymark@localhost:5433/waymark"
 )
 
+from waymark.workflow import workflow_registry
 from waymark import Workflow, action, workflow
 from waymark.workflow import RetryPolicy
+
+workflow_registry._workflows.clear()  # clear registry, so pytest can re-import this file
 
 
 # =============================================================================
@@ -893,6 +898,4 @@ async def test_undefined_variable():
 
 
 if __name__ == "__main__":
-    import sys
-
-    sys.exit(pytest.main([__file__, "-v"]))
+    sys.exit(pytest.main(["-v", __file__]))
