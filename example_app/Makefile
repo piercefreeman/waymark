@@ -22,15 +22,11 @@ docker-test:
 	@echo "Running tests in docker-compose environment (timeout $(DOCKER_TEST_TIMEOUT)s)"
 	$(COMPOSE_CMD) up -d postgres daemons
 	@echo "Waiting for postgres to be healthy..."
-	@timeout 30 sh -c 'until docker compose exec postgres pg_isready -U waymark > /dev/null 2>&1; do sleep 1; done' || (echo "Postgres failed to become healthy" && exit 1)
-	@echo "Waiting for workers to be ready..."
-	@sleep 3
-	@echo "Checking that daemons are running and ready..."
-	@timeout 60 sh -c 'until $(COMPOSE_CMD) ps --status=running --services | grep -q "^daemons$$"; do sleep 1; done' || (echo "Daemons failed to stay running" && $(COMPOSE_CMD) logs daemons || true; $(COMPOSE_CMD) down -v; exit 1)
-	@timeout 60 sh -c 'until $(COMPOSE_CMD) exec -T daemons python -c "import socket; s = socket.create_connection((\"127.0.0.1\", 24118), 1); s.close()" >/dev/null 2>&1; do sleep 1; done' || (echo "Daemons never opened worker bridge port 24118" && $(COMPOSE_CMD) logs daemons || true; $(COMPOSE_CMD) down -v; exit 1)
-	@set -e; \
-	TEST_EXIT_CODE=0; \
-	timeout $(DOCKER_TEST_TIMEOUT) $(COMPOSE_CMD) run --rm -e WAYMARK_DATABASE_URL=postgresql://waymark:waymark@postgres:5432/waymark_example webapp pytest -vvv || TEST_EXIT_CODE=$$?; \
+	@until $(COMPOSE_CMD) exec -T postgres pg_isready -U waymark >/dev/null 2>&1; do sleep 1; done
+	@echo "Waiting for worker bridge port 24118 to be ready..."
+	@until $(COMPOSE_CMD) exec -T daemons python -c "import socket; s = socket.create_connection(('127.0.0.1', 24118), 1); s.close()" >/dev/null 2>&1; do sleep 1; done
+	@TEST_EXIT_CODE=0; \
+	timeout $(DOCKER_TEST_TIMEOUT) $(COMPOSE_CMD) run -T --rm -e WAYMARK_DATABASE_URL=postgresql://waymark:waymark@postgres:5432/waymark_example webapp pytest -vvv </dev/null || TEST_EXIT_CODE=$$?; \
 	echo ""; \
 	echo "=== Daemon Logs ==="; \
 	$(COMPOSE_CMD) logs --tail=$(DOCKER_LOG_TAIL) daemons || true; \
@@ -38,5 +34,5 @@ docker-test:
 	echo "=== Webapp Logs ==="; \
 	$(COMPOSE_CMD) logs --tail=$(DOCKER_LOG_TAIL) webapp || true; \
 	echo ""; \
-	$(COMPOSE_CMD) down -v; \
+	$(COMPOSE_CMD) down -v || true; \
 	exit $$TEST_EXIT_CODE

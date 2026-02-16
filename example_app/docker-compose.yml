@@ -1,5 +1,3 @@
-version: "3.9"
-
 x-app-build: &app-build
   context: ..
   dockerfile: example_app/Dockerfile
