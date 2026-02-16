@@ -1,3 +1,12 @@
+# /// script
+# dependencies = [
+#   "asyncpg",
+#   "pytest",
+#   "pytest-asyncio",
+#   "waymark",
+# ]
+# ///
+
 import asyncio
 import os
 from pathlib import Path
@@ -881,3 +890,9 @@ async def test_noop():
 async def test_undefined_variable():
     result = await UndefinedVariableWorkflow().run(input_text="test")
     assert result == "external-default"
+
+
+if __name__ == "__main__":
+    import sys
+
+    sys.exit(pytest.main([__file__, "-v"]))
