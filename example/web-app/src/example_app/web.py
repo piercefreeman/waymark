@@ -10,80 +10,16 @@ from pathlib import Path
 from typing import Literal, Optional
 
 import asyncpg
+from example_app.workflows import BranchRequest, BranchResult, ChainRequest, ChainResult, ComputationRequest, ComputationResult, ConditionalBranchWorkflow, DurableSleepWorkflow, EarlyReturnLoopResult, EarlyReturnLoopWorkflow, ErrorHandlingWorkflow, ErrorRequest, ErrorResult, ExceptionMetadataWorkflow, GuardFallbackRequest, GuardFallbackResult, GuardFallbackWorkflow, KwOnlyLocationRequest, KwOnlyLocationResult, KwOnlyLocationWorkflow, LoopExceptionRequest, LoopExceptionResult, LoopExceptionWorkflow, LoopingSleepRequest, LoopingSleepResult, LoopingSleepWorkflow, LoopProcessingWorkflow, LoopRequest, LoopResult, LoopReturnRequest, LoopReturnResult, LoopReturnWorkflow, ManyActionsRequest, ManyActionsResult, ManyActionsWorkflow, NoOpWorkflow, ParallelMathWorkflow, RetryCounterRequest, RetryCounterResult, RetryCounterWorkflow, SequentialChainWorkflow, SleepRequest, SleepResult, SpreadEmptyCollectionWorkflow, SpreadEmptyRequest, SpreadEmptyResult, TimeoutProbeRequest, TimeoutProbeResult, TimeoutProbeWorkflow, UndefinedVariableWorkflow, WhileLoopRequest, WhileLoopResult, WhileLoopWorkflow
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
-
-from waymark import (
-    bridge,
-    delete_schedule,
-    pause_schedule,
-    resume_schedule,
-    schedule_workflow,
-)
-
-from example_app.workflows import (
-    BranchRequest,
-    BranchResult,
-    ChainRequest,
-    ChainResult,
-    ComputationRequest,
-    ComputationResult,
-    ConditionalBranchWorkflow,
-    DurableSleepWorkflow,
-    GuardFallbackRequest,
-    GuardFallbackResult,
-    GuardFallbackWorkflow,
-    EarlyReturnLoopResult,
-    EarlyReturnLoopWorkflow,
-    ErrorHandlingWorkflow,
-    ErrorRequest,
-    ErrorResult,
-    ExceptionMetadataWorkflow,
-    KwOnlyLocationRequest,
-    KwOnlyLocationResult,
-    KwOnlyLocationWorkflow,
-    LoopExceptionRequest,
-    LoopExceptionResult,
-    LoopExceptionWorkflow,
-    LoopReturnRequest,
-    LoopReturnResult,
-    LoopReturnWorkflow,
-    LoopProcessingWorkflow,
-    LoopRequest,
-    LoopResult,
-    LoopingSleepRequest,
-    LoopingSleepResult,
-    LoopingSleepWorkflow,
-    RetryCounterRequest,
-    RetryCounterResult,
-    RetryCounterWorkflow,
-    TimeoutProbeRequest,
-    TimeoutProbeResult,
-    TimeoutProbeWorkflow,
-    ManyActionsRequest,
-    ManyActionsResult,
-    ManyActionsWorkflow,
-    NoOpWorkflow,
-    ParallelMathWorkflow,
-    SequentialChainWorkflow,
-    SleepRequest,
-    SleepResult,
-    SpreadEmptyCollectionWorkflow,
-    SpreadEmptyRequest,
-    SpreadEmptyResult,
-    UndefinedVariableWorkflow,
-    WhileLoopRequest,
-    WhileLoopResult,
-    WhileLoopWorkflow,
-)
+from waymark import bridge, delete_schedule, pause_schedule, resume_schedule, schedule_workflow
 
 app = FastAPI(title="Waymark Example")
 
-templates = Jinja2Templates(
-    directory=str(Path(__file__).resolve().parent / "templates")
-)
+templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "templates"))
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -308,9 +244,7 @@ async def run_undefined_variable_workflow(payload: UndefinedVariableRequest) -> 
 
 
 class EarlyReturnLoopRequest(BaseModel):
-    input_text: str = Field(
-        description="Input text to parse. Use 'no_session:' prefix for early return path, or comma-separated items for loop path."
-    )
+    input_text: str = Field(description="Input text to parse. Use 'no_session:' prefix for early return path, or comma-separated items for loop path.")
 
 
 @app.post("/api/early-return-loop", response_model=EarlyReturnLoopResult)
@@ -355,9 +289,7 @@ async def run_many_actions_workflow(payload: ManyActionsRequest) -> ManyActionsR
     Executes a configurable number of actions either in parallel or sequentially.
     """
     workflow = ManyActionsWorkflow()
-    return await workflow.run(
-        action_count=payload.action_count, parallel=payload.parallel
-    )
+    return await workflow.run(action_count=payload.action_count, parallel=payload.parallel)
 
 
 # =============================================================================
@@ -376,9 +308,7 @@ async def run_looping_sleep_workflow(
     Useful for testing looping sleep workflows.
     """
     workflow = LoopingSleepWorkflow()
-    return await workflow.run(
-        iterations=payload.iterations, sleep_seconds=payload.sleep_seconds
-    )
+    return await workflow.run(iterations=payload.iterations, sleep_seconds=payload.sleep_seconds)
 
 
 # =============================================================================
@@ -415,12 +345,8 @@ class ScheduleRequest(BaseModel):
         default=None,
         description="Cron expression (e.g., '*/5 * * * *' for every 5 minutes)",
     )
-    interval_seconds: Optional[int] = Field(
-        default=None, ge=10, description="Interval in seconds (minimum 10)"
-    )
-    inputs: Optional[dict] = Field(
-        default=None, description="Input arguments to pass to each scheduled run"
-    )
+    interval_seconds: Optional[int] = Field(default=None, ge=10, description="Interval in seconds (minimum 10)")
+    inputs: Optional[dict] = Field(default=None, description="Input arguments to pass to each scheduled run")
 
 
 class ScheduleResponse(BaseModel):
@@ -538,9 +464,7 @@ async def run_batch_workflow(payload: BatchRunRequest) -> StreamingResponse:
     """Queue a batch of workflow instances and stream progress via SSE."""
     workflow_cls = WORKFLOW_REGISTRY.get(payload.workflow_name)
     if not workflow_cls:
-        raise HTTPException(
-            status_code=404, detail=f"Unknown workflow: {payload.workflow_name}"
-        )
+        raise HTTPException(status_code=404, detail=f"Unknown workflow: {payload.workflow_name}")
 
     inputs_list = payload.inputs_list
     if inputs_list is not None and len(inputs_list) == 0:
@@ -558,10 +482,7 @@ async def run_batch_workflow(payload: BatchRunRequest) -> StreamingResponse:
             if missing:
                 raise HTTPException(
                     status_code=400,
-                    detail=(
-                        f"inputs_list[{idx}] missing required keys: "
-                        f"{', '.join(missing)}"
-                    ),
+                    detail=(f"inputs_list[{idx}] missing required keys: " f"{', '.join(missing)}"),
                 )
     else:
         missing = _missing_input_keys(required_keys, base_inputs)
@@ -583,22 +504,13 @@ async def run_batch_workflow(payload: BatchRunRequest) -> StreamingResponse:
                 },
             )
 
-            registration = workflow_cls._build_registration_payload(
-                priority=payload.priority
-            )
+            registration = workflow_cls._build_registration_payload(priority=payload.priority)
             if inputs_list is not None:
-                batch_inputs = [
-                    workflow_cls._build_initial_context((), inputs)
-                    for inputs in inputs_list
-                ]
+                batch_inputs = [workflow_cls._build_initial_context((), inputs) for inputs in inputs_list]
                 base_inputs_message = None
             else:
                 batch_inputs = None
-                base_inputs_message = (
-                    workflow_cls._build_initial_context((), base_inputs)
-                    if payload.inputs is not None
-                    else None
-                )
+                base_inputs_message = workflow_cls._build_initial_context((), base_inputs) if payload.inputs is not None else None
 
             batch_result = await bridge.run_instances_batch(
                 registration.SerializeToString(),
@@ -617,9 +529,7 @@ async def run_batch_workflow(payload: BatchRunRequest) -> StreamingResponse:
                     "queued": batch_result.queued,
                     "total": total,
                     "elapsed_ms": elapsed_ms,
-                    "instance_ids": batch_result.workflow_instance_ids
-                    if payload.include_instance_ids
-                    else None,
+                    "instance_ids": batch_result.workflow_instance_ids if payload.include_instance_ids else None,
                 },
             )
         except Exception as exc:  # pragma: no cover - streaming errors
@@ -724,9 +634,7 @@ async def reset_database() -> ResetResponse:
     """Reset workflow-related tables for a clean slate. Development use only."""
     database_url = os.environ.get("WAYMARK_DATABASE_URL")
     if not database_url:
-        return ResetResponse(
-            success=False, message="WAYMARK_DATABASE_URL not configured"
-        )
+        return ResetResponse(success=False, message="WAYMARK_DATABASE_URL not configured")
 
     try:
         conn = await asyncpg.connect(database_url)

@@ -1,9 +1,8 @@
 import os
 
 import pytest
-from fastapi.testclient import TestClient
-
 from example_app.web import app
+from fastapi.testclient import TestClient
 
 
 def _enable_real_cluster(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -37,9 +36,7 @@ def test_early_return_loop_workflow_with_session(
 
     client = TestClient(app)
     # Provide comma-separated items - should create session and loop over items
-    response = client.post(
-        "/api/early-return-loop", json={"input_text": "apple, banana, cherry"}
-    )
+    response = client.post("/api/early-return-loop", json={"input_text": "apple, banana, cherry"})
     assert response.status_code == 200
     payload = response.json()
 
@@ -56,9 +53,7 @@ def test_early_return_loop_workflow_early_return(
 
     client = TestClient(app)
     # Use no_session: prefix - should trigger early return without executing loop
-    response = client.post(
-        "/api/early-return-loop", json={"input_text": "no_session:test"}
-    )
+    response = client.post("/api/early-return-loop", json={"input_text": "no_session:test"})
     assert response.status_code == 200
     payload = response.json()
 

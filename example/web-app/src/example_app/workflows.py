@@ -72,9 +72,7 @@ class LoopResult(BaseModel):
 
 
 class LoopRequest(BaseModel):
-    items: list[str] = Field(
-        min_length=1, max_length=5, description="Items to process in a loop"
-    )
+    items: list[str] = Field(min_length=1, max_length=5, description="Items to process in a loop")
 
 
 class WhileLoopResult(BaseModel):
@@ -100,9 +98,7 @@ class LoopReturnResult(BaseModel):
 
 
 class LoopReturnRequest(BaseModel):
-    items: list[int] = Field(
-        min_length=1, max_length=10, description="Items to search in a loop"
-    )
+    items: list[int] = Field(min_length=1, max_length=10, description="Items to search in a loop")
     needle: int = Field(description="Value to search for (returns early when found)")
 
 
@@ -213,12 +209,8 @@ class GuardFallbackRequest(BaseModel):
 
 
 class KwOnlyLocationRequest(BaseModel):
-    latitude: float | None = Field(
-        default=None, description="Optional latitude for the target location."
-    )
-    longitude: float | None = Field(
-        default=None, description="Optional longitude for the target location."
-    )
+    latitude: float | None = Field(default=None, description="Optional latitude for the target location.")
+    longitude: float | None = Field(default=None, description="Optional longitude for the target location.")
 
 
 class KwOnlyLocationResult(BaseModel):
@@ -301,9 +293,7 @@ async def step_add_stars(text: str) -> str:
 
 
 @action
-async def build_chain_result(
-    original: str, step1: str, step2: str, step3: str
-) -> ChainResult:
+async def build_chain_result(original: str, step1: str, step2: str, step3: str) -> ChainResult:
     """Build the chain result with formatted steps."""
     return ChainResult(
         original=original,
@@ -430,8 +420,6 @@ async def build_while_result(
 class IntentionalError(Exception):
     """Error raised intentionally for demonstration."""
 
-    pass
-
 
 class ExceptionMetadataError(Exception):
     """Error with attached metadata for exception value capture."""
@@ -494,9 +482,7 @@ class RetryCounterError(Exception):
     """Raised while waiting for the configured success attempt."""
 
     def __init__(self, attempt: int, succeed_on_attempt: int) -> None:
-        super().__init__(
-            f"attempt {attempt} has not reached success attempt {succeed_on_attempt}"
-        )
+        super().__init__(f"attempt {attempt} has not reached success attempt {succeed_on_attempt}")
         self.attempt = attempt
         self.succeed_on_attempt = succeed_on_attempt
 
@@ -554,15 +540,9 @@ async def build_retry_counter_result(
 ) -> RetryCounterResult:
     """Build the retry counter result payload."""
     if succeeded:
-        message = (
-            f"Succeeded on attempt {final_attempt} with retry policy max_attempts="
-            f"{max_attempts}"
-        )
+        message = f"Succeeded on attempt {final_attempt} with retry policy max_attempts=" f"{max_attempts}"
     else:
-        message = (
-            f"Failed after {final_attempt} attempts; success threshold was "
-            f"{succeed_on_attempt}"
-        )
+        message = f"Failed after {final_attempt} attempts; success threshold was " f"{succeed_on_attempt}"
     return RetryCounterResult(
         succeed_on_attempt=succeed_on_attempt,
         max_attempts=max_attempts,
@@ -618,15 +598,9 @@ async def build_timeout_probe_result(
 ) -> TimeoutProbeResult:
     """Build timeout probe result payload."""
     if timed_out:
-        message = (
-            f"Timed out after {final_attempt} attempts with timeout={timeout_seconds}s "
-            f"and retry max_attempts={max_attempts}"
-        )
+        message = f"Timed out after {final_attempt} attempts with timeout={timeout_seconds}s " f"and retry max_attempts={max_attempts}"
     else:
-        message = (
-            f"Unexpectedly completed without timeout after {final_attempt} attempts; "
-            f"check timeout configuration"
-        )
+        message = f"Unexpectedly completed without timeout after {final_attempt} attempts; " f"check timeout configuration"
     return TimeoutProbeResult(
         timeout_seconds=timeout_seconds,
         max_attempts=max_attempts,
@@ -766,9 +740,7 @@ class WhileLoopWorkflow(Workflow):
             current = await increment_counter(current)
             iterations = iterations + 1
 
-        return await build_while_result(
-            limit=limit, final=current, iterations=iterations
-        )
+        return await build_while_result(limit=limit, final=current, iterations=iterations)
 
 
 @workflow
@@ -1124,9 +1096,7 @@ async def process_single_item(item: str, session_id: str) -> ProcessedItemResult
 
 
 @action
-async def finalize_processing(
-    items: list[str], processed_count: int
-) -> EarlyReturnLoopResult:
+async def finalize_processing(items: list[str], processed_count: int) -> EarlyReturnLoopResult:
     """Finalize the processing results."""
     await asyncio.sleep(0.05)
     return EarlyReturnLoopResult(
@@ -1203,9 +1173,7 @@ async def summarize_notes(notes: list[str]) -> str:
 
 
 @action
-async def build_guard_fallback_result(
-    user: str, note_count: int, summary: str
-) -> GuardFallbackResult:
+async def build_guard_fallback_result(user: str, note_count: int, summary: str) -> GuardFallbackResult:
     """Build the guard fallback result."""
     await asyncio.sleep(0)
     return GuardFallbackResult(
@@ -1295,8 +1263,6 @@ class UndefinedVariableWorkflow(Workflow):
 
 class ItemProcessingError(Exception):
     """Exception raised when item processing fails."""
-
-    pass
 
 
 class LoopExceptionResult(BaseModel):
@@ -1402,9 +1368,7 @@ class SpreadEmptyResult(BaseModel):
 
 
 class SpreadEmptyRequest(BaseModel):
-    items: list[str] = Field(
-        description="Items to process. Use empty list [] to test empty spread."
-    )
+    items: list[str] = Field(description="Items to process. Use empty list [] to test empty spread.")
 
 
 @action
@@ -1575,9 +1539,7 @@ async def compute_square(value: int) -> int:
 
 
 @action
-async def aggregate_squares(
-    squares: list[int], action_count: int, parallel: bool
-) -> ManyActionsResult:
+async def aggregate_squares(squares: list[int], action_count: int, parallel: bool) -> ManyActionsResult:
     """Aggregate the square computation results."""
     return ManyActionsResult(
         action_count=action_count,
@@ -1596,9 +1558,7 @@ class ManyActionsWorkflow(Workflow):
     based on the `parallel` configuration parameter.
     """
 
-    async def run(
-        self, action_count: int = 50, parallel: bool = True
-    ) -> ManyActionsResult:
+    async def run(self, action_count: int = 50, parallel: bool = True) -> ManyActionsResult:
         if parallel:
             # Fan out: run all actions in parallel
             results = await asyncio.gather(
@@ -1627,12 +1587,8 @@ class ManyActionsWorkflow(Workflow):
 class LoopingSleepRequest(BaseModel):
     """Request for looping sleep workflow."""
 
-    iterations: int = Field(
-        default=3, ge=1, le=100, description="Number of loop iterations"
-    )
-    sleep_seconds: int = Field(
-        default=2, ge=1, le=60, description="Seconds to sleep each iteration"
-    )
+    iterations: int = Field(default=3, ge=1, le=100, description="Number of loop iterations")
+    sleep_seconds: int = Field(default=2, ge=1, le=60, description="Seconds to sleep each iteration")
 
 
 class LoopingSleepIteration(BaseModel):
@@ -1687,9 +1643,7 @@ class LoopingSleepWorkflow(Workflow):
     that durable sleeps work correctly across multiple loop iterations.
     """
 
-    async def run(
-        self, iterations: int = 3, sleep_seconds: int = 2
-    ) -> LoopingSleepResult:
+    async def run(self, iterations: int = 3, sleep_seconds: int = 2) -> LoopingSleepResult:
         iteration_results: list[LoopingSleepIteration] = []
 
         for i in range(iterations):

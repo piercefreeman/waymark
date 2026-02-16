@@ -9,16 +9,15 @@
 
 import asyncio
 import os
-from pathlib import Path
 import sys
+from pathlib import Path
+
 import pytest
 
-POSTGRES = "postgresql://waymark:waymark@localhost:5433/waymark"
-os.environ["WAYMARK_DATABASE_URL"] = sys.argv[1] if len(sys.argv) > 1 else POSTGRES
+os.environ["WAYMARK_DATABASE_URL"] = sys.argv[1] if len(sys.argv) > 1 else "1"
 
-from waymark.workflow import workflow_registry
 from waymark import Workflow, action, workflow
-from waymark.workflow import RetryPolicy
+from waymark.workflow import RetryPolicy, workflow_registry
 
 workflow_registry._workflows.clear()  # so pytest can re-import this file
 
@@ -58,9 +57,7 @@ async def summarize_math(factorial: int, fibonacci: int, n: int) -> dict:
 @workflow
 class ParallelMathWorkflow(Workflow):
     async def run(self, n: int) -> dict:
-        factorial, fibonacci = await asyncio.gather(
-            compute_factorial(n), compute_fibonacci(n), return_exceptions=True
-        )
+        factorial, fibonacci = await asyncio.gather(compute_factorial(n), compute_fibonacci(n), return_exceptions=True)
         return await summarize_math(factorial, fibonacci, n)
 
 
@@ -223,9 +220,7 @@ class ErrorHandlingWorkflow(Workflow):
     async def run(self, should_fail: bool) -> dict:
         recovered, message = False, ""
         try:
-            result = await self.run_action(
-                risky_action(should_fail), retry=RetryPolicy(attempts=1)
-            )
+            result = await self.run_action(risky_action(should_fail), retry=RetryPolicy(attempts=1))
             message = result
         except IntentionalError:
             recovered = True
@@ -257,9 +252,7 @@ class ExceptionMetadataWorkflow(Workflow):
     async def run(self, should_fail: bool) -> dict:
         recovered, message, error_type, code, detail = False, "", None, None, None
         try:
-            result = await self.run_action(
-                risky_metadata_action(should_fail), retry=RetryPolicy(attempts=1)
-            )
+            result = await self.run_action(risky_metadata_action(should_fail), retry=RetryPolicy(attempts=1))
             message = result
         except ExceptionMetadataError as e:
             recovered, error_type, code, detail = (
@@ -328,9 +321,7 @@ async def format_retry_message(succeeded: bool, final: int) -> str:
 
 @workflow
 class RetryCounterWorkflow(Workflow):
-    async def run(
-        self, succeed_on_attempt: int, max_attempts: int, counter_slot: int = 1
-    ) -> dict:
+    async def run(self, succeed_on_attempt: int, max_attempts: int, counter_slot: int = 1) -> dict:
         counter_path = await reset_counter(counter_slot)
         succeeded = True
         try:
@@ -503,9 +494,7 @@ async def describe_location(latitude: float | None, longitude: float | None) -> 
 
 @workflow
 class KwOnlyLocationWorkflow(Workflow):
-    async def run(
-        self, *, latitude: float | None = None, longitude: float | None = None
-    ) -> dict:
+    async def run(self, *, latitude: float | None = None, longitude: float | None = None) -> dict:
         return await describe_location(latitude, longitude)
 
 
@@ -554,9 +543,7 @@ class LoopExceptionWorkflow(Workflow):
         processed, error_count = [], 0
         for item in items:
             try:
-                result = await self.run_action(
-                    process_item_may_fail(item), retry=RetryPolicy(attempts=1)
-                )
+                result = await self.run_action(process_item_may_fail(item), retry=RetryPolicy(attempts=1))
                 processed.append(result)
             except ItemProcessingError:
                 error_count = error_count + 1
@@ -589,9 +576,7 @@ async def format_spread_result(results: list[str]) -> dict:
 @workflow
 class SpreadEmptyCollectionWorkflow(Workflow):
     async def run(self, items: list[str]) -> dict:
-        results = await asyncio.gather(
-            *[process_spread_item(item) for item in items], return_exceptions=True
-        )
+        results = await asyncio.gather(*[process_spread_item(item) for item in items], return_exceptions=True)
         return await format_spread_result(results)
 
 
@@ -681,16 +666,12 @@ async def count_even_tags(tagged: list[dict]) -> dict:
 @workflow
 class NoOpWorkflow(Workflow):
     async def run(self, indices: list[int]) -> dict:
-        stage1 = await asyncio.gather(
-            *[noop_int(i) for i in indices], return_exceptions=True
-        )
+        stage1 = await asyncio.gather(*[noop_int(i) for i in indices], return_exceptions=True)
         processed = []
         for value in stage1:
             result = await noop_int(value)
             processed.append(result)
-        tagged = await asyncio.gather(
-            *[noop_tag(value) for value in processed], return_exceptions=True
-        )
+        tagged = await asyncio.gather(*[noop_tag(value) for value in processed], return_exceptions=True)
         return await count_even_tags(tagged)
 
 
@@ -786,18 +767,14 @@ async def test_exception_metadata():
 
 @pytest.mark.asyncio
 async def test_retry_counter_success():
-    result = await RetryCounterWorkflow().run(
-        succeed_on_attempt=2, max_attempts=3, counter_slot=1
-    )
+    result = await RetryCounterWorkflow().run(succeed_on_attempt=2, max_attempts=3, counter_slot=1)
     assert result["succeeded"] is True
     assert result["final_attempt"] == 2
 
 
 @pytest.mark.asyncio
 async def test_retry_counter_failure():
-    result = await RetryCounterWorkflow().run(
-        succeed_on_attempt=5, max_attempts=10, counter_slot=100
-    )
+    result = await RetryCounterWorkflow().run(succeed_on_attempt=5, max_attempts=10, counter_slot=100)
     # Waymark retries until success in this scenario
     assert result["succeeded"] is True
     assert result["final_attempt"] == 5
