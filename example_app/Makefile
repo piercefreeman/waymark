@@ -21,7 +21,7 @@ run:
 	until docker exec $(CONTAINER) pg_isready >/dev/null 2>&1; do sleep 0.1; done
 	$(ENV) .venv/bin/start-workers >/dev/null 2>&1 & echo $$! > $(PID_FILE)
 	sleep 1
-	$(ENV) WAYMARK_RUN_REAL_CLUSTER=1 .venv/bin/pytest . -vvv; \
+	$(ENV) WAYMARK_RUN_REAL_CLUSTER=1 .venv/bin/pytest . -vvv -o asyncio_mode=strict -o asyncio_default_fixture_loop_scope=function; \
 	TEST_EXIT=$$?; \
 	kill $$(cat $(PID_FILE) 2>/dev/null) 2>/dev/null || true; \
 	docker stop $(CONTAINER) >/dev/null 2>&1; \
