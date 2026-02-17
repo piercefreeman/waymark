@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
-use waymark::fuzzer::{FuzzArgs, run};
+use waymark_fuzzer::{FuzzArgs, run};
 
 #[tokio::main]
 async fn main() -> Result<()> {

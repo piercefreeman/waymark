@@ -372,7 +372,7 @@ jobs:
           shared-key: waymark
 
       - name: Run fuzzer (sanity)
-        run: cargo run --release --features fuzzing --bin waymark-fuzz -- --cases 5
+        run: cargo run --release --package waymark-fuzzer --bin waymark-fuzz -- --cases 5
 
   fuzz-extended:
     runs-on: ubuntu-latest
@@ -401,7 +401,7 @@ jobs:
           shared-key: waymark
 
       - name: Run fuzzer (extended)
-        run: cargo run --release --features fuzzing --bin waymark-fuzz -- --cases 100 --max-steps 12
+        run: cargo run --release --package waymark-fuzzer --bin waymark-fuzz -- --cases 100 --max-steps 12
 
   integration:
     runs-on: ubuntu-latest
