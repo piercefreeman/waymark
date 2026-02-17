@@ -14,7 +14,7 @@ use std::{
     pin::Pin,
     sync::{
         Arc,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
 };
 
@@ -50,12 +50,15 @@ pub struct WorkerBridgeChannels {
 struct WorkerBridgeState {
     /// Map of worker_id -> channel sender for completing the handshake
     pending: Mutex<HashMap<u64, oneshot::Sender<WorkerBridgeChannels>>>,
+    /// Set to true when the bridge is shutting down to suppress expected errors
+    shutting_down: AtomicBool,
 }
 
 impl WorkerBridgeState {
     fn new() -> Self {
         Self {
             pending: Mutex::new(HashMap::new()),
+            shutting_down: AtomicBool::new(false),
         }
     }
 
@@ -176,7 +179,9 @@ impl proto::worker_bridge_server::WorkerBridge for WorkerBridgeService {
                         break;
                     }
                     Err(err) => {
-                        warn!(?err, worker_id, "worker stream receive error");
+                        if !reader_state.shutting_down.load(Ordering::Relaxed) {
+                            warn!(?err, worker_id, "worker stream receive error");
+                        }
                         break;
                     }
                 }
@@ -287,8 +292,14 @@ impl WorkerBridgeServer {
         self.state.cancel_worker(worker_id).await;
     }
 
+    /// Signal that the bridge is shutting down so expected errors are not warned.
+    pub fn mark_shutting_down(&self) {
+        self.state.shutting_down.store(true, Ordering::Relaxed);
+    }
+
     /// Gracefully shut down the server.
     pub async fn shutdown(&self) {
+        self.mark_shutting_down();
         if let Some(tx) = self.shutdown_tx.lock().await.take() {
             let _ = tx.send(());
         }

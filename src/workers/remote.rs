@@ -1035,6 +1035,7 @@ impl PythonWorkerPool {
     /// Workers are shut down in order. Any workers still in use
     /// (shared references exist) are skipped with a warning.
     pub async fn shutdown(self) -> AnyResult<()> {
+        self.bridge.mark_shutting_down();
         let workers = self.workers.into_inner();
         info!(count = workers.len(), "shutting down worker pool");
 
@@ -1313,13 +1314,13 @@ impl BaseWorkerPool for RemoteWorkerPool {
                 return Ok(());
             };
 
-            let pool = Arc::clone(&self.inner.pool);
+            let pool = Arc::downgrade(&self.inner.pool);
             let completion_tx = self.inner.completion_tx.clone();
 
             tokio::spawn(async move {
                 while let Some(request) = request_rx.recv().await {
+                    let Some(pool) = pool.upgrade() else { break };
                     let completion_tx = completion_tx.clone();
-                    let pool = Arc::clone(&pool);
                     tokio::spawn(async move {
                         let completion = execute_remote_request(pool, request).await;
                         let _ = completion_tx.send(completion).await;
