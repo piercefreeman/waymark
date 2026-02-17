@@ -2,6 +2,7 @@
 
 pub use waymark_observability_macros::obs;
 
+#[cfg(feature = "trace")]
 use std::sync::OnceLock;
 
 #[cfg(feature = "trace")]
