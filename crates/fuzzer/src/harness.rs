@@ -11,15 +11,15 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use super::generator::GeneratedCase;
-use crate::backends::{
+use waymark::backends::{
     MemoryBackend, QueuedInstance, WorkflowRegistration, WorkflowRegistryBackend,
 };
-use crate::messages::ast as ir;
-use crate::waymark_core::dag::convert_to_dag;
-use crate::waymark_core::ir_parser::parse_program;
-use crate::waymark_core::runloop::{RunLoop, RunLoopSupervisorConfig};
-use crate::waymark_core::runner::RunnerState;
-use crate::workers::{ActionCallable, InlineWorkerPool, WorkerPoolError};
+use waymark::messages::ast as ir;
+use waymark::waymark_core::dag::convert_to_dag;
+use waymark::waymark_core::ir_parser::parse_program;
+use waymark::waymark_core::runloop::{RunLoop, RunLoopSupervisorConfig};
+use waymark::waymark_core::runner::RunnerState;
+use waymark::workers::{ActionCallable, InlineWorkerPool, WorkerPoolError};
 
 pub async fn run_case(case_index: usize, case: &GeneratedCase) -> Result<()> {
     let program = parse_program(case.source.trim()).map_err(|err| {
@@ -118,7 +118,7 @@ async fn register_workflow(
 fn build_instance(
     instance_id: Uuid,
     workflow_version_id: Uuid,
-    dag: Arc<crate::waymark_core::dag::DAG>,
+    dag: Arc<waymark::waymark_core::dag::DAG>,
     base: i64,
 ) -> Result<QueuedInstance> {
     let mut state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);

@@ -3,8 +3,6 @@
 pub mod backends;
 pub mod config;
 pub mod db;
-#[cfg(feature = "fuzzing")]
-pub mod fuzzer;
 pub mod garbage_collector;
 pub mod integration_support;
 pub mod messages;

@@ -3364,7 +3364,6 @@ dependencies = [
  "http-body-util",
  "metrics",
  "once_cell",
- "proptest",
  "prost 0.12.6",
  "prost-types 0.12.6",
  "rand 0.8.5",
@@ -3389,6 +3388,21 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "waymark-observability-macros",
+]
+
+[[package]]
+name = "waymark-fuzzer"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "proptest",
+ "prost 0.12.6",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "uuid",
+ "waymark",
 ]
 
 [[package]]
