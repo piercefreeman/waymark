@@ -6,10 +6,9 @@
 FROM rust:1.88-bookworm AS planner
 RUN cargo install cargo-chef --locked
 WORKDIR /repo
-COPY Cargo.toml Cargo.lock build.rs /repo/
-COPY src /repo/src
+COPY Cargo.toml Cargo.lock /repo/
+COPY crates /repo/crates
 COPY proto /repo/proto
-COPY waymark-observability-macros /repo/waymark-observability-macros
 RUN cargo chef prepare --recipe-path recipe.json
 
 # =============================================================================
@@ -60,14 +59,11 @@ WORKDIR /repo
 COPY --from=cacher /repo/target target
 
 # Copy source files
-COPY Cargo.toml Cargo.lock build.rs README.md /repo/
-COPY src /repo/src
+COPY Cargo.toml Cargo.lock README.md /repo/
+COPY crates /repo/crates
 COPY proto /repo/proto
-COPY waymark-observability-macros /repo/waymark-observability-macros
 COPY python /repo/python
 COPY scripts /repo/scripts
-COPY templates /repo/templates
-COPY migrations /repo/migrations
 
 # Build - only recompiles your code, not dependencies
 RUN --mount=type=cache,target=/root/.cargo/registry \
@@ -92,7 +88,7 @@ WORKDIR /app
 COPY example_app /app
 
 # Copy templates for the webapp dashboard
-COPY templates /app/templates
+COPY crates/waymark/templates /app/templates
 
 RUN uv venv /opt/venv
 ENV VIRTUAL_ENV=/opt/venv
