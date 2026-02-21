@@ -39,7 +39,6 @@ use anyhow::Result;
 use prost::Message;
 use sqlx::{PgPool, Row};
 use tokio::signal;
-use tokio::sync::watch;
 use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -50,10 +49,7 @@ use waymark::db;
 use waymark::messages::ast as ir;
 use waymark::scheduler::{DagResolver, WorkflowDag};
 use waymark::waymark_core::runloop::{RunLoopSupervisorConfig, runloop_supervisor};
-use waymark::{
-    PythonWorkerConfig, RemoteWorkerPool, WebappServer, spawn_garbage_collector, spawn_scheduler,
-    spawn_status_reporter,
-};
+use waymark::{PythonWorkerConfig, RemoteWorkerPool, WebappServer, spawn_status_reporter};
 use waymark_dag::convert_to_dag;
 
 #[tokio::main]
@@ -86,6 +82,9 @@ async fn main() -> Result<()> {
         "starting worker infrastructure"
     );
 
+    // Wire shutdown coordination.
+    let shutdown_token = tokio_util::sync::CancellationToken::new();
+
     // Initialize the database and backend.
     let pool = PgPool::connect(&config.database_url).await?;
     db::run_migrations(&pool).await?;
@@ -117,15 +116,29 @@ async fn main() -> Result<()> {
 
     // Start the scheduler loop.
     let dag_resolver = build_dag_resolver(backend.pool().clone());
-    let (scheduler_handle, scheduler_shutdown) =
-        spawn_scheduler(backend.clone(), config.scheduler.clone(), dag_resolver);
+    let scheduler_handle = {
+        let shutdown = shutdown_token.clone().cancelled_owned();
+        let task = waymark::SchedulerTask {
+            backend: backend.clone(),
+            config: config.scheduler.clone(),
+            dag_resolver,
+        };
+        tokio::spawn(task.run(shutdown))
+    };
     info!(
         poll_interval_ms = config.scheduler.poll_interval.as_millis(),
         batch_size = config.scheduler.batch_size,
         "scheduler task started"
     );
-    let (garbage_collector_handle, garbage_collector_shutdown) =
-        spawn_garbage_collector(backend.clone(), config.garbage_collector.clone());
+
+    let garbage_collector_handle = {
+        let shutdown = shutdown_token.clone().cancelled_owned();
+        let task = waymark::GarbageCollectorTask {
+            backend: backend.clone(),
+            config: config.garbage_collector.clone(),
+        };
+        tokio::spawn(task.run(shutdown))
+    };
     info!(
         interval_ms = config.garbage_collector.interval.as_millis(),
         batch_size = config.garbage_collector.batch_size,
@@ -133,8 +146,6 @@ async fn main() -> Result<()> {
         "garbage collector task started"
     );
 
-    // Wire shutdown coordination.
-    let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let active_instance_gauge = Arc::new(AtomicUsize::new(0));
 
     // Start status reporting.
@@ -145,28 +156,24 @@ async fn main() -> Result<()> {
         remote_pool.clone(),
         active_instance_gauge.clone(),
         config.profile_interval,
-        shutdown_rx.clone(),
+        shutdown_token.clone().cancelled_owned(),
     );
     let expired_lock_reclaimer_handle = spawn_expired_lock_reclaimer(
         backend.clone(),
         config.expired_lock_reclaimer_interval,
         config.expired_lock_reclaimer_batch_size,
-        shutdown_rx.clone(),
+        shutdown_token.clone().cancelled_owned(),
     );
 
     let shutdown_handle = tokio::spawn({
-        let shutdown_tx = shutdown_tx.clone();
-        let scheduler_shutdown = scheduler_shutdown.clone();
-        let garbage_collector_shutdown = garbage_collector_shutdown.clone();
+        let shutdown_token = shutdown_token.clone();
         async move {
             if let Err(err) = wait_for_shutdown().await {
                 error!(error = %err, "shutdown signal listener failed");
                 return;
             }
             info!("shutdown signal received");
-            let _ = shutdown_tx.send(true);
-            let _ = scheduler_shutdown.send(true);
-            let _ = garbage_collector_shutdown.send(true);
+            shutdown_token.cancel();
         }
     });
 
@@ -188,7 +195,7 @@ async fn main() -> Result<()> {
             skip_sleep: false,
             active_instance_gauge: Some(active_instance_gauge),
         },
-        shutdown_rx,
+        shutdown_token,
     )
     .await;
 
@@ -248,7 +255,7 @@ fn spawn_expired_lock_reclaimer(
     backend: PostgresBackend,
     interval: Duration,
     batch_size: usize,
-    mut shutdown_rx: watch::Receiver<bool>,
+    shutdown: tokio_util::sync::WaitForCancellationFutureOwned,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(interval);
@@ -257,6 +264,7 @@ fn spawn_expired_lock_reclaimer(
             interval_ms = interval.as_millis(),
             batch_size, "expired lock reclaimer started"
         );
+        let mut shutdown = std::pin::pin!(shutdown);
         loop {
             tokio::select! {
                 _ = ticker.tick() => {
@@ -282,11 +290,9 @@ fn spawn_expired_lock_reclaimer(
                         );
                     }
                 }
-                _ = shutdown_rx.changed() => {
-                    if *shutdown_rx.borrow() {
-                        info!("expired lock reclaimer shutting down");
-                        break;
-                    }
+                _ = &mut shutdown => {
+                    info!("expired lock reclaimer shutting down");
+                    break;
                 }
             }
         }
