@@ -1,6 +1,6 @@
 //! Loop conversion helpers.
 
-use crate::messages::ast as ir;
+use waymark_proto::ast as ir;
 
 use super::super::models::{ConvertedSubgraph, DAGEdge, DagConversionError};
 use super::super::nodes::{AssignmentNode, BranchNode, BreakNode, ContinueNode, JoinNode};

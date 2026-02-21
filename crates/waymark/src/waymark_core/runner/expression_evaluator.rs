@@ -7,13 +7,13 @@ use uuid::Uuid;
 
 use crate::messages::ast as ir;
 use crate::observability::obs;
-use crate::waymark_core::dag::{DAGEdge, EdgeType};
 use crate::waymark_core::runner::state::{
     ActionCallSpec, ActionResultValue, BinaryOpValue, DictEntryValue, DictValue, DotValue,
     FunctionCallValue, IndexValue, ListValue, LiteralValue, UnaryOpValue, VariableValue,
     literal_value,
 };
 use crate::waymark_core::runner::value_visitor::{ValueExpr, ValueExprEvaluator};
+use waymark_dag::{DAGEdge, EdgeType};
 
 use super::{RunnerExecutor, RunnerExecutorError};
 
@@ -675,7 +675,6 @@ mod tests {
 
     use super::*;
     use crate::messages::ast as ir;
-    use crate::waymark_core::dag::{DAG, DAGEdge};
     use crate::waymark_core::ir_parser::IRParser;
     use crate::waymark_core::runner::RunnerState;
     use crate::waymark_core::runner::state::{
@@ -683,6 +682,7 @@ mod tests {
         VariableValue,
     };
     use crate::waymark_core::runner::value_visitor::ValueExpr;
+    use waymark_dag::{DAG, DAGEdge};
 
     fn parse_expr(source: &str) -> ir::Expr {
         IRParser::new("    ")

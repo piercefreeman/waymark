@@ -9,13 +9,13 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::messages::ast as ir;
-use crate::waymark_core::dag::{
-    ActionCallNode, AggregatorNode, AssignmentNode, DAG, DAGNode, EdgeType, FnCallNode, JoinNode,
-    ReturnNode, SleepNode,
-};
 use crate::waymark_core::runner::expression_evaluator::is_truthy;
 use crate::waymark_core::runner::value_visitor::{
     ValueExpr, collect_value_sources, resolve_value_tree,
+};
+use waymark_dag::{
+    ActionCallNode, AggregatorNode, AssignmentNode, DAG, DAGNode, EdgeType, FnCallNode, JoinNode,
+    ReturnNode, SleepNode,
 };
 
 /// Raised when the runner state cannot be updated safely.

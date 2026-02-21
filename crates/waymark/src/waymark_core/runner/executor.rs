@@ -13,9 +13,6 @@ use uuid::Uuid;
 use crate::backends::{ActionAttemptStatus, ActionDone, CoreBackend, GraphUpdate};
 use crate::messages::ast as ir;
 use crate::observability::obs;
-use crate::waymark_core::dag::{
-    ActionCallNode, AggregatorNode, DAG, DAGEdge, DagEdgeIndex, EXCEPTION_SCOPE_VAR, EdgeType,
-};
 use crate::waymark_core::runner::expression_evaluator::is_exception_value;
 use crate::waymark_core::runner::retry::{
     RetryDecision, RetryPolicyEvaluator, timeout_seconds_from_policies,
@@ -28,6 +25,9 @@ use crate::waymark_core::runner::synthetic_exceptions::{
     SyntheticExceptionType, build_synthetic_exception_value,
 };
 use crate::waymark_core::runner::value_visitor::ValueExpr;
+use waymark_dag::{
+    ActionCallNode, AggregatorNode, DAG, DAGEdge, DagEdgeIndex, EXCEPTION_SCOPE_VAR, EdgeType,
+};
 
 /// Raised when the runner executor cannot advance safely.
 #[derive(Debug, thiserror::Error)]
@@ -794,12 +794,10 @@ impl RunnerExecutor {
             })?;
 
             match template {
-                crate::waymark_core::dag::DAGNode::ActionCall(action)
-                    if action.spread_loop_var.is_some() =>
-                {
+                waymark_dag::DAGNode::ActionCall(action) if action.spread_loop_var.is_some() => {
                     TemplateKind::SpreadAction(Box::new(action.clone()))
                 }
-                crate::waymark_core::dag::DAGNode::Aggregator(_) => {
+                waymark_dag::DAGNode::Aggregator(_) => {
                     TemplateKind::Aggregator(template.id().to_string())
                 }
                 _ => TemplateKind::Regular(template.id().to_string()),
@@ -951,7 +949,7 @@ impl RunnerExecutor {
         })?;
 
         let aggregator = match template {
-            crate::waymark_core::dag::DAGNode::Aggregator(aggregator) => Some(aggregator.clone()),
+            waymark_dag::DAGNode::Aggregator(aggregator) => Some(aggregator.clone()),
             _ => None,
         };
         if let Some(aggregator) = aggregator {
@@ -1048,7 +1046,7 @@ impl RunnerExecutor {
             None => return false,
         };
 
-        if let crate::waymark_core::dag::DAGNode::Aggregator(_) = template {
+        if let waymark_dag::DAGNode::Aggregator(_) = template {
             if let Some(required) = self.template_index.incoming(template.id()) {
                 let connected = self.connected_template_sources(node.node_id);
                 if !required.is_subset(&connected) {
@@ -1172,8 +1170,7 @@ impl RunnerExecutor {
                 secondary = iter_idx;
             }
         } else if let Some(template_id) = &source.template_id
-            && let Some(crate::waymark_core::dag::DAGNode::ActionCall(action)) =
-                self.dag.nodes.get(template_id)
+            && let Some(waymark_dag::DAGNode::ActionCall(action)) = self.dag.nodes.get(template_id)
             && let Some(idx) = action.parallel_index
         {
             primary = 1;
@@ -1419,7 +1416,7 @@ impl RunnerExecutor {
             RunnerExecutorError(format!("template node not found: {template_id}"))
         })?;
         match template {
-            crate::waymark_core::dag::DAGNode::ActionCall(action) => Ok(Some(action)),
+            waymark_dag::DAGNode::ActionCall(action) => Ok(Some(action)),
             _ => Ok(None),
         }
     }
@@ -1510,13 +1507,13 @@ mod tests {
 
     use crate::backends::MemoryBackend;
     use crate::messages::ast as ir;
-    use crate::waymark_core::dag::{
-        ActionCallNode, ActionCallParams, AggregatorNode, AssignmentNode, DAG, DAGEdge,
-        convert_to_dag,
-    };
     use crate::waymark_core::ir_parser::parse_program;
     use crate::waymark_core::runner::state::{
         ExecutionEdge, ExecutionNode, NodeStatus, RunnerState,
+    };
+    use waymark_dag::{
+        ActionCallNode, ActionCallParams, AggregatorNode, AssignmentNode, DAG, DAGEdge,
+        convert_to_dag,
     };
 
     fn variable(name: &str) -> ir::Expr {
@@ -2145,15 +2142,9 @@ fn main(input: [], output: [done]):
             ActionNodeOptions::default(),
         );
 
-        dag.add_node(crate::waymark_core::dag::DAGNode::ActionCall(
-            action_start.clone(),
-        ));
-        dag.add_node(crate::waymark_core::dag::DAGNode::Assignment(
-            assign_node.clone(),
-        ));
-        dag.add_node(crate::waymark_core::dag::DAGNode::ActionCall(
-            action_next.clone(),
-        ));
+        dag.add_node(waymark_dag::DAGNode::ActionCall(action_start.clone()));
+        dag.add_node(waymark_dag::DAGNode::Assignment(assign_node.clone()));
+        dag.add_node(waymark_dag::DAGNode::ActionCall(action_next.clone()));
         dag.add_edge(DAGEdge::state_machine(
             action_start.id.clone(),
             assign_node.id.clone(),
@@ -2201,12 +2192,8 @@ fn main(input: [], output: [done]):
             ActionNodeOptions::default(),
         );
 
-        dag.add_node(crate::waymark_core::dag::DAGNode::ActionCall(
-            action1.clone(),
-        ));
-        dag.add_node(crate::waymark_core::dag::DAGNode::ActionCall(
-            action2.clone(),
-        ));
+        dag.add_node(waymark_dag::DAGNode::ActionCall(action1.clone()));
+        dag.add_node(waymark_dag::DAGNode::ActionCall(action2.clone()));
         dag.add_edge(DAGEdge::state_machine(
             action1.id.clone(),
             action2.id.clone(),
@@ -2244,12 +2231,8 @@ fn main(input: [], output: [done]):
             ActionNodeOptions::default(),
         );
 
-        dag.add_node(crate::waymark_core::dag::DAGNode::ActionCall(
-            action1.clone(),
-        ));
-        dag.add_node(crate::waymark_core::dag::DAGNode::ActionCall(
-            action2.clone(),
-        ));
+        dag.add_node(waymark_dag::DAGNode::ActionCall(action1.clone()));
+        dag.add_node(waymark_dag::DAGNode::ActionCall(action2.clone()));
         dag.add_edge(DAGEdge::state_machine(
             action1.id.clone(),
             action2.id.clone(),
@@ -2304,15 +2287,9 @@ fn main(input: [], output: [done]):
             ActionNodeOptions::default(),
         );
 
-        dag.add_node(crate::waymark_core::dag::DAGNode::ActionCall(
-            action1.clone(),
-        ));
-        dag.add_node(crate::waymark_core::dag::DAGNode::ActionCall(
-            action2.clone(),
-        ));
-        dag.add_node(crate::waymark_core::dag::DAGNode::ActionCall(
-            action3.clone(),
-        ));
+        dag.add_node(waymark_dag::DAGNode::ActionCall(action1.clone()));
+        dag.add_node(waymark_dag::DAGNode::ActionCall(action2.clone()));
+        dag.add_node(waymark_dag::DAGNode::ActionCall(action3.clone()));
         dag.add_edge(DAGEdge::state_machine(
             action1.id.clone(),
             action2.id.clone(),
@@ -2393,15 +2370,9 @@ fn main(input: [], output: [done]):
             ActionNodeOptions::default(),
         );
 
-        dag.add_node(crate::waymark_core::dag::DAGNode::ActionCall(
-            action1.clone(),
-        ));
-        dag.add_node(crate::waymark_core::dag::DAGNode::Assignment(
-            assign.clone(),
-        ));
-        dag.add_node(crate::waymark_core::dag::DAGNode::ActionCall(
-            action2.clone(),
-        ));
+        dag.add_node(waymark_dag::DAGNode::ActionCall(action1.clone()));
+        dag.add_node(waymark_dag::DAGNode::Assignment(assign.clone()));
+        dag.add_node(waymark_dag::DAGNode::ActionCall(action2.clone()));
         dag.add_edge(DAGEdge::state_machine(
             action1.id.clone(),
             assign.id.clone(),
@@ -2464,9 +2435,7 @@ fn main(input: [], output: [done]):
             ActionNodeOptions::default(),
         );
 
-        dag.add_node(crate::waymark_core::dag::DAGNode::ActionCall(
-            action1.clone(),
-        ));
+        dag.add_node(waymark_dag::DAGNode::ActionCall(action1.clone()));
         let dag = Arc::new(dag);
         let mut state = RunnerState::new(Some(dag.clone()), None, None, false);
         let exec1 = state.queue_template_node(&action1.id, None).expect("queue");
@@ -2505,12 +2474,8 @@ fn main(input: [], output: [done]):
             vec!["y".to_string()],
             ActionNodeOptions::default(),
         );
-        dag.add_node(crate::waymark_core::dag::DAGNode::ActionCall(
-            action1.clone(),
-        ));
-        dag.add_node(crate::waymark_core::dag::DAGNode::ActionCall(
-            action2.clone(),
-        ));
+        dag.add_node(waymark_dag::DAGNode::ActionCall(action1.clone()));
+        dag.add_node(waymark_dag::DAGNode::ActionCall(action2.clone()));
         dag.add_edge(DAGEdge::state_machine(
             action1.id.clone(),
             action2.id.clone(),
@@ -2556,9 +2521,7 @@ fn main(input: [], output: [done]):
                 ..ActionNodeOptions::default()
             },
         );
-        dag.add_node(crate::waymark_core::dag::DAGNode::ActionCall(
-            action1.clone(),
-        ));
+        dag.add_node(waymark_dag::DAGNode::ActionCall(action1.clone()));
 
         let dag = Arc::new(dag);
         let mut state = RunnerState::new(Some(dag.clone()), None, None, false);
@@ -2594,9 +2557,7 @@ fn main(input: [], output: [done]):
             vec!["x".to_string()],
             ActionNodeOptions::default(),
         );
-        dag.add_node(crate::waymark_core::dag::DAGNode::ActionCall(
-            action.clone(),
-        ));
+        dag.add_node(waymark_dag::DAGNode::ActionCall(action.clone()));
 
         let dag = Arc::new(dag);
         let mut state = RunnerState::new(Some(dag.clone()), None, None, false);
@@ -2655,9 +2616,7 @@ fn main(input: [], output: [done]):
                 ..ActionNodeOptions::default()
             },
         );
-        dag.add_node(crate::waymark_core::dag::DAGNode::ActionCall(
-            action.clone(),
-        ));
+        dag.add_node(waymark_dag::DAGNode::ActionCall(action.clone()));
 
         let dag = Arc::new(dag);
         let mut state = RunnerState::new(Some(dag.clone()), None, None, false);
@@ -2737,12 +2696,8 @@ fn main(input: [], output: [done]):
             ),
         );
 
-        dag.add_node(crate::waymark_core::dag::DAGNode::ActionCall(
-            action1.clone(),
-        ));
-        dag.add_node(crate::waymark_core::dag::DAGNode::Assignment(
-            assign.clone(),
-        ));
+        dag.add_node(waymark_dag::DAGNode::ActionCall(action1.clone()));
+        dag.add_node(waymark_dag::DAGNode::Assignment(assign.clone()));
         dag.add_edge(DAGEdge::state_machine(
             action1.id.clone(),
             assign.id.clone(),
@@ -2819,15 +2774,9 @@ fn main(input: [], output: [done]):
         let aggregator =
             aggregator_node("aggregator", "spread_action", vec!["results".to_string()]);
 
-        dag.add_node(crate::waymark_core::dag::DAGNode::ActionCall(
-            initial_action.clone(),
-        ));
-        dag.add_node(crate::waymark_core::dag::DAGNode::ActionCall(
-            spread_action.clone(),
-        ));
-        dag.add_node(crate::waymark_core::dag::DAGNode::Aggregator(
-            aggregator.clone(),
-        ));
+        dag.add_node(waymark_dag::DAGNode::ActionCall(initial_action.clone()));
+        dag.add_node(waymark_dag::DAGNode::ActionCall(spread_action.clone()));
+        dag.add_node(waymark_dag::DAGNode::Aggregator(aggregator.clone()));
         dag.add_edge(DAGEdge::state_machine(
             initial_action.id.clone(),
             spread_action.id.clone(),
@@ -2901,15 +2850,9 @@ fn main(input: [], output: [done]):
         let aggregator =
             aggregator_node("aggregator", "spread_action", vec!["results".to_string()]);
 
-        dag.add_node(crate::waymark_core::dag::DAGNode::ActionCall(
-            initial_action.clone(),
-        ));
-        dag.add_node(crate::waymark_core::dag::DAGNode::ActionCall(
-            spread_action.clone(),
-        ));
-        dag.add_node(crate::waymark_core::dag::DAGNode::Aggregator(
-            aggregator.clone(),
-        ));
+        dag.add_node(waymark_dag::DAGNode::ActionCall(initial_action.clone()));
+        dag.add_node(waymark_dag::DAGNode::ActionCall(spread_action.clone()));
+        dag.add_node(waymark_dag::DAGNode::Aggregator(aggregator.clone()));
         dag.add_edge(DAGEdge::state_machine(
             initial_action.id.clone(),
             spread_action.id.clone(),
@@ -2981,9 +2924,7 @@ fn main(input: [], output: [done]):
             ));
         }
         for action in &actions {
-            dag.add_node(crate::waymark_core::dag::DAGNode::ActionCall(
-                action.clone(),
-            ));
+            dag.add_node(waymark_dag::DAGNode::ActionCall(action.clone()));
         }
         for i in 0..actions.len() - 1 {
             dag.add_edge(DAGEdge::state_machine(
@@ -3046,12 +2987,8 @@ fn main(input: [], output: [done]):
             ActionNodeOptions::default(),
         );
 
-        dag.add_node(crate::waymark_core::dag::DAGNode::ActionCall(
-            action1.clone(),
-        ));
-        dag.add_node(crate::waymark_core::dag::DAGNode::ActionCall(
-            action2.clone(),
-        ));
+        dag.add_node(waymark_dag::DAGNode::ActionCall(action1.clone()));
+        dag.add_node(waymark_dag::DAGNode::ActionCall(action2.clone()));
         dag.add_edge(DAGEdge::state_machine(
             action1.id.clone(),
             action2.id.clone(),

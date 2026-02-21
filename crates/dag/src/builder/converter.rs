@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use crate::messages::ast as ir;
+use waymark_proto::ast as ir;
 
 use super::super::models::{ConvertedSubgraph, DAG, DAGEdge, DagConversionError};
 use super::super::nodes::{InputNode, OutputNode, ReturnNode};

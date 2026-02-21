@@ -13,3 +13,4 @@ sha2 = { workspace = true }
 uuid = { workspace = true, features = ["serde", "v4"] }
 tokio = { workspace = true }
 waymark = { workspace = true }
+waymark-dag = { workspace = true }

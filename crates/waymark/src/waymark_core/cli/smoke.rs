@@ -16,13 +16,13 @@ use crate::backends::{
     MemoryBackend, QueuedInstance, WorkflowRegistration, WorkflowRegistryBackend,
 };
 use crate::messages::ast as ir;
-use crate::waymark_core::dag::convert_to_dag;
 use crate::waymark_core::dag_viz::render_dag_image;
 use crate::waymark_core::ir_format::format_program;
 use crate::waymark_core::ir_parser::parse_program;
 use crate::waymark_core::runloop::{RunLoop, RunLoopSupervisorConfig};
 use crate::waymark_core::runner::RunnerState;
 use crate::workers::{PythonWorkerConfig, RemoteWorkerPool};
+use waymark_dag::convert_to_dag;
 
 #[derive(Parser, Debug)]
 #[command(name = "waymark-smoke", about = "Smoke check core-python components.")]

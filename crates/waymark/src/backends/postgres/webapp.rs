@@ -10,7 +10,6 @@ use uuid::Uuid;
 use super::PostgresBackend;
 use crate::backends::base::{BackendError, BackendResult, GraphUpdate, WebappBackend};
 use crate::messages::ast as ir;
-use crate::waymark_core::dag::{DAGNode, EdgeType, convert_to_dag};
 use crate::waymark_core::runner::state::{ActionCallSpec, ExecutionNode, NodeStatus};
 use crate::waymark_core::runner::{RunnerState, ValueExpr, format_value, replay_action_kwargs};
 use crate::webapp::{
@@ -18,6 +17,7 @@ use crate::webapp::{
     InstanceSummary, ScheduleDetail, ScheduleInvocationSummary, ScheduleSummary, TimelineEntry,
     WorkerActionRow, WorkerAggregateStats, WorkerStatus,
 };
+use waymark_dag::{DAGNode, EdgeType, convert_to_dag};
 
 const INSTANCE_STATUS_FALLBACK_SQL: &str = r#"
 CASE
@@ -299,7 +299,7 @@ impl WebappBackend for PostgresBackend {
                 ri.result,
                 ri.error,
                 COALESCE(ri.workflow_name, wv.workflow_name) AS workflow_name,
-                COALESCE(ri.current_status, 
+                COALESCE(ri.current_status,
                     CASE
                         WHEN ri.error IS NOT NULL THEN 'failed'
                         WHEN ri.result IS NOT NULL THEN 'completed'
@@ -362,7 +362,7 @@ impl WebappBackend for PostgresBackend {
                 ri.result,
                 ri.error,
                 COALESCE(ri.workflow_name, wv.workflow_name) AS workflow_name,
-                COALESCE(ri.current_status, 
+                COALESCE(ri.current_status,
                     CASE
                         WHEN ri.error IS NOT NULL THEN 'failed'
                         WHEN ri.result IS NOT NULL THEN 'completed'
@@ -1415,12 +1415,12 @@ mod tests {
         WorkflowRegistration, WorkflowRegistryBackend,
     };
     use crate::scheduler::{CreateScheduleParams, ScheduleType};
-    use crate::waymark_core::dag::EdgeType;
     use crate::waymark_core::ir_parser::parse_program;
     use crate::waymark_core::runner::ValueExpr;
     use crate::waymark_core::runner::state::{
         ActionCallSpec, ExecutionEdge, ExecutionNode, LiteralValue, NodeStatus,
     };
+    use waymark_dag::EdgeType;
 
     #[test]
     fn format_extracted_inputs_happy_path() {

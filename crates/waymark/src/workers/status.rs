@@ -7,7 +7,6 @@ use std::sync::{
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
-use tokio::sync::watch;
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -37,7 +36,7 @@ pub fn spawn_status_reporter<B, P>(
     worker_pool: P,
     active_instances: Arc<AtomicUsize>,
     interval: Duration,
-    mut shutdown_rx: watch::Receiver<bool>,
+    shutdown: tokio_util::sync::WaitForCancellationFutureOwned,
 ) -> tokio::task::JoinHandle<()>
 where
     B: WorkerStatusBackend + Send + Sync + 'static,
@@ -53,6 +52,8 @@ where
             interval_ms = interval.as_millis(),
             "status reporter started"
         );
+
+        let mut shutdown = std::pin::pin!(shutdown);
 
         loop {
             tokio::select! {
@@ -99,11 +100,9 @@ where
                         warn!(error = %err, "failed to update worker status");
                     }
                 }
-                _ = shutdown_rx.changed() => {
-                    if *shutdown_rx.borrow() {
-                        info!("status reporter shutting down");
-                        break;
-                    }
+                _ = &mut shutdown => {
+                    info!("status reporter shutting down");
+                    break;
                 }
             }
         }

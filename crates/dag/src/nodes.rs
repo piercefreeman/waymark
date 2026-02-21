@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::messages::ast as ir;
+use waymark_proto::ast as ir;
 
 /// Function entry node that declares input variables.
 ///
