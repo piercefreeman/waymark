@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{
     Arc,
-    atomic::{AtomicBool, AtomicUsize, Ordering},
+    atomic::{AtomicUsize, Ordering},
     mpsc as std_mpsc,
 };
 use std::thread;
@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 use chrono::{DateTime, Utc};
 use prost::Message;
 use serde_json::Value;
-use tokio::sync::{Notify, mpsc, watch};
+use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
@@ -137,11 +137,14 @@ enum PersistAck {
 async fn send_with_stop<T>(
     tx: &mpsc::Sender<T>,
     item: T,
-    stop_notify: &Notify,
+    stop: tokio_util::sync::WaitForCancellationFuture<'_>,
     kind: &'static str,
 ) -> bool {
     let send_fut = tx.send(item);
     tokio::pin!(send_fut);
+
+    let mut stop = std::pin::pin!(stop);
+
     let mut warned = false;
     loop {
         tokio::select! {
@@ -152,7 +155,7 @@ async fn send_with_stop<T>(
                 }
                 return true;
             }
-            _ = stop_notify.notified() => {
+            _ = &mut stop => {
                 info!(%kind, "sender stop notified during send");
                 return false;
             }
@@ -541,7 +544,8 @@ pub struct RunLoop {
     evict_sleep_threshold: Duration,
     skip_sleep: bool,
     active_instance_gauge: Option<Arc<AtomicUsize>>,
-    shutdown_rx: Option<watch::Receiver<bool>>,
+    shutdown_token: tokio_util::sync::CancellationToken,
+    exit_on_idle: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -565,23 +569,30 @@ impl RunLoop {
         backend: impl CoreBackend + WorkflowRegistryBackend + 'static,
         config: RunLoopSupervisorConfig,
     ) -> Self {
-        Self::new_internal(worker_pool, backend, config, None)
+        Self::new_internal(
+            worker_pool,
+            backend,
+            config,
+            tokio_util::sync::CancellationToken::new(),
+            true,
+        )
     }
 
     pub fn new_with_shutdown(
         worker_pool: impl BaseWorkerPool + 'static,
         backend: impl CoreBackend + WorkflowRegistryBackend + 'static,
         config: RunLoopSupervisorConfig,
-        shutdown_rx: watch::Receiver<bool>,
+        shutdown_token: tokio_util::sync::CancellationToken,
     ) -> Self {
-        Self::new_internal(worker_pool, backend, config, Some(shutdown_rx))
+        Self::new_internal(worker_pool, backend, config, shutdown_token, false)
     }
 
     fn new_internal(
         worker_pool: impl BaseWorkerPool + 'static,
         backend: impl CoreBackend + WorkflowRegistryBackend + 'static,
         config: RunLoopSupervisorConfig,
-        shutdown_rx: Option<watch::Receiver<bool>>,
+        shutdown_token: tokio_util::sync::CancellationToken,
+        exit_on_idle: bool,
     ) -> Self {
         let max_concurrent_instances = std::cmp::max(1, config.max_concurrent_instances);
         let backend = Arc::new(backend);
@@ -608,7 +619,8 @@ impl RunLoop {
             evict_sleep_threshold: config.evict_sleep_threshold,
             skip_sleep: config.skip_sleep,
             active_instance_gauge: config.active_instance_gauge.clone(),
-            shutdown_rx,
+            shutdown_token,
+            exit_on_idle,
         }
     }
 
@@ -863,30 +875,28 @@ impl RunLoop {
         let (completion_tx, mut completion_rx) = mpsc::channel::<Vec<ActionCompletion>>(32);
         let (instance_tx, mut instance_rx) = mpsc::channel::<InstanceMessage>(16);
         let (sleep_tx, mut sleep_rx) = mpsc::unbounded_channel::<SleepWake>();
-        let stop = Arc::new(AtomicBool::new(false));
-        let stop_notify = Arc::new(Notify::new());
+
         let lock_tracker = InstanceLockTracker::new(self.lock_uuid);
         let lock_handle = spawn_lock_heartbeat(
             self.core_backend.clone(),
             lock_tracker.clone(),
             self.lock_heartbeat,
             self.lock_ttl,
-            stop.clone(),
-            stop_notify.clone(),
+            self.shutdown_token.clone().cancelled_owned(),
         );
 
         let worker_pool = self.worker_pool.clone();
-        let completion_stop = stop.clone();
-        let completion_notify = stop_notify.clone();
+        let completion_shutdown_token = self.shutdown_token.clone();
         let completion_handle = tokio::spawn(async move {
+            let _completion_shutdown_guard = completion_shutdown_token.drop_guard_ref();
             loop {
-                if completion_stop.load(Ordering::SeqCst) {
+                if completion_shutdown_token.is_cancelled() {
                     info!("completion task stop flag set");
                     break;
                 }
                 debug!("completion task awaiting completions");
                 let completions = tokio::select! {
-                    _ = completion_notify.notified() => {
+                    _ = completion_shutdown_token.cancelled() => {
                         info!("completion task stop notified");
                         break;
                     }
@@ -906,7 +916,7 @@ impl RunLoop {
                 if !send_with_stop(
                     &completion_tx,
                     completions,
-                    &completion_notify,
+                    completion_shutdown_token.cancelled(),
                     "completions",
                 )
                 .await
@@ -917,7 +927,6 @@ impl RunLoop {
                 debug!("completion task sent completions");
             }
             info!("completion task exiting");
-            completion_notify.notify_waiters();
         });
 
         let backend = self.core_backend.clone();
@@ -926,11 +935,11 @@ impl RunLoop {
         let lock_uuid = self.lock_uuid;
         let lock_ttl = self.lock_ttl;
         let instance_available_slots = Arc::clone(&available_instance_slots);
-        let instance_stop = stop.clone();
-        let instance_notify = stop_notify.clone();
+        let instance_shutdown_token = self.shutdown_token.clone();
         let instance_handle = tokio::spawn(async move {
+            let _instance_shutdown_guard = instance_shutdown_token.drop_guard_ref();
             loop {
-                if instance_stop.load(Ordering::SeqCst) {
+                if instance_shutdown_token.is_cancelled() {
                     info!("instance poller stop flag set");
                     break;
                 }
@@ -964,8 +973,13 @@ impl RunLoop {
                     }
                     Err(err) => InstanceMessage::Error(err),
                 };
-                if !send_with_stop(&instance_tx, message, &instance_notify, "instance message")
-                    .await
+                if !send_with_stop(
+                    &instance_tx,
+                    message,
+                    instance_shutdown_token.cancelled(),
+                    "instance message",
+                )
+                .await
                 {
                     break;
                 }
@@ -976,7 +990,6 @@ impl RunLoop {
                 }
             }
             info!("instance poller exiting");
-            instance_notify.notify_waiters();
         });
 
         const PERSIST_COALESCE_WINDOW: Duration = Duration::from_millis(2);
@@ -1137,17 +1150,15 @@ impl RunLoop {
         let mut instances_idle = false;
         let mut instances_done_pending: Vec<InstanceDone> = Vec::new();
         let mut run_result = Ok(());
-        let mut shutdown_rx = self.shutdown_rx.clone();
+        let shutdown_token = self.shutdown_token.clone();
 
         loop {
-            if let Some(rx) = shutdown_rx.as_ref()
-                && *rx.borrow()
-            {
+            if shutdown_token.is_cancelled() {
                 info!("runloop exiting: shutdown requested");
                 break;
             }
 
-            if shutdown_rx.is_none()
+            if self.exit_on_idle
                 && instances_idle
                 && executor_shards.is_empty()
                 && sleeping_nodes.is_empty()
@@ -1160,15 +1171,10 @@ impl RunLoop {
                 break;
             }
 
-            let has_shutdown = shutdown_rx.is_some();
-            let shutdown_rx_fut = async { shutdown_rx.as_mut().unwrap().changed().await.is_ok() };
             let first_event = tokio::select! {
-                shutdown_signal = shutdown_rx_fut, if has_shutdown => {
-                    if !shutdown_signal || shutdown_rx.as_ref().is_some_and(|rx| *rx.borrow()) {
-                        info!("runloop exiting: shutdown requested");
-                        break;
-                    }
-                    None
+                _ = shutdown_token.cancelled() => {
+                    info!("runloop exiting: shutdown requested");
+                    break;
                 }
                 Some(completions) = completion_rx.recv() => {
                     Some(CoordinatorEvent::Completions(completions))
@@ -1650,7 +1656,7 @@ impl RunLoop {
                         actions_done,
                         graph_updates,
                     },
-                    &stop_notify,
+                    shutdown_token.cancelled(),
                     "persist command",
                 )
                 .await
@@ -1737,8 +1743,7 @@ impl RunLoop {
         }
         drop(persist_tx);
         let _ = persist_handle.await;
-        stop.store(true, Ordering::SeqCst);
-        stop_notify.notify_waiters();
+        shutdown_token.cancel();
         let _ = completion_handle.await;
         let _ = instance_handle.await;
         let _ = lock_handle.await;
@@ -1780,7 +1785,7 @@ pub async fn runloop_supervisor<B, W>(
     backend: B,
     worker_pool: W,
     config: RunLoopSupervisorConfig,
-    shutdown_rx: watch::Receiver<bool>,
+    shutdown_token: tokio_util::sync::CancellationToken,
 ) where
     B: CoreBackend + WorkflowRegistryBackend + Clone + Send + Sync + 'static,
     W: BaseWorkerPool + Clone + Send + Sync + 'static,
@@ -1791,7 +1796,7 @@ pub async fn runloop_supervisor<B, W>(
     let poll_interval = config.poll_interval;
 
     loop {
-        if *shutdown_rx.borrow() {
+        if shutdown_token.is_cancelled() {
             break;
         }
 
@@ -1806,12 +1811,12 @@ pub async fn runloop_supervisor<B, W>(
             worker_pool.clone(),
             backend.clone(),
             config.clone(),
-            shutdown_rx.clone(),
+            shutdown_token.child_token(),
         );
 
         let result = runloop.run().await;
 
-        if *shutdown_rx.borrow() {
+        if shutdown_token.is_cancelled() {
             break;
         }
 
@@ -2192,7 +2197,12 @@ fn main(input: [x], output: [y]):
             scheduled_at: None,
         });
 
+        tracing::info!("1");
+
         runloop.run().await.expect("runloop");
+
+        tracing::info!("1");
+
         let instances_done = backend.instances_done();
         assert_eq!(instances_done.len(), 1);
         let done = &instances_done[0];
@@ -2572,17 +2582,17 @@ fn main(input: [limit], output: [result]):
             .await
             .expect("seed channel");
 
-        let stop_notify = Arc::new(Notify::new());
+        let shutdown_token = tokio_util::sync::CancellationToken::new();
         let send_task = tokio::spawn({
             let instance_tx = instance_tx.clone();
-            let stop_notify = Arc::clone(&stop_notify);
+            let shutdown_token = shutdown_token.clone();
             async move {
                 send_with_stop(
                     &instance_tx,
                     InstanceMessage::Batch {
                         instances: Vec::new(),
                     },
-                    &stop_notify,
+                    shutdown_token.cancelled(),
                     "instance message",
                 )
                 .await
@@ -2590,7 +2600,7 @@ fn main(input: [limit], output: [result]):
         });
 
         tokio::time::sleep(Duration::from_millis(20)).await;
-        stop_notify.notify_waiters();
+        shutdown_token.cancel();
         let sent = tokio::time::timeout(Duration::from_millis(300), send_task)
             .await
             .expect("send task should complete")
@@ -2603,13 +2613,13 @@ fn main(input: [limit], output: [result]):
     #[tokio::test]
     async fn test_instance_poller_send_succeeds_when_channel_has_capacity() {
         let (instance_tx, mut instance_rx) = mpsc::channel::<InstanceMessage>(1);
-        let stop_notify = Notify::new();
+        let shutdown_token = tokio_util::sync::CancellationToken::new();
         let sent = send_with_stop(
             &instance_tx,
             InstanceMessage::Batch {
                 instances: Vec::new(),
             },
-            &stop_notify,
+            shutdown_token.cancelled(),
             "instance message",
         )
         .await;
@@ -2628,17 +2638,17 @@ fn main(input: [limit], output: [result]):
         let backend =
             FaultInjectingBackend::with_depth_limit_poll_failures(MemoryBackend::with_queue(queue));
         let worker_pool = crate::workers::InlineWorkerPool::new(HashMap::new());
-        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let shutdown_token = tokio_util::sync::CancellationToken::new();
 
         let supervisor = tokio::spawn(runloop_supervisor(
             backend.clone(),
             worker_pool,
             default_test_config(Uuid::new_v4()),
-            shutdown_rx,
+            shutdown_token.clone(),
         ));
 
         tokio::time::sleep(Duration::from_millis(750)).await;
-        shutdown_tx.send(true).expect("send shutdown");
+        shutdown_token.cancel();
         tokio::time::timeout(Duration::from_secs(2), supervisor)
             .await
             .expect("supervisor should stop")
@@ -2656,13 +2666,13 @@ fn main(input: [limit], output: [result]):
         let backend =
             FaultInjectingBackend::with_depth_limit_poll_failures(MemoryBackend::with_queue(queue));
         let worker_pool = crate::workers::InlineWorkerPool::new(HashMap::new());
-        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let shutdown_token = tokio_util::sync::CancellationToken::new();
 
         let supervisor = tokio::spawn(runloop_supervisor(
             backend.clone(),
             worker_pool,
             default_test_config(Uuid::new_v4()),
-            shutdown_rx,
+            shutdown_token.clone(),
         ));
 
         for _ in 0..20 {
@@ -2682,7 +2692,7 @@ fn main(input: [limit], output: [result]):
         }
 
         tokio::time::sleep(Duration::from_millis(500)).await;
-        shutdown_tx.send(true).expect("send shutdown");
+        shutdown_token.cancel();
         tokio::time::timeout(Duration::from_secs(2), supervisor)
             .await
             .expect("supervisor should stop")
