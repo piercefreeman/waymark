@@ -17,15 +17,13 @@ pub mod webapp;
 pub mod workers;
 
 // Worker infrastructure (preserved from the legacy Rust core).
-pub use garbage_collector::{
-    GarbageCollectorConfig, GarbageCollectorTask, spawn_garbage_collector,
-};
+pub use garbage_collector::{GarbageCollectorConfig, GarbageCollectorTask};
 pub use messages::{MessageError, ast as ir_ast, proto, workflow_argument_value_to_json};
 pub use observability::obs;
 pub use pool_status::{PoolTimeSeries, TimeSeriesEntry, TimeSeriesJsonEntry};
 pub use scheduler::{
     CreateScheduleParams, ScheduleId, ScheduleType, SchedulerConfig, SchedulerTask,
-    WorkflowSchedule, spawn_scheduler,
+    WorkflowSchedule,
 };
 pub use server_worker::{WorkerBridgeChannels, WorkerBridgeServer};
 pub use webapp::{WebappConfig, WebappServer};
