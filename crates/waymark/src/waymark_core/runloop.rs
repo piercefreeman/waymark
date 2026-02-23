@@ -1149,13 +1149,12 @@ impl RunLoop {
         let mut commit_barrier: CommitBarrier<ShardStep> = CommitBarrier::new();
         let mut instances_idle = false;
         let mut instances_done_pending: Vec<InstanceDone> = Vec::new();
-        let mut run_result = Ok(());
         let shutdown_token = self.shutdown_token.clone();
 
-        loop {
+        let mut run_result = 'runloop: loop {
             if shutdown_token.is_cancelled() {
                 info!("runloop exiting: shutdown requested");
-                break;
+                break 'runloop Ok(());
             }
 
             if self.exit_on_idle
@@ -1168,13 +1167,13 @@ impl RunLoop {
                     blocked = blocked_until_by_instance.len(),
                     "runloop exiting: idle with no active executors"
                 );
-                break;
+                break 'runloop Ok(());
             }
 
             let first_event = tokio::select! {
                 _ = shutdown_token.cancelled() => {
                     info!("runloop exiting: shutdown requested");
-                    break;
+                    break 'runloop Ok(());
                 }
                 Some(completions) = completion_rx.recv() => {
                     Some(CoordinatorEvent::Completions(completions))
@@ -1202,7 +1201,7 @@ impl RunLoop {
                 }
                 else => {
                     warn!("runloop exiting: event channels closed");
-                    break;
+                    break 'runloop Ok(());
                 },
             };
 
@@ -1234,8 +1233,7 @@ impl RunLoop {
                 }
                 CoordinatorEvent::Instance(InstanceMessage::Error(err)) => {
                     warn!(error = %err, "runloop exiting: instance poller backend error");
-                    run_result = Err(RunLoopError::Backend(err));
-                    break;
+                    break 'runloop Err(RunLoopError::Backend(err));
                 }
                 CoordinatorEvent::Shard(event) => match event {
                     ShardEvent::Step(step) => all_steps.push(step),
@@ -1275,15 +1273,11 @@ impl RunLoop {
                     }
                     InstanceMessage::Error(err) => {
                         warn!(error = %err, "runloop exiting: instance poller backend error");
-                        run_result = Err(RunLoopError::Backend(err));
-                        break;
+                        break 'runloop Err(RunLoopError::Backend(err));
                     }
                 }
             }
-            if run_result.is_err() {
-                warn!("runloop exiting: error after draining instance messages");
-                break;
-            }
+
             while let Ok(event) = event_rx.try_recv() {
                 match event {
                     ShardEvent::Step(step) => all_steps.push(step),
@@ -1301,10 +1295,7 @@ impl RunLoop {
                     }
                 }
             }
-            if run_result.is_err() {
-                warn!("runloop exiting: error after draining shard events");
-                break;
-            }
+
             while let Ok(wake) = sleep_rx.try_recv() {
                 all_wakes.push(wake);
             }
@@ -1385,8 +1376,7 @@ impl RunLoop {
                                     )
                                     .await
                             {
-                                run_result = Err(err);
-                                break;
+                                break 'runloop Err(err);
                             }
                             for step in batch.steps {
                                 if !batch.instance_ids.contains(&step.executor_id) {
@@ -1401,13 +1391,10 @@ impl RunLoop {
                                     continue;
                                 }
                                 if let Err(err) = self.apply_confirmed_step(step, &mut state) {
-                                    run_result = Err(err);
-                                    break;
+                                    break 'runloop Err(err);
                                 }
                             }
-                            if run_result.is_err() {
-                                break;
-                            }
+
                             for instance_id in batch.instance_ids {
                                 if evict_ids.contains(&instance_id) {
                                     state.commit_barrier.remove_instance(instance_id);
@@ -1424,13 +1411,9 @@ impl RunLoop {
                         }
                         PersistAck::StepsPersistFailed { batch_id, error } => {
                             warn!(batch_id, error = %error, "persist step batch failed");
-                            run_result = Err(error);
-                            break;
+                            break 'runloop Err(error);
                         }
                     }
-                }
-                if run_result.is_err() {
-                    break;
                 }
             }
 
@@ -1554,8 +1537,7 @@ impl RunLoop {
             if had_instances {
                 instances_idle = false;
                 if let Err(err) = self.hydrate_instances(&mut all_instances).await {
-                    run_result = Err(err);
-                    break;
+                    break 'runloop Err(err);
                 }
                 debug!(count = all_instances.len(), "hydrated queued instances");
                 let mut by_shard: HashMap<usize, Vec<QueuedInstance>> = HashMap::new();
@@ -1666,10 +1648,9 @@ impl RunLoop {
                             commit_barrier.remove_instance(instance_id);
                         }
                     }
-                    run_result = Err(RunLoopError::Message(
+                    break 'runloop Err(RunLoopError::Message(
                         "failed to submit persist batch to persistence task".to_string(),
                     ));
-                    break;
                 }
             }
 
@@ -1705,8 +1686,7 @@ impl RunLoop {
                         sleep_tx: &sleep_tx,
                     };
                     if let Err(err) = self.evict_instances(&evict_ids, &mut state).await {
-                        run_result = Err(err);
-                        break;
+                        break 'runloop Err(err);
                     }
                     for instance_id in evict_ids {
                         state.commit_barrier.remove_instance(instance_id);
@@ -1719,10 +1699,9 @@ impl RunLoop {
             if instances_done_pending.len() >= self.instance_done_batch_size
                 && let Err(err) = self.flush_instances_done(&mut instances_done_pending).await
             {
-                run_result = Err(err);
-                break;
+                break 'runloop Err(err);
             }
-        }
+        };
 
         info!(
             instances_idle,
