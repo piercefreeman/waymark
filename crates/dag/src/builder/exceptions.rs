@@ -1,6 +1,6 @@
 //! Exception flow conversion helpers.
 
-use crate::messages::ast as ir;
+use waymark_proto::ast as ir;
 
 use super::super::models::{ConvertedSubgraph, DAGEdge, DagConversionError, EXCEPTION_SCOPE_VAR};
 use super::super::nodes::{AssignmentNode, JoinNode};

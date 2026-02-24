@@ -8,13 +8,13 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::messages::ast as ir;
-use crate::waymark_core::dag::{EXCEPTION_SCOPE_VAR, EdgeType};
 use crate::waymark_core::runner::expression_evaluator::{
     add_values, compare_values, int_value, is_exception_value, is_truthy, len_of_value, numeric_op,
     range_from_args, value_in,
 };
 use crate::waymark_core::runner::state::{ActionResultValue, FunctionCallValue, RunnerState};
 use crate::waymark_core::runner::value_visitor::{ValueExpr, ValueExprEvaluator};
+use waymark_dag::{EXCEPTION_SCOPE_VAR, EdgeType};
 
 /// Raised when replay cannot reconstruct variable values.
 #[derive(Debug, thiserror::Error)]

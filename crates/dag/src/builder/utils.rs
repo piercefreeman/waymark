@@ -1,6 +1,6 @@
 //! Shared helpers for DAG conversion.
 
-use crate::messages::ast as ir;
+use waymark_proto::ast as ir;
 
 use super::super::models::DAGNode;
 use super::super::nodes::{

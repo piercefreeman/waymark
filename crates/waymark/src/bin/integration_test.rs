@@ -26,10 +26,10 @@ use waymark::backends::{
 use waymark::db;
 use waymark::integration_support::{LOCAL_POSTGRES_DSN, connect_pool, ensure_local_postgres};
 use waymark::messages::ast as ir;
-use waymark::waymark_core::dag::{DAG, convert_to_dag};
 use waymark::waymark_core::runloop::{RunLoop, RunLoopSupervisorConfig};
 use waymark::waymark_core::runner::RunnerState;
 use waymark::workers::{PythonWorkerConfig, RemoteWorkerPool};
+use waymark_dag::{DAG, convert_to_dag};
 
 #[derive(Parser, Debug)]
 #[command(name = "integration_test")]

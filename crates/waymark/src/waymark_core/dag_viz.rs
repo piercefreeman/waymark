@@ -6,7 +6,7 @@ use std::process::{Command, Stdio};
 
 use thiserror::Error;
 
-use crate::waymark_core::dag::{DAG, DAGEdge, DAGNode, EdgeType};
+use waymark_dag::{DAG, DAGEdge, DAGNode, EdgeType};
 
 #[derive(Debug, Error)]
 pub enum DagVizError {

@@ -1,6 +1,6 @@
 //! Spread/parallel conversion helpers.
 
-use crate::messages::ast as ir;
+use waymark_proto::ast as ir;
 
 use super::super::models::DAGEdge;
 use super::super::nodes::{

@@ -49,12 +49,12 @@ use waymark::config::WorkerConfig;
 use waymark::db;
 use waymark::messages::ast as ir;
 use waymark::scheduler::{DagResolver, WorkflowDag};
-use waymark::waymark_core::dag::convert_to_dag;
 use waymark::waymark_core::runloop::{RunLoopSupervisorConfig, runloop_supervisor};
 use waymark::{
     PythonWorkerConfig, RemoteWorkerPool, WebappServer, spawn_garbage_collector, spawn_scheduler,
     spawn_status_reporter,
 };
+use waymark_dag::convert_to_dag;
 
 #[tokio::main]
 async fn main() -> Result<()> {

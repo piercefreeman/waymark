@@ -1,6 +1,6 @@
-use crate::messages::ast as ir;
-use crate::waymark_core::dag::{DAG, DAGConverter, convert_to_dag};
-use crate::waymark_core::ir_parser::parse_program;
+use crate::{DAG, DAGConverter, convert_to_dag};
+use waymark::waymark_core::ir_parser::parse_program;
+use waymark_proto::ast as ir;
 
 pub(super) fn dedent(source: &str) -> String {
     let lines: Vec<&str> = source.lines().collect();

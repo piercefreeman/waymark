@@ -37,10 +37,10 @@ use waymark::backends::{
 use waymark::db;
 use waymark::messages::{self, ast as ir, proto};
 use waymark::scheduler::{CreateScheduleParams, ScheduleId, ScheduleStatus, ScheduleType};
-use waymark::waymark_core::dag::convert_to_dag;
 use waymark::waymark_core::runloop::{RunLoop, RunLoopSupervisorConfig};
 use waymark::waymark_core::runner::RunnerState;
 use waymark::workers::{ActionCompletion, ActionRequest, BaseWorkerPool, WorkerPoolError};
+use waymark_dag::convert_to_dag;
 
 const DEFAULT_GRPC_ADDR: &str = "127.0.0.1:24117";
 
@@ -1158,7 +1158,7 @@ fn ensure_error_fields(mut map: serde_json::Map<String, Value>) -> Value {
 fn build_queued_instance(
     instance_id: Uuid,
     workflow_version_id: Uuid,
-    dag: Arc<waymark::waymark_core::dag::DAG>,
+    dag: Arc<waymark_dag::DAG>,
     initial_context: Option<proto::WorkflowArguments>,
 ) -> Result<QueuedInstance, String> {
     let mut state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);

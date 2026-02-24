@@ -34,9 +34,9 @@ use waymark::backends::{
 };
 use waymark::db;
 use waymark::messages::ast as ir;
-use waymark::waymark_core::dag::{DAG, convert_to_dag};
 use waymark::waymark_core::ir_parser::parse_program;
 use waymark::waymark_core::runner::RunnerState;
+use waymark_dag::{DAG, convert_to_dag};
 
 const DEFAULT_DSN: &str = "postgresql://waymark:waymark@127.0.0.1:5433/waymark";
 const DEFAULT_WORKFLOW_NAME: &str = "waymark_soak_timeout_mix_v1";

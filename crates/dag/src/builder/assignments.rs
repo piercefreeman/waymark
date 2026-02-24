@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use crate::messages::ast as ir;
+use waymark_proto::ast as ir;
 
 use super::super::nodes::{
     ActionCallNode, ActionCallParams, AssignmentNode, ExpressionNode, FnCallNode, FnCallParams,
@@ -354,7 +354,7 @@ impl DAGConverter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::waymark_core::dag::DAGNode;
+    use crate::DAGNode;
 
     fn literal_int(value: i64) -> ir::Expr {
         ir::Expr {

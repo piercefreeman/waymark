@@ -18,6 +18,7 @@ path = "src/bin/smoke.rs"
 
 [dependencies]
 waymark-proto = { workspace = true, features = ["serde", "client", "server"] }
+waymark-dag = { workspace = true }
 
 anyhow = "1"
 axum = "0.8"

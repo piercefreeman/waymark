@@ -1023,8 +1023,8 @@ mod tests {
     use crate::backends::{
         ActionAttemptStatus, CoreBackend, GarbageCollectorBackend, WorkerStatusBackend,
     };
-    use crate::waymark_core::dag::EdgeType;
     use crate::waymark_core::runner::state::{ActionCallSpec, ExecutionNode, NodeStatus};
+    use waymark_dag::EdgeType;
 
     fn sample_runner_state() -> RunnerState {
         RunnerState::new(None, None, None, false)

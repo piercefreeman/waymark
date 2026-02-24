@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use crate::messages::ast as ir;
+use waymark_proto::ast as ir;
 
 use super::models::{DAG, DAGNode, DagConversionError, EXCEPTION_SCOPE_VAR, EdgeType};
 
@@ -360,8 +360,8 @@ fn collect_expr_variables(expr: &ir::Expr, vars: &mut HashSet<String>) {
 #[cfg(test)]
 mod tests {
     use super::validate_dag;
-    use crate::waymark_core::dag::convert_to_dag;
-    use crate::waymark_core::ir_parser::parse_program;
+    use crate::convert_to_dag;
+    use waymark::waymark_core::ir_parser::parse_program;
 
     #[test]
     fn validate_dag_rejects_unresolved_variable_reference() {

@@ -10,12 +10,12 @@ use tonic::async_trait;
 use uuid::Uuid;
 
 use crate::scheduler::{CreateScheduleParams, ScheduleId, WorkflowSchedule};
-use crate::waymark_core::dag::DAG;
 use crate::waymark_core::runner::state::{ExecutionEdge, ExecutionNode, NodeStatus, RunnerState};
 use crate::webapp::{
     ExecutionGraphView, InstanceDetail, InstanceSummary, ScheduleDetail, ScheduleInvocationSummary,
     ScheduleSummary, TimelineEntry, WorkerActionRow, WorkerAggregateStats, WorkerStatus,
 };
+use waymark_dag::DAG;
 
 #[derive(Debug, thiserror::Error)]
 pub enum BackendError {

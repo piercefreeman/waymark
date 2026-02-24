@@ -15,7 +15,7 @@ use super::types::{ScheduleId, WorkflowSchedule};
 use crate::backends::{CoreBackend, QueuedInstance, SchedulerBackend};
 use crate::messages;
 use crate::messages::ast as ir;
-use crate::waymark_core::dag::DAG;
+use waymark_dag::DAG;
 
 #[derive(Clone)]
 pub struct WorkflowDag {
@@ -315,9 +315,9 @@ mod tests {
     use crate::backends::{CoreBackend, LockClaim, MemoryBackend, SchedulerBackend};
     use crate::messages::proto;
     use crate::scheduler::{CreateScheduleParams, ScheduleType};
-    use crate::waymark_core::dag::convert_to_dag;
     use crate::waymark_core::ir_parser::parse_program;
     use crate::waymark_core::runner::RunnerExecutor;
+    use waymark_dag::convert_to_dag;
 
     fn workflow_args_payload(key: &str, value: i64) -> Vec<u8> {
         proto::WorkflowArguments {

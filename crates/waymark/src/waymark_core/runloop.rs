@@ -23,7 +23,6 @@ use crate::backends::{
 use crate::messages::ast as ir;
 use crate::observability::obs;
 use crate::waymark_core::commit_barrier::{CommitBarrier, DeferredInstanceEvent};
-use crate::waymark_core::dag::{DAG, DAGNode, OutputNode, ReturnNode, convert_to_dag};
 use crate::waymark_core::lock::{InstanceLockTracker, spawn_lock_heartbeat};
 use crate::waymark_core::runner::synthetic_exceptions::{
     SyntheticExceptionType, build_synthetic_exception_value,
@@ -33,6 +32,7 @@ use crate::waymark_core::runner::{
     replay_variables,
 };
 use crate::workers::{ActionCompletion, ActionRequest, BaseWorkerPool, WorkerPoolError};
+use waymark_dag::{DAG, DAGNode, OutputNode, ReturnNode, convert_to_dag};
 
 /// Raised when the run loop cannot coordinate execution.
 #[derive(Debug, thiserror::Error)]
@@ -2003,11 +2003,11 @@ mod tests {
         WorkflowRegistryBackend, WorkflowVersion,
     };
     use crate::messages::ast as ir;
-    use crate::waymark_core::dag::convert_to_dag;
     use crate::waymark_core::ir_parser::parse_program;
     use crate::waymark_core::runner::RunnerState;
     use crate::waymark_core::runner::state::NodeStatus;
     use crate::workers::ActionCallable;
+    use waymark_dag::convert_to_dag;
 
     #[derive(Clone)]
     struct FaultInjectingBackend {

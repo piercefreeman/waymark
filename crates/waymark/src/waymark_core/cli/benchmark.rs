@@ -24,10 +24,10 @@ use crate::waymark_core::cli::smoke::{
     build_control_flow_program, build_parallel_spread_program, build_program,
     build_try_except_program, build_while_loop_program, literal_from_value,
 };
-use crate::waymark_core::dag::convert_to_dag;
 use crate::waymark_core::runloop::{RunLoop, RunLoopSupervisorConfig};
 use crate::waymark_core::runner::RunnerState;
 use crate::workers::{ActionCallable, InlineWorkerPool, WorkerPoolError};
+use waymark_dag::convert_to_dag;
 
 const DEFAULT_DSN: &str = LOCAL_POSTGRES_DSN;
 const DEFAULT_MAX_CONCURRENT_INSTANCES: usize = 500;
@@ -87,7 +87,7 @@ fn action_registry() -> HashMap<String, ActionCallable> {
 
 #[derive(Clone)]
 struct BenchmarkCase {
-    dag: Arc<crate::waymark_core::dag::DAG>,
+    dag: Arc<waymark_dag::DAG>,
     inputs: HashMap<String, Value>,
     program_proto: Vec<u8>,
     ir_hash: String,
