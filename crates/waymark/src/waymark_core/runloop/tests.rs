@@ -1,141 +1,23 @@
 use super::*;
 use std::collections::{HashMap, VecDeque};
-use std::sync::{
-    Arc, Mutex,
-    atomic::{AtomicBool, AtomicUsize, Ordering as AtomicOrdering},
-};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use chrono::Utc;
 use prost::Message;
 use sha2::{Digest, Sha256};
-use tonic::async_trait;
+use waymark_backend_fault_injection::FaultInjectingBackend;
+use waymark_backend_memory::MemoryBackend;
+use waymark_core_backend::{ActionAttemptStatus, CoreBackend};
+use waymark_workflow_registry_backend::WorkflowRegistration;
 
-use crate::backends::{
-    ActionAttemptStatus, BackendError, BackendResult, CoreBackend, GraphUpdate, InstanceDone,
-    InstanceLockStatus, LockClaim, MemoryBackend, QueuedInstanceBatch, WorkflowRegistration,
-    WorkflowRegistryBackend, WorkflowVersion,
-};
 use crate::messages::ast as ir;
-use crate::waymark_core::ir_parser::parse_program;
-use crate::waymark_core::runner::RunnerState;
-use crate::waymark_core::runner::state::NodeStatus;
 use crate::workers::ActionCallable;
+
 use waymark_dag::convert_to_dag;
-
-#[derive(Clone)]
-struct FaultInjectingBackend {
-    inner: MemoryBackend,
-    fail_get_queued_instances_with_depth_limit: Arc<AtomicBool>,
-    get_queued_instances_calls: Arc<AtomicUsize>,
-}
-
-impl FaultInjectingBackend {
-    fn with_depth_limit_poll_failures(inner: MemoryBackend) -> Self {
-        Self {
-            inner,
-            fail_get_queued_instances_with_depth_limit: Arc::new(AtomicBool::new(true)),
-            get_queued_instances_calls: Arc::new(AtomicUsize::new(0)),
-        }
-    }
-
-    fn get_queued_instances_calls(&self) -> usize {
-        self.get_queued_instances_calls.load(AtomicOrdering::SeqCst)
-    }
-
-    fn queue_len(&self) -> usize {
-        self.inner
-            .instance_queue()
-            .as_ref()
-            .map(|queue| queue.lock().expect("queue poisoned").len())
-            .unwrap_or(0)
-    }
-
-    fn instances_done_len(&self) -> usize {
-        self.inner.instances_done().len()
-    }
-}
-
-#[async_trait]
-impl CoreBackend for FaultInjectingBackend {
-    fn clone_box(&self) -> Box<dyn CoreBackend> {
-        Box::new(self.clone())
-    }
-
-    async fn save_graphs(
-        &self,
-        claim: LockClaim,
-        graphs: &[GraphUpdate],
-    ) -> BackendResult<Vec<InstanceLockStatus>> {
-        self.inner.save_graphs(claim, graphs).await
-    }
-
-    async fn save_actions_done(
-        &self,
-        actions: &[crate::backends::ActionDone],
-    ) -> BackendResult<()> {
-        self.inner.save_actions_done(actions).await
-    }
-
-    async fn save_instances_done(&self, instances: &[InstanceDone]) -> BackendResult<()> {
-        self.inner.save_instances_done(instances).await
-    }
-
-    async fn get_queued_instances(
-        &self,
-        size: usize,
-        claim: LockClaim,
-    ) -> BackendResult<QueuedInstanceBatch> {
-        self.get_queued_instances_calls
-            .fetch_add(1, AtomicOrdering::SeqCst);
-        if self
-            .fail_get_queued_instances_with_depth_limit
-            .load(AtomicOrdering::SeqCst)
-        {
-            return Err(BackendError::Message("depth limit exceeded".to_string()));
-        }
-        self.inner.get_queued_instances(size, claim).await
-    }
-
-    async fn queue_instances(
-        &self,
-        instances: &[crate::backends::QueuedInstance],
-    ) -> BackendResult<()> {
-        self.inner.queue_instances(instances).await
-    }
-
-    async fn refresh_instance_locks(
-        &self,
-        claim: LockClaim,
-        instance_ids: &[Uuid],
-    ) -> BackendResult<Vec<InstanceLockStatus>> {
-        self.inner.refresh_instance_locks(claim, instance_ids).await
-    }
-
-    async fn release_instance_locks(
-        &self,
-        lock_uuid: Uuid,
-        instance_ids: &[Uuid],
-    ) -> BackendResult<()> {
-        self.inner
-            .release_instance_locks(lock_uuid, instance_ids)
-            .await
-    }
-}
-
-#[async_trait]
-impl WorkflowRegistryBackend for FaultInjectingBackend {
-    async fn upsert_workflow_version(
-        &self,
-        registration: &WorkflowRegistration,
-    ) -> BackendResult<Uuid> {
-        self.inner.upsert_workflow_version(registration).await
-    }
-
-    async fn get_workflow_versions(&self, ids: &[Uuid]) -> BackendResult<Vec<WorkflowVersion>> {
-        self.inner.get_workflow_versions(ids).await
-    }
-}
+use waymark_ir_parser::parse_program;
+use waymark_runner_state::NodeStatus;
+use waymark_runner_state::RunnerState;
 
 fn default_test_config(lock_uuid: Uuid) -> RunLoopSupervisorConfig {
     RunLoopSupervisorConfig {

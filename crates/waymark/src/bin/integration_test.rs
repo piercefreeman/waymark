@@ -19,17 +19,16 @@ use serde_json::Value;
 use sqlx::Row;
 use uuid::Uuid;
 
-use waymark::backends::{
-    CoreBackend, MemoryBackend, PostgresBackend, QueuedInstance, WorkflowRegistration,
-    WorkflowRegistryBackend,
-};
-use waymark::db;
-use waymark::integration_support::{LOCAL_POSTGRES_DSN, connect_pool, ensure_local_postgres};
 use waymark::messages::ast as ir;
 use waymark::waymark_core::runloop::{RunLoop, RunLoopSupervisorConfig};
-use waymark::waymark_core::runner::RunnerState;
 use waymark::workers::{PythonWorkerConfig, RemoteWorkerPool};
+use waymark_backend_memory::MemoryBackend;
+use waymark_backend_postgres::PostgresBackend;
+use waymark_core_backend::{CoreBackend, QueuedInstance};
 use waymark_dag::{DAG, convert_to_dag};
+use waymark_integration_support::{LOCAL_POSTGRES_DSN, connect_pool, ensure_local_postgres};
+use waymark_runner_state::RunnerState;
+use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBackend};
 
 #[derive(Parser, Debug)]
 #[command(name = "integration_test")]
@@ -452,7 +451,7 @@ async fn connect_postgres_backend() -> Result<PostgresBackend> {
     let pool = connect_pool(&dsn)
         .await
         .with_context(|| format!("connect postgres backend: {dsn}"))?;
-    db::run_migrations(&pool)
+    waymark_backend_postgres_migrations::run(&pool)
         .await
         .context("run postgres migrations for integration runner")?;
     Ok(PostgresBackend::new(pool))

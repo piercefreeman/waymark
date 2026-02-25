@@ -3366,10 +3366,27 @@ dependencies = [
  "tracing-chrome",
  "tracing-subscriber",
  "uuid",
+ "waymark-backend-fault-injection",
+ "waymark-backend-memory",
+ "waymark-backend-postgres",
+ "waymark-backend-postgres-migrations",
+ "waymark-backends-core",
+ "waymark-core-backend",
  "waymark-dag",
+ "waymark-garbage-collector-backend",
+ "waymark-integration-support",
  "waymark-ir-parser",
- "waymark-observability-macros",
+ "waymark-observability",
  "waymark-proto",
+ "waymark-runner",
+ "waymark-runner-state",
+ "waymark-scheduler-backend",
+ "waymark-scheduler-core",
+ "waymark-test-support",
+ "waymark-webapp-backend",
+ "waymark-webapp-core",
+ "waymark-worker-status-backend",
+ "waymark-workflow-registry-backend",
 ]
 
 [[package]]
@@ -3493,8 +3510,12 @@ dependencies = [
  "tokio",
  "uuid",
  "waymark",
+ "waymark-backend-memory",
+ "waymark-core-backend",
  "waymark-dag",
  "waymark-ir-parser",
+ "waymark-runner-state",
+ "waymark-workflow-registry-backend",
 ]
 
 [[package]]

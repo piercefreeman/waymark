@@ -8,8 +8,7 @@ use chrono::{Duration as ChronoDuration, Utc};
 use uuid::Uuid;
 
 use tracing::{debug, info, warn};
-
-use crate::backends::{CoreBackend, LockClaim};
+use waymark_core_backend::LockClaim;
 
 #[derive(Clone)]
 pub struct InstanceLockTracker {
@@ -60,7 +59,7 @@ impl InstanceLockTracker {
 }
 
 pub fn spawn_lock_heartbeat(
-    backend: Arc<dyn CoreBackend>,
+    backend: Arc<dyn waymark_core_backend::CoreBackend>,
     tracker: InstanceLockTracker,
     heartbeat_interval: Duration,
     lock_ttl: Duration,

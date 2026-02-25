@@ -12,12 +12,11 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use uuid::Uuid;
+use waymark_backend_postgres::PostgresBackend;
+use waymark_core_backend::QueuedInstance;
+use waymark_integration_support::{LOCAL_POSTGRES_DSN, ensure_local_postgres};
+use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBackend as _};
 
-use crate::backends::{
-    PostgresBackend, QueuedInstance, WorkflowRegistration, WorkflowRegistryBackend,
-};
-use crate::db;
-use crate::integration_support::{LOCAL_POSTGRES_DSN, ensure_local_postgres};
 use crate::messages::ast as ir;
 use crate::observability::obs;
 use crate::waymark_core::cli::smoke::{
@@ -25,9 +24,9 @@ use crate::waymark_core::cli::smoke::{
     build_try_except_program, build_while_loop_program, literal_from_value,
 };
 use crate::waymark_core::runloop::{RunLoop, RunLoopSupervisorConfig};
-use crate::waymark_core::runner::RunnerState;
 use crate::workers::{ActionCallable, InlineWorkerPool, WorkerPoolError};
 use waymark_dag::convert_to_dag;
+use waymark_runner_state::RunnerState;
 
 const DEFAULT_DSN: &str = LOCAL_POSTGRES_DSN;
 const DEFAULT_MAX_CONCURRENT_INSTANCES: usize = 500;
@@ -318,7 +317,9 @@ async fn run_benchmark(
     }
     let pool = PgPool::connect(dsn).await.expect("connect postgres");
     drop_benchmark_tables(&pool).await;
-    db::run_migrations(&pool).await.expect("run migrations");
+    waymark_backend_postgres_migrations::run(&pool)
+        .await
+        .expect("run migrations");
     let backend = PostgresBackend::new(pool);
     backend.clear_all().await.expect("clear all");
     let total = queue_benchmark_instances(&backend, &cases, count_per_case, batch_size).await;
