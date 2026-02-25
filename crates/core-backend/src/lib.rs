@@ -4,7 +4,7 @@ mod data;
 
 use uuid::Uuid;
 
-pub use waymark_backends_core::{BackendError, BackendResult};
+use waymark_backends_core::BackendResult;
 
 pub use self::data::*;
 

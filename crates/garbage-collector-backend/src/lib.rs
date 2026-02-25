@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 
-pub use waymark_backends_core::{BackendError, BackendResult};
+use waymark_backends_core::BackendResult;
 
 #[derive(Clone, Copy, Debug, Default)]
 /// Summary of a garbage collection sweep.

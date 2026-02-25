@@ -1,5 +1,5 @@
 use uuid::Uuid;
-pub use waymark_backends_core::{BackendError, BackendResult};
+use waymark_backends_core::BackendResult;
 use waymark_webapp_core::{
     ExecutionGraphView, InstanceDetail, InstanceSummary, ScheduleDetail, ScheduleInvocationSummary,
     ScheduleSummary, TimelineEntry, WorkerActionRow, WorkerAggregateStats, WorkerStatus,

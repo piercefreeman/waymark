@@ -3373,6 +3373,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-backend-fault-injection"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "uuid",
+ "waymark-backend-memory",
+ "waymark-backends-core",
+ "waymark-core-backend",
+ "waymark-workflow-registry-backend",
+]
+
+[[package]]
 name = "waymark-backend-memory"
 version = "0.1.0"
 dependencies = [
@@ -3381,6 +3393,7 @@ dependencies = [
  "rmp-serde",
  "serde_json",
  "uuid",
+ "waymark-backends-core",
  "waymark-core-backend",
  "waymark-garbage-collector-backend",
  "waymark-scheduler-backend",
@@ -3389,6 +3402,47 @@ dependencies = [
  "waymark-webapp-core",
  "waymark-worker-status-backend",
  "waymark-workflow-registry-backend",
+]
+
+[[package]]
+name = "waymark-backend-postgres"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "prost 0.12.6",
+ "rmp-serde",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "uuid",
+ "waymark-backend-postgres-migrations",
+ "waymark-backends-core",
+ "waymark-core-backend",
+ "waymark-dag",
+ "waymark-garbage-collector-backend",
+ "waymark-ir-parser",
+ "waymark-observability",
+ "waymark-proto",
+ "waymark-runner",
+ "waymark-runner-state",
+ "waymark-scheduler-backend",
+ "waymark-scheduler-core",
+ "waymark-test-support",
+ "waymark-webapp-backend",
+ "waymark-webapp-core",
+ "waymark-worker-status-backend",
+ "waymark-workflow-registry-backend",
+]
+
+[[package]]
+name = "waymark-backend-postgres-migrations"
+version = "0.1.0"
+dependencies = [
+ "sqlx",
 ]
 
 [[package]]
@@ -3422,7 +3476,7 @@ dependencies = [
  "serde",
  "thiserror",
  "uuid",
- "waymark",
+ "waymark-ir-parser",
  "waymark-proto",
 ]
 
@@ -3450,6 +3504,16 @@ dependencies = [
  "async-trait",
  "chrono",
  "waymark-backends-core",
+]
+
+[[package]]
+name = "waymark-integration-support"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "sqlx",
+ "tokio",
+ "waymark-backend-postgres-migrations",
 ]
 
 [[package]]
@@ -3539,6 +3603,14 @@ dependencies = [
  "rand 0.8.5",
  "serde",
  "uuid",
+]
+
+[[package]]
+name = "waymark-test-support"
+version = "0.1.0"
+dependencies = [
+ "sqlx",
+ "waymark-integration-support",
 ]
 
 [[package]]

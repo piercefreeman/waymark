@@ -1,6 +1,6 @@
 use chrono::Utc;
 use uuid::Uuid;
-use waymark_core_backend::{BackendError, BackendResult};
+use waymark_backends_core::{BackendError, BackendResult};
 use waymark_scheduler_backend::SchedulerBackend;
 use waymark_scheduler_core::{
     CreateScheduleParams, ScheduleId, ScheduleType, WorkflowSchedule, compute_next_run,
