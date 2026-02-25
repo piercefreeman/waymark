@@ -3,13 +3,13 @@
 use serde_json::Value;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum SyntheticExceptionType {
+pub enum SyntheticExceptionType {
     ExecutorResume,
     ActionTimeout,
 }
 
 impl SyntheticExceptionType {
-    pub(crate) fn as_type_str(self) -> &'static str {
+    pub fn as_type_str(self) -> &'static str {
         match self {
             Self::ExecutorResume => "ExecutorResume",
             Self::ActionTimeout => "ActionTimeout",
@@ -24,7 +24,7 @@ impl SyntheticExceptionType {
         }
     }
 
-    pub(crate) fn from_value(value: &Value) -> Option<Self> {
+    pub fn from_value(value: &Value) -> Option<Self> {
         let Value::Object(map) = value else {
             return None;
         };
@@ -34,7 +34,7 @@ impl SyntheticExceptionType {
     }
 }
 
-pub(crate) fn build_synthetic_exception_value(
+pub fn build_synthetic_exception_value(
     exception_type: SyntheticExceptionType,
     message: impl Into<String>,
     fields: Vec<(String, Value)>,

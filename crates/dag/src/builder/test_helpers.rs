@@ -1,5 +1,5 @@
 use crate::{DAG, DAGConverter, convert_to_dag};
-use waymark::waymark_core::ir_parser::parse_program;
+use waymark_ir_parser::parse_program;
 use waymark_proto::ast as ir;
 
 pub(super) fn dedent(source: &str) -> String {

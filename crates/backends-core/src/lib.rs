@@ -27,3 +27,10 @@ pub type InnerError = ();
 /// TODO: move away from the single-`Result` type aliases as we want to vary
 /// rrors per-call.
 pub type BackendResult<T, E = InnerError> = Result<T, BackendError<E>>;
+
+#[cfg(feature = "sqlx-error")]
+impl From<sqlx::Error> for BackendError<sqlx::Error> {
+    fn from(value: sqlx::Error) -> Self {
+        Self::Inner(value)
+    }
+}

@@ -2,7 +2,8 @@ use std::collections::HashMap;
 
 use chrono::Utc;
 use uuid::Uuid;
-use waymark_webapp_backend::{BackendError, BackendResult, WebappBackend};
+use waymark_backends_core::{BackendError, BackendResult};
+use waymark_webapp_backend::WebappBackend;
 use waymark_webapp_core::{
     ExecutionGraphView, InstanceDetail, InstanceStatus, InstanceSummary, ScheduleDetail,
     ScheduleInvocationSummary, ScheduleSummary, TimelineEntry, WorkerActionRow,

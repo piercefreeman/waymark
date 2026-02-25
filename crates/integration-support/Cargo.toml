@@ -1,0 +1,10 @@
+[package]
+name = "waymark-integration-support"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = { workspace = true }
+sqlx = { workspace = true }
+tokio = { workspace = true, features = ["process", "time", "sync"] }
+waymark-backend-postgres-migrations = { workspace = true }

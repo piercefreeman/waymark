@@ -1,7 +1,6 @@
 use chrono::{DateTime, Utc};
-use waymark_garbage_collector_backend::{
-    BackendResult, GarbageCollectionResult, GarbageCollectorBackend,
-};
+use waymark_backends_core::BackendResult;
+use waymark_garbage_collector_backend::{GarbageCollectionResult, GarbageCollectorBackend};
 
 #[async_trait::async_trait]
 impl GarbageCollectorBackend for crate::MemoryBackend {
