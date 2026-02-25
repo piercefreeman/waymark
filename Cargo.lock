@@ -1517,9 +1517,9 @@ checksum = "f52b00d39961fc5b2736ea853c9cc86238e165017a493d1d5c8eac6bdc4cc273"
 
 [[package]]
 name = "metrics"
-version = "0.24.2"
+version = "0.24.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25dea7ac8057892855ec285c440160265225438c3c45072613c25a4b26e98ef5"
+checksum = "5d5312e9ba3771cfa961b585728215e3d972c950a3eed9252aa093d6301277e8"
 dependencies = [
  "ahash",
  "portable-atomic",
@@ -1847,9 +1847,9 @@ checksum = "7edddbd0b52d732b21ad9a5fab5c704c14cd949e5e9a1ec5929a24fded1b904c"
 
 [[package]]
 name = "portable-atomic"
-version = "1.11.1"
+version = "1.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f84267b20a16ea918e43c6a88433c2d54fa145c92a811b5b047ccbe153674483"
+checksum = "c33a9471896f1c69cecef8d20cbe2f7accd12527ce60845ff44c153bb2a21b49"
 
 [[package]]
 name = "potential_utf"
@@ -3373,6 +3373,48 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-backend-memory"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "rmp-serde",
+ "serde_json",
+ "uuid",
+ "waymark-core-backend",
+ "waymark-garbage-collector-backend",
+ "waymark-scheduler-backend",
+ "waymark-scheduler-core",
+ "waymark-webapp-backend",
+ "waymark-webapp-core",
+ "waymark-worker-status-backend",
+ "waymark-workflow-registry-backend",
+]
+
+[[package]]
+name = "waymark-backends-core"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "sqlx",
+ "thiserror",
+]
+
+[[package]]
+name = "waymark-core-backend"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "serde",
+ "serde_json",
+ "uuid",
+ "waymark-backends-core",
+ "waymark-dag",
+ "waymark-runner-state",
+]
+
+[[package]]
 name = "waymark-dag"
 version = "0.1.0"
 dependencies = [
@@ -3402,11 +3444,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-garbage-collector-backend"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "waymark-backends-core",
+]
+
+[[package]]
 name = "waymark-ir-parser"
 version = "0.1.0"
 dependencies = [
  "regex",
  "waymark-proto",
+]
+
+[[package]]
+name = "waymark-observability"
+version = "0.1.0"
+dependencies = [
+ "tracing",
+ "waymark-observability-macros",
 ]
 
 [[package]]
@@ -3427,6 +3486,97 @@ dependencies = [
  "serde",
  "tonic 0.11.0",
  "tonic-build",
+]
+
+[[package]]
+name = "waymark-runner"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "rustc-hash",
+ "serde_json",
+ "thiserror",
+ "tracing",
+ "uuid",
+ "waymark-backend-memory",
+ "waymark-core-backend",
+ "waymark-dag",
+ "waymark-ir-parser",
+ "waymark-observability",
+ "waymark-proto",
+ "waymark-runner-state",
+]
+
+[[package]]
+name = "waymark-runner-state"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "uuid",
+ "waymark-dag",
+ "waymark-proto",
+]
+
+[[package]]
+name = "waymark-scheduler-backend"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "uuid",
+ "waymark-backends-core",
+ "waymark-scheduler-core",
+]
+
+[[package]]
+name = "waymark-scheduler-core"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "cron",
+ "rand 0.8.5",
+ "serde",
+ "uuid",
+]
+
+[[package]]
+name = "waymark-webapp-backend"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "uuid",
+ "waymark-backends-core",
+ "waymark-webapp-core",
+]
+
+[[package]]
+name = "waymark-webapp-core"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "uuid",
+]
+
+[[package]]
+name = "waymark-worker-status-backend"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "uuid",
+ "waymark-backends-core",
+]
+
+[[package]]
+name = "waymark-workflow-registry-backend"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "uuid",
+ "waymark-backends-core",
 ]
 
 [[package]]

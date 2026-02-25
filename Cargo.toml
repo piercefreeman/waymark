@@ -4,22 +4,43 @@ members = ["crates/*"]
 
 [workspace.dependencies]
 waymark = { path = "crates/waymark" }
+waymark-backend-memory = { path = "crates/backend-memory" }
+waymark-backends-core = { path = "crates/backends-core" }
+waymark-core-backend = { path = "crates/core-backend" }
 waymark-dag = { path = "crates/dag" }
+waymark-garbage-collector-backend = { path = "crates/garbage-collector-backend" }
 waymark-ir-parser = { path = "crates/ir-parser" }
+waymark-observability = { path = "crates/observability" }
+waymark-observability-macros = { path = "crates/observability-macros" }
 waymark-proto = { path = "crates/proto" }
+waymark-runner = { path = "crates/runner" }
+waymark-runner-state = { path = "crates/runner-state" }
+waymark-scheduler-backend = { path = "crates/scheduler-backend" }
+waymark-scheduler-core = { path = "crates/scheduler-core" }
+waymark-webapp-backend = { path = "crates/webapp-backend" }
+waymark-webapp-core = { path = "crates/webapp-core" }
+waymark-worker-status-backend = { path = "crates/worker-status-backend" }
+waymark-workflow-registry-backend = { path = "crates/workflow-registry-backend" }
 
 anyhow = "1"
+async-trait = "0.1"
+chrono = { version = "0.4", default-features = false }
 clap = "4.5"
+cron = "0.12"
 proptest = "1.9"
 prost = "0.12"
 prost-types = "0.12"
+rand = "0.8"
 regex = "1"
+rmp-serde = "1"
 rustc-hash = "2"
 serde = "1"
 serde_json = "1"
 sha2 = "0.10"
+sqlx = { version = "0.8", default-features = false }
 thiserror = "2"
 tokio = "1"
 tonic = "0.11"
 tonic-build = "0.11"
+tracing = "0.1"
 uuid = "1"
