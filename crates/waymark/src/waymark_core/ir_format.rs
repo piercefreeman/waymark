@@ -569,7 +569,7 @@ pub fn format_program(program: &ir::Program) -> String {
 #[cfg(test)]
 mod tests {
     use super::{DEFAULT_INDENT, format_program};
-    use crate::waymark_core::ir_parser::IRParser;
+    use waymark_ir_parser::IRParser;
 
     #[test]
     fn test_format_program_happy_path() {

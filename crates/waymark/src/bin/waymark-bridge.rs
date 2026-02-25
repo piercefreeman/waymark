@@ -29,18 +29,22 @@ use tracing::{debug, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use uuid::Uuid;
 
-use waymark::backends::{
-    ActionDone, BackendError, BackendResult, CoreBackend, GraphUpdate, InstanceDone,
-    InstanceLockStatus, LockClaim, PostgresBackend, QueuedInstance, QueuedInstanceBatch,
-    SchedulerBackend, WorkflowRegistration, WorkflowRegistryBackend, WorkflowVersion,
-};
-use waymark::db;
 use waymark::messages::{self, ast as ir, proto};
-use waymark::scheduler::{CreateScheduleParams, ScheduleId, ScheduleStatus, ScheduleType};
 use waymark::waymark_core::runloop::{RunLoop, RunLoopSupervisorConfig};
-use waymark::waymark_core::runner::RunnerState;
 use waymark::workers::{ActionCompletion, ActionRequest, BaseWorkerPool, WorkerPoolError};
+use waymark_backend_postgres::PostgresBackend;
+use waymark_backends_core::{BackendError, BackendResult};
+use waymark_core_backend::{
+    ActionDone, CoreBackend, GraphUpdate, InstanceDone, InstanceLockStatus, LockClaim,
+    QueuedInstance, QueuedInstanceBatch,
+};
 use waymark_dag::convert_to_dag;
+use waymark_runner_state::RunnerState;
+use waymark_scheduler_backend::SchedulerBackend as _;
+use waymark_scheduler_core::{CreateScheduleParams, ScheduleId, ScheduleStatus, ScheduleType};
+use waymark_workflow_registry_backend::{
+    WorkflowRegistration, WorkflowRegistryBackend, WorkflowVersion,
+};
 
 const DEFAULT_GRPC_ADDR: &str = "127.0.0.1:24117";
 
@@ -52,7 +56,7 @@ struct WorkflowStore {
 impl WorkflowStore {
     async fn connect(dsn: &str) -> Result<Self> {
         let pool = PgPool::connect(dsn).await?;
-        db::run_migrations(&pool).await?;
+        waymark_backend_postgres_migrations::run(&pool).await?;
         let backend = PostgresBackend::new(pool);
         Ok(Self { backend })
     }

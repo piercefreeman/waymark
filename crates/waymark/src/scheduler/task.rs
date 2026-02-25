@@ -9,9 +9,9 @@ use std::time::Duration;
 use serde_json::Value;
 use tracing::{debug, error, info};
 use uuid::Uuid;
+use waymark_core_backend::QueuedInstance;
+use waymark_scheduler_core::{ScheduleId, WorkflowSchedule};
 
-use super::types::{ScheduleId, WorkflowSchedule};
-use crate::backends::{CoreBackend, QueuedInstance, SchedulerBackend};
 use crate::messages;
 use crate::messages::ast as ir;
 use waymark_dag::DAG;
@@ -53,7 +53,8 @@ pub struct SchedulerTask<B> {
 
 impl<B> SchedulerTask<B>
 where
-    B: CoreBackend + SchedulerBackend + Clone + Send + Sync + 'static,
+    B: waymark_core_backend::CoreBackend + waymark_scheduler_backend::SchedulerBackend,
+    B: Clone + Send + Sync + 'static,
 {
     /// Run the scheduler loop.
     pub async fn run(self, shutdown: tokio_util::sync::WaitForCancellationFutureOwned) {
@@ -153,12 +154,8 @@ where
             .as_ref()
             .ok_or_else(|| "DAG has no entry node".to_string())?;
 
-        let mut state = crate::waymark_core::runner::RunnerState::new(
-            Some(Arc::clone(&dag)),
-            None,
-            None,
-            false,
-        );
+        let mut state =
+            waymark_runner_state::RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
         if let Some(input_payload) = schedule.input_payload.as_deref() {
             let inputs = messages::workflow_arguments_to_json(input_payload)
                 .ok_or_else(|| "failed to decode schedule input payload".to_string())?;
@@ -278,14 +275,16 @@ mod tests {
     use chrono::{Duration as ChronoDuration, Utc};
     use prost::Message;
     use serde_json::Value;
+    use waymark_backend_memory::MemoryBackend;
+    use waymark_core_backend::{CoreBackend, LockClaim};
+    use waymark_scheduler_backend::SchedulerBackend;
+    use waymark_scheduler_core::{CreateScheduleParams, ScheduleType};
 
     use super::*;
-    use crate::backends::{CoreBackend, LockClaim, MemoryBackend, SchedulerBackend};
     use crate::messages::proto;
-    use crate::scheduler::{CreateScheduleParams, ScheduleType};
-    use crate::waymark_core::ir_parser::parse_program;
-    use crate::waymark_core::runner::RunnerExecutor;
     use waymark_dag::convert_to_dag;
+    use waymark_ir_parser::parse_program;
+    use waymark_runner::RunnerExecutor;
 
     fn workflow_args_payload(key: &str, value: i64) -> Vec<u8> {
         proto::WorkflowArguments {
@@ -374,11 +373,8 @@ fn main(input: [number], output: [result]):
         let state = queued.state.clone().expect("queued state");
         let mut executor =
             RunnerExecutor::new(Arc::clone(&dag), state, queued.action_results.clone(), None);
-        let replay = crate::waymark_core::runner::replay_variables(
-            executor.state(),
-            executor.action_results(),
-        )
-        .expect("replay inputs");
+        let replay = waymark_runner::replay_variables(executor.state(), executor.action_results())
+            .expect("replay inputs");
         assert_eq!(
             replay.variables.get("number"),
             Some(&Value::Number(7.into()))

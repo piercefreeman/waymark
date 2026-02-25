@@ -9,8 +9,8 @@ use std::time::Duration;
 use chrono::{DateTime, Utc};
 use tracing::{info, warn};
 use uuid::Uuid;
+use waymark_worker_status_backend::{WorkerStatusBackend, WorkerStatusUpdate};
 
-use crate::backends::{WorkerStatusBackend, WorkerStatusUpdate};
 use crate::pool_status::{PoolTimeSeries, TimeSeriesEntry};
 
 #[derive(Debug, Clone)]

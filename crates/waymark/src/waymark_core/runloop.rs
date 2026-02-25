@@ -15,24 +15,26 @@ use serde_json::Value;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
-
-use crate::backends::{
-    ActionDone, BackendError, CoreBackend, GraphUpdate, InstanceDone, InstanceLockStatus,
-    LockClaim, QueuedInstance, QueuedInstanceBatch, WorkflowRegistryBackend,
+use waymark_backends_core::BackendError;
+use waymark_core_backend::{
+    ActionDone, GraphUpdate, InstanceDone, InstanceLockStatus, LockClaim, QueuedInstance,
+    QueuedInstanceBatch,
 };
+use waymark_workflow_registry_backend::WorkflowRegistryBackend;
+
 use crate::messages::ast as ir;
 use crate::observability::obs;
 use crate::waymark_core::commit_barrier::{CommitBarrier, DeferredInstanceEvent};
 use crate::waymark_core::lock::{InstanceLockTracker, spawn_lock_heartbeat};
-use crate::waymark_core::runner::synthetic_exceptions::{
+use crate::workers::{ActionCompletion, ActionRequest, BaseWorkerPool, WorkerPoolError};
+use waymark_dag::{DAG, DAGNode, OutputNode, ReturnNode, convert_to_dag};
+use waymark_runner::synthetic_exceptions::{
     SyntheticExceptionType, build_synthetic_exception_value,
 };
-use crate::waymark_core::runner::{
+use waymark_runner::{
     DurableUpdates, ExecutorStep, RunnerExecutor, RunnerExecutorError, SleepRequest,
     replay_variables,
 };
-use crate::workers::{ActionCompletion, ActionRequest, BaseWorkerPool, WorkerPoolError};
-use waymark_dag::{DAG, DAGNode, OutputNode, ReturnNode, convert_to_dag};
 
 /// Raised when the run loop cannot coordinate execution.
 #[derive(Debug, thiserror::Error)]
@@ -351,7 +353,7 @@ impl ShardExecutor {
 
 fn run_executor_shard(
     shard_id: usize,
-    backend: Arc<dyn CoreBackend>,
+    backend: Arc<dyn waymark_core_backend::CoreBackend>,
     receiver: std_mpsc::Receiver<ShardCommand>,
     sender: mpsc::UnboundedSender<ShardEvent>,
 ) {
@@ -530,7 +532,7 @@ fn run_executor_shard(
 /// Run loop that fans out executor work across CPU-bound shard threads.
 pub struct RunLoop {
     worker_pool: Arc<dyn BaseWorkerPool>,
-    core_backend: Arc<dyn CoreBackend>,
+    core_backend: Arc<dyn waymark_core_backend::CoreBackend>,
     registry_backend: Arc<dyn WorkflowRegistryBackend>,
     workflow_cache: HashMap<Uuid, Arc<DAG>>,
     max_concurrent_instances: usize,
@@ -566,7 +568,7 @@ pub struct RunLoopSupervisorConfig {
 impl RunLoop {
     pub fn new(
         worker_pool: impl BaseWorkerPool + 'static,
-        backend: impl CoreBackend + WorkflowRegistryBackend + 'static,
+        backend: impl waymark_core_backend::CoreBackend + WorkflowRegistryBackend + 'static,
         config: RunLoopSupervisorConfig,
     ) -> Self {
         Self::new_internal(
@@ -580,7 +582,7 @@ impl RunLoop {
 
     pub fn new_with_shutdown(
         worker_pool: impl BaseWorkerPool + 'static,
-        backend: impl CoreBackend + WorkflowRegistryBackend + 'static,
+        backend: impl waymark_core_backend::CoreBackend + WorkflowRegistryBackend + 'static,
         config: RunLoopSupervisorConfig,
         shutdown_token: tokio_util::sync::CancellationToken,
     ) -> Self {
@@ -589,14 +591,14 @@ impl RunLoop {
 
     fn new_internal(
         worker_pool: impl BaseWorkerPool + 'static,
-        backend: impl CoreBackend + WorkflowRegistryBackend + 'static,
+        backend: impl waymark_core_backend::CoreBackend + WorkflowRegistryBackend + 'static,
         config: RunLoopSupervisorConfig,
         shutdown_token: tokio_util::sync::CancellationToken,
         exit_on_idle: bool,
     ) -> Self {
         let max_concurrent_instances = std::cmp::max(1, config.max_concurrent_instances);
         let backend = Arc::new(backend);
-        let core_backend: Arc<dyn CoreBackend> = backend.clone();
+        let core_backend: Arc<dyn waymark_core_backend::CoreBackend> = backend.clone();
         let registry_backend: Arc<dyn WorkflowRegistryBackend> = backend;
         Self {
             worker_pool: Arc::new(worker_pool),
@@ -1766,7 +1768,7 @@ pub async fn runloop_supervisor<B, W>(
     config: RunLoopSupervisorConfig,
     shutdown_token: tokio_util::sync::CancellationToken,
 ) where
-    B: CoreBackend + WorkflowRegistryBackend + Clone + Send + Sync + 'static,
+    B: waymark_core_backend::CoreBackend + WorkflowRegistryBackend + Clone + Send + Sync + 'static,
     W: BaseWorkerPool + Clone + Send + Sync + 'static,
 {
     let mut backoff = Duration::from_millis(200);

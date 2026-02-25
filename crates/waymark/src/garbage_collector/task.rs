@@ -6,8 +6,7 @@ use std::time::Duration;
 
 use chrono::Utc;
 use tracing::{debug, error, info};
-
-use crate::backends::{GarbageCollectionResult, GarbageCollectorBackend};
+use waymark_garbage_collector_backend::{GarbageCollectionResult, GarbageCollectorBackend};
 
 /// Configuration for the garbage collector task.
 #[derive(Debug, Clone)]
@@ -120,9 +119,9 @@ mod tests {
 
     use chrono::{Duration as ChronoDuration, Utc};
     use tonic::async_trait;
+    use waymark_backends_core::BackendResult;
 
     use super::*;
-    use crate::backends::{BackendResult, GarbageCollectorBackend};
 
     #[derive(Clone)]
     struct StubGarbageCollectorBackend {
