@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use crate::messages::ast as ir;
+use waymark_proto::ast as ir;
 
 /// Raised when parsing the IR source representation fails.
 #[derive(Debug, Clone)]

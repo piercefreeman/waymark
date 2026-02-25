@@ -3367,6 +3367,7 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "waymark-dag",
+ "waymark-ir-parser",
  "waymark-observability-macros",
  "waymark-proto",
 ]
@@ -3397,6 +3398,15 @@ dependencies = [
  "uuid",
  "waymark",
  "waymark-dag",
+ "waymark-ir-parser",
+]
+
+[[package]]
+name = "waymark-ir-parser"
+version = "0.1.0"
+dependencies = [
+ "regex",
+ "waymark-proto",
 ]
 
 [[package]]
