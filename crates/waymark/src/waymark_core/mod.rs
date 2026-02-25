@@ -4,7 +4,6 @@ pub mod cli;
 pub mod commit_barrier;
 pub mod dag_viz;
 pub mod ir_format;
-pub mod ir_parser;
 pub mod lock;
 pub mod runloop;
 pub mod runner;

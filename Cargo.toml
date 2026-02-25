@@ -5,6 +5,7 @@ members = ["crates/*"]
 [workspace.dependencies]
 waymark = { path = "crates/waymark" }
 waymark-dag = { path = "crates/dag" }
+waymark-ir-parser = { path = "crates/ir-parser" }
 waymark-proto = { path = "crates/proto" }
 
 anyhow = "1"
@@ -12,6 +13,7 @@ clap = "4.5"
 proptest = "1.9"
 prost = "0.12"
 prost-types = "0.12"
+regex = "1"
 rustc-hash = "2"
 serde = "1"
 serde_json = "1"
