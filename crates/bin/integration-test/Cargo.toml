@@ -13,6 +13,7 @@ waymark-backend-postgres = { workspace = true }
 waymark-backend-postgres-migrations = { workspace = true }
 waymark-workflow-registry-backend = { workspace = true }
 waymark-backend-memory = { workspace = true }
+waymark-proto = { workspace = true }
 waymark = { workspace = true }
 
 anyhow = { workspace = true }

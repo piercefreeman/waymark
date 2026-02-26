@@ -3433,6 +3433,7 @@ dependencies = [
  "waymark-garbage-collector-backend",
  "waymark-ir-conversions",
  "waymark-ir-parser",
+ "waymark-message-conversions",
  "waymark-observability",
  "waymark-observability-setup",
  "waymark-proto",
@@ -3594,6 +3595,8 @@ dependencies = [
  "waymark-core-backend",
  "waymark-dag",
  "waymark-ir-conversions",
+ "waymark-message-conversions",
+ "waymark-proto",
  "waymark-runner-state",
  "waymark-scheduler-backend",
  "waymark-scheduler-core",
@@ -3643,6 +3646,7 @@ dependencies = [
  "waymark-core-backend",
  "waymark-dag",
  "waymark-ir-parser",
+ "waymark-proto",
  "waymark-runner-state",
  "waymark-workflow-registry-backend",
 ]
@@ -3687,6 +3691,7 @@ dependencies = [
  "waymark-dag",
  "waymark-integration-support",
  "waymark-ir-conversions",
+ "waymark-proto",
  "waymark-runner-state",
  "waymark-workflow-registry-backend",
 ]
@@ -3704,6 +3709,14 @@ name = "waymark-ir-parser"
 version = "0.1.0"
 dependencies = [
  "regex",
+ "waymark-proto",
+]
+
+[[package]]
+name = "waymark-message-conversions"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
  "waymark-proto",
 ]
 
@@ -3844,12 +3857,12 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
- "waymark",
  "waymark-backend-postgres",
  "waymark-backend-postgres-migrations",
  "waymark-core-backend",
  "waymark-dag",
  "waymark-ir-parser",
+ "waymark-proto",
  "waymark-runner-state",
  "waymark-workflow-registry-backend",
 ]
@@ -3870,6 +3883,7 @@ dependencies = [
  "waymark-backend-postgres",
  "waymark-backend-postgres-migrations",
  "waymark-dag",
+ "waymark-proto",
 ]
 
 [[package]]

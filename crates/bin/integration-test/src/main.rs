@@ -13,13 +13,11 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
 use clap::Parser;
-use prost::Message;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::Row;
 use uuid::Uuid;
 
-use waymark::messages::ast as ir;
 use waymark::waymark_core::runloop::{RunLoop, RunLoopSupervisorConfig};
 use waymark::workers::{PythonWorkerConfig, RemoteWorkerPool};
 use waymark_backend_memory::MemoryBackend;
@@ -28,6 +26,7 @@ use waymark_core_backend::{CoreBackend, QueuedInstance};
 use waymark_dag::{DAG, convert_to_dag};
 use waymark_integration_support::{LOCAL_POSTGRES_DSN, connect_pool, ensure_local_postgres};
 use waymark_ir_conversions::literal_from_json_value;
+use waymark_proto::ast as ir;
 use waymark_runner_state::RunnerState;
 use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBackend};
 
@@ -348,12 +347,13 @@ fn prepare_case(repo_root: &Path, case: FixtureCase) -> Result<PreparedCase> {
 
     let helper = run_python_helper(repo_root, &case)?;
 
-    let program = ir::Program::decode(&helper.registration.ir_bytes[..]).with_context(|| {
-        format!(
-            "decode IR bytes for case '{}' ({})",
-            case.id, case.workflow_class
-        )
-    })?;
+    let program = <ir::Program as prost::Message>::decode(&helper.registration.ir_bytes[..])
+        .with_context(|| {
+            format!(
+                "decode IR bytes for case '{}' ({})",
+                case.id, case.workflow_class
+            )
+        })?;
 
     let dag = Arc::new(
         convert_to_dag(&program).map_err(|err| anyhow!("convert DAG for {}: {}", case.id, err))?,

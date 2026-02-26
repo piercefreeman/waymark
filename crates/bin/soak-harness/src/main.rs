@@ -29,11 +29,11 @@ use tokio::process::{Child, Command};
 use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use uuid::Uuid;
-use waymark::messages::ast as ir;
 use waymark_backend_postgres::PostgresBackend;
 use waymark_core_backend::QueuedInstance;
 use waymark_dag::{DAG, convert_to_dag};
 use waymark_ir_parser::parse_program;
+use waymark_proto::ast as ir;
 use waymark_runner_state::RunnerState;
 use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBackend as _};
 

@@ -13,7 +13,6 @@ use waymark_core_backend::QueuedInstance;
 use waymark_ir_conversions::literal_from_json_value;
 use waymark_scheduler_core::{ScheduleId, WorkflowSchedule};
 
-use crate::messages;
 use waymark_dag::DAG;
 
 #[derive(Clone)]
@@ -157,8 +156,9 @@ where
         let mut state =
             waymark_runner_state::RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
         if let Some(input_payload) = schedule.input_payload.as_deref() {
-            let inputs = messages::workflow_arguments_to_json(input_payload)
-                .ok_or_else(|| "failed to decode schedule input payload".to_string())?;
+            let input_payload = crate::messages::decode_message(input_payload)
+                .map_err(|_| "failed to decode schedule input payload".to_string())?;
+            let inputs = waymark_message_conversions::workflow_arguments_to_json(input_payload);
             let Value::Object(input_map) = inputs else {
                 return Err("schedule input payload must decode to an object".into());
             };
@@ -220,9 +220,9 @@ mod tests {
     use waymark_scheduler_core::{CreateScheduleParams, ScheduleType};
 
     use super::*;
-    use crate::messages::proto;
     use waymark_dag::convert_to_dag;
     use waymark_ir_parser::parse_program;
+    use waymark_proto::messages as proto;
     use waymark_runner::RunnerExecutor;
 
     fn workflow_args_payload(key: &str, value: i64) -> Vec<u8> {

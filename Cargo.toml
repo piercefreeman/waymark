@@ -29,6 +29,7 @@ waymark-webapp-core = { path = "crates/lib/webapp-core" }
 waymark-worker-status-backend = { path = "crates/lib/worker-status-backend" }
 waymark-workflow-registry-backend = { path = "crates/lib/workflow-registry-backend" }
 waymark-smoke-sources = { path = "crates/lib/smoke-sources" }
+waymark-message-conversions = { path = "crates/lib/message-conversions" }
 
 anyhow = "1"
 async-trait = "0.1"

@@ -14,6 +14,8 @@ waymark-backends-core = { workspace = true }
 waymark-backend-postgres = { workspace = true }
 waymark-backend-postgres-migrations = { workspace = true }
 waymark-workflow-registry-backend = { workspace = true }
+waymark-proto = { workspace = true }
+waymark-message-conversions = { workspace = true }
 waymark = { workspace = true }
 
 anyhow = { workspace = true }

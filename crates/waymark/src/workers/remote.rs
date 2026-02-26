@@ -71,9 +71,10 @@ use super::base::{
 pub use super::base::{RoundTripMetrics, WorkerThroughputSnapshot};
 use super::status::{WorkerPoolStats, WorkerPoolStatsSnapshot};
 use crate::{
-    messages::{self, MessageError, proto},
+    messages::{self, MessageError},
     server_worker::{WorkerBridgeChannels, WorkerBridgeServer},
 };
+use waymark_proto::messages as proto;
 
 const LATENCY_SAMPLE_SIZE: usize = 256;
 const THROUGHPUT_WINDOW_SECS: u64 = 1;
@@ -1061,7 +1062,7 @@ impl PythonWorkerPool {
 fn kwargs_to_workflow_arguments(kwargs: &HashMap<String, Value>) -> proto::WorkflowArguments {
     let mut arguments = Vec::with_capacity(kwargs.len());
     for (key, value) in kwargs {
-        let arg_value = messages::json_to_workflow_argument_value(value);
+        let arg_value = waymark_message_conversions::json_to_workflow_argument_value(value);
         arguments.push(proto::WorkflowArgument {
             key: key.clone(),
             value: Some(arg_value),
@@ -1103,8 +1104,10 @@ fn ensure_error_fields(mut map: serde_json::Map<String, Value>) -> Value {
 }
 
 fn decode_action_result(metrics: &RoundTripMetrics) -> Value {
-    let payload =
-        messages::workflow_arguments_to_json(&metrics.response_payload).unwrap_or(Value::Null);
+    let payload = crate::messages::decode_message(&metrics.response_payload)
+        .map(waymark_message_conversions::workflow_arguments_to_json)
+        .unwrap_or(Value::Null);
+
     if metrics.success {
         if let Value::Object(mut map) = payload {
             if let Some(result) = map.remove("result") {
@@ -1492,7 +1495,7 @@ mod tests {
         proto::WorkflowArguments {
             arguments: vec![proto::WorkflowArgument {
                 key: "result".to_string(),
-                value: Some(messages::json_to_workflow_argument_value(&value)),
+                value: Some(waymark_message_conversions::json_to_workflow_argument_value(&value)),
             }],
         }
     }

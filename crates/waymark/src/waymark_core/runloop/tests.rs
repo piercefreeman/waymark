@@ -11,8 +11,8 @@ use waymark_backend_memory::MemoryBackend;
 use waymark_core_backend::{ActionAttemptStatus, CoreBackend};
 use waymark_workflow_registry_backend::WorkflowRegistration;
 
-use crate::messages::ast as ir;
 use crate::workers::ActionCallable;
+use waymark_proto::ast as ir;
 
 use waymark_dag::convert_to_dag;
 use waymark_ir_parser::parse_program;
