@@ -1,6 +1,6 @@
 //! Pretty-printer for IR AST structures.
 
-use crate::messages::ast as ir;
+use waymark_proto::ast as ir;
 const DEFAULT_INDENT: &str = "    ";
 
 /// Render IR AST nodes into a source-like representation.

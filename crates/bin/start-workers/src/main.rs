@@ -44,12 +44,12 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use uuid::Uuid;
 use waymark::config::WorkerConfig;
-use waymark::messages::ast as ir;
 use waymark::scheduler::{DagResolver, WorkflowDag};
 use waymark::waymark_core::runloop::{RunLoopSupervisorConfig, runloop_supervisor};
 use waymark::{PythonWorkerConfig, RemoteWorkerPool, WebappServer, spawn_status_reporter};
 use waymark_backend_postgres::PostgresBackend;
 use waymark_dag::convert_to_dag;
+use waymark_proto::ast as ir;
 
 #[tokio::main]
 async fn main() -> Result<()> {
