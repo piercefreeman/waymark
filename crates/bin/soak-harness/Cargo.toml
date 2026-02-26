@@ -1,0 +1,28 @@
+[package]
+name = "waymark-soak-harness"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+waymark-core-backend = { workspace = true }
+waymark-dag = { workspace = true }
+waymark-ir-parser = { workspace = true }
+waymark-runner-state = { workspace = true }
+waymark-backend-postgres = { workspace = true }
+waymark-backend-postgres-migrations = { workspace = true }
+waymark-workflow-registry-backend = { workspace = true }
+waymark = { workspace = true }
+
+anyhow = { workspace = true }
+chrono = { workspace = true }
+clap = { workspace = true, features = ["derive", "env"] }
+prost = { workspace = true }
+rand = { workspace = true }
+sha2 = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
