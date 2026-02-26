@@ -1,17 +1,14 @@
 //! Instance lock tracking and heartbeat maintenance.
 
 use std::collections::HashSet;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use chrono::{Duration as ChronoDuration, Utc};
-use tokio::sync::Notify;
 use uuid::Uuid;
 
 use tracing::{debug, info, warn};
-
-use crate::backends::{CoreBackend, LockClaim};
+use waymark_core_backend::LockClaim;
 
 #[derive(Clone)]
 pub struct InstanceLockTracker {
@@ -62,21 +59,17 @@ impl InstanceLockTracker {
 }
 
 pub fn spawn_lock_heartbeat(
-    backend: Arc<dyn CoreBackend>,
+    backend: Arc<dyn waymark_core_backend::CoreBackend>,
     tracker: InstanceLockTracker,
     heartbeat_interval: Duration,
     lock_ttl: Duration,
-    stop: Arc<AtomicBool>,
-    stop_notify: Arc<Notify>,
+    stop: tokio_util::sync::WaitForCancellationFutureOwned,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
+        let mut stop = std::pin::pin!(stop);
         loop {
-            if stop.load(Ordering::SeqCst) {
-                info!("lock heartbeat stop flag set");
-                break;
-            }
             tokio::select! {
-                _ = stop_notify.notified() => {
+                _ = &mut stop => {
                     info!("lock heartbeat stop notified");
                     break;
                 }

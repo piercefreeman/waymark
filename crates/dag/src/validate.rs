@@ -361,7 +361,7 @@ fn collect_expr_variables(expr: &ir::Expr, vars: &mut HashSet<String>) {
 mod tests {
     use super::validate_dag;
     use crate::convert_to_dag;
-    use waymark::waymark_core::ir_parser::parse_program;
+    use waymark_ir_parser::parse_program;
 
     #[test]
     fn validate_dag_rejects_unresolved_variable_reference() {

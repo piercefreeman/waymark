@@ -1,6 +1,6 @@
 //! Observability helpers for optional tracing instrumentation.
 
-pub use waymark_observability_macros::obs;
+pub use waymark_observability::obs;
 
 #[cfg(feature = "trace")]
 use std::sync::OnceLock;

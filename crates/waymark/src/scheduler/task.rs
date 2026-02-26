@@ -7,12 +7,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::Value;
-use tokio::sync::watch;
 use tracing::{debug, error, info};
 use uuid::Uuid;
+use waymark_core_backend::QueuedInstance;
+use waymark_scheduler_core::{ScheduleId, WorkflowSchedule};
 
-use super::types::{ScheduleId, WorkflowSchedule};
-use crate::backends::{CoreBackend, QueuedInstance, SchedulerBackend};
 use crate::messages;
 use crate::messages::ast as ir;
 use waymark_dag::DAG;
@@ -45,48 +44,33 @@ impl Default for SchedulerConfig {
 
 /// Background scheduler task.
 pub struct SchedulerTask<B> {
-    backend: B,
-    config: SchedulerConfig,
-    shutdown_rx: watch::Receiver<bool>,
+    pub backend: B,
+    pub config: SchedulerConfig,
     /// Function to get the DAG for a workflow.
     /// This should look up the workflow definition and return its DAG.
-    dag_resolver: DagResolver,
+    pub dag_resolver: DagResolver,
 }
 
 impl<B> SchedulerTask<B>
 where
-    B: CoreBackend + SchedulerBackend + Clone + Send + Sync + 'static,
+    B: waymark_core_backend::CoreBackend + waymark_scheduler_backend::SchedulerBackend,
+    B: Clone + Send + Sync + 'static,
 {
-    /// Create a new scheduler task.
-    pub fn new(
-        backend: B,
-        config: SchedulerConfig,
-        shutdown_rx: watch::Receiver<bool>,
-        dag_resolver: DagResolver,
-    ) -> Self {
-        Self {
-            backend,
-            config,
-            shutdown_rx,
-            dag_resolver,
-        }
-    }
-
     /// Run the scheduler loop.
-    pub async fn run(mut self) {
+    pub async fn run(self, shutdown: tokio_util::sync::WaitForCancellationFutureOwned) {
         info!(
             poll_interval_ms = self.config.poll_interval.as_millis(),
             batch_size = self.config.batch_size,
             "scheduler task started"
         );
 
+        let mut shutdown = std::pin::pin!(shutdown);
+
         loop {
             tokio::select! {
-                _ = self.shutdown_rx.changed() => {
-                    if *self.shutdown_rx.borrow() {
-                        info!("scheduler task shutting down");
-                        break;
-                    }
+                _ = &mut shutdown => {
+                    info!("scheduler task shutting down");
+                    break;
                 }
                 _ = tokio::time::sleep(self.config.poll_interval) => {
                     if let Err(e) = self.poll_and_fire().await {
@@ -170,12 +154,8 @@ where
             .as_ref()
             .ok_or_else(|| "DAG has no entry node".to_string())?;
 
-        let mut state = crate::waymark_core::runner::RunnerState::new(
-            Some(Arc::clone(&dag)),
-            None,
-            None,
-            false,
-        );
+        let mut state =
+            waymark_runner_state::RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
         if let Some(input_payload) = schedule.input_payload.as_deref() {
             let inputs = messages::workflow_arguments_to_json(input_payload)
                 .ok_or_else(|| "failed to decode schedule input payload".to_string())?;
@@ -287,21 +267,6 @@ fn literal_from_json_value(value: &Value) -> ir::Expr {
     }
 }
 
-/// Convenience function to spawn a scheduler task.
-pub fn spawn_scheduler<B>(
-    backend: B,
-    config: SchedulerConfig,
-    dag_resolver: DagResolver,
-) -> (tokio::task::JoinHandle<()>, watch::Sender<bool>)
-where
-    B: CoreBackend + SchedulerBackend + Clone + Send + Sync + 'static,
-{
-    let (shutdown_tx, shutdown_rx) = watch::channel(false);
-    let task = SchedulerTask::new(backend, config, shutdown_rx, dag_resolver);
-    let handle = tokio::spawn(task.run());
-    (handle, shutdown_tx)
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::VecDeque;
@@ -310,14 +275,16 @@ mod tests {
     use chrono::{Duration as ChronoDuration, Utc};
     use prost::Message;
     use serde_json::Value;
+    use waymark_backend_memory::MemoryBackend;
+    use waymark_core_backend::{CoreBackend, LockClaim};
+    use waymark_scheduler_backend::SchedulerBackend;
+    use waymark_scheduler_core::{CreateScheduleParams, ScheduleType};
 
     use super::*;
-    use crate::backends::{CoreBackend, LockClaim, MemoryBackend, SchedulerBackend};
     use crate::messages::proto;
-    use crate::scheduler::{CreateScheduleParams, ScheduleType};
-    use crate::waymark_core::ir_parser::parse_program;
-    use crate::waymark_core::runner::RunnerExecutor;
     use waymark_dag::convert_to_dag;
+    use waymark_ir_parser::parse_program;
+    use waymark_runner::RunnerExecutor;
 
     fn workflow_args_payload(key: &str, value: i64) -> Vec<u8> {
         proto::WorkflowArguments {
@@ -339,7 +306,6 @@ mod tests {
     async fn scheduler_fire_schedule_applies_input_payload_to_state() {
         let queue = Arc::new(Mutex::new(VecDeque::new()));
         let backend = MemoryBackend::with_queue(queue);
-        let (_shutdown_tx, shutdown_rx) = watch::channel(false);
 
         let source = r#"
 fn main(input: [number], output: [result]):
@@ -362,12 +328,11 @@ fn main(input: [number], output: [result]):
             }
         });
 
-        let scheduler = SchedulerTask::new(
-            backend.clone(),
-            SchedulerConfig::default(),
-            shutdown_rx,
+        let scheduler = SchedulerTask {
+            backend: backend.clone(),
+            config: SchedulerConfig::default(),
             dag_resolver,
-        );
+        };
         SchedulerBackend::upsert_schedule(
             &backend,
             &CreateScheduleParams {
@@ -408,11 +373,8 @@ fn main(input: [number], output: [result]):
         let state = queued.state.clone().expect("queued state");
         let mut executor =
             RunnerExecutor::new(Arc::clone(&dag), state, queued.action_results.clone(), None);
-        let replay = crate::waymark_core::runner::replay_variables(
-            executor.state(),
-            executor.action_results(),
-        )
-        .expect("replay inputs");
+        let replay = waymark_runner::replay_variables(executor.state(), executor.action_results())
+            .expect("replay inputs");
         assert_eq!(
             replay.variables.get("number"),
             Some(&Value::Number(7.into()))
