@@ -27,6 +27,7 @@ use waymark_backend_postgres::PostgresBackend;
 use waymark_core_backend::{CoreBackend, QueuedInstance};
 use waymark_dag::{DAG, convert_to_dag};
 use waymark_integration_support::{LOCAL_POSTGRES_DSN, connect_pool, ensure_local_postgres};
+use waymark_ir_conversions::literal_from_json_value;
 use waymark_runner_state::RunnerState;
 use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBackend};
 
@@ -608,7 +609,7 @@ fn build_queued_instance(
     let mut state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
 
     for (name, value) in kwargs {
-        let expr = literal_from_value(value);
+        let expr = literal_from_json_value(value);
         let label = format!("input {name} = {value}");
         let _ = state
             .record_assignment(vec![name.clone()], &expr, None, Some(label))
@@ -633,67 +634,6 @@ fn build_queued_instance(
         instance_id,
         scheduled_at: None,
     })
-}
-
-fn literal_from_value(value: &Value) -> ir::Expr {
-    match value {
-        Value::Bool(value) => ir::Expr {
-            kind: Some(ir::expr::Kind::Literal(ir::Literal {
-                value: Some(ir::literal::Value::BoolValue(*value)),
-            })),
-            span: None,
-        },
-        Value::Number(number) => {
-            if let Some(value) = number.as_i64() {
-                ir::Expr {
-                    kind: Some(ir::expr::Kind::Literal(ir::Literal {
-                        value: Some(ir::literal::Value::IntValue(value)),
-                    })),
-                    span: None,
-                }
-            } else {
-                ir::Expr {
-                    kind: Some(ir::expr::Kind::Literal(ir::Literal {
-                        value: Some(ir::literal::Value::FloatValue(
-                            number.as_f64().unwrap_or(0.0),
-                        )),
-                    })),
-                    span: None,
-                }
-            }
-        }
-        Value::String(value) => ir::Expr {
-            kind: Some(ir::expr::Kind::Literal(ir::Literal {
-                value: Some(ir::literal::Value::StringValue(value.clone())),
-            })),
-            span: None,
-        },
-        Value::Array(items) => ir::Expr {
-            kind: Some(ir::expr::Kind::List(ir::ListExpr {
-                elements: items.iter().map(literal_from_value).collect(),
-            })),
-            span: None,
-        },
-        Value::Object(map) => {
-            let entries = map
-                .iter()
-                .map(|(key, value)| ir::DictEntry {
-                    key: Some(literal_from_value(&Value::String(key.clone()))),
-                    value: Some(literal_from_value(value)),
-                })
-                .collect();
-            ir::Expr {
-                kind: Some(ir::expr::Kind::Dict(ir::DictExpr { entries })),
-                span: None,
-            }
-        }
-        Value::Null => ir::Expr {
-            kind: Some(ir::expr::Kind::Literal(ir::Literal {
-                value: Some(ir::literal::Value::IsNone(true)),
-            })),
-            span: None,
-        },
-    }
 }
 
 fn outcome_from_payload(

@@ -3375,13 +3375,16 @@ dependencies = [
  "waymark-dag",
  "waymark-garbage-collector-backend",
  "waymark-integration-support",
+ "waymark-ir-conversions",
  "waymark-ir-parser",
  "waymark-observability",
+ "waymark-observability-setup",
  "waymark-proto",
  "waymark-runner",
  "waymark-runner-state",
  "waymark-scheduler-backend",
  "waymark-scheduler-core",
+ "waymark-smoke-sources",
  "waymark-test-support",
  "waymark-webapp-backend",
  "waymark-webapp-core",
@@ -3538,6 +3541,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-ir-conversions"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "waymark-proto",
+]
+
+[[package]]
 name = "waymark-ir-parser"
 version = "0.1.0"
 dependencies = [
@@ -3560,6 +3571,15 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "waymark-observability-setup"
+version = "0.1.0"
+dependencies = [
+ "console-subscriber",
+ "tracing-chrome",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -3624,6 +3644,14 @@ dependencies = [
  "rand 0.8.5",
  "serde",
  "uuid",
+]
+
+[[package]]
+name = "waymark-smoke-sources"
+version = "0.1.0"
+dependencies = [
+ "waymark-ir-parser",
+ "waymark-proto",
 ]
 
 [[package]]

@@ -1,0 +1,15 @@
+[package]
+name = "waymark-observability-setup"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = ["trace"]
+
+trace = ["dep:tracing-subscriber", "dep:tracing-chrome"]
+tokio-console = ["dep:console-subscriber"]
+
+[dependencies]
+console-subscriber = { workspace = true, optional = true }
+tracing-chrome = { workspace = true, optional = true }
+tracing-subscriber = { workspace = true, optional = true }
