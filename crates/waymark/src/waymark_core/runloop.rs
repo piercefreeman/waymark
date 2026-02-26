@@ -10,7 +10,6 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
-use prost::Message;
 use serde_json::Value;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
@@ -22,12 +21,12 @@ use waymark_core_backend::{
 };
 use waymark_workflow_registry_backend::WorkflowRegistryBackend;
 
-use crate::messages::ast as ir;
 use crate::waymark_core::commit_barrier::{CommitBarrier, DeferredInstanceEvent};
 use crate::waymark_core::lock::{InstanceLockTracker, spawn_lock_heartbeat};
 use crate::workers::{ActionCompletion, ActionRequest, BaseWorkerPool, WorkerPoolError};
 use waymark_dag::{DAG, DAGNode, OutputNode, ReturnNode, convert_to_dag};
 use waymark_observability::obs;
+use waymark_proto::ast as ir;
 use waymark_runner::synthetic_exceptions::{
     SyntheticExceptionType, build_synthetic_exception_value,
 };
@@ -672,8 +671,10 @@ impl RunLoop {
                 .await
                 .map_err(RunLoopError::Backend)?;
             for version in versions {
-                let program = ir::Program::decode(&version.program_proto[..])
-                    .map_err(|err| RunLoopError::Message(format!("invalid workflow IR: {err}")))?;
+                let program = <ir::Program as prost::Message>::decode(&version.program_proto[..])
+                    .map_err(|err| {
+                    RunLoopError::Message(format!("invalid workflow IR: {err}"))
+                })?;
                 let dag = convert_to_dag(&program)
                     .map_err(|err| RunLoopError::Message(format!("invalid workflow DAG: {err}")))?;
                 self.workflow_cache.insert(version.id, Arc::new(dag));

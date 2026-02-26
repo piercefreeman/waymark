@@ -12,7 +12,7 @@ pub mod workers;
 
 // Worker infrastructure (preserved from the legacy Rust core).
 pub use garbage_collector::{GarbageCollectorConfig, GarbageCollectorTask};
-pub use messages::{MessageError, ast as ir_ast, proto, workflow_argument_value_to_json};
+pub use messages::MessageError;
 pub use pool_status::{PoolTimeSeries, TimeSeriesEntry, TimeSeriesJsonEntry};
 pub use scheduler::{SchedulerConfig, SchedulerTask};
 pub use server_worker::{WorkerBridgeChannels, WorkerBridgeServer};

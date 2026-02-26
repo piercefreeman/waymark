@@ -14,11 +14,11 @@ use waymark_core_backend::QueuedInstance;
 use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBackend as _};
 
 use super::generator::GeneratedCase;
-use waymark::messages::ast as ir;
 use waymark::waymark_core::runloop::{RunLoop, RunLoopSupervisorConfig};
 use waymark::workers::{ActionCallable, InlineWorkerPool, WorkerPoolError};
 use waymark_dag::convert_to_dag;
 use waymark_ir_parser::parse_program;
+use waymark_proto::ast as ir;
 use waymark_runner_state::RunnerState;
 
 pub async fn run_case(case_index: usize, case: &GeneratedCase) -> Result<()> {

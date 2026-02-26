@@ -29,7 +29,6 @@ use tracing::{debug, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use uuid::Uuid;
 
-use waymark::messages::{self, ast as ir, proto};
 use waymark::waymark_core::runloop::{RunLoop, RunLoopSupervisorConfig};
 use waymark::workers::{ActionCompletion, ActionRequest, BaseWorkerPool, WorkerPoolError};
 use waymark_backend_postgres::PostgresBackend;
@@ -40,6 +39,7 @@ use waymark_core_backend::{
 };
 use waymark_dag::convert_to_dag;
 use waymark_ir_conversions::literal_from_json_value;
+use waymark_proto::{ast as ir, messages as proto};
 use waymark_runner_state::RunnerState;
 use waymark_scheduler_backend::SchedulerBackend as _;
 use waymark_scheduler_core::{CreateScheduleParams, ScheduleId, ScheduleStatus, ScheduleType};
@@ -1041,7 +1041,7 @@ fn build_workflow_arguments(
     if let Some(value) = error {
         arguments.push(proto::WorkflowArgument {
             key: "error".to_string(),
-            value: Some(messages::json_to_workflow_argument_value(&value)),
+            value: Some(waymark_message_conversions::json_to_workflow_argument_value(&value)),
         });
     }
     proto::WorkflowArguments { arguments }
@@ -1057,7 +1057,8 @@ fn workflow_node_result_value(value: &Value) -> proto::WorkflowArgumentValue {
         }
     };
 
-    let variables_arg = messages::json_to_workflow_argument_value(&variables_value);
+    let variables_arg =
+        waymark_message_conversions::json_to_workflow_argument_value(&variables_value);
     let dict = proto::WorkflowDictArgument {
         entries: vec![proto::WorkflowArgument {
             key: "variables".to_string(),
@@ -1079,7 +1080,7 @@ fn workflow_node_result_value(value: &Value) -> proto::WorkflowArgumentValue {
 fn kwargs_to_workflow_arguments(kwargs: &HashMap<String, Value>) -> proto::WorkflowArguments {
     let mut arguments = Vec::with_capacity(kwargs.len());
     for (key, value) in kwargs {
-        let arg_value = messages::json_to_workflow_argument_value(value);
+        let arg_value = waymark_message_conversions::json_to_workflow_argument_value(value);
         arguments.push(proto::WorkflowArgument {
             key: key.clone(),
             value: Some(arg_value),
@@ -1103,7 +1104,8 @@ fn action_result_to_completion(
         .payload
         .as_ref()
         .map(|payload| payload.encode_to_vec())
-        .and_then(|bytes| messages::workflow_arguments_to_json(&bytes))
+        .and_then(|bytes| waymark::messages::decode_message(&bytes).ok())
+        .map(waymark_message_conversions::workflow_arguments_to_json)
         .unwrap_or(Value::Null);
 
     let value = if result.success {
@@ -1206,7 +1208,7 @@ fn workflow_arguments_to_json_map(args: &proto::WorkflowArguments) -> HashMap<St
         if let Some(value) = &arg.value {
             map.insert(
                 arg.key.clone(),
-                messages::workflow_argument_value_to_json(value),
+                waymark_message_conversions::workflow_argument_value_to_json(value),
             );
         }
     }

@@ -24,6 +24,7 @@ waymark-backend-postgres = { workspace = true }
 waymark-workflow-registry-backend = { workspace = true }
 waymark-worker-status-backend = { workspace = true }
 waymark-backend-memory = { workspace = true }
+waymark-message-conversions = { workspace = true }
 
 anyhow = "1"
 axum = "0.8"

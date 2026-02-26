@@ -7,6 +7,7 @@ edition = "2024"
 waymark-dag = { workspace = true }
 waymark-backend-postgres = { workspace = true }
 waymark-backend-postgres-migrations = { workspace = true }
+waymark-proto = { workspace = true }
 waymark = { workspace = true }
 
 anyhow = { workspace = true }
