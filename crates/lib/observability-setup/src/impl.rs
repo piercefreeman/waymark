@@ -1,30 +1,17 @@
-//! Observability helpers for optional tracing instrumentation.
-
-pub use waymark_observability::obs;
-
-#[cfg(feature = "trace")]
 use std::sync::OnceLock;
 
-#[cfg(feature = "trace")]
 use tracing_chrome::FlushGuard;
 
-#[derive(Clone, Debug, Default)]
-pub struct ObservabilityOptions {
-    pub console: bool,
-    pub trace_path: Option<String>,
-}
+use crate::ObservabilityOptions;
 
-#[cfg(feature = "trace")]
 static TRACE_GUARD: OnceLock<std::sync::Mutex<Option<FlushGuard>>> = OnceLock::new();
 
-#[cfg(feature = "trace")]
 fn store_trace_guard(guard: FlushGuard) {
     let cell = TRACE_GUARD.get_or_init(|| std::sync::Mutex::new(None));
     let mut slot = cell.lock().expect("trace guard lock poisoned");
     *slot = Some(guard);
 }
 
-#[cfg(feature = "trace")]
 pub fn flush() {
     if let Some(cell) = TRACE_GUARD.get() {
         let mut slot = cell.lock().expect("trace guard lock poisoned");
@@ -32,7 +19,6 @@ pub fn flush() {
     }
 }
 
-#[cfg(feature = "trace")]
 pub fn init(options: ObservabilityOptions) {
     use std::env;
     use std::net::{SocketAddr, TcpStream};
@@ -51,7 +37,7 @@ pub fn init(options: ObservabilityOptions) {
         (None, None)
     };
 
-    #[cfg(feature = "observability")]
+    #[cfg(feature = "tokio-console")]
     {
         let console_layer = options.console.then(|| {
             console_subscriber::ConsoleLayer::builder()
@@ -66,7 +52,7 @@ pub fn init(options: ObservabilityOptions) {
             eprintln!("tracing init failed: {err}");
         }
     }
-    #[cfg(not(feature = "observability"))]
+    #[cfg(not(feature = "tokio-console"))]
     {
         if options.console {
             eprintln!(
@@ -108,11 +94,3 @@ pub fn init(options: ObservabilityOptions) {
         });
     }
 }
-
-#[cfg(not(feature = "trace"))]
-pub fn init(_options: ObservabilityOptions) {
-    eprintln!("Tracing disabled. Rebuild with --features trace or --features observability.");
-}
-
-#[cfg(not(feature = "trace"))]
-pub fn flush() {}

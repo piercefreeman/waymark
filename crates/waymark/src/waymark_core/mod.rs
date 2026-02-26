@@ -1,6 +1,5 @@
 //! Waymark core asyncio components.
 
-pub mod cli;
 pub mod commit_barrier;
 pub mod dag_viz;
 pub mod ir_format;
