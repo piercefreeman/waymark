@@ -997,7 +997,9 @@ fn jitter_payload(base_payload: i64, rng: &mut StdRng) -> i64 {
 }
 
 fn build_instance(workflow: &RegisteredWorkflow, item: WorkItem) -> Result<QueuedInstance> {
+    let instance_id = Uuid::new_v4();
     let mut state = RunnerState::new(Some(Arc::clone(&workflow.dag)), None, None, false);
+    state.set_execution_namespace(instance_id);
     if item.step_delays_ms.len() != item.step_should_fail.len()
         || item.step_delays_ms.len() != item.step_payload_bytes.len()
     {
@@ -1049,7 +1051,7 @@ fn build_instance(workflow: &RegisteredWorkflow, item: WorkItem) -> Result<Queue
         entry_node: entry_node.node_id,
         state: Some(state),
         action_results: HashMap::new(),
-        instance_id: Uuid::new_v4(),
+        instance_id,
         scheduled_at: None,
     })
 }

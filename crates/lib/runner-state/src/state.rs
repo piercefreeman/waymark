@@ -233,6 +233,7 @@ impl ExecutionNode {
 pub struct QueueNodeParams {
     pub node_id: Option<Uuid>,
     pub template_id: Option<String>,
+    pub iteration_index: Option<i32>,
     pub targets: Option<Vec<String>>,
     pub action: Option<ActionCallSpec>,
     pub value_expr: Option<ValueExpr>,
@@ -308,6 +309,10 @@ pub struct RunnerState {
     link_queued_nodes: bool,
     latest_assignments: HashMap<String, Uuid>,
     graph_dirty: bool,
+    #[serde(skip, default = "default_execution_namespace")]
+    execution_namespace: Uuid,
+    #[serde(skip, default)]
+    template_node_counts: HashMap<String, u64>,
 }
 
 impl RunnerState {
@@ -326,6 +331,8 @@ impl RunnerState {
             link_queued_nodes,
             latest_assignments: HashMap::new(),
             graph_dirty: false,
+            execution_namespace: default_execution_namespace(),
+            template_node_counts: HashMap::new(),
         };
         if !state.nodes.is_empty() || !state.edges.is_empty() {
             state.rehydrate_state();
@@ -341,6 +348,10 @@ impl RunnerState {
     /// TODO: make this `pub(crate)` again
     pub fn latest_assignment(&self, name: &str) -> Option<Uuid> {
         self.latest_assignments.get(name).copied()
+    }
+
+    pub fn set_execution_namespace(&mut self, namespace: Uuid) {
+        self.execution_namespace = namespace;
     }
 
     /// Queue a runtime node based on the DAG template and apply its effects.
@@ -367,7 +378,13 @@ impl RunnerState {
             .ok_or_else(|| RunnerStateError(format!("template node not found: {template_id}")))?
             .clone();
 
-        let node_id = Uuid::new_v4();
+        let occurrence = self
+            .template_node_counts
+            .get(template_id)
+            .copied()
+            .unwrap_or(0)
+            + 1;
+        let node_id = self.build_template_execution_id(template_id, iteration_index, occurrence)?;
         let node = ExecutionNode {
             node_id,
             node_type: template.node_type().to_string(),
@@ -414,12 +431,25 @@ impl RunnerState {
         let QueueNodeParams {
             node_id,
             template_id,
+            iteration_index,
             targets,
             action,
             value_expr,
             scheduled_at,
         } = params;
-        let node_id = node_id.unwrap_or_else(Uuid::new_v4);
+        let node_id = match (node_id, template_id.as_ref()) {
+            (Some(existing), _) => existing,
+            (None, Some(template_id)) => {
+                let occurrence = self
+                    .template_node_counts
+                    .get(template_id)
+                    .copied()
+                    .unwrap_or(0)
+                    + 1;
+                self.build_template_execution_id(template_id, iteration_index, occurrence)?
+            }
+            (None, None) => Uuid::new_v4(),
+        };
         let action_attempt = if matches!(node_type_enum, ExecutionNodeType::ActionCall) {
             1
         } else {
@@ -465,6 +495,7 @@ impl RunnerState {
             ExecutionNodeType::ActionCall.as_str(),
             &format!("@{}()", spec.action_name),
             QueueNodeParams {
+                iteration_index,
                 targets: targets.clone(),
                 action: Some(spec.clone()),
                 ..QueueNodeParams::default()
@@ -596,6 +627,12 @@ impl RunnerState {
                 node.node_id
             )));
         }
+        if let Some(template_id) = node.template_id.as_ref() {
+            self.template_node_counts
+                .entry(template_id.clone())
+                .and_modify(|count| *count += 1)
+                .or_insert(1);
+        }
         self.nodes.insert(node.node_id, node.clone());
         self.ready_queue.push(node.node_id);
         if node.is_action_call() {
@@ -622,6 +659,24 @@ impl RunnerState {
         self.graph_dirty = true;
     }
 
+    fn build_template_execution_id(
+        &self,
+        template_id: &str,
+        iteration_index: Option<i32>,
+        occurrence: u64,
+    ) -> Result<Uuid, RunnerStateError> {
+        if self.execution_namespace.is_nil() {
+            return Err(RunnerStateError(
+                "execution namespace must be set before queueing template-backed nodes".to_string(),
+            ));
+        }
+        let mut seed = format!("template={template_id};occurrence={occurrence}");
+        if let Some(iteration_index) = iteration_index {
+            seed.push_str(&format!(";iteration={iteration_index}"));
+        }
+        Ok(Uuid::new_v5(&self.execution_namespace, seed.as_bytes()))
+    }
+
     /// Rebuild derived structures from persisted nodes and edges.
     ///
     /// Use this when loading a snapshot so timeline ordering, latest assignment
@@ -633,8 +688,15 @@ impl RunnerState {
     fn rehydrate_state(&mut self) {
         self.timeline = self.build_timeline();
         self.latest_assignments.clear();
+        self.template_node_counts.clear();
         for node_id in &self.timeline {
             if let Some(node) = self.nodes.get(node_id) {
+                if let Some(template_id) = node.template_id.as_ref() {
+                    self.template_node_counts
+                        .entry(template_id.clone())
+                        .and_modify(|count| *count += 1)
+                        .or_insert(1);
+                }
                 for target in node.assignments.keys() {
                     self.latest_assignments.insert(target.clone(), *node_id);
                 }
@@ -1511,6 +1573,7 @@ impl RunnerState {
             ExecutionNodeType::ActionCall.as_str(),
             &format!("@{}()", spec.action_name),
             QueueNodeParams {
+                iteration_index,
                 targets: targets.clone(),
                 action: Some(spec.clone()),
                 ..QueueNodeParams::default()
@@ -1882,6 +1945,10 @@ fn fold_literal_unary(op: i32, operand: &serde_json::Value) -> Option<serde_json
     }
 }
 
+fn default_execution_namespace() -> Uuid {
+    Uuid::nil()
+}
+
 impl fmt::Display for NodeStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let value = match self {
@@ -1898,6 +1965,9 @@ impl fmt::Display for NodeStatus {
 mod tests {
     use super::*;
     use serde_json::Value;
+    use std::sync::Arc;
+    use uuid::Uuid;
+    use waymark_dag::{ActionCallNode, ActionCallParams, DAG, DAGNode};
     use waymark_proto::ast as ir;
 
     fn action_plus_two_expr() -> ir::Expr {
@@ -1919,6 +1989,153 @@ mod tests {
             }))),
             span: None,
         }
+    }
+
+    fn single_action_dag(template_id: &str) -> Arc<DAG> {
+        let mut dag = DAG::default();
+        dag.add_node(DAGNode::ActionCall(ActionCallNode::new(
+            template_id.to_string(),
+            "demo_action",
+            ActionCallParams::default(),
+        )));
+        Arc::new(dag)
+    }
+
+    #[test]
+    fn test_template_execution_ids_are_deterministic_per_instance() {
+        let dag = single_action_dag("action_1");
+        let instance_id = Uuid::new_v4();
+
+        let mut state_a = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
+        state_a.set_execution_namespace(instance_id);
+        let first_a = state_a
+            .queue_template_node("action_1", Some(0))
+            .expect("queue first action in state_a");
+        let second_a = state_a
+            .queue_template_node("action_1", Some(1))
+            .expect("queue second action in state_a");
+
+        let mut state_b = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
+        state_b.set_execution_namespace(instance_id);
+        let first_b = state_b
+            .queue_template_node("action_1", Some(0))
+            .expect("queue first action in state_b");
+        let second_b = state_b
+            .queue_template_node("action_1", Some(1))
+            .expect("queue second action in state_b");
+
+        assert_eq!(first_a.node_id, first_b.node_id);
+        assert_eq!(second_a.node_id, second_b.node_id);
+        assert_ne!(first_a.node_id, second_a.node_id);
+    }
+
+    #[test]
+    fn test_template_execution_id_sequence_survives_rehydrate() {
+        let dag = single_action_dag("action_1");
+        let instance_id = Uuid::new_v4();
+
+        let mut initial = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
+        initial.set_execution_namespace(instance_id);
+        let first = initial
+            .queue_template_node("action_1", Some(0))
+            .expect("queue first action");
+
+        let mut rehydrated = RunnerState::new(
+            Some(Arc::clone(&dag)),
+            Some(initial.nodes.clone()),
+            Some(initial.edges.clone()),
+            false,
+        );
+        rehydrated.set_execution_namespace(instance_id);
+        let second_from_rehydrate = rehydrated
+            .queue_template_node("action_1", Some(1))
+            .expect("queue second action after rehydrate");
+
+        let mut fresh = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
+        fresh.set_execution_namespace(instance_id);
+        let first_fresh = fresh
+            .queue_template_node("action_1", Some(0))
+            .expect("queue first action in fresh state");
+        let second_fresh = fresh
+            .queue_template_node("action_1", Some(1))
+            .expect("queue second action in fresh state");
+
+        assert_eq!(first.node_id, first_fresh.node_id);
+        assert_eq!(second_from_rehydrate.node_id, second_fresh.node_id);
+    }
+
+    #[test]
+    fn test_queue_node_with_template_id_is_deterministic() {
+        let instance_id = Uuid::new_v4();
+
+        let mut state_a = RunnerState::new(None, None, None, false);
+        state_a.set_execution_namespace(instance_id);
+        let first_a = state_a
+            .queue_node(
+                ExecutionNodeType::ActionCall.as_str(),
+                "@demo()",
+                QueueNodeParams {
+                    template_id: Some("action_1".to_string()),
+                    iteration_index: Some(0),
+                    ..QueueNodeParams::default()
+                },
+            )
+            .expect("queue first action in state_a");
+        let second_a = state_a
+            .queue_node(
+                ExecutionNodeType::ActionCall.as_str(),
+                "@demo()",
+                QueueNodeParams {
+                    template_id: Some("action_1".to_string()),
+                    iteration_index: Some(1),
+                    ..QueueNodeParams::default()
+                },
+            )
+            .expect("queue second action in state_a");
+
+        let mut state_b = RunnerState::new(None, None, None, false);
+        state_b.set_execution_namespace(instance_id);
+        let first_b = state_b
+            .queue_node(
+                ExecutionNodeType::ActionCall.as_str(),
+                "@demo()",
+                QueueNodeParams {
+                    template_id: Some("action_1".to_string()),
+                    iteration_index: Some(0),
+                    ..QueueNodeParams::default()
+                },
+            )
+            .expect("queue first action in state_b");
+        let second_b = state_b
+            .queue_node(
+                ExecutionNodeType::ActionCall.as_str(),
+                "@demo()",
+                QueueNodeParams {
+                    template_id: Some("action_1".to_string()),
+                    iteration_index: Some(1),
+                    ..QueueNodeParams::default()
+                },
+            )
+            .expect("queue second action in state_b");
+
+        assert_eq!(first_a.node_id, first_b.node_id);
+        assert_eq!(second_a.node_id, second_b.node_id);
+        assert_ne!(first_a.node_id, second_a.node_id);
+    }
+
+    #[test]
+    fn test_queue_template_node_requires_execution_namespace() {
+        let dag = single_action_dag("action_1");
+        let mut state = RunnerState::new(Some(dag), None, None, false);
+
+        let err = state
+            .queue_template_node("action_1", Some(0))
+            .expect_err("template-backed queueing should require execution namespace");
+        assert!(
+            err.0.contains("execution namespace must be set"),
+            "unexpected error: {}",
+            err.0
+        );
     }
 
     #[test]

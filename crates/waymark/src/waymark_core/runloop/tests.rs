@@ -48,6 +48,7 @@ fn main(input: [x], output: [y]):
     let dag = Arc::new(convert_to_dag(&program).expect("convert to dag"));
 
     let mut state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
+    state.set_execution_namespace(Uuid::new_v4());
     let _ = state
         .record_assignment(
             vec!["x".to_string()],
@@ -155,6 +156,7 @@ fn main(input: [], output: [y]):
     let dag = Arc::new(convert_to_dag(&program).expect("convert to dag"));
 
     let mut state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
+    state.set_execution_namespace(Uuid::new_v4());
     let entry_node = dag
         .entry_node
         .as_ref()
@@ -278,6 +280,7 @@ fn main(input: [x], output: [y]):
 
     // Intentionally omit input assignment so action kwarg resolution fails at runtime.
     let mut state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
+    state.set_execution_namespace(Uuid::new_v4());
     let entry_node = dag
         .entry_node
         .as_ref()
@@ -373,6 +376,7 @@ fn main(input: [limit], output: [result]):
     let dag = Arc::new(convert_to_dag(&program).expect("convert to dag"));
 
     let mut state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
+    state.set_execution_namespace(Uuid::new_v4());
     let _ = state
         .record_assignment(
             vec!["limit".to_string()],
@@ -655,6 +659,7 @@ fn main(input: [x], output: [y]):
     let dag = Arc::new(convert_to_dag(&program).expect("convert to dag"));
 
     let mut state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
+    state.set_execution_namespace(Uuid::new_v4());
     let _ = state
         .record_assignment(
             vec!["x".to_string()],
@@ -776,6 +781,7 @@ fn main(input: [], output: [result]):
     let dag = Arc::new(convert_to_dag(&program).expect("convert to dag"));
 
     let mut state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
+    state.set_execution_namespace(Uuid::new_v4());
     let entry_node = dag
         .entry_node
         .as_ref()
@@ -867,6 +873,7 @@ fn main(input: [], output: [result]):
     let dag = Arc::new(convert_to_dag(&program).expect("convert to dag"));
 
     let mut state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
+    state.set_execution_namespace(Uuid::new_v4());
     let entry_node = dag
         .entry_node
         .as_ref()

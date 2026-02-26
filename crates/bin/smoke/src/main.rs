@@ -82,7 +82,9 @@ async fn run_program_smoke(case: &SmokeCase, worker_pool: RemoteWorkerPool) -> R
         output_path.display()
     );
 
+    let instance_id = Uuid::new_v4();
     let mut state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
+    state.set_execution_namespace(instance_id);
     let queue = Arc::new(Mutex::new(VecDeque::new()));
     let backend = MemoryBackend::with_queue(queue.clone());
     let workflow_version_id = backend
@@ -135,7 +137,7 @@ async fn run_program_smoke(case: &SmokeCase, worker_pool: RemoteWorkerPool) -> R
         entry_node: entry_exec.node_id,
         state: Some(state),
         action_results: HashMap::new(),
-        instance_id: Uuid::new_v4(),
+        instance_id,
         scheduled_at: None,
     });
     runloop

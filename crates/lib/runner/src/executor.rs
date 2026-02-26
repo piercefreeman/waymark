@@ -213,6 +213,7 @@ impl RunnerExecutor {
 
     pub fn set_instance_id(&mut self, instance_id: Uuid) {
         self.instance_id = Some(instance_id);
+        self.state.set_execution_namespace(instance_id);
     }
 
     pub fn terminal_error(&self) -> Option<&Value> {
@@ -909,6 +910,7 @@ impl RunnerExecutor {
                 &template.label(),
                 QueueNodeParams {
                     template_id: Some(template.id.clone()),
+                    iteration_index,
                     targets: Some(targets.clone()),
                     action: Some(spec.clone()),
                     ..QueueNodeParams::default()
@@ -1696,13 +1698,24 @@ mod tests {
         )
     }
 
+    fn test_execution_namespace() -> Uuid {
+        Uuid::from_u128(1)
+    }
+
+    fn test_runner_state(dag: &Arc<DAG>) -> RunnerState {
+        let mut state = RunnerState::new(Some(Arc::clone(dag)), None, None, false);
+        state.set_execution_namespace(test_execution_namespace());
+        state
+    }
+
     fn create_rehydrated_executor(
         dag: &Arc<DAG>,
         nodes: HashMap<Uuid, ExecutionNode>,
         edges: HashSet<ExecutionEdge>,
         action_results: HashMap<Uuid, Value>,
     ) -> RunnerExecutor {
-        let state = RunnerState::new(Some(Arc::clone(dag)), Some(nodes), Some(edges), false);
+        let mut state = RunnerState::new(Some(Arc::clone(dag)), Some(nodes), Some(edges), false);
+        state.set_execution_namespace(test_execution_namespace());
         RunnerExecutor::new(Arc::clone(dag), state, action_results, None)
     }
 
@@ -1739,7 +1752,7 @@ mod tests {
     }
 
     fn build_executor_at_entry(dag: &Arc<DAG>) -> (RunnerExecutor, Uuid) {
-        let mut state = RunnerState::new(Some(Arc::clone(dag)), None, None, false);
+        let mut state = test_runner_state(dag);
         let entry_template = dag.entry_node.as_ref().expect("dag entry node");
         let entry_exec = state
             .queue_template_node(entry_template, None)
@@ -2145,7 +2158,7 @@ fn main(input: [], output: [done]):
         ));
 
         let dag = Arc::new(dag);
-        let mut state = RunnerState::new(Some(dag.clone()), None, None, false);
+        let mut state = test_runner_state(&dag);
         let start_exec = state
             .queue_template_node(&action_start.id, None)
             .expect("queue");
@@ -2190,7 +2203,7 @@ fn main(input: [], output: [done]):
         ));
 
         let dag = Arc::new(dag);
-        let mut state = RunnerState::new(Some(dag.clone()), None, None, false);
+        let mut state = test_runner_state(&dag);
         let exec1 = state.queue_template_node(&action1.id, None).expect("queue");
         let executor = RunnerExecutor::new(dag.clone(), state, HashMap::new(), None);
 
@@ -2229,7 +2242,7 @@ fn main(input: [], output: [done]):
         ));
 
         let dag = Arc::new(dag);
-        let mut state = RunnerState::new(Some(dag.clone()), None, None, false);
+        let mut state = test_runner_state(&dag);
         let exec1 = state.queue_template_node(&action1.id, None).expect("queue");
 
         let mut action_results = HashMap::new();
@@ -2290,7 +2303,7 @@ fn main(input: [], output: [done]):
         ));
 
         let dag = Arc::new(dag);
-        let mut state = RunnerState::new(Some(dag.clone()), None, None, false);
+        let mut state = test_runner_state(&dag);
         let exec1 = state.queue_template_node(&action1.id, None).expect("queue");
         let mut executor = RunnerExecutor::new(dag.clone(), state, HashMap::new(), None);
 
@@ -2373,7 +2386,7 @@ fn main(input: [], output: [done]):
         ));
 
         let dag = Arc::new(dag);
-        let mut state = RunnerState::new(Some(dag.clone()), None, None, false);
+        let mut state = test_runner_state(&dag);
         let exec1 = state.queue_template_node(&action1.id, None).expect("queue");
 
         let mut action_results = HashMap::new();
@@ -2427,7 +2440,7 @@ fn main(input: [], output: [done]):
 
         dag.add_node(waymark_dag::DAGNode::ActionCall(action1.clone()));
         let dag = Arc::new(dag);
-        let mut state = RunnerState::new(Some(dag.clone()), None, None, false);
+        let mut state = test_runner_state(&dag);
         let exec1 = state.queue_template_node(&action1.id, None).expect("queue");
         let executor = RunnerExecutor::new(dag.clone(), state, HashMap::new(), None);
 
@@ -2472,7 +2485,7 @@ fn main(input: [], output: [done]):
         ));
 
         let dag = Arc::new(dag);
-        let mut state = RunnerState::new(Some(dag.clone()), None, None, false);
+        let mut state = test_runner_state(&dag);
         let exec1 = state.queue_template_node(&action1.id, None).expect("queue");
 
         let mut action_results = HashMap::new();
@@ -2514,7 +2527,7 @@ fn main(input: [], output: [done]):
         dag.add_node(waymark_dag::DAGNode::ActionCall(action1.clone()));
 
         let dag = Arc::new(dag);
-        let mut state = RunnerState::new(Some(dag.clone()), None, None, false);
+        let mut state = test_runner_state(&dag);
         let exec1 = state.queue_template_node(&action1.id, None).expect("queue");
         state.mark_running(exec1.node_id).expect("mark running");
 
@@ -2550,7 +2563,7 @@ fn main(input: [], output: [done]):
         dag.add_node(waymark_dag::DAGNode::ActionCall(action.clone()));
 
         let dag = Arc::new(dag);
-        let mut state = RunnerState::new(Some(dag.clone()), None, None, false);
+        let mut state = test_runner_state(&dag);
         let exec = state.queue_template_node(&action.id, None).expect("queue");
 
         let mut executor = RunnerExecutor::new(
@@ -2609,7 +2622,7 @@ fn main(input: [], output: [done]):
         dag.add_node(waymark_dag::DAGNode::ActionCall(action.clone()));
 
         let dag = Arc::new(dag);
-        let mut state = RunnerState::new(Some(dag.clone()), None, None, false);
+        let mut state = test_runner_state(&dag);
         let exec = state.queue_template_node(&action.id, None).expect("queue");
 
         let mut executor = RunnerExecutor::new(
@@ -2694,7 +2707,7 @@ fn main(input: [], output: [done]):
         ));
 
         let dag = Arc::new(dag);
-        let mut state = RunnerState::new(Some(dag.clone()), None, None, false);
+        let mut state = test_runner_state(&dag);
         let exec1 = state.queue_template_node(&action1.id, None).expect("queue");
 
         let mut action_results = HashMap::new();
@@ -2771,7 +2784,7 @@ fn main(input: [], output: [done]):
         ));
 
         let dag = Arc::new(dag);
-        let mut state = RunnerState::new(Some(dag.clone()), None, None, false);
+        let mut state = test_runner_state(&dag);
         let initial_exec = state
             .queue_template_node(&initial_action.id, None)
             .expect("queue");
@@ -2847,7 +2860,7 @@ fn main(input: [], output: [done]):
         ));
 
         let dag = Arc::new(dag);
-        let mut state = RunnerState::new(Some(dag.clone()), None, None, false);
+        let mut state = test_runner_state(&dag);
         let initial_exec = state
             .queue_template_node(&initial_action.id, None)
             .expect("queue");
@@ -2918,7 +2931,7 @@ fn main(input: [], output: [done]):
         }
 
         let dag = Arc::new(dag);
-        let mut state = RunnerState::new(Some(dag.clone()), None, None, false);
+        let mut state = test_runner_state(&dag);
         let mut exec_nodes: Vec<ExecutionNode> = Vec::new();
         exec_nodes.push(
             state
@@ -2979,7 +2992,7 @@ fn main(input: [], output: [done]):
         ));
 
         let dag = Arc::new(dag);
-        let mut state = RunnerState::new(Some(dag.clone()), None, None, false);
+        let mut state = test_runner_state(&dag);
         let exec1 = state.queue_template_node(&action1.id, None).expect("queue");
 
         let mut action_results = HashMap::new();

@@ -145,7 +145,9 @@ fn build_cases(base: i64) -> HashMap<String, BenchmarkCase> {
 }
 
 fn build_instance(case: &BenchmarkCase, workflow_version_id: Uuid) -> QueuedInstance {
+    let instance_id = Uuid::new_v4();
     let mut state = RunnerState::new(Some(Arc::clone(&case.dag)), None, None, false);
+    state.set_execution_namespace(instance_id);
     for (name, value) in &case.inputs {
         let expr = literal_from_json_value(value);
         let label = format!("input {name} = {value}");
@@ -168,7 +170,7 @@ fn build_instance(case: &BenchmarkCase, workflow_version_id: Uuid) -> QueuedInst
         entry_node: entry_exec.node_id,
         state: Some(state),
         action_results: HashMap::new(),
-        instance_id: Uuid::new_v4(),
+        instance_id,
         scheduled_at: None,
     }
 }

@@ -153,8 +153,10 @@ where
             .as_ref()
             .ok_or_else(|| "DAG has no entry node".to_string())?;
 
+        let instance_id = Uuid::new_v4();
         let mut state =
             waymark_runner_state::RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
+        state.set_execution_namespace(instance_id);
         if let Some(input_payload) = schedule.input_payload.as_deref() {
             let input_payload = crate::messages::decode_message(input_payload)
                 .map_err(|_| "failed to decode schedule input payload".to_string())?;
@@ -175,7 +177,6 @@ where
             .map_err(|err| err.0)?;
 
         // Create a queued instance
-        let instance_id = Uuid::new_v4();
         let queued = QueuedInstance {
             workflow_version_id: workflow.version_id,
             schedule_id: Some(schedule.id),

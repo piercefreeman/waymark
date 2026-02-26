@@ -1169,6 +1169,7 @@ fn build_queued_instance(
     initial_context: Option<proto::WorkflowArguments>,
 ) -> Result<QueuedInstance, String> {
     let mut state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
+    state.set_execution_namespace(instance_id);
 
     if let Some(context) = initial_context {
         let inputs = workflow_arguments_to_json_map(&context);

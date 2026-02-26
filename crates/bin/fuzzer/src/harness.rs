@@ -122,6 +122,7 @@ fn build_instance(
     base: i64,
 ) -> Result<QueuedInstance> {
     let mut state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
+    state.set_execution_namespace(instance_id);
     state
         .record_assignment(
             vec!["base".to_string()],
