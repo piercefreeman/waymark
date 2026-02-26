@@ -1,31 +1,31 @@
 [workspace]
 resolver = "3"
-members = ["crates/*"]
+members = ["crates/lib/*", "crates/bin/*", "crates/waymark"]
 
 [workspace.dependencies]
 waymark = { path = "crates/waymark" }
-waymark-backend-fault-injection = { path = "crates/backend-fault-injection" }
-waymark-backend-memory = { path = "crates/backend-memory" }
-waymark-backend-postgres = { path = "crates/backend-postgres" }
-waymark-backend-postgres-migrations = { path = "crates/backend-postgres-migrations" }
-waymark-backends-core = { path = "crates/backends-core" }
-waymark-core-backend = { path = "crates/core-backend" }
-waymark-dag = { path = "crates/dag" }
-waymark-garbage-collector-backend = { path = "crates/garbage-collector-backend" }
-waymark-integration-support = { path = "crates/integration-support" }
-waymark-ir-parser = { path = "crates/ir-parser" }
-waymark-observability = { path = "crates/observability" }
-waymark-observability-macros = { path = "crates/observability-macros" }
-waymark-proto = { path = "crates/proto" }
-waymark-runner = { path = "crates/runner" }
-waymark-runner-state = { path = "crates/runner-state" }
-waymark-scheduler-backend = { path = "crates/scheduler-backend" }
-waymark-scheduler-core = { path = "crates/scheduler-core" }
-waymark-test-support = { path = "crates/test-support" }
-waymark-webapp-backend = { path = "crates/webapp-backend" }
-waymark-webapp-core = { path = "crates/webapp-core" }
-waymark-worker-status-backend = { path = "crates/worker-status-backend" }
-waymark-workflow-registry-backend = { path = "crates/workflow-registry-backend" }
+waymark-backend-fault-injection = { path = "crates/lib/backend-fault-injection" }
+waymark-backend-memory = { path = "crates/lib/backend-memory" }
+waymark-backend-postgres = { path = "crates/lib/backend-postgres" }
+waymark-backend-postgres-migrations = { path = "crates/lib/backend-postgres-migrations" }
+waymark-backends-core = { path = "crates/lib/backends-core" }
+waymark-core-backend = { path = "crates/lib/core-backend" }
+waymark-dag = { path = "crates/lib/dag" }
+waymark-garbage-collector-backend = { path = "crates/lib/garbage-collector-backend" }
+waymark-integration-support = { path = "crates/lib/integration-support" }
+waymark-ir-parser = { path = "crates/lib/ir-parser" }
+waymark-observability = { path = "crates/lib/observability" }
+waymark-observability-macros = { path = "crates/lib/observability-macros" }
+waymark-proto = { path = "crates/lib/proto" }
+waymark-runner = { path = "crates/lib/runner" }
+waymark-runner-state = { path = "crates/lib/runner-state" }
+waymark-scheduler-backend = { path = "crates/lib/scheduler-backend" }
+waymark-scheduler-core = { path = "crates/lib/scheduler-core" }
+waymark-test-support = { path = "crates/lib/test-support" }
+waymark-webapp-backend = { path = "crates/lib/webapp-backend" }
+waymark-webapp-core = { path = "crates/lib/webapp-core" }
+waymark-worker-status-backend = { path = "crates/lib/worker-status-backend" }
+waymark-workflow-registry-backend = { path = "crates/lib/workflow-registry-backend" }
 
 anyhow = "1"
 async-trait = "0.1"

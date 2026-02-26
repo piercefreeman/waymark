@@ -1,4 +1,4 @@
-const PROTO_DIR: &str = "../../proto";
+const PROTO_DIR: &str = "../../../proto";
 
 fn if_feature_enabled(
     builder: tonic_build::Builder,
