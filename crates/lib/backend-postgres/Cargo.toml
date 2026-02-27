@@ -1,0 +1,39 @@
+[package]
+name = "waymark-backend-postgres"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+async-trait = { workspace = true }
+chrono = { workspace = true }
+rmp-serde = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sqlx = { workspace = true, features = ["uuid", "chrono"] }
+tokio = { workspace = true, features = ["macros"] }
+tracing = { workspace = true }
+uuid = { workspace = true }
+waymark-backend-postgres-migrations = { workspace = true }
+waymark-backends-core = { workspace = true }
+waymark-core-backend = { workspace = true }
+waymark-dag = { workspace = true }
+waymark-proto = { workspace = true }
+waymark-garbage-collector-backend = { workspace = true }
+waymark-observability = { workspace = true }
+waymark-runner = { workspace = true }
+waymark-runner-state = { workspace = true }
+waymark-scheduler-backend = { workspace = true }
+waymark-scheduler-core = { workspace = true }
+waymark-webapp-backend = { workspace = true }
+waymark-webapp-core = { workspace = true }
+waymark-worker-status-backend = { workspace = true }
+waymark-workflow-registry-backend = { workspace = true }
+prost = { workspace = true }
+
+[dev-dependencies]
+serial_test = { workspace = true }
+waymark-test-support = { workspace = true }
+waymark-ir-parser = { workspace = true }
+
+[features]
+trace = []

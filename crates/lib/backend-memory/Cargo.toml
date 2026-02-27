@@ -1,0 +1,37 @@
+[package]
+name = "waymark-backend-memory"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+async-trait = { workspace = true }
+chrono = { workspace = true }
+rmp-serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+waymark-backends-core = { workspace = true }
+waymark-core-backend = { workspace = true }
+waymark-garbage-collector-backend = { workspace = true, optional = true }
+waymark-scheduler-backend = { workspace = true, optional = true }
+waymark-scheduler-core = { workspace = true }
+waymark-worker-status-backend = { workspace = true }
+waymark-workflow-registry-backend = { workspace = true }
+waymark-webapp-backend = { workspace = true, optional = true }
+waymark-webapp-core = { workspace = true, optional = true }
+
+[features]
+default = [
+  "core-backend",
+  "worker-status-backend",
+  "workflow-registry-backend",
+  "scheduler-backend",
+  "garbage-collector-backend",
+  "webapp-backend",
+]
+
+core-backend = []
+garbage-collector-backend = ["dep:waymark-garbage-collector-backend"]
+scheduler-backend = ["dep:waymark-scheduler-backend"]
+worker-status-backend = []
+workflow-registry-backend = []
+webapp-backend = ["dep:waymark-webapp-backend", "dep:waymark-webapp-core"]

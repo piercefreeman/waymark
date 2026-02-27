@@ -1,0 +1,10 @@
+[package]
+name = "waymark-scheduler-backend"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+async-trait = { workspace = true }
+uuid = { workspace = true }
+waymark-backends-core = { workspace = true }
+waymark-scheduler-core = { workspace = true }

@@ -1,0 +1,24 @@
+[package]
+name = "waymark-runner"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+chrono = { workspace = true, features = ["serde"]  }
+rustc-hash = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+waymark-dag = { workspace = true }
+waymark-proto = { workspace = true }
+waymark-observability = { workspace = true }
+waymark-runner-state = { workspace = true }
+waymark-core-backend = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+waymark-ir-parser = { workspace = true }
+waymark-backend-memory = { workspace = true }
+
+[features]
+trace = []
