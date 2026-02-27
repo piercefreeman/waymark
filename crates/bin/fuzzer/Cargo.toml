@@ -1,0 +1,22 @@
+[package]
+name = "waymark-fuzzer"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true, features = ["derive", "env"] }
+proptest = { workspace = true }
+prost = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+uuid = { workspace = true, features = ["serde", "v4"] }
+tokio = { workspace = true }
+waymark = { workspace = true }
+waymark-dag = { workspace = true }
+waymark-proto = { workspace = true }
+waymark-ir-parser = { workspace = true }
+waymark-runner-state = { workspace = true }
+waymark-backend-memory = { workspace = true }
+waymark-core-backend = { workspace = true }
+waymark-workflow-registry-backend = { workspace = true }

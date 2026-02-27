@@ -10,7 +10,7 @@ use tokio::sync::mpsc;
 use super::base::{
     ActionCompletion, ActionRequest, BaseWorkerPool, WorkerPoolError, error_to_value,
 };
-use crate::observability::obs;
+use waymark_observability::obs;
 
 pub type ActionCallable = Arc<
     dyn Fn(HashMap<String, Value>) -> BoxFuture<'static, Result<Value, WorkerPoolError>>

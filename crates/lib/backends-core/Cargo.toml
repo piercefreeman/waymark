@@ -1,0 +1,15 @@
+[package]
+name = "waymark-backends-core"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+sqlx = { workspace = true, optional = true }
+
+[features]
+default = ["sqlx-error"]
+
+# TODO: this has to abstracted away since not all backends will use sqlx.
+sqlx-error = ["dep:sqlx"]

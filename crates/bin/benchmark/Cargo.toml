@@ -1,0 +1,31 @@
+[package]
+name = "waymark-benchmark"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+waymark-core-backend = { workspace = true }
+waymark-dag = { workspace = true }
+waymark-ir-conversions = { workspace = true }
+waymark-observability = { workspace = true }
+waymark-observability-setup = { workspace = true }
+waymark-proto = { workspace = true, features = ["serde", "client", "server"] }
+waymark-runner-state = { workspace = true }
+waymark-integration-support = { workspace = true }
+waymark-backend-postgres = { workspace = true }
+waymark-backend-postgres-migrations = { workspace = true }
+waymark-workflow-registry-backend = { workspace = true }
+waymark-smoke-sources = { workspace = true }
+waymark = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+prost = { workspace = true }
+rand = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+sqlx = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tracing = { workspace = true }
+uuid = { workspace = true }
+
+[features]
+trace = ["waymark-observability-setup/trace"]

@@ -1,6 +1,6 @@
 //! Pretty-printer for IR AST structures.
 
-use crate::messages::ast as ir;
+use waymark_proto::ast as ir;
 const DEFAULT_INDENT: &str = "    ";
 
 /// Render IR AST nodes into a source-like representation.
@@ -569,7 +569,7 @@ pub fn format_program(program: &ir::Program) -> String {
 #[cfg(test)]
 mod tests {
     use super::{DEFAULT_INDENT, format_program};
-    use crate::waymark_core::ir_parser::IRParser;
+    use waymark_ir_parser::IRParser;
 
     #[test]
     fn test_format_program_happy_path() {
