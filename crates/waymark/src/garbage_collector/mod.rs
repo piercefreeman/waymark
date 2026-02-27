@@ -2,4 +2,4 @@
 
 mod task;
 
-pub use task::{GarbageCollectorConfig, GarbageCollectorTask, spawn_garbage_collector};
+pub use task::{GarbageCollectorConfig, GarbageCollectorTask};

@@ -1517,9 +1517,9 @@ checksum = "f52b00d39961fc5b2736ea853c9cc86238e165017a493d1d5c8eac6bdc4cc273"
 
 [[package]]
 name = "metrics"
-version = "0.24.2"
+version = "0.24.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25dea7ac8057892855ec285c440160265225438c3c45072613c25a4b26e98ef5"
+checksum = "5d5312e9ba3771cfa961b585728215e3d972c950a3eed9252aa093d6301277e8"
 dependencies = [
  "ahash",
  "portable-atomic",
@@ -1847,9 +1847,9 @@ checksum = "7edddbd0b52d732b21ad9a5fab5c704c14cd949e5e9a1ec5929a24fded1b904c"
 
 [[package]]
 name = "portable-atomic"
-version = "1.11.1"
+version = "1.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f84267b20a16ea918e43c6a88433c2d54fa145c92a811b5b047ccbe153674483"
+checksum = "c33a9471896f1c69cecef8d20cbe2f7accd12527ce60845ff44c153bb2a21b49"
 
 [[package]]
 name = "potential_utf"
@@ -2529,7 +2529,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "smallvec",
- "thiserror 2.0.17",
+ "thiserror",
  "tokio",
  "tokio-stream",
  "tracing",
@@ -2614,7 +2614,7 @@ dependencies = [
  "smallvec",
  "sqlx-core",
  "stringprep",
- "thiserror 2.0.17",
+ "thiserror",
  "tracing",
  "uuid",
  "whoami",
@@ -2653,7 +2653,7 @@ dependencies = [
  "smallvec",
  "sqlx-core",
  "stringprep",
- "thiserror 2.0.17",
+ "thiserror",
  "tracing",
  "uuid",
  "whoami",
@@ -2679,7 +2679,7 @@ dependencies = [
  "serde",
  "serde_urlencoded",
  "sqlx-core",
- "thiserror 2.0.17",
+ "thiserror",
  "tracing",
  "url",
  "uuid",
@@ -2785,31 +2785,11 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "1.0.69"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6aaf5339b578ea85b50e080feb250a3e8ae8cfcdff9a461c9ec2904bc923f52"
-dependencies = [
- "thiserror-impl 1.0.69",
-]
-
-[[package]]
-name = "thiserror"
 version = "2.0.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f63587ca0f12b72a0600bcba1d40081f830876000bb46dd2337a3051618f4fc8"
 dependencies = [
- "thiserror-impl 2.0.17",
-]
-
-[[package]]
-name = "thiserror-impl"
-version = "1.0.69"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4fee6c4efc90059e10f81e6d42c60a18f76588c3d74cb83a0b242a2b6c7504c1"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
+ "thiserror-impl",
 ]
 
 [[package]]
@@ -3375,9 +3355,10 @@ dependencies = [
  "sha2",
  "sqlx",
  "tera",
- "thiserror 1.0.69",
+ "thiserror",
  "tokio",
  "tokio-stream",
+ "tokio-util",
  "tonic 0.11.0",
  "tonic-health",
  "tower 0.5.2",
@@ -3385,9 +3366,126 @@ dependencies = [
  "tracing-chrome",
  "tracing-subscriber",
  "uuid",
+ "waymark-backend-fault-injection",
+ "waymark-backend-memory",
+ "waymark-backend-postgres",
+ "waymark-backend-postgres-migrations",
+ "waymark-backends-core",
+ "waymark-core-backend",
  "waymark-dag",
- "waymark-observability-macros",
+ "waymark-garbage-collector-backend",
+ "waymark-integration-support",
+ "waymark-ir-conversions",
+ "waymark-ir-parser",
+ "waymark-observability",
+ "waymark-observability-setup",
  "waymark-proto",
+ "waymark-runner",
+ "waymark-runner-state",
+ "waymark-scheduler-backend",
+ "waymark-scheduler-core",
+ "waymark-smoke-sources",
+ "waymark-test-support",
+ "waymark-webapp-backend",
+ "waymark-webapp-core",
+ "waymark-worker-status-backend",
+ "waymark-workflow-registry-backend",
+]
+
+[[package]]
+name = "waymark-backend-fault-injection"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "uuid",
+ "waymark-backend-memory",
+ "waymark-backends-core",
+ "waymark-core-backend",
+ "waymark-workflow-registry-backend",
+]
+
+[[package]]
+name = "waymark-backend-memory"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "rmp-serde",
+ "serde_json",
+ "uuid",
+ "waymark-backends-core",
+ "waymark-core-backend",
+ "waymark-garbage-collector-backend",
+ "waymark-scheduler-backend",
+ "waymark-scheduler-core",
+ "waymark-webapp-backend",
+ "waymark-webapp-core",
+ "waymark-worker-status-backend",
+ "waymark-workflow-registry-backend",
+]
+
+[[package]]
+name = "waymark-backend-postgres"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "prost 0.12.6",
+ "rmp-serde",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "sqlx",
+ "tokio",
+ "tracing",
+ "uuid",
+ "waymark-backend-postgres-migrations",
+ "waymark-backends-core",
+ "waymark-core-backend",
+ "waymark-dag",
+ "waymark-garbage-collector-backend",
+ "waymark-ir-parser",
+ "waymark-observability",
+ "waymark-proto",
+ "waymark-runner",
+ "waymark-runner-state",
+ "waymark-scheduler-backend",
+ "waymark-scheduler-core",
+ "waymark-test-support",
+ "waymark-webapp-backend",
+ "waymark-webapp-core",
+ "waymark-worker-status-backend",
+ "waymark-workflow-registry-backend",
+]
+
+[[package]]
+name = "waymark-backend-postgres-migrations"
+version = "0.1.0"
+dependencies = [
+ "sqlx",
+]
+
+[[package]]
+name = "waymark-backends-core"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "sqlx",
+ "thiserror",
+]
+
+[[package]]
+name = "waymark-core-backend"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "serde",
+ "serde_json",
+ "uuid",
+ "waymark-backends-core",
+ "waymark-dag",
+ "waymark-runner-state",
 ]
 
 [[package]]
@@ -3396,9 +3494,9 @@ version = "0.1.0"
 dependencies = [
  "rustc-hash",
  "serde",
- "thiserror 1.0.69",
+ "thiserror",
  "uuid",
- "waymark",
+ "waymark-ir-parser",
  "waymark-proto",
 ]
 
@@ -3415,7 +3513,55 @@ dependencies = [
  "tokio",
  "uuid",
  "waymark",
+ "waymark-backend-memory",
+ "waymark-core-backend",
  "waymark-dag",
+ "waymark-ir-parser",
+ "waymark-runner-state",
+ "waymark-workflow-registry-backend",
+]
+
+[[package]]
+name = "waymark-garbage-collector-backend"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "waymark-backends-core",
+]
+
+[[package]]
+name = "waymark-integration-support"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "sqlx",
+ "tokio",
+ "waymark-backend-postgres-migrations",
+]
+
+[[package]]
+name = "waymark-ir-conversions"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "waymark-proto",
+]
+
+[[package]]
+name = "waymark-ir-parser"
+version = "0.1.0"
+dependencies = [
+ "regex",
+ "waymark-proto",
+]
+
+[[package]]
+name = "waymark-observability"
+version = "0.1.0"
+dependencies = [
+ "tracing",
+ "waymark-observability-macros",
 ]
 
 [[package]]
@@ -3428,6 +3574,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-observability-setup"
+version = "0.1.0"
+dependencies = [
+ "console-subscriber",
+ "tracing-chrome",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "waymark-proto"
 version = "0.1.0"
 dependencies = [
@@ -3436,6 +3591,113 @@ dependencies = [
  "serde",
  "tonic 0.11.0",
  "tonic-build",
+]
+
+[[package]]
+name = "waymark-runner"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "rustc-hash",
+ "serde_json",
+ "thiserror",
+ "tracing",
+ "uuid",
+ "waymark-backend-memory",
+ "waymark-core-backend",
+ "waymark-dag",
+ "waymark-ir-parser",
+ "waymark-observability",
+ "waymark-proto",
+ "waymark-runner-state",
+]
+
+[[package]]
+name = "waymark-runner-state"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "uuid",
+ "waymark-dag",
+ "waymark-proto",
+]
+
+[[package]]
+name = "waymark-scheduler-backend"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "uuid",
+ "waymark-backends-core",
+ "waymark-scheduler-core",
+]
+
+[[package]]
+name = "waymark-scheduler-core"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "cron",
+ "rand 0.8.5",
+ "serde",
+ "uuid",
+]
+
+[[package]]
+name = "waymark-smoke-sources"
+version = "0.1.0"
+dependencies = [
+ "waymark-ir-parser",
+ "waymark-proto",
+]
+
+[[package]]
+name = "waymark-test-support"
+version = "0.1.0"
+dependencies = [
+ "sqlx",
+ "waymark-integration-support",
+]
+
+[[package]]
+name = "waymark-webapp-backend"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "uuid",
+ "waymark-backends-core",
+ "waymark-webapp-core",
+]
+
+[[package]]
+name = "waymark-webapp-core"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "uuid",
+]
+
+[[package]]
+name = "waymark-worker-status-backend"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "uuid",
+ "waymark-backends-core",
+]
+
+[[package]]
+name = "waymark-workflow-registry-backend"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "uuid",
+ "waymark-backends-core",
 ]
 
 [[package]]

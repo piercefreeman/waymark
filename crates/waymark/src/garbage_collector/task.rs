@@ -5,10 +5,8 @@
 use std::time::Duration;
 
 use chrono::Utc;
-use tokio::sync::watch;
 use tracing::{debug, error, info};
-
-use crate::backends::{GarbageCollectionResult, GarbageCollectorBackend};
+use waymark_garbage_collector_backend::{GarbageCollectionResult, GarbageCollectorBackend};
 
 /// Configuration for the garbage collector task.
 #[derive(Debug, Clone)]
@@ -33,29 +31,16 @@ impl Default for GarbageCollectorConfig {
 
 /// Background garbage collector task.
 pub struct GarbageCollectorTask<B> {
-    backend: B,
-    config: GarbageCollectorConfig,
-    shutdown_rx: watch::Receiver<bool>,
+    pub backend: B,
+    pub config: GarbageCollectorConfig,
 }
 
 impl<B> GarbageCollectorTask<B>
 where
     B: GarbageCollectorBackend + Clone + Send + Sync + 'static,
 {
-    pub fn new(
-        backend: B,
-        config: GarbageCollectorConfig,
-        shutdown_rx: watch::Receiver<bool>,
-    ) -> Self {
-        Self {
-            backend,
-            config,
-            shutdown_rx,
-        }
-    }
-
     /// Run the garbage collector loop.
-    pub async fn run(mut self) {
+    pub async fn run(self, shutdown: tokio_util::sync::WaitForCancellationFutureOwned) {
         info!(
             interval_ms = self.config.interval.as_millis(),
             batch_size = self.config.batch_size,
@@ -63,13 +48,13 @@ where
             "garbage collector task started"
         );
 
+        let mut shutdown = std::pin::pin!(shutdown);
+
         loop {
             tokio::select! {
-                _ = self.shutdown_rx.changed() => {
-                    if *self.shutdown_rx.borrow() {
-                        info!("garbage collector task shutting down");
-                        break;
-                    }
+                _ = &mut shutdown => {
+                    info!("garbage collector task shutting down");
+                    break;
                 }
                 _ = tokio::time::sleep(self.config.interval) => {
                     if let Err(err) = self.collect_until_drained().await {
@@ -126,20 +111,6 @@ where
     }
 }
 
-/// Convenience function to spawn a garbage collector task.
-pub fn spawn_garbage_collector<B>(
-    backend: B,
-    config: GarbageCollectorConfig,
-) -> (tokio::task::JoinHandle<()>, watch::Sender<bool>)
-where
-    B: GarbageCollectorBackend + Clone + Send + Sync + 'static,
-{
-    let (shutdown_tx, shutdown_rx) = watch::channel(false);
-    let task = GarbageCollectorTask::new(backend, config, shutdown_rx);
-    let handle = tokio::spawn(task.run());
-    (handle, shutdown_tx)
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::VecDeque;
@@ -148,9 +119,9 @@ mod tests {
 
     use chrono::{Duration as ChronoDuration, Utc};
     use tonic::async_trait;
+    use waymark_backends_core::BackendResult;
 
     use super::*;
-    use crate::backends::{BackendResult, GarbageCollectorBackend};
 
     #[derive(Clone)]
     struct StubGarbageCollectorBackend {
@@ -199,16 +170,14 @@ mod tests {
             observed_limits: Arc::new(Mutex::new(Vec::new())),
             observed_cutoffs: Arc::new(Mutex::new(Vec::new())),
         };
-        let (_shutdown_tx, shutdown_rx) = watch::channel(false);
-        let task = GarbageCollectorTask::new(
-            backend.clone(),
-            GarbageCollectorConfig {
+        let task = GarbageCollectorTask {
+            backend: backend.clone(),
+            config: GarbageCollectorConfig {
                 interval: Duration::from_secs(60),
                 batch_size: 2,
                 retention: Duration::from_secs(24 * 60 * 60),
             },
-            shutdown_rx,
-        );
+        };
 
         task.collect_until_drained()
             .await
@@ -229,16 +198,14 @@ mod tests {
             observed_limits: Arc::new(Mutex::new(Vec::new())),
             observed_cutoffs: Arc::new(Mutex::new(Vec::new())),
         };
-        let (_shutdown_tx, shutdown_rx) = watch::channel(false);
-        let task = GarbageCollectorTask::new(
-            backend.clone(),
-            GarbageCollectorConfig {
+        let task = GarbageCollectorTask {
+            backend: backend.clone(),
+            config: GarbageCollectorConfig {
                 interval: Duration::from_secs(60),
                 batch_size: 3,
                 retention: Duration::from_secs(24 * 60 * 60),
             },
-            shutdown_rx,
-        );
+        };
 
         let before = Utc::now();
         task.collect_until_drained()

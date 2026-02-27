@@ -17,8 +17,28 @@ name = "smoke"
 path = "src/bin/smoke.rs"
 
 [dependencies]
-waymark-proto = { workspace = true, features = ["serde", "client", "server"] }
+waymark-core-backend = { workspace = true }
 waymark-dag = { workspace = true }
+waymark-ir-conversions = { workspace = true }
+waymark-ir-parser = { workspace = true }
+waymark-observability = { workspace = true }
+waymark-observability-setup = { workspace = true }
+waymark-proto = { workspace = true, features = ["serde", "client", "server"] }
+waymark-runner = { workspace = true }
+waymark-runner-state = { workspace = true }
+waymark-webapp-backend = { workspace = true }
+waymark-webapp-core = { workspace = true }
+waymark-garbage-collector-backend = { workspace = true }
+waymark-scheduler-backend = { workspace = true }
+waymark-scheduler-core = { workspace = true }
+waymark-backends-core = { workspace = true }
+waymark-integration-support = { workspace = true }
+waymark-backend-postgres = { workspace = true }
+waymark-backend-postgres-migrations = { workspace = true }
+waymark-workflow-registry-backend = { workspace = true }
+waymark-worker-status-backend = { workspace = true }
+waymark-backend-memory = { workspace = true }
+waymark-smoke-sources = { workspace = true }
 
 anyhow = "1"
 axum = "0.8"
@@ -39,9 +59,10 @@ sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-r
 tera = "1"
 uuid = { version = "1", features = ["serde", "v4"] }
 dotenvy = "0.15"
-thiserror = "1"
+thiserror = { workspace = true }
 tokio = { version = "1", features = ["full"] }
 tokio-stream = { version = "0.1", features = ["net"] }
+tokio-util = "0.7"
 tonic = { version = "0.11", features = ["transport"] }
 tonic-health = "0.11"
 tracing = "0.1"
@@ -49,14 +70,17 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-chrome = "0.7"
 metrics = "0.24"
 regex = "1"
-waymark-observability-macros = { path = "../observability-macros" }
 console-subscriber = { version = "0.5", optional = true }
 
 [features]
-trace = []
+trace = ["waymark-observability-setup/trace"]
 observability = ["trace", "dep:console-subscriber"]
 
 [dev-dependencies]
+waymark-backend-fault-injection = { workspace = true }
+waymark-backend-memory = { workspace = true }
+waymark-test-support = { workspace = true }
+
 serial_test = "2"
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"

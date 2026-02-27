@@ -29,14 +29,13 @@ use tokio::process::{Child, Command};
 use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use uuid::Uuid;
-use waymark::backends::{
-    PostgresBackend, QueuedInstance, WorkflowRegistration, WorkflowRegistryBackend,
-};
-use waymark::db;
 use waymark::messages::ast as ir;
-use waymark::waymark_core::ir_parser::parse_program;
-use waymark::waymark_core::runner::RunnerState;
+use waymark_backend_postgres::PostgresBackend;
+use waymark_core_backend::QueuedInstance;
 use waymark_dag::{DAG, convert_to_dag};
+use waymark_ir_parser::parse_program;
+use waymark_runner_state::RunnerState;
+use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBackend as _};
 
 const DEFAULT_DSN: &str = "postgresql://waymark:waymark@127.0.0.1:5433/waymark";
 const DEFAULT_WORKFLOW_NAME: &str = "waymark_soak_timeout_mix_v1";
@@ -287,7 +286,7 @@ async fn main() -> Result<()> {
     }
 
     let pool = wait_for_database(&args.dsn, DB_READY_TIMEOUT).await?;
-    db::run_migrations(&pool)
+    waymark_backend_postgres_migrations::run(&pool)
         .await
         .context("run migrations before soak")?;
 

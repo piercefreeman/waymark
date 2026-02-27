@@ -29,18 +29,23 @@ use tracing::{debug, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use uuid::Uuid;
 
-use waymark::backends::{
-    ActionDone, BackendError, BackendResult, CoreBackend, GraphUpdate, InstanceDone,
-    InstanceLockStatus, LockClaim, PostgresBackend, QueuedInstance, QueuedInstanceBatch,
-    SchedulerBackend, WorkflowRegistration, WorkflowRegistryBackend, WorkflowVersion,
-};
-use waymark::db;
 use waymark::messages::{self, ast as ir, proto};
-use waymark::scheduler::{CreateScheduleParams, ScheduleId, ScheduleStatus, ScheduleType};
 use waymark::waymark_core::runloop::{RunLoop, RunLoopSupervisorConfig};
-use waymark::waymark_core::runner::RunnerState;
 use waymark::workers::{ActionCompletion, ActionRequest, BaseWorkerPool, WorkerPoolError};
+use waymark_backend_postgres::PostgresBackend;
+use waymark_backends_core::{BackendError, BackendResult};
+use waymark_core_backend::{
+    ActionDone, CoreBackend, GraphUpdate, InstanceDone, InstanceLockStatus, LockClaim,
+    QueuedInstance, QueuedInstanceBatch,
+};
 use waymark_dag::convert_to_dag;
+use waymark_ir_conversions::literal_from_json_value;
+use waymark_runner_state::RunnerState;
+use waymark_scheduler_backend::SchedulerBackend as _;
+use waymark_scheduler_core::{CreateScheduleParams, ScheduleId, ScheduleStatus, ScheduleType};
+use waymark_workflow_registry_backend::{
+    WorkflowRegistration, WorkflowRegistryBackend, WorkflowVersion,
+};
 
 const DEFAULT_GRPC_ADDR: &str = "127.0.0.1:24117";
 
@@ -52,7 +57,7 @@ struct WorkflowStore {
 impl WorkflowStore {
     async fn connect(dsn: &str) -> Result<Self> {
         let pool = PgPool::connect(dsn).await?;
-        db::run_migrations(&pool).await?;
+        waymark_backend_postgres_migrations::run(&pool).await?;
         let backend = PostgresBackend::new(pool);
         Ok(Self { backend })
     }
@@ -1166,7 +1171,7 @@ fn build_queued_instance(
     if let Some(context) = initial_context {
         let inputs = workflow_arguments_to_json_map(&context);
         for (name, value) in inputs {
-            let expr = literal_from_value(&value);
+            let expr = literal_from_json_value(&value);
             let label = format!("input {name} = {value}");
             let _ = state
                 .record_assignment(vec![name.clone()], &expr, None, Some(label))
@@ -1206,67 +1211,6 @@ fn workflow_arguments_to_json_map(args: &proto::WorkflowArguments) -> HashMap<St
         }
     }
     map
-}
-
-fn literal_from_value(value: &Value) -> ir::Expr {
-    match value {
-        Value::Bool(value) => ir::Expr {
-            kind: Some(ir::expr::Kind::Literal(ir::Literal {
-                value: Some(ir::literal::Value::BoolValue(*value)),
-            })),
-            span: None,
-        },
-        Value::Number(number) => {
-            if let Some(value) = number.as_i64() {
-                ir::Expr {
-                    kind: Some(ir::expr::Kind::Literal(ir::Literal {
-                        value: Some(ir::literal::Value::IntValue(value)),
-                    })),
-                    span: None,
-                }
-            } else {
-                ir::Expr {
-                    kind: Some(ir::expr::Kind::Literal(ir::Literal {
-                        value: Some(ir::literal::Value::FloatValue(
-                            number.as_f64().unwrap_or(0.0),
-                        )),
-                    })),
-                    span: None,
-                }
-            }
-        }
-        Value::String(value) => ir::Expr {
-            kind: Some(ir::expr::Kind::Literal(ir::Literal {
-                value: Some(ir::literal::Value::StringValue(value.clone())),
-            })),
-            span: None,
-        },
-        Value::Array(items) => ir::Expr {
-            kind: Some(ir::expr::Kind::List(ir::ListExpr {
-                elements: items.iter().map(literal_from_value).collect(),
-            })),
-            span: None,
-        },
-        Value::Object(map) => {
-            let entries = map
-                .iter()
-                .map(|(key, value)| ir::DictEntry {
-                    key: Some(literal_from_value(&Value::String(key.clone()))),
-                    value: Some(literal_from_value(value)),
-                })
-                .collect();
-            ir::Expr {
-                kind: Some(ir::expr::Kind::Dict(ir::DictExpr { entries })),
-                span: None,
-            }
-        }
-        Value::Null => ir::Expr {
-            kind: Some(ir::expr::Kind::Literal(ir::Literal {
-                value: Some(ir::literal::Value::IsNone(true)),
-            })),
-            span: None,
-        },
-    }
 }
 
 fn proto_schedule_type(value: i32) -> Option<ScheduleType> {
