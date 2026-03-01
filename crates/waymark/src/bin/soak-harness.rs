@@ -432,7 +432,7 @@ async fn boot_postgres() -> Result<()> {
     let status = Command::new("docker")
         .arg("compose")
         .arg("-f")
-        .arg("../../docker-compose.yml")
+        .arg("../../../docker-compose.yml")
         .arg("up")
         .arg("-d")
         .arg("postgres")
