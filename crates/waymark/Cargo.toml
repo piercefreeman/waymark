@@ -42,6 +42,7 @@ dotenvy = "0.15"
 thiserror = { workspace = true }
 tokio = { version = "1", features = ["full"] }
 tokio-stream = { version = "0.1", features = ["net"] }
+tokio-util = "0.7"
 tonic = { version = "0.11", features = ["transport"] }
 tonic-health = "0.11"
 tracing = "0.1"

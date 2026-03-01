@@ -7,7 +7,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::Value;
-use tokio::sync::watch;
 use tracing::{debug, error, info};
 use uuid::Uuid;
 
@@ -45,48 +44,32 @@ impl Default for SchedulerConfig {
 
 /// Background scheduler task.
 pub struct SchedulerTask<B> {
-    backend: B,
-    config: SchedulerConfig,
-    shutdown_rx: watch::Receiver<bool>,
+    pub backend: B,
+    pub config: SchedulerConfig,
     /// Function to get the DAG for a workflow.
     /// This should look up the workflow definition and return its DAG.
-    dag_resolver: DagResolver,
+    pub dag_resolver: DagResolver,
 }
 
 impl<B> SchedulerTask<B>
 where
     B: CoreBackend + SchedulerBackend + Clone + Send + Sync + 'static,
 {
-    /// Create a new scheduler task.
-    pub fn new(
-        backend: B,
-        config: SchedulerConfig,
-        shutdown_rx: watch::Receiver<bool>,
-        dag_resolver: DagResolver,
-    ) -> Self {
-        Self {
-            backend,
-            config,
-            shutdown_rx,
-            dag_resolver,
-        }
-    }
-
     /// Run the scheduler loop.
-    pub async fn run(mut self) {
+    pub async fn run(self, shutdown: tokio_util::sync::WaitForCancellationFutureOwned) {
         info!(
             poll_interval_ms = self.config.poll_interval.as_millis(),
             batch_size = self.config.batch_size,
             "scheduler task started"
         );
 
+        let mut shutdown = std::pin::pin!(shutdown);
+
         loop {
             tokio::select! {
-                _ = self.shutdown_rx.changed() => {
-                    if *self.shutdown_rx.borrow() {
-                        info!("scheduler task shutting down");
-                        break;
-                    }
+                _ = &mut shutdown => {
+                    info!("scheduler task shutting down");
+                    break;
                 }
                 _ = tokio::time::sleep(self.config.poll_interval) => {
                     if let Err(e) = self.poll_and_fire().await {
@@ -287,21 +270,6 @@ fn literal_from_json_value(value: &Value) -> ir::Expr {
     }
 }
 
-/// Convenience function to spawn a scheduler task.
-pub fn spawn_scheduler<B>(
-    backend: B,
-    config: SchedulerConfig,
-    dag_resolver: DagResolver,
-) -> (tokio::task::JoinHandle<()>, watch::Sender<bool>)
-where
-    B: CoreBackend + SchedulerBackend + Clone + Send + Sync + 'static,
-{
-    let (shutdown_tx, shutdown_rx) = watch::channel(false);
-    let task = SchedulerTask::new(backend, config, shutdown_rx, dag_resolver);
-    let handle = tokio::spawn(task.run());
-    (handle, shutdown_tx)
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::VecDeque;
@@ -339,7 +307,6 @@ mod tests {
     async fn scheduler_fire_schedule_applies_input_payload_to_state() {
         let queue = Arc::new(Mutex::new(VecDeque::new()));
         let backend = MemoryBackend::with_queue(queue);
-        let (_shutdown_tx, shutdown_rx) = watch::channel(false);
 
         let source = r#"
 fn main(input: [number], output: [result]):
@@ -362,12 +329,11 @@ fn main(input: [number], output: [result]):
             }
         });
 
-        let scheduler = SchedulerTask::new(
-            backend.clone(),
-            SchedulerConfig::default(),
-            shutdown_rx,
+        let scheduler = SchedulerTask {
+            backend: backend.clone(),
+            config: SchedulerConfig::default(),
             dag_resolver,
-        );
+        };
         SchedulerBackend::upsert_schedule(
             &backend,
             &CreateScheduleParams {
