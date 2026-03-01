@@ -7,7 +7,7 @@
 //! 3. If not found, spawns a new server and outputs its port
 //!
 //! Usage:
-//!   boot-waymark-singleton [--port-file <path>]
+//!   waymark-boot-singleton [--port-file <path>]
 //!
 //! The port file will contain the gRPC port number on success.
 

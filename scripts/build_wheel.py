@@ -28,8 +28,8 @@ class EntryPoint:
 
 ENTRYPOINTS: Sequence[EntryPoint] = (
     EntryPoint("waymark-bridge", "waymark-bridge"),
-    EntryPoint("boot-waymark-singleton", "boot-waymark-singleton"),
-    EntryPoint("start-workers", "start-workers"),
+    EntryPoint("waymark-boot-singleton", "waymark-boot-singleton"),
+    EntryPoint("waymark-start-workers", "waymark-start-workers"),
 )
 
 SCRIPT_ALIASES: dict[str, tuple[str, ...]] = {}

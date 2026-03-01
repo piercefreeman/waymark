@@ -6,8 +6,8 @@
 waymark workflow. This is intended to show in miniature what it would take to actually deploy a background task cluster to production:
 
 `docker-compose.yml` starts Postgres, a `daemons` container (running
-`start-workers`), and a `webapp` container that serves the FastAPI UI and boots
-its own `waymark-bridge` automatically via the Python client bridge.
+`waymark-start-workers`), and a `webapp` container that serves the FastAPI UI
+and boots its own `waymark-bridge` automatically via the Python client bridge.
 
 Our Dockerfile is a bit more complicated than you would need, because we actually run it against our locally build waymark wheel. In your project you can accomplish this by just `uv add waymark`.
 
@@ -32,8 +32,9 @@ Environment notes:
 - `webapp` relies on the default waymark behavior of booting a singleton server
   inside the container whenever a workflow is invoked, so no extra env vars are
   required.
-- `daemons` runs `start-workers` with `WAYMARK_USER_MODULE=example_app.workflows`
-  so the worker dispatcher preloads the module that defines the sample actions.
+- `daemons` runs `waymark-start-workers` with
+  `WAYMARK_USER_MODULE=example_app.workflows` so the worker dispatcher preloads
+  the module that defines the sample actions.
 
 ## Tests
 

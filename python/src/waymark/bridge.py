@@ -52,7 +52,7 @@ def _boot_command() -> list[str]:
     if override:
         LOGGER.debug("Using WAYMARK_BOOT_COMMAND=%s", override)
         return shlex.split(override)
-    binary = os.environ.get("WAYMARK_BOOT_BINARY", "boot-waymark-singleton")
+    binary = os.environ.get("WAYMARK_BOOT_BINARY", "waymark-boot-singleton")
     LOGGER.debug("Using WAYMARK_BOOT_BINARY=%s", binary)
     return [binary]
 
@@ -102,7 +102,7 @@ def _ensure_boot_binary(binary: str) -> str:
                 "cargo",
                 "build",
                 "--bin",
-                "boot-waymark-singleton",
+                "waymark-boot-singleton",
                 "--bin",
                 "waymark-bridge",
             ],
