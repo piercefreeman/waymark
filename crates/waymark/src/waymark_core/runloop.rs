@@ -134,58 +134,30 @@ enum PersistAck {
     },
 }
 
-async fn send_instance_message_with_stop(
-    instance_tx: &mpsc::Sender<InstanceMessage>,
-    message: InstanceMessage,
+async fn send_with_stop<T>(
+    tx: &mpsc::Sender<T>,
+    item: T,
     stop_notify: &Notify,
+    kind: &'static str,
 ) -> bool {
-    let send_fut = instance_tx.send(message);
+    let send_fut = tx.send(item);
     tokio::pin!(send_fut);
     let mut warned = false;
     loop {
         tokio::select! {
             res = &mut send_fut => {
                 if res.is_err() {
-                    warn!("instance poller receiver dropped");
+                    warn!(%kind, "receiver dropped");
                     return false;
                 }
                 return true;
             }
             _ = stop_notify.notified() => {
-                info!("instance poller stop notified during send");
+                info!(%kind, "sender stop notified during send");
                 return false;
             }
             _ = tokio::time::sleep(Duration::from_secs(2)), if !warned => {
-                warn!("instance poller send pending >2s");
-                warned = true;
-            }
-        }
-    }
-}
-
-async fn send_persist_command_with_stop(
-    persist_tx: &mpsc::Sender<PersistCommand>,
-    command: PersistCommand,
-    stop_notify: &Notify,
-) -> bool {
-    let send_fut = persist_tx.send(command);
-    tokio::pin!(send_fut);
-    let mut warned = false;
-    loop {
-        tokio::select! {
-            res = &mut send_fut => {
-                if res.is_err() {
-                    warn!("persistence task receiver dropped");
-                    return false;
-                }
-                return true;
-            }
-            _ = stop_notify.notified() => {
-                info!("persist sender stop notified during send");
-                return false;
-            }
-            _ = tokio::time::sleep(Duration::from_secs(2)), if !warned => {
-                warn!("persist command send pending >2s");
+                warn!(%kind, "send pending >2s");
                 warned = true;
             }
         }
@@ -930,31 +902,18 @@ impl RunLoop {
                     count = completions.len(),
                     "completion task sending completions"
                 );
-                let send_fut = completion_tx.send(completions);
-                tokio::pin!(send_fut);
-                let mut warned = false;
-                let mut stop_during_send = false;
-                let send_result = loop {
-                    tokio::select! {
-                        res = &mut send_fut => break Some(res),
-                        _ = completion_notify.notified() => {
-                            info!("completion task stop notified during send");
-                            stop_during_send = true;
-                            break None;
-                        }
-                        _ = tokio::time::sleep(Duration::from_secs(2)), if !warned => {
-                            warn!("completion task send pending >2s");
-                            warned = true;
-                        }
-                    }
-                };
-                if stop_during_send {
+
+                if !send_with_stop(
+                    &completion_tx,
+                    completions,
+                    &completion_notify,
+                    "completions",
+                )
+                .await
+                {
                     break;
                 }
-                if send_result.is_none() || send_result.unwrap().is_err() {
-                    warn!("completion task receiver dropped");
-                    break;
-                }
+
                 debug!("completion task sent completions");
             }
             info!("completion task exiting");
@@ -1005,7 +964,9 @@ impl RunLoop {
                     }
                     Err(err) => InstanceMessage::Error(err),
                 };
-                if !send_instance_message_with_stop(&instance_tx, message, &instance_notify).await {
+                if !send_with_stop(&instance_tx, message, &instance_notify, "instance message")
+                    .await
+                {
                     break;
                 }
                 if poll_interval > Duration::ZERO {
@@ -1680,7 +1641,7 @@ impl RunLoop {
                     .map(|update| update.instance_id)
                     .collect();
                 let batch_id = commit_barrier.register_batch(instance_ids.clone(), all_steps);
-                if !send_persist_command_with_stop(
+                if !send_with_stop(
                     &persist_tx,
                     PersistCommand {
                         batch_id,
@@ -1690,6 +1651,7 @@ impl RunLoop {
                         graph_updates,
                     },
                     &stop_notify,
+                    "persist command",
                 )
                 .await
                 {
@@ -2615,12 +2577,13 @@ fn main(input: [limit], output: [result]):
             let instance_tx = instance_tx.clone();
             let stop_notify = Arc::clone(&stop_notify);
             async move {
-                send_instance_message_with_stop(
+                send_with_stop(
                     &instance_tx,
                     InstanceMessage::Batch {
                         instances: Vec::new(),
                     },
                     &stop_notify,
+                    "instance message",
                 )
                 .await
             }
@@ -2641,12 +2604,13 @@ fn main(input: [limit], output: [result]):
     async fn test_instance_poller_send_succeeds_when_channel_has_capacity() {
         let (instance_tx, mut instance_rx) = mpsc::channel::<InstanceMessage>(1);
         let stop_notify = Notify::new();
-        let sent = send_instance_message_with_stop(
+        let sent = send_with_stop(
             &instance_tx,
             InstanceMessage::Batch {
                 instances: Vec::new(),
             },
             &stop_notify,
+            "instance message",
         )
         .await;
         assert!(sent);
