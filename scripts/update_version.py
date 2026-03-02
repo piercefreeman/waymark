@@ -31,10 +31,10 @@ def update_cargo_version(new_version: str) -> None:
     print(f"Updating Cargo.toml at {cargo_path}")
 
     filedata = toml.loads(cargo_path.read_text())
-    if "package" not in filedata:
-        raise ValueError("Cargo.toml missing [package] section")
+    if "workspace" not in filedata:
+        raise ValueError("Cargo.toml missing [workspace.package] section")
 
-    filedata["package"]["version"] = format_cargo_version(new_version)
+    filedata["workspace"]["package"]["version"] = format_cargo_version(new_version)
     cargo_path.write_text(toml.dumps(filedata))
 
 

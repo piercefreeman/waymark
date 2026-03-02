@@ -2,6 +2,9 @@
 resolver = "3"
 members = ["crates/lib/*", "crates/bin/*", "crates/waymark"]
 
+[workspace.package]
+version = "0.1.0"
+
 [workspace.dependencies]
 waymark = { path = "crates/waymark" }
 waymark-backend-fault-injection = { path = "crates/lib/backend-fault-injection" }
