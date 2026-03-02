@@ -93,11 +93,11 @@ benchmark-console:
 	tmux attach -t waymark-benchmark
 
 benchmark-console-run:
-	TOKIO_CONSOLE_BIND="$(BENCH_CONSOLE_BIND)" RUSTFLAGS="$(BENCH_RUSTFLAGS)" cargo build $(BENCH_PROFILE_FLAG) --bin benchmark --features observability
+	TOKIO_CONSOLE_BIND="$(BENCH_CONSOLE_BIND)" RUSTFLAGS="$(BENCH_RUSTFLAGS)" cargo build $(BENCH_PROFILE_FLAG) --bin waymark-benchmark --features observability
 	TOKIO_CONSOLE_BIND="$(BENCH_CONSOLE_BIND)" RUSTFLAGS="$(BENCH_RUSTFLAGS)" $(BENCH_BIN) $(BENCH_CONSOLE_ARGS) $(BENCH_ARGS)
 
 benchmark-trace:
-	cargo build $(BENCH_PROFILE_FLAG) --bin benchmark --features trace
+	cargo build $(BENCH_PROFILE_FLAG) --bin waymark-benchmark --features trace
 	@for max in $(BENCH_CONCURRENCY_SWEEP); do \
 		trace_file="$(BENCH_TRACE_PREFIX)-$${max}.json"; \
 		echo "=== BENCH: max_concurrent_instances=$${max} ==="; \
