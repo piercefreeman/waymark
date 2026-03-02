@@ -213,6 +213,11 @@ async fn main() -> Result<()> {
         None
     };
 
+    // Make sure we operate from the `python` subdir where the `uv` workspace
+    // resides.
+    std::env::set_current_dir(repo_root.join("python"))
+        .with_context(|| "cd to python dir to run from a uv workspace")?;
+
     let worker_pool = setup_worker_pool(&repo_root, &prepared_cases, args.worker_count)
         .await
         .context("start integration worker pool")?;
