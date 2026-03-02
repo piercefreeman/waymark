@@ -81,7 +81,7 @@ BENCH_RUSTFLAGS ?= --cfg tokio_unstable
 BENCH_CONCURRENCY_SWEEP ?= 25 100 250 1000
 BENCH_RELEASE ?= 0
 BENCH_PROFILE_FLAG := $(if $(filter 1 true yes,$(BENCH_RELEASE)),--release,)
-BENCH_BIN := target/$(if $(filter 1 true yes,$(BENCH_RELEASE)),release,debug)/benchmark
+BENCH_BIN := target/$(if $(filter 1 true yes,$(BENCH_RELEASE)),release,debug)/waymark-benchmark
 benchmark: benchmark-trace
 
 benchmark-console:
