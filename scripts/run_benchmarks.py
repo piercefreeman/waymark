@@ -712,13 +712,13 @@ class BenchmarkStatusLogger:
 
 def check_benchmark_available() -> bool:
     """Check if the benchmark binary exists."""
-    binary_path = Path("./target/release/benchmark")
+    binary_path = Path("./target/release/waymark-benchmark")
     if not binary_path.exists():
         return False
 
     try:
         result = subprocess.run(
-            ["./target/release/benchmark", "--help"],
+            ["./target/release/waymark-benchmark", "--help"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -735,7 +735,7 @@ def run_benchmark(
     status_interval_s: float = STATUS_LOG_INTERVAL_S,
 ) -> BenchmarkResult | BenchmarkError:
     """Run the benchmark binary with --json flag and parse the JSON output."""
-    cmd = ["./target/release/benchmark", "--json"] + args
+    cmd = ["./target/release/waymark-benchmark", "--json"] + args
     env = os.environ.copy()
     env["WAYMARK_DATABASE_URL"] = get_database_url()
 
