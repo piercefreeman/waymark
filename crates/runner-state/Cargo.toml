@@ -1,0 +1,16 @@
+[package]
+name = "waymark-runner-state"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+chrono = { workspace = true, features = ["serde", "clock"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+waymark-dag = { workspace = true }
+waymark-proto = { workspace = true }
+
+[features]
+trace = []

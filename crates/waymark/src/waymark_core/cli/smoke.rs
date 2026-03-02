@@ -11,18 +11,18 @@ use prost::Message;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
+use waymark_backend_memory::MemoryBackend;
+use waymark_core_backend::QueuedInstance;
+use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBackend as _};
 
-use crate::backends::{
-    MemoryBackend, QueuedInstance, WorkflowRegistration, WorkflowRegistryBackend,
-};
 use crate::messages::ast as ir;
 use crate::waymark_core::dag_viz::render_dag_image;
 use crate::waymark_core::ir_format::format_program;
-use crate::waymark_core::ir_parser::parse_program;
 use crate::waymark_core::runloop::{RunLoop, RunLoopSupervisorConfig};
-use crate::waymark_core::runner::RunnerState;
 use crate::workers::{PythonWorkerConfig, RemoteWorkerPool};
 use waymark_dag::convert_to_dag;
+use waymark_ir_parser::parse_program;
+use waymark_runner_state::RunnerState;
 
 #[derive(Parser, Debug)]
 #[command(name = "waymark-smoke", about = "Smoke check core-python components.")]

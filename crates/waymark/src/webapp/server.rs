@@ -16,12 +16,15 @@ use tera::{Context as TeraContext, Tera};
 use tokio::net::TcpListener;
 use tracing::{error, info};
 use uuid::Uuid;
+use waymark_webapp_backend::WebappBackend;
+use waymark_webapp_core::WorkerStatus;
 
-use super::types::{
+use waymark_webapp_core::{
     ActionLogsResponse, FilterValuesResponse, HealthResponse, InstanceExportInfo, TimelineEntry,
-    WebappConfig, WorkflowInstanceExport, WorkflowRunDataResponse,
+    WorkflowInstanceExport, WorkflowRunDataResponse,
 };
-use crate::backends::WebappBackend;
+
+use crate::WebappConfig;
 
 // Embed templates at compile time
 const TEMPLATE_BASE: &str = include_str!("../../templates/base.html");
@@ -367,7 +370,7 @@ async fn get_action_logs(
     let logs: Vec<_> = timeline
         .into_iter()
         .filter(|e| e.action_id == action_id_str)
-        .map(|e| super::types::ActionLogEntry {
+        .map(|e| waymark_webapp_core::ActionLogEntry {
             action_id: e.action_id,
             action_name: e.action_name,
             module_name: e.module_name,
@@ -736,7 +739,7 @@ struct InvocationRow {
 
 fn render_invocations_page(
     templates: &Tera,
-    instances: &[super::types::InstanceSummary],
+    instances: &[waymark_webapp_core::InstanceSummary],
     current_page: i64,
     total_pages: i64,
     search_query: Option<String>,
@@ -812,8 +815,8 @@ struct GraphNode {
 
 fn render_instance_detail_page(
     templates: &Tera,
-    instance: &super::types::InstanceDetail,
-    graph: Option<super::types::ExecutionGraphView>,
+    instance: &waymark_webapp_core::InstanceDetail,
+    graph: Option<waymark_webapp_core::ExecutionGraphView>,
 ) -> String {
     let graph_data = graph
         .as_ref()
@@ -843,8 +846,8 @@ fn render_instance_detail_page(
     render_template(templates, "workflow_run.html", &context)
 }
 
-fn build_graph_data(graph: &super::types::ExecutionGraphView) -> GraphData {
-    let action_nodes: Vec<&super::types::ExecutionNodeView> = graph
+fn build_graph_data(graph: &waymark_webapp_core::ExecutionGraphView) -> GraphData {
+    let action_nodes: Vec<&waymark_webapp_core::ExecutionNodeView> = graph
         .nodes
         .iter()
         .filter(|node| is_action_node(&node.node_type))
@@ -1055,7 +1058,7 @@ struct ScheduleRow {
 
 fn render_schedules_page(
     templates: &Tera,
-    schedules: &[super::types::ScheduleSummary],
+    schedules: &[waymark_webapp_core::ScheduleSummary],
     current_page: i64,
     total_pages: i64,
     total_count: i64,
@@ -1136,8 +1139,8 @@ struct ScheduleInvocationRow {
 
 fn render_schedule_detail_page(
     templates: &Tera,
-    schedule: &super::types::ScheduleDetail,
-    invocations: &[super::types::ScheduleInvocationSummary],
+    schedule: &waymark_webapp_core::ScheduleDetail,
+    invocations: &[waymark_webapp_core::ScheduleInvocationSummary],
     current_page: i64,
     total_pages: i64,
 ) -> String {
@@ -1234,11 +1237,7 @@ struct WorkerInstanceRowView {
     updated_at: String,
 }
 
-fn render_workers_page(
-    templates: &Tera,
-    statuses: &[super::WorkerStatus],
-    window_minutes: i64,
-) -> String {
+fn render_workers_page(templates: &Tera, statuses: &[WorkerStatus], window_minutes: i64) -> String {
     use crate::pool_status::PoolTimeSeries;
 
     // Build action rows
@@ -1373,13 +1372,15 @@ mod tests {
     use sqlx::postgres::PgPoolOptions;
     use tower::util::ServiceExt;
     use uuid::Uuid;
+    use waymark_backend_memory::MemoryBackend;
+    use waymark_backend_postgres::PostgresBackend;
+    use waymark_webapp_backend::WebappBackend;
+    use waymark_worker_status_backend::{WorkerStatusBackend as _, WorkerStatusUpdate};
 
     use super::{WebappState, build_graph_data, build_router, init_templates};
-    use crate::backends::{
-        MemoryBackend, PostgresBackend, WebappBackend, WorkerStatusBackend, WorkerStatusUpdate,
-    };
-    use crate::test_support::postgres_setup;
-    use crate::webapp::{ExecutionEdgeView, ExecutionGraphView, ExecutionNodeView};
+
+    use waymark_test_support::postgres_setup;
+    use waymark_webapp_core::{ExecutionEdgeView, ExecutionGraphView, ExecutionNodeView};
 
     #[test]
     fn build_graph_data_projects_internal_nodes_to_action_dependencies() {
