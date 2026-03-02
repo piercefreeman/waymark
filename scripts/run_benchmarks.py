@@ -1087,7 +1087,7 @@ def profile(
 @cli.command()
 @click.option(
     "--pattern",
-    default="waymark|benchmark|start-workers|uvicorn",
+    default="waymark|benchmark|waymark-start-workers|uvicorn",
     help="Regex to match process command lines",
 )
 @click.option("--limit", default=10, help="Number of processes to show")

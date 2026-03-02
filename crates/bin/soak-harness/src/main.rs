@@ -2,7 +2,7 @@
 //!
 //! The harness can:
 //! - Boot local Postgres via docker compose
-//! - Start the standard `start-workers` runtime as a child process
+//! - Start the standard `waymark-start-workers` runtime as a child process
 //! - Continuously queue synthetic workloads with configurable timeout/failure mix
 //! - Detect sustained stall conditions (near-zero actions/sec with large ready queue)
 //! - Capture diagnostics (DB snapshots + worker log tail) on exit/issue
@@ -29,11 +29,11 @@ use tokio::process::{Child, Command};
 use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use uuid::Uuid;
-use waymark::messages::ast as ir;
 use waymark_backend_postgres::PostgresBackend;
 use waymark_core_backend::QueuedInstance;
 use waymark_dag::{DAG, convert_to_dag};
 use waymark_ir_parser::parse_program;
+use waymark_proto::ast as ir;
 use waymark_runner_state::RunnerState;
 use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBackend as _};
 
@@ -515,7 +515,7 @@ async fn start_workers(args: &SoakArgs, run_dir: &Path) -> Result<WorkerProcess>
     cmd.stdout(Stdio::from(log_file));
     cmd.stderr(Stdio::from(log_file_err));
 
-    let child = cmd.spawn().context("spawn start-workers process")?;
+    let child = cmd.spawn().context("spawn waymark-start-workers process")?;
     info!(
         log_path = %log_path.display(),
         webapp_enabled,
@@ -532,15 +532,15 @@ fn start_workers_command() -> Command {
         .join("target")
         .join("debug")
         .join(if cfg!(windows) {
-            "start-workers.exe"
+            "waymark-start-workers.exe"
         } else {
-            "start-workers"
+            "waymark-start-workers"
         });
     if local_debug_bin.is_file() {
         return Command::new(local_debug_bin);
     }
 
-    if let Some(start_workers_bin) = find_executable("start-workers") {
+    if let Some(start_workers_bin) = find_executable("waymark-start-workers") {
         return Command::new(start_workers_bin);
     }
 
@@ -548,7 +548,7 @@ fn start_workers_command() -> Command {
     command
         .arg("run")
         .arg("--bin")
-        .arg("start-workers")
+        .arg("waymark-start-workers")
         .arg("--");
     command
 }

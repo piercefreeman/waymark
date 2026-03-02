@@ -33,7 +33,7 @@ use tokio_stream::{
 use tonic::{Request, Response, Status, Streaming, async_trait, transport::Server};
 use tracing::{error, info, warn};
 
-use crate::messages::proto;
+use waymark_proto::messages as proto;
 
 /// Channels for communicating with a connected worker.
 /// Created when a worker successfully completes the handshake.

@@ -12,12 +12,12 @@ We ship all client and server wheels as a python package. Install it via your pa
 uv add waymark
 ```
 
-Once installed, Waymark exposes `start-workers` as a runnable bin entrypoint in your environment.
+Once installed, Waymark exposes `waymark-start-workers` as a runnable bin entrypoint in your environment.
 You can boot the worker pool directly with `uv run`:
 
 ```bash
 export WAYMARK_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/waymark
-uv run start-workers
+uv run waymark-start-workers
 ```
 
 Let's say you need to send welcome emails to a batch of users, but only the active ones. You want to fetch them all, filter out inactive accounts, then fan out emails in parallel. This is how you write that workflow in waymark:
@@ -39,7 +39,7 @@ class WelcomeEmailWorkflow(Workflow):
             ],
             return_exceptions=True,
         )
-        
+
         return results
 ```
 
@@ -125,7 +125,7 @@ Workflows can get much more complex than the example above:
             fetch_settings(user_id=user_id),
             fetch_purchase_history(user_id=user_id),
             return_exceptions=True,
-        ) 
+        )
 
         # wait before sending email
         await asyncio.sleep(24*60*60)
@@ -148,7 +148,7 @@ By default we will only try explicit actions one time if there is an explicit ex
 Waymark runtime configuration is environment-variable driven.
 Waymark reads the process environment directly; it does not auto-load `.env` files.
 
-### `start-workers` runtime
+### `waymark-start-workers` runtime
 
 #### Commonly customized
 
@@ -196,7 +196,7 @@ If you need to customize Python startup/bootstrap behavior (for example custom b
 | Environment Variable | Description | Default |
 |---------------------|-------------|---------|
 | `WAYMARK_BOOT_COMMAND` | Full command used by Python SDK to boot singleton bridge | unset |
-| `WAYMARK_BOOT_BINARY` | Boot binary used when `WAYMARK_BOOT_COMMAND` is unset | `boot-waymark-singleton` |
+| `WAYMARK_BOOT_BINARY` | Boot binary used when `WAYMARK_BOOT_COMMAND` is unset | `waymark-boot-singleton` |
 | `WAYMARK_BRIDGE_GRPC_ADDR` | Explicit bridge gRPC target (`host:port`) for Python SDK + singleton helper | unset |
 | `WAYMARK_BRIDGE_GRPC_HOST` | Bridge gRPC host used by singleton probing/boot + Python SDK | `127.0.0.1` |
 | `WAYMARK_BRIDGE_GRPC_PORT` | Bridge gRPC base port used by singleton probing/boot + Python SDK | `24117` |
