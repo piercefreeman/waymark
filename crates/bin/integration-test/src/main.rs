@@ -190,7 +190,7 @@ async fn main() -> Result<()> {
     let args = Args::parse();
     let backend_kinds = parse_backends(&args.backends)?;
     let selected_cases = select_cases(&args.cases)?;
-    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..");
     let timeout = Duration::from_secs(args.timeout_seconds);
 
     if selected_cases.is_empty() {
@@ -429,7 +429,7 @@ async fn setup_worker_pool(
     let config = PythonWorkerConfig::new()
         .with_user_modules(modules)
         .with_python_paths(vec![
-            repo_root.to_path_buf(),
+            repo_root.join("python"),
             repo_root.join("tests"),
             repo_root.join("tests/integration_tests"),
         ]);
