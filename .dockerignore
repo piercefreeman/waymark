@@ -5,6 +5,9 @@
 !.cargo
 !crates
 !proto
+!pyproject.toml
+!uv.lock
+!.python-version
 !python
 !core-python
 !scripts
