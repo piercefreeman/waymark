@@ -1,2 +1,2 @@
 [tool.uv.workspace]
-members = ["python"]
+members = ["python", "scripts"]

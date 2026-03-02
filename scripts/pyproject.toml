@@ -1,5 +1,5 @@
 [project]
-name = "carabiner-scripts"
+name = "waymark-scripts"
 version = "0.0.0"
 description = "Helper scripts for packaging and maintenance."
 requires-python = ">=3.12"
