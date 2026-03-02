@@ -73,7 +73,7 @@ protocols match. We track the latest `console-subscriber` (0.5.x), while the CLI
 Stream benchmark output directly into our parser to summarize throughput and latency samples:
 
 ```bash
-$ cargo run --bin bench -- \
+$ cargo run --bin waymark-benchmark -- \
   --messages 100000 \
   --payload 1024 \
   --concurrency 64 \
