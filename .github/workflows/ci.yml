@@ -452,7 +452,7 @@ jobs:
         env:
           WAYMARK_DATABASE_URL: postgresql://mountaineer:mountaineer@localhost:5432/mountaineer_daemons
           WAYMARK_SKIP_UV_SYNC: "1"
-        run: cargo run --bin integration_test -- --backends in-memory,postgres
+        run: cargo run --bin waymark-integration-test -- --backends in-memory,postgres
 
   example-app-tests:
     runs-on: ubuntu-latest
