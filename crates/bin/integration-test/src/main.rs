@@ -213,11 +213,6 @@ async fn main() -> Result<()> {
         None
     };
 
-    // Make sure we operate from the `python` subdir where the `uv` workspace
-    // resides.
-    std::env::set_current_dir(repo_root.join("python"))
-        .with_context(|| "cd to python dir to run from a uv workspace")?;
-
     let worker_pool = setup_worker_pool(&repo_root, &prepared_cases, args.worker_count)
         .await
         .context("start integration worker pool")?;
@@ -327,16 +322,12 @@ fn select_cases(filters: &[String]) -> Result<Vec<FixtureCase>> {
 }
 
 fn helper_python(repo_root: &Path) -> Result<PathBuf> {
-    let python = repo_root
-        .join("python")
-        .join(".venv")
-        .join("bin")
-        .join("python");
+    let python = repo_root.join(".venv").join("bin").join("python");
     if python.exists() {
         Ok(python)
     } else {
         bail!(
-            "python helper interpreter not found at {}; run 'cd python && uv sync'",
+            "python helper interpreter not found at {}; run 'uv sync'",
             python.display()
         )
     }
