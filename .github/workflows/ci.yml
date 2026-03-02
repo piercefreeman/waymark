@@ -336,7 +336,7 @@ jobs:
         run: uv run scripts/run_benchmarks.py suite --format json --output benchmark-pr.json --benchmark-config "for-loop:1000:0,fan-out:1000:0,queue-noop:5000:0"
 
       - name: Save benchmark code diff
-        run: git diff origin/main -- src/benchmark/ > benchmark-diff.txt || true
+        run: git diff origin/main -- crates/bin/benchmark/ > benchmark-diff.txt || true
 
       - name: Upload PR benchmark results
         uses: actions/upload-artifact@v4
@@ -452,7 +452,7 @@ jobs:
         env:
           WAYMARK_DATABASE_URL: postgresql://mountaineer:mountaineer@localhost:5432/mountaineer_daemons
           WAYMARK_SKIP_UV_SYNC: "1"
-        run: cargo run --bin integration_test -- --backends in-memory,postgres
+        run: cargo run --bin waymark-integration-test -- --backends in-memory,postgres
 
   example-app-tests:
     runs-on: ubuntu-latest

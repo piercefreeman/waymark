@@ -73,7 +73,7 @@ protocols match. We track the latest `console-subscriber` (0.5.x), while the CLI
 Stream benchmark output directly into our parser to summarize throughput and latency samples:
 
 ```bash
-$ cargo run --bin bench -- \
+$ cargo run --bin waymark-benchmark -- \
   --messages 100000 \
   --payload 1024 \
   --concurrency 64 \
@@ -98,8 +98,8 @@ Add `--json` to the parser if you prefer JSON output.
 
 ### Rust tests (unit + integration)
 
-Integration fixtures are run by the Rust entrypoint binary `src/bin/integration_test.rs`.
-It runs curated fixtures from `tests/integration_tests` and checks parity:
+Integration fixtures are run by the Rust entrypoint binary `crates/bin/integration-test`.
+It runs curated fixtures from `tests/waymark-integration-tests` and checks parity:
 - Baseline execution via direct inline Python workflow logic
 - Runtime execution via Rust DAG execution + in-memory backend
 - Runtime execution via Rust DAG execution + Postgres backend
@@ -112,13 +112,13 @@ Commands:
 cargo test
 
 # Run fixture integration parity (default backends: in-memory,postgres)
-cargo run --bin integration_test
+cargo run --bin waymark-integration-test
 
 # Run selected fixture case IDs only
-cargo run --bin integration_test -- --case simple --case parallel
+cargo run --bin waymark-integration-test -- --case simple --case parallel
 
 # Restrict parity backends (comma-separated)
-cargo run --bin integration_test -- --backends in-memory
+cargo run --bin waymark-integration-test -- --backends in-memory
 ```
 
 Prereqs:
