@@ -36,4 +36,4 @@ where = ["src"]
 "example_app" = ["templates/*.html"]
 
 [tool.uv.sources]
-waymark = { path = "../python" }
+waymark = { workspace = true }
