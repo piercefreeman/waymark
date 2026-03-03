@@ -43,7 +43,7 @@ python-lint:
 	cd python && uv run ty check . --exclude proto/messages_pb2_grpc.py --extra-search-path proto
 	cd scripts && uv run ruff format .
 	cd scripts && uv run ruff check . --fix
-	cd scripts && PYTHONPATH=../python/src:../python uv run ty check .
+	cd scripts && uv run ty check .
 
 python-lint-verify:
 	cd python && uv run ruff format --check .
@@ -51,7 +51,7 @@ python-lint-verify:
 	cd python && uv run ty check . --exclude proto/messages_pb2_grpc.py --extra-search-path proto
 	cd scripts && uv run ruff format --check .
 	cd scripts && uv run ruff check .
-	cd scripts && PYTHONPATH=../python/src:../python uv run ty check .
+	cd scripts && uv run ty check .
 
 rust-lint:
 	cargo fmt

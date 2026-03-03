@@ -123,7 +123,7 @@ cargo run --bin waymark-integration-test -- --backends in-memory
 
 Prereqs:
 - No manual Postgres startup is required for the default test harness configuration.
-- Ensure `uv` is installed and `python/.venv` is prepared (`cd python && uv sync`)
+- Ensure `uv` is installed and `.venv` is prepared (`uv sync`)
 
 ### Python tests
 
