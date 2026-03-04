@@ -1771,65 +1771,6 @@ impl RunLoop {
     }
 }
 
-/// Supervise a run loop, restarting on errors until shutdown.
-pub async fn runloop_supervisor<B, W>(
-    backend: B,
-    worker_pool: W,
-    config: RunLoopSupervisorConfig,
-    shutdown_token: tokio_util::sync::CancellationToken,
-) where
-    B: waymark_core_backend::CoreBackend + WorkflowRegistryBackend + Clone + Send + Sync + 'static,
-    W: BaseWorkerPool + Clone + Send + Sync + 'static,
-{
-    let mut backoff = Duration::from_millis(200);
-    let max_backoff = Duration::from_secs(5);
-
-    let poll_interval = config.poll_interval;
-
-    loop {
-        if shutdown_token.is_cancelled() {
-            break;
-        }
-
-        info!(
-            max_concurrent_instances = config.max_concurrent_instances,
-            executor_shards = config.executor_shards,
-            poll_interval_ms = config.poll_interval.as_millis(),
-            lock_uuid = %config.lock_uuid,
-            "runloop starting"
-        );
-        let mut runloop = RunLoop::new_with_shutdown(
-            worker_pool.clone(),
-            backend.clone(),
-            config.clone(),
-            shutdown_token.child_token(),
-        );
-
-        let result = runloop.run().await;
-
-        if shutdown_token.is_cancelled() {
-            break;
-        }
-
-        match result {
-            Ok(_) => {
-                warn!("runloop exited cleanly (unexpected); restarting");
-                backoff = Duration::from_millis(200);
-                if poll_interval > Duration::ZERO {
-                    tokio::time::sleep(poll_interval).await;
-                } else {
-                    tokio::time::sleep(Duration::from_millis(100)).await;
-                }
-            }
-            Err(err) => {
-                error!(error = %err, "runloop exited with error; restarting");
-                tokio::time::sleep(backoff).await;
-                backoff = std::cmp::min(backoff * 2, max_backoff);
-            }
-        }
-    }
-}
-
 fn output_vars(dag: &DAG) -> Vec<String> {
     let mut names = Vec::new();
     let mut seen = HashSet::new();
