@@ -34,6 +34,3 @@ prost = { workspace = true }
 serial_test = { workspace = true }
 waymark-test-support = { workspace = true }
 waymark-ir-parser = { workspace = true }
-
-[features]
-trace = []

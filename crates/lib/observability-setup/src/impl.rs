@@ -37,7 +37,7 @@ pub fn init(options: ObservabilityOptions) {
         (None, None)
     };
 
-    #[cfg(feature = "tokio-console")]
+    #[cfg(waymark_observability_tokio_console)]
     {
         let console_layer = options.console.then(|| {
             console_subscriber::ConsoleLayer::builder()
@@ -52,11 +52,11 @@ pub fn init(options: ObservabilityOptions) {
             eprintln!("tracing init failed: {err}");
         }
     }
-    #[cfg(not(feature = "tokio-console"))]
+    #[cfg(not(waymark_observability_tokio_console))]
     {
         if options.console {
             eprintln!(
-                "tokio-console disabled. Rebuild with --features observability to enable it."
+                "tokio-console disabled. Rebuild with `--cfg waymark_observability_tokio_console` to enable it."
             );
         }
         if let Err(err) = tracing_subscriber::registry().with(chrome_layer).try_init() {

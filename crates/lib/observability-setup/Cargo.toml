@@ -3,13 +3,13 @@ name = "waymark-observability-setup"
 version.workspace = true
 edition = "2024"
 
-[features]
-default = ["trace"]
+[package.metadata.docs.rs]
+rustdoc-args = ["--cfg", "waymark_observability_trace", "--cfg", "waymark_observability_tokio_console"]
+rustc-args = ["--cfg", "waymark_observability_trace", "--cfg", "waymark_observability_tokio_console"]
 
-trace = ["dep:tracing-subscriber", "dep:tracing-chrome"]
-tokio-console = ["dep:console-subscriber"]
+[target.'cfg(waymark_observability_trace)'.dependencies]
+tracing-subscriber = { workspace = true }
+tracing-chrome = { workspace = true }
 
-[dependencies]
-console-subscriber = { workspace = true, optional = true }
-tracing-chrome = { workspace = true, optional = true }
-tracing-subscriber = { workspace = true, optional = true }
+[target.'cfg(waymark_observability_tokio_console)'.dependencies]
+console-subscriber = { workspace = true }

@@ -26,7 +26,3 @@ sqlx = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tracing = { workspace = true }
 uuid = { workspace = true }
-
-[features]
-trace = ["waymark-observability-setup/trace"]
-observability = ["waymark-observability-setup/tokio-console"]
