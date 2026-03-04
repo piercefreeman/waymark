@@ -47,8 +47,9 @@ Run the Rust benchmark harness (defaults to `--count 1000`) via:
 $ make benchmark
 ```
 
-`make benchmark` builds with `--features trace`, writes a tracing-chrome file, and prints
-a pyinstrument-style summary via `scripts/parse_chrome_trace.py`. Override the trace path
+`make benchmark` builds with `RUSTFLAGS="--cfg waymark_observability_trace"`,
+writes a tracing-chrome file, and prints a pyinstrument-style summary
+via `scripts/parse_chrome_trace.py`. Override the trace path
 with `BENCH_TRACE=...`, the summary size with `BENCH_TRACE_TOP=...`, or benchmark args with
 `BENCH_ARGS="--count 200 --batch-size 50"`. Set `BENCH_RELEASE=1` to run the benchmark binary
 from the release profile. `make benchmark-trace` is an alias if you want the explicit target
@@ -64,7 +65,7 @@ This opens a tmux session with the benchmark on the left and `tokio-console` on 
 `make benchmark-console` requires tmux, and `tokio-console` must be installed (`cargo install
 tokio-console --locked`). Tokio console also requires building with
 `RUSTFLAGS="--cfg tokio_unstable"`, which the make target sets by default (override with
-`BENCH_RUSTFLAGS=...`). The console listens on `127.0.0.1:6669` by default; override with
+`BENCH_CONSOLE_RUSTFLAGS=...`). The console listens on `127.0.0.1:6669` by default; override with
 `TOKIO_CONSOLE_BIND`. This is a tokio-console socket, not an HTTP endpoint, so it won’t
 load in a browser. If tokio-console shows "RECONNECTING", reinstall it so the client/server
 protocols match. We track the latest `console-subscriber` (0.5.x), while the CLI is still
@@ -72,7 +73,7 @@ protocols match. We track the latest `console-subscriber` (0.5.x), while the CLI
 
 Stream benchmark output directly into our parser to summarize throughput and latency samples:
 
-```bash
+````bash
 $ cargo run --bin waymark-benchmark -- \
   --messages 100000 \
   --payload 1024 \
@@ -90,7 +91,7 @@ $ cargo run --bin bench_instances -- \
   --payload-size 1024 \
   --concurrency 64 \
   --workers 4
-```
+````
 
 Add `--json` to the parser if you prefer JSON output.
 
@@ -100,6 +101,7 @@ Add `--json` to the parser if you prefer JSON output.
 
 Integration fixtures are run by the Rust entrypoint binary `crates/bin/integration-test`.
 It runs curated fixtures from `tests/waymark-integration-tests` and checks parity:
+
 - Baseline execution via direct inline Python workflow logic
 - Runtime execution via Rust DAG execution + in-memory backend
 - Runtime execution via Rust DAG execution + Postgres backend
@@ -122,6 +124,7 @@ cargo run --bin waymark-integration-test -- --backends in-memory
 ```
 
 Prereqs:
+
 - No manual Postgres startup is required for the default test harness configuration.
 - Ensure `uv` is installed and `.venv` is prepared (`uv sync`)
 

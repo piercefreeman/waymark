@@ -4,7 +4,7 @@ version.workspace = true
 edition = "2024"
 
 [dependencies]
-chrono = { workspace = true, features = ["serde"]  }
+chrono = { workspace = true, features = ["serde"] }
 rustc-hash = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
@@ -19,6 +19,3 @@ tracing = { workspace = true }
 [dev-dependencies]
 waymark-ir-parser = { workspace = true }
 waymark-backend-memory = { workspace = true }
-
-[features]
-trace = []
