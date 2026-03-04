@@ -257,59 +257,233 @@ impl RunnerExecutor {
         target: &str,
         stack: Rc<RefCell<HashSet<(Uuid, String)>>>,
     ) -> Result<Value, RunnerExecutorError> {
-        let key = (node_id, target.to_string());
-        if let Some(value) = self.eval_cache_get(&key) {
+        #[derive(Clone)]
+        enum AssignmentFrame {
+            Discover {
+                node_id: Uuid,
+                target: String,
+            },
+            Evaluate {
+                node_id: Uuid,
+                target: String,
+                expr: ValueExpr,
+            },
+        }
+
+        let root_key = (node_id, target.to_string());
+        if let Some(value) = self.eval_cache_get(&root_key) {
             return Ok(value);
         }
-        if stack.borrow().contains(&key) {
-            return Err(RunnerExecutorError(format!(
-                "recursive assignment detected for {target}"
-            )));
+
+        let mut frames = vec![AssignmentFrame::Discover {
+            node_id,
+            target: target.to_string(),
+        }];
+        let mut computed: HashMap<(Uuid, String), Value> = HashMap::new();
+        let mut activated_keys: Vec<(Uuid, String)> = Vec::new();
+
+        let result: Result<Value, RunnerExecutorError> = (|| {
+            while let Some(frame) = frames.pop() {
+                match frame {
+                    AssignmentFrame::Discover { node_id, target } => {
+                        let key = (node_id, target.clone());
+                        if computed.contains_key(&key) {
+                            continue;
+                        }
+                        if let Some(value) = self.eval_cache_get(&key) {
+                            computed.insert(key, value);
+                            continue;
+                        }
+                        if stack.borrow().contains(&key) {
+                            return Err(RunnerExecutorError(format!(
+                                "recursive assignment detected for {target}"
+                            )));
+                        }
+
+                        let expr = self
+                            .state()
+                            .nodes
+                            .get(&node_id)
+                            .and_then(|node| node.assignments.get(&target))
+                            .cloned()
+                            .ok_or_else(|| {
+                                RunnerExecutorError(format!("missing assignment for {target}"))
+                            })?;
+
+                        stack.borrow_mut().insert(key.clone());
+                        activated_keys.push(key.clone());
+
+                        let deps = self.assignment_dependencies(node_id, &expr)?;
+                        frames.push(AssignmentFrame::Evaluate {
+                            node_id,
+                            target: target.clone(),
+                            expr,
+                        });
+                        for (dep_node_id, dep_target) in deps.into_iter().rev() {
+                            let dep_key = (dep_node_id, dep_target.clone());
+                            if computed.contains_key(&dep_key)
+                                || self.eval_cache_get(&dep_key).is_some()
+                            {
+                                continue;
+                            }
+                            frames.push(AssignmentFrame::Discover {
+                                node_id: dep_node_id,
+                                target: dep_target,
+                            });
+                        }
+                    }
+                    AssignmentFrame::Evaluate {
+                        node_id,
+                        target,
+                        expr,
+                    } => {
+                        let key = (node_id, target.clone());
+                        if let Some(value) = self.eval_cache_get(&key) {
+                            computed.insert(key.clone(), value.clone());
+                            stack.borrow_mut().remove(&key);
+                            continue;
+                        }
+
+                        let resolve_variable = {
+                            let this = self;
+                            let computed = &computed;
+                            move |name: &str| {
+                                let dep_node_id = this
+                                    .find_variable_source_node(node_id, name)
+                                    .or_else(|| this.state().latest_assignment(name))
+                                    .ok_or_else(|| {
+                                        RunnerExecutorError(format!("variable not found: {name}"))
+                                    })?;
+                                let dep_key = (dep_node_id, name.to_string());
+                                if let Some(value) = computed.get(&dep_key) {
+                                    return Ok(value.clone());
+                                }
+                                if let Some(value) = this.eval_cache_get(&dep_key) {
+                                    return Ok(value);
+                                }
+                                Err(RunnerExecutorError(format!(
+                                    "unresolved assignment dependency for {name}"
+                                )))
+                            }
+                        };
+                        let resolve_action_result = {
+                            let this = self;
+                            move |value: &ActionResultValue| this.resolve_action_result(value)
+                        };
+                        let resolve_function_call = {
+                            let this = self;
+                            move |value: &FunctionCallValue, args, kwargs| {
+                                this.evaluate_function_call(value, args, kwargs)
+                            }
+                        };
+                        let apply_binary = |op, left, right| Self::apply_binary(op, left, right);
+                        let apply_unary = |op, operand| Self::apply_unary(op, operand);
+                        let error_factory =
+                            |message: &str| RunnerExecutorError(message.to_string());
+                        let evaluator = ValueExprEvaluator::new(
+                            &resolve_variable,
+                            &resolve_action_result,
+                            &resolve_function_call,
+                            &apply_binary,
+                            &apply_unary,
+                            &error_factory,
+                        );
+                        let value = evaluator.visit(&expr)?;
+
+                        self.eval_cache_insert(key.clone(), value.clone());
+                        computed.insert(key.clone(), value);
+                        stack.borrow_mut().remove(&key);
+                    }
+                }
+            }
+
+            computed
+                .get(&root_key)
+                .cloned()
+                .or_else(|| self.eval_cache_get(&root_key))
+                .ok_or_else(|| {
+                    RunnerExecutorError(format!("missing assignment for {}", root_key.1))
+                })
+        })();
+
+        let mut active = stack.borrow_mut();
+        for key in activated_keys {
+            active.remove(&key);
         }
+        drop(active);
 
-        let node = self
-            .state()
-            .nodes
-            .get(&node_id)
-            .ok_or_else(|| RunnerExecutorError(format!("missing assignment for {target}")))?;
-        let expr = node
-            .assignments
-            .get(target)
-            .ok_or_else(|| RunnerExecutorError(format!("missing assignment for {target}")))?;
+        result
+    }
 
-        stack.borrow_mut().insert(key.clone());
-        let resolve_variable = {
-            let stack = stack.clone();
-            let this = self;
-            move |name: &str| {
-                this.evaluate_variable_with_context(Some(node_id), name, stack.clone())
+    fn assignment_dependencies(
+        &self,
+        current_node_id: Uuid,
+        expr: &ValueExpr,
+    ) -> Result<Vec<(Uuid, String)>, RunnerExecutorError> {
+        let mut dependencies = Vec::new();
+        let mut seen = HashSet::new();
+        for name in Self::collect_variable_names(expr) {
+            if !seen.insert(name.clone()) {
+                continue;
             }
-        };
-        let resolve_action_result = {
-            let this = self;
-            move |value: &ActionResultValue| this.resolve_action_result(value)
-        };
-        let resolve_function_call = {
-            let this = self;
-            move |value: &FunctionCallValue, args, kwargs| {
-                this.evaluate_function_call(value, args, kwargs)
+            let node_id = self
+                .find_variable_source_node(current_node_id, &name)
+                .or_else(|| self.state().latest_assignment(&name))
+                .ok_or_else(|| RunnerExecutorError(format!("variable not found: {name}")))?;
+            dependencies.push((node_id, name));
+        }
+        Ok(dependencies)
+    }
+
+    fn collect_variable_names(expr: &ValueExpr) -> Vec<String> {
+        let mut names = Vec::new();
+        let mut pending = vec![expr];
+        while let Some(current) = pending.pop() {
+            match current {
+                ValueExpr::Variable(value) => names.push(value.name.clone()),
+                ValueExpr::BinaryOp(value) => {
+                    pending.push(&value.right);
+                    pending.push(&value.left);
+                }
+                ValueExpr::UnaryOp(value) => {
+                    pending.push(&value.operand);
+                }
+                ValueExpr::List(value) => {
+                    for item in &value.elements {
+                        pending.push(item);
+                    }
+                }
+                ValueExpr::Dict(value) => {
+                    for entry in &value.entries {
+                        pending.push(&entry.value);
+                        pending.push(&entry.key);
+                    }
+                }
+                ValueExpr::Index(value) => {
+                    pending.push(&value.index);
+                    pending.push(&value.object);
+                }
+                ValueExpr::Dot(value) => {
+                    pending.push(&value.object);
+                }
+                ValueExpr::FunctionCall(value) => {
+                    for arg in value.kwargs.values() {
+                        pending.push(arg);
+                    }
+                    for arg in &value.args {
+                        pending.push(arg);
+                    }
+                }
+                ValueExpr::Spread(value) => {
+                    for arg in value.action.kwargs.values() {
+                        pending.push(arg);
+                    }
+                    pending.push(&value.collection);
+                }
+                ValueExpr::Literal(_) | ValueExpr::ActionResult(_) => {}
             }
-        };
-        let apply_binary = |op, left, right| Self::apply_binary(op, left, right);
-        let apply_unary = |op, operand| Self::apply_unary(op, operand);
-        let error_factory = |message: &str| RunnerExecutorError(message.to_string());
-        let evaluator = ValueExprEvaluator::new(
-            &resolve_variable,
-            &resolve_action_result,
-            &resolve_function_call,
-            &apply_binary,
-            &apply_unary,
-            &error_factory,
-        );
-        let value = evaluator.visit(expr)?;
-        stack.borrow_mut().remove(&key);
-        self.eval_cache_insert(key, value.clone());
-        Ok(value)
+        }
+        names
     }
 
     pub(super) fn resolve_action_result(
