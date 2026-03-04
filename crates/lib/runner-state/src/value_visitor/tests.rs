@@ -119,6 +119,53 @@ fn test_value_expr_evaluator_visit_happy_path() {
 }
 
 #[test]
+fn test_value_expr_evaluator_handles_deep_unary_chain() {
+    let resolve_variable =
+        |_name: &str| -> Result<Value, String> { Err("unknown variable".to_string()) };
+    let resolve_action_result =
+        |_value: &ActionResultValue| -> Result<Value, String> { Ok(Value::Number(0.into())) };
+    let resolve_function_call =
+        |_call: &FunctionCallValue,
+         args: Vec<Value>,
+         _kwargs: HashMap<String, Value>|
+         -> Result<Value, String> { Ok(Value::Number((args.len() as i64).into())) };
+    let apply_binary = |_op: i32, left: Value, right: Value| -> Result<Value, String> {
+        match (left.as_i64(), right.as_i64()) {
+            (Some(left), Some(right)) => Ok(Value::Number((left + right).into())),
+            _ => Err("bad operands".to_string()),
+        }
+    };
+    let apply_unary = |_op: i32, value: Value| -> Result<Value, String> {
+        Ok(Value::Bool(!value.as_bool().unwrap_or(false)))
+    };
+    let error_factory = |message: &str| message.to_string();
+
+    let evaluator = ValueExprEvaluator::new(
+        &resolve_variable,
+        &resolve_action_result,
+        &resolve_function_call,
+        &apply_binary,
+        &apply_unary,
+        &error_factory,
+    );
+
+    let mut expr = ValueExpr::Literal(LiteralValue {
+        value: Value::Bool(true),
+    });
+    for _ in 0..10_000 {
+        expr = ValueExpr::UnaryOp(UnaryOpValue {
+            op: ir::UnaryOperator::UnaryOpNot as i32,
+            operand: Box::new(expr),
+        });
+    }
+
+    let value = evaluator
+        .visit(&expr)
+        .expect("evaluate deep unary expression");
+    assert_eq!(value, Value::Bool(true));
+}
+
+#[test]
 fn test_resolve_value_tree_happy_path() {
     let expr = ValueExpr::List(ListValue {
         elements: vec![ValueExpr::Variable(VariableValue {

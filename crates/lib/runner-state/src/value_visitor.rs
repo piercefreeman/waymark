@@ -230,84 +230,210 @@ impl<'a, E> ValueExprEvaluator<'a, E> {
     }
 
     pub fn visit(&self, expr: &ValueExpr) -> Result<serde_json::Value, E> {
-        match expr {
-            ValueExpr::Literal(value) => Ok(value.value.clone()),
-            ValueExpr::Variable(value) => (self.resolve_variable)(&value.name),
-            ValueExpr::ActionResult(value) => (self.resolve_action_result)(value),
-            ValueExpr::BinaryOp(value) => {
-                let left = self.visit(&value.left)?;
-                let right = self.visit(&value.right)?;
-                (self.apply_binary)(value.op, left, right)
-            }
-            ValueExpr::UnaryOp(value) => {
-                let operand = self.visit(&value.operand)?;
-                (self.apply_unary)(value.op, operand)
-            }
-            ValueExpr::List(value) => {
-                let mut items = Vec::with_capacity(value.elements.len());
-                for item in &value.elements {
-                    items.push(self.visit(item)?);
-                }
-                Ok(serde_json::Value::Array(items))
-            }
-            ValueExpr::Dict(value) => {
-                let mut map = serde_json::Map::with_capacity(value.entries.len());
-                for entry in &value.entries {
-                    let key_value = self.visit(&entry.key)?;
-                    let key = key_value
-                        .as_str()
-                        .map(|value| value.to_string())
-                        .unwrap_or_else(|| key_value.to_string());
-                    let entry_value = self.visit(&entry.value)?;
-                    map.insert(key, entry_value);
-                }
-                Ok(serde_json::Value::Object(map))
-            }
-            ValueExpr::Index(value) => {
-                let object = self.visit(&value.object)?;
-                let index = self.visit(&value.index)?;
-                match (object, index) {
-                    (serde_json::Value::Array(items), serde_json::Value::Number(idx)) => {
-                        let idx = idx.as_i64().unwrap_or(-1);
-                        if idx < 0 || idx as usize >= items.len() {
-                            return Err((self.error_factory)("index out of range"));
-                        }
-                        Ok(items[idx as usize].clone())
-                    }
-                    (serde_json::Value::Object(map), serde_json::Value::String(key)) => map
-                        .get(&key)
-                        .cloned()
-                        .or_else(|| lookup_exception_value(&map, &key))
-                        .ok_or_else(|| (self.error_factory)("dict has no key")),
-                    _ => Err((self.error_factory)("unsupported index operation")),
-                }
-            }
-            ValueExpr::Dot(value) => {
-                let object = self.visit(&value.object)?;
-                if let serde_json::Value::Object(map) = object {
-                    return map
-                        .get(&value.attribute)
-                        .cloned()
-                        .or_else(|| lookup_exception_value(&map, &value.attribute))
-                        .ok_or_else(|| (self.error_factory)("dict has no key"));
-                }
-                Err((self.error_factory)("attribute not found"))
-            }
-            ValueExpr::FunctionCall(value) => {
-                let mut args = Vec::with_capacity(value.args.len());
-                for arg in &value.args {
-                    args.push(self.visit(arg)?);
-                }
-                let mut kwargs = HashMap::new();
-                for (name, arg) in &value.kwargs {
-                    kwargs.insert(name.clone(), self.visit(arg)?);
-                }
-                (self.resolve_function_call)(value, args, kwargs)
-            }
-            ValueExpr::Spread(_) => Err((self.error_factory)(
-                "cannot replay unresolved spread expression",
-            )),
+        enum EvalFrame<'b> {
+            Eval(&'b ValueExpr),
+            ApplyBinary(i32),
+            ApplyUnary(i32),
+            BuildList(usize),
+            BuildDict(usize),
+            ApplyIndex,
+            ApplyDot(String),
+            ApplyFunctionCall {
+                call: &'b FunctionCallValue,
+                args_len: usize,
+                kwarg_names: Vec<String>,
+            },
         }
+
+        let mut frames = vec![EvalFrame::Eval(expr)];
+        let mut values: Vec<serde_json::Value> = Vec::new();
+
+        while let Some(frame) = frames.pop() {
+            match frame {
+                EvalFrame::Eval(current) => match current {
+                    ValueExpr::Literal(value) => values.push(value.value.clone()),
+                    ValueExpr::Variable(value) => {
+                        values.push((self.resolve_variable)(&value.name)?);
+                    }
+                    ValueExpr::ActionResult(value) => {
+                        values.push((self.resolve_action_result)(value)?);
+                    }
+                    ValueExpr::BinaryOp(value) => {
+                        frames.push(EvalFrame::ApplyBinary(value.op));
+                        frames.push(EvalFrame::Eval(&value.right));
+                        frames.push(EvalFrame::Eval(&value.left));
+                    }
+                    ValueExpr::UnaryOp(value) => {
+                        frames.push(EvalFrame::ApplyUnary(value.op));
+                        frames.push(EvalFrame::Eval(&value.operand));
+                    }
+                    ValueExpr::List(value) => {
+                        frames.push(EvalFrame::BuildList(value.elements.len()));
+                        for item in value.elements.iter().rev() {
+                            frames.push(EvalFrame::Eval(item));
+                        }
+                    }
+                    ValueExpr::Dict(value) => {
+                        frames.push(EvalFrame::BuildDict(value.entries.len()));
+                        for entry in value.entries.iter().rev() {
+                            frames.push(EvalFrame::Eval(&entry.value));
+                            frames.push(EvalFrame::Eval(&entry.key));
+                        }
+                    }
+                    ValueExpr::Index(value) => {
+                        frames.push(EvalFrame::ApplyIndex);
+                        frames.push(EvalFrame::Eval(&value.index));
+                        frames.push(EvalFrame::Eval(&value.object));
+                    }
+                    ValueExpr::Dot(value) => {
+                        frames.push(EvalFrame::ApplyDot(value.attribute.clone()));
+                        frames.push(EvalFrame::Eval(&value.object));
+                    }
+                    ValueExpr::FunctionCall(value) => {
+                        let kwarg_names: Vec<String> = value.kwargs.keys().cloned().collect();
+                        frames.push(EvalFrame::ApplyFunctionCall {
+                            call: value,
+                            args_len: value.args.len(),
+                            kwarg_names: kwarg_names.clone(),
+                        });
+                        for name in kwarg_names.iter().rev() {
+                            let arg = value.kwargs.get(name).ok_or_else(|| {
+                                (self.error_factory)("function call kwargs mismatch")
+                            })?;
+                            frames.push(EvalFrame::Eval(arg));
+                        }
+                        for arg in value.args.iter().rev() {
+                            frames.push(EvalFrame::Eval(arg));
+                        }
+                    }
+                    ValueExpr::Spread(_) => {
+                        return Err((self.error_factory)(
+                            "cannot replay unresolved spread expression",
+                        ));
+                    }
+                },
+                EvalFrame::ApplyBinary(op) => {
+                    let right = values
+                        .pop()
+                        .ok_or_else(|| (self.error_factory)("binary op missing right operand"))?;
+                    let left = values
+                        .pop()
+                        .ok_or_else(|| (self.error_factory)("binary op missing left operand"))?;
+                    values.push((self.apply_binary)(op, left, right)?);
+                }
+                EvalFrame::ApplyUnary(op) => {
+                    let operand = values
+                        .pop()
+                        .ok_or_else(|| (self.error_factory)("unary op missing operand"))?;
+                    values.push((self.apply_unary)(op, operand)?);
+                }
+                EvalFrame::BuildList(len) => {
+                    let mut items = Vec::with_capacity(len);
+                    for _ in 0..len {
+                        items.push(
+                            values
+                                .pop()
+                                .ok_or_else(|| (self.error_factory)("list missing element"))?,
+                        );
+                    }
+                    items.reverse();
+                    values.push(serde_json::Value::Array(items));
+                }
+                EvalFrame::BuildDict(len) => {
+                    let mut entries: Vec<(String, serde_json::Value)> = Vec::with_capacity(len);
+                    for _ in 0..len {
+                        let entry_value = values
+                            .pop()
+                            .ok_or_else(|| (self.error_factory)("dict missing value"))?;
+                        let key_value = values
+                            .pop()
+                            .ok_or_else(|| (self.error_factory)("dict missing key"))?;
+                        let key = key_value
+                            .as_str()
+                            .map(|value| value.to_string())
+                            .unwrap_or_else(|| key_value.to_string());
+                        entries.push((key, entry_value));
+                    }
+                    entries.reverse();
+                    let mut map = serde_json::Map::with_capacity(len);
+                    for (key, value) in entries {
+                        map.insert(key, value);
+                    }
+                    values.push(serde_json::Value::Object(map));
+                }
+                EvalFrame::ApplyIndex => {
+                    let index = values
+                        .pop()
+                        .ok_or_else(|| (self.error_factory)("index missing index value"))?;
+                    let object = values
+                        .pop()
+                        .ok_or_else(|| (self.error_factory)("index missing object value"))?;
+                    let resolved = match (object, index) {
+                        (serde_json::Value::Array(items), serde_json::Value::Number(idx)) => {
+                            let idx = idx.as_i64().unwrap_or(-1);
+                            if idx < 0 || idx as usize >= items.len() {
+                                return Err((self.error_factory)("index out of range"));
+                            }
+                            items[idx as usize].clone()
+                        }
+                        (serde_json::Value::Object(map), serde_json::Value::String(key)) => map
+                            .get(&key)
+                            .cloned()
+                            .or_else(|| lookup_exception_value(&map, &key))
+                            .ok_or_else(|| (self.error_factory)("dict has no key"))?,
+                        _ => return Err((self.error_factory)("unsupported index operation")),
+                    };
+                    values.push(resolved);
+                }
+                EvalFrame::ApplyDot(attribute) => {
+                    let object = values
+                        .pop()
+                        .ok_or_else(|| (self.error_factory)("dot access missing object"))?;
+                    if let serde_json::Value::Object(map) = object {
+                        let resolved = map
+                            .get(&attribute)
+                            .cloned()
+                            .or_else(|| lookup_exception_value(&map, &attribute))
+                            .ok_or_else(|| (self.error_factory)("dict has no key"))?;
+                        values.push(resolved);
+                    } else {
+                        return Err((self.error_factory)("attribute not found"));
+                    }
+                }
+                EvalFrame::ApplyFunctionCall {
+                    call,
+                    args_len,
+                    kwarg_names,
+                } => {
+                    let mut kwargs = HashMap::with_capacity(kwarg_names.len());
+                    for name in kwarg_names.iter().rev() {
+                        let arg_value = values
+                            .pop()
+                            .ok_or_else(|| (self.error_factory)("function call missing kwarg"))?;
+                        kwargs.insert(name.clone(), arg_value);
+                    }
+                    let mut args = Vec::with_capacity(args_len);
+                    for _ in 0..args_len {
+                        args.push(
+                            values
+                                .pop()
+                                .ok_or_else(|| (self.error_factory)("function call missing arg"))?,
+                        );
+                    }
+                    args.reverse();
+                    values.push((self.resolve_function_call)(call, args, kwargs)?);
+                }
+            }
+        }
+
+        if values.len() == 1 {
+            return values
+                .pop()
+                .ok_or_else(|| (self.error_factory)("expression stack produced no result"));
+        }
+        Err((self.error_factory)(
+            "expression stack produced invalid result count",
+        ))
     }
 }
 
