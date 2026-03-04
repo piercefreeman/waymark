@@ -3747,6 +3747,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-pool-status"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "waymark-proto"
 version = "0.1.0"
 dependencies = [
