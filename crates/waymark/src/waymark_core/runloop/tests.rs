@@ -19,8 +19,8 @@ use waymark_ir_parser::parse_program;
 use waymark_runner_state::NodeStatus;
 use waymark_runner_state::RunnerState;
 
-fn default_test_config(lock_uuid: Uuid) -> RunLoopSupervisorConfig {
-    RunLoopSupervisorConfig {
+fn default_test_config(lock_uuid: Uuid) -> RunLoopConfig {
+    RunLoopConfig {
         max_concurrent_instances: 25,
         executor_shards: 1,
         instance_done_batch_size: None,
@@ -101,7 +101,7 @@ fn main(input: [x], output: [y]):
     let mut runloop = RunLoop::new(
         worker_pool,
         backend.clone(),
-        RunLoopSupervisorConfig {
+        RunLoopConfig {
             max_concurrent_instances: 25,
             executor_shards: 1,
             instance_done_batch_size: None,
@@ -192,7 +192,7 @@ fn main(input: [], output: [y]):
     let mut runloop = RunLoop::new(
         worker_pool,
         backend.clone(),
-        RunLoopSupervisorConfig {
+        RunLoopConfig {
             max_concurrent_instances: 25,
             executor_shards: 1,
             instance_done_batch_size: None,
@@ -304,7 +304,7 @@ fn main(input: [x], output: [y]):
     let mut runloop = RunLoop::new(
         worker_pool,
         backend.clone(),
-        RunLoopSupervisorConfig {
+        RunLoopConfig {
             max_concurrent_instances: 25,
             executor_shards: 1,
             instance_done_batch_size: None,
@@ -452,7 +452,7 @@ fn main(input: [limit], output: [result]):
     let mut runloop = RunLoop::new(
         worker_pool,
         backend.clone(),
-        RunLoopSupervisorConfig {
+        RunLoopConfig {
             max_concurrent_instances: 25,
             executor_shards: 1,
             instance_done_batch_size: None,

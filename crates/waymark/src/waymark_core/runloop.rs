@@ -559,7 +559,7 @@ pub struct RunLoop {
 }
 
 #[derive(Clone, Debug)]
-pub struct RunLoopSupervisorConfig {
+pub struct RunLoopConfig {
     pub max_concurrent_instances: usize,
     pub executor_shards: usize,
     pub instance_done_batch_size: Option<usize>,
@@ -577,7 +577,7 @@ impl RunLoop {
     pub fn new(
         worker_pool: impl BaseWorkerPool + 'static,
         backend: impl waymark_core_backend::CoreBackend + WorkflowRegistryBackend + 'static,
-        config: RunLoopSupervisorConfig,
+        config: RunLoopConfig,
     ) -> Self {
         Self::new_internal(
             worker_pool,
@@ -591,7 +591,7 @@ impl RunLoop {
     pub fn new_with_shutdown(
         worker_pool: impl BaseWorkerPool + 'static,
         backend: impl waymark_core_backend::CoreBackend + WorkflowRegistryBackend + 'static,
-        config: RunLoopSupervisorConfig,
+        config: RunLoopConfig,
         shutdown_token: tokio_util::sync::CancellationToken,
     ) -> Self {
         Self::new_internal(worker_pool, backend, config, shutdown_token, false)
@@ -600,7 +600,7 @@ impl RunLoop {
     fn new_internal(
         worker_pool: impl BaseWorkerPool + 'static,
         backend: impl waymark_core_backend::CoreBackend + WorkflowRegistryBackend + 'static,
-        config: RunLoopSupervisorConfig,
+        config: RunLoopConfig,
         shutdown_token: tokio_util::sync::CancellationToken,
         exit_on_idle: bool,
     ) -> Self {

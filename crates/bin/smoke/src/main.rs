@@ -17,7 +17,7 @@ use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBa
 
 use waymark::waymark_core::dag_viz::render_dag_image;
 use waymark::waymark_core::ir_format::format_program;
-use waymark::waymark_core::runloop::{RunLoop, RunLoopSupervisorConfig};
+use waymark::waymark_core::runloop::{RunLoop, RunLoopConfig};
 use waymark::workers::{PythonWorkerConfig, RemoteWorkerPool};
 use waymark_dag::convert_to_dag;
 use waymark_ir_conversions::literal_from_json_value;
@@ -114,7 +114,7 @@ async fn run_program_smoke(case: &SmokeCase, worker_pool: RemoteWorkerPool) -> R
     let mut runloop = RunLoop::new(
         worker_pool,
         backend.clone(),
-        RunLoopSupervisorConfig {
+        RunLoopConfig {
             max_concurrent_instances: 25,
             executor_shards: 1,
             instance_done_batch_size: None,

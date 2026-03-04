@@ -45,7 +45,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use uuid::Uuid;
 use waymark::config::WorkerConfig;
 use waymark::scheduler::{DagResolver, WorkflowDag};
-use waymark::waymark_core::runloop::RunLoopSupervisorConfig;
+use waymark::waymark_core::runloop::RunLoopConfig;
 use waymark::{PythonWorkerConfig, RemoteWorkerPool, WebappServer, spawn_status_reporter};
 use waymark_backend_postgres::PostgresBackend;
 use waymark_dag::convert_to_dag;
@@ -181,7 +181,7 @@ async fn main() -> Result<()> {
     let mut runloop = waymark::waymark_core::RunLoop::new_with_shutdown(
         remote_pool.clone(),
         backend.clone(),
-        RunLoopSupervisorConfig {
+        RunLoopConfig {
             max_concurrent_instances: config.max_concurrent_instances,
             executor_shards: config.executor_shards,
             instance_done_batch_size: config.instance_done_batch_size,

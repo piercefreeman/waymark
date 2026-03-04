@@ -18,7 +18,7 @@ use serde_json::Value;
 use sqlx::Row;
 use uuid::Uuid;
 
-use waymark::waymark_core::runloop::{RunLoop, RunLoopSupervisorConfig};
+use waymark::waymark_core::runloop::{RunLoop, RunLoopConfig};
 use waymark::workers::{PythonWorkerConfig, RemoteWorkerPool};
 use waymark_backend_memory::MemoryBackend;
 use waymark_backend_postgres::PostgresBackend;
@@ -574,7 +574,7 @@ where
     let mut runloop = RunLoop::new(
         worker_pool,
         backend,
-        RunLoopSupervisorConfig {
+        RunLoopConfig {
             max_concurrent_instances: 16,
             executor_shards: 1,
             instance_done_batch_size: Some(16),
