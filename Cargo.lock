@@ -2134,20 +2134,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a"
 
 [[package]]
-name = "ring"
-version = "0.17.14"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a4689e6c2294d81e88dc6261c768b63bc4fcdb852be6d1352498b114f61383b7"
-dependencies = [
- "cc",
- "cfg-if",
- "getrandom 0.2.17",
- "libc",
- "untrusted",
- "windows-sys 0.52.0",
-]
-
-[[package]]
 name = "rmp"
 version = "0.8.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2203,40 +2189,6 @@ dependencies = [
  "libc",
  "linux-raw-sys",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "rustls"
-version = "0.23.37"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "758025cb5fccfd3bc2fd74708fd4682be41d99e5dff73c377c0646c6012c73a4"
-dependencies = [
- "once_cell",
- "ring",
- "rustls-pki-types",
- "rustls-webpki",
- "subtle",
- "zeroize",
-]
-
-[[package]]
-name = "rustls-pki-types"
-version = "1.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be040f8b0a225e40375822a563fa9524378b9d63112f53e19ffff34df5d33fdd"
-dependencies = [
- "zeroize",
-]
-
-[[package]]
-name = "rustls-webpki"
-version = "0.103.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7df23109aa6c1567d1c575b9952556388da57401e4ace1d15f79eedad0d8f53"
-dependencies = [
- "ring",
- "rustls-pki-types",
- "untrusted",
 ]
 
 [[package]]
@@ -2545,7 +2497,6 @@ dependencies = [
  "memchr",
  "once_cell",
  "percent-encoding",
- "rustls",
  "serde",
  "serde_json",
  "sha2",
@@ -2556,7 +2507,6 @@ dependencies = [
  "tracing",
  "url",
  "uuid",
- "webpki-roots 0.26.11",
 ]
 
 [[package]]
@@ -3202,12 +3152,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
 
 [[package]]
-name = "untrusted"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
-
-[[package]]
 name = "url"
 version = "2.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3403,29 +3347,21 @@ name = "waymark"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "axum 0.8.8",
  "chrono",
  "futures",
- "http-body-util",
  "once_cell",
  "prost 0.12.6",
- "serde",
  "serde_json",
- "serial_test",
  "sha2",
- "sqlx",
- "tera",
  "thiserror",
  "tokio",
  "tokio-stream",
  "tokio-util",
  "tonic 0.11.0",
- "tower 0.5.3",
  "tracing",
  "uuid",
  "waymark-backend-fault-injection",
  "waymark-backend-memory",
- "waymark-backend-postgres",
  "waymark-backends-core",
  "waymark-core-backend",
  "waymark-dag",
@@ -3440,9 +3376,7 @@ dependencies = [
  "waymark-runner-state",
  "waymark-scheduler-backend",
  "waymark-scheduler-core",
- "waymark-test-support",
- "waymark-webapp-backend",
- "waymark-webapp-core",
+ "waymark-webapp-config",
  "waymark-worker-status-backend",
  "waymark-workflow-registry-backend",
 ]
@@ -3889,6 +3823,7 @@ dependencies = [
  "waymark-backend-postgres-migrations",
  "waymark-dag",
  "waymark-proto",
+ "waymark-webapp-bringup",
 ]
 
 [[package]]
@@ -3910,12 +3845,55 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-webapp-bringup"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum 0.8.8",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "waymark-webapp-backend",
+ "waymark-webapp-config",
+ "waymark-webapp-routes",
+]
+
+[[package]]
+name = "waymark-webapp-config"
+version = "0.1.0"
+
+[[package]]
 name = "waymark-webapp-core"
 version = "0.1.0"
 dependencies = [
  "chrono",
  "serde",
  "uuid",
+]
+
+[[package]]
+name = "waymark-webapp-routes"
+version = "0.1.0"
+dependencies = [
+ "axum 0.8.8",
+ "chrono",
+ "http-body-util",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "sqlx",
+ "tera",
+ "tokio",
+ "tower 0.5.3",
+ "tracing",
+ "uuid",
+ "waymark-backend-memory",
+ "waymark-backend-postgres",
+ "waymark-pool-status",
+ "waymark-test-support",
+ "waymark-webapp-backend",
+ "waymark-webapp-core",
+ "waymark-worker-status-backend",
 ]
 
 [[package]]
@@ -3935,24 +3913,6 @@ dependencies = [
  "async-trait",
  "uuid",
  "waymark-backends-core",
-]
-
-[[package]]
-name = "webpki-roots"
-version = "0.26.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "521bc38abb08001b01866da9f51eb7c5d647a19260e00054a8c7fd5f9e57f7a9"
-dependencies = [
- "webpki-roots 1.0.6",
-]
-
-[[package]]
-name = "webpki-roots"
-version = "1.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22cfaf3c063993ff62e73cb4311efde4db1efb31ab78a3e5c457939ad5cc0bed"
-dependencies = [
- "rustls-pki-types",
 ]
 
 [[package]]

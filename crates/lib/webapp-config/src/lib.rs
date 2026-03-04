@@ -1,4 +1,4 @@
-//! Shared types for the webapp server.
+//! Config for the webapp server.
 
 /// Configuration for the webapp server.
 #[derive(Debug, Clone)]

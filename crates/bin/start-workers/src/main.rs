@@ -46,7 +46,7 @@ use uuid::Uuid;
 use waymark::config::WorkerConfig;
 use waymark::scheduler::{DagResolver, WorkflowDag};
 use waymark::waymark_core::runloop::RunLoopConfig;
-use waymark::{PythonWorkerConfig, RemoteWorkerPool, WebappServer, spawn_status_reporter};
+use waymark::{PythonWorkerConfig, RemoteWorkerPool, spawn_status_reporter};
 use waymark_backend_postgres::PostgresBackend;
 use waymark_dag::convert_to_dag;
 use waymark_proto::ast as ir;
@@ -111,7 +111,12 @@ async fn main() -> Result<()> {
 
     // Start the webapp server.
     let webapp_backend = Arc::new(backend.clone());
-    let webapp_server = WebappServer::start(config.webapp.clone(), webapp_backend).await?;
+    let maybe_webapp_handle = waymark_webapp_bringup::start(
+        config.webapp.clone(),
+        webapp_backend,
+        shutdown_token.clone().cancelled_owned(),
+    )
+    .await?;
 
     // Start the scheduler loop.
     let dag_resolver = build_dag_resolver(backend.pool().clone());
@@ -216,8 +221,9 @@ async fn main() -> Result<()> {
         warn!(error = %err, "worker pool shutdown failed");
     }
 
-    if let Some(webapp) = webapp_server {
-        webapp.shutdown().await;
+    if let Some(webapp_handle) = maybe_webapp_handle {
+        // Wait for graceful termination.
+        webapp_handle.await.unwrap();
     }
 
     info!("shutdown complete");

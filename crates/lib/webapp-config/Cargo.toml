@@ -1,0 +1,6 @@
+[package]
+name = "waymark-webapp-config"
+edition = "2024"
+version.workspace = true
+
+[dependencies]

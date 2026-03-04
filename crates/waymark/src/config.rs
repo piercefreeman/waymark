@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 
-use crate::{GarbageCollectorConfig, SchedulerConfig, WebappConfig};
+use crate::{GarbageCollectorConfig, SchedulerConfig};
 
 const DEFAULT_WORKER_GRPC_ADDR: &str = "127.0.0.1:24118";
 const DEFAULT_CONCURRENT_PER_WORKER: usize = 10;
@@ -45,7 +45,7 @@ pub struct WorkerConfig {
     pub expired_lock_reclaimer_batch_size: usize,
     pub scheduler: SchedulerConfig,
     pub garbage_collector: GarbageCollectorConfig,
-    pub webapp: WebappConfig,
+    pub webapp: waymark_webapp_config::WebappConfig,
     pub profile_interval: Duration,
 }
 
@@ -132,7 +132,7 @@ impl WorkerConfig {
             ),
         };
 
-        let webapp = WebappConfig::from_env();
+        let webapp = waymark_webapp_config::WebappConfig::from_env();
 
         let profile_interval_ms = env_u64("WAYMARK_RUNNER_PROFILE_INTERVAL_MS")
             .unwrap_or(DEFAULT_PROFILE_INTERVAL_MS)

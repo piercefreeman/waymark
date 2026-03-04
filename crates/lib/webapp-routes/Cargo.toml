@@ -1,0 +1,29 @@
+[package]
+name = "waymark-webapp-routes"
+edition = "2024"
+version.workspace = true
+
+[dependencies]
+waymark-pool-status = { workspace = true }
+waymark-webapp-backend = { workspace = true }
+waymark-webapp-core = { workspace = true }
+
+axum = { workspace = true }
+chrono = { workspace = true, default-features = false, features = ["clock"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tera = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+waymark-backend-memory = { workspace = true }
+waymark-backend-postgres = { workspace = true }
+waymark-test-support = { workspace = true }
+waymark-worker-status-backend = { workspace = true }
+
+http-body-util = { workspace = true }
+serial_test = { workspace = true }
+sqlx = { workspace = true, default-features = false, features = ["runtime-tokio"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tower = { workspace = true, features = ["util"] }
