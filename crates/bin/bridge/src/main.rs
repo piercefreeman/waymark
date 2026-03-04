@@ -29,7 +29,7 @@ use tracing::{debug, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use uuid::Uuid;
 
-use waymark::waymark_core::runloop::{RunLoop, RunLoopSupervisorConfig};
+use waymark::waymark_core::runloop::{RunLoop, RunLoopConfig};
 use waymark::workers::{ActionCompletion, ActionRequest, BaseWorkerPool, WorkerPoolError};
 use waymark_backend_postgres::PostgresBackend;
 use waymark_backends_core::{BackendError, BackendResult};
@@ -723,7 +723,7 @@ impl proto::workflow_service_server::WorkflowService for BridgeService {
                 let mut runloop = RunLoop::new(
                     worker_pool,
                     backend,
-                    RunLoopSupervisorConfig {
+                    RunLoopConfig {
                         max_concurrent_instances: 25,
                         executor_shards: 1,
                         instance_done_batch_size: None,

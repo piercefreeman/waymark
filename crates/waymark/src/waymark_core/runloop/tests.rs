@@ -19,8 +19,8 @@ use waymark_ir_parser::parse_program;
 use waymark_runner_state::NodeStatus;
 use waymark_runner_state::RunnerState;
 
-fn default_test_config(lock_uuid: Uuid) -> RunLoopSupervisorConfig {
-    RunLoopSupervisorConfig {
+fn default_test_config(lock_uuid: Uuid) -> RunLoopConfig {
+    RunLoopConfig {
         max_concurrent_instances: 25,
         executor_shards: 1,
         instance_done_batch_size: None,
@@ -101,7 +101,7 @@ fn main(input: [x], output: [y]):
     let mut runloop = RunLoop::new(
         worker_pool,
         backend.clone(),
-        RunLoopSupervisorConfig {
+        RunLoopConfig {
             max_concurrent_instances: 25,
             executor_shards: 1,
             instance_done_batch_size: None,
@@ -192,7 +192,7 @@ fn main(input: [], output: [y]):
     let mut runloop = RunLoop::new(
         worker_pool,
         backend.clone(),
-        RunLoopSupervisorConfig {
+        RunLoopConfig {
             max_concurrent_instances: 25,
             executor_shards: 1,
             instance_done_batch_size: None,
@@ -304,7 +304,7 @@ fn main(input: [x], output: [y]):
     let mut runloop = RunLoop::new(
         worker_pool,
         backend.clone(),
-        RunLoopSupervisorConfig {
+        RunLoopConfig {
             max_concurrent_instances: 25,
             executor_shards: 1,
             instance_done_batch_size: None,
@@ -452,7 +452,7 @@ fn main(input: [limit], output: [result]):
     let mut runloop = RunLoop::new(
         worker_pool,
         backend.clone(),
-        RunLoopSupervisorConfig {
+        RunLoopConfig {
             max_concurrent_instances: 25,
             executor_shards: 1,
             instance_done_batch_size: None,
@@ -562,47 +562,20 @@ async fn test_instance_poller_send_succeeds_when_channel_has_capacity() {
 }
 
 #[tokio::test]
-async fn test_runloop_supervisor_restarts_on_depth_limit_backend_errors() {
+async fn test_runloop_reproduces_no_progress_with_continued_queue_growth() {
     let queue = Arc::new(Mutex::new(VecDeque::new()));
     let backend =
         FaultInjectingBackend::with_depth_limit_poll_failures(MemoryBackend::with_queue(queue));
     let worker_pool = crate::workers::InlineWorkerPool::new(HashMap::new());
     let shutdown_token = tokio_util::sync::CancellationToken::new();
 
-    let supervisor = tokio::spawn(runloop_supervisor(
-        backend.clone(),
+    let mut runloop = RunLoop::new_with_shutdown(
         worker_pool,
+        backend.clone(),
         default_test_config(Uuid::new_v4()),
         shutdown_token.clone(),
-    ));
-
-    tokio::time::sleep(Duration::from_millis(750)).await;
-    shutdown_token.cancel();
-    tokio::time::timeout(Duration::from_secs(2), supervisor)
-        .await
-        .expect("supervisor should stop")
-        .expect("supervisor task should not panic");
-
-    assert!(
-        backend.get_queued_instances_calls() >= 2,
-        "expected multiple polling attempts while supervisor restarts"
     );
-}
-
-#[tokio::test]
-async fn test_runloop_supervisor_reproduces_no_progress_with_continued_queue_growth() {
-    let queue = Arc::new(Mutex::new(VecDeque::new()));
-    let backend =
-        FaultInjectingBackend::with_depth_limit_poll_failures(MemoryBackend::with_queue(queue));
-    let worker_pool = crate::workers::InlineWorkerPool::new(HashMap::new());
-    let shutdown_token = tokio_util::sync::CancellationToken::new();
-
-    let supervisor = tokio::spawn(runloop_supervisor(
-        backend.clone(),
-        worker_pool,
-        default_test_config(Uuid::new_v4()),
-        shutdown_token.clone(),
-    ));
+    let runloop = tokio::spawn(async move { runloop.run().await });
 
     for _ in 0..20 {
         backend
@@ -622,10 +595,15 @@ async fn test_runloop_supervisor_reproduces_no_progress_with_continued_queue_gro
 
     tokio::time::sleep(Duration::from_millis(500)).await;
     shutdown_token.cancel();
-    tokio::time::timeout(Duration::from_secs(2), supervisor)
+    let result = tokio::time::timeout(Duration::from_secs(2), runloop)
         .await
-        .expect("supervisor should stop")
-        .expect("supervisor task should not panic");
+        .expect("runloop task should stop before timeout")
+        .expect("runloop task should not panic");
+
+    let Err(RunLoopError::Backend(BackendError::Message(msg))) = result else {
+        panic!("expected an Err(Backend(Message(...))) result, got {result:?}");
+    };
+    assert_eq!(msg, "depth limit exceeded");
 
     assert!(
         backend.get_queued_instances_calls() >= 1,

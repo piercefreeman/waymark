@@ -45,7 +45,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use uuid::Uuid;
 use waymark::config::WorkerConfig;
 use waymark::scheduler::{DagResolver, WorkflowDag};
-use waymark::waymark_core::runloop::{RunLoopSupervisorConfig, runloop_supervisor};
+use waymark::waymark_core::runloop::RunLoopConfig;
 use waymark::{PythonWorkerConfig, RemoteWorkerPool, WebappServer, spawn_status_reporter};
 use waymark_backend_postgres::PostgresBackend;
 use waymark_dag::convert_to_dag;
@@ -176,12 +176,12 @@ async fn main() -> Result<()> {
         }
     });
 
-    // Run the runloop supervisor until shutdown.
+    // Run the runloop.
     let lock_uuid = Uuid::new_v4();
-    runloop_supervisor(
-        backend.clone(),
+    let mut runloop = waymark::waymark_core::RunLoop::new_with_shutdown(
         remote_pool.clone(),
-        RunLoopSupervisorConfig {
+        backend.clone(),
+        RunLoopConfig {
             max_concurrent_instances: config.max_concurrent_instances,
             executor_shards: config.executor_shards,
             instance_done_batch_size: config.instance_done_batch_size,
@@ -194,9 +194,17 @@ async fn main() -> Result<()> {
             skip_sleep: false,
             active_instance_gauge: Some(active_instance_gauge),
         },
-        shutdown_token,
-    )
-    .await;
+        shutdown_token.child_token(),
+    );
+    let result = runloop.run().await;
+    match result {
+        Ok(_) => {
+            warn!("runloop exited cleanly (unexpected)");
+        }
+        Err(err) => {
+            error!(error = %err, "runloop exited with error");
+        }
+    }
 
     let _ = shutdown_handle.await;
     let _ = tokio::time::timeout(Duration::from_secs(5), scheduler_handle).await;

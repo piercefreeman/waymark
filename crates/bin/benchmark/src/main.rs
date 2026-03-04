@@ -17,7 +17,7 @@ use waymark_core_backend::QueuedInstance;
 use waymark_integration_support::{LOCAL_POSTGRES_DSN, ensure_local_postgres};
 use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBackend as _};
 
-use waymark::waymark_core::runloop::{RunLoop, RunLoopSupervisorConfig};
+use waymark::waymark_core::runloop::{RunLoop, RunLoopConfig};
 use waymark::workers::{ActionCallable, InlineWorkerPool, WorkerPoolError};
 use waymark_dag::convert_to_dag;
 use waymark_ir_conversions::literal_from_json_value;
@@ -330,7 +330,7 @@ async fn run_benchmark(
     let mut runloop = RunLoop::new(
         worker_pool,
         backend.clone(),
-        RunLoopSupervisorConfig {
+        RunLoopConfig {
             max_concurrent_instances,
             executor_shards,
             instance_done_batch_size: None,
