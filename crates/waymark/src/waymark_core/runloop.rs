@@ -870,6 +870,7 @@ impl RunLoop {
             let event_tx = event_tx.clone();
             let handle = thread::Builder::new()
                 .name(format!("waymark-executor-{shard_id}"))
+                .stack_size(128 * 1024 * 1024 /* 128 MB */)
                 .spawn(move || run_executor_shard(shard_id, backend, cmd_rx, event_tx))
                 .map_err(|err| {
                     RunLoopError::Message(format!(
