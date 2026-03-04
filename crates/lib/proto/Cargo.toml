@@ -4,7 +4,7 @@ version.workspace = true
 edition = "2024"
 
 [package.metadata.cargo-shear]
-ignored = ["prost"]
+ignored = ["prost", "serde"]
 
 [dependencies]
 prost = "0.12"
