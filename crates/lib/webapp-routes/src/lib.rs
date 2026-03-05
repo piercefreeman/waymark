@@ -1,8 +1,7 @@
 //! Web application server for the Waymark workflow dashboard.
 
-use std::{net::SocketAddr, sync::Arc};
+use std::sync::Arc;
 
-use anyhow::{Context, Result};
 use axum::{
     Json, Router,
     extract::{Path, State},
@@ -13,113 +12,41 @@ use axum::{
 use chrono::Utc;
 use serde::Serialize;
 use tera::{Context as TeraContext, Tera};
-use tokio::net::TcpListener;
-use tracing::{error, info};
+use tracing::error;
 use uuid::Uuid;
 use waymark_webapp_backend::WebappBackend;
 use waymark_webapp_core::WorkerStatus;
-
 use waymark_webapp_core::{
     ActionLogsResponse, FilterValuesResponse, HealthResponse, InstanceExportInfo, TimelineEntry,
     WorkflowInstanceExport, WorkflowRunDataResponse,
 };
 
-use crate::WebappConfig;
-
 // Embed templates at compile time
-const TEMPLATE_BASE: &str = include_str!("../../templates/base.html");
-const TEMPLATE_MACROS: &str = include_str!("../../templates/macros.html");
-const TEMPLATE_HOME: &str = include_str!("../../templates/home.html");
-const TEMPLATE_ERROR: &str = include_str!("../../templates/error.html");
-const TEMPLATE_WORKFLOW: &str = include_str!("../../templates/workflow.html");
-const TEMPLATE_WORKFLOW_RUN: &str = include_str!("../../templates/workflow_run.html");
-const TEMPLATE_INVOCATIONS: &str = include_str!("../../templates/invocations.html");
-const TEMPLATE_SCHEDULED: &str = include_str!("../../templates/scheduled.html");
-const TEMPLATE_SCHEDULE_DETAIL: &str = include_str!("../../templates/schedule_detail.html");
-const TEMPLATE_WORKERS: &str = include_str!("../../templates/workers.html");
-
-/// Webapp server handle.
-pub struct WebappServer {
-    addr: SocketAddr,
-    shutdown_tx: tokio::sync::oneshot::Sender<()>,
-}
-
-impl WebappServer {
-    /// Start the webapp server.
-    ///
-    /// Returns None if the webapp is disabled via configuration.
-    pub async fn start(
-        config: WebappConfig,
-        database: Arc<dyn WebappBackend>,
-    ) -> Result<Option<Self>> {
-        if !config.enabled {
-            info!("webapp disabled (set WAYMARK_WEBAPP_ENABLED=true to enable)");
-            return Ok(None);
-        }
-
-        let bind_addr = config.bind_addr();
-        let listener = TcpListener::bind(&bind_addr)
-            .await
-            .with_context(|| format!("failed to bind webapp listener on {bind_addr}"))?;
-
-        let actual_addr = listener.local_addr()?;
-
-        // Initialize templates
-        let templates = init_templates()?;
-
-        let state = WebappState {
-            database,
-            templates: Arc::new(templates),
-        };
-
-        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
-
-        // Spawn the server task
-        tokio::spawn(run_server(listener, state, shutdown_rx));
-
-        info!(addr = %actual_addr, "webapp server started");
-
-        Ok(Some(Self {
-            addr: actual_addr,
-            shutdown_tx,
-        }))
-    }
-
-    /// Get the address the server is bound to.
-    pub fn addr(&self) -> SocketAddr {
-        self.addr
-    }
-
-    /// Shutdown the server.
-    pub async fn shutdown(self) {
-        let _ = self.shutdown_tx.send(());
-    }
-}
+const TEMPLATE_BASE: &str = include_str!("../templates/base.html");
+const TEMPLATE_MACROS: &str = include_str!("../templates/macros.html");
+const TEMPLATE_HOME: &str = include_str!("../templates/home.html");
+const TEMPLATE_ERROR: &str = include_str!("../templates/error.html");
+const TEMPLATE_WORKFLOW: &str = include_str!("../templates/workflow.html");
+const TEMPLATE_WORKFLOW_RUN: &str = include_str!("../templates/workflow_run.html");
+const TEMPLATE_INVOCATIONS: &str = include_str!("../templates/invocations.html");
+const TEMPLATE_SCHEDULED: &str = include_str!("../templates/scheduled.html");
+const TEMPLATE_SCHEDULE_DETAIL: &str = include_str!("../templates/schedule_detail.html");
+const TEMPLATE_WORKERS: &str = include_str!("../templates/workers.html");
 
 /// Initialize Tera templates from embedded strings.
-fn init_templates() -> Result<Tera> {
+pub fn init_templates() -> Result<Tera, tera::Error> {
     let mut tera = Tera::default();
 
-    tera.add_raw_template("base.html", TEMPLATE_BASE)
-        .context("failed to add base.html template")?;
-    tera.add_raw_template("macros.html", TEMPLATE_MACROS)
-        .context("failed to add macros.html template")?;
-    tera.add_raw_template("home.html", TEMPLATE_HOME)
-        .context("failed to add home.html template")?;
-    tera.add_raw_template("error.html", TEMPLATE_ERROR)
-        .context("failed to add error.html template")?;
-    tera.add_raw_template("workflow.html", TEMPLATE_WORKFLOW)
-        .context("failed to add workflow.html template")?;
-    tera.add_raw_template("workflow_run.html", TEMPLATE_WORKFLOW_RUN)
-        .context("failed to add workflow_run.html template")?;
-    tera.add_raw_template("invocations.html", TEMPLATE_INVOCATIONS)
-        .context("failed to add invocations.html template")?;
-    tera.add_raw_template("scheduled.html", TEMPLATE_SCHEDULED)
-        .context("failed to add scheduled.html template")?;
-    tera.add_raw_template("schedule_detail.html", TEMPLATE_SCHEDULE_DETAIL)
-        .context("failed to add schedule_detail.html template")?;
-    tera.add_raw_template("workers.html", TEMPLATE_WORKERS)
-        .context("failed to add workers.html template")?;
+    tera.add_raw_template("base.html", TEMPLATE_BASE)?;
+    tera.add_raw_template("macros.html", TEMPLATE_MACROS)?;
+    tera.add_raw_template("home.html", TEMPLATE_HOME)?;
+    tera.add_raw_template("error.html", TEMPLATE_ERROR)?;
+    tera.add_raw_template("workflow.html", TEMPLATE_WORKFLOW)?;
+    tera.add_raw_template("workflow_run.html", TEMPLATE_WORKFLOW_RUN)?;
+    tera.add_raw_template("invocations.html", TEMPLATE_INVOCATIONS)?;
+    tera.add_raw_template("scheduled.html", TEMPLATE_SCHEDULED)?;
+    tera.add_raw_template("schedule_detail.html", TEMPLATE_SCHEDULE_DETAIL)?;
+    tera.add_raw_template("workers.html", TEMPLATE_WORKERS)?;
 
     tera.autoescape_on(vec![".html", ".tera"]);
     Ok(tera)
@@ -130,27 +57,12 @@ fn init_templates() -> Result<Tera> {
 // ============================================================================
 
 #[derive(Clone)]
-struct WebappState {
-    database: Arc<dyn WebappBackend>,
-    templates: Arc<Tera>,
+pub struct WebappState {
+    pub database: Arc<dyn WebappBackend>,
+    pub templates: Arc<Tera>,
 }
 
-async fn run_server(
-    listener: TcpListener,
-    state: WebappState,
-    shutdown_rx: tokio::sync::oneshot::Receiver<()>,
-) {
-    let app = build_router(state);
-
-    axum::serve(listener, app)
-        .with_graceful_shutdown(async {
-            let _ = shutdown_rx.await;
-        })
-        .await
-        .ok();
-}
-
-fn build_router(state: WebappState) -> Router {
+pub fn build_router(state: WebappState) -> Router {
     use axum::routing::post;
 
     Router::new()
@@ -707,7 +619,14 @@ struct HttpError {
 
 impl IntoResponse for HttpError {
     fn into_response(self) -> Response {
-        let body = Json(serde_json::json!({ "message": self.message }));
+        #[derive(serde::Serialize)]
+        struct ErrorBody {
+            pub message: String,
+        }
+
+        let body = Json(ErrorBody {
+            message: self.message,
+        });
         (self.status, body).into_response()
     }
 }

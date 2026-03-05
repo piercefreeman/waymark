@@ -1,0 +1,15 @@
+[package]
+name = "waymark-webapp-bringup"
+edition = "2024"
+version.workspace = true
+
+[dependencies]
+waymark-webapp-config = { workspace = true }
+waymark-webapp-backend = { workspace = true }
+waymark-webapp-routes = { workspace = true }
+
+anyhow = { workspace = true }
+axum = { workspace = true }
+tokio = { workspace = true, features = ["net"] }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
