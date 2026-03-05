@@ -49,69 +49,225 @@ impl<'a> ValueExprResolver<'a> {
     }
 
     pub fn visit(&mut self, expr: &ValueExpr) -> ValueExpr {
-        match expr {
-            ValueExpr::Literal(value) => ValueExpr::Literal(value.clone()),
-            ValueExpr::Variable(value) => (self.resolve_variable)(&value.name, self.seen),
-            ValueExpr::ActionResult(value) => ValueExpr::ActionResult(value.clone()),
-            ValueExpr::BinaryOp(value) => ValueExpr::BinaryOp(BinaryOpValue {
-                left: Box::new(self.visit(&value.left)),
-                op: value.op,
-                right: Box::new(self.visit(&value.right)),
-            }),
-            ValueExpr::UnaryOp(value) => ValueExpr::UnaryOp(UnaryOpValue {
-                op: value.op,
-                operand: Box::new(self.visit(&value.operand)),
-            }),
-            ValueExpr::List(value) => ValueExpr::List(ListValue {
-                elements: value.elements.iter().map(|item| self.visit(item)).collect(),
-            }),
-            ValueExpr::Dict(value) => ValueExpr::Dict(DictValue {
-                entries: value
-                    .entries
-                    .iter()
-                    .map(|entry| DictEntryValue {
-                        key: self.visit(&entry.key),
-                        value: self.visit(&entry.value),
-                    })
-                    .collect(),
-            }),
-            ValueExpr::Index(value) => ValueExpr::Index(IndexValue {
-                object: Box::new(self.visit(&value.object)),
-                index: Box::new(self.visit(&value.index)),
-            }),
-            ValueExpr::Dot(value) => ValueExpr::Dot(DotValue {
-                object: Box::new(self.visit(&value.object)),
-                attribute: value.attribute.clone(),
-            }),
-            ValueExpr::FunctionCall(value) => ValueExpr::FunctionCall(FunctionCallValue {
-                name: value.name.clone(),
-                args: value.args.iter().map(|arg| self.visit(arg)).collect(),
-                kwargs: value
-                    .kwargs
-                    .iter()
-                    .map(|(name, arg)| (name.clone(), self.visit(arg)))
-                    .collect(),
-                global_function: value.global_function,
-            }),
-            ValueExpr::Spread(value) => {
-                let kwargs = value
-                    .action
-                    .kwargs
-                    .iter()
-                    .map(|(name, arg)| (name.clone(), self.visit(arg)))
-                    .collect::<HashMap<_, _>>();
-                let action = ActionCallSpec {
-                    action_name: value.action.action_name.clone(),
-                    module_name: value.action.module_name.clone(),
-                    kwargs,
-                };
-                ValueExpr::Spread(SpreadValue {
-                    collection: Box::new(self.visit(&value.collection)),
-                    loop_var: value.loop_var.clone(),
-                    action,
-                })
+        enum ResolveFrame<'b> {
+            Resolve(&'b ValueExpr),
+            BuildBinary(i32),
+            BuildUnary(i32),
+            BuildList(usize),
+            BuildDict(usize),
+            BuildIndex,
+            BuildDot(String),
+            BuildFunctionCall {
+                name: String,
+                global_function: Option<i32>,
+                args_len: usize,
+                kwarg_names: Vec<String>,
+            },
+            BuildSpread {
+                loop_var: String,
+                action_name: String,
+                module_name: Option<String>,
+                kwarg_names: Vec<String>,
+            },
+        }
+
+        let mut frames = vec![ResolveFrame::Resolve(expr)];
+        let mut values: Vec<ValueExpr> = Vec::new();
+
+        while let Some(frame) = frames.pop() {
+            match frame {
+                ResolveFrame::Resolve(current) => match current {
+                    ValueExpr::Literal(value) => values.push(ValueExpr::Literal(value.clone())),
+                    ValueExpr::Variable(value) => {
+                        values.push((self.resolve_variable)(&value.name, self.seen));
+                    }
+                    ValueExpr::ActionResult(value) => {
+                        values.push(ValueExpr::ActionResult(value.clone()));
+                    }
+                    ValueExpr::BinaryOp(value) => {
+                        frames.push(ResolveFrame::BuildBinary(value.op));
+                        frames.push(ResolveFrame::Resolve(&value.right));
+                        frames.push(ResolveFrame::Resolve(&value.left));
+                    }
+                    ValueExpr::UnaryOp(value) => {
+                        frames.push(ResolveFrame::BuildUnary(value.op));
+                        frames.push(ResolveFrame::Resolve(&value.operand));
+                    }
+                    ValueExpr::List(value) => {
+                        frames.push(ResolveFrame::BuildList(value.elements.len()));
+                        for item in value.elements.iter().rev() {
+                            frames.push(ResolveFrame::Resolve(item));
+                        }
+                    }
+                    ValueExpr::Dict(value) => {
+                        frames.push(ResolveFrame::BuildDict(value.entries.len()));
+                        for entry in value.entries.iter().rev() {
+                            frames.push(ResolveFrame::Resolve(&entry.value));
+                            frames.push(ResolveFrame::Resolve(&entry.key));
+                        }
+                    }
+                    ValueExpr::Index(value) => {
+                        frames.push(ResolveFrame::BuildIndex);
+                        frames.push(ResolveFrame::Resolve(&value.index));
+                        frames.push(ResolveFrame::Resolve(&value.object));
+                    }
+                    ValueExpr::Dot(value) => {
+                        frames.push(ResolveFrame::BuildDot(value.attribute.clone()));
+                        frames.push(ResolveFrame::Resolve(&value.object));
+                    }
+                    ValueExpr::FunctionCall(value) => {
+                        let kwarg_names: Vec<String> = value.kwargs.keys().cloned().collect();
+                        frames.push(ResolveFrame::BuildFunctionCall {
+                            name: value.name.clone(),
+                            global_function: value.global_function,
+                            args_len: value.args.len(),
+                            kwarg_names: kwarg_names.clone(),
+                        });
+                        for name in kwarg_names.iter().rev() {
+                            if let Some(arg) = value.kwargs.get(name) {
+                                frames.push(ResolveFrame::Resolve(arg));
+                            }
+                        }
+                        for arg in value.args.iter().rev() {
+                            frames.push(ResolveFrame::Resolve(arg));
+                        }
+                    }
+                    ValueExpr::Spread(value) => {
+                        let kwarg_names: Vec<String> =
+                            value.action.kwargs.keys().cloned().collect();
+                        frames.push(ResolveFrame::BuildSpread {
+                            loop_var: value.loop_var.clone(),
+                            action_name: value.action.action_name.clone(),
+                            module_name: value.action.module_name.clone(),
+                            kwarg_names: kwarg_names.clone(),
+                        });
+                        frames.push(ResolveFrame::Resolve(&value.collection));
+                        for name in kwarg_names.iter().rev() {
+                            if let Some(arg) = value.action.kwargs.get(name) {
+                                frames.push(ResolveFrame::Resolve(arg));
+                            }
+                        }
+                    }
+                },
+                ResolveFrame::BuildBinary(op) => {
+                    let right = values
+                        .pop()
+                        .expect("binary resolver frame missing right operand");
+                    let left = values
+                        .pop()
+                        .expect("binary resolver frame missing left operand");
+                    values.push(ValueExpr::BinaryOp(BinaryOpValue {
+                        left: Box::new(left),
+                        op,
+                        right: Box::new(right),
+                    }));
+                }
+                ResolveFrame::BuildUnary(op) => {
+                    let operand = values.pop().expect("unary resolver frame missing operand");
+                    values.push(ValueExpr::UnaryOp(UnaryOpValue {
+                        op,
+                        operand: Box::new(operand),
+                    }));
+                }
+                ResolveFrame::BuildList(len) => {
+                    let mut elements = Vec::with_capacity(len);
+                    for _ in 0..len {
+                        elements.push(values.pop().expect("list resolver frame missing element"));
+                    }
+                    elements.reverse();
+                    values.push(ValueExpr::List(ListValue { elements }));
+                }
+                ResolveFrame::BuildDict(len) => {
+                    let mut entries = Vec::with_capacity(len);
+                    for _ in 0..len {
+                        let value = values.pop().expect("dict resolver frame missing value");
+                        let key = values.pop().expect("dict resolver frame missing key");
+                        entries.push(DictEntryValue { key, value });
+                    }
+                    entries.reverse();
+                    values.push(ValueExpr::Dict(DictValue { entries }));
+                }
+                ResolveFrame::BuildIndex => {
+                    let index = values
+                        .pop()
+                        .expect("index resolver frame missing index expression");
+                    let object = values
+                        .pop()
+                        .expect("index resolver frame missing object expression");
+                    values.push(ValueExpr::Index(IndexValue {
+                        object: Box::new(object),
+                        index: Box::new(index),
+                    }));
+                }
+                ResolveFrame::BuildDot(attribute) => {
+                    let object = values
+                        .pop()
+                        .expect("dot resolver frame missing object expression");
+                    values.push(ValueExpr::Dot(DotValue {
+                        object: Box::new(object),
+                        attribute,
+                    }));
+                }
+                ResolveFrame::BuildFunctionCall {
+                    name,
+                    global_function,
+                    args_len,
+                    kwarg_names,
+                } => {
+                    let mut kwargs = HashMap::with_capacity(kwarg_names.len());
+                    for key in kwarg_names.iter().rev() {
+                        let value = values
+                            .pop()
+                            .expect("function-call resolver frame missing kwarg value");
+                        kwargs.insert(key.clone(), value);
+                    }
+                    let mut args = Vec::with_capacity(args_len);
+                    for _ in 0..args_len {
+                        args.push(
+                            values
+                                .pop()
+                                .expect("function-call resolver frame missing arg value"),
+                        );
+                    }
+                    args.reverse();
+                    values.push(ValueExpr::FunctionCall(FunctionCallValue {
+                        name,
+                        args,
+                        kwargs,
+                        global_function,
+                    }));
+                }
+                ResolveFrame::BuildSpread {
+                    loop_var,
+                    action_name,
+                    module_name,
+                    kwarg_names,
+                } => {
+                    let collection = values
+                        .pop()
+                        .expect("spread resolver frame missing collection expression");
+                    let mut kwargs = HashMap::with_capacity(kwarg_names.len());
+                    for key in kwarg_names.iter().rev() {
+                        let value = values
+                            .pop()
+                            .expect("spread resolver frame missing kwarg value");
+                        kwargs.insert(key.clone(), value);
+                    }
+                    let action = ActionCallSpec {
+                        action_name,
+                        module_name,
+                        kwargs,
+                    };
+                    values.push(ValueExpr::Spread(SpreadValue {
+                        collection: Box::new(collection),
+                        loop_var,
+                        action,
+                    }));
+                }
             }
         }
+
+        values.pop().expect("resolver stack produced no result")
     }
 }
 
@@ -130,57 +286,63 @@ impl<'a> ValueExprSourceCollector<'a> {
     }
 
     pub fn visit(&self, expr: &ValueExpr) -> HashSet<Uuid> {
-        match expr {
-            ValueExpr::Literal(_) => HashSet::new(),
-            ValueExpr::Variable(value) => {
-                (self.resolve_variable)(&value.name).into_iter().collect()
-            }
-            ValueExpr::ActionResult(value) => [value.node_id].into_iter().collect(),
-            ValueExpr::BinaryOp(value) => {
-                let mut sources = self.visit(&value.left);
-                sources.extend(self.visit(&value.right));
-                sources
-            }
-            ValueExpr::UnaryOp(value) => self.visit(&value.operand),
-            ValueExpr::List(value) => {
-                let mut sources = HashSet::new();
-                for item in &value.elements {
-                    sources.extend(self.visit(item));
+        let mut sources = HashSet::new();
+        let mut pending: Vec<&ValueExpr> = vec![expr];
+
+        while let Some(current) = pending.pop() {
+            match current {
+                ValueExpr::Literal(_) => {}
+                ValueExpr::Variable(value) => {
+                    if let Some(source) = (self.resolve_variable)(&value.name) {
+                        sources.insert(source);
+                    }
                 }
-                sources
-            }
-            ValueExpr::Dict(value) => {
-                let mut sources = HashSet::new();
-                for entry in &value.entries {
-                    sources.extend(self.visit(&entry.key));
-                    sources.extend(self.visit(&entry.value));
+                ValueExpr::ActionResult(value) => {
+                    sources.insert(value.node_id);
                 }
-                sources
-            }
-            ValueExpr::Index(value) => {
-                let mut sources = self.visit(&value.object);
-                sources.extend(self.visit(&value.index));
-                sources
-            }
-            ValueExpr::Dot(value) => self.visit(&value.object),
-            ValueExpr::FunctionCall(value) => {
-                let mut sources = HashSet::new();
-                for arg in &value.args {
-                    sources.extend(self.visit(arg));
+                ValueExpr::BinaryOp(value) => {
+                    pending.push(&value.right);
+                    pending.push(&value.left);
                 }
-                for arg in value.kwargs.values() {
-                    sources.extend(self.visit(arg));
+                ValueExpr::UnaryOp(value) => {
+                    pending.push(&value.operand);
                 }
-                sources
-            }
-            ValueExpr::Spread(value) => {
-                let mut sources = self.visit(&value.collection);
-                for arg in value.action.kwargs.values() {
-                    sources.extend(self.visit(arg));
+                ValueExpr::List(value) => {
+                    for item in value.elements.iter().rev() {
+                        pending.push(item);
+                    }
                 }
-                sources
+                ValueExpr::Dict(value) => {
+                    for entry in value.entries.iter().rev() {
+                        pending.push(&entry.value);
+                        pending.push(&entry.key);
+                    }
+                }
+                ValueExpr::Index(value) => {
+                    pending.push(&value.index);
+                    pending.push(&value.object);
+                }
+                ValueExpr::Dot(value) => {
+                    pending.push(&value.object);
+                }
+                ValueExpr::FunctionCall(value) => {
+                    for arg in value.kwargs.values() {
+                        pending.push(arg);
+                    }
+                    for arg in value.args.iter().rev() {
+                        pending.push(arg);
+                    }
+                }
+                ValueExpr::Spread(value) => {
+                    for arg in value.action.kwargs.values() {
+                        pending.push(arg);
+                    }
+                    pending.push(&value.collection);
+                }
             }
         }
+
+        sources
     }
 }
 

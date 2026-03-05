@@ -42,6 +42,30 @@ fn test_value_expr_resolver_visit_happy_path() {
 }
 
 #[test]
+fn test_value_expr_resolver_handles_deep_unary_chain() {
+    let mut seen = HashSet::new();
+    let resolve = |name: &str, _: &mut HashSet<String>| {
+        ValueExpr::Variable(VariableValue {
+            name: name.to_string(),
+        })
+    };
+    let mut resolver = ValueExprResolver::new(&resolve, &mut seen);
+
+    let mut expr = ValueExpr::Literal(LiteralValue {
+        value: Value::Bool(true),
+    });
+    for _ in 0..10_000 {
+        expr = ValueExpr::UnaryOp(UnaryOpValue {
+            op: ir::UnaryOperator::UnaryOpNot as i32,
+            operand: Box::new(expr),
+        });
+    }
+
+    let resolved = resolver.visit(&expr);
+    assert!(matches!(resolved, ValueExpr::UnaryOp(_)));
+}
+
+#[test]
 fn test_value_expr_source_collector_visit_happy_path() {
     let variable_source = Uuid::new_v4();
     let action_source = Uuid::new_v4();
@@ -69,6 +93,29 @@ fn test_value_expr_source_collector_visit_happy_path() {
     let sources = collector.visit(&expr);
     assert!(sources.contains(&variable_source));
     assert!(sources.contains(&action_source));
+}
+
+#[test]
+fn test_value_expr_source_collector_handles_deep_unary_chain() {
+    let source = Uuid::new_v4();
+    let resolve = |name: &str| {
+        if name == "x" { Some(source) } else { None }
+    };
+    let collector = ValueExprSourceCollector::new(&resolve);
+
+    let mut expr = ValueExpr::Variable(VariableValue {
+        name: "x".to_string(),
+    });
+    for _ in 0..10_000 {
+        expr = ValueExpr::UnaryOp(UnaryOpValue {
+            op: ir::UnaryOperator::UnaryOpNot as i32,
+            operand: Box::new(expr),
+        });
+    }
+
+    let sources = collector.visit(&expr);
+    assert_eq!(sources.len(), 1);
+    assert!(sources.contains(&source));
 }
 
 #[test]
