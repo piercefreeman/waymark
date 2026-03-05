@@ -19,7 +19,7 @@ uuid = { workspace = true }
 [dev-dependencies]
 waymark-backend-memory = { workspace = true }
 waymark-backend-postgres = { workspace = true }
-waymark-test-support = { workspace = true }
+waymark-support-test = { workspace = true }
 waymark-worker-status-backend = { workspace = true }
 
 http-body-util = { workspace = true }

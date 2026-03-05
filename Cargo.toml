@@ -15,7 +15,7 @@ waymark-backends-core = { path = "crates/lib/backends-core" }
 waymark-core-backend = { path = "crates/lib/core-backend" }
 waymark-dag = { path = "crates/lib/dag" }
 waymark-garbage-collector-backend = { path = "crates/lib/garbage-collector-backend" }
-waymark-integration-support = { path = "crates/lib/integration-support" }
+waymark-support-integration = { path = "crates/lib/support-integration" }
 waymark-ir-conversions = { path = "crates/lib/ir-conversions" }
 waymark-ir-parser = { path = "crates/lib/ir-parser" }
 waymark-observability = { path = "crates/lib/observability" }
@@ -26,7 +26,7 @@ waymark-runner = { path = "crates/lib/runner" }
 waymark-runner-state = { path = "crates/lib/runner-state" }
 waymark-scheduler-backend = { path = "crates/lib/scheduler-backend" }
 waymark-scheduler-core = { path = "crates/lib/scheduler-core" }
-waymark-test-support = { path = "crates/lib/test-support" }
+waymark-support-test = { path = "crates/lib/support-test" }
 waymark-webapp-backend = { path = "crates/lib/webapp-backend" }
 waymark-webapp-core = { path = "crates/lib/webapp-core" }
 waymark-worker-status-backend = { path = "crates/lib/worker-status-backend" }
