@@ -67,9 +67,6 @@ ENV PATH="/root/.local/bin:${PATH}"
 WORKDIR /app
 COPY example_app /app
 
-# Copy templates for the webapp dashboard
-COPY crates/waymark/templates /app/templates
-
 RUN uv venv /opt/venv
 ENV VIRTUAL_ENV=/opt/venv
 ENV PATH="/opt/venv/bin:${PATH}"
