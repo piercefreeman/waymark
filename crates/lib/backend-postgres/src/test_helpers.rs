@@ -1,7 +1,7 @@
 use sqlx::PgPool;
 
 use super::PostgresBackend;
-use waymark_test_support::postgres_setup;
+use waymark_support_test::postgres_setup;
 
 pub(super) async fn setup_backend() -> PostgresBackend {
     let pool = postgres_setup().await;

@@ -8,7 +8,7 @@ waymark-core-backend = { workspace = true }
 waymark-dag = { workspace = true }
 waymark-ir-conversions = { workspace = true }
 waymark-runner-state = { workspace = true }
-waymark-integration-support = { workspace = true }
+waymark-support-integration = { workspace = true }
 waymark-backend-postgres = { workspace = true }
 waymark-backend-postgres-migrations = { workspace = true }
 waymark-workflow-registry-backend = { workspace = true }

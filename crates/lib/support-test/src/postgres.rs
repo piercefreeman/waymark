@@ -2,7 +2,7 @@
 
 use sqlx::PgPool;
 
-use waymark_integration_support::{LOCAL_POSTGRES_DSN, connect_pool, ensure_local_postgres};
+use waymark_support_integration::{LOCAL_POSTGRES_DSN, connect_pool, ensure_local_postgres};
 
 /// Ensure test Postgres is available and migrated, then return a pooled connection.
 pub async fn postgres_setup() -> PgPool {

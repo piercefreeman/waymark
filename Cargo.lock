@@ -3440,7 +3440,7 @@ dependencies = [
  "waymark-runner-state",
  "waymark-scheduler-backend",
  "waymark-scheduler-core",
- "waymark-test-support",
+ "waymark-support-test",
  "waymark-webapp-backend",
  "waymark-webapp-core",
  "waymark-worker-status-backend",
@@ -3481,13 +3481,13 @@ dependencies = [
  "waymark-backend-postgres-migrations",
  "waymark-core-backend",
  "waymark-dag",
- "waymark-integration-support",
  "waymark-ir-conversions",
  "waymark-observability",
  "waymark-observability-setup",
  "waymark-proto",
  "waymark-runner-state",
  "waymark-smoke-sources",
+ "waymark-support-integration",
  "waymark-workflow-registry-backend",
 ]
 
@@ -3594,16 +3594,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "waymark-integration-support"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "sqlx",
- "tokio",
- "waymark-backend-postgres-migrations",
-]
-
-[[package]]
 name = "waymark-integration-test"
 version = "0.1.0"
 dependencies = [
@@ -3622,10 +3612,10 @@ dependencies = [
  "waymark-backend-postgres-migrations",
  "waymark-core-backend",
  "waymark-dag",
- "waymark-integration-support",
  "waymark-ir-conversions",
  "waymark-proto",
  "waymark-runner-state",
+ "waymark-support-integration",
  "waymark-workflow-registry-backend",
 ]
 
@@ -3827,11 +3817,21 @@ dependencies = [
 ]
 
 [[package]]
-name = "waymark-test-support"
+name = "waymark-support-integration"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "sqlx",
+ "tokio",
+ "waymark-backend-postgres-migrations",
+]
+
+[[package]]
+name = "waymark-support-test"
 version = "0.1.0"
 dependencies = [
  "sqlx",
- "waymark-integration-support",
+ "waymark-support-integration",
 ]
 
 [[package]]
@@ -3890,7 +3890,7 @@ dependencies = [
  "waymark-backend-memory",
  "waymark-backend-postgres",
  "waymark-pool-status",
- "waymark-test-support",
+ "waymark-support-test",
  "waymark-webapp-backend",
  "waymark-webapp-core",
  "waymark-worker-status-backend",

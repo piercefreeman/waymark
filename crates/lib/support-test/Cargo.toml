@@ -1,8 +1,8 @@
 [package]
-name = "waymark-test-support"
+name = "waymark-support-test"
 version.workspace = true
 edition = "2024"
 
 [dependencies]
 sqlx = { workspace = true }
-waymark-integration-support = { workspace = true }
+waymark-support-integration = { workspace = true }

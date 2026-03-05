@@ -24,10 +24,10 @@ use waymark_backend_memory::MemoryBackend;
 use waymark_backend_postgres::PostgresBackend;
 use waymark_core_backend::{CoreBackend, QueuedInstance};
 use waymark_dag::{DAG, convert_to_dag};
-use waymark_integration_support::{LOCAL_POSTGRES_DSN, connect_pool, ensure_local_postgres};
 use waymark_ir_conversions::literal_from_json_value;
 use waymark_proto::ast as ir;
 use waymark_runner_state::RunnerState;
+use waymark_support_integration::{LOCAL_POSTGRES_DSN, connect_pool, ensure_local_postgres};
 use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBackend};
 
 #[derive(Parser, Debug)]

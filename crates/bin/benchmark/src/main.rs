@@ -14,7 +14,7 @@ use sqlx::PgPool;
 use uuid::Uuid;
 use waymark_backend_postgres::PostgresBackend;
 use waymark_core_backend::QueuedInstance;
-use waymark_integration_support::{LOCAL_POSTGRES_DSN, ensure_local_postgres};
+use waymark_support_integration::{LOCAL_POSTGRES_DSN, ensure_local_postgres};
 use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBackend as _};
 
 use waymark::waymark_core::runloop::{RunLoop, RunLoopConfig};

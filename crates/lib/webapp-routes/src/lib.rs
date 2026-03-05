@@ -1298,7 +1298,7 @@ mod tests {
 
     use super::{WebappState, build_graph_data, build_router, init_templates};
 
-    use waymark_test_support::postgres_setup;
+    use waymark_support_test::postgres_setup;
     use waymark_webapp_core::{ExecutionEdgeView, ExecutionGraphView, ExecutionNodeView};
 
     #[test]
