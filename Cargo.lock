@@ -3436,6 +3436,7 @@ dependencies = [
  "waymark-message-conversions",
  "waymark-observability",
  "waymark-observability-setup",
+ "waymark-pool-status",
  "waymark-proto",
  "waymark-runner",
  "waymark-runner-state",
@@ -3744,6 +3745,13 @@ dependencies = [
  "console-subscriber",
  "tracing-chrome",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "waymark-pool-status"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

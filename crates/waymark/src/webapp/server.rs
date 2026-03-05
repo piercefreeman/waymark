@@ -1238,7 +1238,7 @@ struct WorkerInstanceRowView {
 }
 
 fn render_workers_page(templates: &Tera, statuses: &[WorkerStatus], window_minutes: i64) -> String {
-    use crate::pool_status::PoolTimeSeries;
+    use waymark_pool_status::PoolTimeSeries;
 
     // Build action rows
     let action_rows: Vec<WorkerActionRowView> = statuses
