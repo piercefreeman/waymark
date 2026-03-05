@@ -16,11 +16,12 @@ waymark-backend-postgres-migrations = { workspace = true }
 waymark-workflow-registry-backend = { workspace = true }
 waymark-proto = { workspace = true }
 waymark-message-conversions = { workspace = true }
+waymark-worker-core = { workspace = true }
 waymark = { workspace = true }
 
 anyhow = { workspace = true }
 chrono = { workspace = true }
-futures = { workspace = true }
+futures-core = { workspace = true }
 prost = { workspace = true }
 rmp-serde = { workspace = true }
 serde_json = { workspace = true }

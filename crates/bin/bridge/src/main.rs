@@ -18,7 +18,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
-use futures::{Stream, future::BoxFuture};
+use futures_core::{Stream, future::BoxFuture};
 use prost::Message;
 use serde_json::Value;
 use sqlx::{PgPool, Row};
@@ -30,7 +30,6 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use uuid::Uuid;
 
 use waymark::waymark_core::runloop::{RunLoop, RunLoopConfig};
-use waymark::workers::{ActionCompletion, ActionRequest, BaseWorkerPool, WorkerPoolError};
 use waymark_backend_postgres::PostgresBackend;
 use waymark_backends_core::{BackendError, BackendResult};
 use waymark_core_backend::{
@@ -43,6 +42,7 @@ use waymark_proto::{ast as ir, messages as proto};
 use waymark_runner_state::RunnerState;
 use waymark_scheduler_backend::SchedulerBackend as _;
 use waymark_scheduler_core::{CreateScheduleParams, ScheduleId, ScheduleStatus, ScheduleType};
+use waymark_worker_core::{ActionCompletion, ActionRequest, BaseWorkerPool, WorkerPoolError};
 use waymark_workflow_registry_backend::{
     WorkflowRegistration, WorkflowRegistryBackend, WorkflowVersion,
 };
@@ -1104,7 +1104,7 @@ fn action_result_to_completion(
         .payload
         .as_ref()
         .map(|payload| payload.encode_to_vec())
-        .and_then(|bytes| waymark::messages::decode_message(&bytes).ok())
+        .and_then(|bytes| proto::WorkflowArguments::decode(bytes.as_slice()).ok())
         .map(waymark_message_conversions::workflow_arguments_to_json)
         .unwrap_or(Value::Null);
 

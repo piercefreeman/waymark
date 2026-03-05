@@ -11,8 +11,8 @@ use waymark_backend_memory::MemoryBackend;
 use waymark_core_backend::{ActionAttemptStatus, CoreBackend};
 use waymark_workflow_registry_backend::WorkflowRegistration;
 
-use crate::workers::ActionCallable;
 use waymark_proto::ast as ir;
+use waymark_worker_inline::ActionCallable;
 
 use waymark_dag::convert_to_dag;
 use waymark_ir_parser::parse_program;
@@ -96,7 +96,7 @@ fn main(input: [x], output: [y]):
             })
         }),
     );
-    let worker_pool = crate::workers::InlineWorkerPool::new(actions);
+    let worker_pool = waymark_worker_inline::InlineWorkerPool::new(actions);
 
     let mut runloop = RunLoop::new(
         worker_pool,
@@ -187,7 +187,7 @@ fn main(input: [], output: [y]):
             })
         }),
     );
-    let worker_pool = crate::workers::InlineWorkerPool::new(actions);
+    let worker_pool = waymark_worker_inline::InlineWorkerPool::new(actions);
 
     let mut runloop = RunLoop::new(
         worker_pool,
@@ -300,7 +300,7 @@ fn main(input: [x], output: [y]):
         .await
         .expect("register workflow version");
 
-    let worker_pool = crate::workers::InlineWorkerPool::new(HashMap::new());
+    let worker_pool = waymark_worker_inline::InlineWorkerPool::new(HashMap::new());
     let mut runloop = RunLoop::new(
         worker_pool,
         backend.clone(),
@@ -447,7 +447,7 @@ fn main(input: [limit], output: [result]):
             })
         }),
     );
-    let worker_pool = crate::workers::InlineWorkerPool::new(actions);
+    let worker_pool = waymark_worker_inline::InlineWorkerPool::new(actions);
 
     let mut runloop = RunLoop::new(
         worker_pool,
@@ -566,7 +566,7 @@ async fn test_runloop_reproduces_no_progress_with_continued_queue_growth() {
     let queue = Arc::new(Mutex::new(VecDeque::new()));
     let backend =
         FaultInjectingBackend::with_depth_limit_poll_failures(MemoryBackend::with_queue(queue));
-    let worker_pool = crate::workers::InlineWorkerPool::new(HashMap::new());
+    let worker_pool = waymark_worker_inline::InlineWorkerPool::new(HashMap::new());
     let shutdown_token = tokio_util::sync::CancellationToken::new();
 
     let mut runloop = RunLoop::new_with_shutdown(
@@ -694,7 +694,7 @@ fn main(input: [x], output: [y]):
         .await
         .expect("register workflow version");
 
-    let worker_pool = crate::workers::InlineWorkerPool::new(HashMap::new());
+    let worker_pool = waymark_worker_inline::InlineWorkerPool::new(HashMap::new());
     let mut runloop = RunLoop::new(
         worker_pool,
         backend.clone(),
@@ -789,7 +789,7 @@ fn main(input: [], output: [result]):
             })
         }),
     );
-    let worker_pool = crate::workers::InlineWorkerPool::new(actions);
+    let worker_pool = waymark_worker_inline::InlineWorkerPool::new(actions);
     let mut runloop = RunLoop::new(
         worker_pool,
         backend.clone(),
@@ -872,7 +872,7 @@ fn main(input: [], output: [result]):
         "make_number".to_string(),
         Arc::new(|_kwargs| Box::pin(async move { Ok(Value::Number(7.into())) })),
     );
-    let worker_pool = crate::workers::InlineWorkerPool::new(actions);
+    let worker_pool = waymark_worker_inline::InlineWorkerPool::new(actions);
     let mut runloop = RunLoop::new(
         worker_pool,
         backend.clone(),
@@ -917,7 +917,7 @@ fn main(input: [], output: [result]):
 #[test]
 fn test_lock_mismatches_ignores_expired_lock_with_matching_owner() {
     let backend = MemoryBackend::new();
-    let worker_pool = crate::workers::InlineWorkerPool::new(HashMap::new());
+    let worker_pool = waymark_worker_inline::InlineWorkerPool::new(HashMap::new());
     let lock_uuid = Uuid::new_v4();
     let runloop = RunLoop::new(worker_pool, backend, default_test_config(lock_uuid));
 

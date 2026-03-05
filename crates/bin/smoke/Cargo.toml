@@ -12,6 +12,7 @@ waymark-runner-state = { workspace = true }
 waymark-workflow-registry-backend = { workspace = true }
 waymark-backend-memory = { workspace = true }
 waymark-smoke-sources = { workspace = true }
+waymark-worker-remote = { workspace = true }
 waymark = { workspace = true }
 
 anyhow = { workspace = true }

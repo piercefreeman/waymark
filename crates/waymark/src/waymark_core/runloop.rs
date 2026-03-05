@@ -23,7 +23,6 @@ use waymark_workflow_registry_backend::WorkflowRegistryBackend;
 
 use crate::waymark_core::commit_barrier::{CommitBarrier, DeferredInstanceEvent};
 use crate::waymark_core::lock::{InstanceLockTracker, spawn_lock_heartbeat};
-use crate::workers::{ActionCompletion, ActionRequest, BaseWorkerPool, WorkerPoolError};
 use waymark_dag::{DAG, DAGNode, OutputNode, ReturnNode, convert_to_dag};
 use waymark_observability::obs;
 use waymark_proto::ast as ir;
@@ -34,6 +33,7 @@ use waymark_runner::{
     DurableUpdates, ExecutorStep, RunnerExecutor, RunnerExecutorError, SleepRequest,
     replay_variables,
 };
+use waymark_worker_core::{ActionCompletion, ActionRequest, BaseWorkerPool, WorkerPoolError};
 
 /// Raised when the run loop cannot coordinate execution.
 #[derive(Debug, thiserror::Error)]

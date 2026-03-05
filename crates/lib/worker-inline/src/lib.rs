@@ -3,14 +3,15 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use futures::future::BoxFuture;
 use serde_json::Value;
 use tokio::sync::mpsc;
 
-use super::base::{
+use waymark_observability::obs;
+use waymark_worker_core::{
     ActionCompletion, ActionRequest, BaseWorkerPool, WorkerPoolError, error_to_value,
 };
-use waymark_observability::obs;
+
+type BoxFuture<'a, T> = std::pin::Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 pub type ActionCallable = Arc<
     dyn Fn(HashMap<String, Value>) -> BoxFuture<'static, Result<Value, WorkerPoolError>>

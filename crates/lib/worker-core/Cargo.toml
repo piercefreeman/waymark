@@ -1,0 +1,9 @@
+[package]
+name = "waymark-worker-core"
+edition = "2024"
+version.workspace = true
+
+[dependencies]
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }

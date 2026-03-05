@@ -37,6 +37,8 @@
 //! - Dropped channels indicate worker crash and are propagated as errors
 //! - Round-robin selection ensures load distribution even with slow workers
 
+pub mod server_worker;
+
 use std::{
     collections::HashMap,
     env,
@@ -50,6 +52,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use futures_core::future::BoxFuture;
 use serde_json::Value;
 use tokio::sync::RwLock;
 
@@ -64,20 +67,30 @@ use tokio::{
 use tracing::{error, info, trace, warn};
 use uuid::Uuid;
 
-use super::base::{
-    ActionCompletion, ActionRequest, BaseWorkerPool, WorkerPoolError, WorkerPoolMetrics,
-    error_to_value,
-};
-pub use super::base::{RoundTripMetrics, WorkerThroughputSnapshot};
-use super::status::{WorkerPoolStats, WorkerPoolStatsSnapshot};
-use crate::{
-    messages::{self, MessageError},
-    server_worker::{WorkerBridgeChannels, WorkerBridgeServer},
-};
 use waymark_proto::messages as proto;
+use waymark_worker_core::{
+    ActionCompletion, ActionRequest, BaseWorkerPool, WorkerPoolError, error_to_value,
+};
+use waymark_worker_metrics::{RoundTripMetrics, WorkerPoolMetrics, WorkerThroughputSnapshot};
+use waymark_worker_status_core::{WorkerPoolStats, WorkerPoolStatsSnapshot};
+
+use self::server_worker::{WorkerBridgeChannels, WorkerBridgeServer};
 
 const LATENCY_SAMPLE_SIZE: usize = 256;
 const THROUGHPUT_WINDOW_SECS: u64 = 1;
+
+/// Errors that can occur during message encoding/decoding
+#[derive(Debug, thiserror::Error)]
+pub enum MessageError {
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("Failed to decode message: {0}")]
+    Decode(#[from] prost::DecodeError),
+    #[error("Failed to encode message: {0}")]
+    Encode(#[from] prost::EncodeError),
+    #[error("Channel closed")]
+    ChannelClosed,
+}
 
 /// Configuration for spawning Python workers.
 #[derive(Clone, Debug)]
@@ -444,7 +457,7 @@ impl PythonWorker {
             delivery_id,
             partition_id: 0,
             kind: proto::MessageKind::ActionDispatch as i32,
-            payload: messages::encode_message(&command),
+            payload: command.encode_to_vec(),
         };
 
         self.send_envelope(envelope).await?;
@@ -521,7 +534,7 @@ impl PythonWorker {
 
             match kind {
                 proto::MessageKind::Ack => {
-                    let ack = messages::decode_message::<proto::Ack>(&envelope.payload)?;
+                    let ack = proto::Ack::decode(envelope.payload.as_slice())?;
                     let mut guard = shared.lock().await;
                     if let Some(sender) = guard.pending_acks.remove(&ack.acked_delivery_id) {
                         let _ = sender.send(Instant::now());
@@ -530,8 +543,7 @@ impl PythonWorker {
                     }
                 }
                 proto::MessageKind::ActionResult => {
-                    let response =
-                        messages::decode_message::<proto::ActionResult>(&envelope.payload)?;
+                    let response = proto::ActionResult::decode(envelope.payload.as_slice())?;
                     let mut guard = shared.lock().await;
                     if let Some(sender) = guard.pending_responses.remove(&envelope.delivery_id) {
                         let _ = sender.send((response, Instant::now()));
@@ -1104,7 +1116,7 @@ fn ensure_error_fields(mut map: serde_json::Map<String, Value>) -> Value {
 }
 
 fn decode_action_result(metrics: &RoundTripMetrics) -> Value {
-    let payload = crate::messages::decode_message(&metrics.response_payload)
+    let payload = proto::WorkflowArguments::decode(metrics.response_payload.as_slice())
         .map(waymark_message_conversions::workflow_arguments_to_json)
         .unwrap_or(Value::Null);
 
@@ -1299,7 +1311,7 @@ impl RemoteWorkerPool {
 }
 
 impl BaseWorkerPool for RemoteWorkerPool {
-    fn launch<'a>(&'a self) -> futures::future::BoxFuture<'a, Result<(), WorkerPoolError>> {
+    fn launch<'a>(&'a self) -> BoxFuture<'a, Result<(), WorkerPoolError>> {
         Box::pin(async move {
             if self.inner.launched.swap(true, Ordering::SeqCst) {
                 return Ok(());
@@ -1343,7 +1355,7 @@ impl BaseWorkerPool for RemoteWorkerPool {
         })
     }
 
-    fn get_complete<'a>(&'a self) -> futures::future::BoxFuture<'a, Vec<ActionCompletion>> {
+    fn get_complete<'a>(&'a self) -> BoxFuture<'a, Vec<ActionCompletion>> {
         Box::pin(async move {
             let mut receiver = self.inner.completion_rx.lock().await;
             let mut completions = Vec::new();
@@ -1401,7 +1413,7 @@ mod tests {
     use tokio::process::Child;
 
     use super::*;
-    use crate::workers::BaseWorkerPool;
+    use waymark_worker_core::BaseWorkerPool;
 
     #[test]
     fn test_config_builder() {
@@ -1563,7 +1575,7 @@ mod tests {
                 proto::MessageKind::try_from(envelope.kind).ok(),
                 Some(proto::MessageKind::ActionDispatch)
             );
-            let dispatch = messages::decode_message::<proto::ActionDispatch>(&envelope.payload)
+            let dispatch = proto::ActionDispatch::decode(envelope.payload.as_slice())
                 .expect("decode dispatch");
             assert_eq!(dispatch.action_name, "greet");
 
@@ -1572,9 +1584,10 @@ mod tests {
                     delivery_id: envelope.delivery_id + 100,
                     partition_id: 0,
                     kind: proto::MessageKind::Ack as i32,
-                    payload: messages::encode_message(&proto::Ack {
+                    payload: proto::Ack {
                         acked_delivery_id: envelope.delivery_id,
-                    }),
+                    }
+                    .encode_to_vec(),
                 })
                 .await
                 .expect("send ack");
@@ -1583,7 +1596,7 @@ mod tests {
                     delivery_id: envelope.delivery_id,
                     partition_id: 0,
                     kind: proto::MessageKind::ActionResult as i32,
-                    payload: messages::encode_message(&proto::ActionResult {
+                    payload: proto::ActionResult {
                         action_id: dispatch.action_id,
                         success: true,
                         payload: Some(make_result_payload(json!("hello"))),
@@ -1592,7 +1605,8 @@ mod tests {
                         dispatch_token: Some(dispatch_token.to_string()),
                         error_type: None,
                         error_message: None,
-                    }),
+                    }
+                    .encode_to_vec(),
                 })
                 .await
                 .expect("send action result");
@@ -1691,9 +1705,10 @@ mod tests {
                     delivery_id: envelope.delivery_id + 1,
                     partition_id: 0,
                     kind: proto::MessageKind::Ack as i32,
-                    payload: messages::encode_message(&proto::Ack {
+                    payload: proto::Ack {
                         acked_delivery_id: envelope.delivery_id,
-                    }),
+                    }
+                    .encode_to_vec(),
                 })
                 .await
                 .expect("send ack");
@@ -1702,7 +1717,7 @@ mod tests {
                     delivery_id: envelope.delivery_id,
                     partition_id: 0,
                     kind: proto::MessageKind::ActionResult as i32,
-                    payload: messages::encode_message(&proto::ActionResult {
+                    payload: proto::ActionResult {
                         action_id: "ignored".to_string(),
                         success: true,
                         payload: Some(make_result_payload(Value::Number(18.into()))),
@@ -1711,7 +1726,8 @@ mod tests {
                         dispatch_token: None,
                         error_type: None,
                         error_message: None,
-                    }),
+                    }
+                    .encode_to_vec(),
                 })
                 .await
                 .expect("send result");
@@ -1757,9 +1773,10 @@ mod tests {
                     delivery_id: envelope.delivery_id + 5,
                     partition_id: 0,
                     kind: proto::MessageKind::Ack as i32,
-                    payload: messages::encode_message(&proto::Ack {
+                    payload: proto::Ack {
                         acked_delivery_id: envelope.delivery_id,
-                    }),
+                    }
+                    .encode_to_vec(),
                 })
                 .await
                 .expect("send ack");
@@ -1768,7 +1785,7 @@ mod tests {
                     delivery_id: envelope.delivery_id,
                     partition_id: 0,
                     kind: proto::MessageKind::ActionResult as i32,
-                    payload: messages::encode_message(&proto::ActionResult {
+                    payload: proto::ActionResult {
                         action_id: "ignored".to_string(),
                         success: true,
                         payload: Some(make_result_payload(Value::Number(25.into()))),
@@ -1777,7 +1794,8 @@ mod tests {
                         dispatch_token: None,
                         error_type: None,
                         error_message: None,
-                    }),
+                    }
+                    .encode_to_vec(),
                 })
                 .await
                 .expect("send result");
