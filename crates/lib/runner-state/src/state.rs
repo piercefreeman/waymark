@@ -14,6 +14,7 @@ use waymark_dag::{
     ActionCallNode, AggregatorNode, AssignmentNode, DAG, DAGNode, EdgeType, FnCallNode, JoinNode,
     ReturnNode, SleepNode,
 };
+use waymark_ir_conversions::literal_to_json_value;
 use waymark_proto::ast as ir;
 
 /// Raised when the runner state cannot be updated safely.
@@ -1172,7 +1173,7 @@ impl RunnerState {
     ) -> Result<ValueExpr, RunnerStateError> {
         match expr.kind.as_ref() {
             Some(ir::expr::Kind::Literal(lit)) => Ok(ValueExpr::Literal(LiteralValue {
-                value: literal_value(lit),
+                value: literal_to_json_value(lit),
             })),
             Some(ir::expr::Kind::Variable(var)) => {
                 if let Some(scope) = local_scope
@@ -1788,23 +1789,6 @@ fn format_literal(value: &serde_json::Value) -> String {
             serde_json::to_string(value).unwrap_or_else(|_| format!("\"{value}\""))
         }
         _ => value.to_string(),
-    }
-}
-
-/// Convert an IR literal into a Python value.
-///
-/// Example IR:
-/// - Literal(int_value=3) -> 3
-pub fn literal_value(lit: &ir::Literal) -> serde_json::Value {
-    match lit.value.as_ref() {
-        Some(ir::literal::Value::IntValue(value)) => serde_json::Value::Number((*value).into()),
-        Some(ir::literal::Value::FloatValue(value)) => serde_json::Number::from_f64(*value)
-            .map(serde_json::Value::Number)
-            .unwrap_or(serde_json::Value::Null),
-        Some(ir::literal::Value::StringValue(value)) => serde_json::Value::String(value.clone()),
-        Some(ir::literal::Value::BoolValue(value)) => serde_json::Value::Bool(*value),
-        Some(ir::literal::Value::IsNone(_)) => serde_json::Value::Null,
-        None => serde_json::Value::Null,
     }
 }
 
