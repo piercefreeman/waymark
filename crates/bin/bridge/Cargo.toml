@@ -17,7 +17,7 @@ waymark-workflow-registry-backend = { workspace = true }
 waymark-proto = { workspace = true }
 waymark-message-conversions = { workspace = true }
 waymark-worker-core = { workspace = true }
-waymark = { workspace = true }
+waymark-runloop = { workspace = true }
 
 anyhow = { workspace = true }
 chrono = { workspace = true }

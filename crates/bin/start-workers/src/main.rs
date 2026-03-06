@@ -45,10 +45,10 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use uuid::Uuid;
 use waymark::config::WorkerConfig;
 use waymark::scheduler::{DagResolver, WorkflowDag};
-use waymark::waymark_core::runloop::RunLoopConfig;
 use waymark_backend_postgres::PostgresBackend;
 use waymark_dag::convert_to_dag;
 use waymark_proto::ast as ir;
+use waymark_runloop::RunLoopConfig;
 use waymark_worker_remote::{PythonWorkerConfig, RemoteWorkerPool};
 
 #[tokio::main]
@@ -183,7 +183,7 @@ async fn main() -> Result<()> {
 
     // Run the runloop.
     let lock_uuid = Uuid::new_v4();
-    let mut runloop = waymark::waymark_core::RunLoop::new_with_shutdown(
+    let mut runloop = waymark_runloop::RunLoop::new_with_shutdown(
         remote_pool.clone(),
         backend.clone(),
         RunLoopConfig {

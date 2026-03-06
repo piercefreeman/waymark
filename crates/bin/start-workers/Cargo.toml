@@ -11,6 +11,7 @@ waymark-proto = { workspace = true }
 waymark-webapp-bringup = { workspace = true }
 waymark-worker-remote = { workspace = true }
 waymark-worker-status-reporter = { workspace = true }
+waymark-runloop = { workspace = true }
 waymark = { workspace = true }
 
 anyhow = { workspace = true }

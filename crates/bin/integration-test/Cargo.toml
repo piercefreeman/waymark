@@ -15,7 +15,7 @@ waymark-workflow-registry-backend = { workspace = true }
 waymark-backend-memory = { workspace = true }
 waymark-proto = { workspace = true }
 waymark-worker-remote = { workspace = true }
-waymark = { workspace = true }
+waymark-runloop = { workspace = true }
 
 anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }

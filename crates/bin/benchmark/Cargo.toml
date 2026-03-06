@@ -18,7 +18,7 @@ waymark-workflow-registry-backend = { workspace = true }
 waymark-smoke-sources = { workspace = true }
 waymark-worker-core = { workspace = true }
 waymark-worker-inline = { workspace = true }
-waymark = { workspace = true }
+waymark-runloop = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 prost = { workspace = true }
 rand = { workspace = true }

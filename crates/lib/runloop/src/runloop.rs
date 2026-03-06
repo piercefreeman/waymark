@@ -21,8 +21,8 @@ use waymark_core_backend::{
 };
 use waymark_workflow_registry_backend::WorkflowRegistryBackend;
 
-use crate::waymark_core::commit_barrier::{CommitBarrier, DeferredInstanceEvent};
-use crate::waymark_core::lock::{InstanceLockTracker, spawn_lock_heartbeat};
+use crate::commit_barrier::{CommitBarrier, DeferredInstanceEvent};
+use crate::lock::{InstanceLockTracker, spawn_lock_heartbeat};
 use waymark_dag::{DAG, DAGNode, OutputNode, ReturnNode, convert_to_dag};
 use waymark_observability::obs;
 use waymark_proto::ast as ir;

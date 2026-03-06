@@ -9,7 +9,6 @@ waymark-core-backend = { workspace = true }
 waymark-dag = { workspace = true }
 waymark-ir-conversions = { workspace = true }
 waymark-ir-parser = { workspace = true }
-waymark-observability = { workspace = true }
 waymark-proto = { workspace = true, features = ["serde", "client", "server"] }
 waymark-runner = { workspace = true }
 waymark-runner-state = { workspace = true }
@@ -17,16 +16,13 @@ waymark-garbage-collector-backend = { workspace = true }
 waymark-scheduler-backend = { workspace = true }
 waymark-scheduler-core = { workspace = true }
 waymark-backends-core = { workspace = true }
-waymark-workflow-registry-backend = { workspace = true }
 waymark-backend-memory = { workspace = true }
 waymark-message-conversions = { workspace = true }
 waymark-webapp-config = { workspace = true }
-waymark-worker-core = { workspace = true }
 
 anyhow = "1"
 prost = "0.12"
 serde_json = "1"
-sha2 = "0.10"
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 uuid = { version = "1", features = ["serde", "v4"] }
 thiserror = { workspace = true }
@@ -36,6 +32,4 @@ tonic = { version = "0.11", features = ["transport"] }
 tracing = "0.1"
 
 [dev-dependencies]
-waymark-backend-fault-injection = { workspace = true }
 waymark-backend-memory = { workspace = true }
-waymark-worker-inline = { workspace = true }
