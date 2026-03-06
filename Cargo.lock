@@ -2805,7 +2805,6 @@ dependencies = [
  "bytes",
  "libc",
  "mio",
- "parking_lot",
  "pin-project-lite",
  "signal-hook-registry",
  "socket2 0.6.2",
@@ -3334,30 +3333,11 @@ dependencies = [
 name = "waymark"
 version = "0.1.0"
 dependencies = [
- "anyhow",
- "chrono",
- "prost 0.12.6",
  "serde_json",
  "thiserror",
- "tokio",
- "tokio-util",
- "tonic 0.11.0",
- "tracing",
- "uuid",
- "waymark-backend-memory",
- "waymark-backends-core",
- "waymark-core-backend",
  "waymark-dag",
- "waymark-garbage-collector-backend",
- "waymark-ir-conversions",
  "waymark-ir-parser",
- "waymark-message-conversions",
  "waymark-proto",
- "waymark-runner",
- "waymark-runner-state",
- "waymark-scheduler-backend",
- "waymark-scheduler-core",
- "waymark-webapp-config",
 ]
 
 [[package]]
@@ -3519,6 +3499,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-config"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "waymark-garbage-collector-config",
+ "waymark-scheduler-config",
+ "waymark-webapp-config",
+]
+
+[[package]]
 name = "waymark-core-backend"
 version = "0.1.0"
 dependencies = [
@@ -3575,6 +3565,24 @@ dependencies = [
  "async-trait",
  "chrono",
  "waymark-backends-core",
+]
+
+[[package]]
+name = "waymark-garbage-collector-config"
+version = "0.1.0"
+
+[[package]]
+name = "waymark-garbage-collector-loop"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "waymark-backends-core",
+ "waymark-garbage-collector-backend",
+ "waymark-garbage-collector-config",
 ]
 
 [[package]]
@@ -3742,6 +3750,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-scheduler-config"
+version = "0.1.0"
+
+[[package]]
 name = "waymark-scheduler-core"
 version = "0.1.0"
 dependencies = [
@@ -3750,6 +3762,31 @@ dependencies = [
  "rand 0.8.5",
  "serde",
  "uuid",
+]
+
+[[package]]
+name = "waymark-scheduler-loop"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "prost 0.12.6",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "uuid",
+ "waymark-backend-memory",
+ "waymark-core-backend",
+ "waymark-dag",
+ "waymark-ir-conversions",
+ "waymark-ir-parser",
+ "waymark-message-conversions",
+ "waymark-proto",
+ "waymark-runner",
+ "waymark-runner-state",
+ "waymark-scheduler-backend",
+ "waymark-scheduler-config",
+ "waymark-scheduler-core",
 ]
 
 [[package]]
@@ -3823,12 +3860,14 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
- "waymark",
  "waymark-backend-postgres",
  "waymark-backend-postgres-migrations",
+ "waymark-config",
  "waymark-dag",
+ "waymark-garbage-collector-loop",
  "waymark-proto",
  "waymark-runloop",
+ "waymark-scheduler-loop",
  "waymark-webapp-bringup",
  "waymark-worker-remote",
  "waymark-worker-status-reporter",

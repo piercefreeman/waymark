@@ -2,32 +2,10 @@
 //!
 //! This task periodically deletes old finished instances and their action rows.
 
-use std::time::Duration;
-
 use chrono::Utc;
 use tracing::{debug, error, info};
 use waymark_garbage_collector_backend::{GarbageCollectionResult, GarbageCollectorBackend};
-
-/// Configuration for the garbage collector task.
-#[derive(Debug, Clone)]
-pub struct GarbageCollectorConfig {
-    /// How often to run a garbage collection sweep.
-    pub interval: Duration,
-    /// Maximum number of done instances to delete in one batch.
-    pub batch_size: usize,
-    /// Retention window for done instances.
-    pub retention: Duration,
-}
-
-impl Default for GarbageCollectorConfig {
-    fn default() -> Self {
-        Self {
-            interval: Duration::from_secs(5 * 60),
-            batch_size: 100,
-            retention: Duration::from_secs(24 * 60 * 60),
-        }
-    }
-}
+use waymark_garbage_collector_config::GarbageCollectorConfig;
 
 /// Background garbage collector task.
 pub struct GarbageCollectorTask<B> {
@@ -116,10 +94,12 @@ mod tests {
     use std::collections::VecDeque;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};
+    use std::time::Duration;
 
+    use async_trait::async_trait;
     use chrono::{Duration as ChronoDuration, Utc};
-    use tonic::async_trait;
     use waymark_backends_core::BackendResult;
+    use waymark_garbage_collector_config::GarbageCollectorConfig;
 
     use super::*;
 

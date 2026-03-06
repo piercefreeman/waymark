@@ -4,7 +4,6 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
 
 use prost::Message as _;
 use serde_json::Value;
@@ -13,6 +12,7 @@ use uuid::Uuid;
 use waymark_core_backend::QueuedInstance;
 use waymark_ir_conversions::literal_from_json_value;
 use waymark_proto::messages as proto;
+use waymark_scheduler_config::SchedulerConfig;
 use waymark_scheduler_core::{ScheduleId, WorkflowSchedule};
 
 use waymark_dag::DAG;
@@ -24,24 +24,6 @@ pub struct WorkflowDag {
 }
 
 pub type DagResolver = Arc<dyn Fn(&str) -> Option<WorkflowDag> + Send + Sync>;
-
-/// Configuration for the scheduler task.
-#[derive(Debug, Clone)]
-pub struct SchedulerConfig {
-    /// How often to poll for due schedules.
-    pub poll_interval: Duration,
-    /// Maximum number of schedules to process per poll.
-    pub batch_size: i32,
-}
-
-impl Default for SchedulerConfig {
-    fn default() -> Self {
-        Self {
-            poll_interval: Duration::from_secs(1),
-            batch_size: 100,
-        }
-    }
-}
 
 /// Background scheduler task.
 pub struct SchedulerTask<B> {
@@ -219,6 +201,7 @@ mod tests {
     use waymark_backend_memory::MemoryBackend;
     use waymark_core_backend::{CoreBackend, LockClaim};
     use waymark_scheduler_backend::SchedulerBackend;
+    use waymark_scheduler_config::SchedulerConfig;
     use waymark_scheduler_core::{CreateScheduleParams, ScheduleType};
 
     use super::*;
