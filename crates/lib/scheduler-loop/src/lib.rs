@@ -205,7 +205,7 @@ mod tests {
     use waymark_scheduler_core::{CreateScheduleParams, ScheduleType};
 
     use super::*;
-    use waymark_dag::convert_to_dag;
+    use waymark_dag_builder::convert_to_dag;
     use waymark_ir_parser::parse_program;
     use waymark_proto::messages as proto;
     use waymark_runner::RunnerExecutor;

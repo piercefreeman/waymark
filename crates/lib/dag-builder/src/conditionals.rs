@@ -2,9 +2,9 @@
 
 use waymark_proto::ast as ir;
 
-use super::super::models::{ConvertedSubgraph, DAGEdge, DagConversionError};
-use super::super::nodes::{BranchNode, JoinNode};
 use super::converter::DAGConverter;
+use waymark_dag::{BranchNode, JoinNode};
+use waymark_dag::{ConvertedSubgraph, DAGEdge, DagConversionError};
 
 /// Convert conditional blocks into branch/join nodes.
 impl DAGConverter {

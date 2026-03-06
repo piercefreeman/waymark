@@ -4,7 +4,7 @@ use std::collections::HashSet;
 
 use waymark_proto::ast as ir;
 
-use super::models::{DAG, DAGNode, DagConversionError, EXCEPTION_SCOPE_VAR, EdgeType};
+use waymark_dag::{DAG, DAGNode, DagConversionError, EXCEPTION_SCOPE_VAR, EdgeType};
 
 pub fn validate_dag(dag: &DAG) -> Result<(), DagConversionError> {
     validate_edges_reference_existing_nodes(dag)?;
@@ -360,7 +360,7 @@ fn collect_expr_variables(expr: &ir::Expr, vars: &mut HashSet<String>) {
 #[cfg(test)]
 mod tests {
     use super::validate_dag;
-    use crate::convert_to_dag;
+    use waymark_dag_builder::convert_to_dag;
     use waymark_ir_parser::parse_program;
 
     #[test]

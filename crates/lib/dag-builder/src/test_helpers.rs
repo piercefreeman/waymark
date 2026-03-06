@@ -1,4 +1,5 @@
-use crate::{DAG, DAGConverter, convert_to_dag};
+use crate::{DAGConverter, convert_to_dag};
+use waymark_dag::DAG;
 use waymark_ir_parser::parse_program;
 use waymark_proto::ast as ir;
 
