@@ -3690,6 +3690,7 @@ dependencies = [
  "waymark-backend-memory",
  "waymark-core-backend",
  "waymark-dag",
+ "waymark-ir-conversions",
  "waymark-ir-parser",
  "waymark-observability",
  "waymark-proto",
@@ -3706,6 +3707,7 @@ dependencies = [
  "thiserror",
  "uuid",
  "waymark-dag",
+ "waymark-ir-conversions",
  "waymark-proto",
 ]
 
