@@ -1,0 +1,11 @@
+[package]
+name = "waymark-config"
+edition = "2024"
+version.workspace = true
+
+[dependencies]
+waymark-webapp-config = { workspace = true }
+waymark-scheduler-config = { workspace = true }
+waymark-garbage-collector-config = { workspace = true }
+
+anyhow = "1"

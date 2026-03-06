@@ -5,8 +5,8 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-
-use crate::{GarbageCollectorConfig, SchedulerConfig};
+use waymark_garbage_collector_config::GarbageCollectorConfig;
+use waymark_scheduler_config::SchedulerConfig;
 
 const DEFAULT_WORKER_GRPC_ADDR: &str = "127.0.0.1:24118";
 const DEFAULT_CONCURRENT_PER_WORKER: usize = 10;

@@ -12,7 +12,9 @@ waymark-webapp-bringup = { workspace = true }
 waymark-worker-remote = { workspace = true }
 waymark-worker-status-reporter = { workspace = true }
 waymark-runloop = { workspace = true }
-waymark = { workspace = true }
+waymark-config = { workspace = true }
+waymark-garbage-collector-loop = { workspace = true }
+waymark-scheduler-loop = { workspace = true }
 
 anyhow = { workspace = true }
 prost = { workspace = true }
