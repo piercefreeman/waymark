@@ -119,6 +119,7 @@ Follow a modern, developer-focused design language. The design prioritizes clari
 - When writing code that uses WhichOneof in Python, use a switch statement to make sure that every value is handed and add a default case for assert_never.
 - NEVER write `getattr` in your own code unless I explicitly mention it. You should just be able to call it directly.
 - Unless we explicitly mention backwards compatibility, don't implement logic that assumes how the backwards spec is compatible. We will specify it if it's relevant.
+- There's no need to ever import `annotations` `from __future__`. We always run on a Python version with the latest typehinting where this will be supported.
 
 ## Workflow Conventions
 
