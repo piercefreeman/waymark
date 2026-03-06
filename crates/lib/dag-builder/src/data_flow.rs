@@ -4,12 +4,10 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use waymark_proto::ast as ir;
 
-use super::super::models::DAGNode;
-use super::super::models::{DAG, DAGEdge, EdgeType};
-use super::super::nodes::{
-    ActionCallNode, AssignmentNode, FnCallNode, InputNode, ReturnNode, SleepNode,
-};
 use super::converter::DAGConverter;
+use waymark_dag::DAGNode;
+use waymark_dag::{ActionCallNode, AssignmentNode, FnCallNode, InputNode, ReturnNode, SleepNode};
+use waymark_dag::{DAG, DAGEdge, EdgeType};
 
 /// Rebuild data-flow edges from variable definition/use analysis.
 impl DAGConverter {
@@ -712,8 +710,8 @@ impl DAGConverter {
 
 #[cfg(test)]
 mod tests {
-    use super::super::super::models::EdgeType;
     use super::super::test_helpers::build_dag;
+    use waymark_dag::EdgeType;
 
     #[test]
     fn test_add_global_data_flow_edges_happy_path() {

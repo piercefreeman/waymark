@@ -13,6 +13,7 @@ sha2 = { workspace = true }
 uuid = { workspace = true, features = ["serde", "v4"] }
 tokio = { workspace = true }
 waymark-dag = { workspace = true }
+waymark-dag-builder = { workspace = true }
 waymark-proto = { workspace = true }
 waymark-ir-parser = { workspace = true }
 waymark-runner-state = { workspace = true }

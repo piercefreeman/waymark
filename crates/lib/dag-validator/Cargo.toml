@@ -1,0 +1,12 @@
+[package]
+name = "waymark-dag-validator"
+edition = "2024"
+version.workspace = true
+
+[dependencies]
+waymark-dag = { workspace = true }
+waymark-proto = { workspace = true }
+
+[dev-dependencies]
+waymark-dag-builder = { workspace = true }
+waymark-ir-parser = { workspace = true }

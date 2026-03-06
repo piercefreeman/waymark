@@ -4,9 +4,9 @@ use std::collections::HashMap;
 
 use waymark_proto::ast as ir;
 
-use super::super::models::{ConvertedSubgraph, DAG, DAGEdge, DagConversionError};
-use super::super::nodes::{InputNode, OutputNode, ReturnNode};
-use super::super::validate::validate_dag;
+use waymark_dag::{ConvertedSubgraph, DAG, DAGEdge, DagConversionError};
+use waymark_dag::{InputNode, OutputNode, ReturnNode};
+use waymark_dag_validator::validate_dag;
 
 /// Convert IR programs into a DAG with control + data-flow edges.
 ///

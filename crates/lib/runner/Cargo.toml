@@ -18,3 +18,4 @@ waymark-core-backend = { workspace = true }
 [dev-dependencies]
 waymark-ir-parser = { workspace = true }
 waymark-backend-memory = { workspace = true }
+waymark-dag-builder = { workspace = true }
