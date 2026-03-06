@@ -9,6 +9,8 @@ waymark-backend-postgres = { workspace = true }
 waymark-backend-postgres-migrations = { workspace = true }
 waymark-proto = { workspace = true }
 waymark-webapp-bringup = { workspace = true }
+waymark-worker-remote = { workspace = true }
+waymark-worker-status-reporter = { workspace = true }
 waymark = { workspace = true }
 
 anyhow = { workspace = true }

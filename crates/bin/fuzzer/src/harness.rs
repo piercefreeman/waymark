@@ -15,11 +15,12 @@ use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBa
 
 use super::generator::GeneratedCase;
 use waymark::waymark_core::runloop::{RunLoop, RunLoopConfig};
-use waymark::workers::{ActionCallable, InlineWorkerPool, WorkerPoolError};
 use waymark_dag::convert_to_dag;
 use waymark_ir_parser::parse_program;
 use waymark_proto::ast as ir;
 use waymark_runner_state::RunnerState;
+use waymark_worker_core::WorkerPoolError;
+use waymark_worker_inline::{ActionCallable, InlineWorkerPool};
 
 pub async fn run_case(case_index: usize, case: &GeneratedCase) -> Result<()> {
     let program = parse_program(case.source.trim()).map_err(|err| {

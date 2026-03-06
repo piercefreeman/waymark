@@ -1,0 +1,8 @@
+[package]
+name = "waymark-worker-metrics"
+edition = "2024"
+version.workspace = true
+
+[dependencies]
+chrono = { workspace = true }
+uuid = { workspace = true }

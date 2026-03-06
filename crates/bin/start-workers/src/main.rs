@@ -46,10 +46,10 @@ use uuid::Uuid;
 use waymark::config::WorkerConfig;
 use waymark::scheduler::{DagResolver, WorkflowDag};
 use waymark::waymark_core::runloop::RunLoopConfig;
-use waymark::{PythonWorkerConfig, RemoteWorkerPool, spawn_status_reporter};
 use waymark_backend_postgres::PostgresBackend;
 use waymark_dag::convert_to_dag;
 use waymark_proto::ast as ir;
+use waymark_worker_remote::{PythonWorkerConfig, RemoteWorkerPool};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -154,14 +154,14 @@ async fn main() -> Result<()> {
 
     // Start status reporting.
     let pool_id = Uuid::new_v4();
-    let status_reporter_handle = spawn_status_reporter(
+    let status_reporter_handle = tokio::spawn(waymark_worker_status_reporter::run(
         pool_id,
         backend.clone(),
         remote_pool.clone(),
         active_instance_gauge.clone(),
         config.profile_interval,
         shutdown_token.clone().cancelled_owned(),
-    );
+    ));
     let expired_lock_reclaimer_handle = spawn_expired_lock_reclaimer(
         backend.clone(),
         config.expired_lock_reclaimer_interval,

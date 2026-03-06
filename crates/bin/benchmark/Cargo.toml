@@ -16,6 +16,8 @@ waymark-backend-postgres = { workspace = true }
 waymark-backend-postgres-migrations = { workspace = true }
 waymark-workflow-registry-backend = { workspace = true }
 waymark-smoke-sources = { workspace = true }
+waymark-worker-core = { workspace = true }
+waymark-worker-inline = { workspace = true }
 waymark = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 prost = { workspace = true }

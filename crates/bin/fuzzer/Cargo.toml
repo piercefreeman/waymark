@@ -20,3 +20,5 @@ waymark-runner-state = { workspace = true }
 waymark-backend-memory = { workspace = true }
 waymark-core-backend = { workspace = true }
 waymark-workflow-registry-backend = { workspace = true }
+waymark-worker-core = { workspace = true }
+waymark-worker-inline = { workspace = true }

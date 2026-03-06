@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use uuid::Uuid;
 
-use crate::workers::ActionCompletion;
+use waymark_worker_core::ActionCompletion;
 
 pub struct PendingPersistBatch<Step> {
     pub instance_ids: HashSet<Uuid>,
@@ -112,7 +112,7 @@ mod tests {
     use uuid::Uuid;
 
     use super::{CommitBarrier, DeferredInstanceEvent};
-    use crate::workers::ActionCompletion;
+    use waymark_worker_core::ActionCompletion;
 
     fn completion(executor_id: Uuid, execution_id: Uuid) -> ActionCompletion {
         ActionCompletion {

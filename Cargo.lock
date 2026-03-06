@@ -804,17 +804,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cecba35d7ad927e23624b22ad55235f2239cfa44fd10428eecbeba6d6a717718"
 
 [[package]]
-name = "futures-macro"
-version = "0.3.32"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e835b70203e41293343137df5c0664546da5745f82ec9b84d40be8336958447b"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "futures-sink"
 version = "0.3.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -835,7 +824,6 @@ dependencies = [
  "futures-channel",
  "futures-core",
  "futures-io",
- "futures-macro",
  "futures-sink",
  "futures-task",
  "memchr",
@@ -3348,14 +3336,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
- "futures",
- "once_cell",
  "prost 0.12.6",
  "serde_json",
  "sha2",
  "thiserror",
  "tokio",
- "tokio-stream",
  "tokio-util",
  "tonic 0.11.0",
  "tracing",
@@ -3370,14 +3355,14 @@ dependencies = [
  "waymark-ir-parser",
  "waymark-message-conversions",
  "waymark-observability",
- "waymark-pool-status",
  "waymark-proto",
  "waymark-runner",
  "waymark-runner-state",
  "waymark-scheduler-backend",
  "waymark-scheduler-core",
  "waymark-webapp-config",
- "waymark-worker-status-backend",
+ "waymark-worker-core",
+ "waymark-worker-inline",
  "waymark-workflow-registry-backend",
 ]
 
@@ -3488,6 +3473,8 @@ dependencies = [
  "waymark-runner-state",
  "waymark-smoke-sources",
  "waymark-support-integration",
+ "waymark-worker-core",
+ "waymark-worker-inline",
  "waymark-workflow-registry-backend",
 ]
 
@@ -3509,7 +3496,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
- "futures",
+ "futures-core",
  "prost 0.12.6",
  "rmp-serde",
  "serde_json",
@@ -3533,6 +3520,7 @@ dependencies = [
  "waymark-runner-state",
  "waymark-scheduler-backend",
  "waymark-scheduler-core",
+ "waymark-worker-core",
  "waymark-workflow-registry-backend",
 ]
 
@@ -3581,6 +3569,8 @@ dependencies = [
  "waymark-ir-parser",
  "waymark-proto",
  "waymark-runner-state",
+ "waymark-worker-core",
+ "waymark-worker-inline",
  "waymark-workflow-registry-backend",
 ]
 
@@ -3616,6 +3606,7 @@ dependencies = [
  "waymark-proto",
  "waymark-runner-state",
  "waymark-support-integration",
+ "waymark-worker-remote",
  "waymark-workflow-registry-backend",
 ]
 
@@ -3758,6 +3749,7 @@ dependencies = [
  "waymark-proto",
  "waymark-runner-state",
  "waymark-smoke-sources",
+ "waymark-worker-remote",
  "waymark-workflow-registry-backend",
 ]
 
@@ -3814,6 +3806,8 @@ dependencies = [
  "waymark-dag",
  "waymark-proto",
  "waymark-webapp-bringup",
+ "waymark-worker-remote",
+ "waymark-worker-status-reporter",
 ]
 
 [[package]]
@@ -3897,6 +3891,54 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-worker-core"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "thiserror",
+ "uuid",
+]
+
+[[package]]
+name = "waymark-worker-inline"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "tokio",
+ "waymark-observability",
+ "waymark-worker-core",
+]
+
+[[package]]
+name = "waymark-worker-metrics"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "uuid",
+]
+
+[[package]]
+name = "waymark-worker-remote"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "futures-core",
+ "prost 0.12.6",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tokio-stream",
+ "tonic 0.11.0",
+ "tracing",
+ "uuid",
+ "waymark-message-conversions",
+ "waymark-proto",
+ "waymark-worker-core",
+ "waymark-worker-metrics",
+ "waymark-worker-status-core",
+]
+
+[[package]]
 name = "waymark-worker-status-backend"
 version = "0.1.0"
 dependencies = [
@@ -3904,6 +3946,27 @@ dependencies = [
  "chrono",
  "uuid",
  "waymark-backends-core",
+]
+
+[[package]]
+name = "waymark-worker-status-core"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+]
+
+[[package]]
+name = "waymark-worker-status-reporter"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "uuid",
+ "waymark-pool-status",
+ "waymark-worker-status-backend",
+ "waymark-worker-status-core",
 ]
 
 [[package]]

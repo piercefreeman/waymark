@@ -18,15 +18,12 @@ waymark-scheduler-backend = { workspace = true }
 waymark-scheduler-core = { workspace = true }
 waymark-backends-core = { workspace = true }
 waymark-workflow-registry-backend = { workspace = true }
-waymark-worker-status-backend = { workspace = true }
 waymark-backend-memory = { workspace = true }
 waymark-message-conversions = { workspace = true }
-waymark-pool-status = { workspace = true }
 waymark-webapp-config = { workspace = true }
+waymark-worker-core = { workspace = true }
 
 anyhow = "1"
-futures = "0.3"
-once_cell = "1"
 prost = "0.12"
 serde_json = "1"
 sha2 = "0.10"
@@ -34,7 +31,6 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "serd
 uuid = { version = "1", features = ["serde", "v4"] }
 thiserror = { workspace = true }
 tokio = { version = "1", features = ["full"] }
-tokio-stream = { version = "0.1", features = ["net"] }
 tokio-util = "0.7"
 tonic = { version = "0.11", features = ["transport"] }
 tracing = "0.1"
@@ -42,3 +38,4 @@ tracing = "0.1"
 [dev-dependencies]
 waymark-backend-fault-injection = { workspace = true }
 waymark-backend-memory = { workspace = true }
+waymark-worker-inline = { workspace = true }

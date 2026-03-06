@@ -18,7 +18,6 @@ use waymark_support_integration::{LOCAL_POSTGRES_DSN, ensure_local_postgres};
 use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBackend as _};
 
 use waymark::waymark_core::runloop::{RunLoop, RunLoopConfig};
-use waymark::workers::{ActionCallable, InlineWorkerPool, WorkerPoolError};
 use waymark_dag::convert_to_dag;
 use waymark_ir_conversions::literal_from_json_value;
 use waymark_observability::obs;
@@ -28,6 +27,8 @@ use waymark_smoke_sources::{
     build_control_flow_program, build_parallel_spread_program, build_program,
     build_try_except_program, build_while_loop_program,
 };
+use waymark_worker_core::WorkerPoolError;
+use waymark_worker_inline::{ActionCallable, InlineWorkerPool};
 
 const DEFAULT_DSN: &str = LOCAL_POSTGRES_DSN;
 const DEFAULT_MAX_CONCURRENT_INSTANCES: usize = 500;

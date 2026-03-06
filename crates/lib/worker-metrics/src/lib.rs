@@ -1,74 +1,10 @@
-//! Worker pool interface for executing actions.
+//! Worker metrics runtime types and in-memory store.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
-use futures::future::BoxFuture;
-use serde_json::Value;
 use uuid::Uuid;
-
-/// Action execution request routed through the worker pool.
-#[derive(Clone, Debug)]
-pub struct ActionRequest {
-    pub executor_id: Uuid,
-    pub execution_id: Uuid,
-    pub action_name: String,
-    pub module_name: Option<String>,
-    pub kwargs: HashMap<String, Value>,
-    pub timeout_seconds: u32,
-    pub attempt_number: u32,
-    pub dispatch_token: Uuid,
-}
-
-/// Completed action result emitted by the worker pool.
-#[derive(Clone, Debug)]
-pub struct ActionCompletion {
-    pub executor_id: Uuid,
-    pub execution_id: Uuid,
-    pub attempt_number: u32,
-    pub dispatch_token: Uuid,
-    pub result: Value,
-}
-
-#[derive(Debug, thiserror::Error)]
-#[error("{message}")]
-pub struct WorkerPoolError {
-    pub kind: String,
-    pub message: String,
-}
-
-impl WorkerPoolError {
-    pub fn new(kind: impl Into<String>, message: impl Into<String>) -> Self {
-        Self {
-            kind: kind.into(),
-            message: message.into(),
-        }
-    }
-}
-
-/// Abstract worker pool with queue and batch completion polling.
-pub trait BaseWorkerPool: Send + Sync {
-    /// Start any background tasks required by the pool.
-    ///
-    /// Default implementation is a no-op for pools that don't need launch work.
-    fn launch<'a>(&'a self) -> BoxFuture<'a, Result<(), WorkerPoolError>> {
-        Box::pin(async { Ok(()) })
-    }
-
-    /// Submit an action request for execution.
-    fn queue(&self, request: ActionRequest) -> Result<(), WorkerPoolError>;
-
-    /// Await and return a batch of completed actions.
-    fn get_complete<'a>(&'a self) -> BoxFuture<'a, Vec<ActionCompletion>>;
-}
-
-pub fn error_to_value(error: &WorkerPoolError) -> Value {
-    let mut map = serde_json::Map::new();
-    map.insert("type".to_string(), Value::String(error.kind.clone()));
-    map.insert("message".to_string(), Value::String(error.message.clone()));
-    Value::Object(map)
-}
 
 /// Metrics from a single action round-trip.
 #[derive(Debug, Clone)]
@@ -113,31 +49,48 @@ pub struct WorkerThroughputSnapshot {
 }
 
 #[derive(Debug)]
-struct WorkerThroughputState {
-    worker_id: u64,
-    total_completed: u64,
-    recent_completions: VecDeque<Instant>,
-    last_action_at: Option<DateTime<Utc>>,
+pub struct WorkerPoolMetrics {
+    throughput: WorkerThroughputTracker,
+    latency: LatencyTracker,
 }
 
-impl WorkerThroughputState {
-    fn new(worker_id: u64) -> Self {
+impl WorkerPoolMetrics {
+    pub fn new(worker_ids: Vec<u64>, throughput_window: Duration, latency_samples: usize) -> Self {
         Self {
-            worker_id,
-            total_completed: 0,
-            recent_completions: VecDeque::new(),
-            last_action_at: None,
+            throughput: WorkerThroughputTracker::new(worker_ids, throughput_window),
+            latency: LatencyTracker::new(latency_samples),
         }
     }
 
-    fn prune_before(&mut self, cutoff: Instant) {
-        while self
-            .recent_completions
-            .front()
-            .is_some_and(|instant| *instant < cutoff)
-        {
-            self.recent_completions.pop_front();
-        }
+    pub fn record_completion(&mut self, worker_idx: usize) {
+        self.throughput.record_completion(worker_idx);
+    }
+
+    #[cfg(test)]
+    pub fn record_completion_at(
+        &mut self,
+        worker_idx: usize,
+        when: Instant,
+        wall_time: DateTime<Utc>,
+    ) {
+        self.throughput
+            .record_completion_at(worker_idx, when, wall_time);
+    }
+
+    pub fn reset_worker(&mut self, worker_idx: usize, worker_id: u64) {
+        self.throughput.reset_worker(worker_idx, worker_id);
+    }
+
+    pub fn throughput_snapshots(&mut self, now: Instant) -> Vec<WorkerThroughputSnapshot> {
+        self.throughput.snapshot_at(now)
+    }
+
+    pub fn record_latency(&mut self, ack_latency: Duration, worker_duration: Duration) {
+        self.latency.record(ack_latency, worker_duration);
+    }
+
+    pub fn median_latencies_ms(&self) -> (Option<i64>, Option<i64>) {
+        self.latency.snapshot_medians()
     }
 }
 
@@ -253,52 +206,31 @@ impl LatencyTracker {
 }
 
 #[derive(Debug)]
-pub(crate) struct WorkerPoolMetrics {
-    throughput: WorkerThroughputTracker,
-    latency: LatencyTracker,
+struct WorkerThroughputState {
+    worker_id: u64,
+    total_completed: u64,
+    recent_completions: VecDeque<Instant>,
+    last_action_at: Option<DateTime<Utc>>,
 }
 
-impl WorkerPoolMetrics {
-    pub(crate) fn new(
-        worker_ids: Vec<u64>,
-        throughput_window: Duration,
-        latency_samples: usize,
-    ) -> Self {
+impl WorkerThroughputState {
+    fn new(worker_id: u64) -> Self {
         Self {
-            throughput: WorkerThroughputTracker::new(worker_ids, throughput_window),
-            latency: LatencyTracker::new(latency_samples),
+            worker_id,
+            total_completed: 0,
+            recent_completions: VecDeque::new(),
+            last_action_at: None,
         }
     }
 
-    pub(crate) fn record_completion(&mut self, worker_idx: usize) {
-        self.throughput.record_completion(worker_idx);
-    }
-
-    #[cfg(test)]
-    pub(crate) fn record_completion_at(
-        &mut self,
-        worker_idx: usize,
-        when: Instant,
-        wall_time: DateTime<Utc>,
-    ) {
-        self.throughput
-            .record_completion_at(worker_idx, when, wall_time);
-    }
-
-    pub(crate) fn reset_worker(&mut self, worker_idx: usize, worker_id: u64) {
-        self.throughput.reset_worker(worker_idx, worker_id);
-    }
-
-    pub(crate) fn throughput_snapshots(&mut self, now: Instant) -> Vec<WorkerThroughputSnapshot> {
-        self.throughput.snapshot_at(now)
-    }
-
-    pub(crate) fn record_latency(&mut self, ack_latency: Duration, worker_duration: Duration) {
-        self.latency.record(ack_latency, worker_duration);
-    }
-
-    pub(crate) fn median_latencies_ms(&self) -> (Option<i64>, Option<i64>) {
-        self.latency.snapshot_medians()
+    fn prune_before(&mut self, cutoff: Instant) {
+        while self
+            .recent_completions
+            .front()
+            .is_some_and(|instant| *instant < cutoff)
+        {
+            self.recent_completions.pop_front();
+        }
     }
 }
 

@@ -19,7 +19,7 @@ use std::{
 };
 
 use anyhow::{Context, Result as AnyResult};
-use futures::Stream;
+use futures_core::Stream;
 use prost::Message;
 use tokio::{
     net::TcpListener,

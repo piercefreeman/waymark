@@ -6,11 +6,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+use prost::Message as _;
 use serde_json::Value;
 use tracing::{debug, error, info};
 use uuid::Uuid;
 use waymark_core_backend::QueuedInstance;
 use waymark_ir_conversions::literal_from_json_value;
+use waymark_proto::messages as proto;
 use waymark_scheduler_core::{ScheduleId, WorkflowSchedule};
 
 use waymark_dag::DAG;
@@ -156,7 +158,7 @@ where
         let mut state =
             waymark_runner_state::RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
         if let Some(input_payload) = schedule.input_payload.as_deref() {
-            let input_payload = crate::messages::decode_message(input_payload)
+            let input_payload = proto::WorkflowArguments::decode(input_payload)
                 .map_err(|_| "failed to decode schedule input payload".to_string())?;
             let inputs = waymark_message_conversions::workflow_arguments_to_json(input_payload);
             let Value::Object(input_map) = inputs else {
