@@ -43,12 +43,12 @@ use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use uuid::Uuid;
-use waymark::config::WorkerConfig;
-use waymark::scheduler::{DagResolver, WorkflowDag};
 use waymark_backend_postgres::PostgresBackend;
+use waymark_config::WorkerConfig;
 use waymark_dag::convert_to_dag;
 use waymark_proto::ast as ir;
 use waymark_runloop::RunLoopConfig;
+use waymark_scheduler_loop::{DagResolver, WorkflowDag};
 use waymark_worker_remote::{PythonWorkerConfig, RemoteWorkerPool};
 
 #[tokio::main]
@@ -122,7 +122,7 @@ async fn main() -> Result<()> {
     let dag_resolver = build_dag_resolver(backend.pool().clone());
     let scheduler_handle = {
         let shutdown = shutdown_token.clone().cancelled_owned();
-        let task = waymark::SchedulerTask {
+        let task = waymark_scheduler_loop::SchedulerTask {
             backend: backend.clone(),
             config: config.scheduler.clone(),
             dag_resolver,
@@ -137,7 +137,7 @@ async fn main() -> Result<()> {
 
     let garbage_collector_handle = {
         let shutdown = shutdown_token.clone().cancelled_owned();
-        let task = waymark::GarbageCollectorTask {
+        let task = waymark_garbage_collector_loop::GarbageCollectorTask {
             backend: backend.clone(),
             config: config.garbage_collector.clone(),
         };

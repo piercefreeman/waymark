@@ -1,0 +1,19 @@
+[package]
+name = "waymark-garbage-collector-loop"
+edition = "2024"
+version.workspace = true
+
+[dependencies]
+waymark-garbage-collector-backend = { workspace = true }
+waymark-garbage-collector-config = { workspace = true }
+
+async-trait = { workspace = true }
+chrono = { workspace = true, default-features = false, features = ["clock"] }
+tokio = { workspace = true, features = ["macros", "time"] }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+waymark-backends-core = { workspace = true }
+
+tokio = { workspace = true, features = ["rt-multi-thread"] }

@@ -1,0 +1,29 @@
+[package]
+name = "waymark-scheduler-loop"
+edition = "2024"
+version.workspace = true
+
+[dependencies]
+waymark-core-backend = { workspace = true }
+waymark-dag = { workspace = true }
+waymark-ir-conversions = { workspace = true }
+waymark-message-conversions = { workspace = true }
+waymark-proto = { workspace = true }
+waymark-runner-state = { workspace = true }
+waymark-scheduler-backend = { workspace = true }
+waymark-scheduler-config = { workspace = true }
+waymark-scheduler-core = { workspace = true }
+
+prost = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["macros"] }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+waymark-backend-memory = { workspace = true }
+waymark-ir-parser = { workspace = true }
+waymark-runner = { workspace = true }
+
+chrono = { workspace = true, default-features = false }
