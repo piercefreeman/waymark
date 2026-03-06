@@ -1,0 +1,14 @@
+[package]
+name = "waymark-instance-builder"
+version.workspace = true
+edition = "2024"
+
+[dependencies]
+chrono = { workspace = true, default-features = false }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+waymark-core-backend = { workspace = true }
+waymark-dag = { workspace = true }
+waymark-ir-conversions = { workspace = true }
+waymark-runner-state = { workspace = true }
+thiserror = { workspace = true }

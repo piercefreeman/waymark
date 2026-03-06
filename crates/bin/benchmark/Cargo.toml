@@ -6,11 +6,11 @@ edition = "2024"
 [dependencies]
 waymark-core-backend = { workspace = true }
 waymark-dag = { workspace = true }
+waymark-instance-builder = { workspace = true }
 waymark-ir-conversions = { workspace = true }
 waymark-observability = { workspace = true }
 waymark-observability-setup = { workspace = true }
 waymark-proto = { workspace = true, features = ["serde", "client", "server"] }
-waymark-runner-state = { workspace = true }
 waymark-support-integration = { workspace = true }
 waymark-backend-postgres = { workspace = true }
 waymark-backend-postgres-migrations = { workspace = true }

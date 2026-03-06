@@ -3428,12 +3428,12 @@ dependencies = [
  "waymark-backend-postgres-migrations",
  "waymark-core-backend",
  "waymark-dag",
+ "waymark-instance-builder",
  "waymark-ir-conversions",
  "waymark-observability",
  "waymark-observability-setup",
  "waymark-proto",
  "waymark-runloop",
- "waymark-runner-state",
  "waymark-smoke-sources",
  "waymark-support-integration",
  "waymark-worker-core",
@@ -3476,11 +3476,10 @@ dependencies = [
  "waymark-backends-core",
  "waymark-core-backend",
  "waymark-dag",
- "waymark-ir-conversions",
+ "waymark-instance-builder",
  "waymark-message-conversions",
  "waymark-proto",
  "waymark-runloop",
- "waymark-runner-state",
  "waymark-scheduler-backend",
  "waymark-scheduler-core",
  "waymark-worker-core",
@@ -3546,10 +3545,10 @@ dependencies = [
  "waymark-backend-memory",
  "waymark-core-backend",
  "waymark-dag",
+ "waymark-instance-builder",
  "waymark-ir-parser",
  "waymark-proto",
  "waymark-runloop",
- "waymark-runner-state",
  "waymark-worker-core",
  "waymark-worker-inline",
  "waymark-workflow-registry-backend",
@@ -3583,6 +3582,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-instance-builder"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde_json",
+ "thiserror",
+ "uuid",
+ "waymark-core-backend",
+ "waymark-dag",
+ "waymark-ir-conversions",
+ "waymark-runner-state",
+]
+
+[[package]]
 name = "waymark-integration-test"
 version = "0.1.0"
 dependencies = [
@@ -3600,10 +3613,9 @@ dependencies = [
  "waymark-backend-postgres-migrations",
  "waymark-core-backend",
  "waymark-dag",
- "waymark-ir-conversions",
+ "waymark-instance-builder",
  "waymark-proto",
  "waymark-runloop",
- "waymark-runner-state",
  "waymark-support-integration",
  "waymark-worker-remote",
  "waymark-workflow-registry-backend",
@@ -3786,12 +3798,11 @@ dependencies = [
  "waymark-backend-memory",
  "waymark-core-backend",
  "waymark-dag",
- "waymark-ir-conversions",
+ "waymark-instance-builder",
  "waymark-ir-parser",
  "waymark-message-conversions",
  "waymark-proto",
  "waymark-runner",
- "waymark-runner-state",
  "waymark-scheduler-backend",
  "waymark-scheduler-config",
  "waymark-scheduler-core",
@@ -3812,11 +3823,10 @@ dependencies = [
  "waymark-core-backend",
  "waymark-dag",
  "waymark-dag-viz",
- "waymark-ir-conversions",
+ "waymark-instance-builder",
  "waymark-ir-format",
  "waymark-proto",
  "waymark-runloop",
- "waymark-runner-state",
  "waymark-smoke-sources",
  "waymark-worker-remote",
  "waymark-workflow-registry-backend",
@@ -3851,9 +3861,9 @@ dependencies = [
  "waymark-backend-postgres-migrations",
  "waymark-core-backend",
  "waymark-dag",
+ "waymark-instance-builder",
  "waymark-ir-parser",
  "waymark-proto",
- "waymark-runner-state",
  "waymark-workflow-registry-backend",
 ]
 
