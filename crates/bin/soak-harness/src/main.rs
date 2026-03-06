@@ -7,7 +7,7 @@
 //! - Detect sustained stall conditions (near-zero actions/sec with large ready queue)
 //! - Capture diagnostics (DB snapshots + worker log tail) on exit/issue
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -32,9 +32,9 @@ use uuid::Uuid;
 use waymark_backend_postgres::PostgresBackend;
 use waymark_core_backend::QueuedInstance;
 use waymark_dag::{DAG, convert_to_dag};
+use waymark_instance_builder::build_queued_instance_with_seed;
 use waymark_ir_parser::parse_program;
 use waymark_proto::ast as ir;
-use waymark_runner_state::RunnerState;
 use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBackend as _};
 
 const DEFAULT_DSN: &str = "postgresql://waymark:waymark@127.0.0.1:5433/waymark";
@@ -134,7 +134,6 @@ struct RegisteredWorkflow {
     workflow_name: String,
     workflow_version_id: Uuid,
     dag: Arc<DAG>,
-    entry_template_id: String,
 }
 
 #[derive(Debug, Clone)]
@@ -663,10 +662,9 @@ async fn register_workflow(
     let program_proto = program.encode_to_vec();
     let ir_hash = format!("{:x}", Sha256::digest(&program_proto));
     let dag = Arc::new(convert_to_dag(&program).map_err(|err| anyhow!(err.to_string()))?);
-    let entry_template_id = dag
-        .entry_node
-        .clone()
-        .ok_or_else(|| anyhow!("compiled workflow has no entry node"))?;
+    if dag.entry_node.is_none() {
+        return Err(anyhow!("compiled workflow has no entry node"));
+    }
 
     let workflow_version_id = backend
         .upsert_workflow_version(&WorkflowRegistration {
@@ -683,7 +681,6 @@ async fn register_workflow(
         workflow_name: DEFAULT_WORKFLOW_NAME.to_string(),
         workflow_version_id,
         dag,
-        entry_template_id,
     })
 }
 
@@ -997,61 +994,50 @@ fn jitter_payload(base_payload: i64, rng: &mut StdRng) -> i64 {
 }
 
 fn build_instance(workflow: &RegisteredWorkflow, item: WorkItem) -> Result<QueuedInstance> {
-    let mut state = RunnerState::new(Some(Arc::clone(&workflow.dag)), None, None, false);
     if item.step_delays_ms.len() != item.step_should_fail.len()
         || item.step_delays_ms.len() != item.step_payload_bytes.len()
     {
         bail!("step input vectors are not aligned");
     }
 
-    for (step, ((delay_ms, should_fail), payload_bytes)) in item
-        .step_delays_ms
-        .iter()
-        .zip(item.step_should_fail.iter())
-        .zip(item.step_payload_bytes.iter())
-        .enumerate()
-    {
-        let idx = step + 1;
-        state
-            .record_assignment(
-                vec![format!("delay_ms_{idx}")],
-                &literal_int(*delay_ms),
-                None,
-                Some(format!("input delay_ms_{idx} = {delay_ms}")),
-            )
-            .map_err(|err| anyhow!(err.0))?;
-        state
-            .record_assignment(
-                vec![format!("should_fail_{idx}")],
-                &literal_bool(*should_fail),
-                None,
-                Some(format!("input should_fail_{idx} = {should_fail}")),
-            )
-            .map_err(|err| anyhow!(err.0))?;
-        state
-            .record_assignment(
-                vec![format!("payload_bytes_{idx}")],
-                &literal_int(*payload_bytes),
-                None,
-                Some(format!("input payload_bytes_{idx} = {payload_bytes}")),
-            )
-            .map_err(|err| anyhow!(err.0))?;
-    }
-
-    let entry_node = state
-        .queue_template_node(&workflow.entry_template_id, None)
-        .map_err(|err| anyhow!(err.0))?;
-
-    Ok(QueuedInstance {
-        workflow_version_id: workflow.workflow_version_id,
-        schedule_id: None,
-        dag: None,
-        entry_node: entry_node.node_id,
-        state: Some(state),
-        action_results: HashMap::new(),
-        instance_id: Uuid::new_v4(),
-        scheduled_at: None,
-    })
+    build_queued_instance_with_seed(
+        Arc::clone(&workflow.dag),
+        workflow.workflow_version_id,
+        Uuid::new_v4(),
+        None,
+        None,
+        |state| {
+            for (step, ((delay_ms, should_fail), payload_bytes)) in item
+                .step_delays_ms
+                .iter()
+                .zip(item.step_should_fail.iter())
+                .zip(item.step_payload_bytes.iter())
+                .enumerate()
+            {
+                let idx = step + 1;
+                state.record_assignment(
+                    vec![format!("delay_ms_{idx}")],
+                    &literal_int(*delay_ms),
+                    None,
+                    Some(format!("input delay_ms_{idx} = {delay_ms}")),
+                )?;
+                state.record_assignment(
+                    vec![format!("should_fail_{idx}")],
+                    &literal_bool(*should_fail),
+                    None,
+                    Some(format!("input should_fail_{idx} = {should_fail}")),
+                )?;
+                state.record_assignment(
+                    vec![format!("payload_bytes_{idx}")],
+                    &literal_int(*payload_bytes),
+                    None,
+                    Some(format!("input payload_bytes_{idx} = {payload_bytes}")),
+                )?;
+            }
+            Ok(())
+        },
+    )
+    .map_err(|err| anyhow!(err.to_string()))
 }
 
 fn literal_int(value: i64) -> ir::Expr {

@@ -12,6 +12,7 @@ uuid = { workspace = true }
 waymark-dag = { workspace = true }
 waymark-proto = { workspace = true }
 waymark-observability = { workspace = true }
+waymark-ir-conversions = { workspace = true }
 waymark-runner-state = { workspace = true }
 waymark-core-backend = { workspace = true }
 

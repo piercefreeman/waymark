@@ -18,6 +18,7 @@ waymark-garbage-collector-backend = { path = "crates/lib/garbage-collector-backe
 waymark-garbage-collector-config = { path = "crates/lib/garbage-collector-config" }
 waymark-garbage-collector-loop = { path = "crates/lib/garbage-collector-loop" }
 waymark-support-integration = { path = "crates/lib/support-integration" }
+waymark-instance-builder = { path = "crates/lib/instance-builder" }
 waymark-ir-conversions = { path = "crates/lib/ir-conversions" }
 waymark-ir-parser = { path = "crates/lib/ir-parser" }
 waymark-ir-format = { path = "crates/lib/ir-format" }

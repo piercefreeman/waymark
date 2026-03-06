@@ -36,10 +36,9 @@ use waymark_core_backend::{
     QueuedInstance, QueuedInstanceBatch,
 };
 use waymark_dag::convert_to_dag;
-use waymark_ir_conversions::literal_from_json_value;
+use waymark_instance_builder::{build_queued_instance_with_seed, seed_inputs_from_json_iter};
 use waymark_proto::{ast as ir, messages as proto};
 use waymark_runloop::{RunLoop, RunLoopConfig};
-use waymark_runner_state::RunnerState;
 use waymark_scheduler_backend::SchedulerBackend as _;
 use waymark_scheduler_core::{CreateScheduleParams, ScheduleId, ScheduleStatus, ScheduleType};
 use waymark_worker_core::{ActionCompletion, ActionRequest, BaseWorkerPool, WorkerPoolError};
@@ -1168,38 +1167,14 @@ fn build_queued_instance(
     dag: Arc<waymark_dag::DAG>,
     initial_context: Option<proto::WorkflowArguments>,
 ) -> Result<QueuedInstance, String> {
-    let mut state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
-
-    if let Some(context) = initial_context {
-        let inputs = workflow_arguments_to_json_map(&context);
-        for (name, value) in inputs {
-            let expr = literal_from_json_value(&value);
-            let label = format!("input {name} = {value}");
-            let _ = state
-                .record_assignment(vec![name.clone()], &expr, None, Some(label))
-                .map_err(|err| err.0)?;
+    build_queued_instance_with_seed(dag, workflow_version_id, instance_id, None, None, |state| {
+        if let Some(context) = initial_context {
+            let inputs = workflow_arguments_to_json_map(&context);
+            seed_inputs_from_json_iter(state, inputs.iter())?;
         }
-    }
-
-    let entry_node = dag
-        .entry_node
-        .as_ref()
-        .ok_or_else(|| "DAG entry node not found".to_string())?;
-
-    let entry_exec = state
-        .queue_template_node(entry_node, None)
-        .map_err(|err| err.0)?;
-
-    Ok(QueuedInstance {
-        workflow_version_id,
-        schedule_id: None,
-        dag: None,
-        entry_node: entry_exec.node_id,
-        state: Some(state),
-        action_results: HashMap::new(),
-        instance_id,
-        scheduled_at: None,
+        Ok(())
     })
+    .map_err(|err| err.to_string())
 }
 
 fn workflow_arguments_to_json_map(args: &proto::WorkflowArguments) -> HashMap<String, Value> {

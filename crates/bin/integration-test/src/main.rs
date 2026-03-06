@@ -22,10 +22,9 @@ use waymark_backend_memory::MemoryBackend;
 use waymark_backend_postgres::PostgresBackend;
 use waymark_core_backend::{CoreBackend, QueuedInstance};
 use waymark_dag::{DAG, convert_to_dag};
-use waymark_ir_conversions::literal_from_json_value;
+use waymark_instance_builder::{build_queued_instance_with_seed, seed_inputs_from_json_iter};
 use waymark_proto::ast as ir;
 use waymark_runloop::{RunLoop, RunLoopConfig};
-use waymark_runner_state::RunnerState;
 use waymark_support_integration::{LOCAL_POSTGRES_DSN, connect_pool, ensure_local_postgres};
 use waymark_worker_remote::{PythonWorkerConfig, RemoteWorkerPool};
 use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBackend};
@@ -602,34 +601,10 @@ fn build_queued_instance(
     dag: Arc<DAG>,
     kwargs: &HashMap<String, Value>,
 ) -> Result<QueuedInstance> {
-    let mut state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
-
-    for (name, value) in kwargs {
-        let expr = literal_from_json_value(value);
-        let label = format!("input {name} = {value}");
-        let _ = state
-            .record_assignment(vec![name.clone()], &expr, None, Some(label))
-            .map_err(|err| anyhow!(err.0))?;
-    }
-
-    let entry_template = dag
-        .entry_node
-        .clone()
-        .ok_or_else(|| anyhow!("DAG entry node not found"))?;
-    let entry_exec = state
-        .queue_template_node(&entry_template, None)
-        .map_err(|err| anyhow!(err.0))?;
-
-    Ok(QueuedInstance {
-        workflow_version_id,
-        schedule_id: None,
-        dag: None,
-        entry_node: entry_exec.node_id,
-        state: Some(state),
-        action_results: HashMap::new(),
-        instance_id,
-        scheduled_at: None,
+    build_queued_instance_with_seed(dag, workflow_version_id, instance_id, None, None, |state| {
+        seed_inputs_from_json_iter(state, kwargs.iter())
     })
+    .map_err(|err| anyhow!(err.to_string()))
 }
 
 fn outcome_from_payload(

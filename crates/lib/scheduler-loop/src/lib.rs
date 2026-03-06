@@ -2,15 +2,13 @@
 //!
 //! This task periodically polls for due schedules and queues new workflow instances.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use prost::Message as _;
 use serde_json::Value;
 use tracing::{debug, error, info};
 use uuid::Uuid;
-use waymark_core_backend::QueuedInstance;
-use waymark_ir_conversions::literal_from_json_value;
+use waymark_instance_builder::{build_queued_instance_with_seed, seed_inputs_from_json_iter};
 use waymark_proto::messages as proto;
 use waymark_scheduler_config::SchedulerConfig;
 use waymark_scheduler_core::{ScheduleId, WorkflowSchedule};
@@ -131,45 +129,38 @@ where
         })?;
         let dag = workflow.dag;
 
-        // Find the entry node
-        let entry_node_str = dag
-            .entry_node
-            .as_ref()
-            .ok_or_else(|| "DAG has no entry node".to_string())?;
-
-        let mut state =
-            waymark_runner_state::RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
-        if let Some(input_payload) = schedule.input_payload.as_deref() {
-            let input_payload = proto::WorkflowArguments::decode(input_payload)
-                .map_err(|_| "failed to decode schedule input payload".to_string())?;
-            let inputs = waymark_message_conversions::workflow_arguments_to_json(input_payload);
-            let Value::Object(input_map) = inputs else {
-                return Err("schedule input payload must decode to an object".into());
-            };
-            for (name, value) in input_map {
-                let expr = literal_from_json_value(&value);
-                let label = format!("input {name} = {value}");
-                state
-                    .record_assignment(vec![name.clone()], &expr, None, Some(label))
-                    .map_err(|err| err.0)?;
-            }
+        if dag.entry_node.is_none() {
+            return Err("DAG has no entry node".into());
         }
-        let entry_exec = state
-            .queue_template_node(entry_node_str, None)
-            .map_err(|err| err.0)?;
 
-        // Create a queued instance
         let instance_id = Uuid::new_v4();
-        let queued = QueuedInstance {
-            workflow_version_id: workflow.version_id,
-            schedule_id: Some(schedule.id),
-            dag: None,
-            entry_node: entry_exec.node_id,
-            state: Some(state),
-            action_results: HashMap::new(),
+        let queued = build_queued_instance_with_seed(
+            Arc::clone(&dag),
+            workflow.version_id,
             instance_id,
-            scheduled_at: None,
-        };
+            Some(schedule.id),
+            None,
+            |state| {
+                if let Some(input_payload) = schedule.input_payload.as_deref() {
+                    let input_payload =
+                        proto::WorkflowArguments::decode(input_payload).map_err(|_| {
+                            waymark_instance_builder::InstanceBuilderError::RunnerState(
+                                "failed to decode schedule input payload".to_string(),
+                            )
+                        })?;
+                    let inputs =
+                        waymark_message_conversions::workflow_arguments_to_json(input_payload);
+                    let Value::Object(input_map) = inputs else {
+                        return Err(waymark_instance_builder::InstanceBuilderError::RunnerState(
+                            "schedule input payload must decode to an object".to_string(),
+                        ));
+                    };
+                    seed_inputs_from_json_iter(state, input_map.iter())?;
+                }
+                Ok(())
+            },
+        )
+        .map_err(|err| err.to_string())?;
 
         // Queue the instance
         self.backend.queue_instances(&[queued]).await?;

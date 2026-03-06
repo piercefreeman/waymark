@@ -11,6 +11,7 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 use waymark_backend_memory::MemoryBackend;
 use waymark_core_backend::QueuedInstance;
+use waymark_instance_builder::{InstanceBuilderError, build_queued_instance_with_seed};
 use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBackend as _};
 
 use super::generator::GeneratedCase;
@@ -18,7 +19,6 @@ use waymark_dag::convert_to_dag;
 use waymark_ir_parser::parse_program;
 use waymark_proto::ast as ir;
 use waymark_runloop::{RunLoop, RunLoopConfig};
-use waymark_runner_state::RunnerState;
 use waymark_worker_core::WorkerPoolError;
 use waymark_worker_inline::{ActionCallable, InlineWorkerPool};
 
@@ -122,33 +122,18 @@ fn build_instance(
     dag: Arc<waymark_dag::DAG>,
     base: i64,
 ) -> Result<QueuedInstance> {
-    let mut state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
-    state
-        .record_assignment(
+    build_queued_instance_with_seed(dag, workflow_version_id, instance_id, None, None, |state| {
+        state.record_assignment(
             vec!["base".to_string()],
             &literal_int(base),
             None,
             Some(format!("input base = {base}")),
-        )
-        .map_err(|err| anyhow::anyhow!(err.0))?;
-
-    let entry_template = dag
-        .entry_node
-        .clone()
-        .ok_or_else(|| anyhow::anyhow!("DAG entry node not found"))?;
-    let entry_exec = state
-        .queue_template_node(&entry_template, None)
-        .map_err(|err| anyhow::anyhow!(err.0))?;
-
-    Ok(QueuedInstance {
-        workflow_version_id,
-        schedule_id: None,
-        dag: None,
-        entry_node: entry_exec.node_id,
-        state: Some(state),
-        action_results: HashMap::new(),
-        instance_id,
-        scheduled_at: None,
+        )?;
+        Ok(())
+    })
+    .map_err(|err| match err {
+        InstanceBuilderError::RunnerState(message) => anyhow::anyhow!(message),
+        InstanceBuilderError::MissingEntryNode => anyhow::anyhow!(err.to_string()),
     })
 }
 

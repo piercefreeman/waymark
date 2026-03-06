@@ -6,10 +6,9 @@ version.workspace = true
 [dependencies]
 waymark-core-backend = { workspace = true }
 waymark-dag = { workspace = true }
-waymark-ir-conversions = { workspace = true }
+waymark-instance-builder = { workspace = true }
 waymark-message-conversions = { workspace = true }
 waymark-proto = { workspace = true }
-waymark-runner-state = { workspace = true }
 waymark-scheduler-backend = { workspace = true }
 waymark-scheduler-config = { workspace = true }
 waymark-scheduler-core = { workspace = true }
