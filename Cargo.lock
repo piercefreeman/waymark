@@ -3330,10 +3330,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "waymark"
-version = "0.1.0"
-
-[[package]]
 name = "waymark-backend-fault-injection"
 version = "0.1.0"
 dependencies = [

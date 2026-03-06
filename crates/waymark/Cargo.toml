@@ -1,9 +1,0 @@
-
-[package]
-name = "waymark"
-version.workspace = true
-edition = "2024"
-
-[dependencies]
-
-[dev-dependencies]
