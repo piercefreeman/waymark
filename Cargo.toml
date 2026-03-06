@@ -6,7 +6,6 @@ members = ["crates/lib/*", "crates/bin/*", "crates/waymark"]
 version = "0.1.0"
 
 [workspace.dependencies]
-waymark = { path = "crates/waymark" }
 waymark-backend-fault-injection = { path = "crates/lib/backend-fault-injection" }
 waymark-backend-memory = { path = "crates/lib/backend-memory" }
 waymark-backend-postgres = { path = "crates/lib/backend-postgres" }
@@ -14,12 +13,14 @@ waymark-backend-postgres-migrations = { path = "crates/lib/backend-postgres-migr
 waymark-backends-core = { path = "crates/lib/backends-core" }
 waymark-core-backend = { path = "crates/lib/core-backend" }
 waymark-dag = { path = "crates/lib/dag" }
+waymark-dag-viz = { path = "crates/lib/dag-viz" }
 waymark-garbage-collector-backend = { path = "crates/lib/garbage-collector-backend" }
 waymark-garbage-collector-config = { path = "crates/lib/garbage-collector-config" }
 waymark-garbage-collector-loop = { path = "crates/lib/garbage-collector-loop" }
 waymark-support-integration = { path = "crates/lib/support-integration" }
 waymark-ir-conversions = { path = "crates/lib/ir-conversions" }
 waymark-ir-parser = { path = "crates/lib/ir-parser" }
+waymark-ir-format = { path = "crates/lib/ir-format" }
 waymark-observability = { path = "crates/lib/observability" }
 waymark-observability-macros = { path = "crates/lib/observability-macros" }
 waymark-observability-setup = { path = "crates/lib/observability-setup" }

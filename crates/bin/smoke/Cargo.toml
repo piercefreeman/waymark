@@ -14,7 +14,8 @@ waymark-backend-memory = { workspace = true }
 waymark-smoke-sources = { workspace = true }
 waymark-worker-remote = { workspace = true }
 waymark-runloop = { workspace = true }
-waymark = { workspace = true }
+waymark-dag-viz = { workspace = true }
+waymark-ir-format = { workspace = true }
 
 anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
