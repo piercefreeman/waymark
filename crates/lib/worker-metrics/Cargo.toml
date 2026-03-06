@@ -4,5 +4,5 @@ edition = "2024"
 version.workspace = true
 
 [dependencies]
-chrono = { workspace = true }
+chrono = { workspace = true, default-features = false, features = ["clock"] }
 uuid = { workspace = true }
