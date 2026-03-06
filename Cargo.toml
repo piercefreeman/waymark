@@ -13,6 +13,8 @@ waymark-backend-postgres-migrations = { path = "crates/lib/backend-postgres-migr
 waymark-backends-core = { path = "crates/lib/backends-core" }
 waymark-core-backend = { path = "crates/lib/core-backend" }
 waymark-dag = { path = "crates/lib/dag" }
+waymark-dag-builder = { path = "crates/lib/dag-builder" }
+waymark-dag-validator = { path = "crates/lib/dag-validator" }
 waymark-dag-viz = { path = "crates/lib/dag-viz" }
 waymark-garbage-collector-backend = { path = "crates/lib/garbage-collector-backend" }
 waymark-garbage-collector-config = { path = "crates/lib/garbage-collector-config" }

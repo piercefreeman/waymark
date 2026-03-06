@@ -2,11 +2,11 @@
 
 use waymark_proto::ast as ir;
 
-use super::super::models::DAGNode;
-use super::super::nodes::{
+use super::converter::DAGConverter;
+use waymark_dag::DAGNode;
+use waymark_dag::{
     ActionCallNode, AggregatorNode, AssignmentNode, FnCallNode, JoinNode, ReturnNode,
 };
-use super::converter::DAGConverter;
 
 /// Utility helpers shared across conversion helpers.
 impl DAGConverter {
@@ -162,9 +162,9 @@ impl DAGConverter {
 
 #[cfg(test)]
 mod tests {
-    use super::super::super::models::DAGNode;
-    use super::super::super::nodes::AssignmentNode;
     use super::*;
+    use waymark_dag::AssignmentNode;
+    use waymark_dag::DAGNode;
 
     #[test]
     fn test_utils_happy_path_track_and_targets() {

@@ -3380,6 +3380,7 @@ dependencies = [
  "waymark-backends-core",
  "waymark-core-backend",
  "waymark-dag",
+ "waymark-dag-builder",
  "waymark-garbage-collector-backend",
  "waymark-ir-parser",
  "waymark-observability",
@@ -3428,6 +3429,7 @@ dependencies = [
  "waymark-backend-postgres-migrations",
  "waymark-core-backend",
  "waymark-dag",
+ "waymark-dag-builder",
  "waymark-ir-conversions",
  "waymark-observability",
  "waymark-observability-setup",
@@ -3476,6 +3478,7 @@ dependencies = [
  "waymark-backends-core",
  "waymark-core-backend",
  "waymark-dag",
+ "waymark-dag-builder",
  "waymark-ir-conversions",
  "waymark-message-conversions",
  "waymark-proto",
@@ -3524,6 +3527,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-dag-builder"
+version = "0.1.0"
+dependencies = [
+ "rustc-hash",
+ "serde",
+ "thiserror",
+ "uuid",
+ "waymark-dag",
+ "waymark-dag-validator",
+ "waymark-ir-parser",
+ "waymark-proto",
+]
+
+[[package]]
+name = "waymark-dag-validator"
+version = "0.1.0"
+dependencies = [
+ "waymark-dag",
+ "waymark-dag-builder",
+ "waymark-ir-parser",
+ "waymark-proto",
+]
+
+[[package]]
 name = "waymark-dag-viz"
 version = "0.1.0"
 dependencies = [
@@ -3546,6 +3573,7 @@ dependencies = [
  "waymark-backend-memory",
  "waymark-core-backend",
  "waymark-dag",
+ "waymark-dag-builder",
  "waymark-ir-parser",
  "waymark-proto",
  "waymark-runloop",
@@ -3600,6 +3628,7 @@ dependencies = [
  "waymark-backend-postgres-migrations",
  "waymark-core-backend",
  "waymark-dag",
+ "waymark-dag-builder",
  "waymark-ir-conversions",
  "waymark-proto",
  "waymark-runloop",
@@ -3704,6 +3733,7 @@ dependencies = [
  "waymark-backends-core",
  "waymark-core-backend",
  "waymark-dag",
+ "waymark-dag-builder",
  "waymark-ir-parser",
  "waymark-observability",
  "waymark-proto",
@@ -3726,6 +3756,7 @@ dependencies = [
  "waymark-backend-memory",
  "waymark-core-backend",
  "waymark-dag",
+ "waymark-dag-builder",
  "waymark-ir-parser",
  "waymark-observability",
  "waymark-proto",
@@ -3784,6 +3815,7 @@ dependencies = [
  "waymark-backend-memory",
  "waymark-core-backend",
  "waymark-dag",
+ "waymark-dag-builder",
  "waymark-ir-conversions",
  "waymark-ir-parser",
  "waymark-message-conversions",
@@ -3809,6 +3841,7 @@ dependencies = [
  "waymark-backend-memory",
  "waymark-core-backend",
  "waymark-dag",
+ "waymark-dag-builder",
  "waymark-dag-viz",
  "waymark-ir-conversions",
  "waymark-ir-format",
@@ -3849,6 +3882,7 @@ dependencies = [
  "waymark-backend-postgres-migrations",
  "waymark-core-backend",
  "waymark-dag",
+ "waymark-dag-builder",
  "waymark-ir-parser",
  "waymark-proto",
  "waymark-runner-state",
@@ -3871,6 +3905,7 @@ dependencies = [
  "waymark-backend-postgres-migrations",
  "waymark-config",
  "waymark-dag",
+ "waymark-dag-builder",
  "waymark-garbage-collector-loop",
  "waymark-proto",
  "waymark-runloop",

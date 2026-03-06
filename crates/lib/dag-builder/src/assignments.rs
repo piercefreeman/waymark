@@ -4,11 +4,11 @@ use std::collections::HashMap;
 
 use waymark_proto::ast as ir;
 
-use super::super::nodes::{
+use super::converter::DAGConverter;
+use waymark_dag::{
     ActionCallNode, ActionCallParams, AssignmentNode, ExpressionNode, FnCallNode, FnCallParams,
     SleepNode,
 };
-use super::converter::DAGConverter;
 
 /// Convert assignments and expression statements into DAG nodes.
 impl DAGConverter {
@@ -354,7 +354,7 @@ impl DAGConverter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::DAGNode;
+    use waymark_dag::DAGNode;
 
     fn literal_int(value: i64) -> ir::Expr {
         ir::Expr {

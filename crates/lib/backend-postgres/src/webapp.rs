@@ -9,7 +9,8 @@ use uuid::Uuid;
 
 use waymark_backends_core::{BackendError, BackendResult};
 use waymark_core_backend::GraphUpdate;
-use waymark_dag::{DAGNode, EdgeType, convert_to_dag};
+use waymark_dag::{DAGNode, EdgeType};
+use waymark_dag_builder::convert_to_dag;
 use waymark_proto::ast as ir;
 use waymark_runner::replay_action_kwargs;
 use waymark_runner_state::{

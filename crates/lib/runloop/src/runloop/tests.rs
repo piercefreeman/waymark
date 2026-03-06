@@ -14,7 +14,7 @@ use waymark_workflow_registry_backend::WorkflowRegistration;
 use waymark_proto::ast as ir;
 use waymark_worker_inline::ActionCallable;
 
-use waymark_dag::convert_to_dag;
+use waymark_dag_builder::convert_to_dag;
 use waymark_ir_parser::parse_program;
 use waymark_runner_state::NodeStatus;
 use waymark_runner_state::RunnerState;

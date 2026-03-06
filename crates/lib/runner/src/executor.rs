@@ -1504,8 +1504,8 @@ mod tests {
     use waymark_backend_memory::MemoryBackend;
     use waymark_dag::{
         ActionCallNode, ActionCallParams, AggregatorNode, AssignmentNode, DAG, DAGEdge,
-        convert_to_dag,
     };
+    use waymark_dag_builder::convert_to_dag;
     use waymark_ir_parser::parse_program;
     use waymark_proto::ast as ir;
     use waymark_runner_state::{ExecutionEdge, ExecutionNode, NodeStatus, RunnerState};
