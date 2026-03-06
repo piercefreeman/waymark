@@ -4,8 +4,8 @@ edition = "2024"
 version.workspace = true
 
 [dependencies]
-chrono = { workspace = true }
-tokio = { workspace = true }
+chrono = { workspace = true, default-features = false, features = ["clock"] }
+tokio = { workspace = true, features = ["macros", "time"] }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
