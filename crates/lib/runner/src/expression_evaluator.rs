@@ -257,59 +257,233 @@ impl RunnerExecutor {
         target: &str,
         stack: Rc<RefCell<HashSet<(Uuid, String)>>>,
     ) -> Result<Value, RunnerExecutorError> {
-        let key = (node_id, target.to_string());
-        if let Some(value) = self.eval_cache_get(&key) {
+        #[derive(Clone)]
+        enum AssignmentFrame {
+            Discover {
+                node_id: Uuid,
+                target: String,
+            },
+            Evaluate {
+                node_id: Uuid,
+                target: String,
+                expr: ValueExpr,
+            },
+        }
+
+        let root_key = (node_id, target.to_string());
+        if let Some(value) = self.eval_cache_get(&root_key) {
             return Ok(value);
         }
-        if stack.borrow().contains(&key) {
-            return Err(RunnerExecutorError(format!(
-                "recursive assignment detected for {target}"
-            )));
+
+        let mut frames = vec![AssignmentFrame::Discover {
+            node_id,
+            target: target.to_string(),
+        }];
+        let mut computed: HashMap<(Uuid, String), Value> = HashMap::new();
+        let mut activated_keys: Vec<(Uuid, String)> = Vec::new();
+
+        let result: Result<Value, RunnerExecutorError> = (|| {
+            while let Some(frame) = frames.pop() {
+                match frame {
+                    AssignmentFrame::Discover { node_id, target } => {
+                        let key = (node_id, target.clone());
+                        if computed.contains_key(&key) {
+                            continue;
+                        }
+                        if let Some(value) = self.eval_cache_get(&key) {
+                            computed.insert(key, value);
+                            continue;
+                        }
+                        if stack.borrow().contains(&key) {
+                            return Err(RunnerExecutorError(format!(
+                                "recursive assignment detected for {target}"
+                            )));
+                        }
+
+                        let expr = self
+                            .state()
+                            .nodes
+                            .get(&node_id)
+                            .and_then(|node| node.assignments.get(&target))
+                            .cloned()
+                            .ok_or_else(|| {
+                                RunnerExecutorError(format!("missing assignment for {target}"))
+                            })?;
+
+                        stack.borrow_mut().insert(key.clone());
+                        activated_keys.push(key.clone());
+
+                        let deps = self.assignment_dependencies(node_id, &expr)?;
+                        frames.push(AssignmentFrame::Evaluate {
+                            node_id,
+                            target: target.clone(),
+                            expr,
+                        });
+                        for (dep_node_id, dep_target) in deps.into_iter().rev() {
+                            let dep_key = (dep_node_id, dep_target.clone());
+                            if computed.contains_key(&dep_key)
+                                || self.eval_cache_get(&dep_key).is_some()
+                            {
+                                continue;
+                            }
+                            frames.push(AssignmentFrame::Discover {
+                                node_id: dep_node_id,
+                                target: dep_target,
+                            });
+                        }
+                    }
+                    AssignmentFrame::Evaluate {
+                        node_id,
+                        target,
+                        expr,
+                    } => {
+                        let key = (node_id, target.clone());
+                        if let Some(value) = self.eval_cache_get(&key) {
+                            computed.insert(key.clone(), value.clone());
+                            stack.borrow_mut().remove(&key);
+                            continue;
+                        }
+
+                        let resolve_variable = {
+                            let this = self;
+                            let computed = &computed;
+                            move |name: &str| {
+                                let dep_node_id = this
+                                    .find_variable_source_node(node_id, name)
+                                    .or_else(|| this.state().latest_assignment(name))
+                                    .ok_or_else(|| {
+                                        RunnerExecutorError(format!("variable not found: {name}"))
+                                    })?;
+                                let dep_key = (dep_node_id, name.to_string());
+                                if let Some(value) = computed.get(&dep_key) {
+                                    return Ok(value.clone());
+                                }
+                                if let Some(value) = this.eval_cache_get(&dep_key) {
+                                    return Ok(value);
+                                }
+                                Err(RunnerExecutorError(format!(
+                                    "unresolved assignment dependency for {name}"
+                                )))
+                            }
+                        };
+                        let resolve_action_result = {
+                            let this = self;
+                            move |value: &ActionResultValue| this.resolve_action_result(value)
+                        };
+                        let resolve_function_call = {
+                            let this = self;
+                            move |value: &FunctionCallValue, args, kwargs| {
+                                this.evaluate_function_call(value, args, kwargs)
+                            }
+                        };
+                        let apply_binary = |op, left, right| Self::apply_binary(op, left, right);
+                        let apply_unary = |op, operand| Self::apply_unary(op, operand);
+                        let error_factory =
+                            |message: &str| RunnerExecutorError(message.to_string());
+                        let evaluator = ValueExprEvaluator::new(
+                            &resolve_variable,
+                            &resolve_action_result,
+                            &resolve_function_call,
+                            &apply_binary,
+                            &apply_unary,
+                            &error_factory,
+                        );
+                        let value = evaluator.visit(&expr)?;
+
+                        self.eval_cache_insert(key.clone(), value.clone());
+                        computed.insert(key.clone(), value);
+                        stack.borrow_mut().remove(&key);
+                    }
+                }
+            }
+
+            computed
+                .get(&root_key)
+                .cloned()
+                .or_else(|| self.eval_cache_get(&root_key))
+                .ok_or_else(|| {
+                    RunnerExecutorError(format!("missing assignment for {}", root_key.1))
+                })
+        })();
+
+        let mut active = stack.borrow_mut();
+        for key in activated_keys {
+            active.remove(&key);
         }
+        drop(active);
 
-        let node = self
-            .state()
-            .nodes
-            .get(&node_id)
-            .ok_or_else(|| RunnerExecutorError(format!("missing assignment for {target}")))?;
-        let expr = node
-            .assignments
-            .get(target)
-            .ok_or_else(|| RunnerExecutorError(format!("missing assignment for {target}")))?;
+        result
+    }
 
-        stack.borrow_mut().insert(key.clone());
-        let resolve_variable = {
-            let stack = stack.clone();
-            let this = self;
-            move |name: &str| {
-                this.evaluate_variable_with_context(Some(node_id), name, stack.clone())
+    fn assignment_dependencies(
+        &self,
+        current_node_id: Uuid,
+        expr: &ValueExpr,
+    ) -> Result<Vec<(Uuid, String)>, RunnerExecutorError> {
+        let mut dependencies = Vec::new();
+        let mut seen = HashSet::new();
+        for name in Self::collect_variable_names(expr) {
+            if !seen.insert(name.clone()) {
+                continue;
             }
-        };
-        let resolve_action_result = {
-            let this = self;
-            move |value: &ActionResultValue| this.resolve_action_result(value)
-        };
-        let resolve_function_call = {
-            let this = self;
-            move |value: &FunctionCallValue, args, kwargs| {
-                this.evaluate_function_call(value, args, kwargs)
+            let node_id = self
+                .find_variable_source_node(current_node_id, &name)
+                .or_else(|| self.state().latest_assignment(&name))
+                .ok_or_else(|| RunnerExecutorError(format!("variable not found: {name}")))?;
+            dependencies.push((node_id, name));
+        }
+        Ok(dependencies)
+    }
+
+    fn collect_variable_names(expr: &ValueExpr) -> Vec<String> {
+        let mut names = Vec::new();
+        let mut pending = vec![expr];
+        while let Some(current) = pending.pop() {
+            match current {
+                ValueExpr::Variable(value) => names.push(value.name.clone()),
+                ValueExpr::BinaryOp(value) => {
+                    pending.push(&value.right);
+                    pending.push(&value.left);
+                }
+                ValueExpr::UnaryOp(value) => {
+                    pending.push(&value.operand);
+                }
+                ValueExpr::List(value) => {
+                    for item in &value.elements {
+                        pending.push(item);
+                    }
+                }
+                ValueExpr::Dict(value) => {
+                    for entry in &value.entries {
+                        pending.push(&entry.value);
+                        pending.push(&entry.key);
+                    }
+                }
+                ValueExpr::Index(value) => {
+                    pending.push(&value.index);
+                    pending.push(&value.object);
+                }
+                ValueExpr::Dot(value) => {
+                    pending.push(&value.object);
+                }
+                ValueExpr::FunctionCall(value) => {
+                    for arg in value.kwargs.values() {
+                        pending.push(arg);
+                    }
+                    for arg in &value.args {
+                        pending.push(arg);
+                    }
+                }
+                ValueExpr::Spread(value) => {
+                    for arg in value.action.kwargs.values() {
+                        pending.push(arg);
+                    }
+                    pending.push(&value.collection);
+                }
+                ValueExpr::Literal(_) | ValueExpr::ActionResult(_) => {}
             }
-        };
-        let apply_binary = |op, left, right| Self::apply_binary(op, left, right);
-        let apply_unary = |op, operand| Self::apply_unary(op, operand);
-        let error_factory = |message: &str| RunnerExecutorError(message.to_string());
-        let evaluator = ValueExprEvaluator::new(
-            &resolve_variable,
-            &resolve_action_result,
-            &resolve_function_call,
-            &apply_binary,
-            &apply_unary,
-            &error_factory,
-        );
-        let value = evaluator.visit(expr)?;
-        stack.borrow_mut().remove(&key);
-        self.eval_cache_insert(key, value.clone());
-        Ok(value)
+        }
+        names
     }
 
     pub(super) fn resolve_action_result(
@@ -665,392 +839,4 @@ pub(crate) fn range_from_args(args: &[Value]) -> Vec<Value> {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::cell::RefCell;
-    use std::collections::{HashMap, HashSet};
-    use std::rc::Rc;
-    use std::sync::Arc;
-
-    use uuid::Uuid;
-
-    use super::*;
-    use waymark_dag::{DAG, DAGEdge};
-    use waymark_ir_parser::IRParser;
-    use waymark_proto::ast as ir;
-    use waymark_runner_state::{
-        ActionCallSpec, ActionResultValue, BinaryOpValue, FunctionCallValue, LiteralValue,
-        RunnerState, VariableValue, value_visitor::ValueExpr,
-    };
-
-    fn parse_expr(source: &str) -> ir::Expr {
-        IRParser::new("    ")
-            .parse_expr(source)
-            .expect("parse expression")
-    }
-
-    fn literal_int(value: i64) -> ValueExpr {
-        ValueExpr::Literal(LiteralValue {
-            value: Value::Number(value.into()),
-        })
-    }
-
-    fn empty_executor() -> RunnerExecutor {
-        let dag = Arc::new(DAG::default());
-        let state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
-        RunnerExecutor::new(dag, state, HashMap::new(), None)
-    }
-
-    fn executor_with_assignment(name: &str, value: ValueExpr) -> RunnerExecutor {
-        let dag = Arc::new(DAG::default());
-        let mut state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
-        state
-            .record_assignment_value(
-                vec![name.to_string()],
-                value,
-                None,
-                Some("test assignment".to_string()),
-            )
-            .expect("record assignment");
-        RunnerExecutor::new(dag, state, HashMap::new(), None)
-    }
-
-    #[test]
-    fn test_expr_to_value_happy_path() {
-        let expr = parse_expr("x + 2");
-        let value = RunnerExecutor::expr_to_value(&expr).expect("convert expression");
-        match value {
-            ValueExpr::BinaryOp(binary) => {
-                assert!(matches!(*binary.left, ValueExpr::Variable(_)));
-                assert!(matches!(*binary.right, ValueExpr::Literal(_)));
-            }
-            other => panic!("expected binary op, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn test_evaluate_guard_happy_path() {
-        let executor = executor_with_assignment("x", literal_int(2));
-        let guard = parse_expr("x > 1");
-        let result = executor
-            .evaluate_guard(Some(&guard))
-            .expect("evaluate guard");
-        assert!(result);
-    }
-
-    #[test]
-    fn test_resolve_action_kwargs_happy_path() {
-        let executor = executor_with_assignment("x", literal_int(10));
-        let action = ActionCallSpec {
-            action_name: "double".to_string(),
-            module_name: Some("tests".to_string()),
-            kwargs: HashMap::from([(
-                "value".to_string(),
-                ValueExpr::Variable(VariableValue {
-                    name: "x".to_string(),
-                }),
-            )]),
-        };
-        let resolved = executor
-            .resolve_action_kwargs(Uuid::new_v4(), &action)
-            .expect("resolve kwargs");
-        assert_eq!(resolved.get("value"), Some(&Value::Number(10.into())));
-    }
-
-    #[test]
-    fn test_resolve_action_kwargs_uses_data_flow_for_self_referential_targets() {
-        let dag = Arc::new(DAG::default());
-        let mut state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
-        state
-            .record_assignment_value(
-                vec!["current".to_string()],
-                literal_int(0),
-                None,
-                Some("current = 0".to_string()),
-            )
-            .expect("record current");
-        let action_result = state
-            .queue_action(
-                "increment",
-                Some(vec!["current".to_string()]),
-                Some(HashMap::from([(
-                    "value".to_string(),
-                    ValueExpr::Variable(VariableValue {
-                        name: "current".to_string(),
-                    }),
-                )])),
-                None,
-                None,
-            )
-            .expect("queue increment");
-        let action_node = state
-            .nodes
-            .get(&action_result.node_id)
-            .expect("action node")
-            .clone();
-        let action_spec = action_node.action.expect("action spec");
-
-        let executor = RunnerExecutor::new(dag, state, HashMap::new(), None);
-        let resolved = executor
-            .resolve_action_kwargs(action_result.node_id, &action_spec)
-            .expect("resolve kwargs");
-        assert_eq!(resolved.get("value"), Some(&Value::Number(0.into())));
-    }
-
-    #[test]
-    fn test_evaluate_value_expr_happy_path() {
-        let executor = executor_with_assignment("x", literal_int(3));
-        let expr = ValueExpr::BinaryOp(waymark_runner_state::BinaryOpValue {
-            left: Box::new(ValueExpr::Variable(VariableValue {
-                name: "x".to_string(),
-            })),
-            op: ir::BinaryOperator::BinaryOpAdd as i32,
-            right: Box::new(literal_int(1)),
-        });
-        let value = executor
-            .evaluate_value_expr(&expr)
-            .expect("evaluate value expression");
-        assert_eq!(value, Value::Number(4.into()));
-    }
-
-    #[test]
-    fn test_evaluate_variable_happy_path() {
-        let executor = executor_with_assignment("value", literal_int(5));
-        let stack = Rc::new(RefCell::new(HashSet::new()));
-        let value = executor
-            .evaluate_variable_with_context(None, "value", stack)
-            .expect("evaluate variable");
-        assert_eq!(value, Value::Number(5.into()));
-    }
-
-    #[test]
-    fn test_evaluate_assignment_happy_path() {
-        let executor = executor_with_assignment("value", literal_int(9));
-        let node_id = executor
-            .state()
-            .latest_assignment("value")
-            .expect("latest assignment");
-        let stack = Rc::new(RefCell::new(HashSet::new()));
-        let value = executor
-            .evaluate_assignment(node_id, "value", stack)
-            .expect("evaluate assignment");
-        assert_eq!(value, Value::Number(9.into()));
-    }
-
-    #[test]
-    fn test_evaluate_assignment_uses_data_flow_for_self_referential_updates() {
-        let dag = Arc::new(DAG::default());
-        let mut state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
-        state
-            .record_assignment_value(
-                vec!["count".to_string()],
-                literal_int(0),
-                None,
-                Some("count = 0".to_string()),
-            )
-            .expect("record initial count");
-        state
-            .record_assignment_value(
-                vec!["count".to_string()],
-                ValueExpr::BinaryOp(BinaryOpValue {
-                    left: Box::new(ValueExpr::Variable(VariableValue {
-                        name: "count".to_string(),
-                    })),
-                    op: ir::BinaryOperator::BinaryOpAdd as i32,
-                    right: Box::new(literal_int(1)),
-                }),
-                None,
-                Some("count = count + 1".to_string()),
-            )
-            .expect("record updated count");
-
-        let executor = RunnerExecutor::new(dag, state, HashMap::new(), None);
-        let node_id = executor
-            .state()
-            .latest_assignment("count")
-            .expect("latest assignment");
-        let stack = Rc::new(RefCell::new(HashSet::new()));
-        let value = executor
-            .evaluate_assignment(node_id, "count", stack)
-            .expect("evaluate self-referential assignment");
-        assert_eq!(value, Value::Number(1.into()));
-    }
-
-    #[test]
-    fn test_resolve_action_result_happy_path() {
-        let mut executor = empty_executor();
-        let action_id = Uuid::new_v4();
-        executor.set_action_result(
-            action_id,
-            Value::Array(vec![Value::Number(7.into()), Value::Number(8.into())]),
-        );
-        let result = executor
-            .resolve_action_result(&ActionResultValue {
-                node_id: action_id,
-                action_name: "fetch".to_string(),
-                iteration_index: None,
-                result_index: Some(1),
-            })
-            .expect("resolve action result");
-        assert_eq!(result, Value::Number(8.into()));
-    }
-
-    #[test]
-    fn test_evaluate_function_call_happy_path() {
-        let executor = empty_executor();
-        let value = executor
-            .evaluate_function_call(
-                &FunctionCallValue {
-                    name: "len".to_string(),
-                    args: Vec::new(),
-                    kwargs: HashMap::new(),
-                    global_function: Some(ir::GlobalFunction::Len as i32),
-                },
-                vec![Value::Array(vec![Value::Null, Value::Null])],
-                HashMap::new(),
-            )
-            .expect("evaluate function call");
-        assert_eq!(value, Value::Number(2.into()));
-    }
-
-    #[test]
-    fn test_evaluate_global_function_happy_path() {
-        let executor = empty_executor();
-        let value = executor
-            .evaluate_global_function(
-                ir::GlobalFunction::Range as i32,
-                vec![Value::Number(1.into()), Value::Number(4.into())],
-                HashMap::new(),
-            )
-            .expect("evaluate global function");
-        assert_eq!(
-            value,
-            Value::Array(vec![
-                Value::Number(1.into()),
-                Value::Number(2.into()),
-                Value::Number(3.into())
-            ])
-        );
-    }
-
-    #[test]
-    fn test_apply_binary_happy_path() {
-        let value = RunnerExecutor::apply_binary(
-            ir::BinaryOperator::BinaryOpAdd as i32,
-            Value::Number(2.into()),
-            Value::Number(3.into()),
-        )
-        .expect("apply binary");
-        assert_eq!(value, Value::Number(5.into()));
-    }
-
-    #[test]
-    fn test_apply_unary_happy_path() {
-        let value =
-            RunnerExecutor::apply_unary(ir::UnaryOperator::UnaryOpNot as i32, Value::Bool(true))
-                .expect("apply unary");
-        assert_eq!(value, Value::Bool(false));
-    }
-
-    #[test]
-    fn test_exception_matches_happy_path() {
-        let executor = empty_executor();
-        let edge = DAGEdge::state_machine_with_exception("a", "b", vec!["ValueError".to_string()]);
-        let exception = serde_json::json!({
-            "type": "ValueError",
-            "message": "boom",
-        });
-        assert!(executor.exception_matches(&edge, &exception));
-    }
-
-    #[test]
-    fn test_executor_error_happy_path() {
-        let error = executor_error("hello");
-        assert_eq!(error.0, "hello");
-    }
-
-    #[test]
-    fn test_int_value_happy_path() {
-        let value = Value::Number(7_u64.into());
-        assert_eq!(int_value(&value), Some(7));
-    }
-
-    #[test]
-    fn test_numeric_op_happy_path() {
-        let value = numeric_op(
-            Value::Number(10.into()),
-            Value::Number(3.into()),
-            |a, b| a + b,
-            true,
-            executor_error,
-        )
-        .expect("numeric op");
-        assert_eq!(value, Value::Number(13.into()));
-    }
-
-    #[test]
-    fn test_add_values_happy_path() {
-        let value = add_values(
-            Value::String("hello ".to_string()),
-            Value::String("world".to_string()),
-            executor_error,
-        )
-        .expect("add values");
-        assert_eq!(value, Value::String("hello world".to_string()));
-    }
-
-    #[test]
-    fn test_compare_values_happy_path() {
-        let value = compare_values(
-            Value::Number(3.into()),
-            Value::Number(5.into()),
-            |a, b| a < b,
-            executor_error,
-        )
-        .expect("compare values");
-        assert_eq!(value, Value::Bool(true));
-    }
-
-    #[test]
-    fn test_value_in_happy_path() {
-        let container = Value::Array(vec![Value::Number(1.into()), Value::Number(2.into())]);
-        assert!(value_in(&Value::Number(2.into()), &container));
-    }
-
-    #[test]
-    fn test_is_truthy_happy_path() {
-        assert!(is_truthy(&Value::String("non-empty".to_string())));
-    }
-
-    #[test]
-    fn test_is_exception_value_happy_path() {
-        let value = serde_json::json!({
-            "type": "RuntimeError",
-            "message": "bad",
-        });
-        assert!(is_exception_value(&value));
-    }
-
-    #[test]
-    fn test_len_of_value_happy_path() {
-        let value = Value::Array(vec![Value::Null, Value::Null, Value::Null]);
-        let len = len_of_value(&value, executor_error).expect("length");
-        assert_eq!(len.as_i64(), Some(3));
-    }
-
-    #[test]
-    fn test_range_from_args_happy_path() {
-        let values = range_from_args(&[
-            Value::Number(0.into()),
-            Value::Number(5.into()),
-            Value::Number(2.into()),
-        ]);
-        assert_eq!(
-            values,
-            vec![
-                Value::Number(0.into()),
-                Value::Number(2.into()),
-                Value::Number(4.into())
-            ]
-        );
-    }
-}
+mod tests;
