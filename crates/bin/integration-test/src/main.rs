@@ -18,13 +18,13 @@ use serde_json::Value;
 use sqlx::Row;
 use uuid::Uuid;
 
-use waymark::waymark_core::runloop::{RunLoop, RunLoopConfig};
 use waymark_backend_memory::MemoryBackend;
 use waymark_backend_postgres::PostgresBackend;
 use waymark_core_backend::{CoreBackend, QueuedInstance};
 use waymark_dag::{DAG, convert_to_dag};
 use waymark_ir_conversions::literal_from_json_value;
 use waymark_proto::ast as ir;
+use waymark_runloop::{RunLoop, RunLoopConfig};
 use waymark_runner_state::RunnerState;
 use waymark_support_integration::{LOCAL_POSTGRES_DSN, connect_pool, ensure_local_postgres};
 use waymark_worker_remote::{PythonWorkerConfig, RemoteWorkerPool};

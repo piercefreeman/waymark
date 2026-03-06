@@ -29,7 +29,6 @@ use tracing::{debug, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use uuid::Uuid;
 
-use waymark::waymark_core::runloop::{RunLoop, RunLoopConfig};
 use waymark_backend_postgres::PostgresBackend;
 use waymark_backends_core::{BackendError, BackendResult};
 use waymark_core_backend::{
@@ -39,6 +38,7 @@ use waymark_core_backend::{
 use waymark_dag::convert_to_dag;
 use waymark_ir_conversions::literal_from_json_value;
 use waymark_proto::{ast as ir, messages as proto};
+use waymark_runloop::{RunLoop, RunLoopConfig};
 use waymark_runner_state::RunnerState;
 use waymark_scheduler_backend::SchedulerBackend as _;
 use waymark_scheduler_core::{CreateScheduleParams, ScheduleId, ScheduleStatus, ScheduleType};

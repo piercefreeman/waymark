@@ -43,6 +43,7 @@ waymark-worker-inline = { path = "crates/lib/worker-inline" }
 waymark-worker-status-core = { path = "crates/lib/worker-status-core" }
 waymark-worker-status-reporter = { path = "crates/lib/worker-status-reporter" }
 waymark-worker-metrics = { path = "crates/lib/worker-metrics" }
+waymark-runloop = { path = "crates/lib/runloop" }
 
 anyhow = "1"
 async-trait = "0.1"

@@ -12,7 +12,6 @@ serde_json = { workspace = true }
 sha2 = { workspace = true }
 uuid = { workspace = true, features = ["serde", "v4"] }
 tokio = { workspace = true }
-waymark = { workspace = true }
 waymark-dag = { workspace = true }
 waymark-proto = { workspace = true }
 waymark-ir-parser = { workspace = true }
@@ -22,3 +21,4 @@ waymark-core-backend = { workspace = true }
 waymark-workflow-registry-backend = { workspace = true }
 waymark-worker-core = { workspace = true }
 waymark-worker-inline = { workspace = true }
+waymark-runloop = { workspace = true }

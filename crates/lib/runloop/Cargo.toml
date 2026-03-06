@@ -1,0 +1,32 @@
+[package]
+name = "waymark-runloop"
+edition = "2024"
+version.workspace = true
+
+[dependencies]
+waymark-backends-core = { workspace = true }
+waymark-core-backend = { workspace = true }
+waymark-dag = { workspace = true }
+waymark-observability = { workspace = true }
+waymark-proto = { workspace = true }
+waymark-runner = { workspace = true }
+waymark-worker-core = { workspace = true }
+waymark-workflow-registry-backend = { workspace = true }
+
+chrono = { workspace = true, default-features = false }
+prost = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["macros"] }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+waymark-backend-fault-injection = { workspace = true }
+waymark-backend-memory = { workspace = true }
+waymark-ir-parser = { workspace = true }
+waymark-runner-state = { workspace = true }
+waymark-worker-inline = { workspace = true }
+
+sha2 = { workspace = true }

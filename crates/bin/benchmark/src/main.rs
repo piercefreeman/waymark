@@ -17,11 +17,11 @@ use waymark_core_backend::QueuedInstance;
 use waymark_support_integration::{LOCAL_POSTGRES_DSN, ensure_local_postgres};
 use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBackend as _};
 
-use waymark::waymark_core::runloop::{RunLoop, RunLoopConfig};
 use waymark_dag::convert_to_dag;
 use waymark_ir_conversions::literal_from_json_value;
 use waymark_observability::obs;
 use waymark_proto::ast as ir;
+use waymark_runloop::{RunLoop, RunLoopConfig};
 use waymark_runner_state::RunnerState;
 use waymark_smoke_sources::{
     build_control_flow_program, build_parallel_spread_program, build_program,
