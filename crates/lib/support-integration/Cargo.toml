@@ -6,5 +6,5 @@ edition = "2024"
 [dependencies]
 waymark-backend-postgres-migrations = { workspace = true }
 anyhow = { workspace = true }
-sqlx = { workspace = true }
+sqlx = { workspace = true, features = ["postgres"] }
 tokio = { workspace = true, features = ["process", "time", "sync"] }
