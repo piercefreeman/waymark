@@ -16,23 +16,6 @@ use crate::{
     runloop::{InflightActionDispatch, RunLoopError, ShardCommand, ShardStep, SleepWake},
 };
 
-// TODO: we go by the process of elimination of usage here, so slience the noize
-// for now; this struct will eventually be gone altogether.
-#[allow(dead_code)]
-pub(super) struct CoordinatorState<'a> {
-    pub executor_shards: &'a mut HashMap<Uuid, usize>,
-    pub shard_senders: &'a [std::sync::mpsc::Sender<ShardCommand>],
-    pub lock_tracker: &'a InstanceLockTracker,
-    pub inflight_actions: &'a mut HashMap<Uuid, usize>,
-    pub inflight_dispatches: &'a mut HashMap<Uuid, InflightActionDispatch>,
-    pub sleeping_nodes: &'a mut HashMap<Uuid, SleepRequest>,
-    pub sleeping_by_instance: &'a mut HashMap<Uuid, HashSet<Uuid>>,
-    pub blocked_until_by_instance: &'a mut HashMap<Uuid, DateTime<Utc>>,
-    pub commit_barrier: &'a mut CommitBarrier<ShardStep>,
-    pub instances_done_pending: &'a mut Vec<InstanceDone>,
-    pub sleep_tx: &'a tokio::sync::mpsc::UnboundedSender<SleepWake>,
-}
-
 pub struct ApplyConfirmedStepContext<'a> {
     pub executor_shards: &'a mut HashMap<Uuid, usize>,
     pub lock_tracker: &'a InstanceLockTracker,
