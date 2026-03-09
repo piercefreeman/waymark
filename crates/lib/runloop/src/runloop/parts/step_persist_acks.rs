@@ -158,16 +158,13 @@ where
             blocked_until_by_instance: ctx.blocked_until_by_instance,
         };
 
-        if let Err(err) = super::ops::evict_instances(
+        super::ops::evict_instances(
             ctx,
             core_backend,
             lock_uuid,
             &evict_ids.iter().copied().collect::<Vec<_>>(),
         )
-        .await
-        {
-            return Err(err);
-        }
+        .await?;
     }
     for step in batch.steps {
         if !batch.instance_ids.contains(&step.executor_id) {

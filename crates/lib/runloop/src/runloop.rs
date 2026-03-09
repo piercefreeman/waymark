@@ -38,8 +38,10 @@ mod tests;
 mod parts {
     use super::*;
 
+    pub mod completions;
     pub mod inflight_dispatches;
     pub mod step_persist_acks;
+    pub mod wakes;
 }
 
 mod channel_utils;
@@ -1073,120 +1075,29 @@ impl RunLoop {
                 }
             }
 
-            if !all_completions.is_empty() {
-                let mut accepted = Vec::new();
-                for completion in all_completions {
-                    let Some(expected) = inflight_dispatches.get(&completion.execution_id) else {
-                        debug!(
-                            executor_id = %completion.executor_id,
-                            execution_id = %completion.execution_id,
-                            "dropping completion for unknown inflight action"
-                        );
-                        continue;
-                    };
-                    if expected.executor_id != completion.executor_id {
-                        debug!(
-                            expected_executor_id = %expected.executor_id,
-                            completion_executor_id = %completion.executor_id,
-                            execution_id = %completion.execution_id,
-                            "dropping completion with mismatched executor ownership"
-                        );
-                        continue;
-                    }
-                    if expected.dispatch_token != completion.dispatch_token
-                        || expected.attempt_number != completion.attempt_number
-                    {
-                        debug!(
-                            execution_id = %completion.execution_id,
-                            expected_attempt = expected.attempt_number,
-                            completion_attempt = completion.attempt_number,
-                            expected_dispatch_token = %expected.dispatch_token,
-                            completion_dispatch_token = %completion.dispatch_token,
-                            "dropping stale completion for prior attempt"
-                        );
-                        continue;
-                    }
-                    inflight_dispatches.remove(&completion.execution_id);
-                    if let Some(count) = inflight_actions.get_mut(&completion.executor_id) {
-                        if *count > 0 {
-                            *count -= 1;
-                        }
-                        if *count == 0 {
-                            inflight_actions.remove(&completion.executor_id);
-                        }
-                    }
-                    accepted.push(completion);
-                }
-                if !accepted.is_empty() {
-                    let mut by_shard: HashMap<usize, Vec<ActionCompletion>> = HashMap::new();
-                    for completion in accepted {
-                        let Some(completion) = commit_barrier.route_completion(completion) else {
-                            continue;
-                        };
-                        if let Some(shard_idx) =
-                            executor_shards.get(&completion.executor_id).copied()
-                        {
-                            by_shard.entry(shard_idx).or_default().push(completion);
-                        } else {
-                            warn!(
-                                executor_id = %completion.executor_id,
-                                "completion for unknown executor"
-                            );
-                        }
-                    }
-                    for (shard_idx, batch) in by_shard {
-                        if let Some(sender) = shard_senders.get(shard_idx) {
-                            let _ = sender.send(ShardCommand::ActionCompletions(batch));
-                        }
-                    }
-                }
+            // Handle all completions.
+            {
+                let ctx = parts::completions::HandleCompletionsContext {
+                    executor_shards: &mut executor_shards,
+                    shard_senders: &shard_senders,
+                    inflight_actions: &mut inflight_actions,
+                    inflight_dispatches: &mut inflight_dispatches,
+                    commit_barrier: &mut commit_barrier,
+                };
+                parts::completions::handle_completions(ctx, all_completions);
             }
 
-            if !all_wakes.is_empty() {
-                let now = Utc::now();
-                let mut by_shard: HashMap<usize, Vec<Uuid>> = HashMap::new();
-                for wake in all_wakes {
-                    let Some(request) = sleeping_nodes.get(&wake.node_id) else {
-                        continue;
-                    };
-                    if request.wake_at > now {
-                        continue;
-                    }
-                    sleeping_nodes.remove(&wake.node_id);
-                    if let Some(nodes) = sleeping_by_instance.get_mut(&wake.executor_id) {
-                        nodes.remove(&wake.node_id);
-                        if nodes.is_empty() {
-                            sleeping_by_instance.remove(&wake.executor_id);
-                            blocked_until_by_instance.remove(&wake.executor_id);
-                        } else {
-                            let mut next_wake: Option<DateTime<Utc>> = None;
-                            for node_id in nodes.iter() {
-                                if let Some(entry) = sleeping_nodes.get(node_id) {
-                                    next_wake = Some(match next_wake {
-                                        Some(existing) => existing.min(entry.wake_at),
-                                        None => entry.wake_at,
-                                    });
-                                }
-                            }
-                            if let Some(next_wake) = next_wake {
-                                blocked_until_by_instance.insert(wake.executor_id, next_wake);
-                            }
-                        }
-                    }
-                    if let Some(shard_idx) = executor_shards.get(&wake.executor_id).copied() {
-                        let Some(node_id) =
-                            commit_barrier.route_wake(wake.executor_id, wake.node_id)
-                        else {
-                            continue;
-                        };
-                        by_shard.entry(shard_idx).or_default().push(node_id);
-                    }
-                }
-                for (shard_idx, nodes) in by_shard {
-                    if let Some(sender) = shard_senders.get(shard_idx) {
-                        let _ = sender.send(ShardCommand::Wake(nodes));
-                    }
-                }
+            // Handle all wakes.
+            {
+                let ctx = parts::wakes::HandleWakesContext {
+                    executor_shards: &mut executor_shards,
+                    shard_senders: &shard_senders,
+                    sleeping_nodes: &mut sleeping_nodes,
+                    sleeping_by_instance: &mut sleeping_by_instance,
+                    blocked_until_by_instance: &mut blocked_until_by_instance,
+                    commit_barrier: &mut commit_barrier,
+                };
+                parts::wakes::handle_wakes(ctx, all_wakes);
             }
 
             let had_instances = !all_instances.is_empty();
