@@ -51,7 +51,6 @@ mod parts {
 mod channel_utils;
 mod lock_utils;
 mod ops;
-mod value_utils;
 
 /// Raised when the run loop cannot coordinate execution.
 #[derive(Debug, thiserror::Error)]
