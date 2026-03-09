@@ -928,7 +928,7 @@ fn test_lock_mismatches_ignores_expired_lock_with_matching_owner() {
         lock_expires_at: Some(Utc::now() - chrono::Duration::seconds(60)),
     }];
     assert!(
-        runloop.lock_mismatches(&statuses).is_empty(),
+        lock_utils::lock_mismatches_for(&statuses, runloop.lock_uuid).is_empty(),
         "matching lock UUID should not evict solely due to stale expiry"
     );
 
@@ -937,6 +937,6 @@ fn test_lock_mismatches_ignores_expired_lock_with_matching_owner() {
         lock_uuid: Some(Uuid::new_v4()),
         lock_expires_at: Some(Utc::now() + chrono::Duration::seconds(60)),
     }];
-    let evict_ids = runloop.lock_mismatches(&mismatched);
+    let evict_ids = lock_utils::lock_mismatches_for(&mismatched, runloop.lock_uuid);
     assert_eq!(evict_ids, HashSet::from([instance_id]));
 }
