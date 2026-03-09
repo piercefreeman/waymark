@@ -12,7 +12,7 @@ use crate::{
     runloop::{InflightActionDispatch, ShardStep},
 };
 
-pub struct HandleFailedInstancesContext<'a> {
+pub struct Context<'a> {
     pub executor_shards: &'a mut HashMap<Uuid, usize>,
     pub lock_tracker: &'a InstanceLockTracker,
     pub inflight_actions: &'a mut HashMap<Uuid, usize>,
@@ -23,13 +23,13 @@ pub struct HandleFailedInstancesContext<'a> {
     pub commit_barrier: &'a mut CommitBarrier<ShardStep>,
 }
 
-pub fn handle_failed_instances(
-    ctx: HandleFailedInstancesContext<'_>,
+pub fn handle(
+    ctx: Context<'_>,
 
     all_failed_instances: Vec<InstanceDone>,
     instances_done_pending: &mut Vec<InstanceDone>,
 ) {
-    let HandleFailedInstancesContext {
+    let Context {
         executor_shards,
         lock_tracker,
         inflight_actions,

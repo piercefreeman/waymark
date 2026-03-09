@@ -1024,7 +1024,7 @@ impl RunLoop {
 
             // Handle step persist acks.
             {
-                let ctx = parts::step_persist_acks::HandleStepPersistAcksContext {
+                let ctx = parts::step_persist_acks::Context {
                     executor_shards: &mut executor_shards,
                     shard_senders: &shard_senders,
                     lock_tracker: &lock_tracker,
@@ -1037,7 +1037,7 @@ impl RunLoop {
                     instances_done_pending: &mut instances_done_pending,
                     sleep_tx: &sleep_tx,
                 };
-                let result = parts::step_persist_acks::handle_step_persist_acks(
+                let result = parts::step_persist_acks::handle(
                     ctx,
                     self.core_backend.as_ref(),
                     self.worker_pool.as_ref(),
@@ -1052,12 +1052,12 @@ impl RunLoop {
                     // For now we reduce all the extra useful information to just
                     // put the error into the "dumb" unified error.
                     let error = match error {
-                        parts::step_persist_acks::HandleStepPersistAcksError::StepsPersistFailed(
-                            run_loop_error,
-                        ) => run_loop_error,
-                        parts::step_persist_acks::HandleStepPersistAcksError::StepsPersisted(
-                            run_loop_error,
-                        ) => run_loop_error,
+                        parts::step_persist_acks::Error::StepsPersistFailed(run_loop_error) => {
+                            run_loop_error
+                        }
+                        parts::step_persist_acks::Error::StepsPersisted(run_loop_error) => {
+                            run_loop_error
+                        }
                     };
                     break 'runloop Err(error);
                 }
@@ -1065,19 +1065,19 @@ impl RunLoop {
 
             // Handle all completions.
             {
-                let ctx = parts::completions::HandleCompletionsContext {
+                let ctx = parts::completions::Context {
                     executor_shards: &mut executor_shards,
                     shard_senders: &shard_senders,
                     inflight_actions: &mut inflight_actions,
                     inflight_dispatches: &mut inflight_dispatches,
                     commit_barrier: &mut commit_barrier,
                 };
-                parts::completions::handle_completions(ctx, all_completions);
+                parts::completions::handle(ctx, all_completions);
             }
 
             // Handle all wakes.
             {
-                let ctx = parts::wakes::HandleWakesContext {
+                let ctx = parts::wakes::Context {
                     executor_shards: &mut executor_shards,
                     shard_senders: &shard_senders,
                     sleeping_nodes: &mut sleeping_nodes,
@@ -1085,12 +1085,12 @@ impl RunLoop {
                     blocked_until_by_instance: &mut blocked_until_by_instance,
                     commit_barrier: &mut commit_barrier,
                 };
-                parts::wakes::handle_wakes(ctx, all_wakes);
+                parts::wakes::handle(ctx, all_wakes);
             }
 
             // Handle all instances.
             {
-                let ctx = parts::instances::HandleInstancesContext {
+                let ctx = parts::instances::Context {
                     executor_shards: &mut executor_shards,
                     shard_senders: &mut shard_senders,
                     lock_tracker: &lock_tracker,
@@ -1104,7 +1104,7 @@ impl RunLoop {
                     registry_backend: self.registry_backend.as_ref(),
                 };
 
-                let result = parts::instances::handle_instances(
+                let result = parts::instances::handle(
                     ctx,
                     &mut instances_idle,
                     &mut next_shard,
@@ -1118,14 +1118,14 @@ impl RunLoop {
                     // the runloop.
                     // For now we reduce all the extra useful information to just
                     // put the error into the "dumb" unified error.
-                    let parts::instances::HandleInstancesError::Hydrate(error) = error;
+                    let parts::instances::Error::Hydrate(error) = error;
                     break 'runloop Err(error);
                 }
             }
 
             // Handle failed instances.
             {
-                let ctx = parts::failed_instances::HandleFailedInstancesContext {
+                let ctx = parts::failed_instances::Context {
                     executor_shards: &mut executor_shards,
                     lock_tracker: &lock_tracker,
                     inflight_actions: &mut inflight_actions,
@@ -1135,7 +1135,7 @@ impl RunLoop {
                     blocked_until_by_instance: &mut blocked_until_by_instance,
                     commit_barrier: &mut commit_barrier,
                 };
-                parts::failed_instances::handle_failed_instances(
+                parts::failed_instances::handle(
                     ctx,
                     all_failed_instances,
                     &mut instances_done_pending,
@@ -1144,19 +1144,19 @@ impl RunLoop {
 
             // Handle steps.
             {
-                let ctx = parts::steps::HandleStepsContext {
+                let ctx = parts::steps::Context {
                     shutdown_signal: shutdown_token.cancelled(),
                     persist_tx: &persist_tx,
                     commit_barrier: &mut commit_barrier,
                 };
-                let result = parts::steps::handle_steps(ctx, all_steps).await;
+                let result = parts::steps::handle(ctx, all_steps).await;
                 if let Err(error) = result {
                     // TODO: properly expose actual type-safe causal error from
                     // the runloop.
                     // For now we reduce all the extra useful information to just
                     // put the error into the "dumb" unified error.
                     let error = match error {
-                        err @ parts::steps::HandleStepsError::SubmittingPersistBatch => {
+                        err @ parts::steps::Error::SubmittingPersistBatch => {
                             RunLoopError::Message(err.to_string())
                         }
                     };
@@ -1166,7 +1166,7 @@ impl RunLoop {
 
             // Handle all blocked-until-by-instances.
             {
-                let ctx = parts::blocked_until_by_instance::HandleBlockedUntilByInstanceContext {
+                let ctx = parts::blocked_until_by_instance::Context {
                     executor_shards: &mut executor_shards,
                     shard_senders: &mut shard_senders,
                     lock_tracker: &lock_tracker,
@@ -1177,7 +1177,7 @@ impl RunLoop {
                     blocked_until_by_instance: &mut blocked_until_by_instance,
                     commit_barrier: &mut commit_barrier,
                 };
-                let result = parts::blocked_until_by_instance::handle_blocked_until_by_instance(
+                let result = parts::blocked_until_by_instance::handle(
                     ctx,
                     self.core_backend.as_ref(),
                     lock_uuid,
@@ -1189,7 +1189,7 @@ impl RunLoop {
                     // the runloop.
                     // For now we reduce all the extra useful information to just
                     // put the error into the "dumb" unified error.
-                    let parts::blocked_until_by_instance::HandleBlockedUntilByInstanceError::EvictInstance(error) = error;
+                    let parts::blocked_until_by_instance::Error::EvictInstance(error) = error;
                     break 'runloop Err(error);
                 }
             }

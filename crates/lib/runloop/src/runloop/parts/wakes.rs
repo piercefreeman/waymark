@@ -9,7 +9,7 @@ use crate::{
     runloop::{ShardCommand, ShardStep, SleepWake},
 };
 
-pub struct HandleWakesContext<'a> {
+pub struct Context<'a> {
     pub executor_shards: &'a mut HashMap<Uuid, usize>,
     pub shard_senders: &'a [std::sync::mpsc::Sender<ShardCommand>],
     pub sleeping_nodes: &'a mut HashMap<Uuid, SleepRequest>,
@@ -18,8 +18,8 @@ pub struct HandleWakesContext<'a> {
     pub commit_barrier: &'a mut CommitBarrier<ShardStep>,
 }
 
-pub fn handle_wakes(ctx: HandleWakesContext<'_>, all_wakes: Vec<SleepWake>) {
-    let HandleWakesContext {
+pub fn handle(ctx: Context<'_>, all_wakes: Vec<SleepWake>) {
+    let Context {
         executor_shards,
         shard_senders,
         sleeping_nodes,

@@ -7,24 +7,20 @@ use crate::{
     runloop::{ShardStep, channel_utils::send_with_stop},
 };
 
-pub struct HandleStepsContext<'a> {
+pub struct Context<'a> {
     pub shutdown_signal: tokio_util::sync::WaitForCancellationFuture<'a>,
     pub persist_tx: &'a tokio::sync::mpsc::Sender<crate::runloop::PersistCommand>,
     pub commit_barrier: &'a mut CommitBarrier<ShardStep>,
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum HandleStepsError {
+pub enum Error {
     #[error("failed to submit persist batch to persistence task")]
     SubmittingPersistBatch,
 }
 
-pub async fn handle_steps(
-    ctx: HandleStepsContext<'_>,
-
-    all_steps: Vec<ShardStep>,
-) -> Result<(), HandleStepsError> {
-    let HandleStepsContext {
+pub async fn handle(ctx: Context<'_>, all_steps: Vec<ShardStep>) -> Result<(), Error> {
+    let Context {
         commit_barrier,
         shutdown_signal,
         persist_tx,
@@ -61,7 +57,7 @@ pub async fn handle_steps(
                 commit_barrier.remove_instance(instance_id);
             }
         }
-        return Err(HandleStepsError::SubmittingPersistBatch);
+        return Err(Error::SubmittingPersistBatch);
     }
 
     Ok(())

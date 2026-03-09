@@ -10,7 +10,7 @@ use crate::{
     runloop::{InflightActionDispatch, ShardCommand, ShardStep},
 };
 
-pub struct HandleBlockedUntilByInstanceContext<'a> {
+pub struct Context<'a> {
     pub executor_shards: &'a mut HashMap<Uuid, usize>,
     pub shard_senders: &'a [std::sync::mpsc::Sender<ShardCommand>],
     pub lock_tracker: &'a InstanceLockTracker,
@@ -23,23 +23,23 @@ pub struct HandleBlockedUntilByInstanceContext<'a> {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum HandleBlockedUntilByInstanceError {
+pub enum Error {
     #[error("evict instance: {0}")]
     EvictInstance(#[source] crate::RunLoopError),
 }
 
-pub async fn handle_blocked_until_by_instance<CoreBackend>(
-    ctx: HandleBlockedUntilByInstanceContext<'_>,
+pub async fn handle<CoreBackend>(
+    ctx: Context<'_>,
 
     core_backend: &CoreBackend,
     lock_uuid: Uuid,
 
     evict_sleep_threshold: std::time::Duration,
-) -> Result<(), HandleBlockedUntilByInstanceError>
+) -> Result<(), Error>
 where
     CoreBackend: ?Sized + waymark_core_backend::CoreBackend,
 {
-    let HandleBlockedUntilByInstanceContext {
+    let Context {
         executor_shards,
         shard_senders,
         lock_tracker,
@@ -84,7 +84,7 @@ where
         };
         super::ops::evict_instances(ctx, core_backend, lock_uuid, &evict_ids)
             .await
-            .map_err(HandleBlockedUntilByInstanceError::EvictInstance)?;
+            .map_err(Error::EvictInstance)?;
 
         for instance_id in evict_ids {
             commit_barrier.remove_instance(instance_id);

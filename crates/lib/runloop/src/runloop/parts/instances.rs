@@ -15,7 +15,7 @@ use crate::{
     runloop::{InflightActionDispatch, ShardCommand, ShardStep},
 };
 
-pub struct HandleInstancesContext<'a, WorkflowRegistryBackend: ?Sized> {
+pub struct Context<'a, WorkflowRegistryBackend: ?Sized> {
     pub executor_shards: &'a mut HashMap<Uuid, usize>,
     pub shard_senders: &'a [std::sync::mpsc::Sender<ShardCommand>],
     pub lock_tracker: &'a InstanceLockTracker,
@@ -31,13 +31,13 @@ pub struct HandleInstancesContext<'a, WorkflowRegistryBackend: ?Sized> {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum HandleInstancesError {
+pub enum Error {
     #[error("hydrate: {0}")]
     Hydrate(#[source] crate::RunLoopError),
 }
 
-pub async fn handle_instances<WorkflowRegistryBackend>(
-    ctx: HandleInstancesContext<'_, WorkflowRegistryBackend>,
+pub async fn handle<WorkflowRegistryBackend>(
+    ctx: Context<'_, WorkflowRegistryBackend>,
 
     instances_idle: &mut bool,
 
@@ -46,11 +46,11 @@ pub async fn handle_instances<WorkflowRegistryBackend>(
 
     mut all_instances: Vec<QueuedInstance>,
     saw_empty_instances: bool,
-) -> Result<(), HandleInstancesError>
+) -> Result<(), Error>
 where
     WorkflowRegistryBackend: ?Sized + waymark_workflow_registry_backend::WorkflowRegistryBackend,
 {
-    let HandleInstancesContext {
+    let Context {
         executor_shards,
         shard_senders,
         lock_tracker,
@@ -80,7 +80,7 @@ where
 
     super::ops::hydrate_instances(ctx, &mut all_instances)
         .await
-        .map_err(HandleInstancesError::Hydrate)?;
+        .map_err(Error::Hydrate)?;
     debug!(count = all_instances.len(), "hydrated queued instances");
 
     let mut by_shard: HashMap<usize, Vec<QueuedInstance>> = HashMap::new();

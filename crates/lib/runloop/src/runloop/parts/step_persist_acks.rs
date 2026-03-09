@@ -15,7 +15,7 @@ use crate::{
 
 // TODO: use proper semantic errors here.
 #[derive(Debug, thiserror::Error)]
-pub enum HandleStepPersistAcksError {
+pub enum Error {
     #[error("steps persted: {0}")]
     StepsPersisted(#[source] crate::RunLoopError),
 
@@ -23,7 +23,7 @@ pub enum HandleStepPersistAcksError {
     StepsPersistFailed(#[source] crate::RunLoopError),
 }
 
-pub struct HandleStepPersistAcksContext<'a> {
+pub struct Context<'a> {
     pub executor_shards: &'a mut HashMap<Uuid, usize>,
     pub shard_senders: &'a [std::sync::mpsc::Sender<ShardCommand>],
     pub lock_tracker: &'a InstanceLockTracker,
@@ -37,8 +37,8 @@ pub struct HandleStepPersistAcksContext<'a> {
     pub sleep_tx: &'a tokio::sync::mpsc::UnboundedSender<SleepWake>,
 }
 
-pub async fn handle_step_persist_acks<CoreBackend, WorkerPool>(
-    ctx: HandleStepPersistAcksContext<'_>,
+pub async fn handle<CoreBackend, WorkerPool>(
+    ctx: Context<'_>,
 
     core_backend: &CoreBackend,
     worker_pool: &WorkerPool,
@@ -46,12 +46,12 @@ pub async fn handle_step_persist_acks<CoreBackend, WorkerPool>(
     skip_sleep: bool,
 
     all_persist_acks: Vec<PersistAck>,
-) -> Result<(), HandleStepPersistAcksError>
+) -> Result<(), Error>
 where
     CoreBackend: ?Sized + waymark_core_backend::CoreBackend,
     WorkerPool: ?Sized + waymark_worker_core::BaseWorkerPool,
 {
-    let HandleStepPersistAcksContext {
+    let Context {
         executor_shards,
         shard_senders,
         lock_tracker,
@@ -76,7 +76,7 @@ where
                     continue;
                 };
 
-                let ctx = HandleStepPersistedAckContext {
+                let ctx = StepsPersistedContext {
                     executor_shards,
                     shard_senders,
                     lock_tracker,
@@ -89,7 +89,7 @@ where
                     instances_done_pending,
                     sleep_tx,
                 };
-                handle_steps_persisted_ack(
+                handle_steps_persisted(
                     ctx,
                     core_backend,
                     worker_pool,
@@ -99,18 +99,18 @@ where
                     lock_statuses,
                 )
                 .await
-                .map_err(HandleStepPersistAcksError::StepsPersisted)?;
+                .map_err(Error::StepsPersisted)?;
             }
             PersistAck::StepsPersistFailed { batch_id, error } => {
                 warn!(batch_id, error = %error, "persist step batch failed");
-                return Err(HandleStepPersistAcksError::StepsPersistFailed(error));
+                return Err(Error::StepsPersistFailed(error));
             }
         }
     }
     Ok(())
 }
 
-pub struct HandleStepPersistedAckContext<'a> {
+struct StepsPersistedContext<'a> {
     pub executor_shards: &'a mut HashMap<Uuid, usize>,
     pub shard_senders: &'a [std::sync::mpsc::Sender<ShardCommand>],
     pub lock_tracker: &'a InstanceLockTracker,
@@ -124,8 +124,8 @@ pub struct HandleStepPersistedAckContext<'a> {
     pub sleep_tx: &'a tokio::sync::mpsc::UnboundedSender<SleepWake>,
 }
 
-async fn handle_steps_persisted_ack<CoreBackend, WorkerPool>(
-    ctx: HandleStepPersistedAckContext<'_>,
+async fn handle_steps_persisted<CoreBackend, WorkerPool>(
+    ctx: StepsPersistedContext<'_>,
 
     core_backend: &CoreBackend,
     worker_pool: &WorkerPool,

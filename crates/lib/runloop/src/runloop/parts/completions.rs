@@ -9,7 +9,7 @@ use crate::{
     runloop::{InflightActionDispatch, ShardCommand, ShardStep},
 };
 
-pub struct HandleCompletionsContext<'a> {
+pub struct Context<'a> {
     pub executor_shards: &'a mut HashMap<Uuid, usize>,
     pub shard_senders: &'a [std::sync::mpsc::Sender<ShardCommand>],
     pub inflight_actions: &'a mut HashMap<Uuid, usize>,
@@ -17,11 +17,8 @@ pub struct HandleCompletionsContext<'a> {
     pub commit_barrier: &'a mut CommitBarrier<ShardStep>,
 }
 
-pub fn handle_completions(
-    ctx: HandleCompletionsContext<'_>,
-    all_completions: Vec<ActionCompletion>,
-) {
-    let HandleCompletionsContext {
+pub fn handle(ctx: Context<'_>, all_completions: Vec<ActionCompletion>) {
+    let Context {
         executor_shards,
         shard_senders,
         inflight_actions,
