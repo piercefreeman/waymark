@@ -39,6 +39,7 @@ mod parts {
     use super::*;
 
     pub mod completions;
+    pub mod failed_instances;
     pub mod inflight_dispatches;
     pub mod instances;
     pub mod step_persist_acks;
@@ -1136,27 +1137,23 @@ impl RunLoop {
                 }
             }
 
-            if !all_failed_instances.is_empty() {
-                for instance_done in all_failed_instances {
-                    warn!(
-                        executor_id = %instance_done.executor_id,
-                        error = ?instance_done.error,
-                        "marking instance as failed after shard execution error"
-                    );
-                    executor_shards.remove(&instance_done.executor_id);
-                    inflight_actions.remove(&instance_done.executor_id);
-                    inflight_dispatches
-                        .retain(|_, dispatch| dispatch.executor_id != instance_done.executor_id);
-                    lock_tracker.remove_all([instance_done.executor_id]);
-                    if let Some(nodes) = sleeping_by_instance.remove(&instance_done.executor_id) {
-                        for node_id in nodes {
-                            sleeping_nodes.remove(&node_id);
-                        }
-                    }
-                    blocked_until_by_instance.remove(&instance_done.executor_id);
-                    commit_barrier.remove_instance(instance_done.executor_id);
-                    instances_done_pending.push(instance_done);
-                }
+            // Handle failed instances.
+            {
+                let ctx = parts::failed_instances::HandleFailedInstancesContext {
+                    executor_shards: &mut executor_shards,
+                    lock_tracker: &lock_tracker,
+                    inflight_actions: &mut inflight_actions,
+                    inflight_dispatches: &mut inflight_dispatches,
+                    sleeping_nodes: &mut sleeping_nodes,
+                    sleeping_by_instance: &mut sleeping_by_instance,
+                    blocked_until_by_instance: &mut blocked_until_by_instance,
+                    commit_barrier: &mut commit_barrier,
+                };
+                parts::failed_instances::handle_failed_instances(
+                    ctx,
+                    all_failed_instances,
+                    &mut instances_done_pending,
+                );
             }
 
             if !all_steps.is_empty() {
