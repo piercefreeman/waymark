@@ -40,6 +40,7 @@ mod parts {
 
     pub mod completions;
     pub mod inflight_dispatches;
+    pub mod instances;
     pub mod step_persist_acks;
     pub mod wakes;
 }
@@ -1100,68 +1101,39 @@ impl RunLoop {
                 parts::wakes::handle_wakes(ctx, all_wakes);
             }
 
-            let had_instances = !all_instances.is_empty();
-            if had_instances {
-                instances_idle = false;
-                if let Err(err) = self.hydrate_instances(&mut all_instances).await {
-                    break 'runloop Err(err);
+            // Handle all instances.
+            {
+                let ctx = parts::instances::HandleInstancesContext {
+                    executor_shards: &mut executor_shards,
+                    shard_senders: &mut shard_senders,
+                    lock_tracker: &lock_tracker,
+                    inflight_actions: &mut inflight_actions,
+                    inflight_dispatches: &mut inflight_dispatches,
+                    sleeping_nodes: &mut sleeping_nodes,
+                    sleeping_by_instance: &mut sleeping_by_instance,
+                    blocked_until_by_instance: &mut blocked_until_by_instance,
+                    commit_barrier: &mut commit_barrier,
+                    workflow_cache: &mut self.workflow_cache,
+                    registry_backend: self.registry_backend.as_ref(),
+                };
+
+                let result = parts::instances::handle_instances(
+                    ctx,
+                    &mut instances_idle,
+                    &mut next_shard,
+                    self.shard_count,
+                    all_instances,
+                    saw_empty_instances,
+                )
+                .await;
+                if let Err(error) = result {
+                    // TODO: properly expose actual type-safe causal error from
+                    // the runloop.
+                    // For now we reduce all the extra useful information to just
+                    // put the error into the "dumb" unified error.
+                    let parts::instances::HandleInstancesError::Hydrate(error) = error;
+                    break 'runloop Err(error);
                 }
-                debug!(count = all_instances.len(), "hydrated queued instances");
-                let mut by_shard: HashMap<usize, Vec<QueuedInstance>> = HashMap::new();
-                let mut claimed_instance_ids = Vec::with_capacity(all_instances.len());
-                let mut replaced_instance_ids = Vec::new();
-                for instance in all_instances {
-                    let shard_idx = if let Some(existing_shard_idx) =
-                        executor_shards.get(&instance.instance_id).copied()
-                    {
-                        // If an already-active instance reappears from the queue, treat
-                        // the prior in-memory executor as stale and replace it.
-                        replaced_instance_ids.push(instance.instance_id);
-                        inflight_actions.insert(instance.instance_id, 0);
-                        if let Some(nodes) = sleeping_by_instance.remove(&instance.instance_id) {
-                            for node_id in nodes {
-                                sleeping_nodes.remove(&node_id);
-                            }
-                        }
-                        blocked_until_by_instance.remove(&instance.instance_id);
-                        existing_shard_idx
-                    } else {
-                        let shard_idx = next_shard % self.shard_count;
-                        next_shard = next_shard.wrapping_add(1);
-                        executor_shards.insert(instance.instance_id, shard_idx);
-                        inflight_actions.insert(instance.instance_id, 0);
-                        shard_idx
-                    };
-                    claimed_instance_ids.push(instance.instance_id);
-                    by_shard.entry(shard_idx).or_default().push(instance);
-                }
-                if !replaced_instance_ids.is_empty() {
-                    warn!(
-                        replaced = replaced_instance_ids.len(),
-                        "replacing active executors for reclaimed queued instances"
-                    );
-                    let replaced_set: HashSet<Uuid> =
-                        replaced_instance_ids.iter().copied().collect();
-                    inflight_dispatches
-                        .retain(|_, dispatch| !replaced_set.contains(&dispatch.executor_id));
-                    for instance_id in &replaced_set {
-                        commit_barrier.remove_instance(*instance_id);
-                    }
-                }
-                let claimed_count = claimed_instance_ids.len();
-                lock_tracker.insert_all(claimed_instance_ids);
-                debug!(
-                    count = claimed_count,
-                    lock_uuid = %lock_tracker.lock_uuid(),
-                    "tracked instance locks"
-                );
-                for (shard_idx, batch) in by_shard {
-                    if let Some(sender) = shard_senders.get(shard_idx) {
-                        let _ = sender.send(ShardCommand::AssignInstances(batch));
-                    }
-                }
-            } else if saw_empty_instances {
-                instances_idle = true;
             }
 
             if !all_failed_instances.is_empty() {
