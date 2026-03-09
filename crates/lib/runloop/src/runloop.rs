@@ -27,9 +27,6 @@ use waymark_dag::{DAG, DAGNode, OutputNode, ReturnNode};
 use waymark_dag_builder::convert_to_dag;
 use waymark_observability::obs;
 use waymark_proto::ast as ir;
-use waymark_runner::synthetic_exceptions::{
-    SyntheticExceptionType, build_synthetic_exception_value,
-};
 use waymark_runner::{
     DurableUpdates, ExecutorStep, RunnerExecutor, RunnerExecutorError, SleepRequest,
     replay_variables,
@@ -1317,41 +1314,11 @@ impl RunLoop {
                 all_persist_acks.push(ack);
             }
 
-            if !inflight_dispatches.is_empty() {
-                let now = Utc::now();
-                let timed_out_ids: Vec<Uuid> = inflight_dispatches
-                    .iter()
-                    .filter_map(|(execution_id, dispatch)| {
-                        dispatch
-                            .deadline_at
-                            .filter(|deadline| *deadline <= now)
-                            .map(|_| *execution_id)
-                    })
-                    .collect();
-                if !timed_out_ids.is_empty() {
-                    let mut timeout_completions = Vec::with_capacity(timed_out_ids.len());
-                    for execution_id in timed_out_ids {
-                        let Some(dispatch) = inflight_dispatches.get(&execution_id) else {
-                            continue;
-                        };
-                        timeout_completions.push(ActionCompletion {
-                            executor_id: dispatch.executor_id,
-                            execution_id,
-                            attempt_number: dispatch.attempt_number,
-                            dispatch_token: dispatch.dispatch_token,
-                            result: action_timeout_value(
-                                execution_id,
-                                dispatch.attempt_number,
-                                dispatch.timeout_seconds,
-                            ),
-                        });
-                    }
-                    if !timeout_completions.is_empty() {
-                        timeout_completions.append(&mut all_completions);
-                        all_completions = timeout_completions;
-                    }
-                }
-            }
+            // Derive timeout completion from inflight dispatches.
+            parts::prepend_timeout_completions_from_inflight_dispatches(
+                &mut all_completions,
+                &inflight_dispatches,
+            );
 
             if !all_persist_acks.is_empty() {
                 for ack in all_persist_acks {
@@ -1813,25 +1780,6 @@ fn error_value(kind: &str, message: &str) -> Value {
     Value::Object(map)
 }
 
-fn action_timeout_value(execution_id: Uuid, attempt_number: u32, timeout_seconds: u32) -> Value {
-    build_synthetic_exception_value(
-        SyntheticExceptionType::ActionTimeout,
-        format!(
-            "action {execution_id} attempt {attempt_number} timed out after {timeout_seconds}s"
-        ),
-        vec![
-            (
-                "timeout_seconds".to_string(),
-                Value::Number(serde_json::Number::from(timeout_seconds)),
-            ),
-            (
-                "attempt".to_string(),
-                Value::Number(serde_json::Number::from(attempt_number)),
-            ),
-        ],
-    )
-}
-
 fn compute_instance_payload(executor: &RunnerExecutor) -> (Option<Value>, Option<Value>) {
     let outputs = output_vars(executor.dag());
     match replay_variables(executor.state(), executor.action_results()) {
@@ -1883,5 +1831,7 @@ fn build_instance_done(
     }
 }
 
+mod parts;
 #[cfg(test)]
 mod tests;
+mod value_utils;
