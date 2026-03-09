@@ -43,6 +43,7 @@ mod parts {
     pub mod inflight_dispatches;
     pub mod instances;
     pub mod step_persist_acks;
+    pub mod steps;
     pub mod wakes;
 }
 
@@ -135,22 +136,6 @@ enum PersistAck {
         batch_id: u64,
         error: RunLoopError,
     },
-}
-
-fn collect_step_updates(steps: &[ShardStep]) -> (Vec<ActionDone>, Vec<GraphUpdate>) {
-    let mut actions_done: Vec<ActionDone> = Vec::new();
-    let mut graph_updates: Vec<GraphUpdate> = Vec::new();
-    for step in steps {
-        if let Some(updates) = &step.updates {
-            if !updates.actions_done.is_empty() {
-                actions_done.extend(updates.actions_done.clone());
-            }
-            if !updates.graph_updates.is_empty() {
-                graph_updates.extend(updates.graph_updates.clone());
-            }
-        }
-    }
-    (actions_done, graph_updates)
 }
 
 struct ShardExecutor {
@@ -1156,37 +1141,25 @@ impl RunLoop {
                 );
             }
 
-            if !all_steps.is_empty() {
-                let instance_ids: HashSet<Uuid> =
-                    all_steps.iter().map(|step| step.executor_id).collect();
-                let (actions_done, graph_updates) = collect_step_updates(&all_steps);
-                let graph_instance_ids: HashSet<Uuid> = graph_updates
-                    .iter()
-                    .map(|update| update.instance_id)
-                    .collect();
-                let batch_id = commit_barrier.register_batch(instance_ids.clone(), all_steps);
-                if !send_with_stop(
-                    &persist_tx,
-                    PersistCommand {
-                        batch_id,
-                        instance_ids,
-                        graph_instance_ids,
-                        actions_done,
-                        graph_updates,
-                    },
-                    shutdown_token.cancelled(),
-                    "persist command",
-                )
-                .await
-                {
-                    if let Some(batch) = commit_barrier.take_batch(batch_id) {
-                        for instance_id in batch.instance_ids {
-                            commit_barrier.remove_instance(instance_id);
+            // Handle steps.
+            {
+                let ctx = parts::steps::HandleStepsContext {
+                    shutdown_signal: shutdown_token.cancelled(),
+                    persist_tx: &persist_tx,
+                    commit_barrier: &mut commit_barrier,
+                };
+                let result = parts::steps::handle_steps(ctx, all_steps).await;
+                if let Err(error) = result {
+                    // TODO: properly expose actual type-safe causal error from
+                    // the runloop.
+                    // For now we reduce all the extra useful information to just
+                    // put the error into the "dumb" unified error.
+                    let error = match error {
+                        err @ parts::steps::HandleStepsError::SubmittingPersistBatch => {
+                            RunLoopError::Message(err.to_string())
                         }
-                    }
-                    break 'runloop Err(RunLoopError::Message(
-                        "failed to submit persist batch to persistence task".to_string(),
-                    ));
+                    };
+                    break 'runloop Err(error);
                 }
             }
 
