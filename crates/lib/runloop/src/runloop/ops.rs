@@ -33,32 +33,6 @@ pub(super) struct CoordinatorState<'a> {
     pub sleep_tx: &'a tokio::sync::mpsc::UnboundedSender<SleepWake>,
 }
 
-impl super::RunLoop {
-    pub(super) async fn evict_instances(
-        &self,
-        instance_ids: &[Uuid],
-        state: &mut CoordinatorState<'_>,
-    ) -> Result<(), RunLoopError> {
-        let ctx = EvictInstancesContext {
-            executor_shards: state.executor_shards,
-            shard_senders: state.shard_senders,
-            lock_tracker: state.lock_tracker,
-            inflight_actions: state.inflight_actions,
-            inflight_dispatches: state.inflight_dispatches,
-            sleeping_nodes: state.sleeping_nodes,
-            sleeping_by_instance: state.sleeping_by_instance,
-            blocked_until_by_instance: state.blocked_until_by_instance,
-        };
-        evict_instances(
-            ctx,
-            self.core_backend.as_ref(),
-            self.lock_uuid,
-            instance_ids,
-        )
-        .await
-    }
-}
-
 pub struct ApplyConfirmedStepContext<'a> {
     pub executor_shards: &'a mut HashMap<Uuid, usize>,
     pub lock_tracker: &'a InstanceLockTracker,

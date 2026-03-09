@@ -38,6 +38,7 @@ mod tests;
 mod parts {
     use super::*;
 
+    pub mod blocked_until_by_instance;
     pub mod completions;
     pub mod failed_instances;
     pub mod inflight_dispatches;
@@ -1163,43 +1164,33 @@ impl RunLoop {
                 }
             }
 
-            if !blocked_until_by_instance.is_empty() {
-                let now = Utc::now();
-                let evict_ids: Vec<Uuid> = blocked_until_by_instance
-                    .iter()
-                    .filter_map(|(instance_id, wake_at)| {
-                        let inflight = inflight_actions.get(instance_id).copied().unwrap_or(0);
-                        if inflight > 0 {
-                            return None;
-                        }
-                        let sleep_for = wake_at.signed_duration_since(now).to_std().ok()?;
-                        if sleep_for > self.evict_sleep_threshold {
-                            Some(*instance_id)
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
-                if !evict_ids.is_empty() {
-                    let mut state = ops::CoordinatorState {
-                        executor_shards: &mut executor_shards,
-                        shard_senders: &shard_senders,
-                        lock_tracker: &lock_tracker,
-                        inflight_actions: &mut inflight_actions,
-                        inflight_dispatches: &mut inflight_dispatches,
-                        sleeping_nodes: &mut sleeping_nodes,
-                        sleeping_by_instance: &mut sleeping_by_instance,
-                        blocked_until_by_instance: &mut blocked_until_by_instance,
-                        commit_barrier: &mut commit_barrier,
-                        instances_done_pending: &mut instances_done_pending,
-                        sleep_tx: &sleep_tx,
-                    };
-                    if let Err(err) = self.evict_instances(&evict_ids, &mut state).await {
-                        break 'runloop Err(err);
-                    }
-                    for instance_id in evict_ids {
-                        state.commit_barrier.remove_instance(instance_id);
-                    }
+            // Handle all blocked-until-by-instances.
+            {
+                let ctx = parts::blocked_until_by_instance::HandleBlockedUntilByInstanceContext {
+                    executor_shards: &mut executor_shards,
+                    shard_senders: &mut shard_senders,
+                    lock_tracker: &lock_tracker,
+                    inflight_actions: &mut inflight_actions,
+                    inflight_dispatches: &mut inflight_dispatches,
+                    sleeping_nodes: &mut sleeping_nodes,
+                    sleeping_by_instance: &mut sleeping_by_instance,
+                    blocked_until_by_instance: &mut blocked_until_by_instance,
+                    commit_barrier: &mut commit_barrier,
+                };
+                let result = parts::blocked_until_by_instance::handle_blocked_until_by_instance(
+                    ctx,
+                    self.core_backend.as_ref(),
+                    lock_uuid,
+                    self.evict_sleep_threshold,
+                )
+                .await;
+                if let Err(error) = result {
+                    // TODO: properly expose actual type-safe causal error from
+                    // the runloop.
+                    // For now we reduce all the extra useful information to just
+                    // put the error into the "dumb" unified error.
+                    let parts::blocked_until_by_instance::HandleBlockedUntilByInstanceError::EvictInstance(error) = error;
+                    break 'runloop Err(error);
                 }
             }
 
