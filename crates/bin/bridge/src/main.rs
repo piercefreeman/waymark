@@ -35,7 +35,7 @@ use waymark_core_backend::{
     ActionDone, CoreBackend, GraphUpdate, InstanceDone, InstanceLockStatus, LockClaim,
     QueuedInstance, QueuedInstanceBatch,
 };
-use waymark_dag::convert_to_dag;
+use waymark_dag_builder::convert_to_dag;
 use waymark_ir_conversions::literal_from_json_value;
 use waymark_proto::{ast as ir, messages as proto};
 use waymark_runloop::{RunLoop, RunLoopConfig};

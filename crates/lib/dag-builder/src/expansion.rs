@@ -4,10 +4,10 @@ use std::collections::{HashMap, HashSet};
 
 use uuid::Uuid;
 
-use super::super::models::DAGNode;
-use super::super::models::{DAG, DAGEdge, DagConversionError, EdgeType};
-use super::super::nodes::AssignmentNode;
 use super::converter::DAGConverter;
+use waymark_dag::AssignmentNode;
+use waymark_dag::DAGNode;
+use waymark_dag::{DAG, DAGEdge, DagConversionError, EdgeType};
 
 /// Inline function calls and remap expansion edges.
 impl DAGConverter {
@@ -460,9 +460,9 @@ impl DAGConverter {
 mod tests {
     use std::collections::HashMap;
 
-    use super::super::super::models::{DAG, DAGEdge};
-    use super::super::super::nodes::{ActionCallNode, ActionCallParams, InputNode};
     use super::*;
+    use waymark_dag::{ActionCallNode, ActionCallParams, InputNode};
+    use waymark_dag::{DAG, DAGEdge};
 
     #[test]
     fn test_remap_exception_targets_happy_path() {

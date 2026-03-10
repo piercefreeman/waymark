@@ -2,9 +2,9 @@
 
 use waymark_proto::ast as ir;
 
-use super::super::models::{ConvertedSubgraph, DAGEdge, DagConversionError};
-use super::super::nodes::{AssignmentNode, BranchNode, BreakNode, ContinueNode, JoinNode};
 use super::converter::DAGConverter;
+use waymark_dag::{AssignmentNode, BranchNode, BreakNode, ContinueNode, JoinNode};
+use waymark_dag::{ConvertedSubgraph, DAGEdge, DagConversionError};
 
 /// Convert loop constructs into explicit DAG nodes.
 impl DAGConverter {

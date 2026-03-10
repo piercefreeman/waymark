@@ -2,11 +2,11 @@
 
 use waymark_proto::ast as ir;
 
-use super::super::models::DAGEdge;
-use super::super::nodes::{
+use super::converter::DAGConverter;
+use waymark_dag::DAGEdge;
+use waymark_dag::{
     ActionCallNode, ActionCallParams, AggregatorNode, FnCallNode, FnCallParams, ParallelNode,
 };
-use super::converter::DAGConverter;
 
 /// Convert spread and parallel constructs into DAG nodes.
 impl DAGConverter {

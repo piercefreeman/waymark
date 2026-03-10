@@ -23,6 +23,7 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 waymark-backend-memory = { workspace = true }
+waymark-dag-builder = { workspace = true }
 waymark-ir-parser = { workspace = true }
 waymark-runner = { workspace = true }
 

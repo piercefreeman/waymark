@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 waymark-core-backend = { workspace = true }
 waymark-dag = { workspace = true }
+waymark-dag-builder = { workspace = true }
 waymark-ir-conversions = { workspace = true }
 waymark-observability = { workspace = true }
 waymark-observability-setup = { workspace = true }
