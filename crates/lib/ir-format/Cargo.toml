@@ -1,0 +1,9 @@
+[package]
+name = "waymark-ir-format"
+edition = "2024"
+version.workspace = true
+
+[dependencies]
+waymark-ir-parser = { workspace = true }
+waymark-proto = { workspace = true }
+serde_json = { workspace = true }

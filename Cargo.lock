@@ -3332,13 +3332,6 @@ dependencies = [
 [[package]]
 name = "waymark"
 version = "0.1.0"
-dependencies = [
- "serde_json",
- "thiserror",
- "waymark-dag",
- "waymark-ir-parser",
- "waymark-proto",
-]
 
 [[package]]
 name = "waymark-backend-fault-injection"
@@ -3535,6 +3528,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-dag-viz"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+ "waymark-dag",
+]
+
+[[package]]
 name = "waymark-fuzzer"
 version = "0.1.0"
 dependencies = [
@@ -3617,6 +3618,15 @@ name = "waymark-ir-conversions"
 version = "0.1.0"
 dependencies = [
  "serde_json",
+ "waymark-proto",
+]
+
+[[package]]
+name = "waymark-ir-format"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "waymark-ir-parser",
  "waymark-proto",
 ]
 
@@ -3800,11 +3810,12 @@ dependencies = [
  "sha2",
  "tokio",
  "uuid",
- "waymark",
  "waymark-backend-memory",
  "waymark-core-backend",
  "waymark-dag",
+ "waymark-dag-viz",
  "waymark-ir-conversions",
+ "waymark-ir-format",
  "waymark-proto",
  "waymark-runloop",
  "waymark-runner-state",
