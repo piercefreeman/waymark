@@ -6,12 +6,12 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use waymark_dag::{DAGEdge, EdgeType};
+use waymark_ir_conversions::literal_to_json_value;
 use waymark_observability::obs;
 use waymark_proto::ast as ir;
 use waymark_runner_state::{
     ActionCallSpec, ActionResultValue, BinaryOpValue, DictEntryValue, DictValue, DotValue,
     FunctionCallValue, IndexValue, ListValue, LiteralValue, UnaryOpValue, VariableValue,
-    literal_value,
     value_visitor::{ValueExpr, ValueExprEvaluator},
 };
 
@@ -22,7 +22,7 @@ impl RunnerExecutor {
     pub(super) fn expr_to_value(expr: &ir::Expr) -> Result<ValueExpr, RunnerExecutorError> {
         match expr.kind.as_ref() {
             Some(ir::expr::Kind::Literal(lit)) => Ok(ValueExpr::Literal(LiteralValue {
-                value: literal_value(lit),
+                value: literal_to_json_value(lit),
             })),
             Some(ir::expr::Kind::Variable(var)) => Ok(ValueExpr::Variable(VariableValue {
                 name: var.name.clone(),

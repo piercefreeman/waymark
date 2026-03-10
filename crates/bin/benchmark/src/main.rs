@@ -14,15 +14,14 @@ use sqlx::PgPool;
 use uuid::Uuid;
 use waymark_backend_postgres::PostgresBackend;
 use waymark_core_backend::QueuedInstance;
+use waymark_instance_builder::{build_queued_instance_with_seed, seed_inputs_from_json_iter};
 use waymark_support_integration::{LOCAL_POSTGRES_DSN, ensure_local_postgres};
 use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBackend as _};
 
 use waymark_dag::convert_to_dag;
-use waymark_ir_conversions::literal_from_json_value;
 use waymark_observability::obs;
 use waymark_proto::ast as ir;
 use waymark_runloop::{RunLoop, RunLoopConfig};
-use waymark_runner_state::RunnerState;
 use waymark_smoke_sources::{
     build_control_flow_program, build_parallel_spread_program, build_program,
     build_try_except_program, build_while_loop_program,
@@ -146,32 +145,15 @@ fn build_cases(base: i64) -> HashMap<String, BenchmarkCase> {
 }
 
 fn build_instance(case: &BenchmarkCase, workflow_version_id: Uuid) -> QueuedInstance {
-    let mut state = RunnerState::new(Some(Arc::clone(&case.dag)), None, None, false);
-    for (name, value) in &case.inputs {
-        let expr = literal_from_json_value(value);
-        let label = format!("input {name} = {value}");
-        let _ = state
-            .record_assignment(vec![name.clone()], &expr, None, Some(label))
-            .expect("record assignment");
-    }
-    let entry = case
-        .dag
-        .entry_node
-        .clone()
-        .expect("DAG entry node not found");
-    let entry_exec = state
-        .queue_template_node(&entry, None)
-        .expect("queue entry node");
-    QueuedInstance {
+    build_queued_instance_with_seed(
+        Arc::clone(&case.dag),
         workflow_version_id,
-        schedule_id: None,
-        dag: None,
-        entry_node: entry_exec.node_id,
-        state: Some(state),
-        action_results: HashMap::new(),
-        instance_id: Uuid::new_v4(),
-        scheduled_at: None,
-    }
+        Uuid::new_v4(),
+        None,
+        None,
+        |state| seed_inputs_from_json_iter(state, case.inputs.iter()),
+    )
+    .expect("build queued instance")
 }
 
 async fn queue_benchmark_instances(
