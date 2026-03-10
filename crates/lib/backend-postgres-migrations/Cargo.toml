@@ -4,4 +4,4 @@ version.workspace = true
 edition = "2024"
 
 [dependencies]
-sqlx = { workspace = true, features = ["postgres", "macros", "migrate"] }
+sqlx = { workspace = true, features = ["macros", "migrate"] }
