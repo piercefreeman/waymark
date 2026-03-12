@@ -61,44 +61,32 @@ where
     WorkerPool: ?Sized + waymark_worker_core::BaseWorkerPool,
 {
     let Params {
-        executor_shards: ctx_executor_shards,
-        lock_tracker: ctx_lock_tracker,
-        inflight_actions: ctx_inflight_actions,
-        inflight_dispatches: ctx_inflight_dispatches,
-        sleeping_nodes: ctx_sleeping_nodes,
-        sleeping_by_instance: ctx_sleeping_by_instance,
-        blocked_until_by_instance: ctx_blocked_until_by_instance,
-        commit_barrier: ctx_commit_barrier,
-        instances_done_pending: ctx_instances_done_pending,
-        sleep_tx: ctx_sleep_tx,
+        executor_shards,
+        lock_tracker,
+        inflight_actions,
+        inflight_dispatches,
+        sleeping_nodes,
+        sleeping_by_instance,
+        blocked_until_by_instance,
+        commit_barrier,
+        instances_done_pending,
+        sleep_tx,
         worker_pool,
         skip_sleep,
         step,
     } = params;
-    let ctx = ApplyConfirmedStepState {
-        executor_shards: ctx_executor_shards,
-        lock_tracker: ctx_lock_tracker,
-        inflight_actions: ctx_inflight_actions,
-        inflight_dispatches: ctx_inflight_dispatches,
-        sleeping_nodes: ctx_sleeping_nodes,
-        sleeping_by_instance: ctx_sleeping_by_instance,
-        blocked_until_by_instance: ctx_blocked_until_by_instance,
-        commit_barrier: ctx_commit_barrier,
-        instances_done_pending: ctx_instances_done_pending,
-        sleep_tx: ctx_sleep_tx,
-    };
 
     for request in step.actions {
         let dispatch = request.clone();
         worker_pool.queue(request)?;
 
-        *ctx.inflight_actions.entry(step.executor_id).or_insert(0) += 1;
+        *inflight_actions.entry(step.executor_id).or_insert(0) += 1;
         let deadline_at = if dispatch.timeout_seconds > 0 {
             Some(Utc::now() + chrono::Duration::seconds(i64::from(dispatch.timeout_seconds)))
         } else {
             None
         };
-        ctx.inflight_dispatches.insert(
+        inflight_dispatches.insert(
             dispatch.execution_id,
             InflightActionDispatch {
                 executor_id: dispatch.executor_id,
@@ -113,7 +101,7 @@ where
         if skip_sleep {
             sleep_request.wake_at = Utc::now();
         }
-        let existing = ctx.sleeping_nodes.get(&sleep_request.node_id);
+        let existing = sleeping_nodes.get(&sleep_request.node_id);
         let should_update = match existing {
             Some(existing) => sleep_request.wake_at < existing.wake_at,
             None => true,
@@ -122,11 +110,11 @@ where
             Some(existing) if !should_update => existing.wake_at,
             _ => sleep_request.wake_at,
         };
-        ctx.sleeping_by_instance
+        sleeping_by_instance
             .entry(step.executor_id)
             .or_default()
             .insert(sleep_request.node_id);
-        ctx.blocked_until_by_instance
+        blocked_until_by_instance
             .entry(step.executor_id)
             .and_modify(|existing| {
                 if wake_at < *existing {
@@ -136,9 +124,8 @@ where
             .or_insert(wake_at);
 
         if should_update {
-            ctx.sleeping_nodes
-                .insert(sleep_request.node_id, sleep_request.clone());
-            let sleep_tx = ctx.sleep_tx.clone();
+            sleeping_nodes.insert(sleep_request.node_id, sleep_request.clone());
+            let sleep_tx = sleep_tx.clone();
             let executor_id = step.executor_id;
             let node_id = sleep_request.node_id;
             let wake_at = sleep_request.wake_at;
@@ -156,34 +143,18 @@ where
         }
     }
     if let Some(instance_done) = step.instance_done {
-        ctx.executor_shards.remove(&instance_done.executor_id);
-        ctx.inflight_actions.remove(&instance_done.executor_id);
-        ctx.inflight_dispatches
-            .retain(|_, dispatch| dispatch.executor_id != instance_done.executor_id);
-        ctx.lock_tracker.remove_all([instance_done.executor_id]);
-        if let Some(nodes) = ctx.sleeping_by_instance.remove(&instance_done.executor_id) {
+        executor_shards.remove(&instance_done.executor_id);
+        inflight_actions.remove(&instance_done.executor_id);
+        inflight_dispatches.retain(|_, dispatch| dispatch.executor_id != instance_done.executor_id);
+        lock_tracker.remove_all([instance_done.executor_id]);
+        if let Some(nodes) = sleeping_by_instance.remove(&instance_done.executor_id) {
             for node_id in nodes {
-                ctx.sleeping_nodes.remove(&node_id);
+                sleeping_nodes.remove(&node_id);
             }
         }
-        ctx.blocked_until_by_instance
-            .remove(&instance_done.executor_id);
-        ctx.commit_barrier
-            .remove_instance(instance_done.executor_id);
-        ctx.instances_done_pending.push(instance_done);
+        blocked_until_by_instance.remove(&instance_done.executor_id);
+        commit_barrier.remove_instance(instance_done.executor_id);
+        instances_done_pending.push(instance_done);
     }
     Ok(())
-}
-
-struct ApplyConfirmedStepState<'a> {
-    executor_shards: &'a mut HashMap<Uuid, usize>,
-    lock_tracker: &'a InstanceLockTracker,
-    inflight_actions: &'a mut HashMap<Uuid, usize>,
-    inflight_dispatches: &'a mut HashMap<Uuid, InflightActionDispatch>,
-    sleeping_nodes: &'a mut HashMap<Uuid, SleepRequest>,
-    sleeping_by_instance: &'a mut HashMap<Uuid, HashSet<Uuid>>,
-    blocked_until_by_instance: &'a mut HashMap<Uuid, DateTime<Utc>>,
-    commit_barrier: &'a mut CommitBarrier<ShardStep>,
-    instances_done_pending: &'a mut Vec<InstanceDone>,
-    sleep_tx: &'a tokio::sync::mpsc::UnboundedSender<SleepWake>,
 }
