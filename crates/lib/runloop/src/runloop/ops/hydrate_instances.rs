@@ -6,19 +6,19 @@ use waymark_proto::ast as ir;
 
 use crate::runloop::RunLoopError;
 
-pub struct HydrateInstancesContext<'a, WorkflowRegistryBackend: ?Sized> {
+pub struct Context<'a, WorkflowRegistryBackend: ?Sized> {
     pub workflow_cache: &'a mut HashMap<Uuid, Arc<waymark_dag::DAG>>,
     pub registry_backend: &'a WorkflowRegistryBackend,
 }
 
-pub async fn hydrate_instances<WorkflowRegistryBackend>(
-    ctx: HydrateInstancesContext<'_, WorkflowRegistryBackend>,
+pub async fn run<WorkflowRegistryBackend>(
+    ctx: Context<'_, WorkflowRegistryBackend>,
     instances: &mut [QueuedInstance],
 ) -> Result<(), RunLoopError>
 where
     WorkflowRegistryBackend: ?Sized + waymark_workflow_registry_backend::WorkflowRegistryBackend,
 {
-    let HydrateInstancesContext {
+    let Context {
         workflow_cache,
         registry_backend,
     } = ctx;

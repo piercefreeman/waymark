@@ -2,7 +2,7 @@ use waymark_core_backend::InstanceDone;
 
 use crate::runloop::RunLoopError;
 
-pub async fn flush_instances_done<CoreBackend>(
+pub async fn run<CoreBackend>(
     core_backend: &CoreBackend,
     pending: &mut Vec<InstanceDone>,
 ) -> Result<(), RunLoopError>

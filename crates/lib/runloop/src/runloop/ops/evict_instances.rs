@@ -9,7 +9,7 @@ use crate::{
     runloop::{InflightActionDispatch, RunLoopError, ShardCommand},
 };
 
-pub struct EvictInstancesContext<'a> {
+pub struct Context<'a> {
     pub executor_shards: &'a mut HashMap<Uuid, usize>,
     pub shard_senders: &'a [std::sync::mpsc::Sender<ShardCommand>],
     pub lock_tracker: &'a InstanceLockTracker,
@@ -20,8 +20,8 @@ pub struct EvictInstancesContext<'a> {
     pub blocked_until_by_instance: &'a mut HashMap<Uuid, DateTime<Utc>>,
 }
 
-pub async fn evict_instances<CoreBackend>(
-    ctx: EvictInstancesContext<'_>,
+pub async fn run<CoreBackend>(
+    ctx: Context<'_>,
 
     core_backend: &CoreBackend,
     lock_uuid: Uuid,

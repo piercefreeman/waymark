@@ -910,7 +910,7 @@ impl RunLoop {
                 }
                 _ = persistence_tick.tick() => {
                     if self.persistence_interval > Duration::ZERO {
-                        ops::flush_instances_done::flush_instances_done(
+                        ops::flush_instances_done::run(
                             self.core_backend.as_ref(),
                             &mut instances_done_pending,
                         )
@@ -1206,7 +1206,7 @@ impl RunLoop {
             self.store_available_instance_slots(&available_instance_slots, executor_shards.len());
 
             if instances_done_pending.len() >= self.instance_done_batch_size
-                && let Err(err) = ops::flush_instances_done::flush_instances_done(
+                && let Err(err) = ops::flush_instances_done::run(
                     self.core_backend.as_ref(),
                     &mut instances_done_pending,
                 )
@@ -1240,7 +1240,7 @@ impl RunLoop {
         let _ = instance_handle.await;
         let _ = lock_handle.await;
         if run_result.is_ok()
-            && let Err(err) = ops::flush_instances_done::flush_instances_done(
+            && let Err(err) = ops::flush_instances_done::run(
                 self.core_backend.as_ref(),
                 &mut instances_done_pending,
             )

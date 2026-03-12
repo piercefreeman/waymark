@@ -147,7 +147,7 @@ where
             .collect();
 
     if !evict_ids.is_empty() {
-        let ctx = super::ops::evict_instances::EvictInstancesContext {
+        let ctx = super::ops::evict_instances::Context {
             executor_shards: ctx.executor_shards,
             shard_senders: ctx.shard_senders,
             lock_tracker: ctx.lock_tracker,
@@ -158,7 +158,7 @@ where
             blocked_until_by_instance: ctx.blocked_until_by_instance,
         };
 
-        super::ops::evict_instances::evict_instances(
+        super::ops::evict_instances::run(
             ctx,
             core_backend,
             lock_uuid,
@@ -177,7 +177,7 @@ where
             continue;
         }
 
-        let ctx = super::ops::apply_confirmed_step::ApplyConfirmedStepContext {
+        let ctx = super::ops::apply_confirmed_step::Context {
             executor_shards: ctx.executor_shards,
             lock_tracker: ctx.lock_tracker,
             inflight_actions: ctx.inflight_actions,
@@ -189,7 +189,7 @@ where
             instances_done_pending: ctx.instances_done_pending,
             sleep_tx: ctx.sleep_tx,
         };
-        super::ops::apply_confirmed_step::apply_confirmed_step(ctx, worker_pool, skip_sleep, step)?;
+        super::ops::apply_confirmed_step::run(ctx, worker_pool, skip_sleep, step)?;
     }
 
     for instance_id in batch.instance_ids {

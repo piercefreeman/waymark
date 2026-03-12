@@ -14,7 +14,7 @@ use crate::{
     runloop::{InflightActionDispatch, RunLoopError, ShardStep, SleepWake},
 };
 
-pub struct ApplyConfirmedStepContext<'a> {
+pub struct Context<'a> {
     pub executor_shards: &'a mut HashMap<Uuid, usize>,
     pub lock_tracker: &'a InstanceLockTracker,
     pub inflight_actions: &'a mut HashMap<Uuid, usize>,
@@ -27,8 +27,8 @@ pub struct ApplyConfirmedStepContext<'a> {
     pub sleep_tx: &'a tokio::sync::mpsc::UnboundedSender<SleepWake>,
 }
 
-pub fn apply_confirmed_step<WorkerPool>(
-    ctx: ApplyConfirmedStepContext<'_>,
+pub fn run<WorkerPool>(
+    ctx: Context<'_>,
     worker_pool: &WorkerPool,
     skip_sleep: bool,
 
