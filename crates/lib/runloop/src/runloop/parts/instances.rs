@@ -15,6 +15,9 @@ use crate::{
     runloop::{InflightActionDispatch, ShardCommand, ShardStep},
 };
 
+#[cfg(test)]
+mod tests;
+
 pub struct Params<'a, WorkflowRegistryBackend: ?Sized> {
     /// Maps each active instance/executor to the shard currently responsible for it.
     pub executor_shards: &'a mut HashMap<Uuid, usize>,

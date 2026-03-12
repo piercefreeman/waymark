@@ -2,6 +2,9 @@ use waymark_core_backend::InstanceDone;
 
 use crate::runloop::RunLoopError;
 
+#[cfg(test)]
+mod tests;
+
 pub struct Params<'a, CoreBackend: ?Sized> {
     /// Backend used to durably persist terminal instance outcomes.
     pub core_backend: &'a CoreBackend,

@@ -7,6 +7,9 @@ use crate::{
     runloop::{ShardStep, channel_utils::send_with_stop},
 };
 
+#[cfg(test)]
+mod tests;
+
 pub struct Params<'a> {
     /// Cancellation future used to abandon persistence submission during shutdown.
     pub shutdown_signal: tokio_util::sync::WaitForCancellationFuture<'a>,
