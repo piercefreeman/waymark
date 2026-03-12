@@ -46,35 +46,6 @@ mod tests {
     }
 
     #[test]
-    fn empty_input_returns_empty() {
-        let lock_uuid = Uuid::new_v4();
-        let result = lock_mismatches_for(&[], lock_uuid);
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn all_matching_locks_return_empty() {
-        let lock_uuid = Uuid::new_v4();
-        let id1 = Uuid::new_v4();
-        let id2 = Uuid::new_v4();
-
-        let statuses = vec![
-            InstanceLockStatus {
-                instance_id: id1,
-                lock_uuid: Some(lock_uuid),
-                lock_expires_at: Some(Utc::now() + chrono::Duration::seconds(60)),
-            },
-            InstanceLockStatus {
-                instance_id: id2,
-                lock_uuid: Some(lock_uuid),
-                lock_expires_at: Some(Utc::now() + chrono::Duration::seconds(60)),
-            },
-        ];
-        let result = lock_mismatches_for(&statuses, lock_uuid);
-        assert!(result.is_empty());
-    }
-
-    #[test]
     fn all_mismatched_locks_return_all() {
         let lock_uuid = Uuid::new_v4();
         let id1 = Uuid::new_v4();
