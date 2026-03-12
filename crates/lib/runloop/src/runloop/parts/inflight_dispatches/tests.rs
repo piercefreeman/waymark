@@ -104,3 +104,34 @@ fn timeout_is_prepended_before_existing_completions() {
     assert_eq!(completions[0].execution_id, timed_out_execution_id);
     assert_eq!(completions[1].execution_id, normal_execution_id);
 }
+
+#[test]
+fn timeout_completion_contains_attempt_and_timeout_seconds_fields() {
+    let executor_id = Uuid::new_v4();
+    let execution_id = Uuid::new_v4();
+    let dispatch_token = Uuid::new_v4();
+    let dispatches = HashMap::from([(
+        execution_id,
+        make_inflight_dispatch(
+            executor_id,
+            dispatch_token,
+            3,
+            12,
+            Some(Utc::now() - chrono::Duration::seconds(1)),
+        ),
+    )]);
+    let mut completions: Vec<ActionCompletion> = Vec::new();
+
+    super::prepend_timeout_completions_from_inflight_dispatches(&mut completions, &dispatches);
+
+    assert_eq!(completions.len(), 1);
+    let payload = &completions[0].result;
+    assert_eq!(payload["type"], serde_json::json!("ActionTimeout"));
+    assert_eq!(payload["attempt"], serde_json::json!(3));
+    assert_eq!(payload["timeout_seconds"], serde_json::json!(12));
+    let message = payload["message"].as_str().expect("timeout message string");
+    assert!(
+        message.contains("timed out after 12s"),
+        "message should mention timeout duration"
+    );
+}
