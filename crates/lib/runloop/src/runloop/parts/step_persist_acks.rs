@@ -13,6 +13,9 @@ use crate::{
     runloop::{InflightActionDispatch, PersistAck, ShardCommand, ShardStep, SleepWake},
 };
 
+#[cfg(test)]
+mod tests;
+
 // TODO: use proper semantic errors here.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
