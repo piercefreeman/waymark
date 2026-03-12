@@ -43,3 +43,43 @@ pub async fn send_with_stop<T>(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::send_with_stop;
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn send_unblocks_on_stop_notification() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<u32>(1);
+        tx.send(1).await.expect("seed channel");
+
+        let shutdown_token = tokio_util::sync::CancellationToken::new();
+        let send_task = tokio::spawn({
+            let tx = tx.clone();
+            let shutdown_token = shutdown_token.clone();
+            async move { send_with_stop(&tx, 2, shutdown_token.cancelled(), "test message").await }
+        });
+
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        shutdown_token.cancel();
+        let sent = tokio::time::timeout(Duration::from_millis(300), send_task)
+            .await
+            .expect("send task should complete")
+            .expect("send task should not panic");
+        assert!(!sent, "send should abort when stop is notified");
+
+        let _ = rx.recv().await;
+    }
+
+    #[tokio::test]
+    async fn send_succeeds_when_channel_has_capacity() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<u32>(1);
+        let shutdown_token = tokio_util::sync::CancellationToken::new();
+        let sent = send_with_stop(&tx, 42, shutdown_token.cancelled(), "test message").await;
+        assert!(sent);
+
+        let received = rx.recv().await.expect("queued message");
+        assert_eq!(received, 42);
+    }
+}

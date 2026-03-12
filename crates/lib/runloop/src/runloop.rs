@@ -34,8 +34,6 @@ use waymark_worker_core::{ActionCompletion, ActionRequest, BaseWorkerPool, Worke
 
 #[cfg(test)]
 mod test_support;
-#[cfg(test)]
-mod tests;
 
 mod parts {
     use super::ops;
