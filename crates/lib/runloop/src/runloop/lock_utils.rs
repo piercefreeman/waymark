@@ -44,4 +44,90 @@ mod tests {
         let evict_ids = lock_mismatches_for(&mismatched, lock_uuid);
         assert_eq!(evict_ids, HashSet::from([instance_id]));
     }
+
+    #[test]
+    fn empty_input_returns_empty() {
+        let lock_uuid = Uuid::new_v4();
+        let result = lock_mismatches_for(&[], lock_uuid);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn all_matching_locks_return_empty() {
+        let lock_uuid = Uuid::new_v4();
+        let id1 = Uuid::new_v4();
+        let id2 = Uuid::new_v4();
+
+        let statuses = vec![
+            InstanceLockStatus {
+                instance_id: id1,
+                lock_uuid: Some(lock_uuid),
+                lock_expires_at: Some(Utc::now() + chrono::Duration::seconds(60)),
+            },
+            InstanceLockStatus {
+                instance_id: id2,
+                lock_uuid: Some(lock_uuid),
+                lock_expires_at: Some(Utc::now() + chrono::Duration::seconds(60)),
+            },
+        ];
+        let result = lock_mismatches_for(&statuses, lock_uuid);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn all_mismatched_locks_return_all() {
+        let lock_uuid = Uuid::new_v4();
+        let id1 = Uuid::new_v4();
+        let id2 = Uuid::new_v4();
+        let id3 = Uuid::new_v4();
+
+        let statuses = vec![
+            InstanceLockStatus {
+                instance_id: id1,
+                lock_uuid: Some(Uuid::new_v4()),
+                lock_expires_at: Some(Utc::now() + chrono::Duration::seconds(60)),
+            },
+            InstanceLockStatus {
+                instance_id: id2,
+                lock_uuid: Some(Uuid::new_v4()),
+                lock_expires_at: Some(Utc::now() + chrono::Duration::seconds(60)),
+            },
+            InstanceLockStatus {
+                instance_id: id3,
+                lock_uuid: None,
+                lock_expires_at: None,
+            },
+        ];
+        let result = lock_mismatches_for(&statuses, lock_uuid);
+        assert_eq!(result, HashSet::from([id1, id2, id3]));
+    }
+
+    #[test]
+    fn mixed_matching_and_mismatched_locks() {
+        let lock_uuid = Uuid::new_v4();
+        let matching_id = Uuid::new_v4();
+        let mismatched_id = Uuid::new_v4();
+        let none_lock_id = Uuid::new_v4();
+
+        let statuses = vec![
+            InstanceLockStatus {
+                instance_id: matching_id,
+                lock_uuid: Some(lock_uuid),
+                lock_expires_at: Some(Utc::now() + chrono::Duration::seconds(60)),
+            },
+            InstanceLockStatus {
+                instance_id: mismatched_id,
+                lock_uuid: Some(Uuid::new_v4()),
+                lock_expires_at: Some(Utc::now() + chrono::Duration::seconds(60)),
+            },
+            InstanceLockStatus {
+                instance_id: none_lock_id,
+                lock_uuid: None,
+                lock_expires_at: None,
+            },
+        ];
+        let result = lock_mismatches_for(&statuses, lock_uuid);
+        // Only the matching one should be excluded
+        assert_eq!(result, HashSet::from([mismatched_id, none_lock_id]));
+    }
 }
