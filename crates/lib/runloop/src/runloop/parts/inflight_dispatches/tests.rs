@@ -16,7 +16,10 @@ fn no_deadline_not_timed_out() {
     )]);
     let mut completions: Vec<ActionCompletion> = Vec::new();
 
-    super::prepend_timeout_completions_from_inflight_dispatches(&mut completions, &dispatches);
+    super::prepend_timeout_completions_from_inflight_dispatches(super::Params {
+        all_completions: &mut completions,
+        inflight_dispatches: &dispatches,
+    });
 
     assert!(completions.is_empty());
 }
@@ -38,7 +41,10 @@ fn past_deadline_generates_timeout_completion() {
     )]);
     let mut completions: Vec<ActionCompletion> = Vec::new();
 
-    super::prepend_timeout_completions_from_inflight_dispatches(&mut completions, &dispatches);
+    super::prepend_timeout_completions_from_inflight_dispatches(super::Params {
+        all_completions: &mut completions,
+        inflight_dispatches: &dispatches,
+    });
 
     assert_eq!(completions.len(), 1);
     let completion = &completions[0];
@@ -68,7 +74,10 @@ fn future_deadline_not_timed_out() {
     )]);
     let mut completions: Vec<ActionCompletion> = Vec::new();
 
-    super::prepend_timeout_completions_from_inflight_dispatches(&mut completions, &dispatches);
+    super::prepend_timeout_completions_from_inflight_dispatches(super::Params {
+        all_completions: &mut completions,
+        inflight_dispatches: &dispatches,
+    });
 
     assert!(completions.is_empty());
 }
@@ -98,7 +107,10 @@ fn timeout_is_prepended_before_existing_completions() {
     };
     let mut completions = vec![existing];
 
-    super::prepend_timeout_completions_from_inflight_dispatches(&mut completions, &dispatches);
+    super::prepend_timeout_completions_from_inflight_dispatches(super::Params {
+        all_completions: &mut completions,
+        inflight_dispatches: &dispatches,
+    });
 
     assert_eq!(completions.len(), 2);
     assert_eq!(completions[0].execution_id, timed_out_execution_id);
@@ -122,7 +134,10 @@ fn timeout_completion_contains_attempt_and_timeout_seconds_fields() {
     )]);
     let mut completions: Vec<ActionCompletion> = Vec::new();
 
-    super::prepend_timeout_completions_from_inflight_dispatches(&mut completions, &dispatches);
+    super::prepend_timeout_completions_from_inflight_dispatches(super::Params {
+        all_completions: &mut completions,
+        inflight_dispatches: &dispatches,
+    });
 
     assert_eq!(completions.len(), 1);
     let payload = &completions[0].result;

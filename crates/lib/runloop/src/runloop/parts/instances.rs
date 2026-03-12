@@ -15,7 +15,7 @@ use crate::{
     runloop::{InflightActionDispatch, ShardCommand, ShardStep},
 };
 
-pub struct Context<'a, WorkflowRegistryBackend: ?Sized> {
+pub struct Params<'a, WorkflowRegistryBackend: ?Sized> {
     pub executor_shards: &'a mut HashMap<Uuid, usize>,
     pub shard_senders: &'a [std::sync::mpsc::Sender<ShardCommand>],
     pub lock_tracker: &'a InstanceLockTracker,
@@ -28,6 +28,12 @@ pub struct Context<'a, WorkflowRegistryBackend: ?Sized> {
 
     pub workflow_cache: &'a mut HashMap<Uuid, Arc<waymark_dag::DAG>>,
     pub registry_backend: &'a WorkflowRegistryBackend,
+
+    pub instances_idle: &'a mut bool,
+    pub next_shard: &'a mut usize,
+    pub shard_count: usize,
+    pub all_instances: Vec<QueuedInstance>,
+    pub saw_empty_instances: bool,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -51,20 +57,12 @@ pub enum Error {
 /// - Registers in commit barrier for state coordination
 /// - Sends instances to assigned shards for execution
 pub async fn handle<WorkflowRegistryBackend>(
-    ctx: Context<'_, WorkflowRegistryBackend>,
-
-    instances_idle: &mut bool,
-
-    next_shard: &mut usize,
-    shard_count: usize,
-
-    mut all_instances: Vec<QueuedInstance>,
-    saw_empty_instances: bool,
+    params: Params<'_, WorkflowRegistryBackend>,
 ) -> Result<(), Error>
 where
     WorkflowRegistryBackend: ?Sized + waymark_workflow_registry_backend::WorkflowRegistryBackend,
 {
-    let Context {
+    let Params {
         executor_shards,
         shard_senders,
         lock_tracker,
@@ -76,7 +74,12 @@ where
         commit_barrier,
         workflow_cache,
         registry_backend,
-    } = ctx;
+        instances_idle,
+        next_shard,
+        shard_count,
+        mut all_instances,
+        saw_empty_instances,
+    } = params;
 
     if all_instances.is_empty() {
         if saw_empty_instances {
@@ -87,12 +90,13 @@ where
 
     *instances_idle = false;
 
-    let ctx = super::ops::hydrate_instances::Context {
+    let params = super::ops::hydrate_instances::Params {
         workflow_cache,
         registry_backend,
+        instances: &mut all_instances,
     };
 
-    super::ops::hydrate_instances::run(ctx, &mut all_instances)
+    super::ops::hydrate_instances::run(params)
         .await
         .map_err(Error::Hydrate)?;
     debug!(count = all_instances.len(), "hydrated queued instances");

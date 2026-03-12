@@ -7,10 +7,11 @@ use crate::{
     runloop::{ShardStep, channel_utils::send_with_stop},
 };
 
-pub struct Context<'a> {
+pub struct Params<'a> {
     pub shutdown_signal: tokio_util::sync::WaitForCancellationFuture<'a>,
     pub persist_tx: &'a tokio::sync::mpsc::Sender<crate::runloop::PersistCommand>,
     pub commit_barrier: &'a mut CommitBarrier<ShardStep>,
+    pub all_steps: Vec<ShardStep>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -32,12 +33,13 @@ pub enum Error {
 ///   vs. which must defer until commits happen
 /// - Submits persisted/deferred steps to a persistence task for atomic durability
 /// - Returns errors only if communication with the persistence task fails
-pub async fn handle(ctx: Context<'_>, all_steps: Vec<ShardStep>) -> Result<(), Error> {
-    let Context {
+pub async fn handle(params: Params<'_>) -> Result<(), Error> {
+    let Params {
         commit_barrier,
         shutdown_signal,
         persist_tx,
-    } = ctx;
+        all_steps,
+    } = params;
 
     if all_steps.is_empty() {
         return Ok(());

@@ -10,7 +10,7 @@ use crate::{
     runloop::{InflightActionDispatch, ShardCommand, ShardStep},
 };
 
-pub struct Context<'a> {
+pub struct Params<'a, CoreBackend: ?Sized> {
     pub executor_shards: &'a mut HashMap<Uuid, usize>,
     pub shard_senders: &'a [std::sync::mpsc::Sender<ShardCommand>],
     pub lock_tracker: &'a InstanceLockTracker,
@@ -20,6 +20,9 @@ pub struct Context<'a> {
     pub sleeping_by_instance: &'a mut HashMap<Uuid, HashSet<Uuid>>,
     pub blocked_until_by_instance: &'a mut HashMap<Uuid, DateTime<Utc>>,
     pub commit_barrier: &'a mut CommitBarrier<ShardStep>,
+    pub core_backend: &'a CoreBackend,
+    pub lock_uuid: Uuid,
+    pub evict_sleep_threshold: std::time::Duration,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -38,18 +41,11 @@ pub enum Error {
 /// more than the eviction threshold, then:
 /// - Batches them for efficient removal via the evict_instances operation
 /// - Cleaned-up state mirrors eviction: executor removal, lock release, backend persistence
-pub async fn handle<CoreBackend>(
-    ctx: Context<'_>,
-
-    core_backend: &CoreBackend,
-    lock_uuid: Uuid,
-
-    evict_sleep_threshold: std::time::Duration,
-) -> Result<(), Error>
+pub async fn handle<CoreBackend>(params: Params<'_, CoreBackend>) -> Result<(), Error>
 where
     CoreBackend: ?Sized + waymark_core_backend::CoreBackend,
 {
-    let Context {
+    let Params {
         executor_shards,
         shard_senders,
         lock_tracker,
@@ -59,7 +55,10 @@ where
         sleeping_by_instance,
         blocked_until_by_instance,
         commit_barrier,
-    } = ctx;
+        core_backend,
+        lock_uuid,
+        evict_sleep_threshold,
+    } = params;
 
     if blocked_until_by_instance.is_empty() {
         return Ok(());
@@ -82,7 +81,7 @@ where
         })
         .collect();
     if !evict_ids.is_empty() {
-        let ctx = super::ops::evict_instances::Context {
+        let params = super::ops::evict_instances::Params {
             executor_shards,
             shard_senders,
             lock_tracker,
@@ -91,8 +90,11 @@ where
             sleeping_nodes,
             sleeping_by_instance,
             blocked_until_by_instance,
+            core_backend,
+            lock_uuid,
+            instance_ids: &evict_ids,
         };
-        super::ops::evict_instances::run(ctx, core_backend, lock_uuid, &evict_ids)
+        super::ops::evict_instances::run(params)
             .await
             .map_err(Error::EvictInstance)?;
 

@@ -6,9 +6,10 @@ use waymark_proto::ast as ir;
 
 use crate::runloop::RunLoopError;
 
-pub struct Context<'a, WorkflowRegistryBackend: ?Sized> {
+pub struct Params<'a, WorkflowRegistryBackend: ?Sized> {
     pub workflow_cache: &'a mut HashMap<Uuid, Arc<waymark_dag::DAG>>,
     pub registry_backend: &'a WorkflowRegistryBackend,
+    pub instances: &'a mut [QueuedInstance],
 }
 
 /// Loads and caches workflow DAG definitions for instances.
@@ -23,16 +24,16 @@ pub struct Context<'a, WorkflowRegistryBackend: ?Sized> {
 ///
 /// Caching avoids repeated fetches for workflows used by multiple instances.
 pub async fn run<WorkflowRegistryBackend>(
-    ctx: Context<'_, WorkflowRegistryBackend>,
-    instances: &mut [QueuedInstance],
+    params: Params<'_, WorkflowRegistryBackend>,
 ) -> Result<(), RunLoopError>
 where
     WorkflowRegistryBackend: ?Sized + waymark_workflow_registry_backend::WorkflowRegistryBackend,
 {
-    let Context {
+    let Params {
         workflow_cache,
         registry_backend,
-    } = ctx;
+        instances,
+    } = params;
 
     let mut missing = Vec::new();
     for instance in instances.iter() {

@@ -43,25 +43,23 @@ fn cleans_up_all_state() {
     let mut barrier: CommitBarrier<ShardStep> = CommitBarrier::new();
     let mut instances_done_pending: Vec<InstanceDone> = Vec::new();
 
-    super::handle(
-        super::Context {
-            executor_shards: &mut executor_shards,
-            lock_tracker: &lock_tracker,
-            inflight_actions: &mut inflight_actions,
-            inflight_dispatches: &mut inflight_dispatches,
-            sleeping_nodes: &mut sleeping_nodes,
-            sleeping_by_instance: &mut sleeping_by_instance,
-            blocked_until_by_instance: &mut blocked_until,
-            commit_barrier: &mut barrier,
-        },
-        vec![InstanceDone {
+    super::handle(super::Params {
+        executor_shards: &mut executor_shards,
+        lock_tracker: &lock_tracker,
+        inflight_actions: &mut inflight_actions,
+        inflight_dispatches: &mut inflight_dispatches,
+        sleeping_nodes: &mut sleeping_nodes,
+        sleeping_by_instance: &mut sleeping_by_instance,
+        blocked_until_by_instance: &mut blocked_until,
+        commit_barrier: &mut barrier,
+        all_failed_instances: vec![InstanceDone {
             executor_id,
             entry_node: Uuid::new_v4(),
             result: None,
             error: Some(serde_json::json!({"type": "ExecutionError", "message": "boom"})),
         }],
-        &mut instances_done_pending,
-    );
+        instances_done_pending: &mut instances_done_pending,
+    });
 
     assert!(!executor_shards.contains_key(&executor_id));
     assert!(!inflight_actions.contains_key(&executor_id));
@@ -85,20 +83,18 @@ fn empty_list_is_noop() {
     let mut barrier: CommitBarrier<ShardStep> = CommitBarrier::new();
     let mut instances_done_pending: Vec<InstanceDone> = Vec::new();
 
-    super::handle(
-        super::Context {
-            executor_shards: &mut executor_shards,
-            lock_tracker: &lock_tracker,
-            inflight_actions: &mut inflight_actions,
-            inflight_dispatches: &mut inflight_dispatches,
-            sleeping_nodes: &mut sleeping_nodes,
-            sleeping_by_instance: &mut sleeping_by_instance,
-            blocked_until_by_instance: &mut blocked_until,
-            commit_barrier: &mut barrier,
-        },
-        vec![],
-        &mut instances_done_pending,
-    );
+    super::handle(super::Params {
+        executor_shards: &mut executor_shards,
+        lock_tracker: &lock_tracker,
+        inflight_actions: &mut inflight_actions,
+        inflight_dispatches: &mut inflight_dispatches,
+        sleeping_nodes: &mut sleeping_nodes,
+        sleeping_by_instance: &mut sleeping_by_instance,
+        blocked_until_by_instance: &mut blocked_until,
+        commit_barrier: &mut barrier,
+        all_failed_instances: vec![],
+        instances_done_pending: &mut instances_done_pending,
+    });
 
     assert!(instances_done_pending.is_empty());
 }

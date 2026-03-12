@@ -912,10 +912,11 @@ impl RunLoop {
                 }
                 _ = persistence_tick.tick() => {
                     if self.persistence_interval > Duration::ZERO {
-                        ops::flush_instances_done::run(
-                            self.core_backend.as_ref(),
-                            &mut instances_done_pending,
-                        )
+                        let params = ops::flush_instances_done::Params {
+                            core_backend: self.core_backend.as_ref(),
+                            pending: &mut instances_done_pending,
+                        };
+                        ops::flush_instances_done::run(params)
                         .await?;
                     }
                     None
@@ -1029,13 +1030,15 @@ impl RunLoop {
 
             // Derive timeout completion from inflight dispatches.
             parts::inflight_dispatches::prepend_timeout_completions_from_inflight_dispatches(
-                &mut all_completions,
-                &inflight_dispatches,
+                parts::inflight_dispatches::Params {
+                    all_completions: &mut all_completions,
+                    inflight_dispatches: &inflight_dispatches,
+                },
             );
 
             // Handle step persist acks.
             {
-                let ctx = parts::step_persist_acks::Context {
+                let params = parts::step_persist_acks::Params {
                     executor_shards: &mut executor_shards,
                     shard_senders: &shard_senders,
                     lock_tracker: &lock_tracker,
@@ -1047,16 +1050,13 @@ impl RunLoop {
                     commit_barrier: &mut commit_barrier,
                     instances_done_pending: &mut instances_done_pending,
                     sleep_tx: &sleep_tx,
-                };
-                let result = parts::step_persist_acks::handle(
-                    ctx,
-                    self.core_backend.as_ref(),
-                    self.worker_pool.as_ref(),
-                    self.lock_uuid,
-                    self.skip_sleep,
+                    core_backend: self.core_backend.as_ref(),
+                    worker_pool: self.worker_pool.as_ref(),
+                    lock_uuid: self.lock_uuid,
+                    skip_sleep: self.skip_sleep,
                     all_persist_acks,
-                )
-                .await;
+                };
+                let result = parts::step_persist_acks::handle(params).await;
                 if let Err(error) = result {
                     // TODO: properly expose actual type-safe causal error from
                     // the runloop.
@@ -1076,32 +1076,34 @@ impl RunLoop {
 
             // Handle all completions.
             {
-                let ctx = parts::completions::Context {
+                let params = parts::completions::Params {
                     executor_shards: &mut executor_shards,
                     shard_senders: &shard_senders,
                     inflight_actions: &mut inflight_actions,
                     inflight_dispatches: &mut inflight_dispatches,
                     commit_barrier: &mut commit_barrier,
+                    all_completions,
                 };
-                parts::completions::handle(ctx, all_completions);
+                parts::completions::handle(params);
             }
 
             // Handle all wakes.
             {
-                let ctx = parts::wakes::Context {
+                let params = parts::wakes::Params {
                     executor_shards: &mut executor_shards,
                     shard_senders: &shard_senders,
                     sleeping_nodes: &mut sleeping_nodes,
                     sleeping_by_instance: &mut sleeping_by_instance,
                     blocked_until_by_instance: &mut blocked_until_by_instance,
                     commit_barrier: &mut commit_barrier,
+                    all_wakes,
                 };
-                parts::wakes::handle(ctx, all_wakes);
+                parts::wakes::handle(params);
             }
 
             // Handle all instances.
             {
-                let ctx = parts::instances::Context {
+                let params = parts::instances::Params {
                     executor_shards: &mut executor_shards,
                     shard_senders: &mut shard_senders,
                     lock_tracker: &lock_tracker,
@@ -1113,17 +1115,14 @@ impl RunLoop {
                     commit_barrier: &mut commit_barrier,
                     workflow_cache: &mut self.workflow_cache,
                     registry_backend: self.registry_backend.as_ref(),
-                };
-
-                let result = parts::instances::handle(
-                    ctx,
-                    &mut instances_idle,
-                    &mut next_shard,
-                    self.shard_count,
+                    instances_idle: &mut instances_idle,
+                    next_shard: &mut next_shard,
+                    shard_count: self.shard_count,
                     all_instances,
                     saw_empty_instances,
-                )
-                .await;
+                };
+
+                let result = parts::instances::handle(params).await;
                 if let Err(error) = result {
                     // TODO: properly expose actual type-safe causal error from
                     // the runloop.
@@ -1136,7 +1135,7 @@ impl RunLoop {
 
             // Handle failed instances.
             {
-                let ctx = parts::failed_instances::Context {
+                let params = parts::failed_instances::Params {
                     executor_shards: &mut executor_shards,
                     lock_tracker: &lock_tracker,
                     inflight_actions: &mut inflight_actions,
@@ -1145,22 +1144,21 @@ impl RunLoop {
                     sleeping_by_instance: &mut sleeping_by_instance,
                     blocked_until_by_instance: &mut blocked_until_by_instance,
                     commit_barrier: &mut commit_barrier,
-                };
-                parts::failed_instances::handle(
-                    ctx,
                     all_failed_instances,
-                    &mut instances_done_pending,
-                );
+                    instances_done_pending: &mut instances_done_pending,
+                };
+                parts::failed_instances::handle(params);
             }
 
             // Handle steps.
             {
-                let ctx = parts::steps::Context {
+                let params = parts::steps::Params {
                     shutdown_signal: shutdown_token.cancelled(),
                     persist_tx: &persist_tx,
                     commit_barrier: &mut commit_barrier,
+                    all_steps,
                 };
-                let result = parts::steps::handle(ctx, all_steps).await;
+                let result = parts::steps::handle(params).await;
                 if let Err(error) = result {
                     // TODO: properly expose actual type-safe causal error from
                     // the runloop.
@@ -1177,7 +1175,7 @@ impl RunLoop {
 
             // Handle all blocked-until-by-instances.
             {
-                let ctx = parts::blocked_until_by_instance::Context {
+                let params = parts::blocked_until_by_instance::Params {
                     executor_shards: &mut executor_shards,
                     shard_senders: &mut shard_senders,
                     lock_tracker: &lock_tracker,
@@ -1187,14 +1185,11 @@ impl RunLoop {
                     sleeping_by_instance: &mut sleeping_by_instance,
                     blocked_until_by_instance: &mut blocked_until_by_instance,
                     commit_barrier: &mut commit_barrier,
-                };
-                let result = parts::blocked_until_by_instance::handle(
-                    ctx,
-                    self.core_backend.as_ref(),
+                    core_backend: self.core_backend.as_ref(),
                     lock_uuid,
-                    self.evict_sleep_threshold,
-                )
-                .await;
+                    evict_sleep_threshold: self.evict_sleep_threshold,
+                };
+                let result = parts::blocked_until_by_instance::handle(params).await;
                 if let Err(error) = result {
                     // TODO: properly expose actual type-safe causal error from
                     // the runloop.
@@ -1208,11 +1203,12 @@ impl RunLoop {
             self.store_available_instance_slots(&available_instance_slots, executor_shards.len());
 
             if instances_done_pending.len() >= self.instance_done_batch_size
-                && let Err(err) = ops::flush_instances_done::run(
-                    self.core_backend.as_ref(),
-                    &mut instances_done_pending,
-                )
-                .await
+                && let Err(err) =
+                    ops::flush_instances_done::run(ops::flush_instances_done::Params {
+                        core_backend: self.core_backend.as_ref(),
+                        pending: &mut instances_done_pending,
+                    })
+                    .await
             {
                 break 'runloop Err(err);
             }
@@ -1242,10 +1238,10 @@ impl RunLoop {
         let _ = instance_handle.await;
         let _ = lock_handle.await;
         if run_result.is_ok()
-            && let Err(err) = ops::flush_instances_done::run(
-                self.core_backend.as_ref(),
-                &mut instances_done_pending,
-            )
+            && let Err(err) = ops::flush_instances_done::run(ops::flush_instances_done::Params {
+                core_backend: self.core_backend.as_ref(),
+                pending: &mut instances_done_pending,
+            })
             .await
         {
             run_result = Err(err);

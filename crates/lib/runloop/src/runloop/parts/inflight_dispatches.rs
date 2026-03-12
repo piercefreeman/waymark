@@ -9,6 +9,11 @@ use waymark_worker_core::ActionCompletion;
 
 use crate::runloop::InflightActionDispatch;
 
+pub struct Params<'a> {
+    pub all_completions: &'a mut Vec<ActionCompletion>,
+    pub inflight_dispatches: &'a HashMap<Uuid, InflightActionDispatch>,
+}
+
 /// Detects timed-out actions and prepends synthetic timeout completions.
 ///
 /// **Why this part exists:** Actions have optional deadlines. If they don't complete within
@@ -19,10 +24,12 @@ use crate::runloop::InflightActionDispatch;
 /// timeout completion results with metadata (timeout duration, attempt number), and
 /// prepends them to the completion batch. Prepending ensures timeouts are processed before
 /// other completions, maintaining FIFO semantics where relevant.
-pub fn prepend_timeout_completions_from_inflight_dispatches(
-    all_completions: &mut Vec<ActionCompletion>,
-    inflight_dispatches: &HashMap<Uuid, InflightActionDispatch>,
-) {
+pub fn prepend_timeout_completions_from_inflight_dispatches(params: Params<'_>) {
+    let Params {
+        all_completions,
+        inflight_dispatches,
+    } = params;
+
     if inflight_dispatches.is_empty() {
         return;
     }

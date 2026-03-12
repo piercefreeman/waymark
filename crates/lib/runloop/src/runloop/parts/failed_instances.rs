@@ -15,7 +15,7 @@ use crate::{
     runloop::{InflightActionDispatch, ShardStep},
 };
 
-pub struct Context<'a> {
+pub struct Params<'a> {
     pub executor_shards: &'a mut HashMap<Uuid, usize>,
     pub lock_tracker: &'a InstanceLockTracker,
     pub inflight_actions: &'a mut HashMap<Uuid, usize>,
@@ -24,6 +24,8 @@ pub struct Context<'a> {
     pub sleeping_by_instance: &'a mut HashMap<Uuid, HashSet<Uuid>>,
     pub blocked_until_by_instance: &'a mut HashMap<Uuid, DateTime<Utc>>,
     pub commit_barrier: &'a mut CommitBarrier<ShardStep>,
+    pub all_failed_instances: Vec<InstanceDone>,
+    pub instances_done_pending: &'a mut Vec<InstanceDone>,
 }
 
 /// Cleans up all state for instances that failed during shard execution.
@@ -39,13 +41,8 @@ pub struct Context<'a> {
 /// - Removes instance lock entries
 /// - Removes from commit barrier tracking
 /// - Adds instance to pending done buffer for persistence
-pub fn handle(
-    ctx: Context<'_>,
-
-    all_failed_instances: Vec<InstanceDone>,
-    instances_done_pending: &mut Vec<InstanceDone>,
-) {
-    let Context {
+pub fn handle(params: Params<'_>) {
+    let Params {
         executor_shards,
         lock_tracker,
         inflight_actions,
@@ -54,7 +51,9 @@ pub fn handle(
         sleeping_by_instance,
         blocked_until_by_instance,
         commit_barrier,
-    } = ctx;
+        all_failed_instances,
+        instances_done_pending,
+    } = params;
 
     if all_failed_instances.is_empty() {
         return;

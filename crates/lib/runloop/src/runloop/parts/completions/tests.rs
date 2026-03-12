@@ -20,21 +20,19 @@ fn drops_unknown_execution_id() {
     let mut inflight_dispatches: HashMap<Uuid, InflightActionDispatch> = HashMap::new();
     let mut barrier: CommitBarrier<ShardStep> = CommitBarrier::new();
 
-    super::handle(
-        super::Context {
-            executor_shards: &mut executor_shards,
-            shard_senders: &senders,
-            inflight_actions: &mut inflight_actions,
-            inflight_dispatches: &mut inflight_dispatches,
-            commit_barrier: &mut barrier,
-        },
-        vec![make_action_completion(
+    super::handle(super::Params {
+        executor_shards: &mut executor_shards,
+        shard_senders: &senders,
+        inflight_actions: &mut inflight_actions,
+        inflight_dispatches: &mut inflight_dispatches,
+        commit_barrier: &mut barrier,
+        all_completions: vec![make_action_completion(
             executor_id,
             execution_id,
             dispatch_token,
             1,
         )],
-    );
+    });
 
     assert_eq!(
         inflight_actions.get(&executor_id),
@@ -60,21 +58,19 @@ fn drops_mismatched_executor_id() {
     )]);
     let mut barrier: CommitBarrier<ShardStep> = CommitBarrier::new();
 
-    super::handle(
-        super::Context {
-            executor_shards: &mut executor_shards,
-            shard_senders: &senders,
-            inflight_actions: &mut inflight_actions,
-            inflight_dispatches: &mut inflight_dispatches,
-            commit_barrier: &mut barrier,
-        },
-        vec![make_action_completion(
+    super::handle(super::Params {
+        executor_shards: &mut executor_shards,
+        shard_senders: &senders,
+        inflight_actions: &mut inflight_actions,
+        inflight_dispatches: &mut inflight_dispatches,
+        commit_barrier: &mut barrier,
+        all_completions: vec![make_action_completion(
             other_executor,
             execution_id,
             dispatch_token,
             1,
         )],
-    );
+    });
 
     assert!(
         inflight_dispatches.contains_key(&execution_id),
@@ -99,21 +95,19 @@ fn drops_stale_dispatch_token() {
     )]);
     let mut barrier: CommitBarrier<ShardStep> = CommitBarrier::new();
 
-    super::handle(
-        super::Context {
-            executor_shards: &mut executor_shards,
-            shard_senders: &senders,
-            inflight_actions: &mut inflight_actions,
-            inflight_dispatches: &mut inflight_dispatches,
-            commit_barrier: &mut barrier,
-        },
-        vec![make_action_completion(
+    super::handle(super::Params {
+        executor_shards: &mut executor_shards,
+        shard_senders: &senders,
+        inflight_actions: &mut inflight_actions,
+        inflight_dispatches: &mut inflight_dispatches,
+        commit_barrier: &mut barrier,
+        all_completions: vec![make_action_completion(
             executor_id,
             execution_id,
             stale_token,
             1,
         )],
-    );
+    });
 
     assert!(
         inflight_dispatches.contains_key(&execution_id),
@@ -138,21 +132,19 @@ fn drops_stale_attempt_number() {
     )]);
     let mut barrier: CommitBarrier<ShardStep> = CommitBarrier::new();
 
-    super::handle(
-        super::Context {
-            executor_shards: &mut executor_shards,
-            shard_senders: &senders,
-            inflight_actions: &mut inflight_actions,
-            inflight_dispatches: &mut inflight_dispatches,
-            commit_barrier: &mut barrier,
-        },
-        vec![make_action_completion(
+    super::handle(super::Params {
+        executor_shards: &mut executor_shards,
+        shard_senders: &senders,
+        inflight_actions: &mut inflight_actions,
+        inflight_dispatches: &mut inflight_dispatches,
+        commit_barrier: &mut barrier,
+        all_completions: vec![make_action_completion(
             executor_id,
             execution_id,
             dispatch_token,
             1,
         )],
-    );
+    });
 
     assert!(
         inflight_dispatches.contains_key(&execution_id),
@@ -177,21 +169,19 @@ fn valid_decrements_inflight_and_routes_to_shard() {
     )]);
     let mut barrier: CommitBarrier<ShardStep> = CommitBarrier::new();
 
-    super::handle(
-        super::Context {
-            executor_shards: &mut executor_shards,
-            shard_senders: &senders,
-            inflight_actions: &mut inflight_actions,
-            inflight_dispatches: &mut inflight_dispatches,
-            commit_barrier: &mut barrier,
-        },
-        vec![make_action_completion(
+    super::handle(super::Params {
+        executor_shards: &mut executor_shards,
+        shard_senders: &senders,
+        inflight_actions: &mut inflight_actions,
+        inflight_dispatches: &mut inflight_dispatches,
+        commit_barrier: &mut barrier,
+        all_completions: vec![make_action_completion(
             executor_id,
             execution_id,
             dispatch_token,
             1,
         )],
-    );
+    });
 
     assert!(
         !inflight_dispatches.contains_key(&execution_id),
@@ -227,21 +217,19 @@ fn blocked_instance_defers_completion_until_unblock() {
     let mut barrier: CommitBarrier<ShardStep> = CommitBarrier::new();
     barrier.register_batch(HashSet::from([executor_id]), vec![]);
 
-    super::handle(
-        super::Context {
-            executor_shards: &mut executor_shards,
-            shard_senders: &senders,
-            inflight_actions: &mut inflight_actions,
-            inflight_dispatches: &mut inflight_dispatches,
-            commit_barrier: &mut barrier,
-        },
-        vec![make_action_completion(
+    super::handle(super::Params {
+        executor_shards: &mut executor_shards,
+        shard_senders: &senders,
+        inflight_actions: &mut inflight_actions,
+        inflight_dispatches: &mut inflight_dispatches,
+        commit_barrier: &mut barrier,
+        all_completions: vec![make_action_completion(
             executor_id,
             execution_id,
             dispatch_token,
             1,
         )],
-    );
+    });
 
     assert!(
         !inflight_dispatches.contains_key(&execution_id),
@@ -276,21 +264,19 @@ fn accepted_completion_for_unknown_shard_is_dropped_after_accounting() {
     )]);
     let mut barrier: CommitBarrier<ShardStep> = CommitBarrier::new();
 
-    super::handle(
-        super::Context {
-            executor_shards: &mut executor_shards,
-            shard_senders: &senders,
-            inflight_actions: &mut inflight_actions,
-            inflight_dispatches: &mut inflight_dispatches,
-            commit_barrier: &mut barrier,
-        },
-        vec![make_action_completion(
+    super::handle(super::Params {
+        executor_shards: &mut executor_shards,
+        shard_senders: &senders,
+        inflight_actions: &mut inflight_actions,
+        inflight_dispatches: &mut inflight_dispatches,
+        commit_barrier: &mut barrier,
+        all_completions: vec![make_action_completion(
             executor_id,
             execution_id,
             dispatch_token,
             1,
         )],
-    );
+    });
 
     assert!(
         !inflight_dispatches.contains_key(&execution_id),

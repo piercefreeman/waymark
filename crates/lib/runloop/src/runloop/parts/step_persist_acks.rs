@@ -23,7 +23,7 @@ pub enum Error {
     StepsPersistFailed(#[source] crate::RunLoopError),
 }
 
-pub struct Context<'a> {
+pub struct Params<'a, CoreBackend: ?Sized, WorkerPool: ?Sized> {
     pub executor_shards: &'a mut HashMap<Uuid, usize>,
     pub shard_senders: &'a [std::sync::mpsc::Sender<ShardCommand>],
     pub lock_tracker: &'a InstanceLockTracker,
@@ -35,6 +35,11 @@ pub struct Context<'a> {
     pub commit_barrier: &'a mut CommitBarrier<ShardStep>,
     pub instances_done_pending: &'a mut Vec<InstanceDone>,
     pub sleep_tx: &'a tokio::sync::mpsc::UnboundedSender<SleepWake>,
+    pub core_backend: &'a CoreBackend,
+    pub worker_pool: &'a WorkerPool,
+    pub lock_uuid: Uuid,
+    pub skip_sleep: bool,
+    pub all_persist_acks: Vec<PersistAck>,
 }
 
 /// Processes persistence acknowledgments and unblocks deferred instance events.
@@ -50,20 +55,13 @@ pub struct Context<'a> {
 /// - Maintains the invariant that no event is lost due to a crash:
 ///   defered events are either persisted or deferred again until the next persist ack
 pub async fn handle<CoreBackend, WorkerPool>(
-    ctx: Context<'_>,
-
-    core_backend: &CoreBackend,
-    worker_pool: &WorkerPool,
-    lock_uuid: Uuid,
-    skip_sleep: bool,
-
-    all_persist_acks: Vec<PersistAck>,
+    params: Params<'_, CoreBackend, WorkerPool>,
 ) -> Result<(), Error>
 where
     CoreBackend: ?Sized + waymark_core_backend::CoreBackend,
     WorkerPool: ?Sized + waymark_worker_core::BaseWorkerPool,
 {
-    let Context {
+    let Params {
         executor_shards,
         shard_senders,
         lock_tracker,
@@ -75,7 +73,12 @@ where
         commit_barrier,
         instances_done_pending,
         sleep_tx,
-    } = ctx;
+        core_backend,
+        worker_pool,
+        lock_uuid,
+        skip_sleep,
+        all_persist_acks,
+    } = params;
 
     for ack in all_persist_acks {
         match ack {
@@ -88,7 +91,7 @@ where
                     continue;
                 };
 
-                let ctx = StepsPersistedContext {
+                let params = StepsPersistedParams {
                     executor_shards,
                     shard_senders,
                     lock_tracker,
@@ -100,18 +103,16 @@ where
                     commit_barrier,
                     instances_done_pending,
                     sleep_tx,
-                };
-                handle_steps_persisted(
-                    ctx,
                     core_backend,
                     worker_pool,
                     lock_uuid,
                     skip_sleep,
                     batch,
                     lock_statuses,
-                )
-                .await
-                .map_err(Error::StepsPersisted)?;
+                };
+                handle_steps_persisted(params)
+                    .await
+                    .map_err(Error::StepsPersisted)?;
             }
             PersistAck::StepsPersistFailed { batch_id, error } => {
                 warn!(batch_id, error = %error, "persist step batch failed");
@@ -122,7 +123,7 @@ where
     Ok(())
 }
 
-struct StepsPersistedContext<'a> {
+struct StepsPersistedParams<'a, CoreBackend: ?Sized, WorkerPool: ?Sized> {
     pub executor_shards: &'a mut HashMap<Uuid, usize>,
     pub shard_senders: &'a [std::sync::mpsc::Sender<ShardCommand>],
     pub lock_tracker: &'a InstanceLockTracker,
@@ -134,24 +135,41 @@ struct StepsPersistedContext<'a> {
     pub commit_barrier: &'a mut CommitBarrier<ShardStep>,
     pub instances_done_pending: &'a mut Vec<InstanceDone>,
     pub sleep_tx: &'a tokio::sync::mpsc::UnboundedSender<SleepWake>,
+    pub core_backend: &'a CoreBackend,
+    pub worker_pool: &'a WorkerPool,
+    pub lock_uuid: Uuid,
+    pub skip_sleep: bool,
+    pub batch: crate::commit_barrier::PendingPersistBatch<ShardStep>,
+    pub lock_statuses: Vec<InstanceLockStatus>,
 }
 
 async fn handle_steps_persisted<CoreBackend, WorkerPool>(
-    ctx: StepsPersistedContext<'_>,
-
-    core_backend: &CoreBackend,
-    worker_pool: &WorkerPool,
-    // The lock ID of the current runloop.
-    lock_uuid: Uuid,
-    skip_sleep: bool,
-
-    batch: crate::commit_barrier::PendingPersistBatch<ShardStep>,
-    lock_statuses: Vec<InstanceLockStatus>,
+    params: StepsPersistedParams<'_, CoreBackend, WorkerPool>,
 ) -> Result<(), crate::RunLoopError>
 where
     CoreBackend: ?Sized + waymark_core_backend::CoreBackend,
     WorkerPool: ?Sized + waymark_worker_core::BaseWorkerPool,
 {
+    let StepsPersistedParams {
+        executor_shards,
+        shard_senders,
+        lock_tracker,
+        inflight_actions,
+        inflight_dispatches,
+        sleeping_nodes,
+        sleeping_by_instance,
+        blocked_until_by_instance,
+        commit_barrier,
+        instances_done_pending,
+        sleep_tx,
+        core_backend,
+        worker_pool,
+        lock_uuid,
+        skip_sleep,
+        batch,
+        lock_statuses,
+    } = params;
+
     let evict_ids: HashSet<Uuid> =
         crate::runloop::lock_utils::lock_mismatches_for(&lock_statuses, lock_uuid)
             .into_iter()
@@ -159,24 +177,22 @@ where
             .collect();
 
     if !evict_ids.is_empty() {
-        let ctx = super::ops::evict_instances::Context {
-            executor_shards: ctx.executor_shards,
-            shard_senders: ctx.shard_senders,
-            lock_tracker: ctx.lock_tracker,
-            inflight_actions: ctx.inflight_actions,
-            inflight_dispatches: ctx.inflight_dispatches,
-            sleeping_nodes: ctx.sleeping_nodes,
-            sleeping_by_instance: ctx.sleeping_by_instance,
-            blocked_until_by_instance: ctx.blocked_until_by_instance,
-        };
-
-        super::ops::evict_instances::run(
-            ctx,
+        let evict_ids_vec = evict_ids.iter().copied().collect::<Vec<_>>();
+        let params = super::ops::evict_instances::Params {
+            executor_shards,
+            shard_senders,
+            lock_tracker,
+            inflight_actions,
+            inflight_dispatches,
+            sleeping_nodes,
+            sleeping_by_instance,
+            blocked_until_by_instance,
             core_backend,
             lock_uuid,
-            &evict_ids.iter().copied().collect::<Vec<_>>(),
-        )
-        .await?;
+            instance_ids: &evict_ids_vec,
+        };
+
+        super::ops::evict_instances::run(params).await?;
     }
     for step in batch.steps {
         if !batch.instance_ids.contains(&step.executor_id) {
@@ -185,32 +201,35 @@ where
         if evict_ids.contains(&step.executor_id) {
             continue;
         }
-        if !ctx.executor_shards.contains_key(&step.executor_id) && step.instance_done.is_none() {
+        if !executor_shards.contains_key(&step.executor_id) && step.instance_done.is_none() {
             continue;
         }
 
-        let ctx = super::ops::apply_confirmed_step::Context {
-            executor_shards: ctx.executor_shards,
-            lock_tracker: ctx.lock_tracker,
-            inflight_actions: ctx.inflight_actions,
-            inflight_dispatches: ctx.inflight_dispatches,
-            sleeping_nodes: ctx.sleeping_nodes,
-            sleeping_by_instance: ctx.sleeping_by_instance,
-            blocked_until_by_instance: ctx.blocked_until_by_instance,
-            commit_barrier: ctx.commit_barrier,
-            instances_done_pending: ctx.instances_done_pending,
-            sleep_tx: ctx.sleep_tx,
+        let params = super::ops::apply_confirmed_step::Params {
+            executor_shards,
+            lock_tracker,
+            inflight_actions,
+            inflight_dispatches,
+            sleeping_nodes,
+            sleeping_by_instance,
+            blocked_until_by_instance,
+            commit_barrier,
+            instances_done_pending,
+            sleep_tx,
+            worker_pool,
+            skip_sleep,
+            step,
         };
-        super::ops::apply_confirmed_step::run(ctx, worker_pool, skip_sleep, step)?;
+        super::ops::apply_confirmed_step::run(params)?;
     }
 
     for instance_id in batch.instance_ids {
         if evict_ids.contains(&instance_id) {
-            ctx.commit_barrier.remove_instance(instance_id);
+            commit_barrier.remove_instance(instance_id);
             continue;
         }
-        let events = ctx.commit_barrier.unblock_instance(instance_id);
-        flush_deferred_instance_events(instance_id, events, ctx.executor_shards, ctx.shard_senders);
+        let events = commit_barrier.unblock_instance(instance_id);
+        flush_deferred_instance_events(instance_id, events, executor_shards, shard_senders);
     }
 
     Ok(())

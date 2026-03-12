@@ -12,12 +12,13 @@ use crate::{
     runloop::{InflightActionDispatch, ShardCommand, ShardStep},
 };
 
-pub struct Context<'a> {
+pub struct Params<'a> {
     pub executor_shards: &'a mut HashMap<Uuid, usize>,
     pub shard_senders: &'a [std::sync::mpsc::Sender<ShardCommand>],
     pub inflight_actions: &'a mut HashMap<Uuid, usize>,
     pub inflight_dispatches: &'a mut HashMap<Uuid, InflightActionDispatch>,
     pub commit_barrier: &'a mut CommitBarrier<ShardStep>,
+    pub all_completions: Vec<ActionCompletion>,
 }
 
 /// Routes action completions to shards and maintains inflight tracking invariants.
@@ -34,14 +35,15 @@ pub struct Context<'a> {
 /// - Routes through commit barrier for potential deferral (if instance is blocked)
 /// - Groups valid completions by shard and sends to shard workers
 /// - Logs warnings for unknown executor shards (indicates state inconsistency)
-pub fn handle(ctx: Context<'_>, all_completions: Vec<ActionCompletion>) {
-    let Context {
+pub fn handle(params: Params<'_>) {
+    let Params {
         executor_shards,
         shard_senders,
         inflight_actions,
         inflight_dispatches,
         commit_barrier,
-    } = ctx;
+        all_completions,
+    } = params;
 
     if all_completions.is_empty() {
         return;

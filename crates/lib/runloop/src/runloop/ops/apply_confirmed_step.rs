@@ -17,7 +17,7 @@ use crate::{
     runloop::{InflightActionDispatch, RunLoopError, ShardStep, SleepWake},
 };
 
-pub struct Context<'a> {
+pub struct Params<'a, WorkerPool: ?Sized> {
     pub executor_shards: &'a mut HashMap<Uuid, usize>,
     pub lock_tracker: &'a InstanceLockTracker,
     pub inflight_actions: &'a mut HashMap<Uuid, usize>,
@@ -28,6 +28,9 @@ pub struct Context<'a> {
     pub commit_barrier: &'a mut CommitBarrier<ShardStep>,
     pub instances_done_pending: &'a mut Vec<InstanceDone>,
     pub sleep_tx: &'a tokio::sync::mpsc::UnboundedSender<SleepWake>,
+    pub worker_pool: &'a WorkerPool,
+    pub skip_sleep: bool,
+    pub step: ShardStep,
 }
 
 /// Applies a confirmed shard step by dispatching actions and registering sleep requests.
@@ -40,16 +43,38 @@ pub struct Context<'a> {
 /// - Spawns background sleep timers that trigger wake events when ready
 ///
 /// The `skip_sleep` flag is used during testing/debugging to immediately wake all sleeps.
-pub fn run<WorkerPool>(
-    ctx: Context<'_>,
-    worker_pool: &WorkerPool,
-    skip_sleep: bool,
-
-    step: ShardStep,
-) -> Result<(), RunLoopError>
+pub fn run<WorkerPool>(params: Params<'_, WorkerPool>) -> Result<(), RunLoopError>
 where
     WorkerPool: ?Sized + waymark_worker_core::BaseWorkerPool,
 {
+    let Params {
+        executor_shards: ctx_executor_shards,
+        lock_tracker: ctx_lock_tracker,
+        inflight_actions: ctx_inflight_actions,
+        inflight_dispatches: ctx_inflight_dispatches,
+        sleeping_nodes: ctx_sleeping_nodes,
+        sleeping_by_instance: ctx_sleeping_by_instance,
+        blocked_until_by_instance: ctx_blocked_until_by_instance,
+        commit_barrier: ctx_commit_barrier,
+        instances_done_pending: ctx_instances_done_pending,
+        sleep_tx: ctx_sleep_tx,
+        worker_pool,
+        skip_sleep,
+        step,
+    } = params;
+    let ctx = ApplyConfirmedStepState {
+        executor_shards: ctx_executor_shards,
+        lock_tracker: ctx_lock_tracker,
+        inflight_actions: ctx_inflight_actions,
+        inflight_dispatches: ctx_inflight_dispatches,
+        sleeping_nodes: ctx_sleeping_nodes,
+        sleeping_by_instance: ctx_sleeping_by_instance,
+        blocked_until_by_instance: ctx_blocked_until_by_instance,
+        commit_barrier: ctx_commit_barrier,
+        instances_done_pending: ctx_instances_done_pending,
+        sleep_tx: ctx_sleep_tx,
+    };
+
     for request in step.actions {
         let dispatch = request.clone();
         worker_pool.queue(request)?;
@@ -135,4 +160,17 @@ where
         ctx.instances_done_pending.push(instance_done);
     }
     Ok(())
+}
+
+struct ApplyConfirmedStepState<'a> {
+    executor_shards: &'a mut HashMap<Uuid, usize>,
+    lock_tracker: &'a InstanceLockTracker,
+    inflight_actions: &'a mut HashMap<Uuid, usize>,
+    inflight_dispatches: &'a mut HashMap<Uuid, InflightActionDispatch>,
+    sleeping_nodes: &'a mut HashMap<Uuid, SleepRequest>,
+    sleeping_by_instance: &'a mut HashMap<Uuid, HashSet<Uuid>>,
+    blocked_until_by_instance: &'a mut HashMap<Uuid, DateTime<Utc>>,
+    commit_barrier: &'a mut CommitBarrier<ShardStep>,
+    instances_done_pending: &'a mut Vec<InstanceDone>,
+    sleep_tx: &'a tokio::sync::mpsc::UnboundedSender<SleepWake>,
 }

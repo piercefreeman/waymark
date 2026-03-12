@@ -58,7 +58,7 @@ async fn records_action_dispatch() {
         })
         .returning(|_| Ok(()));
 
-    let ctx = super::Context {
+    let params = super::Params {
         executor_shards: &mut executor_shards,
         lock_tracker: &lock_tracker,
         inflight_actions: &mut inflight_actions,
@@ -69,8 +69,11 @@ async fn records_action_dispatch() {
         commit_barrier: &mut barrier,
         instances_done_pending: &mut instances_done_pending,
         sleep_tx: &sleep_tx,
+        worker_pool: &worker_pool,
+        skip_sleep: false,
+        step,
     };
-    super::run(ctx, &worker_pool, false, step).expect("apply step");
+    super::run(params).expect("apply step");
 
     assert_eq!(inflight_actions.get(&executor_id), Some(&1));
     let dispatch = inflight_dispatches
@@ -121,7 +124,7 @@ async fn queue_error_is_returned() {
         .times(1)
         .returning(|_| Err(WorkerPoolError::new("MockQueueError", "mock queue failure")));
 
-    let ctx = super::Context {
+    let params = super::Params {
         executor_shards: &mut executor_shards,
         lock_tracker: &lock_tracker,
         inflight_actions: &mut inflight_actions,
@@ -132,9 +135,12 @@ async fn queue_error_is_returned() {
         commit_barrier: &mut barrier,
         instances_done_pending: &mut instances_done_pending,
         sleep_tx: &sleep_tx,
+        worker_pool: &worker_pool,
+        skip_sleep: false,
+        step,
     };
 
-    let err = super::run(ctx, &worker_pool, false, step).expect_err("queue should fail");
+    let err = super::run(params).expect_err("queue should fail");
     match err {
         RunLoopError::WorkerPool(pool_err) => {
             assert_eq!(pool_err.kind, "MockQueueError");
@@ -190,7 +196,7 @@ async fn timeout_sets_deadline() {
         .returning(|_| Ok(()));
 
     let before = Utc::now();
-    let ctx = super::Context {
+    let params = super::Params {
         executor_shards: &mut executor_shards,
         lock_tracker: &lock_tracker,
         inflight_actions: &mut inflight_actions,
@@ -201,8 +207,11 @@ async fn timeout_sets_deadline() {
         commit_barrier: &mut barrier,
         instances_done_pending: &mut instances_done_pending,
         sleep_tx: &sleep_tx,
+        worker_pool: &worker_pool,
+        skip_sleep: false,
+        step,
     };
-    super::run(ctx, &worker_pool, false, step).expect("apply step");
+    super::run(params).expect("apply step");
 
     let dispatch = inflight_dispatches
         .get(&execution_id)
@@ -267,7 +276,7 @@ async fn instance_done_removes_executor_state() {
     let mut worker_pool = MockWorkerPool::new();
     worker_pool.expect_queue().never();
 
-    let ctx = super::Context {
+    let params = super::Params {
         executor_shards: &mut executor_shards,
         lock_tracker: &lock_tracker,
         inflight_actions: &mut inflight_actions,
@@ -278,8 +287,11 @@ async fn instance_done_removes_executor_state() {
         commit_barrier: &mut barrier,
         instances_done_pending: &mut instances_done_pending,
         sleep_tx: &sleep_tx,
+        worker_pool: &worker_pool,
+        skip_sleep: false,
+        step,
     };
-    super::run(ctx, &worker_pool, false, step).expect("apply step");
+    super::run(params).expect("apply step");
 
     assert!(!executor_shards.contains_key(&executor_id));
     assert!(!inflight_actions.contains_key(&executor_id));
@@ -319,7 +331,7 @@ async fn sleep_request_registers_node() {
     let mut worker_pool = MockWorkerPool::new();
     worker_pool.expect_queue().never();
 
-    let ctx = super::Context {
+    let params = super::Params {
         executor_shards: &mut executor_shards,
         lock_tracker: &lock_tracker,
         inflight_actions: &mut inflight_actions,
@@ -330,8 +342,11 @@ async fn sleep_request_registers_node() {
         commit_barrier: &mut barrier,
         instances_done_pending: &mut instances_done_pending,
         sleep_tx: &sleep_tx,
+        worker_pool: &worker_pool,
+        skip_sleep: false,
+        step,
     };
-    super::run(ctx, &worker_pool, false, step).expect("apply step");
+    super::run(params).expect("apply step");
 
     let registered = sleeping_nodes
         .get(&node_id)
@@ -378,7 +393,7 @@ async fn skip_sleep_overrides_wake_to_now() {
     worker_pool.expect_queue().never();
 
     let before = Utc::now();
-    let ctx = super::Context {
+    let params = super::Params {
         executor_shards: &mut executor_shards,
         lock_tracker: &lock_tracker,
         inflight_actions: &mut inflight_actions,
@@ -389,8 +404,11 @@ async fn skip_sleep_overrides_wake_to_now() {
         commit_barrier: &mut barrier,
         instances_done_pending: &mut instances_done_pending,
         sleep_tx: &sleep_tx,
+        worker_pool: &worker_pool,
+        skip_sleep: true,
+        step,
     };
-    super::run(ctx, &worker_pool, true, step).expect("apply step");
+    super::run(params).expect("apply step");
 
     let recorded_wake = sleeping_nodes
         .get(&node_id)
@@ -443,7 +461,7 @@ async fn later_duplicate_sleep_request_keeps_existing_earlier_wake() {
     let mut worker_pool = MockWorkerPool::new();
     worker_pool.expect_queue().never();
 
-    let ctx = super::Context {
+    let params = super::Params {
         executor_shards: &mut executor_shards,
         lock_tracker: &lock_tracker,
         inflight_actions: &mut inflight_actions,
@@ -454,8 +472,11 @@ async fn later_duplicate_sleep_request_keeps_existing_earlier_wake() {
         commit_barrier: &mut barrier,
         instances_done_pending: &mut instances_done_pending,
         sleep_tx: &sleep_tx,
+        worker_pool: &worker_pool,
+        skip_sleep: false,
+        step,
     };
-    super::run(ctx, &worker_pool, false, step).expect("apply step");
+    super::run(params).expect("apply step");
 
     assert_eq!(
         sleeping_nodes.get(&node_id).map(|value| value.wake_at),

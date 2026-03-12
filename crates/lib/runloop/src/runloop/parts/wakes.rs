@@ -12,13 +12,14 @@ use crate::{
     runloop::{ShardCommand, ShardStep, SleepWake},
 };
 
-pub struct Context<'a> {
+pub struct Params<'a> {
     pub executor_shards: &'a mut HashMap<Uuid, usize>,
     pub shard_senders: &'a [std::sync::mpsc::Sender<ShardCommand>],
     pub sleeping_nodes: &'a mut HashMap<Uuid, SleepRequest>,
     pub sleeping_by_instance: &'a mut HashMap<Uuid, HashSet<Uuid>>,
     pub blocked_until_by_instance: &'a mut HashMap<Uuid, DateTime<Utc>>,
     pub commit_barrier: &'a mut CommitBarrier<ShardStep>,
+    pub all_wakes: Vec<SleepWake>,
 }
 
 /// Routes sleep wake events and recomputes instance blocking times.
@@ -36,15 +37,16 @@ pub struct Context<'a> {
 /// - Routes through commit barrier to check if instance can accept the wake
 /// - Groups woken nodes by shard and sends to shard workers
 /// - Cleans up empty instance entries from sleep tracking
-pub fn handle(ctx: Context<'_>, all_wakes: Vec<SleepWake>) {
-    let Context {
+pub fn handle(params: Params<'_>) {
+    let Params {
         executor_shards,
         shard_senders,
         sleeping_nodes,
         sleeping_by_instance,
         blocked_until_by_instance,
         commit_barrier,
-    } = ctx;
+        all_wakes,
+    } = params;
 
     if all_wakes.is_empty() {
         return;

@@ -21,20 +21,18 @@ fn ignores_unknown_node() {
     let mut blocked_until: HashMap<Uuid, DateTime<Utc>> = HashMap::new();
     let mut barrier: CommitBarrier<ShardStep> = CommitBarrier::new();
 
-    super::handle(
-        super::Context {
-            executor_shards: &mut executor_shards,
-            shard_senders: &senders,
-            sleeping_nodes: &mut sleeping_nodes,
-            sleeping_by_instance: &mut sleeping_by_instance,
-            blocked_until_by_instance: &mut blocked_until,
-            commit_barrier: &mut barrier,
-        },
-        vec![SleepWake {
+    super::handle(super::Params {
+        executor_shards: &mut executor_shards,
+        shard_senders: &senders,
+        sleeping_nodes: &mut sleeping_nodes,
+        sleeping_by_instance: &mut sleeping_by_instance,
+        blocked_until_by_instance: &mut blocked_until,
+        commit_barrier: &mut barrier,
+        all_wakes: vec![SleepWake {
             executor_id,
             node_id: unknown_node,
         }],
-    );
+    });
 
     assert!(rx.try_recv().is_err(), "no command should reach the shard");
 }
@@ -59,20 +57,18 @@ fn ignores_node_with_future_wake_at() {
     let mut blocked_until = HashMap::from([(executor_id, future_wake)]);
     let mut barrier: CommitBarrier<ShardStep> = CommitBarrier::new();
 
-    super::handle(
-        super::Context {
-            executor_shards: &mut executor_shards,
-            shard_senders: &senders,
-            sleeping_nodes: &mut sleeping_nodes,
-            sleeping_by_instance: &mut sleeping_by_instance,
-            blocked_until_by_instance: &mut blocked_until,
-            commit_barrier: &mut barrier,
-        },
-        vec![SleepWake {
+    super::handle(super::Params {
+        executor_shards: &mut executor_shards,
+        shard_senders: &senders,
+        sleeping_nodes: &mut sleeping_nodes,
+        sleeping_by_instance: &mut sleeping_by_instance,
+        blocked_until_by_instance: &mut blocked_until,
+        commit_barrier: &mut barrier,
+        all_wakes: vec![SleepWake {
             executor_id,
             node_id,
         }],
-    );
+    });
 
     assert!(
         sleeping_nodes.contains_key(&node_id),
@@ -101,20 +97,18 @@ fn routes_ready_node_to_shard() {
     let mut blocked_until = HashMap::from([(executor_id, past_wake)]);
     let mut barrier: CommitBarrier<ShardStep> = CommitBarrier::new();
 
-    super::handle(
-        super::Context {
-            executor_shards: &mut executor_shards,
-            shard_senders: &senders,
-            sleeping_nodes: &mut sleeping_nodes,
-            sleeping_by_instance: &mut sleeping_by_instance,
-            blocked_until_by_instance: &mut blocked_until,
-            commit_barrier: &mut barrier,
-        },
-        vec![SleepWake {
+    super::handle(super::Params {
+        executor_shards: &mut executor_shards,
+        shard_senders: &senders,
+        sleeping_nodes: &mut sleeping_nodes,
+        sleeping_by_instance: &mut sleeping_by_instance,
+        blocked_until_by_instance: &mut blocked_until,
+        commit_barrier: &mut barrier,
+        all_wakes: vec![SleepWake {
             executor_id,
             node_id,
         }],
-    );
+    });
 
     assert!(
         !sleeping_nodes.contains_key(&node_id),
@@ -167,20 +161,18 @@ fn waking_one_of_multiple_nodes_recomputes_blocked_until() {
     let mut blocked_until = HashMap::from([(executor_id, first_wake)]);
     let mut barrier: CommitBarrier<ShardStep> = CommitBarrier::new();
 
-    super::handle(
-        super::Context {
-            executor_shards: &mut executor_shards,
-            shard_senders: &senders,
-            sleeping_nodes: &mut sleeping_nodes,
-            sleeping_by_instance: &mut sleeping_by_instance,
-            blocked_until_by_instance: &mut blocked_until,
-            commit_barrier: &mut barrier,
-        },
-        vec![SleepWake {
+    super::handle(super::Params {
+        executor_shards: &mut executor_shards,
+        shard_senders: &senders,
+        sleeping_nodes: &mut sleeping_nodes,
+        sleeping_by_instance: &mut sleeping_by_instance,
+        blocked_until_by_instance: &mut blocked_until,
+        commit_barrier: &mut barrier,
+        all_wakes: vec![SleepWake {
             executor_id,
             node_id: first_node,
         }],
-    );
+    });
 
     assert!(!sleeping_nodes.contains_key(&first_node));
     assert!(sleeping_nodes.contains_key(&second_node));
