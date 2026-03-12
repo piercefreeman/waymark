@@ -33,6 +33,8 @@ use waymark_runner::{
 use waymark_worker_core::{ActionCompletion, ActionRequest, BaseWorkerPool, WorkerPoolError};
 
 #[cfg(test)]
+mod test_support;
+#[cfg(test)]
 mod tests;
 
 mod parts {

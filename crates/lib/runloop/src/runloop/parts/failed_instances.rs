@@ -1,3 +1,6 @@
+#[cfg(test)]
+mod tests;
+
 use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
