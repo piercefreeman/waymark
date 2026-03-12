@@ -8,9 +8,13 @@ use crate::{
 };
 
 pub struct Params<'a> {
+    /// Cancellation future used to abandon persistence submission during shutdown.
     pub shutdown_signal: tokio_util::sync::WaitForCancellationFuture<'a>,
+    /// Channel to the persistence task that durably records step side effects.
     pub persist_tx: &'a tokio::sync::mpsc::Sender<crate::runloop::PersistCommand>,
+    /// Coordinates which instance events must wait for persistence acknowledgments.
     pub commit_barrier: &'a mut CommitBarrier<ShardStep>,
+    /// Shard steps collected during the current coordinator tick.
     pub all_steps: Vec<ShardStep>,
 }
 

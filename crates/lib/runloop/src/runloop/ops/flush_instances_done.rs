@@ -3,7 +3,9 @@ use waymark_core_backend::InstanceDone;
 use crate::runloop::RunLoopError;
 
 pub struct Params<'a, CoreBackend: ?Sized> {
+    /// Backend used to durably persist terminal instance outcomes.
     pub core_backend: &'a CoreBackend,
+    /// Buffer of completed or failed instances waiting to be flushed.
     pub pending: &'a mut Vec<InstanceDone>,
 }
 

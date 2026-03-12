@@ -7,8 +7,11 @@ use waymark_proto::ast as ir;
 use crate::runloop::RunLoopError;
 
 pub struct Params<'a, WorkflowRegistryBackend: ?Sized> {
+    /// Cache of workflow DAGs keyed by workflow version ID to avoid repeated hydration work.
     pub workflow_cache: &'a mut HashMap<Uuid, Arc<waymark_dag::DAG>>,
+    /// Backend used to fetch workflow definitions that are missing from the local cache.
     pub registry_backend: &'a WorkflowRegistryBackend,
+    /// Claimed instances that need DAG references attached before shard execution.
     pub instances: &'a mut [QueuedInstance],
 }
 

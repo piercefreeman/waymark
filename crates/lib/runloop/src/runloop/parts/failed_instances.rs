@@ -16,15 +16,25 @@ use crate::{
 };
 
 pub struct Params<'a> {
+    /// Maps each active instance/executor to the shard currently responsible for it.
     pub executor_shards: &'a mut HashMap<Uuid, usize>,
+    /// Tracks which backend locks this runloop currently believes it owns.
     pub lock_tracker: &'a InstanceLockTracker,
+    /// Counts how many action executions are still outstanding for each executor.
     pub inflight_actions: &'a mut HashMap<Uuid, usize>,
+    /// Tracks the currently valid dispatch token/attempt for each inflight action execution.
     pub inflight_dispatches: &'a mut HashMap<Uuid, InflightActionDispatch>,
+    /// Active sleep requests keyed by execution node for cleanup when an instance fails.
     pub sleeping_nodes: &'a mut HashMap<Uuid, SleepRequest>,
+    /// Reverse index of sleeping node IDs by executor for bulk cleanup when an instance fails.
     pub sleeping_by_instance: &'a mut HashMap<Uuid, HashSet<Uuid>>,
+    /// Earliest wake time currently blocking each executor from making progress.
     pub blocked_until_by_instance: &'a mut HashMap<Uuid, DateTime<Utc>>,
+    /// Tracks deferred instance events so failed instances can be fully removed.
     pub commit_barrier: &'a mut CommitBarrier<ShardStep>,
+    /// Failed instances reported by shards during the current coordinator tick.
     pub all_failed_instances: Vec<InstanceDone>,
+    /// Buffer of terminal instance outcomes that still need durable persistence.
     pub instances_done_pending: &'a mut Vec<InstanceDone>,
 }
 

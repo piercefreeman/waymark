@@ -13,11 +13,17 @@ use crate::{
 };
 
 pub struct Params<'a> {
+    /// Maps each active instance/executor to the shard currently responsible for it.
     pub executor_shards: &'a mut HashMap<Uuid, usize>,
+    /// Per-shard command channels used to forward accepted completions back to executors.
     pub shard_senders: &'a [std::sync::mpsc::Sender<ShardCommand>],
+    /// Counts how many action executions are still outstanding for each executor.
     pub inflight_actions: &'a mut HashMap<Uuid, usize>,
+    /// Tracks the currently valid dispatch token/attempt for each inflight action execution.
     pub inflight_dispatches: &'a mut HashMap<Uuid, InflightActionDispatch>,
+    /// Defers completions for instances that cannot advance until a persisted batch is acknowledged.
     pub commit_barrier: &'a mut CommitBarrier<ShardStep>,
+    /// Worker completions collected during the current coordinator tick.
     pub all_completions: Vec<ActionCompletion>,
 }
 

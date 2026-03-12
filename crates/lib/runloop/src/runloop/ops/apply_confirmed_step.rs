@@ -18,18 +18,31 @@ use crate::{
 };
 
 pub struct Params<'a, WorkerPool: ?Sized> {
+    /// Maps each active instance/executor to the shard currently responsible for it.
     pub executor_shards: &'a mut HashMap<Uuid, usize>,
+    /// Tracks which backend locks this runloop currently believes it owns.
     pub lock_tracker: &'a InstanceLockTracker,
+    /// Counts how many action executions are still outstanding for each executor.
     pub inflight_actions: &'a mut HashMap<Uuid, usize>,
+    /// Tracks the currently valid dispatch token/attempt for each inflight action execution.
     pub inflight_dispatches: &'a mut HashMap<Uuid, InflightActionDispatch>,
+    /// Active sleep requests keyed by execution node for registration and cleanup.
     pub sleeping_nodes: &'a mut HashMap<Uuid, SleepRequest>,
+    /// Reverse index of sleeping node IDs by executor for sleep bookkeeping and cleanup.
     pub sleeping_by_instance: &'a mut HashMap<Uuid, HashSet<Uuid>>,
+    /// Earliest wake time currently blocking each executor from making progress.
     pub blocked_until_by_instance: &'a mut HashMap<Uuid, DateTime<Utc>>,
+    /// Tracks deferred instance events so completed instances can be fully removed.
     pub commit_barrier: &'a mut CommitBarrier<ShardStep>,
+    /// Buffer of terminal instance outcomes that still need durable persistence.
     pub instances_done_pending: &'a mut Vec<InstanceDone>,
+    /// Channel used to enqueue future wake notifications for sleeping nodes.
     pub sleep_tx: &'a tokio::sync::mpsc::UnboundedSender<SleepWake>,
+    /// Worker pool used to dispatch actions from the confirmed step.
     pub worker_pool: &'a WorkerPool,
+    /// Test/debug knob that forces sleeps to wake immediately.
     pub skip_sleep: bool,
+    /// Confirmed shard step whose actions, sleeps, and terminal result should be applied.
     pub step: ShardStep,
 }
 

@@ -10,7 +10,9 @@ use waymark_worker_core::ActionCompletion;
 use crate::runloop::InflightActionDispatch;
 
 pub struct Params<'a> {
+    /// Completion batch being assembled for the current coordinator tick.
     pub all_completions: &'a mut Vec<ActionCompletion>,
+    /// Tracks the currently valid dispatch token, attempt, and deadline for inflight actions.
     pub inflight_dispatches: &'a HashMap<Uuid, InflightActionDispatch>,
 }
 
