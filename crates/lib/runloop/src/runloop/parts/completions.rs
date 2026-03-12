@@ -20,6 +20,20 @@ pub struct Context<'a> {
     pub commit_barrier: &'a mut CommitBarrier<ShardStep>,
 }
 
+/// Routes action completions to shards and maintains inflight tracking invariants.
+///
+/// **Why this part exists:** Workers complete actions asynchronously. The runloop must
+/// validate completions (correct attempt, still inflight), deduplicate retries, and route
+/// them to the correct shard for execution. It also respects commit barriers that may
+/// defer completions until other prerequisites finish.
+///
+/// **What it does:**
+/// - Validates each completion matches an inflight action (executor ID, attempt, token)
+/// - Drops stale or invalid completions with debug logging
+/// - Decrements inflight action counters, removing entries when exhausted
+/// - Routes through commit barrier for potential deferral (if instance is blocked)
+/// - Groups valid completions by shard and sends to shard workers
+/// - Logs warnings for unknown executor shards (indicates state inconsistency)
 pub fn handle(ctx: Context<'_>, all_completions: Vec<ActionCompletion>) {
     let Context {
         executor_shards,

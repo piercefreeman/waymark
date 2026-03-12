@@ -21,6 +21,21 @@ pub struct Context<'a> {
     pub commit_barrier: &'a mut CommitBarrier<ShardStep>,
 }
 
+/// Routes sleep wake events and recomputes instance blocking times.
+///
+/// **Why this part exists:** Instances blocked by sleep nodes become ready when
+/// their sleep deadline arrives. The runloop must route these ready nodes back to
+/// shards for continued execution and update blocking timestamps to reflect the
+/// next sleep deadline (if multiple nodes are sleeping).
+///
+/// **What it does:**
+/// - Filters wakes for nodes that are actually sleeping and have reached their deadline
+/// - Removes woken nodes from sleep tracking
+/// - For instances with multiple sleeping nodes, recomputes blocked_until to the
+///   earliest remaining wake time
+/// - Routes through commit barrier to check if instance can accept the wake
+/// - Groups woken nodes by shard and sends to shard workers
+/// - Cleans up empty instance entries from sleep tracking
 pub fn handle(ctx: Context<'_>, all_wakes: Vec<SleepWake>) {
     let Context {
         executor_shards,

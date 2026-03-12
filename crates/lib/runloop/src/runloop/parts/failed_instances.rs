@@ -26,6 +26,19 @@ pub struct Context<'a> {
     pub commit_barrier: &'a mut CommitBarrier<ShardStep>,
 }
 
+/// Cleans up all state for instances that failed during shard execution.
+///
+/// **Why this part exists:** When a shard encounters unrecoverable errors during
+/// processing, the entire instance must be marked failed and all associated state removed
+/// to prevent resource leaks and stale bookkeeping.
+///
+/// **What it does:** For each failed instance:
+/// - Removes from executor-to-shard mapping
+/// - Clears inflight action counters and dispatch tracking
+/// - Removes all associated sleep requests and wake tracking
+/// - Removes instance lock entries
+/// - Removes from commit barrier tracking
+/// - Adds instance to pending done buffer for persistence
 pub fn handle(
     ctx: Context<'_>,
 

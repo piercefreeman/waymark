@@ -28,6 +28,16 @@ pub enum Error {
     EvictInstance(#[source] crate::RunLoopError),
 }
 
+/// Evicts instances that have been sleeping too long.
+///
+/// **Why this part exists:** Instances sleeping for extended durations (e.g., indefinite
+/// waits on external events) consume resources without progress. This part proactively
+/// removes them to reclaim memory and allow the runloop to remain responsive.
+///
+/// **What it does:** Collects instances whose blocked_until time is in the past by
+/// more than the eviction threshold, then:
+/// - Batches them for efficient removal via the evict_instances operation
+/// - Cleaned-up state mirrors eviction: executor removal, lock release, backend persistence
 pub async fn handle<CoreBackend>(
     ctx: Context<'_>,
 

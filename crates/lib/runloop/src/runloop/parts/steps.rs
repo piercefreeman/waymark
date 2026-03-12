@@ -19,6 +19,19 @@ pub enum Error {
     SubmittingPersistBatch,
 }
 
+/// Routes completed shard steps through the commit barrier and into persistence.
+///
+/// **Why this part exists:** When shards emit steps (graph updates, action completion acks),
+/// they must be atomically persisted alongside other state changes. The commit barrier
+/// ensures that instances blocked by unmet prerequisites defer their steps until ready.
+///
+/// **What it does:**
+/// - Collects action completion acks and graph updates from all steps
+/// - Separates graph updates by instance (some instances may have updates, others not)
+/// - Routes through commit barrier to identify which steps can proceed immediately
+///   vs. which must defer until commits happen
+/// - Submits persisted/deferred steps to a persistence task for atomic durability
+/// - Returns errors only if communication with the persistence task fails
 pub async fn handle(ctx: Context<'_>, all_steps: Vec<ShardStep>) -> Result<(), Error> {
     let Context {
         commit_barrier,

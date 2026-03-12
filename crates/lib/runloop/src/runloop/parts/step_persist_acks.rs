@@ -37,6 +37,18 @@ pub struct Context<'a> {
     pub sleep_tx: &'a tokio::sync::mpsc::UnboundedSender<SleepWake>,
 }
 
+/// Processes persistence acknowledgments and unblocks deferred instance events.
+///
+/// **Why this part exists:** When steps are persisted to the backend, the persist task
+/// emits acks back to the runloop. These acks signal that the graph state is durable
+/// and previously deferred events (completions, wakes) can now be safe to process.
+///
+/// **What it does:**
+/// - Receives persistence acknowledgments for batches of instances
+/// - Collects any deferred completions and wakes that were staged during blocking
+/// - Immediately routes them back to their handlers (completions/wakes parts)
+/// - Maintains the invariant that no event is lost due to a crash:
+///   defered events are either persisted or deferred again until the next persist ack
 pub async fn handle<CoreBackend, WorkerPool>(
     ctx: Context<'_>,
 

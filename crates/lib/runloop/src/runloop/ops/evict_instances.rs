@@ -20,6 +20,16 @@ pub struct Context<'a> {
     pub blocked_until_by_instance: &'a mut HashMap<Uuid, DateTime<Utc>>,
 }
 
+/// Evicts instances from the runloop and releases their backend locks.
+///
+/// This operation removes an instance and all its associated state:
+/// - Removes from executor-to-shard mapping
+/// - Removes all inflight actions and sleep tracking for the instance
+/// - Sends eviction command to the shard to clean up local state
+/// - Releases locks held by the instance in the backend
+///
+/// Eviction occurs when instances have exceeded error thresholds, resource limits,
+/// or are explicitly terminated by callers.
 pub async fn run<CoreBackend>(
     ctx: Context<'_>,
 

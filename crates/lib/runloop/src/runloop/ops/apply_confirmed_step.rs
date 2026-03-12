@@ -30,6 +30,16 @@ pub struct Context<'a> {
     pub sleep_tx: &'a tokio::sync::mpsc::UnboundedSender<SleepWake>,
 }
 
+/// Applies a confirmed shard step by dispatching actions and registering sleep requests.
+///
+/// This operation is the primary mechanism for executing graph work. It:
+/// - Queues all actions in the step to the worker pool
+/// - Tracks action deadlines and attempt numbers for timeout detection
+/// - Registers sleep requests for waiting nodes, deduplicating if an earlier wake already exists
+/// - Updates instance blocking times to reflect when the next node can continue
+/// - Spawns background sleep timers that trigger wake events when ready
+///
+/// The `skip_sleep` flag is used during testing/debugging to immediately wake all sleeps.
 pub fn run<WorkerPool>(
     ctx: Context<'_>,
     worker_pool: &WorkerPool,

@@ -11,6 +11,17 @@ pub struct Context<'a, WorkflowRegistryBackend: ?Sized> {
     pub registry_backend: &'a WorkflowRegistryBackend,
 }
 
+/// Loads and caches workflow DAG definitions for instances.
+///
+/// Before instances can be executed, their workflow definitions must be fetched and
+/// converted to executable DAGs. This operation:
+/// - Identifies instances missing their DAG from the cache
+/// - Batch-fetches missing workflow versions from the backend
+/// - Parses IR protobuf and converts to executable DAG representation
+/// - Caches DAGs for reuse across instances with the same workflow version
+/// - Attaches DAG references to instances for shard execution
+///
+/// Caching avoids repeated fetches for workflows used by multiple instances.
 pub async fn run<WorkflowRegistryBackend>(
     ctx: Context<'_, WorkflowRegistryBackend>,
     instances: &mut [QueuedInstance],

@@ -9,6 +9,16 @@ use waymark_worker_core::ActionCompletion;
 
 use crate::runloop::InflightActionDispatch;
 
+/// Detects timed-out actions and prepends synthetic timeout completions.
+///
+/// **Why this part exists:** Actions have optional deadlines. If they don't complete within
+/// the timeout window, the runloop must inject a timeout exception as if the worker had
+/// returned a failure result. This allows workflows to handle timeouts gracefully.
+///
+/// **What it does:** Scans all inflight actions for past deadlines, creates synthetic
+/// timeout completion results with metadata (timeout duration, attempt number), and
+/// prepends them to the completion batch. Prepending ensures timeouts are processed before
+/// other completions, maintaining FIFO semantics where relevant.
 pub fn prepend_timeout_completions_from_inflight_dispatches(
     all_completions: &mut Vec<ActionCompletion>,
     inflight_dispatches: &HashMap<Uuid, InflightActionDispatch>,

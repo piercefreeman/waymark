@@ -36,6 +36,20 @@ pub enum Error {
     Hydrate(#[source] crate::RunLoopError),
 }
 
+/// Registers new instances into the runloop and initializes their state.
+///
+/// **Why this part exists:** New instances must be loaded from the backend, hydrated
+/// with workflow definitions, assigned to shards, locked in the backend, and tracked
+/// in the runloop's bookkeeping structures before they can execute.
+///
+/// **What it does:**
+/// - Hydrates instances with their workflow DAGs (fetching from backend if needed)
+/// - Determines initial "blocked_until" (when instance can first run)
+/// - Distributes instances across shards in round-robin for load balancing
+/// - Acquires backend locks to prevent concurrent execution of the same instance
+/// - Initializes state mappings: executor-to-shard, inflight tracking, sleep tracking
+/// - Registers in commit barrier for state coordination
+/// - Sends instances to assigned shards for execution
 pub async fn handle<WorkflowRegistryBackend>(
     ctx: Context<'_, WorkflowRegistryBackend>,
 
