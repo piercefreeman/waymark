@@ -255,6 +255,111 @@ fn main(input: [x], output: [y]):
 }
 
 #[tokio::test]
+async fn test_runloop_executes_sleep_then_action_with_skip_sleep() {
+    let source = r#"
+fn main(input: [x], output: [y]):
+    sleep 5
+    y = @tests.fixtures.test_actions.double(value=x)
+    return y
+"#;
+    let program = parse_program(source.trim()).expect("parse program");
+    let program_proto = program.encode_to_vec();
+    let ir_hash = format!("{:x}", Sha256::digest(&program_proto));
+    let dag = Arc::new(convert_to_dag(&program).expect("convert to dag"));
+
+    let mut state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
+    let _ = state
+        .record_assignment(
+            vec!["x".to_string()],
+            &ir::Expr {
+                kind: Some(ir::expr::Kind::Literal(ir::Literal {
+                    value: Some(ir::literal::Value::IntValue(3)),
+                })),
+                span: None,
+            },
+            None,
+            Some("input x = 3".to_string()),
+        )
+        .expect("record assignment");
+    let entry_node = dag
+        .entry_node
+        .as_ref()
+        .expect("DAG entry node not found")
+        .clone();
+    let entry_exec = state
+        .queue_template_node(&entry_node, None)
+        .expect("queue entry node");
+
+    let queue = Arc::new(Mutex::new(VecDeque::new()));
+    let backend = MemoryBackend::with_queue(queue.clone());
+    let workflow_version_id = backend
+        .upsert_workflow_version(&WorkflowRegistration {
+            workflow_name: "test_sleep_then_action".to_string(),
+            workflow_version: ir_hash.clone(),
+            ir_hash,
+            program_proto,
+            concurrent: false,
+        })
+        .await
+        .expect("register workflow version");
+
+    let mut actions: HashMap<String, ActionCallable> = HashMap::new();
+    actions.insert(
+        "double".to_string(),
+        Arc::new(|kwargs| {
+            Box::pin(async move {
+                let value = kwargs
+                    .get("value")
+                    .and_then(|value| value.as_i64())
+                    .unwrap_or(0);
+                Ok(Value::Number((value * 2).into()))
+            })
+        }),
+    );
+    let worker_pool = waymark_worker_inline::InlineWorkerPool::new(actions);
+
+    let mut runloop = RunLoop::new(
+        worker_pool,
+        backend.clone(),
+        RunLoopConfig {
+            max_concurrent_instances: 25,
+            executor_shards: 1,
+            instance_done_batch_size: None,
+            poll_interval: Duration::from_secs_f64(0.0),
+            persistence_interval: Duration::from_secs_f64(0.1),
+            lock_uuid: Uuid::new_v4(),
+            lock_ttl: Duration::from_secs(15),
+            lock_heartbeat: Duration::from_secs(5),
+            evict_sleep_threshold: Duration::from_secs(10),
+            skip_sleep: true,
+            active_instance_gauge: None,
+        },
+    );
+    queue.lock().expect("queue lock").push_back(QueuedInstance {
+        workflow_version_id,
+        schedule_id: None,
+        dag: None,
+        entry_node: entry_exec.node_id,
+        state: Some(state),
+        action_results: HashMap::new(),
+        instance_id: Uuid::new_v4(),
+        scheduled_at: None,
+    });
+
+    runloop.run().await.expect("runloop");
+
+    let instances_done = backend.instances_done();
+    assert_eq!(instances_done.len(), 1);
+    let Value::Object(map) = instances_done[0].result.clone().expect("instance result") else {
+        panic!("expected output object");
+    };
+    assert_eq!(map.get("y"), Some(&Value::Number(6.into())));
+
+    let actions_done = backend.actions_done();
+    assert_eq!(actions_done.len(), 1, "action after sleep should execute");
+}
+
+#[tokio::test]
 async fn test_runloop_times_out_action_and_persists_timestamps() {
     let source = r#"
 fn main(input: [], output: [y]):
