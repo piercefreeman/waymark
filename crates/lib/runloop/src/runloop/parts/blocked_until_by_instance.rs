@@ -72,7 +72,7 @@ where
         })
         .collect();
     if !evict_ids.is_empty() {
-        let ctx = super::ops::EvictInstancesContext {
+        let ctx = super::ops::evict_instances::EvictInstancesContext {
             executor_shards,
             shard_senders,
             lock_tracker,
@@ -82,7 +82,7 @@ where
             sleeping_by_instance,
             blocked_until_by_instance,
         };
-        super::ops::evict_instances(ctx, core_backend, lock_uuid, &evict_ids)
+        super::ops::evict_instances::evict_instances(ctx, core_backend, lock_uuid, &evict_ids)
             .await
             .map_err(Error::EvictInstance)?;
 

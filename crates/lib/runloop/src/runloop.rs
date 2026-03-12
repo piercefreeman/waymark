@@ -36,7 +36,7 @@ use waymark_worker_core::{ActionCompletion, ActionRequest, BaseWorkerPool, Worke
 mod tests;
 
 mod parts {
-    use super::*;
+    use super::ops;
 
     pub mod blocked_until_by_instance;
     pub mod completions;
@@ -48,9 +48,15 @@ mod parts {
     pub mod wakes;
 }
 
+mod ops {
+    pub mod apply_confirmed_step;
+    pub mod evict_instances;
+    pub mod flush_instances_done;
+    pub mod hydrate_instances;
+}
+
 mod channel_utils;
 mod lock_utils;
-mod ops;
 
 /// Raised when the run loop cannot coordinate execution.
 #[derive(Debug, thiserror::Error)]
@@ -904,7 +910,11 @@ impl RunLoop {
                 }
                 _ = persistence_tick.tick() => {
                     if self.persistence_interval > Duration::ZERO {
-                        ops::flush_instances_done(self.core_backend.as_ref(), &mut instances_done_pending).await?;
+                        ops::flush_instances_done::flush_instances_done(
+                            self.core_backend.as_ref(),
+                            &mut instances_done_pending,
+                        )
+                        .await?;
                     }
                     None
                 }
@@ -1196,7 +1206,7 @@ impl RunLoop {
             self.store_available_instance_slots(&available_instance_slots, executor_shards.len());
 
             if instances_done_pending.len() >= self.instance_done_batch_size
-                && let Err(err) = ops::flush_instances_done(
+                && let Err(err) = ops::flush_instances_done::flush_instances_done(
                     self.core_backend.as_ref(),
                     &mut instances_done_pending,
                 )
@@ -1230,9 +1240,11 @@ impl RunLoop {
         let _ = instance_handle.await;
         let _ = lock_handle.await;
         if run_result.is_ok()
-            && let Err(err) =
-                ops::flush_instances_done(self.core_backend.as_ref(), &mut instances_done_pending)
-                    .await
+            && let Err(err) = ops::flush_instances_done::flush_instances_done(
+                self.core_backend.as_ref(),
+                &mut instances_done_pending,
+            )
+            .await
         {
             run_result = Err(err);
         }

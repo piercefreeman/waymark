@@ -73,12 +73,12 @@ where
 
     *instances_idle = false;
 
-    let ctx = super::ops::HydrateInstancesContext {
+    let ctx = super::ops::hydrate_instances::HydrateInstancesContext {
         workflow_cache,
         registry_backend,
     };
 
-    super::ops::hydrate_instances(ctx, &mut all_instances)
+    super::ops::hydrate_instances::hydrate_instances(ctx, &mut all_instances)
         .await
         .map_err(Error::Hydrate)?;
     debug!(count = all_instances.len(), "hydrated queued instances");
