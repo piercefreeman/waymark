@@ -4,12 +4,12 @@ use chrono::{DateTime, Utc};
 use uuid::Uuid;
 use waymark_core_backend::InstanceDone;
 use waymark_runner::SleepRequest;
-use waymark_worker_core::ActionRequest;
+use waymark_worker_core::{ActionRequest, WorkerPoolError};
 
 use crate::commit_barrier::CommitBarrier;
 use crate::lock::InstanceLockTracker;
-use crate::runloop::test_support::{NoOpPool, empty_kwargs};
-use crate::runloop::{InflightActionDispatch, ShardStep, SleepWake};
+use crate::runloop::test_support::{MockWorkerPool, empty_kwargs};
+use crate::runloop::{InflightActionDispatch, RunLoopError, ShardStep, SleepWake};
 
 #[tokio::test]
 async fn records_action_dispatch() {
@@ -45,6 +45,19 @@ async fn records_action_dispatch() {
         instance_done: None,
     };
 
+    let mut worker_pool = MockWorkerPool::new();
+    worker_pool
+        .expect_queue()
+        .times(1)
+        .withf(move |request| {
+            request.executor_id == executor_id
+                && request.execution_id == execution_id
+                && request.dispatch_token == dispatch_token
+                && request.timeout_seconds == 0
+                && request.attempt_number == 1
+        })
+        .returning(|_| Ok(()));
+
     let ctx = super::Context {
         executor_shards: &mut executor_shards,
         lock_tracker: &lock_tracker,
@@ -57,7 +70,7 @@ async fn records_action_dispatch() {
         instances_done_pending: &mut instances_done_pending,
         sleep_tx: &sleep_tx,
     };
-    super::run(ctx, &NoOpPool, false, step).expect("apply step");
+    super::run(ctx, &worker_pool, false, step).expect("apply step");
 
     assert_eq!(inflight_actions.get(&executor_id), Some(&1));
     let dispatch = inflight_dispatches
@@ -67,6 +80,68 @@ async fn records_action_dispatch() {
     assert_eq!(dispatch.attempt_number, 1);
     assert_eq!(dispatch.dispatch_token, dispatch_token);
     assert!(dispatch.deadline_at.is_none());
+}
+
+#[tokio::test]
+async fn queue_error_is_returned() {
+    let executor_id = Uuid::new_v4();
+    let execution_id = Uuid::new_v4();
+
+    let mut executor_shards = HashMap::from([(executor_id, 0usize)]);
+    let lock_tracker = InstanceLockTracker::new(Uuid::new_v4());
+    let mut inflight_actions: HashMap<Uuid, usize> = HashMap::new();
+    let mut inflight_dispatches: HashMap<Uuid, InflightActionDispatch> = HashMap::new();
+    let mut sleeping_nodes: HashMap<Uuid, SleepRequest> = HashMap::new();
+    let mut sleeping_by_instance: HashMap<Uuid, HashSet<Uuid>> = HashMap::new();
+    let mut blocked_until: HashMap<Uuid, DateTime<Utc>> = HashMap::new();
+    let mut barrier: CommitBarrier<ShardStep> = CommitBarrier::new();
+    let mut instances_done_pending: Vec<InstanceDone> = Vec::new();
+    let (sleep_tx, _sleep_rx) = tokio::sync::mpsc::unbounded_channel::<SleepWake>();
+
+    let step = ShardStep {
+        executor_id,
+        actions: vec![ActionRequest {
+            executor_id,
+            execution_id,
+            action_name: "failing_action".to_string(),
+            module_name: None,
+            kwargs: empty_kwargs(),
+            timeout_seconds: 0,
+            attempt_number: 1,
+            dispatch_token: Uuid::new_v4(),
+        }],
+        sleep_requests: vec![],
+        updates: None,
+        instance_done: None,
+    };
+
+    let mut worker_pool = MockWorkerPool::new();
+    worker_pool
+        .expect_queue()
+        .times(1)
+        .returning(|_| Err(WorkerPoolError::new("MockQueueError", "mock queue failure")));
+
+    let ctx = super::Context {
+        executor_shards: &mut executor_shards,
+        lock_tracker: &lock_tracker,
+        inflight_actions: &mut inflight_actions,
+        inflight_dispatches: &mut inflight_dispatches,
+        sleeping_nodes: &mut sleeping_nodes,
+        sleeping_by_instance: &mut sleeping_by_instance,
+        blocked_until_by_instance: &mut blocked_until,
+        commit_barrier: &mut barrier,
+        instances_done_pending: &mut instances_done_pending,
+        sleep_tx: &sleep_tx,
+    };
+
+    let err = super::run(ctx, &worker_pool, false, step).expect_err("queue should fail");
+    match err {
+        RunLoopError::WorkerPool(pool_err) => {
+            assert_eq!(pool_err.kind, "MockQueueError");
+            assert_eq!(pool_err.message, "mock queue failure");
+        }
+        _ => panic!("expected worker pool error"),
+    }
 }
 
 #[tokio::test]
@@ -102,6 +177,18 @@ async fn timeout_sets_deadline() {
         instance_done: None,
     };
 
+    let mut worker_pool = MockWorkerPool::new();
+    worker_pool
+        .expect_queue()
+        .times(1)
+        .withf(move |request| {
+            request.executor_id == executor_id
+                && request.execution_id == execution_id
+                && request.timeout_seconds == 30
+                && request.attempt_number == 1
+        })
+        .returning(|_| Ok(()));
+
     let before = Utc::now();
     let ctx = super::Context {
         executor_shards: &mut executor_shards,
@@ -115,7 +202,7 @@ async fn timeout_sets_deadline() {
         instances_done_pending: &mut instances_done_pending,
         sleep_tx: &sleep_tx,
     };
-    super::run(ctx, &NoOpPool, false, step).expect("apply step");
+    super::run(ctx, &worker_pool, false, step).expect("apply step");
 
     let dispatch = inflight_dispatches
         .get(&execution_id)
@@ -177,6 +264,9 @@ async fn instance_done_removes_executor_state() {
         }),
     };
 
+    let mut worker_pool = MockWorkerPool::new();
+    worker_pool.expect_queue().never();
+
     let ctx = super::Context {
         executor_shards: &mut executor_shards,
         lock_tracker: &lock_tracker,
@@ -189,7 +279,7 @@ async fn instance_done_removes_executor_state() {
         instances_done_pending: &mut instances_done_pending,
         sleep_tx: &sleep_tx,
     };
-    super::run(ctx, &NoOpPool, false, step).expect("apply step");
+    super::run(ctx, &worker_pool, false, step).expect("apply step");
 
     assert!(!executor_shards.contains_key(&executor_id));
     assert!(!inflight_actions.contains_key(&executor_id));
@@ -226,6 +316,9 @@ async fn sleep_request_registers_node() {
         instance_done: None,
     };
 
+    let mut worker_pool = MockWorkerPool::new();
+    worker_pool.expect_queue().never();
+
     let ctx = super::Context {
         executor_shards: &mut executor_shards,
         lock_tracker: &lock_tracker,
@@ -238,7 +331,7 @@ async fn sleep_request_registers_node() {
         instances_done_pending: &mut instances_done_pending,
         sleep_tx: &sleep_tx,
     };
-    super::run(ctx, &NoOpPool, false, step).expect("apply step");
+    super::run(ctx, &worker_pool, false, step).expect("apply step");
 
     let registered = sleeping_nodes
         .get(&node_id)

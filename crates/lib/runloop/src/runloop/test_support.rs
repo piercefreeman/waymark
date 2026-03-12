@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
 
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
@@ -6,18 +8,15 @@ use waymark_worker_core::{ActionCompletion, ActionRequest, BaseWorkerPool, Worke
 
 use crate::runloop::InflightActionDispatch;
 
-pub struct NoOpPool;
+mockall::mock! {
+    pub WorkerPool {}
 
-impl BaseWorkerPool for NoOpPool {
-    fn queue(&self, _request: ActionRequest) -> Result<(), WorkerPoolError> {
-        Ok(())
-    }
+    impl BaseWorkerPool for WorkerPool {
+        fn queue(&self, request: ActionRequest) -> Result<(), WorkerPoolError>;
 
-    fn get_complete<'a>(
-        &'a self,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Vec<ActionCompletion>> + Send + 'a>>
-    {
-        Box::pin(std::future::ready(vec![]))
+        fn get_complete<'a>(
+            &'a self,
+        ) -> Pin<Box<dyn Future<Output = Vec<ActionCompletion>> + Send + 'a>>;
     }
 }
 
