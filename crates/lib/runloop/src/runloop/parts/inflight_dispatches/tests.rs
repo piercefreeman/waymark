@@ -4,7 +4,7 @@ use chrono::Utc;
 use uuid::Uuid;
 use waymark_worker_core::ActionCompletion;
 
-use crate::runloop::test_support::make_inflight_dispatch;
+use crate::runloop::InflightActionDispatch;
 
 #[test]
 fn no_deadline_not_timed_out() {
@@ -12,7 +12,13 @@ fn no_deadline_not_timed_out() {
     let execution_id = Uuid::new_v4();
     let dispatches = HashMap::from([(
         execution_id,
-        make_inflight_dispatch(executor_id, Uuid::new_v4(), 1, 0, None),
+        InflightActionDispatch {
+            executor_id,
+            attempt_number: 1,
+            dispatch_token: Uuid::new_v4(),
+            timeout_seconds: 0,
+            deadline_at: None,
+        },
     )]);
     let mut completions: Vec<ActionCompletion> = Vec::new();
 
@@ -31,13 +37,13 @@ fn past_deadline_generates_timeout_completion() {
     let dispatch_token = Uuid::new_v4();
     let dispatches = HashMap::from([(
         execution_id,
-        make_inflight_dispatch(
+        InflightActionDispatch {
             executor_id,
+            attempt_number: 2,
             dispatch_token,
-            2,
-            10,
-            Some(Utc::now() - chrono::Duration::seconds(5)),
-        ),
+            timeout_seconds: 10,
+            deadline_at: Some(Utc::now() - chrono::Duration::seconds(5)),
+        },
     )]);
     let mut completions: Vec<ActionCompletion> = Vec::new();
 
@@ -64,13 +70,13 @@ fn future_deadline_not_timed_out() {
     let execution_id = Uuid::new_v4();
     let dispatches = HashMap::from([(
         execution_id,
-        make_inflight_dispatch(
+        InflightActionDispatch {
             executor_id,
-            Uuid::new_v4(),
-            1,
-            60,
-            Some(Utc::now() + chrono::Duration::seconds(60)),
-        ),
+            attempt_number: 1,
+            dispatch_token: Uuid::new_v4(),
+            timeout_seconds: 60,
+            deadline_at: Some(Utc::now() + chrono::Duration::seconds(60)),
+        },
     )]);
     let mut completions: Vec<ActionCompletion> = Vec::new();
 
@@ -90,13 +96,13 @@ fn timeout_is_prepended_before_existing_completions() {
     let dispatch_token = Uuid::new_v4();
     let dispatches = HashMap::from([(
         timed_out_execution_id,
-        make_inflight_dispatch(
+        InflightActionDispatch {
             executor_id,
+            attempt_number: 1,
             dispatch_token,
-            1,
-            5,
-            Some(Utc::now() - chrono::Duration::seconds(1)),
-        ),
+            timeout_seconds: 5,
+            deadline_at: Some(Utc::now() - chrono::Duration::seconds(1)),
+        },
     )]);
     let existing = ActionCompletion {
         executor_id,
@@ -124,13 +130,13 @@ fn timeout_completion_contains_attempt_and_timeout_seconds_fields() {
     let dispatch_token = Uuid::new_v4();
     let dispatches = HashMap::from([(
         execution_id,
-        make_inflight_dispatch(
+        InflightActionDispatch {
             executor_id,
+            attempt_number: 3,
             dispatch_token,
-            3,
-            12,
-            Some(Utc::now() - chrono::Duration::seconds(1)),
-        ),
+            timeout_seconds: 12,
+            deadline_at: Some(Utc::now() - chrono::Duration::seconds(1)),
+        },
     )]);
     let mut completions: Vec<ActionCompletion> = Vec::new();
 

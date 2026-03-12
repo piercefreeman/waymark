@@ -8,9 +8,7 @@ use waymark_worker_core::{ActionRequest, WorkerPoolError};
 
 use crate::commit_barrier::CommitBarrier;
 use crate::lock::InstanceLockTracker;
-use crate::runloop::test_support::{
-    MockWorkerPool, assert_no_extra_worker_pool_calls, empty_kwargs,
-};
+use crate::runloop::test_support::{MockWorkerPool, assert_no_extra_worker_pool_calls};
 use crate::runloop::{InflightActionDispatch, RunLoopError, ShardStep, SleepWake};
 
 #[tokio::test]
@@ -37,7 +35,7 @@ async fn records_action_dispatch() {
             execution_id,
             action_name: "my_action".to_string(),
             module_name: None,
-            kwargs: empty_kwargs(),
+            kwargs: HashMap::new(),
             timeout_seconds: 0,
             attempt_number: 1,
             dispatch_token,
@@ -112,7 +110,7 @@ async fn queue_error_is_returned() {
             execution_id,
             action_name: "failing_action".to_string(),
             module_name: None,
-            kwargs: empty_kwargs(),
+            kwargs: HashMap::new(),
             timeout_seconds: 0,
             attempt_number: 1,
             dispatch_token: Uuid::new_v4(),
@@ -179,7 +177,7 @@ async fn timeout_sets_deadline() {
             execution_id,
             action_name: "timed_action".to_string(),
             module_name: None,
-            kwargs: empty_kwargs(),
+            kwargs: HashMap::new(),
             timeout_seconds: 30,
             attempt_number: 1,
             dispatch_token: Uuid::new_v4(),

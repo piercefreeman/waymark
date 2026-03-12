@@ -4,7 +4,6 @@ use std::sync::mpsc;
 use uuid::Uuid;
 
 use crate::commit_barrier::CommitBarrier;
-use crate::runloop::test_support::{make_action_completion, make_inflight_dispatch};
 use crate::runloop::{InflightActionDispatch, ShardCommand, ShardStep};
 
 #[test]
@@ -26,12 +25,13 @@ fn drops_unknown_execution_id() {
         inflight_actions: &mut inflight_actions,
         inflight_dispatches: &mut inflight_dispatches,
         commit_barrier: &mut barrier,
-        all_completions: vec![make_action_completion(
+        all_completions: vec![waymark_worker_core::ActionCompletion {
             executor_id,
             execution_id,
+            attempt_number: 1,
             dispatch_token,
-            1,
-        )],
+            result: serde_json::json!(null),
+        }],
     });
 
     assert_eq!(
@@ -54,7 +54,13 @@ fn drops_mismatched_executor_id() {
     let mut inflight_actions = HashMap::from([(executor_id, 1usize)]);
     let mut inflight_dispatches = HashMap::from([(
         execution_id,
-        make_inflight_dispatch(executor_id, dispatch_token, 1, 0, None),
+        InflightActionDispatch {
+            executor_id,
+            attempt_number: 1,
+            dispatch_token,
+            timeout_seconds: 0,
+            deadline_at: None,
+        },
     )]);
     let mut barrier: CommitBarrier<ShardStep> = CommitBarrier::new();
 
@@ -64,12 +70,13 @@ fn drops_mismatched_executor_id() {
         inflight_actions: &mut inflight_actions,
         inflight_dispatches: &mut inflight_dispatches,
         commit_barrier: &mut barrier,
-        all_completions: vec![make_action_completion(
-            other_executor,
+        all_completions: vec![waymark_worker_core::ActionCompletion {
+            executor_id: other_executor,
             execution_id,
+            attempt_number: 1,
             dispatch_token,
-            1,
-        )],
+            result: serde_json::json!(null),
+        }],
     });
 
     assert!(
@@ -91,7 +98,13 @@ fn drops_stale_dispatch_token() {
     let mut inflight_actions = HashMap::from([(executor_id, 1usize)]);
     let mut inflight_dispatches = HashMap::from([(
         execution_id,
-        make_inflight_dispatch(executor_id, dispatch_token, 1, 0, None),
+        InflightActionDispatch {
+            executor_id,
+            attempt_number: 1,
+            dispatch_token,
+            timeout_seconds: 0,
+            deadline_at: None,
+        },
     )]);
     let mut barrier: CommitBarrier<ShardStep> = CommitBarrier::new();
 
@@ -101,12 +114,13 @@ fn drops_stale_dispatch_token() {
         inflight_actions: &mut inflight_actions,
         inflight_dispatches: &mut inflight_dispatches,
         commit_barrier: &mut barrier,
-        all_completions: vec![make_action_completion(
+        all_completions: vec![waymark_worker_core::ActionCompletion {
             executor_id,
             execution_id,
-            stale_token,
-            1,
-        )],
+            attempt_number: 1,
+            dispatch_token: stale_token,
+            result: serde_json::json!(null),
+        }],
     });
 
     assert!(
@@ -128,7 +142,13 @@ fn drops_stale_attempt_number() {
     let mut inflight_actions = HashMap::from([(executor_id, 1usize)]);
     let mut inflight_dispatches = HashMap::from([(
         execution_id,
-        make_inflight_dispatch(executor_id, dispatch_token, 2, 0, None),
+        InflightActionDispatch {
+            executor_id,
+            attempt_number: 2,
+            dispatch_token,
+            timeout_seconds: 0,
+            deadline_at: None,
+        },
     )]);
     let mut barrier: CommitBarrier<ShardStep> = CommitBarrier::new();
 
@@ -138,12 +158,13 @@ fn drops_stale_attempt_number() {
         inflight_actions: &mut inflight_actions,
         inflight_dispatches: &mut inflight_dispatches,
         commit_barrier: &mut barrier,
-        all_completions: vec![make_action_completion(
+        all_completions: vec![waymark_worker_core::ActionCompletion {
             executor_id,
             execution_id,
+            attempt_number: 1,
             dispatch_token,
-            1,
-        )],
+            result: serde_json::json!(null),
+        }],
     });
 
     assert!(
@@ -165,7 +186,13 @@ fn valid_decrements_inflight_and_routes_to_shard() {
     let mut inflight_actions = HashMap::from([(executor_id, 1usize)]);
     let mut inflight_dispatches = HashMap::from([(
         execution_id,
-        make_inflight_dispatch(executor_id, dispatch_token, 1, 0, None),
+        InflightActionDispatch {
+            executor_id,
+            attempt_number: 1,
+            dispatch_token,
+            timeout_seconds: 0,
+            deadline_at: None,
+        },
     )]);
     let mut barrier: CommitBarrier<ShardStep> = CommitBarrier::new();
 
@@ -175,12 +202,13 @@ fn valid_decrements_inflight_and_routes_to_shard() {
         inflight_actions: &mut inflight_actions,
         inflight_dispatches: &mut inflight_dispatches,
         commit_barrier: &mut barrier,
-        all_completions: vec![make_action_completion(
+        all_completions: vec![waymark_worker_core::ActionCompletion {
             executor_id,
             execution_id,
+            attempt_number: 1,
             dispatch_token,
-            1,
-        )],
+            result: serde_json::json!(null),
+        }],
     });
 
     assert!(
@@ -212,7 +240,13 @@ fn blocked_instance_defers_completion_until_unblock() {
     let mut inflight_actions = HashMap::from([(executor_id, 1usize)]);
     let mut inflight_dispatches = HashMap::from([(
         execution_id,
-        make_inflight_dispatch(executor_id, dispatch_token, 1, 0, None),
+        InflightActionDispatch {
+            executor_id,
+            attempt_number: 1,
+            dispatch_token,
+            timeout_seconds: 0,
+            deadline_at: None,
+        },
     )]);
     let mut barrier: CommitBarrier<ShardStep> = CommitBarrier::new();
     barrier.register_batch(HashSet::from([executor_id]), vec![]);
@@ -223,12 +257,13 @@ fn blocked_instance_defers_completion_until_unblock() {
         inflight_actions: &mut inflight_actions,
         inflight_dispatches: &mut inflight_dispatches,
         commit_barrier: &mut barrier,
-        all_completions: vec![make_action_completion(
+        all_completions: vec![waymark_worker_core::ActionCompletion {
             executor_id,
             execution_id,
+            attempt_number: 1,
             dispatch_token,
-            1,
-        )],
+            result: serde_json::json!(null),
+        }],
     });
 
     assert!(
@@ -260,7 +295,13 @@ fn accepted_completion_for_unknown_shard_is_dropped_after_accounting() {
     let mut inflight_actions = HashMap::from([(executor_id, 1usize)]);
     let mut inflight_dispatches = HashMap::from([(
         execution_id,
-        make_inflight_dispatch(executor_id, dispatch_token, 1, 0, None),
+        InflightActionDispatch {
+            executor_id,
+            attempt_number: 1,
+            dispatch_token,
+            timeout_seconds: 0,
+            deadline_at: None,
+        },
     )]);
     let mut barrier: CommitBarrier<ShardStep> = CommitBarrier::new();
 
@@ -270,12 +311,13 @@ fn accepted_completion_for_unknown_shard_is_dropped_after_accounting() {
         inflight_actions: &mut inflight_actions,
         inflight_dispatches: &mut inflight_dispatches,
         commit_barrier: &mut barrier,
-        all_completions: vec![make_action_completion(
+        all_completions: vec![waymark_worker_core::ActionCompletion {
             executor_id,
             execution_id,
+            attempt_number: 1,
             dispatch_token,
-            1,
-        )],
+            result: serde_json::json!(null),
+        }],
     });
 
     assert!(
