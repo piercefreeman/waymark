@@ -10,4 +10,5 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }
 waymark-dag = { workspace = true }
+waymark-ir-conversions = { workspace = true }
 waymark-proto = { workspace = true }
