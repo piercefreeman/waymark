@@ -8,7 +8,9 @@ use waymark_worker_core::{ActionRequest, WorkerPoolError};
 
 use crate::commit_barrier::CommitBarrier;
 use crate::lock::InstanceLockTracker;
-use crate::runloop::test_support::{MockWorkerPool, empty_kwargs};
+use crate::runloop::test_support::{
+    MockWorkerPool, assert_no_extra_worker_pool_calls, empty_kwargs,
+};
 use crate::runloop::{InflightActionDispatch, RunLoopError, ShardStep, SleepWake};
 
 #[tokio::test]
@@ -83,6 +85,8 @@ async fn records_action_dispatch() {
     assert_eq!(dispatch.attempt_number, 1);
     assert_eq!(dispatch.dispatch_token, dispatch_token);
     assert!(dispatch.deadline_at.is_none());
+
+    assert_no_extra_worker_pool_calls(&mut worker_pool);
 }
 
 #[tokio::test]
@@ -148,6 +152,8 @@ async fn queue_error_is_returned() {
         }
         _ => panic!("expected worker pool error"),
     }
+
+    assert_no_extra_worker_pool_calls(&mut worker_pool);
 }
 
 #[tokio::test]
@@ -223,6 +229,8 @@ async fn timeout_sets_deadline() {
         deadline >= expected_min && deadline <= expected_max,
         "deadline should be ~30s from dispatch time"
     );
+
+    assert_no_extra_worker_pool_calls(&mut worker_pool);
 }
 
 #[tokio::test]
@@ -301,6 +309,8 @@ async fn instance_done_removes_executor_state() {
     assert!(!blocked_until.contains_key(&executor_id));
     assert_eq!(instances_done_pending.len(), 1);
     assert_eq!(instances_done_pending[0].executor_id, executor_id);
+
+    assert_no_extra_worker_pool_calls(&mut worker_pool);
 }
 
 #[tokio::test]
@@ -359,6 +369,8 @@ async fn sleep_request_registers_node() {
         "instance should track its sleeping node"
     );
     assert_eq!(blocked_until.get(&executor_id), Some(&wake_at));
+
+    assert_no_extra_worker_pool_calls(&mut worker_pool);
 }
 
 #[tokio::test]
@@ -419,6 +431,8 @@ async fn skip_sleep_overrides_wake_to_now() {
         "skip_sleep should clamp wake_at to now"
     );
     assert_eq!(blocked_until.get(&executor_id), Some(&recorded_wake));
+
+    assert_no_extra_worker_pool_calls(&mut worker_pool);
 }
 
 #[tokio::test]
@@ -484,4 +498,6 @@ async fn later_duplicate_sleep_request_keeps_existing_earlier_wake() {
         "existing earlier wake should be preserved"
     );
     assert_eq!(blocked_until.get(&executor_id), Some(&existing_wake));
+
+    assert_no_extra_worker_pool_calls(&mut worker_pool);
 }

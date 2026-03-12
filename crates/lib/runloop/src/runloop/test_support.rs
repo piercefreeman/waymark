@@ -54,3 +54,7 @@ pub fn make_action_completion(
 pub fn empty_kwargs() -> HashMap<String, serde_json::Value> {
     HashMap::new()
 }
+
+pub fn assert_no_extra_worker_pool_calls(worker_pool: &mut MockWorkerPool) {
+    worker_pool.checkpoint();
+}
