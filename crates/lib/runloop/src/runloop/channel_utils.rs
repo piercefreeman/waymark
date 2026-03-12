@@ -82,4 +82,39 @@ mod tests {
         let received = rx.recv().await.expect("queued message");
         assert_eq!(received, 42);
     }
+
+    #[tokio::test]
+    async fn send_fails_when_receiver_dropped() {
+        let (tx, rx) = tokio::sync::mpsc::channel::<u32>(1);
+        drop(rx); // close receiver
+
+        let shutdown_token = tokio_util::sync::CancellationToken::new();
+        let sent = send_with_stop(&tx, 99, shutdown_token.cancelled(), "test message").await;
+        assert!(!sent, "send should fail when receiver is dropped");
+    }
+
+    #[tokio::test]
+    async fn send_blocks_when_channel_full() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<u32>(1);
+        // Fill the bounded channel
+        tx.send(1).await.expect("fill channel");
+
+        let shutdown_token = tokio_util::sync::CancellationToken::new();
+        let send_task = tokio::spawn({
+            let tx = tx.clone();
+            let shutdown_token = shutdown_token.clone();
+            async move { send_with_stop(&tx, 2, shutdown_token.cancelled(), "test message").await }
+        });
+
+        // Give send a chance to block
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        // Unblock by draining
+        let _ = rx.recv().await;
+
+        let sent = tokio::time::timeout(Duration::from_millis(300), send_task)
+            .await
+            .expect("send task should complete")
+            .expect("send task should not panic");
+        assert!(sent, "send should succeed once channel has capacity");
+    }
 }
