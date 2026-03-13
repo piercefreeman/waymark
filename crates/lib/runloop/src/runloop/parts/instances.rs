@@ -147,6 +147,7 @@ where
         claimed_instance_ids.push(instance.instance_id);
         by_shard.entry(shard_idx).or_default().push(instance);
     }
+
     if !replaced_instance_ids.is_empty() {
         warn!(
             replaced = replaced_instance_ids.len(),
@@ -158,6 +159,7 @@ where
             commit_barrier.remove_instance(*instance_id);
         }
     }
+
     let claimed_count = claimed_instance_ids.len();
     lock_tracker.insert_all(claimed_instance_ids);
     debug!(
@@ -165,6 +167,7 @@ where
         lock_uuid = %lock_tracker.lock_uuid(),
         "tracked instance locks"
     );
+
     for (shard_idx, batch) in by_shard {
         if let Some(sender) = shard_senders.get(shard_idx) {
             let _ = sender.send(ShardCommand::AssignInstances(batch));
