@@ -48,6 +48,10 @@ pub struct Params<'a, WorkerPool: ?Sized> {
 
 /// Applies a confirmed shard step by dispatching actions and registering sleep requests.
 ///
+/// A shard step is one traversal slice of an instance DAG: it contains frontier
+/// actions to dispatch now, sleep nodes to register, and an optional terminal
+/// completion when the executor has finished.
+///
 /// This operation is the primary mechanism for executing graph work. It:
 /// - Queues all actions in the step to the worker pool
 /// - Tracks action deadlines and attempt numbers for timeout detection
