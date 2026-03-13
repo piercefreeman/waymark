@@ -21,15 +21,17 @@ struct TestHarness {
     pub blocked_until: HashMap<Uuid, DateTime<Utc>>,
     pub barrier: CommitBarrier<ShardStep>,
     pub instances_done_pending: Vec<InstanceDone>,
+    pub worker_pool: MockWorkerPool,
+    pub skip_sleep: bool,
     pub sleep_tx: tokio::sync::mpsc::UnboundedSender<SleepWake>,
     pub _sleep_rx: tokio::sync::mpsc::UnboundedReceiver<SleepWake>,
 }
 
-impl TestHarness {
-    fn new(executor_id: Uuid) -> Self {
+impl Default for TestHarness {
+    fn default() -> Self {
         let (sleep_tx, sleep_rx) = tokio::sync::mpsc::unbounded_channel::<SleepWake>();
         Self {
-            executor_shards: HashMap::from([(executor_id, 0usize)]),
+            executor_shards: HashMap::new(),
             lock_tracker: InstanceLockTracker::new(Uuid::new_v4()),
             inflight_actions: HashMap::new(),
             inflight_dispatches: HashMap::new(),
@@ -38,17 +40,16 @@ impl TestHarness {
             blocked_until: HashMap::new(),
             barrier: CommitBarrier::new(),
             instances_done_pending: Vec::new(),
+            worker_pool: MockWorkerPool::new(),
+            skip_sleep: false,
             sleep_tx,
             _sleep_rx: sleep_rx,
         }
     }
+}
 
-    fn params<'a>(
-        &'a mut self,
-        worker_pool: &'a MockWorkerPool,
-        skip_sleep: bool,
-        step: ShardStep,
-    ) -> super::Params<'a, MockWorkerPool> {
+impl TestHarness {
+    fn params<'a>(&'a mut self, step: ShardStep) -> super::Params<'a, MockWorkerPool> {
         super::Params {
             executor_shards: &mut self.executor_shards,
             lock_tracker: &self.lock_tracker,
@@ -60,8 +61,8 @@ impl TestHarness {
             commit_barrier: &mut self.barrier,
             instances_done_pending: &mut self.instances_done_pending,
             sleep_tx: &self.sleep_tx,
-            worker_pool,
-            skip_sleep,
+            worker_pool: &self.worker_pool,
+            skip_sleep: self.skip_sleep,
             step,
         }
     }
@@ -73,7 +74,8 @@ async fn records_action_dispatch() {
     let execution_id = Uuid::new_v4();
     let dispatch_token = Uuid::new_v4();
 
-    let mut harness = TestHarness::new(executor_id);
+    let mut harness = TestHarness::default();
+    harness.executor_shards.insert(executor_id, 0);
 
     let step = ShardStep {
         executor_id,
@@ -92,8 +94,8 @@ async fn records_action_dispatch() {
         instance_done: None,
     };
 
-    let mut worker_pool = MockWorkerPool::new();
-    worker_pool
+    harness
+        .worker_pool
         .expect_queue()
         .times(1)
         .withf(move |request| {
@@ -105,7 +107,7 @@ async fn records_action_dispatch() {
         })
         .returning(|_| Ok(()));
 
-    super::run(harness.params(&worker_pool, false, step)).expect("apply step");
+    super::run(harness.params(step)).expect("apply step");
 
     assert_eq!(harness.inflight_actions.get(&executor_id), Some(&1));
     let dispatch = harness
@@ -117,7 +119,7 @@ async fn records_action_dispatch() {
     assert_eq!(dispatch.dispatch_token, dispatch_token);
     assert!(dispatch.deadline_at.is_none());
 
-    assert_no_extra_worker_pool_calls(&mut worker_pool);
+    assert_no_extra_worker_pool_calls(&mut harness.worker_pool);
 }
 
 #[tokio::test]
@@ -125,7 +127,8 @@ async fn queue_error_is_returned() {
     let executor_id = Uuid::new_v4();
     let execution_id = Uuid::new_v4();
 
-    let mut harness = TestHarness::new(executor_id);
+    let mut harness = TestHarness::default();
+    harness.executor_shards.insert(executor_id, 0);
 
     let step = ShardStep {
         executor_id,
@@ -144,13 +147,13 @@ async fn queue_error_is_returned() {
         instance_done: None,
     };
 
-    let mut worker_pool = MockWorkerPool::new();
-    worker_pool
+    harness
+        .worker_pool
         .expect_queue()
         .times(1)
         .returning(|_| Err(WorkerPoolError::new("MockQueueError", "mock queue failure")));
 
-    let err = super::run(harness.params(&worker_pool, false, step)).expect_err("queue should fail");
+    let err = super::run(harness.params(step)).expect_err("queue should fail");
     match err {
         RunLoopError::WorkerPool(pool_err) => {
             assert_eq!(pool_err.kind, "MockQueueError");
@@ -159,7 +162,7 @@ async fn queue_error_is_returned() {
         _ => panic!("expected worker pool error"),
     }
 
-    assert_no_extra_worker_pool_calls(&mut worker_pool);
+    assert_no_extra_worker_pool_calls(&mut harness.worker_pool);
 }
 
 #[tokio::test]
@@ -167,7 +170,8 @@ async fn timeout_sets_deadline() {
     let executor_id = Uuid::new_v4();
     let execution_id = Uuid::new_v4();
 
-    let mut harness = TestHarness::new(executor_id);
+    let mut harness = TestHarness::default();
+    harness.executor_shards.insert(executor_id, 0);
 
     let step = ShardStep {
         executor_id,
@@ -186,8 +190,8 @@ async fn timeout_sets_deadline() {
         instance_done: None,
     };
 
-    let mut worker_pool = MockWorkerPool::new();
-    worker_pool
+    harness
+        .worker_pool
         .expect_queue()
         .times(1)
         .withf(move |request| {
@@ -199,7 +203,7 @@ async fn timeout_sets_deadline() {
         .returning(|_| Ok(()));
 
     let before = Utc::now();
-    super::run(harness.params(&worker_pool, false, step)).expect("apply step");
+    super::run(harness.params(step)).expect("apply step");
 
     let dispatch = harness
         .inflight_dispatches
@@ -213,7 +217,7 @@ async fn timeout_sets_deadline() {
         "deadline should be ~30s from dispatch time"
     );
 
-    assert_no_extra_worker_pool_calls(&mut worker_pool);
+    assert_no_extra_worker_pool_calls(&mut harness.worker_pool);
 }
 
 #[tokio::test]
@@ -222,7 +226,8 @@ async fn instance_done_removes_executor_state() {
     let execution_id = Uuid::new_v4();
     let node_id = Uuid::new_v4();
 
-    let mut harness = TestHarness::new(executor_id);
+    let mut harness = TestHarness::default();
+    harness.executor_shards.insert(executor_id, 0);
     harness.lock_tracker.insert_all([executor_id]);
     harness.inflight_actions = HashMap::from([(executor_id, 2usize)]);
     harness.inflight_dispatches = HashMap::from([(
@@ -259,10 +264,9 @@ async fn instance_done_removes_executor_state() {
         }),
     };
 
-    let mut worker_pool = MockWorkerPool::new();
-    worker_pool.expect_queue().never();
+    harness.worker_pool.expect_queue().never();
 
-    super::run(harness.params(&worker_pool, false, step)).expect("apply step");
+    super::run(harness.params(step)).expect("apply step");
 
     assert!(!harness.executor_shards.contains_key(&executor_id));
     assert!(!harness.inflight_actions.contains_key(&executor_id));
@@ -273,7 +277,7 @@ async fn instance_done_removes_executor_state() {
     assert_eq!(harness.instances_done_pending.len(), 1);
     assert_eq!(harness.instances_done_pending[0].executor_id, executor_id);
 
-    assert_no_extra_worker_pool_calls(&mut worker_pool);
+    assert_no_extra_worker_pool_calls(&mut harness.worker_pool);
 }
 
 #[tokio::test]
@@ -282,7 +286,8 @@ async fn sleep_request_registers_node() {
     let node_id = Uuid::new_v4();
     let wake_at = Utc::now() + chrono::Duration::seconds(120);
 
-    let mut harness = TestHarness::new(executor_id);
+    let mut harness = TestHarness::default();
+    harness.executor_shards.insert(executor_id, 0);
 
     let step = ShardStep {
         executor_id,
@@ -292,10 +297,9 @@ async fn sleep_request_registers_node() {
         instance_done: None,
     };
 
-    let mut worker_pool = MockWorkerPool::new();
-    worker_pool.expect_queue().never();
+    harness.worker_pool.expect_queue().never();
 
-    super::run(harness.params(&worker_pool, false, step)).expect("apply step");
+    super::run(harness.params(step)).expect("apply step");
 
     let registered = harness
         .sleeping_nodes
@@ -311,7 +315,7 @@ async fn sleep_request_registers_node() {
     );
     assert_eq!(harness.blocked_until.get(&executor_id), Some(&wake_at));
 
-    assert_no_extra_worker_pool_calls(&mut worker_pool);
+    assert_no_extra_worker_pool_calls(&mut harness.worker_pool);
 }
 
 #[tokio::test]
@@ -320,7 +324,8 @@ async fn skip_sleep_overrides_wake_to_now() {
     let node_id = Uuid::new_v4();
     let requested_wake_at = Utc::now() + chrono::Duration::seconds(120);
 
-    let mut harness = TestHarness::new(executor_id);
+    let mut harness = TestHarness::default();
+    harness.executor_shards.insert(executor_id, 0);
 
     let step = ShardStep {
         executor_id,
@@ -333,11 +338,11 @@ async fn skip_sleep_overrides_wake_to_now() {
         instance_done: None,
     };
 
-    let mut worker_pool = MockWorkerPool::new();
-    worker_pool.expect_queue().never();
+    harness.worker_pool.expect_queue().never();
 
     let before = Utc::now();
-    super::run(harness.params(&worker_pool, true, step)).expect("apply step");
+    harness.skip_sleep = true;
+    super::run(harness.params(step)).expect("apply step");
 
     let recorded_wake = harness
         .sleeping_nodes
@@ -353,7 +358,7 @@ async fn skip_sleep_overrides_wake_to_now() {
         Some(&recorded_wake)
     );
 
-    assert_no_extra_worker_pool_calls(&mut worker_pool);
+    assert_no_extra_worker_pool_calls(&mut harness.worker_pool);
 }
 
 #[tokio::test]
@@ -363,7 +368,8 @@ async fn later_duplicate_sleep_request_keeps_existing_earlier_wake() {
     let existing_wake = Utc::now() + chrono::Duration::seconds(20);
     let later_wake = Utc::now() + chrono::Duration::seconds(90);
 
-    let mut harness = TestHarness::new(executor_id);
+    let mut harness = TestHarness::default();
+    harness.executor_shards.insert(executor_id, 0);
     harness.sleeping_nodes = HashMap::from([(
         node_id,
         SleepRequest {
@@ -385,10 +391,9 @@ async fn later_duplicate_sleep_request_keeps_existing_earlier_wake() {
         instance_done: None,
     };
 
-    let mut worker_pool = MockWorkerPool::new();
-    worker_pool.expect_queue().never();
+    harness.worker_pool.expect_queue().never();
 
-    super::run(harness.params(&worker_pool, false, step)).expect("apply step");
+    super::run(harness.params(step)).expect("apply step");
 
     assert_eq!(
         harness
@@ -403,5 +408,5 @@ async fn later_duplicate_sleep_request_keeps_existing_earlier_wake() {
         Some(&existing_wake)
     );
 
-    assert_no_extra_worker_pool_calls(&mut worker_pool);
+    assert_no_extra_worker_pool_calls(&mut harness.worker_pool);
 }
