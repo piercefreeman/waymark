@@ -38,11 +38,11 @@ mod test_support;
 mod parts {
     use super::ops;
 
-    pub mod blocked_until_by_instance;
     pub mod completions;
+    pub mod deferred_instances;
     pub mod failed_instances;
     pub mod inflight_dispatches;
-    pub mod instances;
+    pub mod new_instances;
     pub mod step_persist_acks;
     pub mod steps;
     pub mod wakes;
@@ -1099,7 +1099,7 @@ impl RunLoop {
 
             // Handle all instances.
             {
-                let params = parts::instances::Params {
+                let params = parts::new_instances::Params {
                     executor_shards: &mut executor_shards,
                     shard_senders: &mut shard_senders,
                     lock_tracker: &lock_tracker,
@@ -1118,13 +1118,13 @@ impl RunLoop {
                     saw_empty_instances,
                 };
 
-                let result = parts::instances::handle(params).await;
+                let result = parts::new_instances::handle(params).await;
                 if let Err(error) = result {
                     // TODO: properly expose actual type-safe causal error from
                     // the runloop.
                     // For now we reduce all the extra useful information to just
                     // put the error into the "dumb" unified error.
-                    let parts::instances::Error::Hydrate(error) = error;
+                    let parts::new_instances::Error::Hydrate(error) = error;
                     break 'runloop Err(error);
                 }
             }
@@ -1171,7 +1171,7 @@ impl RunLoop {
 
             // Handle all blocked-until-by-instances.
             {
-                let params = parts::blocked_until_by_instance::Params {
+                let params = parts::deferred_instances::Params {
                     executor_shards: &mut executor_shards,
                     shard_senders: &mut shard_senders,
                     lock_tracker: &lock_tracker,
@@ -1185,13 +1185,13 @@ impl RunLoop {
                     lock_uuid,
                     evict_sleep_threshold: self.evict_sleep_threshold,
                 };
-                let result = parts::blocked_until_by_instance::handle(params).await;
+                let result = parts::deferred_instances::handle(params).await;
                 if let Err(error) = result {
                     // TODO: properly expose actual type-safe causal error from
                     // the runloop.
                     // For now we reduce all the extra useful information to just
                     // put the error into the "dumb" unified error.
-                    let parts::blocked_until_by_instance::Error::EvictInstance(error) = error;
+                    let parts::deferred_instances::Error::EvictInstance(error) = error;
                     break 'runloop Err(error);
                 }
             }
