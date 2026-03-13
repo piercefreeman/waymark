@@ -48,14 +48,14 @@ pub enum Error {
 
 /// Evicts instances that have been sleeping too long.
 ///
-/// **Why this part exists:** Instances sleeping for extended durations (e.g., indefinite
-/// waits on external events) consume resources without progress. This part proactively
-/// removes them to reclaim memory and allow the runloop to remain responsive.
+/// **Why this part exists:** Instances sleeping for extended durations consume
+/// resources without progress. This part proactively removes them to reclaim
+/// memory and allow the runloop to remain responsive.
 ///
-/// **What it does:** Collects instances whose blocked_until time is in the past by
+/// **What it does:** Collects instances whose blocked_until time is in the future by
 /// more than the eviction threshold, then:
 /// - Batches them for efficient removal via the evict_instances operation
-/// - Cleaned-up state mirrors eviction: executor removal, lock release, backend persistence
+/// - Cleaned-up state mirrors eviction: executor removal, lock release in the backend
 pub async fn handle<CoreBackend>(params: Params<'_, CoreBackend>) -> Result<(), Error>
 where
     CoreBackend: ?Sized + waymark_core_backend::CoreBackend,
