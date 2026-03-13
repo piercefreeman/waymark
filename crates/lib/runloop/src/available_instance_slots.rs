@@ -87,6 +87,7 @@ impl Tracker {
     /// Update the available slots by discounting the provided active instances
     /// value.
     /// Returns `None` if the number of active instances exceeds the capacity.
+    #[allow(dead_code)]
     pub fn update_checked(&self, active_instances: usize) -> Option<()> {
         let available_slots = self.calc.discounting_active_checked(active_instances)?;
         self.store_raw(available_slots);
