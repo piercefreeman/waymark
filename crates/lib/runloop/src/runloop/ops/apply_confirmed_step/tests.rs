@@ -11,22 +11,69 @@ use crate::lock::InstanceLockTracker;
 use crate::runloop::test_support::{MockWorkerPool, assert_no_extra_worker_pool_calls};
 use crate::runloop::{InflightActionDispatch, RunLoopError, ShardStep, SleepWake};
 
+struct TestHarness {
+    pub executor_shards: HashMap<Uuid, usize>,
+    pub lock_tracker: InstanceLockTracker,
+    pub inflight_actions: HashMap<Uuid, usize>,
+    pub inflight_dispatches: HashMap<Uuid, InflightActionDispatch>,
+    pub sleeping_nodes: HashMap<Uuid, SleepRequest>,
+    pub sleeping_by_instance: HashMap<Uuid, HashSet<Uuid>>,
+    pub blocked_until: HashMap<Uuid, DateTime<Utc>>,
+    pub barrier: CommitBarrier<ShardStep>,
+    pub instances_done_pending: Vec<InstanceDone>,
+    pub sleep_tx: tokio::sync::mpsc::UnboundedSender<SleepWake>,
+    pub _sleep_rx: tokio::sync::mpsc::UnboundedReceiver<SleepWake>,
+}
+
+impl TestHarness {
+    fn new(executor_id: Uuid) -> Self {
+        let (sleep_tx, sleep_rx) = tokio::sync::mpsc::unbounded_channel::<SleepWake>();
+        Self {
+            executor_shards: HashMap::from([(executor_id, 0usize)]),
+            lock_tracker: InstanceLockTracker::new(Uuid::new_v4()),
+            inflight_actions: HashMap::new(),
+            inflight_dispatches: HashMap::new(),
+            sleeping_nodes: HashMap::new(),
+            sleeping_by_instance: HashMap::new(),
+            blocked_until: HashMap::new(),
+            barrier: CommitBarrier::new(),
+            instances_done_pending: Vec::new(),
+            sleep_tx,
+            _sleep_rx: sleep_rx,
+        }
+    }
+
+    fn params<'a>(
+        &'a mut self,
+        worker_pool: &'a MockWorkerPool,
+        skip_sleep: bool,
+        step: ShardStep,
+    ) -> super::Params<'a, MockWorkerPool> {
+        super::Params {
+            executor_shards: &mut self.executor_shards,
+            lock_tracker: &self.lock_tracker,
+            inflight_actions: &mut self.inflight_actions,
+            inflight_dispatches: &mut self.inflight_dispatches,
+            sleeping_nodes: &mut self.sleeping_nodes,
+            sleeping_by_instance: &mut self.sleeping_by_instance,
+            blocked_until_by_instance: &mut self.blocked_until,
+            commit_barrier: &mut self.barrier,
+            instances_done_pending: &mut self.instances_done_pending,
+            sleep_tx: &self.sleep_tx,
+            worker_pool,
+            skip_sleep,
+            step,
+        }
+    }
+}
+
 #[tokio::test]
 async fn records_action_dispatch() {
     let executor_id = Uuid::new_v4();
     let execution_id = Uuid::new_v4();
     let dispatch_token = Uuid::new_v4();
 
-    let mut executor_shards = HashMap::from([(executor_id, 0usize)]);
-    let lock_tracker = InstanceLockTracker::new(Uuid::new_v4());
-    let mut inflight_actions: HashMap<Uuid, usize> = HashMap::new();
-    let mut inflight_dispatches: HashMap<Uuid, InflightActionDispatch> = HashMap::new();
-    let mut sleeping_nodes: HashMap<Uuid, SleepRequest> = HashMap::new();
-    let mut sleeping_by_instance: HashMap<Uuid, HashSet<Uuid>> = HashMap::new();
-    let mut blocked_until: HashMap<Uuid, DateTime<Utc>> = HashMap::new();
-    let mut barrier: CommitBarrier<ShardStep> = CommitBarrier::new();
-    let mut instances_done_pending: Vec<InstanceDone> = Vec::new();
-    let (sleep_tx, _sleep_rx) = tokio::sync::mpsc::unbounded_channel::<SleepWake>();
+    let mut harness = TestHarness::new(executor_id);
 
     let step = ShardStep {
         executor_id,
@@ -58,25 +105,11 @@ async fn records_action_dispatch() {
         })
         .returning(|_| Ok(()));
 
-    let params = super::Params {
-        executor_shards: &mut executor_shards,
-        lock_tracker: &lock_tracker,
-        inflight_actions: &mut inflight_actions,
-        inflight_dispatches: &mut inflight_dispatches,
-        sleeping_nodes: &mut sleeping_nodes,
-        sleeping_by_instance: &mut sleeping_by_instance,
-        blocked_until_by_instance: &mut blocked_until,
-        commit_barrier: &mut barrier,
-        instances_done_pending: &mut instances_done_pending,
-        sleep_tx: &sleep_tx,
-        worker_pool: &worker_pool,
-        skip_sleep: false,
-        step,
-    };
-    super::run(params).expect("apply step");
+    super::run(harness.params(&worker_pool, false, step)).expect("apply step");
 
-    assert_eq!(inflight_actions.get(&executor_id), Some(&1));
-    let dispatch = inflight_dispatches
+    assert_eq!(harness.inflight_actions.get(&executor_id), Some(&1));
+    let dispatch = harness
+        .inflight_dispatches
         .get(&execution_id)
         .expect("dispatch recorded");
     assert_eq!(dispatch.executor_id, executor_id);
@@ -92,16 +125,7 @@ async fn queue_error_is_returned() {
     let executor_id = Uuid::new_v4();
     let execution_id = Uuid::new_v4();
 
-    let mut executor_shards = HashMap::from([(executor_id, 0usize)]);
-    let lock_tracker = InstanceLockTracker::new(Uuid::new_v4());
-    let mut inflight_actions: HashMap<Uuid, usize> = HashMap::new();
-    let mut inflight_dispatches: HashMap<Uuid, InflightActionDispatch> = HashMap::new();
-    let mut sleeping_nodes: HashMap<Uuid, SleepRequest> = HashMap::new();
-    let mut sleeping_by_instance: HashMap<Uuid, HashSet<Uuid>> = HashMap::new();
-    let mut blocked_until: HashMap<Uuid, DateTime<Utc>> = HashMap::new();
-    let mut barrier: CommitBarrier<ShardStep> = CommitBarrier::new();
-    let mut instances_done_pending: Vec<InstanceDone> = Vec::new();
-    let (sleep_tx, _sleep_rx) = tokio::sync::mpsc::unbounded_channel::<SleepWake>();
+    let mut harness = TestHarness::new(executor_id);
 
     let step = ShardStep {
         executor_id,
@@ -126,23 +150,7 @@ async fn queue_error_is_returned() {
         .times(1)
         .returning(|_| Err(WorkerPoolError::new("MockQueueError", "mock queue failure")));
 
-    let params = super::Params {
-        executor_shards: &mut executor_shards,
-        lock_tracker: &lock_tracker,
-        inflight_actions: &mut inflight_actions,
-        inflight_dispatches: &mut inflight_dispatches,
-        sleeping_nodes: &mut sleeping_nodes,
-        sleeping_by_instance: &mut sleeping_by_instance,
-        blocked_until_by_instance: &mut blocked_until,
-        commit_barrier: &mut barrier,
-        instances_done_pending: &mut instances_done_pending,
-        sleep_tx: &sleep_tx,
-        worker_pool: &worker_pool,
-        skip_sleep: false,
-        step,
-    };
-
-    let err = super::run(params).expect_err("queue should fail");
+    let err = super::run(harness.params(&worker_pool, false, step)).expect_err("queue should fail");
     match err {
         RunLoopError::WorkerPool(pool_err) => {
             assert_eq!(pool_err.kind, "MockQueueError");
@@ -159,16 +167,7 @@ async fn timeout_sets_deadline() {
     let executor_id = Uuid::new_v4();
     let execution_id = Uuid::new_v4();
 
-    let mut executor_shards = HashMap::from([(executor_id, 0usize)]);
-    let lock_tracker = InstanceLockTracker::new(Uuid::new_v4());
-    let mut inflight_actions: HashMap<Uuid, usize> = HashMap::new();
-    let mut inflight_dispatches: HashMap<Uuid, InflightActionDispatch> = HashMap::new();
-    let mut sleeping_nodes: HashMap<Uuid, SleepRequest> = HashMap::new();
-    let mut sleeping_by_instance: HashMap<Uuid, HashSet<Uuid>> = HashMap::new();
-    let mut blocked_until: HashMap<Uuid, DateTime<Utc>> = HashMap::new();
-    let mut barrier: CommitBarrier<ShardStep> = CommitBarrier::new();
-    let mut instances_done_pending: Vec<InstanceDone> = Vec::new();
-    let (sleep_tx, _sleep_rx) = tokio::sync::mpsc::unbounded_channel::<SleepWake>();
+    let mut harness = TestHarness::new(executor_id);
 
     let step = ShardStep {
         executor_id,
@@ -200,24 +199,10 @@ async fn timeout_sets_deadline() {
         .returning(|_| Ok(()));
 
     let before = Utc::now();
-    let params = super::Params {
-        executor_shards: &mut executor_shards,
-        lock_tracker: &lock_tracker,
-        inflight_actions: &mut inflight_actions,
-        inflight_dispatches: &mut inflight_dispatches,
-        sleeping_nodes: &mut sleeping_nodes,
-        sleeping_by_instance: &mut sleeping_by_instance,
-        blocked_until_by_instance: &mut blocked_until,
-        commit_barrier: &mut barrier,
-        instances_done_pending: &mut instances_done_pending,
-        sleep_tx: &sleep_tx,
-        worker_pool: &worker_pool,
-        skip_sleep: false,
-        step,
-    };
-    super::run(params).expect("apply step");
+    super::run(harness.params(&worker_pool, false, step)).expect("apply step");
 
-    let dispatch = inflight_dispatches
+    let dispatch = harness
+        .inflight_dispatches
         .get(&execution_id)
         .expect("dispatch recorded");
     let deadline = dispatch.deadline_at.expect("deadline should be set");
@@ -237,12 +222,10 @@ async fn instance_done_removes_executor_state() {
     let execution_id = Uuid::new_v4();
     let node_id = Uuid::new_v4();
 
-    let lock_tracker = InstanceLockTracker::new(Uuid::new_v4());
-    lock_tracker.insert_all([executor_id]);
-
-    let mut executor_shards = HashMap::from([(executor_id, 0usize)]);
-    let mut inflight_actions = HashMap::from([(executor_id, 2usize)]);
-    let mut inflight_dispatches = HashMap::from([(
+    let mut harness = TestHarness::new(executor_id);
+    harness.lock_tracker.insert_all([executor_id]);
+    harness.inflight_actions = HashMap::from([(executor_id, 2usize)]);
+    harness.inflight_dispatches = HashMap::from([(
         execution_id,
         InflightActionDispatch {
             executor_id,
@@ -252,19 +235,16 @@ async fn instance_done_removes_executor_state() {
             deadline_at: None,
         },
     )]);
-    let mut sleeping_nodes = HashMap::from([(
+    harness.sleeping_nodes = HashMap::from([(
         node_id,
         SleepRequest {
             node_id,
             wake_at: Utc::now() + chrono::Duration::seconds(60),
         },
     )]);
-    let mut sleeping_by_instance = HashMap::from([(executor_id, HashSet::from([node_id]))]);
-    let mut blocked_until =
+    harness.sleeping_by_instance = HashMap::from([(executor_id, HashSet::from([node_id]))]);
+    harness.blocked_until =
         HashMap::from([(executor_id, Utc::now() + chrono::Duration::seconds(60))]);
-    let mut barrier: CommitBarrier<ShardStep> = CommitBarrier::new();
-    let mut instances_done_pending: Vec<InstanceDone> = Vec::new();
-    let (sleep_tx, _sleep_rx) = tokio::sync::mpsc::unbounded_channel::<SleepWake>();
 
     let step = ShardStep {
         executor_id,
@@ -282,31 +262,16 @@ async fn instance_done_removes_executor_state() {
     let mut worker_pool = MockWorkerPool::new();
     worker_pool.expect_queue().never();
 
-    let params = super::Params {
-        executor_shards: &mut executor_shards,
-        lock_tracker: &lock_tracker,
-        inflight_actions: &mut inflight_actions,
-        inflight_dispatches: &mut inflight_dispatches,
-        sleeping_nodes: &mut sleeping_nodes,
-        sleeping_by_instance: &mut sleeping_by_instance,
-        blocked_until_by_instance: &mut blocked_until,
-        commit_barrier: &mut barrier,
-        instances_done_pending: &mut instances_done_pending,
-        sleep_tx: &sleep_tx,
-        worker_pool: &worker_pool,
-        skip_sleep: false,
-        step,
-    };
-    super::run(params).expect("apply step");
+    super::run(harness.params(&worker_pool, false, step)).expect("apply step");
 
-    assert!(!executor_shards.contains_key(&executor_id));
-    assert!(!inflight_actions.contains_key(&executor_id));
-    assert!(!inflight_dispatches.contains_key(&execution_id));
-    assert!(!sleeping_nodes.contains_key(&node_id));
-    assert!(!sleeping_by_instance.contains_key(&executor_id));
-    assert!(!blocked_until.contains_key(&executor_id));
-    assert_eq!(instances_done_pending.len(), 1);
-    assert_eq!(instances_done_pending[0].executor_id, executor_id);
+    assert!(!harness.executor_shards.contains_key(&executor_id));
+    assert!(!harness.inflight_actions.contains_key(&executor_id));
+    assert!(!harness.inflight_dispatches.contains_key(&execution_id));
+    assert!(!harness.sleeping_nodes.contains_key(&node_id));
+    assert!(!harness.sleeping_by_instance.contains_key(&executor_id));
+    assert!(!harness.blocked_until.contains_key(&executor_id));
+    assert_eq!(harness.instances_done_pending.len(), 1);
+    assert_eq!(harness.instances_done_pending[0].executor_id, executor_id);
 
     assert_no_extra_worker_pool_calls(&mut worker_pool);
 }
@@ -317,16 +282,7 @@ async fn sleep_request_registers_node() {
     let node_id = Uuid::new_v4();
     let wake_at = Utc::now() + chrono::Duration::seconds(120);
 
-    let mut executor_shards = HashMap::from([(executor_id, 0usize)]);
-    let lock_tracker = InstanceLockTracker::new(Uuid::new_v4());
-    let mut inflight_actions: HashMap<Uuid, usize> = HashMap::new();
-    let mut inflight_dispatches: HashMap<Uuid, InflightActionDispatch> = HashMap::new();
-    let mut sleeping_nodes: HashMap<Uuid, SleepRequest> = HashMap::new();
-    let mut sleeping_by_instance: HashMap<Uuid, HashSet<Uuid>> = HashMap::new();
-    let mut blocked_until: HashMap<Uuid, DateTime<Utc>> = HashMap::new();
-    let mut barrier: CommitBarrier<ShardStep> = CommitBarrier::new();
-    let mut instances_done_pending: Vec<InstanceDone> = Vec::new();
-    let (sleep_tx, _sleep_rx) = tokio::sync::mpsc::unbounded_channel::<SleepWake>();
+    let mut harness = TestHarness::new(executor_id);
 
     let step = ShardStep {
         executor_id,
@@ -339,34 +295,21 @@ async fn sleep_request_registers_node() {
     let mut worker_pool = MockWorkerPool::new();
     worker_pool.expect_queue().never();
 
-    let params = super::Params {
-        executor_shards: &mut executor_shards,
-        lock_tracker: &lock_tracker,
-        inflight_actions: &mut inflight_actions,
-        inflight_dispatches: &mut inflight_dispatches,
-        sleeping_nodes: &mut sleeping_nodes,
-        sleeping_by_instance: &mut sleeping_by_instance,
-        blocked_until_by_instance: &mut blocked_until,
-        commit_barrier: &mut barrier,
-        instances_done_pending: &mut instances_done_pending,
-        sleep_tx: &sleep_tx,
-        worker_pool: &worker_pool,
-        skip_sleep: false,
-        step,
-    };
-    super::run(params).expect("apply step");
+    super::run(harness.params(&worker_pool, false, step)).expect("apply step");
 
-    let registered = sleeping_nodes
+    let registered = harness
+        .sleeping_nodes
         .get(&node_id)
         .expect("sleeping node registered");
     assert_eq!(registered.wake_at, wake_at);
     assert!(
-        sleeping_by_instance
+        harness
+            .sleeping_by_instance
             .get(&executor_id)
             .is_some_and(|nodes| nodes.contains(&node_id)),
         "instance should track its sleeping node"
     );
-    assert_eq!(blocked_until.get(&executor_id), Some(&wake_at));
+    assert_eq!(harness.blocked_until.get(&executor_id), Some(&wake_at));
 
     assert_no_extra_worker_pool_calls(&mut worker_pool);
 }
@@ -377,16 +320,7 @@ async fn skip_sleep_overrides_wake_to_now() {
     let node_id = Uuid::new_v4();
     let requested_wake_at = Utc::now() + chrono::Duration::seconds(120);
 
-    let mut executor_shards = HashMap::from([(executor_id, 0usize)]);
-    let lock_tracker = InstanceLockTracker::new(Uuid::new_v4());
-    let mut inflight_actions: HashMap<Uuid, usize> = HashMap::new();
-    let mut inflight_dispatches: HashMap<Uuid, InflightActionDispatch> = HashMap::new();
-    let mut sleeping_nodes: HashMap<Uuid, SleepRequest> = HashMap::new();
-    let mut sleeping_by_instance: HashMap<Uuid, HashSet<Uuid>> = HashMap::new();
-    let mut blocked_until: HashMap<Uuid, DateTime<Utc>> = HashMap::new();
-    let mut barrier: CommitBarrier<ShardStep> = CommitBarrier::new();
-    let mut instances_done_pending: Vec<InstanceDone> = Vec::new();
-    let (sleep_tx, _sleep_rx) = tokio::sync::mpsc::unbounded_channel::<SleepWake>();
+    let mut harness = TestHarness::new(executor_id);
 
     let step = ShardStep {
         executor_id,
@@ -403,24 +337,10 @@ async fn skip_sleep_overrides_wake_to_now() {
     worker_pool.expect_queue().never();
 
     let before = Utc::now();
-    let params = super::Params {
-        executor_shards: &mut executor_shards,
-        lock_tracker: &lock_tracker,
-        inflight_actions: &mut inflight_actions,
-        inflight_dispatches: &mut inflight_dispatches,
-        sleeping_nodes: &mut sleeping_nodes,
-        sleeping_by_instance: &mut sleeping_by_instance,
-        blocked_until_by_instance: &mut blocked_until,
-        commit_barrier: &mut barrier,
-        instances_done_pending: &mut instances_done_pending,
-        sleep_tx: &sleep_tx,
-        worker_pool: &worker_pool,
-        skip_sleep: true,
-        step,
-    };
-    super::run(params).expect("apply step");
+    super::run(harness.params(&worker_pool, true, step)).expect("apply step");
 
-    let recorded_wake = sleeping_nodes
+    let recorded_wake = harness
+        .sleeping_nodes
         .get(&node_id)
         .expect("sleeping node registered")
         .wake_at;
@@ -428,7 +348,10 @@ async fn skip_sleep_overrides_wake_to_now() {
         recorded_wake >= before && recorded_wake <= Utc::now(),
         "skip_sleep should clamp wake_at to now"
     );
-    assert_eq!(blocked_until.get(&executor_id), Some(&recorded_wake));
+    assert_eq!(
+        harness.blocked_until.get(&executor_id),
+        Some(&recorded_wake)
+    );
 
     assert_no_extra_worker_pool_calls(&mut worker_pool);
 }
@@ -440,24 +363,16 @@ async fn later_duplicate_sleep_request_keeps_existing_earlier_wake() {
     let existing_wake = Utc::now() + chrono::Duration::seconds(20);
     let later_wake = Utc::now() + chrono::Duration::seconds(90);
 
-    let mut executor_shards = HashMap::from([(executor_id, 0usize)]);
-    let lock_tracker = InstanceLockTracker::new(Uuid::new_v4());
-    let mut inflight_actions: HashMap<Uuid, usize> = HashMap::new();
-    let mut inflight_dispatches: HashMap<Uuid, InflightActionDispatch> = HashMap::new();
-    let mut sleeping_nodes: HashMap<Uuid, SleepRequest> = HashMap::from([(
+    let mut harness = TestHarness::new(executor_id);
+    harness.sleeping_nodes = HashMap::from([(
         node_id,
         SleepRequest {
             node_id,
             wake_at: existing_wake,
         },
     )]);
-    let mut sleeping_by_instance: HashMap<Uuid, HashSet<Uuid>> =
-        HashMap::from([(executor_id, HashSet::from([node_id]))]);
-    let mut blocked_until: HashMap<Uuid, DateTime<Utc>> =
-        HashMap::from([(executor_id, existing_wake)]);
-    let mut barrier: CommitBarrier<ShardStep> = CommitBarrier::new();
-    let mut instances_done_pending: Vec<InstanceDone> = Vec::new();
-    let (sleep_tx, _sleep_rx) = tokio::sync::mpsc::unbounded_channel::<SleepWake>();
+    harness.sleeping_by_instance = HashMap::from([(executor_id, HashSet::from([node_id]))]);
+    harness.blocked_until = HashMap::from([(executor_id, existing_wake)]);
 
     let step = ShardStep {
         executor_id,
@@ -473,29 +388,20 @@ async fn later_duplicate_sleep_request_keeps_existing_earlier_wake() {
     let mut worker_pool = MockWorkerPool::new();
     worker_pool.expect_queue().never();
 
-    let params = super::Params {
-        executor_shards: &mut executor_shards,
-        lock_tracker: &lock_tracker,
-        inflight_actions: &mut inflight_actions,
-        inflight_dispatches: &mut inflight_dispatches,
-        sleeping_nodes: &mut sleeping_nodes,
-        sleeping_by_instance: &mut sleeping_by_instance,
-        blocked_until_by_instance: &mut blocked_until,
-        commit_barrier: &mut barrier,
-        instances_done_pending: &mut instances_done_pending,
-        sleep_tx: &sleep_tx,
-        worker_pool: &worker_pool,
-        skip_sleep: false,
-        step,
-    };
-    super::run(params).expect("apply step");
+    super::run(harness.params(&worker_pool, false, step)).expect("apply step");
 
     assert_eq!(
-        sleeping_nodes.get(&node_id).map(|value| value.wake_at),
+        harness
+            .sleeping_nodes
+            .get(&node_id)
+            .map(|value| value.wake_at),
         Some(existing_wake),
         "existing earlier wake should be preserved"
     );
-    assert_eq!(blocked_until.get(&executor_id), Some(&existing_wake));
+    assert_eq!(
+        harness.blocked_until.get(&executor_id),
+        Some(&existing_wake)
+    );
 
     assert_no_extra_worker_pool_calls(&mut worker_pool);
 }
