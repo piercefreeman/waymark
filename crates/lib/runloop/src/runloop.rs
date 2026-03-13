@@ -551,7 +551,7 @@ impl RunLoop {
 
     fn store_available_instance_slots(&self, active_instances: usize) {
         self.available_instance_slot_tracker
-            .update(active_instances);
+            .update_saturating(active_instances);
         if let Some(gauge) = &self.active_instance_gauge {
             gauge.store(active_instances, Ordering::SeqCst);
         }
