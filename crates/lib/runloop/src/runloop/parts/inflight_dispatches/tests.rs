@@ -22,7 +22,7 @@ fn no_deadline_not_timed_out() {
     )]);
     let mut completions: Vec<ActionCompletion> = Vec::new();
 
-    super::prepend_timeout_completions_from_inflight_dispatches(super::Params {
+    super::handle(super::Params {
         all_completions: &mut completions,
         inflight_dispatches: &dispatches,
     });
@@ -47,7 +47,7 @@ fn past_deadline_generates_timeout_completion() {
     )]);
     let mut completions: Vec<ActionCompletion> = Vec::new();
 
-    super::prepend_timeout_completions_from_inflight_dispatches(super::Params {
+    super::handle(super::Params {
         all_completions: &mut completions,
         inflight_dispatches: &dispatches,
     });
@@ -80,7 +80,7 @@ fn future_deadline_not_timed_out() {
     )]);
     let mut completions: Vec<ActionCompletion> = Vec::new();
 
-    super::prepend_timeout_completions_from_inflight_dispatches(super::Params {
+    super::handle(super::Params {
         all_completions: &mut completions,
         inflight_dispatches: &dispatches,
     });
@@ -113,7 +113,7 @@ fn timeout_is_prepended_before_existing_completions() {
     };
     let mut completions = vec![existing];
 
-    super::prepend_timeout_completions_from_inflight_dispatches(super::Params {
+    super::handle(super::Params {
         all_completions: &mut completions,
         inflight_dispatches: &dispatches,
     });
@@ -140,7 +140,7 @@ fn timeout_completion_contains_attempt_and_timeout_seconds_fields() {
     )]);
     let mut completions: Vec<ActionCompletion> = Vec::new();
 
-    super::prepend_timeout_completions_from_inflight_dispatches(super::Params {
+    super::handle(super::Params {
         all_completions: &mut completions,
         inflight_dispatches: &dispatches,
     });

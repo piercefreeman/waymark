@@ -1027,12 +1027,10 @@ impl RunLoop {
             }
 
             // Derive timeout completion from inflight dispatches.
-            parts::inflight_dispatches::prepend_timeout_completions_from_inflight_dispatches(
-                parts::inflight_dispatches::Params {
-                    all_completions: &mut all_completions,
-                    inflight_dispatches: &inflight_dispatches,
-                },
-            );
+            parts::inflight_dispatches::handle(parts::inflight_dispatches::Params {
+                all_completions: &mut all_completions,
+                inflight_dispatches: &inflight_dispatches,
+            });
 
             // Handle step persist acks.
             {

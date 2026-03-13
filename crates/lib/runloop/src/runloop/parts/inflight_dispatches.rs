@@ -26,7 +26,7 @@ pub struct Params<'a> {
 /// timeout completion results with metadata (timeout duration, attempt number), and
 /// prepends them to the completion batch. Prepending ensures timeouts are processed before
 /// other completions, maintaining FIFO semantics where relevant.
-pub fn prepend_timeout_completions_from_inflight_dispatches(params: Params<'_>) {
+pub fn handle(params: Params<'_>) {
     let Params {
         all_completions,
         inflight_dispatches,
