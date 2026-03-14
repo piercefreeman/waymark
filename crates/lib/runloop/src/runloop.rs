@@ -454,7 +454,7 @@ pub struct RunLoop {
     core_backend: Arc<dyn waymark_core_backend::CoreBackend>,
     registry_backend: Arc<dyn WorkflowRegistryBackend>,
     workflow_cache: HashMap<Uuid, Arc<DAG>>,
-    max_concurrent_instances: usize,
+    available_instance_slot_tracker: Arc<crate::available_instance_slots::Tracker>,
     instance_done_batch_size: usize,
     poll_interval: Duration,
     persistence_interval: Duration,
@@ -515,22 +515,26 @@ impl RunLoop {
         shutdown_token: tokio_util::sync::CancellationToken,
         exit_on_idle: bool,
     ) -> Self {
-        let max_concurrent_instances = std::cmp::max(1, config.max_concurrent_instances);
+        #[allow(deprecated)]
+        let available_instance_slots_calc =
+            crate::available_instance_slots::Calc::new_saturating(config.max_concurrent_instances);
+        let instance_done_batch_size = available_instance_slots_calc.max_concurrent_instances.get();
+
+        let available_instance_slot_tracker =
+            crate::available_instance_slots::Tracker::from_scratch(available_instance_slots_calc);
+        let available_instance_slot_tracker = Arc::new(available_instance_slot_tracker);
+
         let backend = Arc::new(backend);
         let core_backend: Arc<dyn waymark_core_backend::CoreBackend> = backend.clone();
         let registry_backend: Arc<dyn WorkflowRegistryBackend> = backend;
+
         Self {
             worker_pool: Arc::new(worker_pool),
             core_backend,
             registry_backend,
             workflow_cache: HashMap::new(),
-            max_concurrent_instances,
-            instance_done_batch_size: std::cmp::max(
-                1,
-                config
-                    .instance_done_batch_size
-                    .unwrap_or(max_concurrent_instances),
-            ),
+            available_instance_slot_tracker,
+            instance_done_batch_size,
             poll_interval: config.poll_interval,
             persistence_interval: config.persistence_interval,
             shard_count: std::cmp::max(1, config.executor_shards),
@@ -545,16 +549,9 @@ impl RunLoop {
         }
     }
 
-    fn available_instance_slots(&self, active_instances: usize) -> usize {
-        self.max_concurrent_instances
-            .saturating_sub(active_instances)
-    }
-
-    fn store_available_instance_slots(&self, slots: &Arc<AtomicUsize>, active_instances: usize) {
-        slots.store(
-            self.available_instance_slots(active_instances),
-            Ordering::SeqCst,
-        );
+    fn store_available_instance_slots(&self, active_instances: usize) {
+        self.available_instance_slot_tracker
+            .update_saturating(active_instances);
         if let Some(gauge) = &self.active_instance_gauge {
             gauge.store(active_instances, Ordering::SeqCst);
         }
@@ -587,8 +584,7 @@ impl RunLoop {
         }
         drop(event_tx);
 
-        let available_instance_slots = Arc::new(AtomicUsize::new(self.available_instance_slots(0)));
-        self.store_available_instance_slots(&available_instance_slots, 0);
+        self.store_available_instance_slots(0);
 
         let (completion_tx, mut completion_rx) = mpsc::channel::<Vec<ActionCompletion>>(32);
         let (instance_tx, mut instance_rx) = mpsc::channel::<InstanceMessage>(16);
@@ -649,10 +645,9 @@ impl RunLoop {
 
         let backend = self.core_backend.clone();
         let poll_interval = self.poll_interval;
-        let max_concurrent_instances = self.max_concurrent_instances;
         let lock_uuid = self.lock_uuid;
         let lock_ttl = self.lock_ttl;
-        let instance_available_slots = Arc::clone(&available_instance_slots);
+        let available_instance_slot_tracker = Arc::clone(&self.available_instance_slot_tracker);
         let instance_shutdown_token = self.shutdown_token.clone();
         let instance_handle = tokio::spawn(async move {
             let _instance_shutdown_guard = instance_shutdown_token.drop_guard_ref();
@@ -661,22 +656,22 @@ impl RunLoop {
                     info!("instance poller stop flag set");
                     break;
                 }
-                let available_slots = instance_available_slots.load(Ordering::SeqCst);
-                let batch_size = std::cmp::min(available_slots, max_concurrent_instances);
-                if batch_size == 0 {
+                let available_slots = available_instance_slot_tracker.get();
+                let Some(batch_size) = std::num::NonZeroUsize::new(available_slots) else {
                     if poll_interval > Duration::ZERO {
                         tokio::time::sleep(poll_interval).await;
                     } else {
                         tokio::time::sleep(Duration::from_millis(0)).await;
                     }
                     continue;
-                }
+                };
+
                 let lock_expires_at = Utc::now()
                     + chrono::Duration::from_std(lock_ttl)
                         .unwrap_or_else(|_| chrono::Duration::seconds(0));
                 let batch = backend
                     .get_queued_instances(
-                        batch_size,
+                        batch_size.get(), // TODO: switch `get_queued_instances` to `NonZeroUsize`
                         LockClaim {
                             lock_uuid,
                             lock_expires_at,
@@ -1196,7 +1191,7 @@ impl RunLoop {
                 }
             }
 
-            self.store_available_instance_slots(&available_instance_slots, executor_shards.len());
+            self.store_available_instance_slots(executor_shards.len());
 
             if instances_done_pending.len() >= self.instance_done_batch_size
                 && let Err(err) =
