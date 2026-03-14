@@ -21,6 +21,7 @@ waymark-worker-status-backend = { workspace = true }
 waymark-workflow-registry-backend = { workspace = true }
 
 [features]
+core-backend = []
 default = [
   "core-backend",
   "worker-status-backend",
@@ -29,7 +30,6 @@ default = [
   "garbage-collector-backend",
   "webapp-backend",
 ]
-core-backend = []
 garbage-collector-backend = ["dep:waymark-garbage-collector-backend"]
 scheduler-backend = ["dep:waymark-scheduler-backend"]
 webapp-backend = ["dep:waymark-webapp-backend", "dep:waymark-webapp-core"]

@@ -4,12 +4,7 @@ version = "0.1.0"
 description = "Distributed & durable background events in Python"
 readme = "../README.md"
 requires-python = ">=3.10"
-dependencies = [
-  "googleapis-common-protos>=1.72.0",
-  "grpcio>=1.66,<2",
-  "protobuf>=5.29,<6",
-  "pydantic>=2,<3",
-]
+dependencies = ["googleapis-common-protos>=1.72.0", "grpcio>=1.66,<2", "protobuf>=5.29,<6", "pydantic>=2,<3"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
@@ -18,14 +13,7 @@ dev = ["pytest>=8"]
 waymark-worker = "waymark.worker:main"
 
 [dependency-groups]
-dev = [
-  "grpcio-tools>=1.66,<2",
-  "pytest>=8",
-  "pytest-cov>=6",
-  "ty>=0.0.1a26",
-  "ruff>=0.6",
-  "mypy-protobuf>=3.7.0",
-]
+dev = ["grpcio-tools>=1.66,<2", "pytest>=8", "pytest-cov>=6", "ty>=0.0.1a26", "ruff>=0.6", "mypy-protobuf>=3.7.0"]
 
 [tool.ruff]
 target-version = "py310"

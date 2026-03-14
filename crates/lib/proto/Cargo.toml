@@ -20,8 +20,8 @@ tonic-build = { workspace = true }
 default = ["client", "server", "serde"]
 
 client = ["tonic/transport"]
-server = ["tonic/transport"]
 serde = ["dep:serde"]
+server = ["tonic/transport"]
 
 [lib]
 test = false
