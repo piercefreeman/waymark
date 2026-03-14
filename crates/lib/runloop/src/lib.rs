@@ -5,7 +5,10 @@ mod commit_barrier;
 mod lock;
 mod runloop;
 
+mod channel_utils;
 mod error_value;
+
+mod completions_polling;
 mod persist;
 mod shard;
 

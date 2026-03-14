@@ -2,9 +2,7 @@ use std::collections::HashSet;
 
 use uuid::Uuid;
 
-use crate::{
-    commit_barrier::CommitBarrier, persist, runloop::channel_utils::send_with_stop, shard,
-};
+use crate::{channel_utils::send_with_stop, commit_barrier::CommitBarrier, persist, shard};
 
 #[cfg(test)]
 mod tests;

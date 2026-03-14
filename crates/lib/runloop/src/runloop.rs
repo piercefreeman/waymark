@@ -17,9 +17,9 @@ use waymark_backends_core::BackendError;
 use waymark_core_backend::{InstanceDone, LockClaim, QueuedInstance, QueuedInstanceBatch};
 use waymark_workflow_registry_backend::WorkflowRegistryBackend;
 
+use crate::channel_utils::send_with_stop;
 use crate::commit_barrier::CommitBarrier;
 use crate::lock::{InstanceLockTracker, spawn_lock_heartbeat};
-use crate::runloop::channel_utils::send_with_stop;
 use crate::{error_value, persist, shard};
 
 use waymark_dag::DAG;
@@ -50,7 +50,6 @@ mod ops {
     pub mod hydrate_instances;
 }
 
-mod channel_utils;
 mod lock_utils;
 
 /// Raised when the run loop cannot coordinate execution.
@@ -246,48 +245,18 @@ impl RunLoop {
             self.shutdown_token.clone().cancelled_owned(),
         );
 
-        let worker_pool = self.worker_pool.clone();
-        let completion_shutdown_token = self.shutdown_token.clone();
-        let completion_handle = tokio::spawn(async move {
-            let _completion_shutdown_guard = completion_shutdown_token.drop_guard_ref();
-            loop {
-                if completion_shutdown_token.is_cancelled() {
-                    info!("completion task stop flag set");
-                    break;
-                }
-                debug!("completion task awaiting completions");
-                let completions = tokio::select! {
-                    _ = completion_shutdown_token.cancelled() => {
-                        info!("completion task stop notified");
-                        break;
-                    }
-                    completions = worker_pool.get_complete() => {
-                        debug!(count = completions.len(), "completion task received completions");
-                        completions
-                    },
-                };
-                if completions.is_empty() {
-                    continue;
-                }
-                debug!(
-                    count = completions.len(),
-                    "completion task sending completions"
-                );
-
-                if !send_with_stop(
-                    &completion_tx,
-                    completions,
-                    completion_shutdown_token.cancelled(),
-                    "completions",
-                )
-                .await
-                {
-                    break;
-                }
-
-                debug!("completion task sent completions");
+        // TODO: move this initialization out of the runloop
+        let completion_handle = tokio::spawn({
+            let shutdown_guard = self.shutdown_token.clone().drop_guard();
+            let params = crate::completions_polling::r#loop::Params {
+                shutdown_token: self.shutdown_token.clone(),
+                worker_pool: self.worker_pool.clone(),
+                completion_tx,
+            };
+            async move {
+                let _shutdown_guard = shutdown_guard;
+                crate::completions_polling::r#loop::run(params).await
             }
-            info!("completion task exiting");
         });
 
         let backend = self.core_backend.clone();
