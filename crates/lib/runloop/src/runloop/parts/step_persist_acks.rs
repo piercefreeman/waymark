@@ -10,7 +10,8 @@ use waymark_worker_core::ActionCompletion;
 use crate::{
     commit_barrier::{CommitBarrier, DeferredInstanceEvent},
     lock::InstanceLockTracker,
-    runloop::{InflightActionDispatch, PersistAck, SleepWake},
+    persist,
+    runloop::{InflightActionDispatch, SleepWake},
     shard,
 };
 
@@ -59,7 +60,7 @@ pub struct Params<'a, CoreBackend: ?Sized, WorkerPool: ?Sized> {
     /// Test/debug knob that forces sleeps to wake immediately.
     pub skip_sleep: bool,
     /// Persist acknowledgments collected during the current coordinator tick.
-    pub all_persist_acks: Vec<PersistAck>,
+    pub all_persist_acks: Vec<persist::Ack>,
 }
 
 /// Processes persistence acknowledgments and unblocks deferred instance events.
@@ -102,7 +103,7 @@ where
 
     for ack in all_persist_acks {
         match ack {
-            PersistAck::StepsPersisted {
+            persist::Ack::StepsPersisted {
                 batch_id,
                 lock_statuses,
             } => {
@@ -134,7 +135,7 @@ where
                     .await
                     .map_err(Error::StepsPersisted)?;
             }
-            PersistAck::StepsPersistFailed { batch_id, error } => {
+            persist::Ack::StepsPersistFailed { batch_id, error } => {
                 warn!(batch_id, error = %error, "persist step batch failed");
                 return Err(Error::StepsPersistFailed(error));
             }

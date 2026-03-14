@@ -3,11 +3,11 @@ use std::collections::HashSet;
 use uuid::Uuid;
 
 use crate::commit_barrier::CommitBarrier;
-use crate::shard;
+use crate::{persist, shard};
 
 struct TestHarness {
     pub shutdown: tokio_util::sync::CancellationToken,
-    pub persist_tx: tokio::sync::mpsc::Sender<crate::runloop::PersistCommand>,
+    pub persist_tx: tokio::sync::mpsc::Sender<persist::Command>,
     pub commit_barrier: CommitBarrier<shard::Step>,
 }
 

@@ -6,6 +6,7 @@ mod lock;
 mod runloop;
 
 mod error_value;
+mod persist;
 mod shard;
 
 use self::error_value::error_value;

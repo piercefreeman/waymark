@@ -2,7 +2,9 @@ use std::collections::HashSet;
 
 use uuid::Uuid;
 
-use crate::{commit_barrier::CommitBarrier, runloop::channel_utils::send_with_stop, shard};
+use crate::{
+    commit_barrier::CommitBarrier, persist, runloop::channel_utils::send_with_stop, shard,
+};
 
 #[cfg(test)]
 mod tests;
@@ -11,7 +13,7 @@ pub struct Params<'a> {
     /// Cancellation future used to abandon persistence submission during shutdown.
     pub shutdown_signal: tokio_util::sync::WaitForCancellationFuture<'a>,
     /// Channel to the persistence task that durably records step side effects.
-    pub persist_tx: &'a tokio::sync::mpsc::Sender<crate::runloop::PersistCommand>,
+    pub persist_tx: &'a tokio::sync::mpsc::Sender<persist::Command>,
     /// Coordinates which instance events must wait for persistence acknowledgments.
     pub commit_barrier: &'a mut CommitBarrier<shard::Step>,
     /// Shard steps collected during the current coordinator tick.
@@ -59,7 +61,7 @@ pub async fn handle(params: Params<'_>) -> Result<(), Error> {
 
     let sent = send_with_stop(
         persist_tx,
-        crate::runloop::PersistCommand {
+        persist::Command {
             batch_id,
             instance_ids,
             graph_instance_ids,

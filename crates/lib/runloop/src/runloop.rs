@@ -23,7 +23,7 @@ use waymark_workflow_registry_backend::WorkflowRegistryBackend;
 use crate::commit_barrier::CommitBarrier;
 use crate::lock::{InstanceLockTracker, spawn_lock_heartbeat};
 use crate::runloop::channel_utils::send_with_stop;
-use crate::{error_value, shard};
+use crate::{error_value, persist, shard};
 
 use waymark_dag::DAG;
 use waymark_observability::obs;
@@ -94,27 +94,8 @@ enum CoordinatorEvent {
     Instance(InstanceMessage),
     Shard(shard::Event),
     SleepWake(SleepWake),
-    PersistAck(PersistAck),
+    PersistAck(persist::Ack),
     ActionTimeoutTick,
-}
-
-struct PersistCommand {
-    batch_id: u64,
-    instance_ids: HashSet<Uuid>,
-    graph_instance_ids: HashSet<Uuid>,
-    actions_done: Vec<ActionDone>,
-    graph_updates: Vec<GraphUpdate>,
-}
-
-enum PersistAck {
-    StepsPersisted {
-        batch_id: u64,
-        lock_statuses: Vec<InstanceLockStatus>,
-    },
-    StepsPersistFailed {
-        batch_id: u64,
-        error: RunLoopError,
-    },
 }
 
 /// Run loop that fans out executor work across CPU-bound shard threads.
@@ -377,8 +358,8 @@ impl RunLoop {
         const PERSIST_COALESCE_WINDOW: Duration = Duration::from_millis(2);
         const PERSIST_COALESCE_MAX_COMMANDS: usize = 128;
 
-        let (persist_tx, mut persist_rx) = mpsc::channel::<PersistCommand>(64);
-        let (persist_ack_tx, mut persist_ack_rx) = mpsc::unbounded_channel::<PersistAck>();
+        let (persist_tx, mut persist_rx) = mpsc::channel::<persist::Command>(64);
+        let (persist_ack_tx, mut persist_ack_rx) = mpsc::unbounded_channel::<persist::Ack>();
         let persist_backend = self.core_backend.clone();
         let persist_lock_uuid = self.lock_uuid;
         let persist_lock_ttl = self.lock_ttl;
@@ -472,7 +453,7 @@ impl RunLoop {
                                     "persist ack missing graph lock statuses"
                                 );
                             }
-                            let ack = PersistAck::StepsPersisted {
+                            let ack = persist::Ack::StepsPersisted {
                                 batch_id: command.batch_id,
                                 lock_statuses,
                             };
@@ -485,7 +466,7 @@ impl RunLoop {
                     Err(error) => {
                         let error_message = format!("persistence batch failed: {error}");
                         for command in step_commands {
-                            let ack = PersistAck::StepsPersistFailed {
+                            let ack = persist::Ack::StepsPersistFailed {
                                 batch_id: command.batch_id,
                                 error: RunLoopError::Message(error_message.clone()),
                             };
@@ -604,7 +585,7 @@ impl RunLoop {
             let mut all_steps: Vec<shard::Step> = Vec::new();
             let mut all_failed_instances: Vec<InstanceDone> = Vec::new();
             let mut all_wakes: Vec<SleepWake> = Vec::new();
-            let mut all_persist_acks: Vec<PersistAck> = Vec::new();
+            let mut all_persist_acks: Vec<persist::Ack> = Vec::new();
             let mut saw_empty_instances = false;
 
             match first_event {

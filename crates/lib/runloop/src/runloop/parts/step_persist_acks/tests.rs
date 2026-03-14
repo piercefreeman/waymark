@@ -10,8 +10,8 @@ use waymark_worker_inline::InlineWorkerPool;
 
 use crate::commit_barrier::CommitBarrier;
 use crate::lock::InstanceLockTracker;
-use crate::runloop::{InflightActionDispatch, PersistAck, RunLoopError, SleepWake};
-use crate::shard;
+use crate::runloop::{InflightActionDispatch, RunLoopError, SleepWake};
+use crate::{persist, shard};
 
 struct TestHarness {
     pub lock_uuid: Uuid,
@@ -58,7 +58,7 @@ impl Default for TestHarness {
 impl TestHarness {
     fn params<'a>(
         &'a mut self,
-        all_persist_acks: Vec<PersistAck>,
+        all_persist_acks: Vec<persist::Ack>,
     ) -> super::Params<'a, MemoryBackend, InlineWorkerPool> {
         super::Params {
             executor_shards: &mut self.executor_shards,
@@ -88,7 +88,7 @@ async fn returns_failed_ack_error_and_preserves_state() {
     harness.shard_senders.push(shard_tx);
     harness.executor_shards.insert(Uuid::new_v4(), 0);
 
-    let result = super::handle(harness.params(vec![PersistAck::StepsPersistFailed {
+    let result = super::handle(harness.params(vec![persist::Ack::StepsPersistFailed {
         batch_id: 7,
         error: RunLoopError::Message("persist boom".to_string()),
     }]))
@@ -117,7 +117,7 @@ async fn ignores_unknown_persist_batch_ack() {
     harness.shard_senders.push(shard_tx);
     harness.executor_shards.insert(instance_id, 0);
 
-    let result = super::handle(harness.params(vec![PersistAck::StepsPersisted {
+    let result = super::handle(harness.params(vec![persist::Ack::StepsPersisted {
         batch_id: 999,
         lock_statuses: Vec::new(),
     }]))
@@ -203,7 +203,7 @@ async fn evicts_only_lock_mismatch_instances_from_persisted_batch() {
         .commit_barrier
         .register_batch(HashSet::from([keep_instance, evict_instance]), vec![]);
 
-    let result = super::handle(harness.params(vec![PersistAck::StepsPersisted {
+    let result = super::handle(harness.params(vec![persist::Ack::StepsPersisted {
         batch_id,
         lock_statuses: vec![
             InstanceLockStatus {
