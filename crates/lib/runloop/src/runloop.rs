@@ -11,16 +11,15 @@ use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use tokio::sync::mpsc;
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 use waymark_backends_core::BackendError;
-use waymark_core_backend::{InstanceDone, LockClaim, QueuedInstance, QueuedInstanceBatch};
+use waymark_core_backend::{InstanceDone, QueuedInstance};
 use waymark_workflow_registry_backend::WorkflowRegistryBackend;
 
-use crate::channel_utils::send_with_stop;
 use crate::commit_barrier::CommitBarrier;
 use crate::lock::{InstanceLockTracker, spawn_lock_heartbeat};
-use crate::{error_value, persist, shard};
+use crate::{error_value, persist, queued_instances_polling, shard};
 
 use waymark_dag::DAG;
 use waymark_observability::obs;
@@ -65,11 +64,6 @@ pub enum RunLoopError {
     RunnerExecutor(#[from] RunnerExecutorError),
 }
 
-enum InstanceMessage {
-    Batch { instances: Vec<QueuedInstance> },
-    Error(BackendError),
-}
-
 #[derive(Clone, Debug)]
 struct SleepWake {
     executor_id: Uuid,
@@ -87,7 +81,7 @@ struct InflightActionDispatch {
 
 enum CoordinatorEvent {
     Completions(Vec<ActionCompletion>),
-    Instance(InstanceMessage),
+    Instance(queued_instances_polling::Message),
     Shard(shard::Event),
     SleepWake(SleepWake),
     PersistAck(persist::Ack),
@@ -233,7 +227,7 @@ impl RunLoop {
         self.store_available_instance_slots(0);
 
         let (completion_tx, mut completion_rx) = mpsc::channel::<Vec<ActionCompletion>>(32);
-        let (instance_tx, mut instance_rx) = mpsc::channel::<InstanceMessage>(16);
+        let (instance_tx, mut instance_rx) = mpsc::channel::<queued_instances_polling::Message>(16);
         let (sleep_tx, mut sleep_rx) = mpsc::unbounded_channel::<SleepWake>();
 
         let lock_tracker = InstanceLockTracker::new(self.lock_uuid);
@@ -259,66 +253,22 @@ impl RunLoop {
             }
         });
 
-        let backend = self.core_backend.clone();
-        let poll_interval = self.poll_interval;
-        let lock_uuid = self.lock_uuid;
-        let lock_ttl = self.lock_ttl;
-        let available_instance_slot_tracker = Arc::clone(&self.available_instance_slot_tracker);
-        let instance_shutdown_token = self.shutdown_token.clone();
-        let instance_handle = tokio::spawn(async move {
-            let _instance_shutdown_guard = instance_shutdown_token.drop_guard_ref();
-            loop {
-                if instance_shutdown_token.is_cancelled() {
-                    info!("instance poller stop flag set");
-                    break;
-                }
-                let available_slots = available_instance_slot_tracker.get();
-                let Some(batch_size) = std::num::NonZeroUsize::new(available_slots) else {
-                    if poll_interval > Duration::ZERO {
-                        tokio::time::sleep(poll_interval).await;
-                    } else {
-                        tokio::time::sleep(Duration::from_millis(0)).await;
-                    }
-                    continue;
-                };
-
-                let lock_expires_at = Utc::now()
-                    + chrono::Duration::from_std(lock_ttl)
-                        .unwrap_or_else(|_| chrono::Duration::seconds(0));
-                let batch = backend
-                    .get_queued_instances(
-                        batch_size.get(), // TODO: switch `get_queued_instances` to `NonZeroUsize`
-                        LockClaim {
-                            lock_uuid,
-                            lock_expires_at,
-                        },
-                    )
-                    .await;
-                let message = match batch {
-                    Ok(QueuedInstanceBatch { instances }) => {
-                        let count = instances.len();
-                        debug!(count, "polled queued instances");
-                        InstanceMessage::Batch { instances }
-                    }
-                    Err(err) => InstanceMessage::Error(err),
-                };
-                if !send_with_stop(
-                    &instance_tx,
-                    message,
-                    instance_shutdown_token.cancelled(),
-                    "instance message",
-                )
-                .await
-                {
-                    break;
-                }
-                if poll_interval > Duration::ZERO {
-                    tokio::time::sleep(poll_interval).await;
-                } else {
-                    tokio::time::sleep(Duration::from_millis(0)).await;
-                }
+        // TODO: move this initialization out of the runloop
+        let instance_handle = tokio::spawn({
+            let shutdown_guard = self.shutdown_token.clone().drop_guard();
+            let params = queued_instances_polling::r#loop::Params {
+                shutdown_token: self.shutdown_token.clone(),
+                core_backend: self.core_backend.clone(),
+                available_instance_slots_tracker: Arc::clone(&self.available_instance_slot_tracker),
+                poll_interval: self.poll_interval,
+                lock_uuid: self.lock_uuid,
+                lock_ttl: self.lock_ttl,
+                queued_instance_tx: instance_tx,
+            };
+            async move {
+                let _shutdown_guard = shutdown_guard;
+                queued_instances_polling::r#loop::run(params).await
             }
-            info!("instance poller exiting");
         });
 
         // TODO: move this initialization out of the runloop
@@ -439,14 +389,16 @@ impl RunLoop {
                 CoordinatorEvent::Completions(completions) => {
                     all_completions.extend(completions);
                 }
-                CoordinatorEvent::Instance(InstanceMessage::Batch { instances }) => {
+                CoordinatorEvent::Instance(queued_instances_polling::Message::Batch {
+                    instances,
+                }) => {
                     if instances.is_empty() {
                         saw_empty_instances = true;
                     } else {
                         all_instances.extend(instances);
                     }
                 }
-                CoordinatorEvent::Instance(InstanceMessage::Error(err)) => {
+                CoordinatorEvent::Instance(queued_instances_polling::Message::Error(err)) => {
                     warn!(error = %err, "runloop exiting: instance poller backend error");
                     break 'runloop Err(RunLoopError::Backend(err));
                 }
@@ -479,14 +431,14 @@ impl RunLoop {
             }
             while let Ok(message) = instance_rx.try_recv() {
                 match message {
-                    InstanceMessage::Batch { instances } => {
+                    queued_instances_polling::Message::Batch { instances } => {
                         if instances.is_empty() {
                             saw_empty_instances = true;
                         } else {
                             all_instances.extend(instances);
                         }
                     }
-                    InstanceMessage::Error(err) => {
+                    queued_instances_polling::Message::Error(err) => {
                         warn!(error = %err, "runloop exiting: instance poller backend error");
                         break 'runloop Err(RunLoopError::Backend(err));
                     }
@@ -674,7 +626,7 @@ impl RunLoop {
                     blocked_until_by_instance: &mut blocked_until_by_instance,
                     commit_barrier: &mut commit_barrier,
                     core_backend: self.core_backend.as_ref(),
-                    lock_uuid,
+                    lock_uuid: self.lock_uuid,
                     evict_sleep_threshold: self.evict_sleep_threshold,
                 };
                 let result = parts::deferred_instances::handle(params).await;
