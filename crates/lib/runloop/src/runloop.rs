@@ -231,7 +231,7 @@ impl RunLoop {
         let (sleep_tx, mut sleep_rx) = mpsc::unbounded_channel::<SleepWake>();
 
         // TODO: move this initialization out of the runloop
-        let lock_tracker = instance_lock_heartbeat::Tracker::new(self.lock_uuid);
+        let lock_tracker = instance_lock_heartbeat::Tracker::default();
         let lock_handle = tokio::spawn({
             let shutdown_guard = self.shutdown_token.clone().drop_guard();
             let params = instance_lock_heartbeat::r#loop::Params {
@@ -239,6 +239,7 @@ impl RunLoop {
                 tracker: lock_tracker.clone(),
                 heartbeat_interval: self.lock_heartbeat,
                 lock_ttl: self.lock_ttl,
+                lock_uuid: self.lock_uuid,
                 shutdown_signal: self.shutdown_token.clone().cancelled_owned(),
             };
             async move {
@@ -555,6 +556,7 @@ impl RunLoop {
                     executor_shards: &mut executor_shards,
                     shard_senders: &mut shard_senders,
                     lock_tracker: &lock_tracker,
+                    lock_uuid: self.lock_uuid,
                     inflight_actions: &mut inflight_actions,
                     inflight_dispatches: &mut inflight_dispatches,
                     sleeping_nodes: &mut sleeping_nodes,

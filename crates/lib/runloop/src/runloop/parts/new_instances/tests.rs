@@ -17,6 +17,7 @@ use crate::shard;
 struct TestHarness {
     pub backend: MemoryBackend,
     pub lock_tracker: instance_lock_heartbeat::Tracker,
+    pub lock_uuid: Uuid,
     pub executor_shards: HashMap<Uuid, usize>,
     pub shard_senders: Vec<std_mpsc::Sender<shard::Command>>,
     pub inflight_actions: HashMap<Uuid, usize>,
@@ -34,7 +35,8 @@ impl Default for TestHarness {
     fn default() -> Self {
         Self {
             backend: MemoryBackend::new(),
-            lock_tracker: instance_lock_heartbeat::Tracker::new(Uuid::new_v4()),
+            lock_uuid: Uuid::new_v4(),
+            lock_tracker: instance_lock_heartbeat::Tracker::default(),
             executor_shards: HashMap::new(),
             shard_senders: Vec::new(),
             inflight_actions: HashMap::new(),
@@ -59,6 +61,7 @@ impl TestHarness {
             executor_shards: &mut self.executor_shards,
             shard_senders: &self.shard_senders,
             lock_tracker: &self.lock_tracker,
+            lock_uuid: self.lock_uuid,
             inflight_actions: &mut self.inflight_actions,
             inflight_dispatches: &mut self.inflight_dispatches,
             sleeping_nodes: &mut self.sleeping_nodes,

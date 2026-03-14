@@ -39,7 +39,7 @@ impl Default for TestHarness {
             lock_uuid,
             executor_shards: HashMap::new(),
             shard_senders: Vec::new(),
-            lock_tracker: instance_lock_heartbeat::Tracker::new(lock_uuid),
+            lock_tracker: instance_lock_heartbeat::Tracker::default(),
             inflight_actions: HashMap::new(),
             inflight_dispatches: HashMap::new(),
             sleeping_nodes: HashMap::new(),

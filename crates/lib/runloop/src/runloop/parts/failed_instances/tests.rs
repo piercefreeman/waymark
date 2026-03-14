@@ -25,7 +25,7 @@ struct TestHarness {
 impl Default for TestHarness {
     fn default() -> Self {
         Self {
-            lock_tracker: instance_lock_heartbeat::Tracker::new(Uuid::new_v4()),
+            lock_tracker: instance_lock_heartbeat::Tracker::default(),
             executor_shards: HashMap::new(),
             inflight_actions: HashMap::new(),
             inflight_dispatches: HashMap::new(),

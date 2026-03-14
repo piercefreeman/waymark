@@ -4,6 +4,7 @@ use std::time::Duration;
 use chrono::{Duration as ChronoDuration, Utc};
 
 use tracing::{debug, info, warn};
+use uuid::Uuid;
 use waymark_core_backend::LockClaim;
 
 pub struct Params<CoreBackend>
@@ -14,6 +15,7 @@ where
     pub core_backend: Arc<CoreBackend>,
     pub tracker: super::Tracker,
     pub heartbeat_interval: Duration,
+    pub lock_uuid: Uuid,
     pub lock_ttl: Duration,
 }
 
@@ -28,6 +30,7 @@ where
         tracker,
         heartbeat_interval,
         lock_ttl,
+        lock_uuid,
     } = params;
 
     let mut shutdown_signal = std::pin::pin!(shutdown_signal);
@@ -53,7 +56,7 @@ where
         if let Err(err) = core_backend
             .refresh_instance_locks(
                 LockClaim {
-                    lock_uuid: tracker.lock_uuid(),
+                    lock_uuid,
                     lock_expires_at,
                 },
                 &instance_ids,

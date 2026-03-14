@@ -23,6 +23,8 @@ pub struct Params<'a, WorkflowRegistryBackend: ?Sized> {
     pub shard_senders: &'a [std::sync::mpsc::Sender<shard::Command>],
     /// Tracks which backend locks this runloop currently believes it owns.
     pub lock_tracker: &'a instance_lock_heartbeat::Tracker,
+    /// Lock owner ID for this runloop, used here only for logging purposes.
+    pub lock_uuid: Uuid,
     /// Counts how many action executions are still outstanding for each executor.
     pub inflight_actions: &'a mut HashMap<Uuid, usize>,
     /// Tracks the currently valid dispatch token/attempt for each inflight action execution.
@@ -83,6 +85,7 @@ where
         executor_shards,
         shard_senders,
         lock_tracker,
+        lock_uuid,
         inflight_actions,
         inflight_dispatches,
         sleeping_nodes,
@@ -162,7 +165,7 @@ where
     lock_tracker.insert_all(claimed_instance_ids);
     debug!(
         count = claimed_count,
-        lock_uuid = %lock_tracker.lock_uuid(),
+        %lock_uuid,
         "tracked instance locks"
     );
 

@@ -33,7 +33,7 @@ impl Default for TestHarness {
         Self {
             lock_uuid,
             backend: MemoryBackend::new(),
-            lock_tracker: instance_lock_heartbeat::Tracker::new(lock_uuid),
+            lock_tracker: instance_lock_heartbeat::Tracker::default(),
             executor_shards: HashMap::new(),
             inflight_actions: HashMap::new(),
             inflight_dispatches: HashMap::new(),

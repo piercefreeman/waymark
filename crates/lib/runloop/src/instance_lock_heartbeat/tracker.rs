@@ -5,24 +5,12 @@ use std::sync::{Arc, Mutex};
 
 use uuid::Uuid;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct Tracker {
-    lock_uuid: Uuid,
     owned: Arc<Mutex<HashSet<Uuid>>>,
 }
 
 impl Tracker {
-    pub fn new(lock_uuid: Uuid) -> Self {
-        Self {
-            lock_uuid,
-            owned: Arc::new(Mutex::new(HashSet::new())),
-        }
-    }
-
-    pub fn lock_uuid(&self) -> Uuid {
-        self.lock_uuid
-    }
-
     pub fn insert_all<I>(&self, ids: I)
     where
         I: IntoIterator<Item = Uuid>,

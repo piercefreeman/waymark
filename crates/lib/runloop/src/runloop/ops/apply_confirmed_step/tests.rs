@@ -33,7 +33,7 @@ impl Default for TestHarness {
         let (sleep_tx, sleep_rx) = tokio::sync::mpsc::unbounded_channel::<SleepWake>();
         Self {
             executor_shards: HashMap::new(),
-            lock_tracker: instance_lock_heartbeat::Tracker::new(Uuid::new_v4()),
+            lock_tracker: instance_lock_heartbeat::Tracker::default(),
             inflight_actions: HashMap::new(),
             inflight_dispatches: HashMap::new(),
             sleeping_nodes: HashMap::new(),
