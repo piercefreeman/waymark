@@ -17,5 +17,10 @@ waymark-observability = { workspace = true }
 waymark-proto = { workspace = true }
 waymark-runner-state = { workspace = true }
 
+[dev-dependencies]
+waymark-backend-memory = { workspace = true }
+waymark-dag-builder = { workspace = true }
+waymark-ir-parser = { workspace = true }
+
 [lib]
 doctest = false

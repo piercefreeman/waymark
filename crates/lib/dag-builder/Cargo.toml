@@ -11,5 +11,8 @@ waymark-proto = { workspace = true, features = ["serde"] }
 
 uuid = { workspace = true, features = ["v4"] }
 
+[dev-dependencies]
+waymark-ir-parser = { workspace = true }
+
 [lib]
 doctest = false

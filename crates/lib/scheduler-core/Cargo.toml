@@ -11,5 +11,8 @@ rand = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 uuid = { workspace = true, features = ["serde", "v4"] }
 
+[dev-dependencies]
+chrono = { workspace = true, features = ["clock"] }
+
 [lib]
 doctest = false

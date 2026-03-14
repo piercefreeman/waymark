@@ -24,5 +24,15 @@ tokio-util = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
 
+[dev-dependencies]
+waymark-backend-fault-injection = { workspace = true }
+waymark-backend-memory = { workspace = true }
+waymark-ir-parser = { workspace = true }
+waymark-runner-state = { workspace = true }
+waymark-worker-inline = { workspace = true }
+
+mockall = { workspace = true }
+sha2 = { workspace = true }
+
 [lib]
 doctest = false

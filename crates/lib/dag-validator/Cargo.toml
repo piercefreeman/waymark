@@ -8,5 +8,9 @@ publish.workspace = true
 waymark-dag = { workspace = true }
 waymark-proto = { workspace = true }
 
+[dev-dependencies]
+waymark-dag-builder = { workspace = true }
+waymark-ir-parser = { workspace = true }
+
 [lib]
 doctest = false

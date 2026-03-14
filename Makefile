@@ -58,7 +58,7 @@ rust-lint:
 	taplo fmt
 	cargo clippy --all-targets --all-features -- -D warnings
 	cargo shear --fix
-	cargo hack clippy --feature-powerset --no-dev-deps -- -D warnings
+	cargo hack clippy --feature-powerset --no-dev-deps --lib -- -D warnings
 	typos
 	cargo deny check
 
@@ -67,7 +67,7 @@ rust-lint-verify:
 	taplo fmt --check
 	cargo clippy --all-targets --all-features -- -D warnings
 	cargo shear
-	cargo hack clippy --feature-powerset --no-dev-deps -- -D warnings
+	cargo hack clippy --feature-powerset --no-dev-deps --lib -- -D warnings
 	typos
 	cargo deny check
 

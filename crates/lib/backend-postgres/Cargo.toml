@@ -32,5 +32,10 @@ waymark-webapp-core = { workspace = true }
 waymark-worker-status-backend = { workspace = true }
 waymark-workflow-registry-backend = { workspace = true }
 
+[dev-dependencies]
+serial_test = { workspace = true }
+waymark-ir-parser = { workspace = true }
+waymark-support-test = { workspace = true }
+
 [lib]
 doctest = false
