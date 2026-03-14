@@ -1,6 +1,6 @@
 //! Runloop for coordinating executors and worker pools.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
@@ -21,20 +21,42 @@ use waymark_core_backend::{
 };
 use waymark_workflow_registry_backend::WorkflowRegistryBackend;
 
-use crate::commit_barrier::{CommitBarrier, DeferredInstanceEvent};
+use crate::commit_barrier::CommitBarrier;
 use crate::lock::{InstanceLockTracker, spawn_lock_heartbeat};
+use crate::runloop::channel_utils::send_with_stop;
 use waymark_dag::{DAG, DAGNode, OutputNode, ReturnNode};
-use waymark_dag_builder::convert_to_dag;
 use waymark_observability::obs;
-use waymark_proto::ast as ir;
-use waymark_runner::synthetic_exceptions::{
-    SyntheticExceptionType, build_synthetic_exception_value,
-};
 use waymark_runner::{
     DurableUpdates, ExecutorStep, RunnerExecutor, RunnerExecutorError, SleepRequest,
     replay_variables,
 };
 use waymark_worker_core::{ActionCompletion, ActionRequest, BaseWorkerPool, WorkerPoolError};
+
+#[cfg(test)]
+mod test_support;
+
+mod parts {
+    use super::ops;
+
+    pub mod completions;
+    pub mod deferred_instances;
+    pub mod failed_instances;
+    pub mod inflight_dispatches;
+    pub mod new_instances;
+    pub mod step_persist_acks;
+    pub mod steps;
+    pub mod wakes;
+}
+
+mod ops {
+    pub mod apply_confirmed_step;
+    pub mod evict_instances;
+    pub mod flush_instances_done;
+    pub mod hydrate_instances;
+}
+
+mod channel_utils;
+mod lock_utils;
 
 /// Raised when the run loop cannot coordinate execution.
 #[derive(Debug, thiserror::Error)]
@@ -68,20 +90,6 @@ struct ShardStep {
     sleep_requests: Vec<SleepRequest>,
     updates: Option<DurableUpdates>,
     instance_done: Option<InstanceDone>,
-}
-
-struct CoordinatorState<'a> {
-    executor_shards: &'a mut HashMap<Uuid, usize>,
-    shard_senders: &'a [std_mpsc::Sender<ShardCommand>],
-    lock_tracker: &'a InstanceLockTracker,
-    inflight_actions: &'a mut HashMap<Uuid, usize>,
-    inflight_dispatches: &'a mut HashMap<Uuid, InflightActionDispatch>,
-    sleeping_nodes: &'a mut HashMap<Uuid, SleepRequest>,
-    sleeping_by_instance: &'a mut HashMap<Uuid, HashSet<Uuid>>,
-    blocked_until_by_instance: &'a mut HashMap<Uuid, DateTime<Utc>>,
-    commit_barrier: &'a mut CommitBarrier<ShardStep>,
-    instances_done_pending: &'a mut Vec<InstanceDone>,
-    sleep_tx: &'a mpsc::UnboundedSender<SleepWake>,
 }
 
 enum ShardEvent {
@@ -134,104 +142,6 @@ enum PersistAck {
         batch_id: u64,
         error: RunLoopError,
     },
-}
-
-/// Sends an item into a bounded channel while racing against a cancellation token.
-///
-/// Tasks already check their cancellation token at the top of each loop iteration and
-/// in `select!` branches when awaiting input. However, if shutdown is signaled while a
-/// task is blocked on a *full channel send* (because the consumer has already exited or
-/// stopped draining), the task would deadlock — it never returns to the loop head to
-/// re-check the token. This helper breaks that deadlock by selecting over the send and
-/// the cancellation future, guaranteeing the task can exit cleanly. It also warns if the
-/// send is pending for more than 2 seconds, surfacing backpressure during normal operation.
-async fn send_with_stop<T>(
-    tx: &mpsc::Sender<T>,
-    item: T,
-    stop: tokio_util::sync::WaitForCancellationFuture<'_>,
-    kind: &'static str,
-) -> bool {
-    let send_fut = tx.send(item);
-    tokio::pin!(send_fut);
-
-    let mut stop = std::pin::pin!(stop);
-
-    let mut warned = false;
-    loop {
-        tokio::select! {
-            res = &mut send_fut => {
-                if res.is_err() {
-                    warn!(%kind, "receiver dropped");
-                    return false;
-                }
-                return true;
-            }
-            _ = &mut stop => {
-                info!(%kind, "sender stop notified during send");
-                return false;
-            }
-            _ = tokio::time::sleep(Duration::from_secs(2)), if !warned => {
-                warn!(%kind, "send pending >2s");
-                warned = true;
-            }
-        }
-    }
-}
-
-fn collect_step_updates(steps: &[ShardStep]) -> (Vec<ActionDone>, Vec<GraphUpdate>) {
-    let mut actions_done: Vec<ActionDone> = Vec::new();
-    let mut graph_updates: Vec<GraphUpdate> = Vec::new();
-    for step in steps {
-        if let Some(updates) = &step.updates {
-            if !updates.actions_done.is_empty() {
-                actions_done.extend(updates.actions_done.clone());
-            }
-            if !updates.graph_updates.is_empty() {
-                graph_updates.extend(updates.graph_updates.clone());
-            }
-        }
-    }
-    (actions_done, graph_updates)
-}
-
-fn flush_deferred_instance_events(
-    instance_id: Uuid,
-    events: VecDeque<DeferredInstanceEvent>,
-    executor_shards: &HashMap<Uuid, usize>,
-    shard_senders: &[std_mpsc::Sender<ShardCommand>],
-) {
-    let Some(shard_idx) = executor_shards.get(&instance_id).copied() else {
-        return;
-    };
-    let Some(sender) = shard_senders.get(shard_idx) else {
-        return;
-    };
-    let mut completion_batch: Vec<ActionCompletion> = Vec::new();
-    let mut wake_batch: Vec<Uuid> = Vec::new();
-    for event in events {
-        match event {
-            DeferredInstanceEvent::Completion(completion) => {
-                if !wake_batch.is_empty() {
-                    let _ = sender.send(ShardCommand::Wake(std::mem::take(&mut wake_batch)));
-                }
-                completion_batch.push(completion);
-            }
-            DeferredInstanceEvent::Wake(node_id) => {
-                if !completion_batch.is_empty() {
-                    let _ = sender.send(ShardCommand::ActionCompletions(std::mem::take(
-                        &mut completion_batch,
-                    )));
-                }
-                wake_batch.push(node_id);
-            }
-        }
-    }
-    if !completion_batch.is_empty() {
-        let _ = sender.send(ShardCommand::ActionCompletions(completion_batch));
-    }
-    if !wake_batch.is_empty() {
-        let _ = sender.send(ShardCommand::Wake(wake_batch));
-    }
 }
 
 struct ShardExecutor {
@@ -650,212 +560,6 @@ impl RunLoop {
         }
     }
 
-    fn lock_mismatches(&self, locks: &[InstanceLockStatus]) -> HashSet<Uuid> {
-        locks
-            .iter()
-            .filter(|status| status.lock_uuid != Some(self.lock_uuid))
-            .map(|status| status.instance_id)
-            .collect()
-    }
-
-    async fn hydrate_instances(
-        &mut self,
-        instances: &mut [QueuedInstance],
-    ) -> Result<(), RunLoopError> {
-        let mut missing = Vec::new();
-        for instance in instances.iter() {
-            if !self
-                .workflow_cache
-                .contains_key(&instance.workflow_version_id)
-            {
-                missing.push(instance.workflow_version_id);
-            }
-        }
-        missing.sort();
-        missing.dedup();
-
-        if !missing.is_empty() {
-            let versions = self
-                .registry_backend
-                .get_workflow_versions(&missing)
-                .await
-                .map_err(RunLoopError::Backend)?;
-            for version in versions {
-                let program = <ir::Program as prost::Message>::decode(&version.program_proto[..])
-                    .map_err(|err| {
-                    RunLoopError::Message(format!("invalid workflow IR: {err}"))
-                })?;
-                let dag = convert_to_dag(&program)
-                    .map_err(|err| RunLoopError::Message(format!("invalid workflow DAG: {err}")))?;
-                self.workflow_cache.insert(version.id, Arc::new(dag));
-            }
-        }
-
-        for instance in instances.iter_mut() {
-            let dag = self
-                .workflow_cache
-                .get(&instance.workflow_version_id)
-                .ok_or_else(|| {
-                    RunLoopError::Message(format!(
-                        "workflow version not found: {}",
-                        instance.workflow_version_id
-                    ))
-                })?;
-            instance.dag = Some(Arc::clone(dag));
-        }
-
-        Ok(())
-    }
-
-    async fn flush_instances_done(
-        &self,
-        pending: &mut Vec<InstanceDone>,
-    ) -> Result<(), RunLoopError> {
-        if pending.is_empty() {
-            return Ok(());
-        }
-        let batch = std::mem::take(pending);
-        self.core_backend.save_instances_done(&batch).await?;
-        Ok(())
-    }
-
-    fn apply_confirmed_step(
-        &self,
-        step: ShardStep,
-        state: &mut CoordinatorState<'_>,
-    ) -> Result<(), RunLoopError> {
-        for request in step.actions {
-            let dispatch = request.clone();
-            self.worker_pool.queue(request)?;
-            *state.inflight_actions.entry(step.executor_id).or_insert(0) += 1;
-            let deadline_at = if dispatch.timeout_seconds > 0 {
-                Some(Utc::now() + chrono::Duration::seconds(i64::from(dispatch.timeout_seconds)))
-            } else {
-                None
-            };
-            state.inflight_dispatches.insert(
-                dispatch.execution_id,
-                InflightActionDispatch {
-                    executor_id: dispatch.executor_id,
-                    attempt_number: dispatch.attempt_number,
-                    dispatch_token: dispatch.dispatch_token,
-                    timeout_seconds: dispatch.timeout_seconds,
-                    deadline_at,
-                },
-            );
-        }
-        for mut sleep_request in step.sleep_requests {
-            if self.skip_sleep {
-                sleep_request.wake_at = Utc::now();
-            }
-            let existing = state.sleeping_nodes.get(&sleep_request.node_id);
-            let should_update = match existing {
-                Some(existing) => sleep_request.wake_at < existing.wake_at,
-                None => true,
-            };
-            let wake_at = match existing {
-                Some(existing) if !should_update => existing.wake_at,
-                _ => sleep_request.wake_at,
-            };
-            state
-                .sleeping_by_instance
-                .entry(step.executor_id)
-                .or_default()
-                .insert(sleep_request.node_id);
-            state
-                .blocked_until_by_instance
-                .entry(step.executor_id)
-                .and_modify(|existing| {
-                    if wake_at < *existing {
-                        *existing = wake_at;
-                    }
-                })
-                .or_insert(wake_at);
-
-            if should_update {
-                state
-                    .sleeping_nodes
-                    .insert(sleep_request.node_id, sleep_request.clone());
-                let sleep_tx = state.sleep_tx.clone();
-                let executor_id = step.executor_id;
-                let node_id = sleep_request.node_id;
-                let wake_at = sleep_request.wake_at;
-                tokio::spawn(async move {
-                    if let Ok(wait) = wake_at.signed_duration_since(Utc::now()).to_std()
-                        && wait > Duration::ZERO
-                    {
-                        tokio::time::sleep(wait).await;
-                    }
-                    let _ = sleep_tx.send(SleepWake {
-                        executor_id,
-                        node_id,
-                    });
-                });
-            }
-        }
-        if let Some(instance_done) = step.instance_done {
-            state.executor_shards.remove(&instance_done.executor_id);
-            state.inflight_actions.remove(&instance_done.executor_id);
-            state
-                .inflight_dispatches
-                .retain(|_, dispatch| dispatch.executor_id != instance_done.executor_id);
-            state.lock_tracker.remove_all([instance_done.executor_id]);
-            if let Some(nodes) = state
-                .sleeping_by_instance
-                .remove(&instance_done.executor_id)
-            {
-                for node_id in nodes {
-                    state.sleeping_nodes.remove(&node_id);
-                }
-            }
-            state
-                .blocked_until_by_instance
-                .remove(&instance_done.executor_id);
-            state
-                .commit_barrier
-                .remove_instance(instance_done.executor_id);
-            state.instances_done_pending.push(instance_done);
-        }
-        Ok(())
-    }
-
-    async fn evict_instances(
-        &self,
-        instance_ids: &[Uuid],
-        state: &mut CoordinatorState<'_>,
-    ) -> Result<(), RunLoopError> {
-        if instance_ids.is_empty() {
-            return Ok(());
-        }
-        let mut by_shard: HashMap<usize, Vec<Uuid>> = HashMap::new();
-        let evicted_instance_ids: HashSet<Uuid> = instance_ids.iter().copied().collect();
-        for instance_id in instance_ids {
-            if let Some(shard_idx) = state.executor_shards.remove(instance_id) {
-                by_shard.entry(shard_idx).or_default().push(*instance_id);
-            }
-            state.inflight_actions.remove(instance_id);
-            if let Some(nodes) = state.sleeping_by_instance.remove(instance_id) {
-                for node_id in nodes {
-                    state.sleeping_nodes.remove(&node_id);
-                }
-            }
-            state.blocked_until_by_instance.remove(instance_id);
-        }
-        state
-            .inflight_dispatches
-            .retain(|_, dispatch| !evicted_instance_ids.contains(&dispatch.executor_id));
-        state.lock_tracker.remove_all(instance_ids.iter().copied());
-        for (shard_idx, ids) in by_shard {
-            if let Some(sender) = state.shard_senders.get(shard_idx) {
-                let _ = sender.send(ShardCommand::Evict(ids));
-            }
-        }
-        self.core_backend
-            .release_instance_locks(self.lock_uuid, instance_ids)
-            .await?;
-        Ok(())
-    }
-
     #[obs]
     pub async fn run(&mut self) -> Result<(), RunLoopError> {
         self.worker_pool.launch().await?;
@@ -1206,7 +910,12 @@ impl RunLoop {
                 }
                 _ = persistence_tick.tick() => {
                     if self.persistence_interval > Duration::ZERO {
-                        self.flush_instances_done(&mut instances_done_pending).await?;
+                        let params = ops::flush_instances_done::Params {
+                            core_backend: self.core_backend.as_ref(),
+                            pending: &mut instances_done_pending,
+                        };
+                        ops::flush_instances_done::run(params)
+                        .await?;
                     }
                     None
                 }
@@ -1317,401 +1026,185 @@ impl RunLoop {
                 all_persist_acks.push(ack);
             }
 
-            if !inflight_dispatches.is_empty() {
-                let now = Utc::now();
-                let timed_out_ids: Vec<Uuid> = inflight_dispatches
-                    .iter()
-                    .filter_map(|(execution_id, dispatch)| {
-                        dispatch
-                            .deadline_at
-                            .filter(|deadline| *deadline <= now)
-                            .map(|_| *execution_id)
-                    })
-                    .collect();
-                if !timed_out_ids.is_empty() {
-                    let mut timeout_completions = Vec::with_capacity(timed_out_ids.len());
-                    for execution_id in timed_out_ids {
-                        let Some(dispatch) = inflight_dispatches.get(&execution_id) else {
-                            continue;
-                        };
-                        timeout_completions.push(ActionCompletion {
-                            executor_id: dispatch.executor_id,
-                            execution_id,
-                            attempt_number: dispatch.attempt_number,
-                            dispatch_token: dispatch.dispatch_token,
-                            result: action_timeout_value(
-                                execution_id,
-                                dispatch.attempt_number,
-                                dispatch.timeout_seconds,
-                            ),
-                        });
-                    }
-                    if !timeout_completions.is_empty() {
-                        timeout_completions.append(&mut all_completions);
-                        all_completions = timeout_completions;
-                    }
-                }
-            }
+            // Derive timeout completion from inflight dispatches.
+            parts::inflight_dispatches::handle(parts::inflight_dispatches::Params {
+                all_completions: &mut all_completions,
+                inflight_dispatches: &inflight_dispatches,
+            });
 
-            if !all_persist_acks.is_empty() {
-                for ack in all_persist_acks {
-                    match ack {
-                        PersistAck::StepsPersisted {
-                            batch_id,
-                            lock_statuses,
-                        } => {
-                            let Some(batch) = commit_barrier.take_batch(batch_id) else {
-                                warn!(batch_id, "received ack for unknown persist batch");
-                                continue;
-                            };
-                            let evict_ids: HashSet<Uuid> = self
-                                .lock_mismatches(&lock_statuses)
-                                .into_iter()
-                                .filter(|instance_id| batch.instance_ids.contains(instance_id))
-                                .collect();
-                            let mut state = CoordinatorState {
-                                executor_shards: &mut executor_shards,
-                                shard_senders: &shard_senders,
-                                lock_tracker: &lock_tracker,
-                                inflight_actions: &mut inflight_actions,
-                                inflight_dispatches: &mut inflight_dispatches,
-                                sleeping_nodes: &mut sleeping_nodes,
-                                sleeping_by_instance: &mut sleeping_by_instance,
-                                blocked_until_by_instance: &mut blocked_until_by_instance,
-                                commit_barrier: &mut commit_barrier,
-                                instances_done_pending: &mut instances_done_pending,
-                                sleep_tx: &sleep_tx,
-                            };
-                            if !evict_ids.is_empty()
-                                && let Err(err) = self
-                                    .evict_instances(
-                                        &evict_ids.iter().copied().collect::<Vec<_>>(),
-                                        &mut state,
-                                    )
-                                    .await
-                            {
-                                break 'runloop Err(err);
-                            }
-                            for step in batch.steps {
-                                if !batch.instance_ids.contains(&step.executor_id) {
-                                    continue;
-                                }
-                                if evict_ids.contains(&step.executor_id) {
-                                    continue;
-                                }
-                                if !state.executor_shards.contains_key(&step.executor_id)
-                                    && step.instance_done.is_none()
-                                {
-                                    continue;
-                                }
-                                if let Err(err) = self.apply_confirmed_step(step, &mut state) {
-                                    break 'runloop Err(err);
-                                }
-                            }
-
-                            for instance_id in batch.instance_ids {
-                                if evict_ids.contains(&instance_id) {
-                                    state.commit_barrier.remove_instance(instance_id);
-                                    continue;
-                                }
-                                let events = state.commit_barrier.unblock_instance(instance_id);
-                                flush_deferred_instance_events(
-                                    instance_id,
-                                    events,
-                                    state.executor_shards,
-                                    state.shard_senders,
-                                );
-                            }
+            // Handle step persist acks.
+            {
+                let params = parts::step_persist_acks::Params {
+                    executor_shards: &mut executor_shards,
+                    shard_senders: &shard_senders,
+                    lock_tracker: &lock_tracker,
+                    inflight_actions: &mut inflight_actions,
+                    inflight_dispatches: &mut inflight_dispatches,
+                    sleeping_nodes: &mut sleeping_nodes,
+                    sleeping_by_instance: &mut sleeping_by_instance,
+                    blocked_until_by_instance: &mut blocked_until_by_instance,
+                    commit_barrier: &mut commit_barrier,
+                    instances_done_pending: &mut instances_done_pending,
+                    sleep_tx: &sleep_tx,
+                    core_backend: self.core_backend.as_ref(),
+                    worker_pool: self.worker_pool.as_ref(),
+                    lock_uuid: self.lock_uuid,
+                    skip_sleep: self.skip_sleep,
+                    all_persist_acks,
+                };
+                let result = parts::step_persist_acks::handle(params).await;
+                if let Err(error) = result {
+                    // TODO: properly expose actual type-safe causal error from
+                    // the runloop.
+                    // For now we reduce all the extra useful information to just
+                    // put the error into the "dumb" unified error.
+                    let error = match error {
+                        parts::step_persist_acks::Error::StepsPersistFailed(run_loop_error) => {
+                            run_loop_error
                         }
-                        PersistAck::StepsPersistFailed { batch_id, error } => {
-                            warn!(batch_id, error = %error, "persist step batch failed");
-                            break 'runloop Err(error);
+                        parts::step_persist_acks::Error::StepsPersisted(run_loop_error) => {
+                            run_loop_error
                         }
-                    }
-                }
-            }
-
-            if !all_completions.is_empty() {
-                let mut accepted = Vec::new();
-                for completion in all_completions {
-                    let Some(expected) = inflight_dispatches.get(&completion.execution_id) else {
-                        debug!(
-                            executor_id = %completion.executor_id,
-                            execution_id = %completion.execution_id,
-                            "dropping completion for unknown inflight action"
-                        );
-                        continue;
                     };
-                    if expected.executor_id != completion.executor_id {
-                        debug!(
-                            expected_executor_id = %expected.executor_id,
-                            completion_executor_id = %completion.executor_id,
-                            execution_id = %completion.execution_id,
-                            "dropping completion with mismatched executor ownership"
-                        );
-                        continue;
-                    }
-                    if expected.dispatch_token != completion.dispatch_token
-                        || expected.attempt_number != completion.attempt_number
-                    {
-                        debug!(
-                            execution_id = %completion.execution_id,
-                            expected_attempt = expected.attempt_number,
-                            completion_attempt = completion.attempt_number,
-                            expected_dispatch_token = %expected.dispatch_token,
-                            completion_dispatch_token = %completion.dispatch_token,
-                            "dropping stale completion for prior attempt"
-                        );
-                        continue;
-                    }
-                    inflight_dispatches.remove(&completion.execution_id);
-                    if let Some(count) = inflight_actions.get_mut(&completion.executor_id) {
-                        if *count > 0 {
-                            *count -= 1;
-                        }
-                        if *count == 0 {
-                            inflight_actions.remove(&completion.executor_id);
-                        }
-                    }
-                    accepted.push(completion);
-                }
-                if !accepted.is_empty() {
-                    let mut by_shard: HashMap<usize, Vec<ActionCompletion>> = HashMap::new();
-                    for completion in accepted {
-                        let Some(completion) = commit_barrier.route_completion(completion) else {
-                            continue;
-                        };
-                        if let Some(shard_idx) =
-                            executor_shards.get(&completion.executor_id).copied()
-                        {
-                            by_shard.entry(shard_idx).or_default().push(completion);
-                        } else {
-                            warn!(
-                                executor_id = %completion.executor_id,
-                                "completion for unknown executor"
-                            );
-                        }
-                    }
-                    for (shard_idx, batch) in by_shard {
-                        if let Some(sender) = shard_senders.get(shard_idx) {
-                            let _ = sender.send(ShardCommand::ActionCompletions(batch));
-                        }
-                    }
+                    break 'runloop Err(error);
                 }
             }
 
-            if !all_wakes.is_empty() {
-                let now = Utc::now();
-                let mut by_shard: HashMap<usize, Vec<Uuid>> = HashMap::new();
-                for wake in all_wakes {
-                    let Some(request) = sleeping_nodes.get(&wake.node_id) else {
-                        continue;
+            // Handle all completions.
+            {
+                let params = parts::completions::Params {
+                    executor_shards: &mut executor_shards,
+                    shard_senders: &shard_senders,
+                    inflight_actions: &mut inflight_actions,
+                    inflight_dispatches: &mut inflight_dispatches,
+                    commit_barrier: &mut commit_barrier,
+                    all_completions,
+                };
+                parts::completions::handle(params);
+            }
+
+            // Handle all wakes.
+            {
+                let params = parts::wakes::Params {
+                    executor_shards: &mut executor_shards,
+                    shard_senders: &shard_senders,
+                    sleeping_nodes: &mut sleeping_nodes,
+                    sleeping_by_instance: &mut sleeping_by_instance,
+                    blocked_until_by_instance: &mut blocked_until_by_instance,
+                    commit_barrier: &mut commit_barrier,
+                    all_wakes,
+                };
+                parts::wakes::handle(params);
+            }
+
+            // Handle all instances.
+            {
+                let params = parts::new_instances::Params {
+                    executor_shards: &mut executor_shards,
+                    shard_senders: &mut shard_senders,
+                    lock_tracker: &lock_tracker,
+                    inflight_actions: &mut inflight_actions,
+                    inflight_dispatches: &mut inflight_dispatches,
+                    sleeping_nodes: &mut sleeping_nodes,
+                    sleeping_by_instance: &mut sleeping_by_instance,
+                    blocked_until_by_instance: &mut blocked_until_by_instance,
+                    commit_barrier: &mut commit_barrier,
+                    workflow_cache: &mut self.workflow_cache,
+                    registry_backend: self.registry_backend.as_ref(),
+                    instances_idle: &mut instances_idle,
+                    next_shard: &mut next_shard,
+                    shard_count: self.shard_count,
+                    all_instances,
+                    saw_empty_instances,
+                };
+
+                let result = parts::new_instances::handle(params).await;
+                if let Err(error) = result {
+                    // TODO: properly expose actual type-safe causal error from
+                    // the runloop.
+                    // For now we reduce all the extra useful information to just
+                    // put the error into the "dumb" unified error.
+                    let parts::new_instances::Error::Hydrate(error) = error;
+                    break 'runloop Err(error);
+                }
+            }
+
+            // Handle failed instances.
+            {
+                let params = parts::failed_instances::Params {
+                    executor_shards: &mut executor_shards,
+                    lock_tracker: &lock_tracker,
+                    inflight_actions: &mut inflight_actions,
+                    inflight_dispatches: &mut inflight_dispatches,
+                    sleeping_nodes: &mut sleeping_nodes,
+                    sleeping_by_instance: &mut sleeping_by_instance,
+                    blocked_until_by_instance: &mut blocked_until_by_instance,
+                    commit_barrier: &mut commit_barrier,
+                    all_failed_instances,
+                    instances_done_pending: &mut instances_done_pending,
+                };
+                parts::failed_instances::handle(params);
+            }
+
+            // Handle steps.
+            {
+                let params = parts::steps::Params {
+                    shutdown_signal: shutdown_token.cancelled(),
+                    persist_tx: &persist_tx,
+                    commit_barrier: &mut commit_barrier,
+                    all_steps,
+                };
+                let result = parts::steps::handle(params).await;
+                if let Err(error) = result {
+                    // TODO: properly expose actual type-safe causal error from
+                    // the runloop.
+                    // For now we reduce all the extra useful information to just
+                    // put the error into the "dumb" unified error.
+                    let error = match error {
+                        err @ parts::steps::Error::SubmittingPersistBatch => {
+                            RunLoopError::Message(err.to_string())
+                        }
                     };
-                    if request.wake_at > now {
-                        continue;
-                    }
-                    sleeping_nodes.remove(&wake.node_id);
-                    if let Some(nodes) = sleeping_by_instance.get_mut(&wake.executor_id) {
-                        nodes.remove(&wake.node_id);
-                        if nodes.is_empty() {
-                            sleeping_by_instance.remove(&wake.executor_id);
-                            blocked_until_by_instance.remove(&wake.executor_id);
-                        } else {
-                            let mut next_wake: Option<DateTime<Utc>> = None;
-                            for node_id in nodes.iter() {
-                                if let Some(entry) = sleeping_nodes.get(node_id) {
-                                    next_wake = Some(match next_wake {
-                                        Some(existing) => existing.min(entry.wake_at),
-                                        None => entry.wake_at,
-                                    });
-                                }
-                            }
-                            if let Some(next_wake) = next_wake {
-                                blocked_until_by_instance.insert(wake.executor_id, next_wake);
-                            }
-                        }
-                    }
-                    if let Some(shard_idx) = executor_shards.get(&wake.executor_id).copied() {
-                        let Some(node_id) =
-                            commit_barrier.route_wake(wake.executor_id, wake.node_id)
-                        else {
-                            continue;
-                        };
-                        by_shard.entry(shard_idx).or_default().push(node_id);
-                    }
-                }
-                for (shard_idx, nodes) in by_shard {
-                    if let Some(sender) = shard_senders.get(shard_idx) {
-                        let _ = sender.send(ShardCommand::Wake(nodes));
-                    }
+                    break 'runloop Err(error);
                 }
             }
 
-            let had_instances = !all_instances.is_empty();
-            if had_instances {
-                instances_idle = false;
-                if let Err(err) = self.hydrate_instances(&mut all_instances).await {
-                    break 'runloop Err(err);
-                }
-                debug!(count = all_instances.len(), "hydrated queued instances");
-                let mut by_shard: HashMap<usize, Vec<QueuedInstance>> = HashMap::new();
-                let mut claimed_instance_ids = Vec::with_capacity(all_instances.len());
-                let mut replaced_instance_ids = Vec::new();
-                for instance in all_instances {
-                    let shard_idx = if let Some(existing_shard_idx) =
-                        executor_shards.get(&instance.instance_id).copied()
-                    {
-                        // If an already-active instance reappears from the queue, treat
-                        // the prior in-memory executor as stale and replace it.
-                        replaced_instance_ids.push(instance.instance_id);
-                        inflight_actions.insert(instance.instance_id, 0);
-                        if let Some(nodes) = sleeping_by_instance.remove(&instance.instance_id) {
-                            for node_id in nodes {
-                                sleeping_nodes.remove(&node_id);
-                            }
-                        }
-                        blocked_until_by_instance.remove(&instance.instance_id);
-                        existing_shard_idx
-                    } else {
-                        let shard_idx = next_shard % self.shard_count;
-                        next_shard = next_shard.wrapping_add(1);
-                        executor_shards.insert(instance.instance_id, shard_idx);
-                        inflight_actions.insert(instance.instance_id, 0);
-                        shard_idx
-                    };
-                    claimed_instance_ids.push(instance.instance_id);
-                    by_shard.entry(shard_idx).or_default().push(instance);
-                }
-                if !replaced_instance_ids.is_empty() {
-                    warn!(
-                        replaced = replaced_instance_ids.len(),
-                        "replacing active executors for reclaimed queued instances"
-                    );
-                    let replaced_set: HashSet<Uuid> =
-                        replaced_instance_ids.iter().copied().collect();
-                    inflight_dispatches
-                        .retain(|_, dispatch| !replaced_set.contains(&dispatch.executor_id));
-                    for instance_id in &replaced_set {
-                        commit_barrier.remove_instance(*instance_id);
-                    }
-                }
-                let claimed_count = claimed_instance_ids.len();
-                lock_tracker.insert_all(claimed_instance_ids);
-                debug!(
-                    count = claimed_count,
-                    lock_uuid = %lock_tracker.lock_uuid(),
-                    "tracked instance locks"
-                );
-                for (shard_idx, batch) in by_shard {
-                    if let Some(sender) = shard_senders.get(shard_idx) {
-                        let _ = sender.send(ShardCommand::AssignInstances(batch));
-                    }
-                }
-            } else if saw_empty_instances {
-                instances_idle = true;
-            }
-
-            if !all_failed_instances.is_empty() {
-                for instance_done in all_failed_instances {
-                    warn!(
-                        executor_id = %instance_done.executor_id,
-                        error = ?instance_done.error,
-                        "marking instance as failed after shard execution error"
-                    );
-                    executor_shards.remove(&instance_done.executor_id);
-                    inflight_actions.remove(&instance_done.executor_id);
-                    inflight_dispatches
-                        .retain(|_, dispatch| dispatch.executor_id != instance_done.executor_id);
-                    lock_tracker.remove_all([instance_done.executor_id]);
-                    if let Some(nodes) = sleeping_by_instance.remove(&instance_done.executor_id) {
-                        for node_id in nodes {
-                            sleeping_nodes.remove(&node_id);
-                        }
-                    }
-                    blocked_until_by_instance.remove(&instance_done.executor_id);
-                    commit_barrier.remove_instance(instance_done.executor_id);
-                    instances_done_pending.push(instance_done);
-                }
-            }
-
-            if !all_steps.is_empty() {
-                let instance_ids: HashSet<Uuid> =
-                    all_steps.iter().map(|step| step.executor_id).collect();
-                let (actions_done, graph_updates) = collect_step_updates(&all_steps);
-                let graph_instance_ids: HashSet<Uuid> = graph_updates
-                    .iter()
-                    .map(|update| update.instance_id)
-                    .collect();
-                let batch_id = commit_barrier.register_batch(instance_ids.clone(), all_steps);
-                if !send_with_stop(
-                    &persist_tx,
-                    PersistCommand {
-                        batch_id,
-                        instance_ids,
-                        graph_instance_ids,
-                        actions_done,
-                        graph_updates,
-                    },
-                    shutdown_token.cancelled(),
-                    "persist command",
-                )
-                .await
-                {
-                    if let Some(batch) = commit_barrier.take_batch(batch_id) {
-                        for instance_id in batch.instance_ids {
-                            commit_barrier.remove_instance(instance_id);
-                        }
-                    }
-                    break 'runloop Err(RunLoopError::Message(
-                        "failed to submit persist batch to persistence task".to_string(),
-                    ));
-                }
-            }
-
-            if !blocked_until_by_instance.is_empty() {
-                let now = Utc::now();
-                let evict_ids: Vec<Uuid> = blocked_until_by_instance
-                    .iter()
-                    .filter_map(|(instance_id, wake_at)| {
-                        let inflight = inflight_actions.get(instance_id).copied().unwrap_or(0);
-                        if inflight > 0 {
-                            return None;
-                        }
-                        let sleep_for = wake_at.signed_duration_since(now).to_std().ok()?;
-                        if sleep_for > self.evict_sleep_threshold {
-                            Some(*instance_id)
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
-                if !evict_ids.is_empty() {
-                    let mut state = CoordinatorState {
-                        executor_shards: &mut executor_shards,
-                        shard_senders: &shard_senders,
-                        lock_tracker: &lock_tracker,
-                        inflight_actions: &mut inflight_actions,
-                        inflight_dispatches: &mut inflight_dispatches,
-                        sleeping_nodes: &mut sleeping_nodes,
-                        sleeping_by_instance: &mut sleeping_by_instance,
-                        blocked_until_by_instance: &mut blocked_until_by_instance,
-                        commit_barrier: &mut commit_barrier,
-                        instances_done_pending: &mut instances_done_pending,
-                        sleep_tx: &sleep_tx,
-                    };
-                    if let Err(err) = self.evict_instances(&evict_ids, &mut state).await {
-                        break 'runloop Err(err);
-                    }
-                    for instance_id in evict_ids {
-                        state.commit_barrier.remove_instance(instance_id);
-                    }
+            // Handle all blocked-until-by-instances.
+            {
+                let params = parts::deferred_instances::Params {
+                    executor_shards: &mut executor_shards,
+                    shard_senders: &mut shard_senders,
+                    lock_tracker: &lock_tracker,
+                    inflight_actions: &mut inflight_actions,
+                    inflight_dispatches: &mut inflight_dispatches,
+                    sleeping_nodes: &mut sleeping_nodes,
+                    sleeping_by_instance: &mut sleeping_by_instance,
+                    blocked_until_by_instance: &mut blocked_until_by_instance,
+                    commit_barrier: &mut commit_barrier,
+                    core_backend: self.core_backend.as_ref(),
+                    lock_uuid,
+                    evict_sleep_threshold: self.evict_sleep_threshold,
+                };
+                let result = parts::deferred_instances::handle(params).await;
+                if let Err(error) = result {
+                    // TODO: properly expose actual type-safe causal error from
+                    // the runloop.
+                    // For now we reduce all the extra useful information to just
+                    // put the error into the "dumb" unified error.
+                    let parts::deferred_instances::Error::EvictInstance(error) = error;
+                    break 'runloop Err(error);
                 }
             }
 
             self.store_available_instance_slots(&available_instance_slots, executor_shards.len());
 
             if instances_done_pending.len() >= self.instance_done_batch_size
-                && let Err(err) = self.flush_instances_done(&mut instances_done_pending).await
+                && let Err(err) =
+                    ops::flush_instances_done::run(ops::flush_instances_done::Params {
+                        core_backend: self.core_backend.as_ref(),
+                        pending: &mut instances_done_pending,
+                    })
+                    .await
             {
                 break 'runloop Err(err);
             }
@@ -1741,7 +1234,11 @@ impl RunLoop {
         let _ = instance_handle.await;
         let _ = lock_handle.await;
         if run_result.is_ok()
-            && let Err(err) = self.flush_instances_done(&mut instances_done_pending).await
+            && let Err(err) = ops::flush_instances_done::run(ops::flush_instances_done::Params {
+                core_backend: self.core_backend.as_ref(),
+                pending: &mut instances_done_pending,
+            })
+            .await
         {
             run_result = Err(err);
         }
@@ -1813,25 +1310,6 @@ fn error_value(kind: &str, message: &str) -> Value {
     Value::Object(map)
 }
 
-fn action_timeout_value(execution_id: Uuid, attempt_number: u32, timeout_seconds: u32) -> Value {
-    build_synthetic_exception_value(
-        SyntheticExceptionType::ActionTimeout,
-        format!(
-            "action {execution_id} attempt {attempt_number} timed out after {timeout_seconds}s"
-        ),
-        vec![
-            (
-                "timeout_seconds".to_string(),
-                Value::Number(serde_json::Number::from(timeout_seconds)),
-            ),
-            (
-                "attempt".to_string(),
-                Value::Number(serde_json::Number::from(attempt_number)),
-            ),
-        ],
-    )
-}
-
 fn compute_instance_payload(executor: &RunnerExecutor) -> (Option<Value>, Option<Value>) {
     let outputs = output_vars(executor.dag());
     match replay_variables(executor.state(), executor.action_results()) {
@@ -1882,6 +1360,3 @@ fn build_instance_done(
         error: error_payload,
     }
 }
-
-#[cfg(test)]
-mod tests;

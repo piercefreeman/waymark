@@ -30,4 +30,5 @@ waymark-ir-parser = { workspace = true }
 waymark-runner-state = { workspace = true }
 waymark-worker-inline = { workspace = true }
 
+mockall = { workspace = true }
 sha2 = { workspace = true }
