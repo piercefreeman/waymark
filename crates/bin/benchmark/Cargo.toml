@@ -5,15 +5,6 @@ publish.workspace = true
 edition = "2024"
 
 [dependencies]
-clap = { workspace = true, features = ["derive"] }
-prost = { workspace = true }
-rand = { workspace = true }
-serde_json = { workspace = true }
-sha2 = { workspace = true }
-sqlx = { workspace = true }
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
-tracing = { workspace = true }
-uuid = { workspace = true }
 waymark-backend-postgres = { workspace = true }
 waymark-backend-postgres-migrations = { workspace = true }
 waymark-core-backend = { workspace = true }
@@ -30,3 +21,13 @@ waymark-support-integration = { workspace = true }
 waymark-worker-core = { workspace = true }
 waymark-worker-inline = { workspace = true }
 waymark-workflow-registry-backend = { workspace = true }
+
+clap = { workspace = true, features = ["derive"] }
+prost = { workspace = true }
+rand = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+sqlx = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tracing = { workspace = true }
+uuid = { workspace = true }

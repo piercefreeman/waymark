@@ -5,17 +5,18 @@ publish.workspace = true
 edition = "2024"
 
 [dependencies]
-chrono = { workspace = true, features = ["serde"] }
-rustc-hash = { workspace = true }
-serde_json = { workspace = true }
-thiserror = { workspace = true }
-uuid = { workspace = true }
 waymark-core-backend = { workspace = true }
 waymark-dag = { workspace = true }
 waymark-ir-conversions = { workspace = true }
 waymark-observability = { workspace = true }
 waymark-proto = { workspace = true }
 waymark-runner-state = { workspace = true }
+
+chrono = { workspace = true, features = ["serde"] }
+rustc-hash = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
 
 [dev-dependencies]
 waymark-backend-memory = { workspace = true }

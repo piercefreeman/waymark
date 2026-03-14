@@ -5,11 +5,6 @@ publish.workspace = true
 edition = "2024"
 
 [dependencies]
-async-trait = { workspace = true }
-chrono = { workspace = true }
-rmp-serde = { workspace = true }
-serde_json = { workspace = true }
-uuid = { workspace = true }
 waymark-backends-core = { workspace = true }
 waymark-core-backend = { workspace = true }
 waymark-garbage-collector-backend = { workspace = true, optional = true }
@@ -20,8 +15,13 @@ waymark-webapp-core = { workspace = true, optional = true }
 waymark-worker-status-backend = { workspace = true }
 waymark-workflow-registry-backend = { workspace = true }
 
+async-trait = { workspace = true }
+chrono = { workspace = true }
+rmp-serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+
 [features]
-core-backend = []
 default = [
   "core-backend",
   "worker-status-backend",
@@ -30,6 +30,8 @@ default = [
   "garbage-collector-backend",
   "webapp-backend",
 ]
+
+core-backend = []
 garbage-collector-backend = ["dep:waymark-garbage-collector-backend"]
 scheduler-backend = ["dep:waymark-scheduler-backend"]
 webapp-backend = ["dep:waymark-webapp-backend", "dep:waymark-webapp-core"]

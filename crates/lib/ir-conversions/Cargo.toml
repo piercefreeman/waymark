@@ -5,8 +5,9 @@ publish.workspace = true
 edition = "2024"
 
 [dependencies]
-serde_json = { workspace = true }
 waymark-proto = { workspace = true }
+
+serde_json = { workspace = true }
 
 [lib]
 doctest = false

@@ -5,14 +5,6 @@ publish.workspace = true
 edition = "2024"
 
 [dependencies]
-anyhow = { workspace = true }
-clap = { workspace = true, features = ["derive", "env"] }
-proptest = { workspace = true }
-prost = { workspace = true }
-serde_json = { workspace = true }
-sha2 = { workspace = true }
-tokio = { workspace = true }
-uuid = { workspace = true, features = ["serde", "v4"] }
 waymark-backend-memory = { workspace = true }
 waymark-core-backend = { workspace = true }
 waymark-dag = { workspace = true }
@@ -24,6 +16,15 @@ waymark-runner-state = { workspace = true }
 waymark-worker-core = { workspace = true }
 waymark-worker-inline = { workspace = true }
 waymark-workflow-registry-backend = { workspace = true }
+
+anyhow = { workspace = true }
+clap = { workspace = true, features = ["derive", "env"] }
+proptest = { workspace = true }
+prost = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+tokio = { workspace = true }
+uuid = { workspace = true, features = ["serde", "v4"] }
 
 [lib]
 test = false

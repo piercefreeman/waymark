@@ -5,8 +5,9 @@ publish.workspace = true
 edition = "2024"
 
 [dependencies]
-tracing = { workspace = true }
 waymark-observability-macros = { workspace = true }
+
+tracing = { workspace = true }
 
 [lib]
 test = false
