@@ -9,13 +9,15 @@ use uuid::Uuid;
 use waymark_core_backend::InstanceDone;
 use waymark_runner::SleepRequest;
 
-use crate::{commit_barrier::CommitBarrier, instance_lock, runloop::InflightActionDispatch, shard};
+use crate::{
+    commit_barrier::CommitBarrier, instance_lock_heartbeat, runloop::InflightActionDispatch, shard,
+};
 
 pub struct Params<'a> {
     /// Maps each active instance/executor to the shard currently responsible for it.
     pub executor_shards: &'a mut HashMap<Uuid, usize>,
     /// Tracks which backend locks this runloop currently believes it owns.
-    pub lock_tracker: &'a instance_lock::Tracker,
+    pub lock_tracker: &'a instance_lock_heartbeat::Tracker,
     /// Counts how many action executions are still outstanding for each executor.
     pub inflight_actions: &'a mut HashMap<Uuid, usize>,
     /// Tracks the currently valid dispatch token/attempt for each inflight action execution.

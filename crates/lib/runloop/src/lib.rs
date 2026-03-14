@@ -8,7 +8,7 @@ mod channel_utils;
 mod error_value;
 
 mod completions_polling;
-mod instance_lock;
+mod instance_lock_heartbeat;
 mod persist;
 mod queued_instances_polling;
 mod shard;

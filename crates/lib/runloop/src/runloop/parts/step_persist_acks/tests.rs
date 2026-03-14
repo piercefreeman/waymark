@@ -9,7 +9,7 @@ use waymark_runner::SleepRequest;
 use waymark_worker_inline::InlineWorkerPool;
 
 use crate::commit_barrier::CommitBarrier;
-use crate::instance_lock;
+use crate::instance_lock_heartbeat;
 use crate::runloop::{InflightActionDispatch, SleepWake};
 use crate::{persist, shard};
 
@@ -17,7 +17,7 @@ struct TestHarness {
     pub lock_uuid: Uuid,
     pub executor_shards: HashMap<Uuid, usize>,
     pub shard_senders: Vec<std_mpsc::Sender<shard::Command>>,
-    pub lock_tracker: instance_lock::Tracker,
+    pub lock_tracker: instance_lock_heartbeat::Tracker,
     pub inflight_actions: HashMap<Uuid, usize>,
     pub inflight_dispatches: HashMap<Uuid, InflightActionDispatch>,
     pub sleeping_nodes: HashMap<Uuid, SleepRequest>,
@@ -39,7 +39,7 @@ impl Default for TestHarness {
             lock_uuid,
             executor_shards: HashMap::new(),
             shard_senders: Vec::new(),
-            lock_tracker: instance_lock::Tracker::new(lock_uuid),
+            lock_tracker: instance_lock_heartbeat::Tracker::new(lock_uuid),
             inflight_actions: HashMap::new(),
             inflight_dispatches: HashMap::new(),
             sleeping_nodes: HashMap::new(),

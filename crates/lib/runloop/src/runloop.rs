@@ -18,7 +18,7 @@ use waymark_core_backend::{InstanceDone, QueuedInstance};
 use waymark_workflow_registry_backend::WorkflowRegistryBackend;
 
 use crate::commit_barrier::CommitBarrier;
-use crate::instance_lock;
+use crate::instance_lock_heartbeat;
 use crate::{error_value, persist, queued_instances_polling, shard};
 
 use waymark_dag::DAG;
@@ -231,10 +231,10 @@ impl RunLoop {
         let (sleep_tx, mut sleep_rx) = mpsc::unbounded_channel::<SleepWake>();
 
         // TODO: move this initialization out of the runloop
-        let lock_tracker = instance_lock::Tracker::new(self.lock_uuid);
+        let lock_tracker = instance_lock_heartbeat::Tracker::new(self.lock_uuid);
         let lock_handle = tokio::spawn({
             let shutdown_guard = self.shutdown_token.clone().drop_guard();
-            let params = instance_lock::heartbeat_loop::Params {
+            let params = instance_lock_heartbeat::r#loop::Params {
                 core_backend: self.core_backend.clone(),
                 tracker: lock_tracker.clone(),
                 heartbeat_interval: self.lock_heartbeat,
@@ -243,7 +243,7 @@ impl RunLoop {
             };
             async move {
                 let _shutdown_guard = shutdown_guard;
-                instance_lock::heartbeat_loop::run(params).await
+                instance_lock_heartbeat::r#loop::run(params).await
             }
         });
 

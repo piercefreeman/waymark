@@ -9,7 +9,9 @@ use uuid::Uuid;
 use waymark_core_backend::QueuedInstance;
 use waymark_runner::SleepRequest;
 
-use crate::{commit_barrier::CommitBarrier, instance_lock, runloop::InflightActionDispatch, shard};
+use crate::{
+    commit_barrier::CommitBarrier, instance_lock_heartbeat, runloop::InflightActionDispatch, shard,
+};
 
 #[cfg(test)]
 mod tests;
@@ -20,7 +22,7 @@ pub struct Params<'a, WorkflowRegistryBackend: ?Sized> {
     /// Per-shard command channels used to assign hydrated instances to shard workers.
     pub shard_senders: &'a [std::sync::mpsc::Sender<shard::Command>],
     /// Tracks which backend locks this runloop currently believes it owns.
-    pub lock_tracker: &'a instance_lock::Tracker,
+    pub lock_tracker: &'a instance_lock_heartbeat::Tracker,
     /// Counts how many action executions are still outstanding for each executor.
     pub inflight_actions: &'a mut HashMap<Uuid, usize>,
     /// Tracks the currently valid dispatch token/attempt for each inflight action execution.

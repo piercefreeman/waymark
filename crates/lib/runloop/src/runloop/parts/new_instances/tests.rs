@@ -10,13 +10,13 @@ use waymark_core_backend::QueuedInstance;
 use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBackend};
 
 use crate::commit_barrier::CommitBarrier;
-use crate::instance_lock;
+use crate::instance_lock_heartbeat;
 use crate::runloop::InflightActionDispatch;
 use crate::shard;
 
 struct TestHarness {
     pub backend: MemoryBackend,
-    pub lock_tracker: instance_lock::Tracker,
+    pub lock_tracker: instance_lock_heartbeat::Tracker,
     pub executor_shards: HashMap<Uuid, usize>,
     pub shard_senders: Vec<std_mpsc::Sender<shard::Command>>,
     pub inflight_actions: HashMap<Uuid, usize>,
@@ -34,7 +34,7 @@ impl Default for TestHarness {
     fn default() -> Self {
         Self {
             backend: MemoryBackend::new(),
-            lock_tracker: instance_lock::Tracker::new(Uuid::new_v4()),
+            lock_tracker: instance_lock_heartbeat::Tracker::new(Uuid::new_v4()),
             executor_shards: HashMap::new(),
             shard_senders: Vec::new(),
             inflight_actions: HashMap::new(),

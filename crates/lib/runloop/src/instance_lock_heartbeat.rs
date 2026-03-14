@@ -1,6 +1,6 @@
 //! Instance lock tracking and heartbeat maintenance.
 
-pub mod heartbeat_loop;
+pub mod r#loop;
 
 mod tracker;
 
