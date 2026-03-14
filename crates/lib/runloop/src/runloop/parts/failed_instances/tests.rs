@@ -9,18 +9,62 @@ use crate::commit_barrier::CommitBarrier;
 use crate::lock::InstanceLockTracker;
 use crate::runloop::{InflightActionDispatch, ShardStep};
 
+struct TestHarness {
+    pub lock_tracker: InstanceLockTracker,
+    pub executor_shards: HashMap<Uuid, usize>,
+    pub inflight_actions: HashMap<Uuid, usize>,
+    pub inflight_dispatches: HashMap<Uuid, InflightActionDispatch>,
+    pub sleeping_nodes: HashMap<Uuid, SleepRequest>,
+    pub sleeping_by_instance: HashMap<Uuid, HashSet<Uuid>>,
+    pub blocked_until: HashMap<Uuid, DateTime<Utc>>,
+    pub barrier: CommitBarrier<ShardStep>,
+    pub instances_done_pending: Vec<InstanceDone>,
+}
+
+impl Default for TestHarness {
+    fn default() -> Self {
+        Self {
+            lock_tracker: InstanceLockTracker::new(Uuid::new_v4()),
+            executor_shards: HashMap::new(),
+            inflight_actions: HashMap::new(),
+            inflight_dispatches: HashMap::new(),
+            sleeping_nodes: HashMap::new(),
+            sleeping_by_instance: HashMap::new(),
+            blocked_until: HashMap::new(),
+            barrier: CommitBarrier::new(),
+            instances_done_pending: Vec::new(),
+        }
+    }
+}
+
+impl TestHarness {
+    fn params<'a>(&'a mut self, all_failed_instances: Vec<InstanceDone>) -> super::Params<'a> {
+        super::Params {
+            executor_shards: &mut self.executor_shards,
+            lock_tracker: &self.lock_tracker,
+            inflight_actions: &mut self.inflight_actions,
+            inflight_dispatches: &mut self.inflight_dispatches,
+            sleeping_nodes: &mut self.sleeping_nodes,
+            sleeping_by_instance: &mut self.sleeping_by_instance,
+            blocked_until_by_instance: &mut self.blocked_until,
+            commit_barrier: &mut self.barrier,
+            all_failed_instances,
+            instances_done_pending: &mut self.instances_done_pending,
+        }
+    }
+}
+
 #[test]
 fn cleans_up_all_state() {
     let executor_id = Uuid::new_v4();
     let execution_id = Uuid::new_v4();
     let node_id = Uuid::new_v4();
 
-    let lock_tracker = InstanceLockTracker::new(Uuid::new_v4());
-    lock_tracker.insert_all([executor_id]);
-
-    let mut executor_shards = HashMap::from([(executor_id, 0usize)]);
-    let mut inflight_actions = HashMap::from([(executor_id, 1usize)]);
-    let mut inflight_dispatches = HashMap::from([(
+    let mut harness = TestHarness::default();
+    harness.lock_tracker.insert_all([executor_id]);
+    harness.executor_shards.insert(executor_id, 0usize);
+    harness.inflight_actions.insert(executor_id, 1usize);
+    harness.inflight_dispatches.insert(
         execution_id,
         InflightActionDispatch {
             executor_id,
@@ -29,72 +73,43 @@ fn cleans_up_all_state() {
             timeout_seconds: 0,
             deadline_at: None,
         },
-    )]);
-    let mut sleeping_nodes = HashMap::from([(
+    );
+    harness.sleeping_nodes.insert(
         node_id,
         SleepRequest {
             node_id,
             wake_at: Utc::now() + chrono::Duration::seconds(60),
         },
-    )]);
-    let mut sleeping_by_instance = HashMap::from([(executor_id, HashSet::from([node_id]))]);
-    let mut blocked_until: HashMap<Uuid, DateTime<Utc>> =
-        HashMap::from([(executor_id, Utc::now() + chrono::Duration::seconds(60))]);
-    let mut barrier: CommitBarrier<ShardStep> = CommitBarrier::new();
-    let mut instances_done_pending: Vec<InstanceDone> = Vec::new();
+    );
+    harness
+        .sleeping_by_instance
+        .insert(executor_id, HashSet::from([node_id]));
+    harness
+        .blocked_until
+        .insert(executor_id, Utc::now() + chrono::Duration::seconds(60));
 
-    super::handle(super::Params {
-        executor_shards: &mut executor_shards,
-        lock_tracker: &lock_tracker,
-        inflight_actions: &mut inflight_actions,
-        inflight_dispatches: &mut inflight_dispatches,
-        sleeping_nodes: &mut sleeping_nodes,
-        sleeping_by_instance: &mut sleeping_by_instance,
-        blocked_until_by_instance: &mut blocked_until,
-        commit_barrier: &mut barrier,
-        all_failed_instances: vec![InstanceDone {
-            executor_id,
-            entry_node: Uuid::new_v4(),
-            result: None,
-            error: Some(serde_json::json!({"type": "ExecutionError", "message": "boom"})),
-        }],
-        instances_done_pending: &mut instances_done_pending,
-    });
+    super::handle(harness.params(vec![InstanceDone {
+        executor_id,
+        entry_node: Uuid::new_v4(),
+        result: None,
+        error: Some(serde_json::json!({"type": "ExecutionError", "message": "boom"})),
+    }]));
 
-    assert!(!executor_shards.contains_key(&executor_id));
-    assert!(!inflight_actions.contains_key(&executor_id));
-    assert!(!inflight_dispatches.contains_key(&execution_id));
-    assert!(!sleeping_nodes.contains_key(&node_id));
-    assert!(!sleeping_by_instance.contains_key(&executor_id));
-    assert!(!blocked_until.contains_key(&executor_id));
-    assert_eq!(instances_done_pending.len(), 1);
-    assert_eq!(instances_done_pending[0].executor_id, executor_id);
+    assert!(!harness.executor_shards.contains_key(&executor_id));
+    assert!(!harness.inflight_actions.contains_key(&executor_id));
+    assert!(!harness.inflight_dispatches.contains_key(&execution_id));
+    assert!(!harness.sleeping_nodes.contains_key(&node_id));
+    assert!(!harness.sleeping_by_instance.contains_key(&executor_id));
+    assert!(!harness.blocked_until.contains_key(&executor_id));
+    assert_eq!(harness.instances_done_pending.len(), 1);
+    assert_eq!(harness.instances_done_pending[0].executor_id, executor_id);
 }
 
 #[test]
 fn empty_list_is_noop() {
-    let lock_tracker = InstanceLockTracker::new(Uuid::new_v4());
-    let mut executor_shards: HashMap<Uuid, usize> = HashMap::new();
-    let mut inflight_actions: HashMap<Uuid, usize> = HashMap::new();
-    let mut inflight_dispatches: HashMap<Uuid, InflightActionDispatch> = HashMap::new();
-    let mut sleeping_nodes: HashMap<Uuid, SleepRequest> = HashMap::new();
-    let mut sleeping_by_instance: HashMap<Uuid, HashSet<Uuid>> = HashMap::new();
-    let mut blocked_until: HashMap<Uuid, DateTime<Utc>> = HashMap::new();
-    let mut barrier: CommitBarrier<ShardStep> = CommitBarrier::new();
-    let mut instances_done_pending: Vec<InstanceDone> = Vec::new();
+    let mut harness = TestHarness::default();
 
-    super::handle(super::Params {
-        executor_shards: &mut executor_shards,
-        lock_tracker: &lock_tracker,
-        inflight_actions: &mut inflight_actions,
-        inflight_dispatches: &mut inflight_dispatches,
-        sleeping_nodes: &mut sleeping_nodes,
-        sleeping_by_instance: &mut sleeping_by_instance,
-        blocked_until_by_instance: &mut blocked_until,
-        commit_barrier: &mut barrier,
-        all_failed_instances: vec![],
-        instances_done_pending: &mut instances_done_pending,
-    });
+    super::handle(harness.params(vec![]));
 
-    assert!(instances_done_pending.is_empty());
+    assert!(harness.instances_done_pending.is_empty());
 }
