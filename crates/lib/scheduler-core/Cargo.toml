@@ -1,14 +1,18 @@
 [package]
 name = "waymark-scheduler-core"
 version.workspace = true
+publish.workspace = true
 edition = "2024"
 
 [dependencies]
-uuid = { workspace = true, features = ["serde", "v4"] }
 chrono = { workspace = true, features = ["serde"] }
-serde = { workspace = true, features = ["derive"] }
 cron = { workspace = true }
 rand = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+uuid = { workspace = true, features = ["serde", "v4"] }
 
 [dev-dependencies]
 chrono = { workspace = true, features = ["clock"] }
+
+[lib]
+doctest = false

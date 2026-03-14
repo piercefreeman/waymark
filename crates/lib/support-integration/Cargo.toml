@@ -1,10 +1,16 @@
 [package]
 name = "waymark-support-integration"
 version.workspace = true
+publish.workspace = true
 edition = "2024"
 
 [dependencies]
 waymark-backend-postgres-migrations = { workspace = true }
+
 anyhow = { workspace = true }
 sqlx = { workspace = true, features = ["postgres"] }
 tokio = { workspace = true, features = ["process", "time", "sync"] }
+
+[lib]
+test = false
+doctest = false

@@ -1,24 +1,25 @@
 [package]
 name = "waymark-bridge"
 version.workspace = true
+publish.workspace = true
 edition = "2024"
 
 [dependencies]
+waymark-backend-postgres = { workspace = true }
+waymark-backend-postgres-migrations = { workspace = true }
+waymark-backends-core = { workspace = true }
 waymark-core-backend = { workspace = true }
 waymark-dag = { workspace = true }
 waymark-dag-builder = { workspace = true }
 waymark-ir-conversions = { workspace = true }
+waymark-message-conversions = { workspace = true }
+waymark-proto = { workspace = true }
+waymark-runloop = { workspace = true }
 waymark-runner-state = { workspace = true }
 waymark-scheduler-backend = { workspace = true }
 waymark-scheduler-core = { workspace = true }
-waymark-backends-core = { workspace = true }
-waymark-backend-postgres = { workspace = true }
-waymark-backend-postgres-migrations = { workspace = true }
-waymark-workflow-registry-backend = { workspace = true }
-waymark-proto = { workspace = true }
-waymark-message-conversions = { workspace = true }
 waymark-worker-core = { workspace = true }
-waymark-runloop = { workspace = true }
+waymark-workflow-registry-backend = { workspace = true }
 
 anyhow = { workspace = true }
 chrono = { workspace = true }

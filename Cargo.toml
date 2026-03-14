@@ -4,6 +4,7 @@ members = ["crates/lib/*", "crates/bin/*"]
 
 [workspace.package]
 version = "0.1.0"
+publish = false
 
 [workspace.dependencies]
 waymark-backend-fault-injection = { path = "crates/lib/backend-fault-injection" }
@@ -11,6 +12,7 @@ waymark-backend-memory = { path = "crates/lib/backend-memory" }
 waymark-backend-postgres = { path = "crates/lib/backend-postgres" }
 waymark-backend-postgres-migrations = { path = "crates/lib/backend-postgres-migrations" }
 waymark-backends-core = { path = "crates/lib/backends-core" }
+waymark-config = { path = "crates/lib/config" }
 waymark-core-backend = { path = "crates/lib/core-backend" }
 waymark-dag = { path = "crates/lib/dag" }
 waymark-dag-builder = { path = "crates/lib/dag-builder" }
@@ -19,39 +21,38 @@ waymark-dag-viz = { path = "crates/lib/dag-viz" }
 waymark-garbage-collector-backend = { path = "crates/lib/garbage-collector-backend" }
 waymark-garbage-collector-config = { path = "crates/lib/garbage-collector-config" }
 waymark-garbage-collector-loop = { path = "crates/lib/garbage-collector-loop" }
-waymark-support-integration = { path = "crates/lib/support-integration" }
 waymark-ir-conversions = { path = "crates/lib/ir-conversions" }
-waymark-ir-parser = { path = "crates/lib/ir-parser" }
 waymark-ir-format = { path = "crates/lib/ir-format" }
+waymark-ir-parser = { path = "crates/lib/ir-parser" }
+waymark-message-conversions = { path = "crates/lib/message-conversions" }
 waymark-observability = { path = "crates/lib/observability" }
 waymark-observability-macros = { path = "crates/lib/observability-macros" }
 waymark-observability-setup = { path = "crates/lib/observability-setup" }
+waymark-pool-status = { path = "crates/lib/pool-status" }
 waymark-proto = { path = "crates/lib/proto" }
+waymark-runloop = { path = "crates/lib/runloop" }
 waymark-runner = { path = "crates/lib/runner" }
 waymark-runner-state = { path = "crates/lib/runner-state" }
 waymark-scheduler-backend = { path = "crates/lib/scheduler-backend" }
-waymark-scheduler-core = { path = "crates/lib/scheduler-core" }
 waymark-scheduler-config = { path = "crates/lib/scheduler-config" }
+waymark-scheduler-core = { path = "crates/lib/scheduler-core" }
 waymark-scheduler-loop = { path = "crates/lib/scheduler-loop" }
+waymark-smoke-sources = { path = "crates/lib/smoke-sources" }
+waymark-support-integration = { path = "crates/lib/support-integration" }
 waymark-support-test = { path = "crates/lib/support-test" }
 waymark-webapp-backend = { path = "crates/lib/webapp-backend" }
-waymark-webapp-core = { path = "crates/lib/webapp-core" }
-waymark-worker-status-backend = { path = "crates/lib/worker-status-backend" }
-waymark-workflow-registry-backend = { path = "crates/lib/workflow-registry-backend" }
-waymark-smoke-sources = { path = "crates/lib/smoke-sources" }
-waymark-message-conversions = { path = "crates/lib/message-conversions" }
-waymark-pool-status = { path = "crates/lib/pool-status" }
-waymark-webapp-config = { path = "crates/lib/webapp-config" }
-waymark-webapp-routes = { path = "crates/lib/webapp-routes" }
 waymark-webapp-bringup = { path = "crates/lib/webapp-bringup" }
+waymark-webapp-config = { path = "crates/lib/webapp-config" }
+waymark-webapp-core = { path = "crates/lib/webapp-core" }
+waymark-webapp-routes = { path = "crates/lib/webapp-routes" }
 waymark-worker-core = { path = "crates/lib/worker-core" }
-waymark-worker-remote = { path = "crates/lib/worker-remote" }
 waymark-worker-inline = { path = "crates/lib/worker-inline" }
+waymark-worker-metrics = { path = "crates/lib/worker-metrics" }
+waymark-worker-remote = { path = "crates/lib/worker-remote" }
+waymark-worker-status-backend = { path = "crates/lib/worker-status-backend" }
 waymark-worker-status-core = { path = "crates/lib/worker-status-core" }
 waymark-worker-status-reporter = { path = "crates/lib/worker-status-reporter" }
-waymark-worker-metrics = { path = "crates/lib/worker-metrics" }
-waymark-runloop = { path = "crates/lib/runloop" }
-waymark-config = { path = "crates/lib/config" }
+waymark-workflow-registry-backend = { path = "crates/lib/workflow-registry-backend" }
 
 anyhow = "1"
 async-trait = "0.1"

@@ -2,6 +2,7 @@
 name = "waymark-webapp-routes"
 edition = "2024"
 version.workspace = true
+publish.workspace = true
 
 [dependencies]
 waymark-pool-status = { workspace = true }
@@ -27,3 +28,6 @@ serial_test = { workspace = true }
 sqlx = { workspace = true, default-features = false, features = ["runtime-tokio"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tower = { workspace = true, features = ["util"] }
+
+[lib]
+doctest = false

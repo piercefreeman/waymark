@@ -1,10 +1,16 @@
 [package]
 name = "waymark-webapp-backend"
 version.workspace = true
+publish.workspace = true
 edition = "2024"
 
 [dependencies]
-async-trait = { workspace = true }
-uuid = { workspace = true }
 waymark-backends-core = { workspace = true }
 waymark-webapp-core = { workspace = true }
+
+async-trait = { workspace = true }
+uuid = { workspace = true }
+
+[lib]
+test = false
+doctest = false
