@@ -2,10 +2,7 @@ use std::collections::HashSet;
 
 use uuid::Uuid;
 
-use crate::{
-    commit_barrier::CommitBarrier,
-    runloop::{ShardStep, channel_utils::send_with_stop},
-};
+use crate::{commit_barrier::CommitBarrier, runloop::channel_utils::send_with_stop, shard};
 
 #[cfg(test)]
 mod tests;
@@ -16,9 +13,9 @@ pub struct Params<'a> {
     /// Channel to the persistence task that durably records step side effects.
     pub persist_tx: &'a tokio::sync::mpsc::Sender<crate::runloop::PersistCommand>,
     /// Coordinates which instance events must wait for persistence acknowledgments.
-    pub commit_barrier: &'a mut CommitBarrier<ShardStep>,
+    pub commit_barrier: &'a mut CommitBarrier<shard::Step>,
     /// Shard steps collected during the current coordinator tick.
-    pub all_steps: Vec<ShardStep>,
+    pub all_steps: Vec<shard::Step>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -86,7 +83,7 @@ pub async fn handle(params: Params<'_>) -> Result<(), Error> {
 }
 
 fn collect_step_updates(
-    steps: &[ShardStep],
+    steps: &[shard::Step],
 ) -> (
     Vec<waymark_core_backend::ActionDone>,
     Vec<waymark_core_backend::GraphUpdate>,

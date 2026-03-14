@@ -7,7 +7,8 @@ use waymark_runner::SleepRequest;
 
 use crate::commit_barrier::CommitBarrier;
 use crate::lock::InstanceLockTracker;
-use crate::runloop::{InflightActionDispatch, ShardStep};
+use crate::runloop::InflightActionDispatch;
+use crate::shard;
 
 struct TestHarness {
     pub lock_tracker: InstanceLockTracker,
@@ -17,7 +18,7 @@ struct TestHarness {
     pub sleeping_nodes: HashMap<Uuid, SleepRequest>,
     pub sleeping_by_instance: HashMap<Uuid, HashSet<Uuid>>,
     pub blocked_until: HashMap<Uuid, DateTime<Utc>>,
-    pub barrier: CommitBarrier<ShardStep>,
+    pub barrier: CommitBarrier<shard::Step>,
     pub instances_done_pending: Vec<InstanceDone>,
 }
 

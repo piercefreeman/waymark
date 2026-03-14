@@ -14,7 +14,8 @@ use waymark_runner::SleepRequest;
 use crate::{
     commit_barrier::CommitBarrier,
     lock::InstanceLockTracker,
-    runloop::{InflightActionDispatch, RunLoopError, ShardStep, SleepWake},
+    runloop::{InflightActionDispatch, RunLoopError, SleepWake},
+    shard,
 };
 
 pub struct Params<'a, WorkerPool: ?Sized> {
@@ -33,7 +34,7 @@ pub struct Params<'a, WorkerPool: ?Sized> {
     /// Earliest wake time currently blocking each executor from making progress.
     pub blocked_until_by_instance: &'a mut HashMap<Uuid, DateTime<Utc>>,
     /// Tracks deferred instance events so completed instances can be fully removed.
-    pub commit_barrier: &'a mut CommitBarrier<ShardStep>,
+    pub commit_barrier: &'a mut CommitBarrier<shard::Step>,
     /// Buffer of terminal instance outcomes that still need durable persistence.
     pub instances_done_pending: &'a mut Vec<InstanceDone>,
     /// Channel used to enqueue future wake notifications for sleeping nodes.
@@ -43,7 +44,7 @@ pub struct Params<'a, WorkerPool: ?Sized> {
     /// Test/debug knob that forces sleeps to wake immediately.
     pub skip_sleep: bool,
     /// Confirmed shard step whose actions, sleeps, and terminal result should be applied.
-    pub step: ShardStep,
+    pub step: shard::Step,
 }
 
 /// Applies a confirmed shard step by dispatching actions and registering sleep requests.

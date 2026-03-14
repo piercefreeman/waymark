@@ -10,9 +10,8 @@ use waymark_core_backend::InstanceDone;
 use waymark_runner::SleepRequest;
 
 use crate::{
-    commit_barrier::CommitBarrier,
-    lock::InstanceLockTracker,
-    runloop::{InflightActionDispatch, ShardStep},
+    commit_barrier::CommitBarrier, lock::InstanceLockTracker, runloop::InflightActionDispatch,
+    shard,
 };
 
 pub struct Params<'a> {
@@ -31,7 +30,7 @@ pub struct Params<'a> {
     /// Earliest wake time currently blocking each executor from making progress.
     pub blocked_until_by_instance: &'a mut HashMap<Uuid, DateTime<Utc>>,
     /// Tracks deferred instance events so failed instances can be fully removed.
-    pub commit_barrier: &'a mut CommitBarrier<ShardStep>,
+    pub commit_barrier: &'a mut CommitBarrier<shard::Step>,
     /// Failed instances reported by shards during the current coordinator tick.
     pub all_failed_instances: Vec<InstanceDone>,
     /// Buffer of terminal instance outcomes that still need durable persistence.

@@ -10,9 +10,8 @@ use waymark_core_backend::QueuedInstance;
 use waymark_runner::SleepRequest;
 
 use crate::{
-    commit_barrier::CommitBarrier,
-    lock::InstanceLockTracker,
-    runloop::{InflightActionDispatch, ShardCommand, ShardStep},
+    commit_barrier::CommitBarrier, lock::InstanceLockTracker, runloop::InflightActionDispatch,
+    shard,
 };
 
 #[cfg(test)]
@@ -22,7 +21,7 @@ pub struct Params<'a, WorkflowRegistryBackend: ?Sized> {
     /// Maps each active instance/executor to the shard currently responsible for it.
     pub executor_shards: &'a mut HashMap<Uuid, usize>,
     /// Per-shard command channels used to assign hydrated instances to shard workers.
-    pub shard_senders: &'a [std::sync::mpsc::Sender<ShardCommand>],
+    pub shard_senders: &'a [std::sync::mpsc::Sender<shard::Command>],
     /// Tracks which backend locks this runloop currently believes it owns.
     pub lock_tracker: &'a InstanceLockTracker,
     /// Counts how many action executions are still outstanding for each executor.
@@ -36,7 +35,7 @@ pub struct Params<'a, WorkflowRegistryBackend: ?Sized> {
     /// Earliest wake time currently blocking each executor from making progress.
     pub blocked_until_by_instance: &'a mut HashMap<Uuid, DateTime<Utc>>,
     /// Tracks deferred instance events so reclaimed instances can discard stale barriers.
-    pub commit_barrier: &'a mut CommitBarrier<ShardStep>,
+    pub commit_barrier: &'a mut CommitBarrier<shard::Step>,
 
     /// Cache of workflow DAGs keyed by workflow version ID to avoid repeated hydration work.
     pub workflow_cache: &'a mut HashMap<Uuid, Arc<waymark_dag::DAG>>,
@@ -170,7 +169,7 @@ where
 
     for (shard_idx, batch) in by_shard {
         if let Some(sender) = shard_senders.get(shard_idx) {
-            let _ = sender.send(ShardCommand::AssignInstances(batch));
+            let _ = sender.send(shard::Command::AssignInstances(batch));
         }
     }
 

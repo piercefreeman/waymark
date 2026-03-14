@@ -4,14 +4,15 @@ use std::sync::mpsc;
 use uuid::Uuid;
 
 use crate::commit_barrier::CommitBarrier;
-use crate::runloop::{InflightActionDispatch, ShardCommand, ShardStep};
+use crate::runloop::InflightActionDispatch;
+use crate::shard;
 
 struct TestHarness {
     pub executor_shards: HashMap<Uuid, usize>,
     pub inflight_actions: HashMap<Uuid, usize>,
     pub inflight_dispatches: HashMap<Uuid, InflightActionDispatch>,
-    pub commit_barrier: CommitBarrier<ShardStep>,
-    pub shard_senders: Vec<mpsc::Sender<ShardCommand>>,
+    pub commit_barrier: CommitBarrier<shard::Step>,
+    pub shard_senders: Vec<mpsc::Sender<shard::Command>>,
 }
 
 impl Default for TestHarness {
@@ -48,7 +49,7 @@ fn drops_unknown_execution_id() {
     let execution_id = Uuid::new_v4();
     let dispatch_token = Uuid::new_v4();
     let mut harness = TestHarness::default();
-    let (shard_tx, _shard_rx) = mpsc::channel::<ShardCommand>();
+    let (shard_tx, _shard_rx) = mpsc::channel::<shard::Command>();
     harness.shard_senders.push(shard_tx);
     harness.executor_shards.insert(executor_id, 0);
     harness.inflight_actions.insert(executor_id, 1);
@@ -75,7 +76,7 @@ fn drops_mismatched_executor_id() {
     let execution_id = Uuid::new_v4();
     let dispatch_token = Uuid::new_v4();
     let mut harness = TestHarness::default();
-    let (shard_tx, _shard_rx) = mpsc::channel::<ShardCommand>();
+    let (shard_tx, _shard_rx) = mpsc::channel::<shard::Command>();
     harness.shard_senders.push(shard_tx);
     harness.executor_shards.insert(executor_id, 0);
     harness.inflight_actions.insert(executor_id, 1);
@@ -111,7 +112,7 @@ fn drops_stale_dispatch_token() {
     let dispatch_token = Uuid::new_v4();
     let stale_token = Uuid::new_v4();
     let mut harness = TestHarness::default();
-    let (shard_tx, _shard_rx) = mpsc::channel::<ShardCommand>();
+    let (shard_tx, _shard_rx) = mpsc::channel::<shard::Command>();
     harness.shard_senders.push(shard_tx);
     harness.executor_shards.insert(executor_id, 0);
     harness.inflight_actions.insert(executor_id, 1);
@@ -147,7 +148,7 @@ fn drops_stale_attempt_number() {
     let execution_id = Uuid::new_v4();
     let dispatch_token = Uuid::new_v4();
     let mut harness = TestHarness::default();
-    let (shard_tx, _shard_rx) = mpsc::channel::<ShardCommand>();
+    let (shard_tx, _shard_rx) = mpsc::channel::<shard::Command>();
     harness.shard_senders.push(shard_tx);
     harness.executor_shards.insert(executor_id, 0);
     harness.inflight_actions.insert(executor_id, 1);
@@ -183,7 +184,7 @@ fn valid_decrements_inflight_and_routes_to_shard() {
     let execution_id = Uuid::new_v4();
     let dispatch_token = Uuid::new_v4();
     let mut harness = TestHarness::default();
-    let (shard_tx, shard_rx) = mpsc::channel::<ShardCommand>();
+    let (shard_tx, shard_rx) = mpsc::channel::<shard::Command>();
     harness.shard_senders.push(shard_tx);
     harness.executor_shards.insert(executor_id, 0);
     harness.inflight_actions.insert(executor_id, 1);
@@ -216,7 +217,7 @@ fn valid_decrements_inflight_and_routes_to_shard() {
     );
 
     let cmd = shard_rx.try_recv().expect("shard should receive a command");
-    let ShardCommand::ActionCompletions(batch) = cmd else {
+    let shard::Command::ActionCompletions(batch) = cmd else {
         panic!("expected ActionCompletions command");
     };
     assert_eq!(batch.len(), 1);
@@ -229,7 +230,7 @@ fn blocked_instance_defers_completion_until_unblock() {
     let execution_id = Uuid::new_v4();
     let dispatch_token = Uuid::new_v4();
     let mut harness = TestHarness::default();
-    let (shard_tx, shard_rx) = mpsc::channel::<ShardCommand>();
+    let (shard_tx, shard_rx) = mpsc::channel::<shard::Command>();
     harness.shard_senders.push(shard_tx);
     harness.executor_shards.insert(executor_id, 0);
     harness.inflight_actions.insert(executor_id, 1);
@@ -278,7 +279,7 @@ fn accepted_completion_for_unknown_shard_is_dropped_after_accounting() {
     let execution_id = Uuid::new_v4();
     let dispatch_token = Uuid::new_v4();
     let mut harness = TestHarness::default();
-    let (shard_tx, shard_rx) = mpsc::channel::<ShardCommand>();
+    let (shard_tx, shard_rx) = mpsc::channel::<shard::Command>();
     harness.shard_senders.push(shard_tx);
     harness.inflight_actions.insert(executor_id, 1);
     harness.inflight_dispatches.insert(

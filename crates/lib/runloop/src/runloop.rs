@@ -10,7 +10,6 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
-use serde_json::Value;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
@@ -24,13 +23,12 @@ use waymark_workflow_registry_backend::WorkflowRegistryBackend;
 use crate::commit_barrier::CommitBarrier;
 use crate::lock::{InstanceLockTracker, spawn_lock_heartbeat};
 use crate::runloop::channel_utils::send_with_stop;
-use waymark_dag::{DAG, DAGNode, OutputNode, ReturnNode};
+use crate::{error_value, shard};
+
+use waymark_dag::DAG;
 use waymark_observability::obs;
-use waymark_runner::{
-    DurableUpdates, ExecutorStep, RunnerExecutor, RunnerExecutorError, SleepRequest,
-    replay_variables,
-};
-use waymark_worker_core::{ActionCompletion, ActionRequest, BaseWorkerPool, WorkerPoolError};
+use waymark_runner::{RunnerExecutorError, SleepRequest};
+use waymark_worker_core::{ActionCompletion, BaseWorkerPool, WorkerPoolError};
 
 #[cfg(test)]
 mod test_support;
@@ -76,31 +74,6 @@ enum InstanceMessage {
     Error(BackendError),
 }
 
-enum ShardCommand {
-    AssignInstances(Vec<QueuedInstance>),
-    ActionCompletions(Vec<ActionCompletion>),
-    Wake(Vec<Uuid>),
-    Evict(Vec<Uuid>),
-    Shutdown,
-}
-
-struct ShardStep {
-    executor_id: Uuid,
-    actions: Vec<ActionRequest>,
-    sleep_requests: Vec<SleepRequest>,
-    updates: Option<DurableUpdates>,
-    instance_done: Option<InstanceDone>,
-}
-
-enum ShardEvent {
-    Step(ShardStep),
-    InstanceFailed {
-        executor_id: Uuid,
-        entry_node: Uuid,
-        error: String,
-    },
-}
-
 #[derive(Clone, Debug)]
 struct SleepWake {
     executor_id: Uuid,
@@ -119,7 +92,7 @@ struct InflightActionDispatch {
 enum CoordinatorEvent {
     Completions(Vec<ActionCompletion>),
     Instance(InstanceMessage),
-    Shard(ShardEvent),
+    Shard(shard::Event),
     SleepWake(SleepWake),
     PersistAck(PersistAck),
     ActionTimeoutTick,
@@ -142,310 +115,6 @@ enum PersistAck {
         batch_id: u64,
         error: RunLoopError,
     },
-}
-
-struct ShardExecutor {
-    executor_id: Uuid,
-    executor: RunnerExecutor,
-    entry_node: Uuid,
-    inflight: HashSet<Uuid>,
-    completed: bool,
-}
-
-impl ShardExecutor {
-    fn new(executor_id: Uuid, executor: RunnerExecutor, entry_node: Uuid) -> Self {
-        Self {
-            executor_id,
-            executor,
-            entry_node,
-            inflight: HashSet::new(),
-            completed: false,
-        }
-    }
-
-    fn start(&mut self) -> Result<ShardStep, RunLoopError> {
-        let step = self.executor.increment(&[self.entry_node])?;
-        self.apply_step(step)
-    }
-
-    fn handle_completions(
-        &mut self,
-        completions: Vec<ActionCompletion>,
-    ) -> Result<Option<ShardStep>, RunLoopError> {
-        let mut finished_nodes = Vec::new();
-        for completion in completions {
-            self.executor
-                .set_action_result(completion.execution_id, completion.result);
-            self.inflight.remove(&completion.execution_id);
-            finished_nodes.push(completion.execution_id);
-        }
-        if finished_nodes.is_empty() {
-            return Ok(None);
-        }
-        let step = self.executor.increment(&finished_nodes)?;
-        Ok(Some(self.apply_step(step)?))
-    }
-
-    fn handle_wake(&mut self, node_ids: Vec<Uuid>) -> Result<Option<ShardStep>, RunLoopError> {
-        let mut finished_nodes = Vec::new();
-        for node_id in node_ids {
-            if self.executor.state().nodes.contains_key(&node_id) {
-                self.inflight.remove(&node_id);
-                finished_nodes.push(node_id);
-            }
-        }
-        if finished_nodes.is_empty() {
-            return Ok(None);
-        }
-        let step = self.executor.increment(&finished_nodes)?;
-        Ok(Some(self.apply_step(step)?))
-    }
-
-    fn apply_step(&mut self, step: ExecutorStep) -> Result<ShardStep, RunLoopError> {
-        let mut actions = Vec::new();
-        let mut sleep_requests = Vec::new();
-        for action in &step.actions {
-            let action_spec = action.action.clone().ok_or_else(|| {
-                RunLoopError::Message("action node missing action spec".to_string())
-            })?;
-            if self.inflight.contains(&action.node_id) {
-                continue;
-            }
-            let kwargs = self
-                .executor
-                .resolve_action_kwargs(action.node_id, &action_spec)?;
-            let timeout_seconds = self.executor.action_timeout_seconds(action.node_id)?;
-            let attempt_number = u32::try_from(action.action_attempt).map_err(|_| {
-                RunLoopError::Message(format!(
-                    "invalid negative action attempt for node {}",
-                    action.node_id
-                ))
-            })?;
-            actions.push(ActionRequest {
-                executor_id: self.executor_id,
-                execution_id: action.node_id,
-                action_name: action_spec.action_name,
-                module_name: action_spec.module_name.clone(),
-                kwargs,
-                timeout_seconds,
-                attempt_number,
-                dispatch_token: Uuid::new_v4(),
-            });
-            self.inflight.insert(action.node_id);
-        }
-        for sleep_request in step.sleep_requests {
-            if self.inflight.contains(&sleep_request.node_id) {
-                continue;
-            }
-            self.inflight.insert(sleep_request.node_id);
-            sleep_requests.push(sleep_request);
-        }
-
-        debug!(
-            executor_id = %self.executor_id,
-            actions = actions.len(),
-            sleep_requests = sleep_requests.len(),
-            inflight = self.inflight.len(),
-            "executor step"
-        );
-
-        let instance_done = if !self.completed && actions.is_empty() && self.inflight.is_empty() {
-            self.completed = true;
-            Some(build_instance_done(
-                self.executor_id,
-                self.entry_node,
-                &self.executor,
-            ))
-        } else {
-            None
-        };
-
-        Ok(ShardStep {
-            executor_id: self.executor_id,
-            actions,
-            sleep_requests,
-            updates: step.updates,
-            instance_done,
-        })
-    }
-}
-
-fn run_executor_shard(
-    shard_id: usize,
-    backend: Arc<dyn waymark_core_backend::CoreBackend>,
-    receiver: std_mpsc::Receiver<ShardCommand>,
-    sender: mpsc::UnboundedSender<ShardEvent>,
-) {
-    let mut executors: HashMap<Uuid, ShardExecutor> = HashMap::new();
-
-    let send_instance_failed =
-        |executor_id: Uuid,
-         entry_node: Uuid,
-         err: RunLoopError,
-         sender: &mpsc::UnboundedSender<ShardEvent>| {
-            let _ = sender.send(ShardEvent::InstanceFailed {
-                executor_id,
-                entry_node,
-                error: err.to_string(),
-            });
-        };
-
-    while let Ok(command) = receiver.recv() {
-        match command {
-            ShardCommand::AssignInstances(instances) => {
-                debug!(
-                    shard_id,
-                    count = instances.len(),
-                    "assigning instances to shard"
-                );
-                for instance in instances {
-                    // If the same instance id was reclaimed from the DB, we treat
-                    // the prior in-memory executor as stale (e.g. stalled) and
-                    // replace it with the freshly claimed state.
-                    if executors.remove(&instance.instance_id).is_some() {
-                        warn!(
-                            shard_id,
-                            instance_id = %instance.instance_id,
-                            "replacing active executor state for reclaimed instance"
-                        );
-                    }
-                    let state = match instance.state {
-                        Some(state) => state,
-                        None => {
-                            send_instance_failed(
-                                instance.instance_id,
-                                instance.entry_node,
-                                RunLoopError::Message(
-                                    "queued instance missing runner state".to_string(),
-                                ),
-                                &sender,
-                            );
-                            continue;
-                        }
-                    };
-                    let dag = match instance.dag {
-                        Some(dag) => dag,
-                        None => {
-                            send_instance_failed(
-                                instance.instance_id,
-                                instance.entry_node,
-                                RunLoopError::Message(
-                                    "queued instance missing workflow DAG".to_string(),
-                                ),
-                                &sender,
-                            );
-                            continue;
-                        }
-                    };
-                    let mut executor = RunnerExecutor::new(
-                        dag,
-                        state,
-                        instance.action_results,
-                        Some(backend.clone()),
-                    );
-                    executor.set_instance_id(instance.instance_id);
-                    let mut owner =
-                        ShardExecutor::new(instance.instance_id, executor, instance.entry_node);
-                    let step = match owner.start() {
-                        Ok(step) => step,
-                        Err(err) => {
-                            send_instance_failed(
-                                instance.instance_id,
-                                instance.entry_node,
-                                err,
-                                &sender,
-                            );
-                            continue;
-                        }
-                    };
-                    let done = step.instance_done.is_some();
-                    if sender.send(ShardEvent::Step(step)).is_err() {
-                        return;
-                    }
-                    if !done {
-                        executors.insert(instance.instance_id, owner);
-                    }
-                }
-            }
-            ShardCommand::ActionCompletions(completions) => {
-                let mut grouped: HashMap<Uuid, Vec<ActionCompletion>> = HashMap::new();
-                for completion in completions {
-                    grouped
-                        .entry(completion.executor_id)
-                        .or_default()
-                        .push(completion);
-                }
-                for (executor_id, batch) in grouped {
-                    let Some(owner) = executors.get_mut(&executor_id) else {
-                        warn!(
-                            shard_id,
-                            executor_id = %executor_id,
-                            "completion for unknown executor"
-                        );
-                        continue;
-                    };
-                    let step = match owner.handle_completions(batch) {
-                        Ok(Some(step)) => step,
-                        Ok(None) => continue,
-                        Err(err) => {
-                            let entry_node = owner.entry_node;
-                            executors.remove(&executor_id);
-                            send_instance_failed(executor_id, entry_node, err, &sender);
-                            continue;
-                        }
-                    };
-                    let done = step.instance_done.is_some();
-                    if sender.send(ShardEvent::Step(step)).is_err() {
-                        return;
-                    }
-                    if done {
-                        executors.remove(&executor_id);
-                    }
-                }
-            }
-            ShardCommand::Wake(node_ids) => {
-                let mut grouped: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
-                for node_id in node_ids {
-                    for (executor_id, owner) in &executors {
-                        if owner.executor.state().nodes.contains_key(&node_id) {
-                            grouped.entry(*executor_id).or_default().push(node_id);
-                            break;
-                        }
-                    }
-                }
-                for (executor_id, batch) in grouped {
-                    let Some(owner) = executors.get_mut(&executor_id) else {
-                        continue;
-                    };
-                    let step = match owner.handle_wake(batch) {
-                        Ok(Some(step)) => step,
-                        Ok(None) => continue,
-                        Err(err) => {
-                            let entry_node = owner.entry_node;
-                            executors.remove(&executor_id);
-                            send_instance_failed(executor_id, entry_node, err, &sender);
-                            continue;
-                        }
-                    };
-                    let done = step.instance_done.is_some();
-                    if sender.send(ShardEvent::Step(step)).is_err() {
-                        return;
-                    }
-                    if done {
-                        executors.remove(&executor_id);
-                    }
-                }
-            }
-            ShardCommand::Evict(instance_ids) => {
-                for instance_id in instance_ids {
-                    executors.remove(&instance_id);
-                }
-            }
-            ShardCommand::Shutdown => {
-                break;
-            }
-        }
-    }
 }
 
 /// Run loop that fans out executor work across CPU-bound shard threads.
@@ -561,8 +230,8 @@ impl RunLoop {
     pub async fn run(&mut self) -> Result<(), RunLoopError> {
         self.worker_pool.launch().await?;
 
-        let (event_tx, mut event_rx) = mpsc::unbounded_channel::<ShardEvent>();
-        let mut shard_senders: Vec<std_mpsc::Sender<ShardCommand>> =
+        let (event_tx, mut event_rx) = mpsc::unbounded_channel::<shard::Event>();
+        let mut shard_senders: Vec<std_mpsc::Sender<shard::Command>> =
             Vec::with_capacity(self.shard_count);
         let mut shard_handles = Vec::with_capacity(self.shard_count);
 
@@ -573,7 +242,7 @@ impl RunLoop {
             let handle = thread::Builder::new()
                 .name(format!("waymark-executor-{shard_id}"))
                 .stack_size(128 * 1024 * 1024 /* 128 MB */)
-                .spawn(move || run_executor_shard(shard_id, backend, cmd_rx, event_tx))
+                .spawn(move || shard::run_executor_shard(shard_id, backend, cmd_rx, event_tx))
                 .map_err(|err| {
                     RunLoopError::Message(format!(
                         "failed to spawn executor shard {shard_id}: {err}"
@@ -859,7 +528,7 @@ impl RunLoop {
         let mut sleeping_nodes: HashMap<Uuid, SleepRequest> = HashMap::new();
         let mut sleeping_by_instance: HashMap<Uuid, HashSet<Uuid>> = HashMap::new();
         let mut blocked_until_by_instance: HashMap<Uuid, DateTime<Utc>> = HashMap::new();
-        let mut commit_barrier: CommitBarrier<ShardStep> = CommitBarrier::new();
+        let mut commit_barrier: CommitBarrier<shard::Step> = CommitBarrier::new();
         let mut instances_idle = false;
         let mut instances_done_pending: Vec<InstanceDone> = Vec::new();
         let shutdown_token = self.shutdown_token.clone();
@@ -932,7 +601,7 @@ impl RunLoop {
 
             let mut all_completions: Vec<ActionCompletion> = Vec::new();
             let mut all_instances: Vec<QueuedInstance> = Vec::new();
-            let mut all_steps: Vec<ShardStep> = Vec::new();
+            let mut all_steps: Vec<shard::Step> = Vec::new();
             let mut all_failed_instances: Vec<InstanceDone> = Vec::new();
             let mut all_wakes: Vec<SleepWake> = Vec::new();
             let mut all_persist_acks: Vec<PersistAck> = Vec::new();
@@ -954,8 +623,8 @@ impl RunLoop {
                     break 'runloop Err(RunLoopError::Backend(err));
                 }
                 CoordinatorEvent::Shard(event) => match event {
-                    ShardEvent::Step(step) => all_steps.push(step),
-                    ShardEvent::InstanceFailed {
+                    shard::Event::Step(step) => all_steps.push(step),
+                    shard::Event::InstanceFailed {
                         executor_id,
                         entry_node,
                         error,
@@ -998,8 +667,8 @@ impl RunLoop {
 
             while let Ok(event) = event_rx.try_recv() {
                 match event {
-                    ShardEvent::Step(step) => all_steps.push(step),
-                    ShardEvent::InstanceFailed {
+                    shard::Event::Step(step) => all_steps.push(step),
+                    shard::Event::InstanceFailed {
                         executor_id,
                         entry_node,
                         error,
@@ -1239,7 +908,7 @@ impl RunLoop {
         }
 
         for sender in shard_senders {
-            let _ = sender.send(ShardCommand::Shutdown);
+            let _ = sender.send(shard::Command::Shutdown);
         }
         for handle in shard_handles {
             if let Err(err) = handle.join() {
@@ -1262,96 +931,5 @@ impl RunLoop {
         }
 
         run_result
-    }
-}
-
-fn output_vars(dag: &DAG) -> Vec<String> {
-    let mut names = Vec::new();
-    let mut seen = HashSet::new();
-    for node in dag.nodes.values() {
-        match node {
-            DAGNode::Output(OutputNode { io_vars, .. }) => {
-                for name in io_vars {
-                    if seen.insert(name.clone()) {
-                        names.push(name.clone());
-                    }
-                }
-            }
-            DAGNode::Return(ReturnNode {
-                targets, target, ..
-            }) => {
-                if let Some(targets) = targets {
-                    for name in targets {
-                        if seen.insert(name.clone()) {
-                            names.push(name.clone());
-                        }
-                    }
-                } else if let Some(target) = target
-                    && seen.insert(target.clone())
-                {
-                    names.push(target.clone());
-                }
-            }
-            _ => {}
-        }
-    }
-    names
-}
-
-fn error_value(kind: &str, message: &str) -> Value {
-    let mut map = serde_json::Map::new();
-    map.insert("type".to_string(), Value::String(kind.to_string()));
-    map.insert("message".to_string(), Value::String(message.to_string()));
-    Value::Object(map)
-}
-
-fn compute_instance_payload(executor: &RunnerExecutor) -> (Option<Value>, Option<Value>) {
-    let outputs = output_vars(executor.dag());
-    match replay_variables(executor.state(), executor.action_results()) {
-        Ok(replayed) => {
-            if outputs.is_empty() {
-                let mut map = serde_json::Map::new();
-                for (key, value) in replayed.variables {
-                    map.insert(key, value);
-                }
-                return (Some(Value::Object(map)), None);
-            }
-            let mut map = serde_json::Map::new();
-            for name in outputs {
-                let value = replayed
-                    .variables
-                    .get(&name)
-                    .cloned()
-                    .unwrap_or(Value::Null);
-                map.insert(name, value);
-            }
-            (Some(Value::Object(map)), None)
-        }
-        Err(err) => {
-            let error_value = error_value("ReplayError", &err.to_string());
-            (None, Some(error_value))
-        }
-    }
-}
-
-fn build_instance_done(
-    executor_id: Uuid,
-    entry_node: Uuid,
-    executor: &RunnerExecutor,
-) -> InstanceDone {
-    if let Some(error_payload) = executor.terminal_error().cloned() {
-        return InstanceDone {
-            executor_id,
-            entry_node,
-            result: None,
-            error: Some(error_payload),
-        };
-    }
-    let (result_payload, error_payload) = compute_instance_payload(executor);
-    InstanceDone {
-        executor_id,
-        entry_node,
-        result: result_payload,
-        error: error_payload,
     }
 }

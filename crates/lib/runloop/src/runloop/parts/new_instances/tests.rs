@@ -11,19 +11,20 @@ use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBa
 
 use crate::commit_barrier::CommitBarrier;
 use crate::lock::InstanceLockTracker;
-use crate::runloop::{InflightActionDispatch, ShardCommand, ShardStep};
+use crate::runloop::InflightActionDispatch;
+use crate::shard;
 
 struct TestHarness {
     pub backend: MemoryBackend,
     pub lock_tracker: InstanceLockTracker,
     pub executor_shards: HashMap<Uuid, usize>,
-    pub shard_senders: Vec<std_mpsc::Sender<ShardCommand>>,
+    pub shard_senders: Vec<std_mpsc::Sender<shard::Command>>,
     pub inflight_actions: HashMap<Uuid, usize>,
     pub inflight_dispatches: HashMap<Uuid, InflightActionDispatch>,
     pub sleeping_nodes: HashMap<Uuid, waymark_runner::SleepRequest>,
     pub sleeping_by_instance: HashMap<Uuid, HashSet<Uuid>>,
     pub blocked_until_by_instance: HashMap<Uuid, chrono::DateTime<chrono::Utc>>,
-    pub commit_barrier: CommitBarrier<ShardStep>,
+    pub commit_barrier: CommitBarrier<shard::Step>,
     pub workflow_cache: HashMap<Uuid, Arc<waymark_dag::DAG>>,
     pub instances_idle: bool,
     pub next_shard: usize,
@@ -103,8 +104,8 @@ fn main(input: [x], output: [y]):
     let other_instance_id = Uuid::new_v4();
     let stale_node = Uuid::new_v4();
 
-    let (shard_tx0, shard_rx0) = std_mpsc::channel::<ShardCommand>();
-    let (shard_tx1, _shard_rx1) = std_mpsc::channel::<ShardCommand>();
+    let (shard_tx0, shard_rx0) = std_mpsc::channel::<shard::Command>();
+    let (shard_tx1, _shard_rx1) = std_mpsc::channel::<shard::Command>();
     harness.shard_senders = vec![shard_tx0, shard_tx1];
     harness.executor_shards = HashMap::from([(instance_id, 0usize), (other_instance_id, 1usize)]);
     harness.inflight_actions = HashMap::from([(instance_id, 3usize)]);
@@ -201,7 +202,7 @@ fn main(input: [x], output: [y]):
     let cmd = shard_rx0
         .try_recv()
         .expect("instance assignment should be sent");
-    let ShardCommand::AssignInstances(batch) = cmd else {
+    let shard::Command::AssignInstances(batch) = cmd else {
         panic!("expected AssignInstances command");
     };
     assert_eq!(batch.len(), 1);
