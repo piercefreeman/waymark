@@ -8,7 +8,31 @@ use tracing::{debug, warn};
 use uuid::Uuid;
 use waymark_worker_core::ActionCompletion;
 
-use crate::{RunLoopError, shard};
+use crate::shard;
+
+#[derive(Debug, thiserror::Error)]
+pub enum AssignInstancesError {
+    #[error("queued instance missing runner state")]
+    QueuedInstanceMissingRunnerState,
+
+    #[error("queued instance missing workflow DAG")]
+    QueuedInstanceMissingWorkflowDag,
+
+    #[error("start: {0}")]
+    Start(#[source] super::executor::StartError),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("assign instances: {0}")]
+    AssignInstances(AssignInstancesError),
+
+    #[error("action completions: {0}")]
+    ActionCompletions(super::executor::HandleCompletionsError),
+
+    #[error("wake: {0}")]
+    Wake(super::executor::HandleWakeError),
+}
 
 pub fn run_executor_shard(
     shard_id: usize,
@@ -21,7 +45,7 @@ pub fn run_executor_shard(
     let send_instance_failed =
         |executor_id: Uuid,
          entry_node: Uuid,
-         err: RunLoopError,
+         err: Error,
          sender: &mpsc::UnboundedSender<shard::Event>| {
             let _ = sender.send(shard::Event::InstanceFailed {
                 executor_id,
@@ -49,34 +73,31 @@ pub fn run_executor_shard(
                             "replacing active executor state for reclaimed instance"
                         );
                     }
-                    let state = match instance.state {
-                        Some(state) => state,
-                        None => {
-                            send_instance_failed(
-                                instance.instance_id,
-                                instance.entry_node,
-                                RunLoopError::Message(
-                                    "queued instance missing runner state".to_string(),
-                                ),
-                                &sender,
-                            );
-                            continue;
-                        }
+
+                    let Some(state) = instance.state else {
+                        send_instance_failed(
+                            instance.instance_id,
+                            instance.entry_node,
+                            Error::AssignInstances(
+                                AssignInstancesError::QueuedInstanceMissingRunnerState,
+                            ),
+                            &sender,
+                        );
+                        continue;
                     };
-                    let dag = match instance.dag {
-                        Some(dag) => dag,
-                        None => {
-                            send_instance_failed(
-                                instance.instance_id,
-                                instance.entry_node,
-                                RunLoopError::Message(
-                                    "queued instance missing workflow DAG".to_string(),
-                                ),
-                                &sender,
-                            );
-                            continue;
-                        }
+
+                    let Some(dag) = instance.dag else {
+                        send_instance_failed(
+                            instance.instance_id,
+                            instance.entry_node,
+                            Error::AssignInstances(
+                                AssignInstancesError::QueuedInstanceMissingWorkflowDag,
+                            ),
+                            &sender,
+                        );
+                        continue;
                     };
+
                     let mut executor = waymark_runner::RunnerExecutor::new(
                         dag,
                         state,
@@ -84,6 +105,7 @@ pub fn run_executor_shard(
                         Some(backend.clone()),
                     );
                     executor.set_instance_id(instance.instance_id);
+
                     let mut owner =
                         shard::Executor::new(instance.instance_id, executor, instance.entry_node);
                     let step = match owner.start() {
@@ -92,7 +114,7 @@ pub fn run_executor_shard(
                             send_instance_failed(
                                 instance.instance_id,
                                 instance.entry_node,
-                                err,
+                                Error::AssignInstances(AssignInstancesError::Start(err)),
                                 &sender,
                             );
                             continue;
@@ -130,7 +152,12 @@ pub fn run_executor_shard(
                         Err(err) => {
                             let entry_node = owner.entry_node;
                             executors.remove(&executor_id);
-                            send_instance_failed(executor_id, entry_node, err, &sender);
+                            send_instance_failed(
+                                executor_id,
+                                entry_node,
+                                Error::ActionCompletions(err),
+                                &sender,
+                            );
                             continue;
                         }
                     };
@@ -163,7 +190,12 @@ pub fn run_executor_shard(
                         Err(err) => {
                             let entry_node = owner.entry_node;
                             executors.remove(&executor_id);
-                            send_instance_failed(executor_id, entry_node, err, &sender);
+                            send_instance_failed(
+                                executor_id,
+                                entry_node,
+                                Error::Wake(err),
+                                &sender,
+                            );
                             continue;
                         }
                     };

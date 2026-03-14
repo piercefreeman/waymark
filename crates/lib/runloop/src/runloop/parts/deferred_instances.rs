@@ -41,7 +41,7 @@ pub struct Params<'a, CoreBackend: ?Sized> {
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("evict instance: {0}")]
-    EvictInstance(#[source] crate::RunLoopError),
+    EvictInstance(#[source] waymark_backends_core::BackendError),
 }
 
 /// Evicts instances that have been sleeping too long.

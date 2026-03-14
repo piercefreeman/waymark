@@ -9,7 +9,7 @@ use waymark_worker_core::{ActionRequest, WorkerPoolError};
 use crate::commit_barrier::CommitBarrier;
 use crate::instance_lock_heartbeat;
 use crate::runloop::test_support::{MockWorkerPool, assert_no_extra_worker_pool_calls};
-use crate::runloop::{InflightActionDispatch, RunLoopError, SleepWake};
+use crate::runloop::{InflightActionDispatch, SleepWake};
 use crate::shard;
 
 struct TestHarness {
@@ -155,13 +155,8 @@ async fn queue_error_is_returned() {
         .returning(|_| Err(WorkerPoolError::new("MockQueueError", "mock queue failure")));
 
     let err = super::run(harness.params(step)).expect_err("queue should fail");
-    match err {
-        RunLoopError::WorkerPool(pool_err) => {
-            assert_eq!(pool_err.kind, "MockQueueError");
-            assert_eq!(pool_err.message, "mock queue failure");
-        }
-        _ => panic!("expected worker pool error"),
-    }
+    assert_eq!(err.kind, "MockQueueError");
+    assert_eq!(err.message, "mock queue failure");
 
     assert_no_extra_worker_pool_calls(&mut harness.worker_pool);
 }

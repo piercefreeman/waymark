@@ -53,7 +53,7 @@ mod lock_utils;
 
 /// Raised when the run loop cannot coordinate execution.
 #[derive(Debug, thiserror::Error)]
-pub enum RunLoopError {
+pub enum Error {
     #[error("{0}")]
     Message(String),
     #[error(transparent)]
@@ -61,7 +61,7 @@ pub enum RunLoopError {
     #[error(transparent)]
     WorkerPool(#[from] WorkerPoolError),
     #[error(transparent)]
-    RunnerExecutor(#[from] RunnerExecutorError),
+    RunnerExecutor(RunnerExecutorError),
 }
 
 #[derive(Clone, Debug)]
@@ -198,8 +198,8 @@ impl RunLoop {
     }
 
     #[obs]
-    pub async fn run(&mut self) -> Result<(), RunLoopError> {
-        self.worker_pool.launch().await?;
+    pub async fn run(&mut self) -> Result<(), Error> {
+        self.worker_pool.launch().await.map_err(Error::WorkerPool)?;
 
         let (event_tx, mut event_rx) = mpsc::unbounded_channel::<shard::Event>();
         let mut shard_senders: Vec<std_mpsc::Sender<shard::Command>> =
@@ -215,9 +215,7 @@ impl RunLoop {
                 .stack_size(128 * 1024 * 1024 /* 128 MB */)
                 .spawn(move || shard::run_executor_shard(shard_id, backend, cmd_rx, event_tx))
                 .map_err(|err| {
-                    RunLoopError::Message(format!(
-                        "failed to spawn executor shard {shard_id}: {err}"
-                    ))
+                    Error::Message(format!("failed to spawn executor shard {shard_id}: {err}"))
                 })?;
             shard_senders.push(cmd_tx);
             shard_handles.push(handle);
@@ -409,7 +407,7 @@ impl RunLoop {
                 }
                 CoordinatorEvent::Instance(queued_instances_polling::Message::Error(err)) => {
                     warn!(error = %err, "runloop exiting: instance poller backend error");
-                    break 'runloop Err(RunLoopError::Backend(err));
+                    break 'runloop Err(Error::Backend(err));
                 }
                 CoordinatorEvent::Shard(event) => match event {
                     shard::Event::Step(step) => all_steps.push(step),
@@ -449,7 +447,7 @@ impl RunLoop {
                     }
                     queued_instances_polling::Message::Error(err) => {
                         warn!(error = %err, "runloop exiting: instance poller backend error");
-                        break 'runloop Err(RunLoopError::Backend(err));
+                        break 'runloop Err(Error::Backend(err));
                     }
                 }
             }
@@ -513,10 +511,13 @@ impl RunLoop {
                     // put the error into the "dumb" unified error.
                     let error = match error {
                         parts::step_persist_acks::Error::StepsPersistFailed(run_loop_error) => {
-                            RunLoopError::Message(run_loop_error)
+                            Error::Message(run_loop_error)
                         }
-                        parts::step_persist_acks::Error::StepsPersisted(run_loop_error) => {
-                            run_loop_error
+                        parts::step_persist_acks::Error::StepsPersisted(steps_persisted_error) => {
+                            match steps_persisted_error {
+                                parts::step_persist_acks::StepsPersistedError::EvictInstances(backend_error) => backend_error.into(),
+                                parts::step_persist_acks::StepsPersistedError::ApplyConfirmedStep(worker_pool_error) => worker_pool_error.into(),
+                            }
                         }
                     };
                     break 'runloop Err(error);
@@ -579,6 +580,16 @@ impl RunLoop {
                     // For now we reduce all the extra useful information to just
                     // put the error into the "dumb" unified error.
                     let parts::new_instances::Error::Hydrate(error) = error;
+                    let error = match error {
+                        ops::hydrate_instances::Error::GetWorkflowVersions(backend_error) => {
+                            backend_error.into()
+                        }
+                        err @ ops::hydrate_instances::Error::IrProgramDecode { .. }
+                        | err @ ops::hydrate_instances::Error::ConvertToDag { .. }
+                        | err @ ops::hydrate_instances::Error::WorkflowCacheGetNone { .. } => {
+                            Error::Message(err.to_string())
+                        }
+                    };
                     break 'runloop Err(error);
                 }
             }
@@ -616,7 +627,7 @@ impl RunLoop {
                     // put the error into the "dumb" unified error.
                     let error = match error {
                         err @ parts::steps::Error::SubmittingPersistBatch => {
-                            RunLoopError::Message(err.to_string())
+                            Error::Message(err.to_string())
                         }
                     };
                     break 'runloop Err(error);
@@ -646,7 +657,7 @@ impl RunLoop {
                     // For now we reduce all the extra useful information to just
                     // put the error into the "dumb" unified error.
                     let parts::deferred_instances::Error::EvictInstance(error) = error;
-                    break 'runloop Err(error);
+                    break 'runloop Err(error.into());
                 }
             }
 
@@ -660,7 +671,7 @@ impl RunLoop {
                     })
                     .await
             {
-                break 'runloop Err(err);
+                break 'runloop Err(err.into());
             }
         };
 
@@ -694,7 +705,7 @@ impl RunLoop {
             })
             .await
         {
-            run_result = Err(err);
+            run_result = Err(err.into());
         }
 
         for sender in shard_senders {

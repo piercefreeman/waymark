@@ -14,7 +14,7 @@ use waymark_runner::SleepRequest;
 use crate::{
     commit_barrier::CommitBarrier,
     instance_lock_heartbeat,
-    runloop::{InflightActionDispatch, RunLoopError, SleepWake},
+    runloop::{InflightActionDispatch, SleepWake},
     shard,
 };
 
@@ -61,7 +61,9 @@ pub struct Params<'a, WorkerPool: ?Sized> {
 /// - Spawns background sleep timers that trigger wake events when ready
 ///
 /// The `skip_sleep` flag is used during testing/debugging to immediately wake all sleeps.
-pub fn run<WorkerPool>(params: Params<'_, WorkerPool>) -> Result<(), RunLoopError>
+pub fn run<WorkerPool>(
+    params: Params<'_, WorkerPool>,
+) -> Result<(), waymark_worker_core::WorkerPoolError>
 where
     WorkerPool: ?Sized + waymark_worker_core::BaseWorkerPool,
 {

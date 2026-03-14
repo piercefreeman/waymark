@@ -4,11 +4,7 @@ use chrono::{DateTime, Utc};
 use uuid::Uuid;
 use waymark_runner::SleepRequest;
 
-use crate::{
-    instance_lock_heartbeat,
-    runloop::{InflightActionDispatch, RunLoopError},
-    shard,
-};
+use crate::{instance_lock_heartbeat, runloop::InflightActionDispatch, shard};
 
 pub struct Params<'a, CoreBackend: ?Sized> {
     /// Maps each active instance/executor to the shard currently responsible for it.
@@ -45,7 +41,9 @@ pub struct Params<'a, CoreBackend: ?Sized> {
 ///
 /// Eviction occurs when instances have exceeded error thresholds, resource limits,
 /// or are explicitly terminated by callers.
-pub async fn run<CoreBackend>(params: Params<'_, CoreBackend>) -> Result<(), RunLoopError>
+pub async fn run<CoreBackend>(
+    params: Params<'_, CoreBackend>,
+) -> Result<(), waymark_backends_core::BackendError>
 where
     CoreBackend: ?Sized + waymark_core_backend::CoreBackend,
 {

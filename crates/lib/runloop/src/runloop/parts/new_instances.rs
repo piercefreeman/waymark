@@ -58,7 +58,7 @@ pub struct Params<'a, WorkflowRegistryBackend: ?Sized> {
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("hydrate: {0}")]
-    Hydrate(#[source] crate::RunLoopError),
+    Hydrate(#[source] super::ops::hydrate_instances::Error),
 }
 
 /// Registers new instances into the runloop and initializes their state.
