@@ -2,8 +2,12 @@
 name = "waymark-ir-format"
 edition = "2024"
 version.workspace = true
+publish.workspace = true
 
 [dependencies]
+serde_json = { workspace = true }
 waymark-ir-parser = { workspace = true }
 waymark-proto = { workspace = true }
-serde_json = { workspace = true }
+
+[lib]
+doctest = false

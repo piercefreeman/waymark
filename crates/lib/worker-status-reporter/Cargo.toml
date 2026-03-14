@@ -2,6 +2,7 @@
 name = "waymark-worker-status-reporter"
 edition = "2024"
 version.workspace = true
+publish.workspace = true
 
 [dependencies]
 chrono = { workspace = true, default-features = false, features = ["clock"] }
@@ -12,3 +13,7 @@ uuid = { workspace = true }
 waymark-pool-status = { workspace = true }
 waymark-worker-status-backend = { workspace = true }
 waymark-worker-status-core = { workspace = true }
+
+[lib]
+test = false
+doctest = false

@@ -579,19 +579,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "dashmap"
-version = "5.5.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "978747c1d849a7d2ee5e8adc0159961c48fb7e5db2f06af6723b80123bb53856"
-dependencies = [
- "cfg-if",
- "hashbrown 0.14.5",
- "lock_api",
- "once_cell",
- "parking_lot_core",
-]
-
-[[package]]
 name = "der"
 version = "0.7.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -636,12 +623,6 @@ name = "dotenvy"
 version = "0.15.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
-
-[[package]]
-name = "downcast"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1435fa1053d8b2fbbe9be7e97eca7f33d37b28409959813daefc1446a14247f1"
 
 [[package]]
 name = "either"
@@ -751,27 +732,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "fragile"
-version = "2.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "28dd6caf6059519a65843af8fe2a3ae298b14b80179855aeb4adc2c1934ee619"
-
-[[package]]
-name = "futures"
-version = "0.3.32"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8b147ee9d1f6d097cef9ce628cd2ee62288d963e16fb287bd9286455b241382d"
-dependencies = [
- "futures-channel",
- "futures-core",
- "futures-executor",
- "futures-io",
- "futures-sink",
- "futures-task",
- "futures-util",
-]
-
-[[package]]
 name = "futures-channel"
 version = "0.3.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -833,7 +793,6 @@ version = "0.3.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "389ca41296e6190b48053de0321d02a77f32f8a5d2461dd38762c0593805c6d6"
 dependencies = [
- "futures-channel",
  "futures-core",
  "futures-io",
  "futures-sink",
@@ -956,12 +915,6 @@ name = "hashbrown"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a9ee70c43aaf417c914396645a0fa852624801b24ebb7ae78fe8272889ac888"
-
-[[package]]
-name = "hashbrown"
-version = "0.14.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e5274423e17b7c9fc20b6e7e208532f9b19825d82dfd615708b70edd83df41f1"
 
 [[package]]
 name = "hashbrown"
@@ -1571,32 +1524,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mockall"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f58d964098a5f9c6b63d0798e5372fd04708193510a7af313c22e9f29b7b620b"
-dependencies = [
- "cfg-if",
- "downcast",
- "fragile",
- "mockall_derive",
- "predicates",
- "predicates-tree",
-]
-
-[[package]]
-name = "mockall_derive"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ca41ce716dda6a9be188b385aa78ee5260fc25cd3802cb2a8afdc6afbe6b6dbf"
-dependencies = [
- "cfg-if",
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "multimap"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1898,32 +1825,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "85eae3c4ed2f50dcfe72643da4befc30deadb458a9b590d720cde2f2b1e97da9"
 dependencies = [
  "zerocopy",
-]
-
-[[package]]
-name = "predicates"
-version = "3.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ada8f2932f28a27ee7b70dd6c1c39ea0675c55a36879ab92f3a715eaa1e63cfe"
-dependencies = [
- "anstyle",
- "predicates-core",
-]
-
-[[package]]
-name = "predicates-core"
-version = "1.0.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cad38746f3166b4031b1a0d39ad9f954dd291e7854fcc0eed52ee41a0b50d144"
-
-[[package]]
-name = "predicates-tree"
-version = "1.0.13"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d0de1b847b39c8131db0467e9df1ff60e6d0562ab8e9a16e568ad0fdb372e2f2"
-dependencies = [
- "predicates-core",
- "termtree",
 ]
 
 [[package]]
@@ -2355,31 +2256,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "serial_test"
-version = "2.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e56dd856803e253c8f298af3f4d7eb0ae5e23a737252cd90bb4f3b435033b2d"
-dependencies = [
- "dashmap",
- "futures",
- "lazy_static",
- "log",
- "parking_lot",
- "serial_test_derive",
-]
-
-[[package]]
-name = "serial_test_derive"
-version = "2.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "91d129178576168c589c9ec973feedf7d3126c01ac2bf08795109aa35b69fb8f"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "sha1"
 version = "0.10.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2805,12 +2681,6 @@ dependencies = [
  "slug",
  "unicode-segmentation",
 ]
-
-[[package]]
-name = "termtree"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f50febec83f5ee1df3015341d8bd429f2d1cc62bcba7ea2076759d315084683"
 
 [[package]]
 name = "thiserror"
@@ -3441,7 +3311,6 @@ dependencies = [
  "rmp-serde",
  "serde",
  "serde_json",
- "serial_test",
  "sqlx",
  "tokio",
  "tracing",
@@ -3452,14 +3321,12 @@ dependencies = [
  "waymark-dag",
  "waymark-dag-builder",
  "waymark-garbage-collector-backend",
- "waymark-ir-parser",
  "waymark-observability",
  "waymark-proto",
  "waymark-runner",
  "waymark-runner-state",
  "waymark-scheduler-backend",
  "waymark-scheduler-core",
- "waymark-support-test",
  "waymark-webapp-backend",
  "waymark-webapp-core",
  "waymark-worker-status-backend",
@@ -3602,7 +3469,6 @@ dependencies = [
  "uuid",
  "waymark-dag",
  "waymark-dag-validator",
- "waymark-ir-parser",
  "waymark-proto",
 ]
 
@@ -3611,8 +3477,6 @@ name = "waymark-dag-validator"
 version = "0.1.0"
 dependencies = [
  "waymark-dag",
- "waymark-dag-builder",
- "waymark-ir-parser",
  "waymark-proto",
 ]
 
@@ -3671,7 +3535,6 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
- "waymark-backends-core",
  "waymark-garbage-collector-backend",
  "waymark-garbage-collector-config",
 ]
@@ -3786,28 +3649,21 @@ name = "waymark-runloop"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "mockall",
  "prost 0.12.6",
  "serde_json",
- "sha2",
  "thiserror",
  "tokio",
  "tokio-util",
  "tracing",
  "uuid",
- "waymark-backend-fault-injection",
- "waymark-backend-memory",
  "waymark-backends-core",
  "waymark-core-backend",
  "waymark-dag",
  "waymark-dag-builder",
- "waymark-ir-parser",
  "waymark-observability",
  "waymark-proto",
  "waymark-runner",
- "waymark-runner-state",
  "waymark-worker-core",
- "waymark-worker-inline",
  "waymark-workflow-registry-backend",
 ]
 
@@ -3820,12 +3676,9 @@ dependencies = [
  "serde_json",
  "thiserror",
  "uuid",
- "waymark-backend-memory",
  "waymark-core-backend",
  "waymark-dag",
- "waymark-dag-builder",
  "waymark-ir-conversions",
- "waymark-ir-parser",
  "waymark-observability",
  "waymark-proto",
  "waymark-runner-state",
@@ -3874,22 +3727,17 @@ dependencies = [
 name = "waymark-scheduler-loop"
 version = "0.1.0"
 dependencies = [
- "chrono",
  "prost 0.12.6",
  "serde_json",
  "tokio",
  "tokio-util",
  "tracing",
  "uuid",
- "waymark-backend-memory",
  "waymark-core-backend",
  "waymark-dag",
- "waymark-dag-builder",
  "waymark-ir-conversions",
- "waymark-ir-parser",
  "waymark-message-conversions",
  "waymark-proto",
- "waymark-runner",
  "waymark-runner-state",
  "waymark-scheduler-backend",
  "waymark-scheduler-config",
@@ -4043,23 +3891,14 @@ version = "0.1.0"
 dependencies = [
  "axum 0.8.8",
  "chrono",
- "http-body-util",
  "serde",
  "serde_json",
- "serial_test",
- "sqlx",
  "tera",
- "tokio",
- "tower 0.5.3",
  "tracing",
  "uuid",
- "waymark-backend-memory",
- "waymark-backend-postgres",
  "waymark-pool-status",
- "waymark-support-test",
  "waymark-webapp-backend",
  "waymark-webapp-core",
- "waymark-worker-status-backend",
 ]
 
 [[package]]

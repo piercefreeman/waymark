@@ -55,11 +55,21 @@ python-lint-verify:
 
 rust-lint:
 	cargo fmt
+	taplo fmt
 	cargo clippy --all-targets --all-features -- -D warnings
+	cargo shear --fix
+	cargo hack clippy --feature-powerset --no-dev-deps -- -D warnings
+	typos
+	cargo deny check
 
 rust-lint-verify:
 	cargo fmt -- --check
+	taplo fmt --check
 	cargo clippy --all-targets --all-features -- -D warnings
+	cargo shear
+	cargo hack clippy --feature-powerset --no-dev-deps -- -D warnings
+	typos
+	cargo deny check
 
 # Coverage targets
 coverage: python-coverage rust-coverage

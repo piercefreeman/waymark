@@ -1,8 +1,12 @@
 [package]
 name = "waymark-ir-conversions"
 version.workspace = true
+publish.workspace = true
 edition = "2024"
 
 [dependencies]
 serde_json = { workspace = true }
 waymark-proto = { workspace = true }
+
+[lib]
+doctest = false

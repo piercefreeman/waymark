@@ -1,25 +1,10 @@
 [package]
 name = "waymark-benchmark"
 version.workspace = true
+publish.workspace = true
 edition = "2024"
 
 [dependencies]
-waymark-core-backend = { workspace = true }
-waymark-dag = { workspace = true }
-waymark-dag-builder = { workspace = true }
-waymark-ir-conversions = { workspace = true }
-waymark-observability = { workspace = true }
-waymark-observability-setup = { workspace = true }
-waymark-proto = { workspace = true, features = ["serde", "client", "server"] }
-waymark-runner-state = { workspace = true }
-waymark-support-integration = { workspace = true }
-waymark-backend-postgres = { workspace = true }
-waymark-backend-postgres-migrations = { workspace = true }
-waymark-workflow-registry-backend = { workspace = true }
-waymark-smoke-sources = { workspace = true }
-waymark-worker-core = { workspace = true }
-waymark-worker-inline = { workspace = true }
-waymark-runloop = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 prost = { workspace = true }
 rand = { workspace = true }
@@ -29,3 +14,19 @@ sqlx = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tracing = { workspace = true }
 uuid = { workspace = true }
+waymark-backend-postgres = { workspace = true }
+waymark-backend-postgres-migrations = { workspace = true }
+waymark-core-backend = { workspace = true }
+waymark-dag = { workspace = true }
+waymark-dag-builder = { workspace = true }
+waymark-ir-conversions = { workspace = true }
+waymark-observability = { workspace = true }
+waymark-observability-setup = { workspace = true }
+waymark-proto = { workspace = true, features = ["serde", "client", "server"] }
+waymark-runloop = { workspace = true }
+waymark-runner-state = { workspace = true }
+waymark-smoke-sources = { workspace = true }
+waymark-support-integration = { workspace = true }
+waymark-worker-core = { workspace = true }
+waymark-worker-inline = { workspace = true }
+waymark-workflow-registry-backend = { workspace = true }

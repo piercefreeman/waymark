@@ -64,7 +64,7 @@ jobs:
 
   rust-lint:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -80,6 +80,11 @@ jobs:
         uses: Swatinem/rust-cache@v2.8.2
         with:
           shared-key: waymark
+
+      - name: Install cargo tools
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-shear,cargo-hack,taplo-cli,typos-cli,cargo-deny
 
       - name: Rust lint
         run: make rust-lint-verify

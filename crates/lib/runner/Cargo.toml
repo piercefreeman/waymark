@@ -1,6 +1,7 @@
 [package]
 name = "waymark-runner"
 version.workspace = true
+publish.workspace = true
 edition = "2024"
 
 [dependencies]
@@ -9,14 +10,12 @@ rustc-hash = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }
-waymark-dag = { workspace = true }
-waymark-proto = { workspace = true }
-waymark-observability = { workspace = true }
-waymark-ir-conversions = { workspace = true }
-waymark-runner-state = { workspace = true }
 waymark-core-backend = { workspace = true }
+waymark-dag = { workspace = true }
+waymark-ir-conversions = { workspace = true }
+waymark-observability = { workspace = true }
+waymark-proto = { workspace = true }
+waymark-runner-state = { workspace = true }
 
-[dev-dependencies]
-waymark-ir-parser = { workspace = true }
-waymark-backend-memory = { workspace = true }
-waymark-dag-builder = { workspace = true }
+[lib]
+doctest = false
