@@ -6,6 +6,7 @@ mod step;
 
 pub use self::command::*;
 pub use self::event::*;
-pub use self::executor::*;
 pub use self::run::*;
 pub use self::step::*;
+
+use self::executor::*;

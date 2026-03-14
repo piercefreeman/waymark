@@ -8,7 +8,7 @@ use waymark_worker_core::{ActionCompletion, ActionRequest};
 
 use crate::{RunLoopError, error_value};
 
-pub struct Executor {
+pub(super) struct Executor {
     pub executor_id: Uuid,
     pub executor: RunnerExecutor,
     pub entry_node: Uuid,
