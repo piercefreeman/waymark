@@ -4,8 +4,6 @@ use uuid::Uuid;
 use waymark_core_backend::QueuedInstance;
 use waymark_proto::ast as ir;
 
-use crate::runloop::RunLoopError;
-
 pub struct Params<'a, WorkflowRegistryBackend: ?Sized> {
     /// Cache of workflow DAGs keyed by workflow version ID to avoid repeated hydration work.
     pub workflow_cache: &'a mut HashMap<Uuid, Arc<waymark_dag::DAG>>,
@@ -13,6 +11,21 @@ pub struct Params<'a, WorkflowRegistryBackend: ?Sized> {
     pub registry_backend: &'a WorkflowRegistryBackend,
     /// Claimed instances that need DAG references attached before shard execution.
     pub instances: &'a mut [QueuedInstance],
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("get workflow versions: {0}")]
+    GetWorkflowVersions(#[source] waymark_backends_core::BackendError),
+
+    #[error("invalid workflow IR: {0}")]
+    IrProgramDecode(#[source] prost::DecodeError),
+
+    #[error("invalid workflow DAG: {0}")]
+    ConvertToDag(#[source] waymark_dag::DagConversionError),
+
+    #[error("workflow version not found: {workflow_version_id}")]
+    WorkflowCacheGetNone { workflow_version_id: uuid::Uuid },
 }
 
 /// Loads and caches workflow DAG definitions for instances.
@@ -28,7 +41,7 @@ pub struct Params<'a, WorkflowRegistryBackend: ?Sized> {
 /// Caching avoids repeated fetches for workflows used by multiple instances.
 pub async fn run<WorkflowRegistryBackend>(
     params: Params<'_, WorkflowRegistryBackend>,
-) -> Result<(), RunLoopError>
+) -> Result<(), Error>
 where
     WorkflowRegistryBackend: ?Sized + waymark_workflow_registry_backend::WorkflowRegistryBackend,
 {
@@ -51,12 +64,11 @@ where
         let versions = registry_backend
             .get_workflow_versions(&missing)
             .await
-            .map_err(RunLoopError::Backend)?;
+            .map_err(Error::GetWorkflowVersions)?;
         for version in versions {
             let program = <ir::Program as prost::Message>::decode(&version.program_proto[..])
-                .map_err(|err| RunLoopError::Message(format!("invalid workflow IR: {err}")))?;
-            let dag = waymark_dag_builder::convert_to_dag(&program)
-                .map_err(|err| RunLoopError::Message(format!("invalid workflow DAG: {err}")))?;
+                .map_err(Error::IrProgramDecode)?;
+            let dag = waymark_dag_builder::convert_to_dag(&program).map_err(Error::ConvertToDag)?;
             workflow_cache.insert(version.id, Arc::new(dag));
         }
     }
@@ -64,11 +76,8 @@ where
     for instance in instances.iter_mut() {
         let dag = workflow_cache
             .get(&instance.workflow_version_id)
-            .ok_or_else(|| {
-                RunLoopError::Message(format!(
-                    "workflow version not found: {}",
-                    instance.workflow_version_id
-                ))
+            .ok_or_else(|| Error::WorkflowCacheGetNone {
+                workflow_version_id: instance.workflow_version_id,
             })?;
         instance.dag = Some(Arc::clone(dag));
     }

@@ -1,7 +1,5 @@
 use waymark_core_backend::InstanceDone;
 
-use crate::runloop::RunLoopError;
-
 #[cfg(test)]
 mod tests;
 
@@ -20,7 +18,9 @@ pub struct Params<'a, CoreBackend: ?Sized> {
 ///
 /// This ensures that the runloop's in-memory instance state accurately reflects
 /// the authoritative backend state, even if the runloop crashes.
-pub async fn run<CoreBackend>(params: Params<'_, CoreBackend>) -> Result<(), RunLoopError>
+pub async fn run<CoreBackend>(
+    params: Params<'_, CoreBackend>,
+) -> Result<(), waymark_backends_core::BackendError>
 where
     CoreBackend: ?Sized + waymark_core_backend::CoreBackend,
 {

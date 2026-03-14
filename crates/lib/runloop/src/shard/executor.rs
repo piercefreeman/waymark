@@ -6,7 +6,7 @@ use waymark_core_backend::InstanceDone;
 use waymark_runner::{RunnerExecutor, replay_variables};
 use waymark_worker_core::{ActionCompletion, ActionRequest};
 
-use crate::{RunLoopError, error_value};
+use crate::error_value;
 
 pub(super) struct Executor {
     pub executor_id: Uuid,
@@ -26,16 +26,41 @@ impl Executor {
             completed: false,
         }
     }
+}
 
-    pub fn start(&mut self) -> Result<super::Step, RunLoopError> {
-        let step = self.executor.increment(&[self.entry_node])?;
-        self.apply_step(step)
+#[derive(Debug, thiserror::Error)]
+pub enum StartError {
+    #[error("increment: {0}")]
+    Increment(#[source] waymark_runner::RunnerExecutorError),
+
+    #[error("apply step: {0}")]
+    ApplyStep(#[source] ApplyStepError),
+}
+
+impl Executor {
+    pub fn start(&mut self) -> Result<super::Step, StartError> {
+        let step = self
+            .executor
+            .increment(&[self.entry_node])
+            .map_err(StartError::Increment)?;
+        self.apply_step(step).map_err(StartError::ApplyStep)
     }
+}
 
+#[derive(Debug, thiserror::Error)]
+pub enum HandleCompletionsError {
+    #[error("increment: {0}")]
+    Increment(#[source] waymark_runner::RunnerExecutorError),
+
+    #[error("apply step: {0}")]
+    ApplyStep(#[source] ApplyStepError),
+}
+
+impl Executor {
     pub fn handle_completions(
         &mut self,
         completions: Vec<ActionCompletion>,
-    ) -> Result<Option<super::Step>, RunLoopError> {
+    ) -> Result<Option<super::Step>, HandleCompletionsError> {
         let mut finished_nodes = Vec::new();
         for completion in completions {
             self.executor
@@ -46,14 +71,31 @@ impl Executor {
         if finished_nodes.is_empty() {
             return Ok(None);
         }
-        let step = self.executor.increment(&finished_nodes)?;
-        Ok(Some(self.apply_step(step)?))
+        let step = self
+            .executor
+            .increment(&finished_nodes)
+            .map_err(HandleCompletionsError::Increment)?;
+        let step = self
+            .apply_step(step)
+            .map_err(HandleCompletionsError::ApplyStep)?;
+        Ok(Some(step))
     }
+}
 
+#[derive(Debug, thiserror::Error)]
+pub enum HandleWakeError {
+    #[error("increment: {0}")]
+    Increment(#[source] waymark_runner::RunnerExecutorError),
+
+    #[error("apply step: {0}")]
+    ApplyStep(#[source] ApplyStepError),
+}
+
+impl Executor {
     pub fn handle_wake(
         &mut self,
         node_ids: Vec<Uuid>,
-    ) -> Result<Option<super::Step>, RunLoopError> {
+    ) -> Result<Option<super::Step>, HandleWakeError> {
         let mut finished_nodes = Vec::new();
         for node_id in node_ids {
             if self.executor.state().nodes.contains_key(&node_id) {
@@ -64,32 +106,57 @@ impl Executor {
         if finished_nodes.is_empty() {
             return Ok(None);
         }
-        let step = self.executor.increment(&finished_nodes)?;
-        Ok(Some(self.apply_step(step)?))
+        let step = self
+            .executor
+            .increment(&finished_nodes)
+            .map_err(HandleWakeError::Increment)?;
+        let step = self.apply_step(step).map_err(HandleWakeError::ApplyStep)?;
+        Ok(Some(step))
     }
+}
+#[derive(Debug, thiserror::Error)]
+pub enum ApplyStepError {
+    #[error("action node missing action spec")]
+    NoActionSpec,
 
+    #[error("resolve action kwargs: {0}")]
+    ResolveActionKwargs(#[source] waymark_runner::RunnerExecutorError),
+
+    #[error("action timeout seconds: {0}")]
+    ActionTimeoutSeconds(#[source] waymark_runner::RunnerExecutorError),
+
+    #[error("invalid negative action attempt for node {node_id}: {action_attempt}")]
+    NegativeAction {
+        node_id: uuid::Uuid,
+        action_attempt: i32,
+    },
+}
+
+impl Executor {
     fn apply_step(
         &mut self,
         step: waymark_runner::ExecutorStep,
-    ) -> Result<super::Step, RunLoopError> {
+    ) -> Result<super::Step, ApplyStepError> {
         let mut actions = Vec::new();
         let mut sleep_requests = Vec::new();
         for action in &step.actions {
-            let action_spec = action.action.clone().ok_or_else(|| {
-                RunLoopError::Message("action node missing action spec".to_string())
-            })?;
+            let action_spec = action.action.clone().ok_or(ApplyStepError::NoActionSpec)?;
             if self.inflight.contains(&action.node_id) {
                 continue;
             }
             let kwargs = self
                 .executor
-                .resolve_action_kwargs(action.node_id, &action_spec)?;
-            let timeout_seconds = self.executor.action_timeout_seconds(action.node_id)?;
+                .resolve_action_kwargs(action.node_id, &action_spec)
+                .map_err(ApplyStepError::ResolveActionKwargs)?;
+            let timeout_seconds = self
+                .executor
+                .action_timeout_seconds(action.node_id)
+                .map_err(ApplyStepError::ActionTimeoutSeconds)?;
             let attempt_number = u32::try_from(action.action_attempt).map_err(|_| {
-                RunLoopError::Message(format!(
-                    "invalid negative action attempt for node {}",
-                    action.node_id
-                ))
+                ApplyStepError::NegativeAction {
+                    node_id: action.node_id,
+                    action_attempt: action.action_attempt,
+                }
             })?;
             actions.push(ActionRequest {
                 executor_id: self.executor_id,

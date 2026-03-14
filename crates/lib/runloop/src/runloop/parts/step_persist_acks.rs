@@ -21,7 +21,7 @@ mod tests;
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("steps persted: {0}")]
-    StepsPersisted(#[source] crate::RunLoopError),
+    StepsPersisted(StepsPersistedError),
 
     #[error("steps persist failed: {0}")]
     StepsPersistFailed(String),
@@ -180,9 +180,18 @@ struct StepsPersistedParams<'a, CoreBackend: ?Sized, WorkerPool: ?Sized> {
     pub lock_statuses: Vec<InstanceLockStatus>,
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum StepsPersistedError {
+    #[error("evict instances: {0}")]
+    EvictInstances(#[source] waymark_backends_core::BackendError),
+
+    #[error("apply confirmed step: {0}")]
+    ApplyConfirmedStep(#[source] waymark_worker_core::WorkerPoolError),
+}
+
 async fn handle_steps_persisted<CoreBackend, WorkerPool>(
     params: StepsPersistedParams<'_, CoreBackend, WorkerPool>,
-) -> Result<(), crate::RunLoopError>
+) -> Result<(), StepsPersistedError>
 where
     CoreBackend: ?Sized + waymark_core_backend::CoreBackend,
     WorkerPool: ?Sized + waymark_worker_core::BaseWorkerPool,
@@ -229,7 +238,9 @@ where
             instance_ids: &evict_ids_vec,
         };
 
-        super::ops::evict_instances::run(params).await?;
+        super::ops::evict_instances::run(params)
+            .await
+            .map_err(StepsPersistedError::EvictInstances)?;
     }
     for step in batch.steps {
         if !batch.instance_ids.contains(&step.executor_id) {
@@ -257,7 +268,8 @@ where
             skip_sleep,
             step,
         };
-        super::ops::apply_confirmed_step::run(params)?;
+        super::ops::apply_confirmed_step::run(params)
+            .map_err(StepsPersistedError::ApplyConfirmedStep)?;
     }
 
     for instance_id in batch.instance_ids {

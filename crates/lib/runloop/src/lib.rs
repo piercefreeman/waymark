@@ -15,4 +15,4 @@ mod shard;
 
 use self::error_value::error_value;
 
-pub use self::runloop::{RunLoop, RunLoopConfig, RunLoopError};
+pub use self::runloop::{Error as RunLoopError, RunLoop, RunLoopConfig};
