@@ -11,20 +11,72 @@ use crate::commit_barrier::CommitBarrier;
 use crate::lock::InstanceLockTracker;
 use crate::runloop::{InflightActionDispatch, ShardCommand, ShardStep};
 
+struct TestHarness {
+    pub lock_uuid: Uuid,
+    pub backend: MemoryBackend,
+    pub lock_tracker: InstanceLockTracker,
+    pub executor_shards: HashMap<Uuid, usize>,
+    pub inflight_actions: HashMap<Uuid, usize>,
+    pub inflight_dispatches: HashMap<Uuid, InflightActionDispatch>,
+    pub sleeping_nodes: HashMap<Uuid, SleepRequest>,
+    pub sleeping_by_instance: HashMap<Uuid, HashSet<Uuid>>,
+    pub blocked_until_by_instance: HashMap<Uuid, chrono::DateTime<Utc>>,
+    pub commit_barrier: CommitBarrier<ShardStep>,
+    pub shard_senders: Vec<std_mpsc::Sender<ShardCommand>>,
+    pub evict_sleep_threshold: Duration,
+}
+
+impl Default for TestHarness {
+    fn default() -> Self {
+        let lock_uuid = Uuid::new_v4();
+        Self {
+            lock_uuid,
+            backend: MemoryBackend::new(),
+            lock_tracker: InstanceLockTracker::new(lock_uuid),
+            executor_shards: HashMap::new(),
+            inflight_actions: HashMap::new(),
+            inflight_dispatches: HashMap::new(),
+            sleeping_nodes: HashMap::new(),
+            sleeping_by_instance: HashMap::new(),
+            blocked_until_by_instance: HashMap::new(),
+            commit_barrier: CommitBarrier::new(),
+            shard_senders: Vec::new(),
+            evict_sleep_threshold: Duration::from_secs(10),
+        }
+    }
+}
+
+impl TestHarness {
+    fn params<'a>(&'a mut self) -> super::Params<'a, MemoryBackend> {
+        super::Params {
+            executor_shards: &mut self.executor_shards,
+            shard_senders: &self.shard_senders,
+            lock_tracker: &self.lock_tracker,
+            inflight_actions: &mut self.inflight_actions,
+            inflight_dispatches: &mut self.inflight_dispatches,
+            sleeping_nodes: &mut self.sleeping_nodes,
+            sleeping_by_instance: &mut self.sleeping_by_instance,
+            blocked_until_by_instance: &mut self.blocked_until_by_instance,
+            commit_barrier: &mut self.commit_barrier,
+            core_backend: &self.backend,
+            lock_uuid: self.lock_uuid,
+            evict_sleep_threshold: self.evict_sleep_threshold,
+        }
+    }
+}
+
 #[tokio::test]
 async fn evicts_instance_over_threshold_without_inflight_actions() {
-    let lock_uuid = Uuid::new_v4();
     let instance_id = Uuid::new_v4();
     let node_id = Uuid::new_v4();
 
-    let mut executor_shards = HashMap::from([(instance_id, 0usize)]);
+    let mut harness = TestHarness::default();
     let (shard_tx, shard_rx) = std_mpsc::channel::<ShardCommand>();
-    let shard_senders = [shard_tx];
-
-    let lock_tracker = InstanceLockTracker::new(lock_uuid);
-    lock_tracker.insert_all([instance_id]);
-    let mut inflight_actions = HashMap::from([(instance_id, 0usize)]);
-    let mut inflight_dispatches = HashMap::from([(
+    harness.shard_senders.push(shard_tx);
+    harness.executor_shards.insert(instance_id, 0);
+    harness.lock_tracker.insert_all([instance_id]);
+    harness.inflight_actions.insert(instance_id, 0);
+    harness.inflight_dispatches.insert(
         Uuid::new_v4(),
         InflightActionDispatch {
             executor_id: instance_id,
@@ -33,48 +85,33 @@ async fn evicts_instance_over_threshold_without_inflight_actions() {
             timeout_seconds: 0,
             deadline_at: None,
         },
-    )]);
-    let mut sleeping_nodes = HashMap::from([(
+    );
+    harness.sleeping_nodes = HashMap::from([(
         node_id,
         SleepRequest {
             node_id,
             wake_at: Utc::now() + chrono::Duration::seconds(30),
         },
     )]);
-    let mut sleeping_by_instance = HashMap::from([(instance_id, HashSet::from([node_id]))]);
-    let mut blocked_until_by_instance =
+    harness.sleeping_by_instance = HashMap::from([(instance_id, HashSet::from([node_id]))]);
+    harness.blocked_until_by_instance =
         HashMap::from([(instance_id, Utc::now() + chrono::Duration::seconds(30))]);
-    let mut commit_barrier: CommitBarrier<ShardStep> = CommitBarrier::new();
 
-    let backend = MemoryBackend::new();
-    let result = super::handle(super::Params {
-        executor_shards: &mut executor_shards,
-        shard_senders: &shard_senders,
-        lock_tracker: &lock_tracker,
-        inflight_actions: &mut inflight_actions,
-        inflight_dispatches: &mut inflight_dispatches,
-        sleeping_nodes: &mut sleeping_nodes,
-        sleeping_by_instance: &mut sleeping_by_instance,
-        blocked_until_by_instance: &mut blocked_until_by_instance,
-        commit_barrier: &mut commit_barrier,
-        core_backend: &backend,
-        lock_uuid,
-        evict_sleep_threshold: Duration::from_secs(10),
-    })
-    .await;
+    let result = super::handle(harness.params()).await;
 
     assert!(result.is_ok());
-    assert!(!executor_shards.contains_key(&instance_id));
-    assert!(!inflight_actions.contains_key(&instance_id));
+    assert!(!harness.executor_shards.contains_key(&instance_id));
+    assert!(!harness.inflight_actions.contains_key(&instance_id));
     assert!(
-        inflight_dispatches
+        harness
+            .inflight_dispatches
             .values()
             .all(|dispatch| dispatch.executor_id != instance_id),
         "evicted instance dispatches should be removed"
     );
-    assert!(!sleeping_nodes.contains_key(&node_id));
-    assert!(!sleeping_by_instance.contains_key(&instance_id));
-    assert!(!blocked_until_by_instance.contains_key(&instance_id));
+    assert!(!harness.sleeping_nodes.contains_key(&node_id));
+    assert!(!harness.sleeping_by_instance.contains_key(&instance_id));
+    assert!(!harness.blocked_until_by_instance.contains_key(&instance_id));
 
     let cmd = shard_rx.try_recv().expect("evict command should be sent");
     let ShardCommand::Evict(ids) = cmd else {
@@ -85,42 +122,21 @@ async fn evicts_instance_over_threshold_without_inflight_actions() {
 
 #[tokio::test]
 async fn does_not_evict_when_inflight_actions_exist() {
-    let lock_uuid = Uuid::new_v4();
     let instance_id = Uuid::new_v4();
 
-    let mut executor_shards = HashMap::from([(instance_id, 0usize)]);
+    let mut harness = TestHarness::default();
     let (shard_tx, shard_rx) = std_mpsc::channel::<ShardCommand>();
-    let shard_senders = [shard_tx];
-
-    let lock_tracker = InstanceLockTracker::new(lock_uuid);
-    let mut inflight_actions = HashMap::from([(instance_id, 2usize)]);
-    let mut inflight_dispatches: HashMap<Uuid, InflightActionDispatch> = HashMap::new();
-    let mut sleeping_nodes: HashMap<Uuid, SleepRequest> = HashMap::new();
-    let mut sleeping_by_instance: HashMap<Uuid, HashSet<Uuid>> = HashMap::new();
-    let mut blocked_until_by_instance =
+    harness.shard_senders.push(shard_tx);
+    harness.executor_shards.insert(instance_id, 0);
+    harness.inflight_actions.insert(instance_id, 2);
+    harness.blocked_until_by_instance =
         HashMap::from([(instance_id, Utc::now() + chrono::Duration::seconds(30))]);
-    let mut commit_barrier: CommitBarrier<ShardStep> = CommitBarrier::new();
 
-    let backend = MemoryBackend::new();
-    let result = super::handle(super::Params {
-        executor_shards: &mut executor_shards,
-        shard_senders: &shard_senders,
-        lock_tracker: &lock_tracker,
-        inflight_actions: &mut inflight_actions,
-        inflight_dispatches: &mut inflight_dispatches,
-        sleeping_nodes: &mut sleeping_nodes,
-        sleeping_by_instance: &mut sleeping_by_instance,
-        blocked_until_by_instance: &mut blocked_until_by_instance,
-        commit_barrier: &mut commit_barrier,
-        core_backend: &backend,
-        lock_uuid,
-        evict_sleep_threshold: Duration::from_secs(10),
-    })
-    .await;
+    let result = super::handle(harness.params()).await;
 
     assert!(result.is_ok());
-    assert!(executor_shards.contains_key(&instance_id));
-    assert_eq!(inflight_actions.get(&instance_id), Some(&2));
-    assert!(blocked_until_by_instance.contains_key(&instance_id));
+    assert!(harness.executor_shards.contains_key(&instance_id));
+    assert_eq!(harness.inflight_actions.get(&instance_id), Some(&2));
+    assert!(harness.blocked_until_by_instance.contains_key(&instance_id));
     assert!(shard_rx.try_recv().is_err(), "no evict command expected");
 }
