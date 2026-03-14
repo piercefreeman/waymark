@@ -10,7 +10,7 @@ use waymark_worker_inline::InlineWorkerPool;
 
 use crate::commit_barrier::CommitBarrier;
 use crate::lock::InstanceLockTracker;
-use crate::runloop::{InflightActionDispatch, RunLoopError, SleepWake};
+use crate::runloop::{InflightActionDispatch, SleepWake};
 use crate::{persist, shard};
 
 struct TestHarness {
@@ -90,11 +90,11 @@ async fn returns_failed_ack_error_and_preserves_state() {
 
     let result = super::handle(harness.params(vec![persist::Ack::StepsPersistFailed {
         batch_id: 7,
-        error: RunLoopError::Message("persist boom".to_string()),
+        error: "persist boom".to_string(),
     }]))
     .await;
 
-    let Err(super::Error::StepsPersistFailed(RunLoopError::Message(msg))) = result else {
+    let Err(super::Error::StepsPersistFailed(msg)) = result else {
         panic!("expected steps persist failed error, got {result:?}");
     };
     assert_eq!(msg, "persist boom");

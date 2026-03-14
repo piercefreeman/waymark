@@ -25,7 +25,7 @@ pub enum Error {
     StepsPersisted(#[source] crate::RunLoopError),
 
     #[error("steps persist failed: {0}")]
-    StepsPersistFailed(#[source] crate::RunLoopError),
+    StepsPersistFailed(String),
 }
 
 pub struct Params<'a, CoreBackend: ?Sized, WorkerPool: ?Sized> {

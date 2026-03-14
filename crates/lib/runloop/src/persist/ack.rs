@@ -1,7 +1,5 @@
 use waymark_core_backend::InstanceLockStatus;
 
-use crate::RunLoopError;
-
 pub enum Ack {
     StepsPersisted {
         batch_id: u64,
@@ -9,6 +7,6 @@ pub enum Ack {
     },
     StepsPersistFailed {
         batch_id: u64,
-        error: RunLoopError,
+        error: String, /* TODO: this needs a proper type, but not `RunLoopError` */
     },
 }
