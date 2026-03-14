@@ -5,7 +5,7 @@ use uuid::Uuid;
 use waymark_runner::SleepRequest;
 
 use crate::{
-    lock::InstanceLockTracker,
+    instance_lock,
     runloop::{InflightActionDispatch, RunLoopError},
     shard,
 };
@@ -16,7 +16,7 @@ pub struct Params<'a, CoreBackend: ?Sized> {
     /// Per-shard command channels used to tell shard workers to evict local executors.
     pub shard_senders: &'a [std::sync::mpsc::Sender<shard::Command>],
     /// Tracks which backend locks this runloop currently believes it owns.
-    pub lock_tracker: &'a InstanceLockTracker,
+    pub lock_tracker: &'a instance_lock::Tracker,
     /// Counts how many action executions are still outstanding for each executor.
     pub inflight_actions: &'a mut HashMap<Uuid, usize>,
     /// Tracks the currently valid dispatch token/attempt for each inflight action execution.

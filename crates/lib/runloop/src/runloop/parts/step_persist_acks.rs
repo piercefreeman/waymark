@@ -9,8 +9,7 @@ use waymark_worker_core::ActionCompletion;
 
 use crate::{
     commit_barrier::{CommitBarrier, DeferredInstanceEvent},
-    lock::InstanceLockTracker,
-    persist,
+    instance_lock, persist,
     runloop::{InflightActionDispatch, SleepWake},
     shard,
 };
@@ -34,7 +33,7 @@ pub struct Params<'a, CoreBackend: ?Sized, WorkerPool: ?Sized> {
     /// Per-shard command channels used to send follow-up completions, wakes, and evictions.
     pub shard_senders: &'a [std::sync::mpsc::Sender<shard::Command>],
     /// Tracks which backend locks this runloop currently believes it owns.
-    pub lock_tracker: &'a InstanceLockTracker,
+    pub lock_tracker: &'a instance_lock::Tracker,
     /// Counts how many action executions are still outstanding for each executor.
     pub inflight_actions: &'a mut HashMap<Uuid, usize>,
     /// Tracks the currently valid dispatch token/attempt for each inflight action execution.
@@ -150,7 +149,7 @@ struct StepsPersistedParams<'a, CoreBackend: ?Sized, WorkerPool: ?Sized> {
     /// Per-shard command channels used to send follow-up completions, wakes, and evictions.
     pub shard_senders: &'a [std::sync::mpsc::Sender<shard::Command>],
     /// Tracks which backend locks this runloop currently believes it owns.
-    pub lock_tracker: &'a InstanceLockTracker,
+    pub lock_tracker: &'a instance_lock::Tracker,
     /// Counts how many action executions are still outstanding for each executor.
     pub inflight_actions: &'a mut HashMap<Uuid, usize>,
     /// Tracks the currently valid dispatch token/attempt for each inflight action execution.

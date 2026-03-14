@@ -2,13 +2,13 @@
 
 mod available_instance_slots;
 mod commit_barrier;
-mod lock;
 mod runloop;
 
 mod channel_utils;
 mod error_value;
 
 mod completions_polling;
+mod instance_lock;
 mod persist;
 mod queued_instances_polling;
 mod shard;

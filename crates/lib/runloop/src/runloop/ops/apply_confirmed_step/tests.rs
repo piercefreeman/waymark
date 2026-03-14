@@ -7,14 +7,14 @@ use waymark_runner::SleepRequest;
 use waymark_worker_core::{ActionRequest, WorkerPoolError};
 
 use crate::commit_barrier::CommitBarrier;
-use crate::lock::InstanceLockTracker;
+use crate::instance_lock;
 use crate::runloop::test_support::{MockWorkerPool, assert_no_extra_worker_pool_calls};
 use crate::runloop::{InflightActionDispatch, RunLoopError, SleepWake};
 use crate::shard;
 
 struct TestHarness {
     pub executor_shards: HashMap<Uuid, usize>,
-    pub lock_tracker: InstanceLockTracker,
+    pub lock_tracker: instance_lock::Tracker,
     pub inflight_actions: HashMap<Uuid, usize>,
     pub inflight_dispatches: HashMap<Uuid, InflightActionDispatch>,
     pub sleeping_nodes: HashMap<Uuid, SleepRequest>,
@@ -33,7 +33,7 @@ impl Default for TestHarness {
         let (sleep_tx, sleep_rx) = tokio::sync::mpsc::unbounded_channel::<SleepWake>();
         Self {
             executor_shards: HashMap::new(),
-            lock_tracker: InstanceLockTracker::new(Uuid::new_v4()),
+            lock_tracker: instance_lock::Tracker::new(Uuid::new_v4()),
             inflight_actions: HashMap::new(),
             inflight_dispatches: HashMap::new(),
             sleeping_nodes: HashMap::new(),
