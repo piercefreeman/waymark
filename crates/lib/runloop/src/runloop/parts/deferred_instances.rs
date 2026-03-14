@@ -5,9 +5,7 @@ use uuid::Uuid;
 use waymark_runner::SleepRequest;
 
 use crate::{
-    commit_barrier::CommitBarrier,
-    lock::InstanceLockTracker,
-    runloop::{InflightActionDispatch, ShardCommand, ShardStep},
+    commit_barrier::CommitBarrier, instance_lock_heartbeat, runloop::InflightActionDispatch, shard,
 };
 
 #[cfg(test)]
@@ -17,9 +15,9 @@ pub struct Params<'a, CoreBackend: ?Sized> {
     /// Maps each active instance/executor to the shard currently responsible for it.
     pub executor_shards: &'a mut HashMap<Uuid, usize>,
     /// Per-shard command channels used to send eviction commands to shard workers.
-    pub shard_senders: &'a [std::sync::mpsc::Sender<ShardCommand>],
+    pub shard_senders: &'a [std::sync::mpsc::Sender<shard::Command>],
     /// Tracks which backend locks this runloop currently believes it owns.
-    pub lock_tracker: &'a InstanceLockTracker,
+    pub lock_tracker: &'a instance_lock_heartbeat::Tracker,
     /// Counts how many action executions are still outstanding for each executor.
     pub inflight_actions: &'a mut HashMap<Uuid, usize>,
     /// Tracks the currently valid dispatch token/attempt for each inflight action execution.
@@ -31,7 +29,7 @@ pub struct Params<'a, CoreBackend: ?Sized> {
     /// Earliest wake time currently blocking each executor from making progress.
     pub blocked_until_by_instance: &'a mut HashMap<Uuid, DateTime<Utc>>,
     /// Tracks deferred instance events so evicted instances can be fully removed.
-    pub commit_barrier: &'a mut CommitBarrier<ShardStep>,
+    pub commit_barrier: &'a mut CommitBarrier<shard::Step>,
     /// Backend used to release locks and persist eviction side effects.
     pub core_backend: &'a CoreBackend,
     /// Lock owner ID for this runloop, used when releasing instance locks.

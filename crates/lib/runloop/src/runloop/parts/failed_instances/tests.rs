@@ -6,25 +6,26 @@ use waymark_core_backend::InstanceDone;
 use waymark_runner::SleepRequest;
 
 use crate::commit_barrier::CommitBarrier;
-use crate::lock::InstanceLockTracker;
-use crate::runloop::{InflightActionDispatch, ShardStep};
+use crate::instance_lock_heartbeat;
+use crate::runloop::InflightActionDispatch;
+use crate::shard;
 
 struct TestHarness {
-    pub lock_tracker: InstanceLockTracker,
+    pub lock_tracker: instance_lock_heartbeat::Tracker,
     pub executor_shards: HashMap<Uuid, usize>,
     pub inflight_actions: HashMap<Uuid, usize>,
     pub inflight_dispatches: HashMap<Uuid, InflightActionDispatch>,
     pub sleeping_nodes: HashMap<Uuid, SleepRequest>,
     pub sleeping_by_instance: HashMap<Uuid, HashSet<Uuid>>,
     pub blocked_until: HashMap<Uuid, DateTime<Utc>>,
-    pub barrier: CommitBarrier<ShardStep>,
+    pub barrier: CommitBarrier<shard::Step>,
     pub instances_done_pending: Vec<InstanceDone>,
 }
 
 impl Default for TestHarness {
     fn default() -> Self {
         Self {
-            lock_tracker: InstanceLockTracker::new(Uuid::new_v4()),
+            lock_tracker: instance_lock_heartbeat::Tracker::default(),
             executor_shards: HashMap::new(),
             inflight_actions: HashMap::new(),
             inflight_dispatches: HashMap::new(),

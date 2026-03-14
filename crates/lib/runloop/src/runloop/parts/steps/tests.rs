@@ -3,12 +3,12 @@ use std::collections::HashSet;
 use uuid::Uuid;
 
 use crate::commit_barrier::CommitBarrier;
-use crate::runloop::ShardStep;
+use crate::{persist, shard};
 
 struct TestHarness {
     pub shutdown: tokio_util::sync::CancellationToken,
-    pub persist_tx: tokio::sync::mpsc::Sender<crate::runloop::PersistCommand>,
-    pub commit_barrier: CommitBarrier<ShardStep>,
+    pub persist_tx: tokio::sync::mpsc::Sender<persist::Command>,
+    pub commit_barrier: CommitBarrier<shard::Step>,
 }
 
 impl Default for TestHarness {
@@ -25,7 +25,7 @@ impl Default for TestHarness {
 }
 
 impl TestHarness {
-    fn params<'a>(&'a mut self, all_steps: Vec<ShardStep>) -> super::Params<'a> {
+    fn params<'a>(&'a mut self, all_steps: Vec<shard::Step>) -> super::Params<'a> {
         super::Params {
             shutdown_signal: self.shutdown.cancelled(),
             persist_tx: &self.persist_tx,
@@ -38,7 +38,7 @@ impl TestHarness {
 #[tokio::test]
 async fn submit_failure_rolls_back_batch_membership() {
     let instance_id = Uuid::new_v4();
-    let step = ShardStep {
+    let step = shard::Step {
         executor_id: instance_id,
         actions: Vec::new(),
         sleep_requests: Vec::new(),

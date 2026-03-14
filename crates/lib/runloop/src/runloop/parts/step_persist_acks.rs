@@ -9,8 +9,9 @@ use waymark_worker_core::ActionCompletion;
 
 use crate::{
     commit_barrier::{CommitBarrier, DeferredInstanceEvent},
-    lock::InstanceLockTracker,
-    runloop::{InflightActionDispatch, PersistAck, ShardCommand, ShardStep, SleepWake},
+    instance_lock_heartbeat, persist,
+    runloop::{InflightActionDispatch, SleepWake},
+    shard,
 };
 
 #[cfg(test)]
@@ -23,16 +24,16 @@ pub enum Error {
     StepsPersisted(#[source] crate::RunLoopError),
 
     #[error("steps persist failed: {0}")]
-    StepsPersistFailed(#[source] crate::RunLoopError),
+    StepsPersistFailed(String),
 }
 
 pub struct Params<'a, CoreBackend: ?Sized, WorkerPool: ?Sized> {
     /// Maps each active instance/executor to the shard currently responsible for it.
     pub executor_shards: &'a mut HashMap<Uuid, usize>,
     /// Per-shard command channels used to send follow-up completions, wakes, and evictions.
-    pub shard_senders: &'a [std::sync::mpsc::Sender<ShardCommand>],
+    pub shard_senders: &'a [std::sync::mpsc::Sender<shard::Command>],
     /// Tracks which backend locks this runloop currently believes it owns.
-    pub lock_tracker: &'a InstanceLockTracker,
+    pub lock_tracker: &'a instance_lock_heartbeat::Tracker,
     /// Counts how many action executions are still outstanding for each executor.
     pub inflight_actions: &'a mut HashMap<Uuid, usize>,
     /// Tracks the currently valid dispatch token/attempt for each inflight action execution.
@@ -44,7 +45,7 @@ pub struct Params<'a, CoreBackend: ?Sized, WorkerPool: ?Sized> {
     /// Earliest wake time currently blocking each executor from making progress.
     pub blocked_until_by_instance: &'a mut HashMap<Uuid, DateTime<Utc>>,
     /// Tracks deferred instance events that are released once persistence succeeds.
-    pub commit_barrier: &'a mut CommitBarrier<ShardStep>,
+    pub commit_barrier: &'a mut CommitBarrier<shard::Step>,
     /// Buffer of terminal instance outcomes that still need durable persistence.
     pub instances_done_pending: &'a mut Vec<InstanceDone>,
     /// Channel used to enqueue future wake notifications for sleeping nodes.
@@ -58,7 +59,7 @@ pub struct Params<'a, CoreBackend: ?Sized, WorkerPool: ?Sized> {
     /// Test/debug knob that forces sleeps to wake immediately.
     pub skip_sleep: bool,
     /// Persist acknowledgments collected during the current coordinator tick.
-    pub all_persist_acks: Vec<PersistAck>,
+    pub all_persist_acks: Vec<persist::Ack>,
 }
 
 /// Processes persistence acknowledgments and unblocks deferred instance events.
@@ -101,7 +102,7 @@ where
 
     for ack in all_persist_acks {
         match ack {
-            PersistAck::StepsPersisted {
+            persist::Ack::StepsPersisted {
                 batch_id,
                 lock_statuses,
             } => {
@@ -133,7 +134,7 @@ where
                     .await
                     .map_err(Error::StepsPersisted)?;
             }
-            PersistAck::StepsPersistFailed { batch_id, error } => {
+            persist::Ack::StepsPersistFailed { batch_id, error } => {
                 warn!(batch_id, error = %error, "persist step batch failed");
                 return Err(Error::StepsPersistFailed(error));
             }
@@ -146,9 +147,9 @@ struct StepsPersistedParams<'a, CoreBackend: ?Sized, WorkerPool: ?Sized> {
     /// Maps each active instance/executor to the shard currently responsible for it.
     pub executor_shards: &'a mut HashMap<Uuid, usize>,
     /// Per-shard command channels used to send follow-up completions, wakes, and evictions.
-    pub shard_senders: &'a [std::sync::mpsc::Sender<ShardCommand>],
+    pub shard_senders: &'a [std::sync::mpsc::Sender<shard::Command>],
     /// Tracks which backend locks this runloop currently believes it owns.
-    pub lock_tracker: &'a InstanceLockTracker,
+    pub lock_tracker: &'a instance_lock_heartbeat::Tracker,
     /// Counts how many action executions are still outstanding for each executor.
     pub inflight_actions: &'a mut HashMap<Uuid, usize>,
     /// Tracks the currently valid dispatch token/attempt for each inflight action execution.
@@ -160,7 +161,7 @@ struct StepsPersistedParams<'a, CoreBackend: ?Sized, WorkerPool: ?Sized> {
     /// Earliest wake time currently blocking each executor from making progress.
     pub blocked_until_by_instance: &'a mut HashMap<Uuid, DateTime<Utc>>,
     /// Tracks deferred instance events that are released once persistence succeeds.
-    pub commit_barrier: &'a mut CommitBarrier<ShardStep>,
+    pub commit_barrier: &'a mut CommitBarrier<shard::Step>,
     /// Buffer of terminal instance outcomes that still need durable persistence.
     pub instances_done_pending: &'a mut Vec<InstanceDone>,
     /// Channel used to enqueue future wake notifications for sleeping nodes.
@@ -174,7 +175,7 @@ struct StepsPersistedParams<'a, CoreBackend: ?Sized, WorkerPool: ?Sized> {
     /// Test/debug knob that forces sleeps to wake immediately.
     pub skip_sleep: bool,
     /// Persisted batch that just became durable and can now be applied.
-    pub batch: crate::commit_barrier::PendingPersistBatch<ShardStep>,
+    pub batch: crate::commit_barrier::PendingPersistBatch<shard::Step>,
     /// Lock ownership results returned by the persistence task for the persisted batch.
     pub lock_statuses: Vec<InstanceLockStatus>,
 }
@@ -275,7 +276,7 @@ fn flush_deferred_instance_events(
     instance_id: Uuid,
     events: VecDeque<DeferredInstanceEvent>,
     executor_shards: &HashMap<Uuid, usize>,
-    shard_senders: &[std::sync::mpsc::Sender<ShardCommand>],
+    shard_senders: &[std::sync::mpsc::Sender<shard::Command>],
 ) {
     let Some(shard_idx) = executor_shards.get(&instance_id).copied() else {
         return;
@@ -289,13 +290,13 @@ fn flush_deferred_instance_events(
         match event {
             DeferredInstanceEvent::Completion(completion) => {
                 if !wake_batch.is_empty() {
-                    let _ = sender.send(ShardCommand::Wake(std::mem::take(&mut wake_batch)));
+                    let _ = sender.send(shard::Command::Wake(std::mem::take(&mut wake_batch)));
                 }
                 completion_batch.push(completion);
             }
             DeferredInstanceEvent::Wake(node_id) => {
                 if !completion_batch.is_empty() {
-                    let _ = sender.send(ShardCommand::ActionCompletions(std::mem::take(
+                    let _ = sender.send(shard::Command::ActionCompletions(std::mem::take(
                         &mut completion_batch,
                     )));
                 }
@@ -304,9 +305,9 @@ fn flush_deferred_instance_events(
         }
     }
     if !completion_batch.is_empty() {
-        let _ = sender.send(ShardCommand::ActionCompletions(completion_batch));
+        let _ = sender.send(shard::Command::ActionCompletions(completion_batch));
     }
     if !wake_batch.is_empty() {
-        let _ = sender.send(ShardCommand::Wake(wake_batch));
+        let _ = sender.send(shard::Command::Wake(wake_batch));
     }
 }

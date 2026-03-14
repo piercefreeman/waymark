@@ -7,19 +7,20 @@ use waymark_runner::SleepRequest;
 use waymark_worker_core::{ActionRequest, WorkerPoolError};
 
 use crate::commit_barrier::CommitBarrier;
-use crate::lock::InstanceLockTracker;
+use crate::instance_lock_heartbeat;
 use crate::runloop::test_support::{MockWorkerPool, assert_no_extra_worker_pool_calls};
-use crate::runloop::{InflightActionDispatch, RunLoopError, ShardStep, SleepWake};
+use crate::runloop::{InflightActionDispatch, RunLoopError, SleepWake};
+use crate::shard;
 
 struct TestHarness {
     pub executor_shards: HashMap<Uuid, usize>,
-    pub lock_tracker: InstanceLockTracker,
+    pub lock_tracker: instance_lock_heartbeat::Tracker,
     pub inflight_actions: HashMap<Uuid, usize>,
     pub inflight_dispatches: HashMap<Uuid, InflightActionDispatch>,
     pub sleeping_nodes: HashMap<Uuid, SleepRequest>,
     pub sleeping_by_instance: HashMap<Uuid, HashSet<Uuid>>,
     pub blocked_until: HashMap<Uuid, DateTime<Utc>>,
-    pub barrier: CommitBarrier<ShardStep>,
+    pub barrier: CommitBarrier<shard::Step>,
     pub instances_done_pending: Vec<InstanceDone>,
     pub worker_pool: MockWorkerPool,
     pub skip_sleep: bool,
@@ -32,7 +33,7 @@ impl Default for TestHarness {
         let (sleep_tx, sleep_rx) = tokio::sync::mpsc::unbounded_channel::<SleepWake>();
         Self {
             executor_shards: HashMap::new(),
-            lock_tracker: InstanceLockTracker::new(Uuid::new_v4()),
+            lock_tracker: instance_lock_heartbeat::Tracker::default(),
             inflight_actions: HashMap::new(),
             inflight_dispatches: HashMap::new(),
             sleeping_nodes: HashMap::new(),
@@ -49,7 +50,7 @@ impl Default for TestHarness {
 }
 
 impl TestHarness {
-    fn params<'a>(&'a mut self, step: ShardStep) -> super::Params<'a, MockWorkerPool> {
+    fn params<'a>(&'a mut self, step: shard::Step) -> super::Params<'a, MockWorkerPool> {
         super::Params {
             executor_shards: &mut self.executor_shards,
             lock_tracker: &self.lock_tracker,
@@ -77,7 +78,7 @@ async fn records_action_dispatch() {
     let mut harness = TestHarness::default();
     harness.executor_shards.insert(executor_id, 0);
 
-    let step = ShardStep {
+    let step = shard::Step {
         executor_id,
         actions: vec![ActionRequest {
             executor_id,
@@ -130,7 +131,7 @@ async fn queue_error_is_returned() {
     let mut harness = TestHarness::default();
     harness.executor_shards.insert(executor_id, 0);
 
-    let step = ShardStep {
+    let step = shard::Step {
         executor_id,
         actions: vec![ActionRequest {
             executor_id,
@@ -173,7 +174,7 @@ async fn timeout_sets_deadline() {
     let mut harness = TestHarness::default();
     harness.executor_shards.insert(executor_id, 0);
 
-    let step = ShardStep {
+    let step = shard::Step {
         executor_id,
         actions: vec![ActionRequest {
             executor_id,
@@ -251,7 +252,7 @@ async fn instance_done_removes_executor_state() {
     harness.blocked_until =
         HashMap::from([(executor_id, Utc::now() + chrono::Duration::seconds(60))]);
 
-    let step = ShardStep {
+    let step = shard::Step {
         executor_id,
         actions: vec![],
         sleep_requests: vec![],
@@ -289,7 +290,7 @@ async fn sleep_request_registers_node() {
     let mut harness = TestHarness::default();
     harness.executor_shards.insert(executor_id, 0);
 
-    let step = ShardStep {
+    let step = shard::Step {
         executor_id,
         actions: vec![],
         sleep_requests: vec![SleepRequest { node_id, wake_at }],
@@ -327,7 +328,7 @@ async fn skip_sleep_overrides_wake_to_now() {
     let mut harness = TestHarness::default();
     harness.executor_shards.insert(executor_id, 0);
 
-    let step = ShardStep {
+    let step = shard::Step {
         executor_id,
         actions: vec![],
         sleep_requests: vec![SleepRequest {
@@ -380,7 +381,7 @@ async fn later_duplicate_sleep_request_keeps_existing_earlier_wake() {
     harness.sleeping_by_instance = HashMap::from([(executor_id, HashSet::from([node_id]))]);
     harness.blocked_until = HashMap::from([(executor_id, existing_wake)]);
 
-    let step = ShardStep {
+    let step = shard::Step {
         executor_id,
         actions: vec![],
         sleep_requests: vec![SleepRequest {

@@ -7,16 +7,13 @@ use chrono::{DateTime, Utc};
 use uuid::Uuid;
 use waymark_runner::SleepRequest;
 
-use crate::{
-    commit_barrier::CommitBarrier,
-    runloop::{ShardCommand, ShardStep, SleepWake},
-};
+use crate::{commit_barrier::CommitBarrier, runloop::SleepWake, shard};
 
 pub struct Params<'a> {
     /// Maps each active instance/executor to the shard currently responsible for it.
     pub executor_shards: &'a mut HashMap<Uuid, usize>,
     /// Per-shard command channels used to forward wake events back to executors.
-    pub shard_senders: &'a [std::sync::mpsc::Sender<ShardCommand>],
+    pub shard_senders: &'a [std::sync::mpsc::Sender<shard::Command>],
     /// Active sleep requests keyed by execution node so wake handling can validate deadlines.
     pub sleeping_nodes: &'a mut HashMap<Uuid, SleepRequest>,
     /// Reverse index of sleeping node IDs by executor for bulk cleanup and blocked-until recomputation.
@@ -24,7 +21,7 @@ pub struct Params<'a> {
     /// Earliest wake time currently blocking each executor from making progress.
     pub blocked_until_by_instance: &'a mut HashMap<Uuid, DateTime<Utc>>,
     /// Defers wakes for instances that cannot resume until a persisted batch is acknowledged.
-    pub commit_barrier: &'a mut CommitBarrier<ShardStep>,
+    pub commit_barrier: &'a mut CommitBarrier<shard::Step>,
     /// Wake notifications collected during the current coordinator tick.
     pub all_wakes: Vec<SleepWake>,
 }
@@ -100,7 +97,7 @@ pub fn handle(params: Params<'_>) {
 
     for (shard_idx, nodes) in by_shard {
         if let Some(sender) = shard_senders.get(shard_idx) {
-            let _ = sender.send(ShardCommand::Wake(nodes));
+            let _ = sender.send(shard::Command::Wake(nodes));
         }
     }
 }

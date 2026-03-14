@@ -9,22 +9,21 @@ use waymark_runner::SleepRequest;
 use waymark_worker_inline::InlineWorkerPool;
 
 use crate::commit_barrier::CommitBarrier;
-use crate::lock::InstanceLockTracker;
-use crate::runloop::{
-    InflightActionDispatch, PersistAck, RunLoopError, ShardCommand, ShardStep, SleepWake,
-};
+use crate::instance_lock_heartbeat;
+use crate::runloop::{InflightActionDispatch, SleepWake};
+use crate::{persist, shard};
 
 struct TestHarness {
     pub lock_uuid: Uuid,
     pub executor_shards: HashMap<Uuid, usize>,
-    pub shard_senders: Vec<std_mpsc::Sender<ShardCommand>>,
-    pub lock_tracker: InstanceLockTracker,
+    pub shard_senders: Vec<std_mpsc::Sender<shard::Command>>,
+    pub lock_tracker: instance_lock_heartbeat::Tracker,
     pub inflight_actions: HashMap<Uuid, usize>,
     pub inflight_dispatches: HashMap<Uuid, InflightActionDispatch>,
     pub sleeping_nodes: HashMap<Uuid, SleepRequest>,
     pub sleeping_by_instance: HashMap<Uuid, HashSet<Uuid>>,
     pub blocked_until_by_instance: HashMap<Uuid, chrono::DateTime<Utc>>,
-    pub commit_barrier: CommitBarrier<ShardStep>,
+    pub commit_barrier: CommitBarrier<shard::Step>,
     pub instances_done_pending: Vec<waymark_core_backend::InstanceDone>,
     pub sleep_tx: tokio::sync::mpsc::UnboundedSender<SleepWake>,
     pub _sleep_rx: tokio::sync::mpsc::UnboundedReceiver<SleepWake>,
@@ -40,7 +39,7 @@ impl Default for TestHarness {
             lock_uuid,
             executor_shards: HashMap::new(),
             shard_senders: Vec::new(),
-            lock_tracker: InstanceLockTracker::new(lock_uuid),
+            lock_tracker: instance_lock_heartbeat::Tracker::default(),
             inflight_actions: HashMap::new(),
             inflight_dispatches: HashMap::new(),
             sleeping_nodes: HashMap::new(),
@@ -59,7 +58,7 @@ impl Default for TestHarness {
 impl TestHarness {
     fn params<'a>(
         &'a mut self,
-        all_persist_acks: Vec<PersistAck>,
+        all_persist_acks: Vec<persist::Ack>,
     ) -> super::Params<'a, MemoryBackend, InlineWorkerPool> {
         super::Params {
             executor_shards: &mut self.executor_shards,
@@ -85,17 +84,17 @@ impl TestHarness {
 #[tokio::test]
 async fn returns_failed_ack_error_and_preserves_state() {
     let mut harness = TestHarness::default();
-    let (shard_tx, shard_rx) = std_mpsc::channel::<ShardCommand>();
+    let (shard_tx, shard_rx) = std_mpsc::channel::<shard::Command>();
     harness.shard_senders.push(shard_tx);
     harness.executor_shards.insert(Uuid::new_v4(), 0);
 
-    let result = super::handle(harness.params(vec![PersistAck::StepsPersistFailed {
+    let result = super::handle(harness.params(vec![persist::Ack::StepsPersistFailed {
         batch_id: 7,
-        error: RunLoopError::Message("persist boom".to_string()),
+        error: "persist boom".to_string(),
     }]))
     .await;
 
-    let Err(super::Error::StepsPersistFailed(RunLoopError::Message(msg))) = result else {
+    let Err(super::Error::StepsPersistFailed(msg)) = result else {
         panic!("expected steps persist failed error, got {result:?}");
     };
     assert_eq!(msg, "persist boom");
@@ -114,11 +113,11 @@ async fn returns_failed_ack_error_and_preserves_state() {
 async fn ignores_unknown_persist_batch_ack() {
     let instance_id = Uuid::new_v4();
     let mut harness = TestHarness::default();
-    let (shard_tx, shard_rx) = std_mpsc::channel::<ShardCommand>();
+    let (shard_tx, shard_rx) = std_mpsc::channel::<shard::Command>();
     harness.shard_senders.push(shard_tx);
     harness.executor_shards.insert(instance_id, 0);
 
-    let result = super::handle(harness.params(vec![PersistAck::StepsPersisted {
+    let result = super::handle(harness.params(vec![persist::Ack::StepsPersisted {
         batch_id: 999,
         lock_statuses: Vec::new(),
     }]))
@@ -145,7 +144,7 @@ async fn evicts_only_lock_mismatch_instances_from_persisted_batch() {
     let evict_node = Uuid::new_v4();
 
     let mut harness = TestHarness::default();
-    let (shard_tx, shard_rx) = std_mpsc::channel::<ShardCommand>();
+    let (shard_tx, shard_rx) = std_mpsc::channel::<shard::Command>();
     harness.shard_senders.push(shard_tx);
     harness.executor_shards.insert(keep_instance, 0);
     harness.executor_shards.insert(evict_instance, 0);
@@ -204,7 +203,7 @@ async fn evicts_only_lock_mismatch_instances_from_persisted_batch() {
         .commit_barrier
         .register_batch(HashSet::from([keep_instance, evict_instance]), vec![]);
 
-    let result = super::handle(harness.params(vec![PersistAck::StepsPersisted {
+    let result = super::handle(harness.params(vec![persist::Ack::StepsPersisted {
         batch_id,
         lock_statuses: vec![
             InstanceLockStatus {
@@ -264,7 +263,7 @@ async fn evicts_only_lock_mismatch_instances_from_persisted_batch() {
     let cmd = shard_rx
         .try_recv()
         .expect("eviction command should be sent");
-    let ShardCommand::Evict(ids) = cmd else {
+    let shard::Command::Evict(ids) = cmd else {
         panic!("expected Evict command");
     };
     assert_eq!(ids, vec![evict_instance]);

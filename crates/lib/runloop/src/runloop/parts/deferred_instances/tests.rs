@@ -8,21 +8,22 @@ use waymark_backend_memory::MemoryBackend;
 use waymark_runner::SleepRequest;
 
 use crate::commit_barrier::CommitBarrier;
-use crate::lock::InstanceLockTracker;
-use crate::runloop::{InflightActionDispatch, ShardCommand, ShardStep};
+use crate::instance_lock_heartbeat;
+use crate::runloop::InflightActionDispatch;
+use crate::shard;
 
 struct TestHarness {
     pub lock_uuid: Uuid,
     pub backend: MemoryBackend,
-    pub lock_tracker: InstanceLockTracker,
+    pub lock_tracker: instance_lock_heartbeat::Tracker,
     pub executor_shards: HashMap<Uuid, usize>,
     pub inflight_actions: HashMap<Uuid, usize>,
     pub inflight_dispatches: HashMap<Uuid, InflightActionDispatch>,
     pub sleeping_nodes: HashMap<Uuid, SleepRequest>,
     pub sleeping_by_instance: HashMap<Uuid, HashSet<Uuid>>,
     pub blocked_until_by_instance: HashMap<Uuid, chrono::DateTime<Utc>>,
-    pub commit_barrier: CommitBarrier<ShardStep>,
-    pub shard_senders: Vec<std_mpsc::Sender<ShardCommand>>,
+    pub commit_barrier: CommitBarrier<shard::Step>,
+    pub shard_senders: Vec<std_mpsc::Sender<shard::Command>>,
     pub evict_sleep_threshold: Duration,
 }
 
@@ -32,7 +33,7 @@ impl Default for TestHarness {
         Self {
             lock_uuid,
             backend: MemoryBackend::new(),
-            lock_tracker: InstanceLockTracker::new(lock_uuid),
+            lock_tracker: instance_lock_heartbeat::Tracker::default(),
             executor_shards: HashMap::new(),
             inflight_actions: HashMap::new(),
             inflight_dispatches: HashMap::new(),
@@ -71,7 +72,7 @@ async fn evicts_instance_over_threshold_without_inflight_actions() {
     let node_id = Uuid::new_v4();
 
     let mut harness = TestHarness::default();
-    let (shard_tx, shard_rx) = std_mpsc::channel::<ShardCommand>();
+    let (shard_tx, shard_rx) = std_mpsc::channel::<shard::Command>();
     harness.shard_senders.push(shard_tx);
     harness.executor_shards.insert(instance_id, 0);
     harness.lock_tracker.insert_all([instance_id]);
@@ -114,7 +115,7 @@ async fn evicts_instance_over_threshold_without_inflight_actions() {
     assert!(!harness.blocked_until_by_instance.contains_key(&instance_id));
 
     let cmd = shard_rx.try_recv().expect("evict command should be sent");
-    let ShardCommand::Evict(ids) = cmd else {
+    let shard::Command::Evict(ids) = cmd else {
         panic!("expected Evict command");
     };
     assert_eq!(ids, vec![instance_id]);
@@ -125,7 +126,7 @@ async fn does_not_evict_when_inflight_actions_exist() {
     let instance_id = Uuid::new_v4();
 
     let mut harness = TestHarness::default();
-    let (shard_tx, shard_rx) = std_mpsc::channel::<ShardCommand>();
+    let (shard_tx, shard_rx) = std_mpsc::channel::<shard::Command>();
     harness.shard_senders.push(shard_tx);
     harness.executor_shards.insert(instance_id, 0);
     harness.inflight_actions.insert(instance_id, 2);
