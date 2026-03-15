@@ -2,7 +2,13 @@
 name = "waymark-dag-viz"
 edition = "2024"
 version.workspace = true
+publish.workspace = true
 
 [dependencies]
 waymark-dag = { workspace = true }
+
 thiserror = { workspace = true }
+
+[lib]
+test = false
+doctest = false

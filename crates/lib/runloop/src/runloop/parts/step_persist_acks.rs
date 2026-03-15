@@ -73,7 +73,7 @@ pub struct Params<'a, CoreBackend: ?Sized, WorkerPool: ?Sized> {
 /// - Collects any deferred completions and wakes that were staged during blocking
 /// - Immediately routes them back to their handlers (completions/wakes parts)
 /// - Maintains the invariant that no event is lost due to a crash:
-///   defered events are either persisted or deferred again until the next persist ack
+///   deferred events are either persisted or deferred again until the next persist ack
 pub async fn handle<CoreBackend, WorkerPool>(
     params: Params<'_, CoreBackend, WorkerPool>,
 ) -> Result<(), Error>

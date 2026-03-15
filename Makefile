@@ -1,7 +1,7 @@
 PY_PROTO_OUT := python/proto
 PY_CORE_PROTO_OUT := core-python/proto
 
-.PHONY: all build-proto clean lint lint-verify python-lint python-lint-verify rust-lint rust-lint-verify coverage python-coverage rust-coverage benchmark benchmark-console benchmark-console-run benchmark-trace
+.PHONY: all build-proto clean lint lint-verify lint-extended lint-extended-verify python-lint python-lint-verify rust-lint rust-lint-verify rust-lint-extended rust-lint-extended-verify coverage python-coverage rust-coverage benchmark benchmark-console benchmark-console-run benchmark-trace
 
 all: build-proto
 
@@ -60,6 +60,24 @@ rust-lint:
 rust-lint-verify:
 	cargo fmt -- --check
 	cargo clippy --all-targets --all-features -- -D warnings
+
+lint-extended: lint rust-lint-extended
+
+lint-extended-verify: lint-verify rust-lint-extended-verify
+
+rust-lint-extended:
+	taplo fmt
+	cargo shear --fix
+	cargo hack clippy --feature-powerset --no-dev-deps --lib --workspace --exclude waymark-benchmark --exclude waymark-boot-singleton --exclude waymark-bridge --exclude waymark-integration-test --exclude waymark-smoke --exclude waymark-soak-harness --exclude waymark-start-workers -- -D warnings
+	typos
+	cargo deny check
+
+rust-lint-extended-verify:
+	taplo fmt --check
+	cargo shear
+	cargo hack clippy --feature-powerset --no-dev-deps --lib --workspace --exclude waymark-benchmark --exclude waymark-boot-singleton --exclude waymark-bridge --exclude waymark-integration-test --exclude waymark-smoke --exclude waymark-soak-harness --exclude waymark-start-workers -- -D warnings
+	typos
+	cargo deny check
 
 # Coverage targets
 coverage: python-coverage rust-coverage

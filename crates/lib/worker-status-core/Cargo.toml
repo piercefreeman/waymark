@@ -2,6 +2,11 @@
 name = "waymark-worker-status-core"
 edition = "2024"
 version.workspace = true
+publish.workspace = true
 
 [dependencies]
 chrono = { workspace = true }
+
+[lib]
+test = false
+doctest = false

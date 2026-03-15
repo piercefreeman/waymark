@@ -1,8 +1,13 @@
 [package]
 name = "waymark-smoke-sources"
 version.workspace = true
+publish.workspace = true
 edition = "2024"
 
 [dependencies]
 waymark-ir-parser = { workspace = true }
 waymark-proto = { workspace = true }
+
+[lib]
+test = false
+doctest = false

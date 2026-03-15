@@ -1,9 +1,15 @@
 [package]
 name = "waymark-workflow-registry-backend"
 version.workspace = true
+publish.workspace = true
 edition = "2024"
 
 [dependencies]
+waymark-backends-core = { workspace = true }
+
 async-trait = { workspace = true }
 uuid = { workspace = true }
-waymark-backends-core = { workspace = true }
+
+[lib]
+test = false
+doctest = false

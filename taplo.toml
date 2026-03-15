@@ -1,0 +1,23 @@
+exclude = ["target/**", "**/.venv/**"]
+include = ["**/*.toml"]
+
+[formatting]
+reorder_keys = false
+column_width = 120
+
+[[rule]]
+include = ["**/Cargo.toml"]
+keys = [
+  "dependencies",
+  "dev-dependencies",
+  "build-dependencies",
+  "features",
+  "target.*.dependencies",
+  "target.*.dev-dependencies",
+  "target.*.build-dependencies",
+  "workspace.dependencies",
+]
+
+[rule.formatting]
+reorder_keys = true
+array_auto_collapse = false

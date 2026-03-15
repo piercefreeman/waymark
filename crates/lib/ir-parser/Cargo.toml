@@ -1,8 +1,14 @@
 [package]
 name = "waymark-ir-parser"
 version.workspace = true
+publish.workspace = true
 edition = "2024"
 
 [dependencies]
 waymark-proto = { workspace = true }
+
 regex = { workspace = true }
+
+[lib]
+test = false
+doctest = false
