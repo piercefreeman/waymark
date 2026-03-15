@@ -48,10 +48,6 @@ impl FaultInjectingBackend {
 
 #[async_trait::async_trait]
 impl CoreBackend for FaultInjectingBackend {
-    fn clone_box(&self) -> Box<dyn CoreBackend> {
-        Box::new(self.clone())
-    }
-
     async fn save_graphs(
         &self,
         claim: LockClaim,

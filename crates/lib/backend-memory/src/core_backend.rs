@@ -8,10 +8,6 @@ use waymark_core_backend::{
 
 #[async_trait::async_trait]
 impl waymark_core_backend::CoreBackend for crate::MemoryBackend {
-    fn clone_box(&self) -> Box<dyn waymark_core_backend::CoreBackend> {
-        Box::new(self.clone())
-    }
-
     async fn save_graphs(
         &self,
         claim: LockClaim,

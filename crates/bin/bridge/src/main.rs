@@ -166,10 +166,6 @@ impl InMemoryBackend {
 
 #[async_trait]
 impl CoreBackend for InMemoryBackend {
-    fn clone_box(&self) -> Box<dyn CoreBackend> {
-        Box::new(self.clone())
-    }
-
     async fn save_graphs(
         &self,
         claim: LockClaim,

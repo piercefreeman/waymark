@@ -11,8 +11,6 @@ pub use self::data::*;
 /// Abstract persistence backend for runner state.
 #[async_trait::async_trait]
 pub trait CoreBackend: Send + Sync {
-    fn clone_box(&self) -> Box<dyn CoreBackend>;
-
     /// Persist updated execution graphs.
     async fn save_graphs(
         &self,
@@ -49,10 +47,4 @@ pub trait CoreBackend: Send + Sync {
 
     /// Insert queued instances for run-loop consumption.
     async fn queue_instances(&self, instances: &[QueuedInstance]) -> BackendResult<()>;
-}
-
-impl Clone for Box<dyn CoreBackend> {
-    fn clone(&self) -> Self {
-        self.clone_box()
-    }
 }
