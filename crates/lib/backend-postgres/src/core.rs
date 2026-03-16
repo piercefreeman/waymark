@@ -845,10 +845,6 @@ impl PostgresBackend {
 
 #[async_trait::async_trait]
 impl waymark_core_backend::CoreBackend for PostgresBackend {
-    fn clone_box(&self) -> Box<dyn waymark_core_backend::CoreBackend> {
-        Box::new(self.clone())
-    }
-
     async fn save_graphs(
         &self,
         claim: waymark_core_backend::LockClaim,
