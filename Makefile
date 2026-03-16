@@ -68,16 +68,16 @@ lint-extended-verify: lint-verify rust-lint-extended-verify
 rust-lint-extended:
 	taplo fmt
 	cargo shear --fix
-	cargo hack clippy --feature-powerset --no-dev-deps --lib --workspace --exclude waymark-benchmark --exclude waymark-boot-singleton --exclude waymark-bridge --exclude waymark-integration-test --exclude waymark-smoke --exclude waymark-soak-harness --exclude waymark-start-workers -- -D warnings
 	typos
 	cargo deny check
+	cargo hack clippy --feature-powerset --no-dev-deps --lib --workspace --exclude waymark-benchmark --exclude waymark-boot-singleton --exclude waymark-bridge --exclude waymark-integration-test --exclude waymark-smoke --exclude waymark-soak-harness --exclude waymark-start-workers -- -D warnings
 
 rust-lint-extended-verify:
 	taplo fmt --check
 	cargo shear
-	cargo hack clippy --feature-powerset --no-dev-deps --lib --workspace --exclude waymark-benchmark --exclude waymark-boot-singleton --exclude waymark-bridge --exclude waymark-integration-test --exclude waymark-smoke --exclude waymark-soak-harness --exclude waymark-start-workers -- -D warnings
 	typos
 	cargo deny check
+	cargo hack clippy --feature-powerset --no-dev-deps --lib --workspace --exclude waymark-benchmark --exclude waymark-boot-singleton --exclude waymark-bridge --exclude waymark-integration-test --exclude waymark-smoke --exclude waymark-soak-harness --exclude waymark-start-workers -- -D warnings
 
 # Coverage targets
 coverage: python-coverage rust-coverage
