@@ -18,7 +18,6 @@ use waymark_worker_status_backend::{WorkerStatusBackend, WorkerStatusUpdate};
 use super::PostgresBackend;
 use waymark_core_backend::{
     ActionDone, GraphUpdate, InstanceDone, InstanceLockStatus, LockClaim, QueuedInstance,
-    QueuedInstanceBatch,
 };
 use waymark_observability::obs;
 use waymark_runner_state::RunnerState;
@@ -930,47 +929,6 @@ impl waymark_core_backend::CoreBackend for PostgresBackend {
 
     async fn save_actions_done(&self, actions: &[ActionDone]) -> BackendResult<()> {
         self.save_actions_done_impl(actions).await
-    }
-
-    async fn get_queued_instances(
-        &self,
-        size: usize,
-        claim: LockClaim,
-    ) -> BackendResult<QueuedInstanceBatch> {
-        let Some(size) = NonZeroUsize::new(size) else {
-            return Ok(QueuedInstanceBatch {
-                instances: Vec::new(),
-            });
-        };
-
-        let result = self.poll_queued_instances(size, claim).await;
-
-        match result {
-            Ok(instances) => Ok(QueuedInstanceBatch {
-                instances: instances.into(),
-            }),
-            Err(waymark_core_backend::PollQueuedInstancesError::NoInstances { .. }) => {
-                Ok(QueuedInstanceBatch {
-                    instances: Vec::new(),
-                })
-            }
-            Err(waymark_core_backend::PollQueuedInstancesError::Internal(error)) => {
-                // Compat layer with the old errors.
-                let error = match error {
-                    PollQueuedInstancesError::EmptyRows => unreachable!(),
-                    PollQueuedInstancesError::Sqlx(error) => BackendError::Inner(error),
-                    err @ PollQueuedInstancesError::InvalidSize { .. } => {
-                        BackendError::Message(err.to_string())
-                    }
-                    PollQueuedInstancesError::QueuedInstanceDecode(err)
-                    | PollQueuedInstancesError::GraphUpdateDecode(err)
-                    | PollQueuedInstancesError::ActionResultDecode(err) => {
-                        BackendError::Message(err.to_string())
-                    }
-                };
-                return Err(error);
-            }
-        }
     }
 
     type PollQueuedInstancesError = PollQueuedInstancesError;

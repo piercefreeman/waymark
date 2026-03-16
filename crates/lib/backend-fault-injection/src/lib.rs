@@ -6,10 +6,9 @@ use std::sync::{
 use nonempty_collections::NEVec;
 use uuid::Uuid;
 use waymark_backend_memory::MemoryBackend;
-use waymark_backends_core::{BackendError, BackendResult};
+use waymark_backends_core::BackendResult;
 use waymark_core_backend::{
     CoreBackend, GraphUpdate, InstanceDone, InstanceLockStatus, LockClaim, QueuedInstance,
-    QueuedInstanceBatch,
 };
 use waymark_workflow_registry_backend::{
     WorkflowRegistration, WorkflowRegistryBackend, WorkflowVersion,
@@ -67,23 +66,6 @@ impl CoreBackend for FaultInjectingBackend {
 
     async fn save_instances_done(&self, instances: &[InstanceDone]) -> BackendResult<()> {
         self.inner.save_instances_done(instances).await
-    }
-
-    async fn get_queued_instances(
-        &self,
-        size: usize,
-        claim: LockClaim,
-    ) -> BackendResult<QueuedInstanceBatch> {
-        self.get_queued_instances_calls
-            .fetch_add(1, AtomicOrdering::SeqCst);
-        if self
-            .fail_get_queued_instances_with_depth_limit
-            .load(AtomicOrdering::SeqCst)
-        {
-            return Err(BackendError::Message("depth limit exceeded".to_string()));
-        }
-        #[allow(deprecated)]
-        self.inner.get_queued_instances(size, claim).await
     }
 
     type PollQueuedInstancesError = PollQueuedInstancesError;

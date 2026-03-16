@@ -22,14 +22,6 @@ pub trait CoreBackend: Send + Sync {
     /// Persist finished action attempts (success or failure).
     async fn save_actions_done(&self, actions: &[ActionDone]) -> BackendResult<()>;
 
-    /// Return up to size queued instances without blocking.
-    #[deprecated]
-    async fn get_queued_instances(
-        &self,
-        size: usize,
-        claim: LockClaim,
-    ) -> BackendResult<QueuedInstanceBatch>;
-
     /// An error that can occur while polling the queued instances.
     type PollQueuedInstancesError;
 

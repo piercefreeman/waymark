@@ -35,7 +35,7 @@ use waymark_backend_postgres::PostgresBackend;
 use waymark_backends_core::{BackendError, BackendResult};
 use waymark_core_backend::{
     ActionDone, CoreBackend, GraphUpdate, InstanceDone, InstanceLockStatus, LockClaim,
-    QueuedInstance, QueuedInstanceBatch,
+    QueuedInstance,
 };
 use waymark_dag_builder::convert_to_dag;
 use waymark_ir_conversions::literal_from_json_value;
@@ -200,32 +200,6 @@ impl CoreBackend for InMemoryBackend {
 
     async fn save_actions_done(&self, _actions: &[ActionDone]) -> BackendResult<()> {
         Ok(())
-    }
-
-    async fn get_queued_instances(
-        &self,
-        size: usize,
-        claim: LockClaim,
-    ) -> BackendResult<QueuedInstanceBatch> {
-        let Some(size) = NonZeroUsize::new(size) else {
-            return Ok(QueuedInstanceBatch {
-                instances: Vec::new(),
-            });
-        };
-
-        let result = self.poll_queued_instances(size, claim).await;
-
-        match result {
-            Ok(instances) => Ok(QueuedInstanceBatch {
-                instances: instances.into(),
-            }),
-            Err(waymark_core_backend::PollQueuedInstancesError::NoInstances { .. }) => {
-                Ok(QueuedInstanceBatch {
-                    instances: Vec::new(),
-                })
-            }
-            Err(waymark_core_backend::PollQueuedInstancesError::Internal(error)) => Err(error),
-        }
     }
 
     type PollQueuedInstancesError = BackendError;

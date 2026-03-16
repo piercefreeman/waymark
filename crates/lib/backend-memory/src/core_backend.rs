@@ -1,12 +1,9 @@
-use std::num::NonZeroUsize;
-
 use chrono::Utc;
 use nonempty_collections::NEVec;
 use uuid::Uuid;
 use waymark_backends_core::{BackendError, BackendResult};
 use waymark_core_backend::{
     ActionDone, GraphUpdate, InstanceDone, InstanceLockStatus, LockClaim, QueuedInstance,
-    QueuedInstanceBatch,
 };
 
 #[async_trait::async_trait]
@@ -56,36 +53,6 @@ impl waymark_core_backend::CoreBackend for crate::MemoryBackend {
             }
         }
         Ok(())
-    }
-
-    async fn get_queued_instances(
-        &self,
-        size: usize,
-        claim: LockClaim,
-    ) -> BackendResult<QueuedInstanceBatch> {
-        let Some(size) = NonZeroUsize::new(size) else {
-            return Ok(QueuedInstanceBatch {
-                instances: Vec::new(),
-            });
-        };
-
-        let result = self.poll_queued_instances(size, claim).await;
-
-        match result {
-            Ok(instances) => Ok(QueuedInstanceBatch {
-                instances: instances.into(),
-            }),
-            Err(
-                waymark_core_backend::PollQueuedInstancesError::NoInstances(inner)
-                | waymark_core_backend::PollQueuedInstancesError::Internal(inner),
-            ) => match inner {
-                PollQueuedInstancesError::NoQueue | PollQueuedInstancesError::QueueEmpty => {
-                    Ok(QueuedInstanceBatch {
-                        instances: Vec::new(),
-                    })
-                }
-            },
-        }
     }
 
     type PollQueuedInstancesError = PollQueuedInstancesError;
