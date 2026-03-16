@@ -3427,6 +3427,7 @@ dependencies = [
  "nonempty-collections",
  "rmp-serde",
  "serde_json",
+ "thiserror",
  "uuid",
  "waymark-backends-core",
  "waymark-core-backend",
