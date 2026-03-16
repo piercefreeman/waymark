@@ -808,7 +808,8 @@ fn main(input: [x], output: [y]):
     let entry_exec = state
         .queue_template_node(&template_entry_node, None)
         .expect("queue entry node");
-    let mut bootstrap_executor = RunnerExecutor::new(Arc::clone(&dag), state, HashMap::new(), None);
+    let mut bootstrap_executor =
+        RunnerExecutor::without_updates_collection(Arc::clone(&dag), state, HashMap::new());
     let bootstrap_step = bootstrap_executor
         .increment(&[entry_exec.node_id])
         .expect("bootstrap increment should materialize action node");

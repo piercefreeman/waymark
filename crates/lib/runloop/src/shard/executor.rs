@@ -10,14 +10,14 @@ use crate::error_value;
 
 pub(super) struct Executor {
     pub executor_id: Uuid,
-    pub executor: RunnerExecutor,
+    pub executor: RunnerExecutor<true>,
     pub entry_node: Uuid,
     pub inflight: HashSet<Uuid>,
     pub completed: bool,
 }
 
 impl Executor {
-    pub fn new(executor_id: Uuid, executor: RunnerExecutor, entry_node: Uuid) -> Self {
+    pub fn new(executor_id: Uuid, executor: RunnerExecutor<true>, entry_node: Uuid) -> Self {
         Self {
             executor_id,
             executor,
@@ -207,10 +207,10 @@ impl Executor {
     }
 }
 
-fn build_instance_done(
+fn build_instance_done<const SHOULD_COLLECT_UPDATES: bool>(
     executor_id: Uuid,
     entry_node: Uuid,
-    executor: &RunnerExecutor,
+    executor: &RunnerExecutor<SHOULD_COLLECT_UPDATES>,
 ) -> InstanceDone {
     if let Some(error_payload) = executor.terminal_error().cloned() {
         return InstanceDone {
@@ -229,8 +229,8 @@ fn build_instance_done(
     }
 }
 
-fn compute_instance_payload(
-    executor: &RunnerExecutor,
+fn compute_instance_payload<const SHOULD_COLLECT_UPDATES: bool>(
+    executor: &RunnerExecutor<SHOULD_COLLECT_UPDATES>,
 ) -> (Option<serde_json::Value>, Option<serde_json::Value>) {
     let outputs = output_vars(executor.dag());
     match replay_variables(executor.state(), executor.action_results()) {

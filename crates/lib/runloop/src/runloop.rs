@@ -208,12 +208,11 @@ impl RunLoop {
 
         for shard_id in 0..self.shard_count {
             let (cmd_tx, cmd_rx) = std_mpsc::channel();
-            let backend = self.core_backend.clone();
             let event_tx = event_tx.clone();
             let handle = thread::Builder::new()
                 .name(format!("waymark-executor-{shard_id}"))
                 .stack_size(128 * 1024 * 1024 /* 128 MB */)
-                .spawn(move || shard::run_executor_shard(shard_id, backend, cmd_rx, event_tx))
+                .spawn(move || shard::run_executor_shard(shard_id, cmd_rx, event_tx))
                 .map_err(|err| {
                     Error::Message(format!("failed to spawn executor shard {shard_id}: {err}"))
                 })?;

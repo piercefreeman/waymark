@@ -17,7 +17,7 @@ use waymark_runner_state::{
 
 use super::{RunnerExecutor, RunnerExecutorError};
 
-impl RunnerExecutor {
+impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> {
     /// Convert a pure IR expression into a ValueExpr without side effects.
     pub(super) fn expr_to_value(expr: &ir::Expr) -> Result<ValueExpr, RunnerExecutorError> {
         match expr.kind.as_ref() {
@@ -694,13 +694,17 @@ mod tests {
         })
     }
 
-    fn empty_executor() -> RunnerExecutor {
+    fn empty_executor<const SHOULD_COLLECT_UPDATES: bool>() -> RunnerExecutor<SHOULD_COLLECT_UPDATES>
+    {
         let dag = Arc::new(DAG::default());
         let state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
-        RunnerExecutor::new(dag, state, HashMap::new(), None)
+        RunnerExecutor::new(dag, state, HashMap::new())
     }
 
-    fn executor_with_assignment(name: &str, value: ValueExpr) -> RunnerExecutor {
+    fn executor_with_assignment<const SHOULD_COLLECT_UPDATES: bool>(
+        name: &str,
+        value: ValueExpr,
+    ) -> RunnerExecutor<SHOULD_COLLECT_UPDATES> {
         let dag = Arc::new(DAG::default());
         let mut state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
         state
@@ -711,13 +715,14 @@ mod tests {
                 Some("test assignment".to_string()),
             )
             .expect("record assignment");
-        RunnerExecutor::new(dag, state, HashMap::new(), None)
+        RunnerExecutor::new(dag, state, HashMap::new())
     }
 
     #[test]
     fn test_expr_to_value_happy_path() {
         let expr = parse_expr("x + 2");
-        let value = RunnerExecutor::expr_to_value(&expr).expect("convert expression");
+        // TODO: this is an odd placement for `expr_to_value`
+        let value = RunnerExecutor::<false>::expr_to_value(&expr).expect("convert expression");
         match value {
             ValueExpr::BinaryOp(binary) => {
                 assert!(matches!(*binary.left, ValueExpr::Variable(_)));
@@ -729,7 +734,7 @@ mod tests {
 
     #[test]
     fn test_evaluate_guard_happy_path() {
-        let executor = executor_with_assignment("x", literal_int(2));
+        let executor = executor_with_assignment::<false>("x", literal_int(2));
         let guard = parse_expr("x > 1");
         let result = executor
             .evaluate_guard(Some(&guard))
@@ -739,7 +744,7 @@ mod tests {
 
     #[test]
     fn test_resolve_action_kwargs_happy_path() {
-        let executor = executor_with_assignment("x", literal_int(10));
+        let executor = executor_with_assignment::<false>("x", literal_int(10));
         let action = ActionCallSpec {
             action_name: "double".to_string(),
             module_name: Some("tests".to_string()),
@@ -789,7 +794,7 @@ mod tests {
             .clone();
         let action_spec = action_node.action.expect("action spec");
 
-        let executor = RunnerExecutor::new(dag, state, HashMap::new(), None);
+        let executor = RunnerExecutor::without_updates_collection(dag, state, HashMap::new());
         let resolved = executor
             .resolve_action_kwargs(action_result.node_id, &action_spec)
             .expect("resolve kwargs");
@@ -798,7 +803,7 @@ mod tests {
 
     #[test]
     fn test_evaluate_value_expr_happy_path() {
-        let executor = executor_with_assignment("x", literal_int(3));
+        let executor = executor_with_assignment::<false>("x", literal_int(3));
         let expr = ValueExpr::BinaryOp(waymark_runner_state::BinaryOpValue {
             left: Box::new(ValueExpr::Variable(VariableValue {
                 name: "x".to_string(),
@@ -814,7 +819,7 @@ mod tests {
 
     #[test]
     fn test_evaluate_variable_happy_path() {
-        let executor = executor_with_assignment("value", literal_int(5));
+        let executor = executor_with_assignment::<false>("value", literal_int(5));
         let stack = Rc::new(RefCell::new(HashSet::new()));
         let value = executor
             .evaluate_variable_with_context(None, "value", stack)
@@ -824,7 +829,7 @@ mod tests {
 
     #[test]
     fn test_evaluate_assignment_happy_path() {
-        let executor = executor_with_assignment("value", literal_int(9));
+        let executor = executor_with_assignment::<false>("value", literal_int(9));
         let node_id = executor
             .state()
             .latest_assignment("value")
@@ -863,7 +868,7 @@ mod tests {
             )
             .expect("record updated count");
 
-        let executor = RunnerExecutor::new(dag, state, HashMap::new(), None);
+        let executor = RunnerExecutor::without_updates_collection(dag, state, HashMap::new());
         let node_id = executor
             .state()
             .latest_assignment("count")
@@ -877,7 +882,7 @@ mod tests {
 
     #[test]
     fn test_resolve_action_result_happy_path() {
-        let mut executor = empty_executor();
+        let mut executor = empty_executor::<false>();
         let action_id = Uuid::new_v4();
         executor.set_action_result(
             action_id,
@@ -896,7 +901,7 @@ mod tests {
 
     #[test]
     fn test_evaluate_function_call_happy_path() {
-        let executor = empty_executor();
+        let executor = empty_executor::<false>();
         let value = executor
             .evaluate_function_call(
                 &FunctionCallValue {
@@ -914,7 +919,7 @@ mod tests {
 
     #[test]
     fn test_evaluate_global_function_happy_path() {
-        let executor = empty_executor();
+        let executor = empty_executor::<false>();
         let value = executor
             .evaluate_global_function(
                 ir::GlobalFunction::Range as i32,
@@ -934,7 +939,7 @@ mod tests {
 
     #[test]
     fn test_apply_binary_happy_path() {
-        let value = RunnerExecutor::apply_binary(
+        let value = RunnerExecutor::<false>::apply_binary(
             ir::BinaryOperator::BinaryOpAdd as i32,
             Value::Number(2.into()),
             Value::Number(3.into()),
@@ -945,15 +950,17 @@ mod tests {
 
     #[test]
     fn test_apply_unary_happy_path() {
-        let value =
-            RunnerExecutor::apply_unary(ir::UnaryOperator::UnaryOpNot as i32, Value::Bool(true))
-                .expect("apply unary");
+        let value = RunnerExecutor::<false>::apply_unary(
+            ir::UnaryOperator::UnaryOpNot as i32,
+            Value::Bool(true),
+        )
+        .expect("apply unary");
         assert_eq!(value, Value::Bool(false));
     }
 
     #[test]
     fn test_exception_matches_happy_path() {
-        let executor = empty_executor();
+        let executor = empty_executor::<false>();
         let edge = DAGEdge::state_machine_with_exception("a", "b", vec!["ValueError".to_string()]);
         let exception = serde_json::json!({
             "type": "ValueError",
