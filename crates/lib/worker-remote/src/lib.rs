@@ -1811,9 +1811,10 @@ mod tests {
         });
 
         BaseWorkerPool::queue(&remote, request).expect("queue request");
-        let completions = BaseWorkerPool::get_complete(&remote).await;
+        let maybe_completions = BaseWorkerPool::poll_complete(&remote).await;
         responder.await.expect("responder task");
-        assert_eq!(completions.len(), 1);
+        let completions = maybe_completions.unwrap();
+        assert_eq!(completions.len().get(), 1);
         assert_eq!(completions[0].execution_id, execution_id);
         assert_eq!(completions[0].result, Value::Number(25.into()));
 
