@@ -19,7 +19,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
-use futures_core::{Stream, future::BoxFuture};
+use futures_core::Stream;
 use nonempty_collections::NEVec;
 use prost::Message;
 use serde_json::Value;
@@ -483,15 +483,6 @@ impl BaseWorkerPool for StreamWorkerPool {
         })?;
 
         Ok(())
-    }
-
-    fn get_complete(&self) -> BoxFuture<'_, Vec<ActionCompletion>> {
-        Box::pin(async move {
-            match self.poll_complete().await {
-                Some(completions) => completions.into(),
-                None => Vec::new(),
-            }
-        })
     }
 
     async fn poll_complete(&self) -> Option<NEVec<ActionCompletion>> {

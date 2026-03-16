@@ -1,6 +1,3 @@
-use std::future::Future;
-use std::pin::Pin;
-
 use waymark_worker_core::{ActionCompletion, ActionRequest, BaseWorkerPool, WorkerPoolError};
 
 mockall::mock! {
@@ -8,10 +5,6 @@ mockall::mock! {
 
     impl BaseWorkerPool for WorkerPool {
         fn queue(&self, request: ActionRequest) -> Result<(), WorkerPoolError>;
-
-        fn get_complete<'a>(
-            &'a self,
-        ) -> Pin<Box<dyn Future<Output = Vec<ActionCompletion>> + Send + 'a>>;
 
         fn poll_complete<'a>(
             &'a self,

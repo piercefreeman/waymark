@@ -59,10 +59,6 @@ pub trait BaseWorkerPool: Send + Sync {
     /// Submit an action request for execution.
     fn queue(&self, request: ActionRequest) -> Result<(), WorkerPoolError>;
 
-    /// Await and return a batch of completed actions.
-    #[deprecated]
-    fn get_complete(&self) -> BoxFuture<'_, Vec<ActionCompletion>>;
-
     /// Await and return a batch of completed actions, guaranteeing at least
     /// one action has completed.
     fn poll_complete(

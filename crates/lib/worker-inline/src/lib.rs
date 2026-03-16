@@ -101,15 +101,6 @@ impl BaseWorkerPool for InlineWorkerPool {
         Ok(())
     }
 
-    fn get_complete<'a>(&'a self) -> BoxFuture<'a, Vec<ActionCompletion>> {
-        Box::pin(async move {
-            match self.poll_complete().await {
-                Some(completions) => completions.into(),
-                None => Vec::new(),
-            }
-        })
-    }
-
     fn poll_complete(&self) -> impl Future<Output = Option<NEVec<ActionCompletion>>> {
         self.poll_complete_impl()
     }
