@@ -295,8 +295,11 @@ fn main(input: [number], output: [result]):
         let queued = &batch.instances[0];
         assert_eq!(queued.schedule_id, Some(schedule.id));
         let state = queued.state.clone().expect("queued state");
-        let mut executor =
-            RunnerExecutor::new(Arc::clone(&dag), state, queued.action_results.clone(), None);
+        let mut executor = RunnerExecutor::without_updates_collection(
+            Arc::clone(&dag),
+            state,
+            queued.action_results.clone(),
+        );
         let replay = waymark_runner::replay_variables(executor.state(), executor.action_results())
             .expect("replay inputs");
         assert_eq!(

@@ -3820,7 +3820,6 @@ dependencies = [
  "serde_json",
  "thiserror",
  "uuid",
- "waymark-backend-memory",
  "waymark-core-backend",
  "waymark-dag",
  "waymark-dag-builder",

@@ -48,7 +48,7 @@ fn build_completed_state(chain_len: usize) -> RunnerState {
         .expect("queue entry node");
 
     // increment() is iterative (not recursive) and therefore safe on any stack.
-    let mut executor = RunnerExecutor::new(Arc::clone(&dag), state, HashMap::new(), None);
+    let mut executor = RunnerExecutor::<true>::new(Arc::clone(&dag), state, HashMap::new());
     executor
         .increment(&[entry_exec.node_id])
         .expect("executor increment");

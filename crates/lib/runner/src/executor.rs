@@ -13,7 +13,7 @@ use uuid::Uuid;
 use crate::expression_evaluator::is_exception_value;
 use crate::retry::{RetryDecision, RetryPolicyEvaluator, timeout_seconds_from_policies};
 use crate::synthetic_exceptions::{SyntheticExceptionType, build_synthetic_exception_value};
-use waymark_core_backend::{ActionAttemptStatus, ActionDone, CoreBackend, GraphUpdate};
+use waymark_core_backend::{ActionAttemptStatus, ActionDone, GraphUpdate};
 use waymark_dag::{
     ActionCallNode, AggregatorNode, DAG, DAGEdge, DagEdgeIndex, EXCEPTION_SCOPE_VAR, EdgeType,
 };
@@ -145,11 +145,10 @@ enum SleepDecision {
 /// Each call to increment() starts from finished execution nodes, walks
 /// downstream through inline nodes (assignments, branches, joins, etc.), and
 /// returns any newly queued action nodes that are now unblocked.
-pub struct RunnerExecutor {
+pub struct RunnerExecutor<const SHOULD_COLLECT_UPDATES: bool> {
     dag: Arc<DAG>,
     state: RunnerState,
     action_results: ExecutionResultMap,
-    backend: Option<Arc<dyn CoreBackend>>,
     template_index: DagEdgeIndex,
     incoming_exec_edges: FxHashMap<Uuid, Vec<ExecutionEdge>>,
     /// Index: template_id -> list of execution node IDs with that template
@@ -161,13 +160,23 @@ pub struct RunnerExecutor {
     terminal_error: Option<Value>,
 }
 
-impl RunnerExecutor {
+impl RunnerExecutor<false> {
+    pub fn without_updates_collection(
+        dag: Arc<DAG>,
+        state: RunnerState,
+        // Action results keyed by execution node id.
+        action_results: ExecutionResultMap,
+    ) -> Self {
+        Self::new(dag, state, action_results)
+    }
+}
+
+impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> {
     pub fn new(
         dag: Arc<DAG>,
         state: RunnerState,
         // Action results keyed by execution node id.
         action_results: ExecutionResultMap,
-        backend: Option<Arc<dyn CoreBackend>>,
     ) -> Self {
         let mut state = state;
         state.dag = Some(dag.clone());
@@ -181,7 +190,6 @@ impl RunnerExecutor {
             dag,
             state,
             action_results,
-            backend,
             template_index,
             incoming_exec_edges,
             template_to_exec_nodes,
@@ -1425,7 +1433,7 @@ impl RunnerExecutor {
         &mut self,
         actions_done: Vec<ActionDone>,
     ) -> Result<Option<DurableUpdates>, RunnerExecutorError> {
-        if self.backend.is_none() {
+        if !SHOULD_COLLECT_UPDATES {
             return Ok(None);
         }
         let graph_dirty = self.state.consume_graph_dirty_for_durable_execution();
@@ -1501,7 +1509,6 @@ mod tests {
     use std::collections::{HashMap, HashSet};
     use std::sync::Arc;
 
-    use waymark_backend_memory::MemoryBackend;
     use waymark_dag::{
         ActionCallNode, ActionCallParams, AggregatorNode, AssignmentNode, DAG, DAGEdge,
     };
@@ -1696,17 +1703,20 @@ mod tests {
         )
     }
 
-    fn create_rehydrated_executor(
+    fn create_rehydrated_executor<const SHOULD_COLLECT_UPDATES: bool>(
         dag: &Arc<DAG>,
         nodes: HashMap<Uuid, ExecutionNode>,
         edges: HashSet<ExecutionEdge>,
         action_results: HashMap<Uuid, Value>,
-    ) -> RunnerExecutor {
+    ) -> RunnerExecutor<SHOULD_COLLECT_UPDATES> {
         let state = RunnerState::new(Some(Arc::clone(dag)), Some(nodes), Some(edges), false);
-        RunnerExecutor::new(Arc::clone(dag), state, action_results, None)
+        RunnerExecutor::new(Arc::clone(dag), state, action_results)
     }
 
-    fn compare_executor_states(original: &RunnerExecutor, rehydrated: &RunnerExecutor) {
+    fn compare_executor_states<const SHOULD_COLLECT_UPDATES: bool>(
+        original: &RunnerExecutor<SHOULD_COLLECT_UPDATES>,
+        rehydrated: &RunnerExecutor<SHOULD_COLLECT_UPDATES>,
+    ) {
         let orig_state = original.state();
         let rehy_state = rehydrated.state();
         assert_eq!(
@@ -1738,33 +1748,35 @@ mod tests {
         Arc::new(convert_to_dag(&program).expect("convert program to DAG"))
     }
 
-    fn build_executor_at_entry(dag: &Arc<DAG>) -> (RunnerExecutor, Uuid) {
+    fn build_executor_at_entry<const SHOULD_COLLECT_UPDATES: bool>(
+        dag: &Arc<DAG>,
+    ) -> (RunnerExecutor<SHOULD_COLLECT_UPDATES>, Uuid) {
         let mut state = RunnerState::new(Some(Arc::clone(dag)), None, None, false);
         let entry_template = dag.entry_node.as_ref().expect("dag entry node");
         let entry_exec = state
             .queue_template_node(entry_template, None)
             .expect("queue entry node");
         (
-            RunnerExecutor::new(Arc::clone(dag), state, HashMap::new(), None),
+            RunnerExecutor::new(Arc::clone(dag), state, HashMap::new()),
             entry_exec.node_id,
         )
     }
 
     type ActionResultFor = fn(&ExecutionNode) -> Value;
 
-    struct RehydrateBranchHarness {
+    struct RehydrateBranchHarness<const SHOULD_COLLECT_UPDATES: bool> {
         dag: Arc<DAG>,
-        canonical: RunnerExecutor,
-        branches: Vec<RunnerExecutor>,
+        canonical: RunnerExecutor<SHOULD_COLLECT_UPDATES>,
+        branches: Vec<RunnerExecutor<SHOULD_COLLECT_UPDATES>>,
         action_result_for: ActionResultFor,
     }
 
-    impl RehydrateBranchHarness {
+    impl<const SHOULD_COLLECT_UPDATES: bool> RehydrateBranchHarness<SHOULD_COLLECT_UPDATES> {
         const MAX_TICKS: usize = 256;
 
         fn new(
             dag: Arc<DAG>,
-            canonical: RunnerExecutor,
+            canonical: RunnerExecutor<SHOULD_COLLECT_UPDATES>,
             action_result_for: ActionResultFor,
         ) -> Self {
             let mut harness = Self {
@@ -1819,7 +1831,7 @@ mod tests {
         }
 
         fn advance_executor_one_increment(
-            executor: &mut RunnerExecutor,
+            executor: &mut RunnerExecutor<SHOULD_COLLECT_UPDATES>,
             action_result_for: ActionResultFor,
         ) -> Result<bool, RunnerExecutorError> {
             let active_actions: Vec<ExecutionNode> = executor
@@ -1876,7 +1888,7 @@ mod tests {
         }
 
         fn advance_executor_to_completion(
-            executor: &mut RunnerExecutor,
+            executor: &mut RunnerExecutor<SHOULD_COLLECT_UPDATES>,
             action_result_for: ActionResultFor,
         ) -> Result<(), RunnerExecutorError> {
             for _ in 0..Self::MAX_TICKS {
@@ -1898,7 +1910,9 @@ mod tests {
             counts
         }
 
-        fn node_shape_counts(executor: &RunnerExecutor) -> HashMap<String, usize> {
+        fn node_shape_counts(
+            executor: &RunnerExecutor<SHOULD_COLLECT_UPDATES>,
+        ) -> HashMap<String, usize> {
             Self::count_keyed(executor.state().nodes.values().map(|node| {
                 let mut targets = node.targets.clone();
                 targets.sort();
@@ -1925,7 +1939,9 @@ mod tests {
             }))
         }
 
-        fn edge_shape_counts(executor: &RunnerExecutor) -> HashMap<String, usize> {
+        fn edge_shape_counts(
+            executor: &RunnerExecutor<SHOULD_COLLECT_UPDATES>,
+        ) -> HashMap<String, usize> {
             Self::count_keyed(executor.state().edges.iter().map(|edge| {
                 let source = executor
                     .state()
@@ -1947,7 +1963,9 @@ mod tests {
             }))
         }
 
-        fn action_result_counts(executor: &RunnerExecutor) -> HashMap<String, usize> {
+        fn action_result_counts(
+            executor: &RunnerExecutor<SHOULD_COLLECT_UPDATES>,
+        ) -> HashMap<String, usize> {
             Self::count_keyed(executor.action_results().iter().map(|(node_id, value)| {
                 let template_id = executor
                     .state()
@@ -1962,8 +1980,8 @@ mod tests {
         }
 
         fn assert_completed_executor_equivalent(
-            canonical: &RunnerExecutor,
-            rehydrated: &RunnerExecutor,
+            canonical: &RunnerExecutor<SHOULD_COLLECT_UPDATES>,
+            rehydrated: &RunnerExecutor<SHOULD_COLLECT_UPDATES>,
         ) {
             assert_eq!(
                 Self::node_shape_counts(canonical),
@@ -2013,7 +2031,8 @@ mod tests {
         }
     }
 
-    fn setup_linear_assignment_checkpoint() -> (Arc<DAG>, RunnerExecutor) {
+    fn setup_linear_assignment_checkpoint<const SHOULD_COLLECT_UPDATES: bool>()
+    -> (Arc<DAG>, RunnerExecutor<SHOULD_COLLECT_UPDATES>) {
         let dag = dag_from_ir_source(
             r#"
 fn main(input: [], output: [z]):
@@ -2037,7 +2056,8 @@ fn main(input: [], output: [z]):
         (dag, executor)
     }
 
-    fn setup_sleep_resume_checkpoint() -> (Arc<DAG>, RunnerExecutor) {
+    fn setup_sleep_resume_checkpoint<const SHOULD_COLLECT_UPDATES: bool>()
+    -> (Arc<DAG>, RunnerExecutor<SHOULD_COLLECT_UPDATES>) {
         let dag = dag_from_ir_source(
             r#"
 fn main(input: [], output: [resumed]):
@@ -2063,7 +2083,8 @@ fn main(input: [], output: [resumed]):
         (dag, executor)
     }
 
-    fn setup_spread_checkpoint() -> (Arc<DAG>, RunnerExecutor) {
+    fn setup_spread_checkpoint<const SHOULD_COLLECT_UPDATES: bool>()
+    -> (Arc<DAG>, RunnerExecutor<SHOULD_COLLECT_UPDATES>) {
         let dag = dag_from_ir_source(
             r#"
 fn main(input: [], output: [done]):
@@ -2152,7 +2173,8 @@ fn main(input: [], output: [done]):
 
         let mut action_results = HashMap::new();
         action_results.insert(start_exec.node_id, Value::Number(10.into()));
-        let mut executor = RunnerExecutor::new(dag.clone(), state, action_results, None);
+        let mut executor =
+            RunnerExecutor::without_updates_collection(dag.clone(), state, action_results);
 
         let step = executor
             .increment(&[start_exec.node_id])
@@ -2192,7 +2214,8 @@ fn main(input: [], output: [done]):
         let dag = Arc::new(dag);
         let mut state = RunnerState::new(Some(dag.clone()), None, None, false);
         let exec1 = state.queue_template_node(&action1.id, None).expect("queue");
-        let executor = RunnerExecutor::new(dag.clone(), state, HashMap::new(), None);
+        let executor =
+            RunnerExecutor::without_updates_collection(dag.clone(), state, HashMap::new());
 
         let (nodes_snap, edges_snap, results_snap) =
             snapshot_state(executor.state(), executor.action_results());
@@ -2234,7 +2257,8 @@ fn main(input: [], output: [done]):
 
         let mut action_results = HashMap::new();
         action_results.insert(exec1.node_id, Value::Number(42.into()));
-        let mut executor = RunnerExecutor::new(dag.clone(), state, action_results, None);
+        let mut executor =
+            RunnerExecutor::without_updates_collection(dag.clone(), state, action_results);
 
         let step = executor.increment(&[exec1.node_id]).expect("increment");
         assert_eq!(step.actions.len(), 1);
@@ -2292,7 +2316,8 @@ fn main(input: [], output: [done]):
         let dag = Arc::new(dag);
         let mut state = RunnerState::new(Some(dag.clone()), None, None, false);
         let exec1 = state.queue_template_node(&action1.id, None).expect("queue");
-        let mut executor = RunnerExecutor::new(dag.clone(), state, HashMap::new(), None);
+        let mut executor =
+            RunnerExecutor::without_updates_collection(dag.clone(), state, HashMap::new());
 
         let (nodes_snap, edges_snap, results_snap) =
             snapshot_state(executor.state(), executor.action_results());
@@ -2378,7 +2403,8 @@ fn main(input: [], output: [done]):
 
         let mut action_results = HashMap::new();
         action_results.insert(exec1.node_id, Value::Number(10.into()));
-        let mut executor = RunnerExecutor::new(dag.clone(), state, action_results, None);
+        let mut executor =
+            RunnerExecutor::without_updates_collection(dag.clone(), state, action_results);
 
         let step = executor.increment(&[exec1.node_id]).expect("increment");
         assert_eq!(step.actions.len(), 1);
@@ -2429,11 +2455,13 @@ fn main(input: [], output: [done]):
         let dag = Arc::new(dag);
         let mut state = RunnerState::new(Some(dag.clone()), None, None, false);
         let exec1 = state.queue_template_node(&action1.id, None).expect("queue");
-        let executor = RunnerExecutor::new(dag.clone(), state, HashMap::new(), None);
+        let executor =
+            RunnerExecutor::without_updates_collection(dag.clone(), state, HashMap::new());
 
         let (nodes_snap, edges_snap, results_snap) =
             snapshot_state(executor.state(), executor.action_results());
-        let rehydrated = create_rehydrated_executor(&dag, nodes_snap, edges_snap, results_snap);
+        let rehydrated =
+            create_rehydrated_executor::<false>(&dag, nodes_snap, edges_snap, results_snap);
 
         let orig_node = executor.state().nodes.get(&exec1.node_id).unwrap();
         let rehy_node = rehydrated.state().nodes.get(&exec1.node_id).unwrap();
@@ -2477,11 +2505,13 @@ fn main(input: [], output: [done]):
 
         let mut action_results = HashMap::new();
         action_results.insert(exec1.node_id, Value::Number(100.into()));
-        let mut executor = RunnerExecutor::new(dag.clone(), state, action_results, None);
+        let mut executor =
+            RunnerExecutor::without_updates_collection(dag.clone(), state, action_results);
 
         let (nodes_snap, edges_snap, results_snap) =
             snapshot_state(executor.state(), executor.action_results());
-        let mut rehydrated = create_rehydrated_executor(&dag, nodes_snap, edges_snap, results_snap);
+        let mut rehydrated =
+            create_rehydrated_executor::<false>(&dag, nodes_snap, edges_snap, results_snap);
 
         let orig_step = executor.increment(&[exec1.node_id]).expect("increment");
         let rehy_step = rehydrated.increment(&[exec1.node_id]).expect("increment");
@@ -2518,10 +2548,12 @@ fn main(input: [], output: [done]):
         let exec1 = state.queue_template_node(&action1.id, None).expect("queue");
         state.mark_running(exec1.node_id).expect("mark running");
 
-        let executor = RunnerExecutor::new(dag.clone(), state, HashMap::new(), None);
+        let executor =
+            RunnerExecutor::without_updates_collection(dag.clone(), state, HashMap::new());
         let (nodes_snap, edges_snap, results_snap) =
             snapshot_state(executor.state(), executor.action_results());
-        let mut rehydrated = create_rehydrated_executor(&dag, nodes_snap, edges_snap, results_snap);
+        let mut rehydrated =
+            create_rehydrated_executor::<false>(&dag, nodes_snap, edges_snap, results_snap);
 
         assert_eq!(
             rehydrated.state().nodes.get(&exec1.node_id).unwrap().status,
@@ -2553,12 +2585,7 @@ fn main(input: [], output: [done]):
         let mut state = RunnerState::new(Some(dag.clone()), None, None, false);
         let exec = state.queue_template_node(&action.id, None).expect("queue");
 
-        let mut executor = RunnerExecutor::new(
-            dag,
-            state,
-            HashMap::new(),
-            Some(Arc::new(MemoryBackend::new())),
-        );
+        let mut executor = RunnerExecutor::<true>::new(dag, state, HashMap::new());
         executor.set_instance_id(Uuid::new_v4());
         executor.set_action_result(
             exec.node_id,
@@ -2612,12 +2639,7 @@ fn main(input: [], output: [done]):
         let mut state = RunnerState::new(Some(dag.clone()), None, None, false);
         let exec = state.queue_template_node(&action.id, None).expect("queue");
 
-        let mut executor = RunnerExecutor::new(
-            dag,
-            state,
-            HashMap::new(),
-            Some(Arc::new(MemoryBackend::new())),
-        );
+        let mut executor = RunnerExecutor::<true>::new(dag, state, HashMap::new());
         executor.set_instance_id(Uuid::new_v4());
         executor.set_action_result(
             exec.node_id,
@@ -2699,7 +2721,8 @@ fn main(input: [], output: [done]):
 
         let mut action_results = HashMap::new();
         action_results.insert(exec1.node_id, Value::Number(21.into()));
-        let mut executor = RunnerExecutor::new(dag.clone(), state, action_results, None);
+        let mut executor =
+            RunnerExecutor::without_updates_collection(dag.clone(), state, action_results);
         executor.increment(&[exec1.node_id]).expect("increment");
 
         let orig_replay =
@@ -2707,7 +2730,8 @@ fn main(input: [], output: [done]):
 
         let (nodes_snap, edges_snap, results_snap) =
             snapshot_state(executor.state(), executor.action_results());
-        let rehydrated = create_rehydrated_executor(&dag, nodes_snap, edges_snap, results_snap);
+        let rehydrated =
+            create_rehydrated_executor::<false>(&dag, nodes_snap, edges_snap, results_snap);
 
         let rehy_replay = crate::replay_variables(rehydrated.state(), rehydrated.action_results())
             .expect("replay");
@@ -2720,15 +2744,15 @@ fn main(input: [], output: [done]):
 
     #[test]
     fn test_rehydrate_completion_equivalent_across_ir_scenarios() {
-        let (linear_dag, linear_executor) = setup_linear_assignment_checkpoint();
+        let (linear_dag, linear_executor) = setup_linear_assignment_checkpoint::<false>();
         RehydrateBranchHarness::new(linear_dag, linear_executor, completion_action_result)
             .run_and_assert();
 
-        let (sleep_dag, sleep_executor) = setup_sleep_resume_checkpoint();
+        let (sleep_dag, sleep_executor) = setup_sleep_resume_checkpoint::<false>();
         RehydrateBranchHarness::new(sleep_dag, sleep_executor, completion_action_result)
             .run_and_assert();
 
-        let (spread_dag, spread_executor) = setup_spread_checkpoint();
+        let (spread_dag, spread_executor) = setup_spread_checkpoint::<false>();
         RehydrateBranchHarness::new(spread_dag, spread_executor, completion_action_result)
             .run_and_assert();
     }
@@ -2781,7 +2805,8 @@ fn main(input: [], output: [done]):
             initial_exec.node_id,
             Value::Array(vec![1.into(), 2.into(), 3.into()]),
         );
-        let mut executor = RunnerExecutor::new(dag.clone(), state, action_results, None);
+        let mut executor =
+            RunnerExecutor::without_updates_collection(dag.clone(), state, action_results);
 
         let step1 = executor
             .increment(&[initial_exec.node_id])
@@ -2857,7 +2882,8 @@ fn main(input: [], output: [done]):
             initial_exec.node_id,
             Value::Array(vec![10.into(), 20.into()]),
         );
-        let mut executor = RunnerExecutor::new(dag.clone(), state, action_results.clone(), None);
+        let mut executor =
+            RunnerExecutor::without_updates_collection(dag.clone(), state, action_results.clone());
 
         let step1 = executor
             .increment(&[initial_exec.node_id])
@@ -2925,7 +2951,8 @@ fn main(input: [], output: [done]):
                 .queue_template_node(&actions[0].id, None)
                 .expect("queue"),
         );
-        let mut executor = RunnerExecutor::new(dag.clone(), state, HashMap::new(), None);
+        let mut executor =
+            RunnerExecutor::without_updates_collection(dag.clone(), state, HashMap::new());
 
         for i in 0..3 {
             executor.set_action_result(
@@ -2942,7 +2969,8 @@ fn main(input: [], output: [done]):
 
         let (nodes_snap, edges_snap, results_snap) =
             snapshot_state(executor.state(), executor.action_results());
-        let rehydrated = create_rehydrated_executor(&dag, nodes_snap, edges_snap, results_snap);
+        let rehydrated =
+            create_rehydrated_executor::<false>(&dag, nodes_snap, edges_snap, results_snap);
 
         let orig_timeline = executor.state().timeline.clone();
         let rehy_timeline = rehydrated.state().timeline.clone();
@@ -2984,13 +3012,15 @@ fn main(input: [], output: [done]):
 
         let mut action_results = HashMap::new();
         action_results.insert(exec1.node_id, Value::Number(50.into()));
-        let mut executor = RunnerExecutor::new(dag.clone(), state, action_results, None);
+        let mut executor =
+            RunnerExecutor::without_updates_collection(dag.clone(), state, action_results);
         let step = executor.increment(&[exec1.node_id]).expect("increment");
         let exec2 = step.actions[0].clone();
 
         let (nodes_snap, edges_snap, results_snap) =
             snapshot_state(executor.state(), executor.action_results());
-        let rehydrated = create_rehydrated_executor(&dag, nodes_snap, edges_snap, results_snap);
+        let rehydrated =
+            create_rehydrated_executor::<false>(&dag, nodes_snap, edges_snap, results_snap);
 
         let queued_nodes: Vec<_> = rehydrated
             .state()

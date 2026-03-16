@@ -1,7 +1,4 @@
-use std::{
-    collections::HashMap,
-    sync::{Arc, mpsc as std_mpsc},
-};
+use std::{collections::HashMap, sync::mpsc as std_mpsc};
 
 use tokio::sync::mpsc;
 use tracing::{debug, warn};
@@ -36,7 +33,6 @@ pub enum Error {
 
 pub fn run_executor_shard(
     shard_id: usize,
-    backend: Arc<dyn waymark_core_backend::CoreBackend>,
     receiver: std_mpsc::Receiver<shard::Command>,
     sender: mpsc::UnboundedSender<shard::Event>,
 ) {
@@ -98,12 +94,8 @@ pub fn run_executor_shard(
                         continue;
                     };
 
-                    let mut executor = waymark_runner::RunnerExecutor::new(
-                        dag,
-                        state,
-                        instance.action_results,
-                        Some(backend.clone()),
-                    );
+                    let mut executor =
+                        waymark_runner::RunnerExecutor::new(dag, state, instance.action_results);
                     executor.set_instance_id(instance.instance_id);
 
                     let mut owner =
