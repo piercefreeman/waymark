@@ -15,7 +15,6 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 use waymark_backends_core::BackendError;
 use waymark_core_backend::{InstanceDone, QueuedInstance};
-use waymark_workflow_registry_backend::WorkflowRegistryBackend;
 
 use crate::commit_barrier::CommitBarrier;
 use crate::instance_lock_heartbeat;
@@ -24,7 +23,7 @@ use crate::{error_value, persist, queued_instances_polling, shard};
 use waymark_dag::DAG;
 use waymark_observability::obs;
 use waymark_runner::{RunnerExecutorError, SleepRequest};
-use waymark_worker_core::{ActionCompletion, BaseWorkerPool, WorkerPoolError};
+use waymark_worker_core::{ActionCompletion, WorkerPoolError};
 
 #[cfg(test)]
 mod test_support;
@@ -89,10 +88,15 @@ enum CoordinatorEvent {
 }
 
 /// Run loop that fans out executor work across CPU-bound shard threads.
-pub struct RunLoop {
-    worker_pool: Arc<dyn BaseWorkerPool>,
-    core_backend: Arc<dyn waymark_core_backend::CoreBackend>,
-    registry_backend: Arc<dyn WorkflowRegistryBackend>,
+pub struct RunLoop<WorkerPool, CoreBackend, RegistryBackend>
+where
+    WorkerPool: ?Sized,
+    CoreBackend: ?Sized,
+    RegistryBackend: ?Sized,
+{
+    worker_pool: Arc<WorkerPool>,
+    core_backend: Arc<CoreBackend>,
+    registry_backend: Arc<RegistryBackend>,
     workflow_cache: HashMap<Uuid, Arc<DAG>>,
     available_instance_slot_tracker: Arc<crate::available_instance_slots::Tracker>,
     instance_done_batch_size: usize,
@@ -124,10 +128,14 @@ pub struct RunLoopConfig {
     pub active_instance_gauge: Option<Arc<AtomicUsize>>,
 }
 
-impl RunLoop {
+impl<WorkerPool, Backend> RunLoop<WorkerPool, Backend, Backend>
+where
+    WorkerPool: ?Sized,
+    Backend: ?Sized,
+{
     pub fn new(
-        worker_pool: impl BaseWorkerPool + 'static,
-        backend: impl waymark_core_backend::CoreBackend + WorkflowRegistryBackend + 'static,
+        worker_pool: impl Into<Arc<WorkerPool>>,
+        backend: impl Into<Arc<Backend>>,
         config: RunLoopConfig,
     ) -> Self {
         Self::new_internal(
@@ -140,8 +148,8 @@ impl RunLoop {
     }
 
     pub fn new_with_shutdown(
-        worker_pool: impl BaseWorkerPool + 'static,
-        backend: impl waymark_core_backend::CoreBackend + WorkflowRegistryBackend + 'static,
+        worker_pool: impl Into<Arc<WorkerPool>>,
+        backend: impl Into<Arc<Backend>>,
         config: RunLoopConfig,
         shutdown_token: tokio_util::sync::CancellationToken,
     ) -> Self {
@@ -149,8 +157,8 @@ impl RunLoop {
     }
 
     fn new_internal(
-        worker_pool: impl BaseWorkerPool + 'static,
-        backend: impl waymark_core_backend::CoreBackend + WorkflowRegistryBackend + 'static,
+        worker_pool: impl Into<Arc<WorkerPool>>,
+        backend: impl Into<Arc<Backend>>,
         config: RunLoopConfig,
         shutdown_token: tokio_util::sync::CancellationToken,
         exit_on_idle: bool,
@@ -164,12 +172,15 @@ impl RunLoop {
             crate::available_instance_slots::Tracker::from_scratch(available_instance_slots_calc);
         let available_instance_slot_tracker = Arc::new(available_instance_slot_tracker);
 
-        let backend = Arc::new(backend);
-        let core_backend: Arc<dyn waymark_core_backend::CoreBackend> = backend.clone();
-        let registry_backend: Arc<dyn WorkflowRegistryBackend> = backend;
+        let worker_pool = worker_pool.into();
+        let backend = backend.into();
+
+        // Split the bcakend into multiple values.
+        let core_backend = Arc::clone(&backend);
+        let registry_backend = backend;
 
         Self {
-            worker_pool: Arc::new(worker_pool),
+            worker_pool,
             core_backend,
             registry_backend,
             workflow_cache: HashMap::new(),
@@ -188,7 +199,20 @@ impl RunLoop {
             exit_on_idle,
         }
     }
+}
 
+impl<WorkerPool, CoreBackend, RegistryBackend> RunLoop<WorkerPool, CoreBackend, RegistryBackend>
+where
+    WorkerPool: ?Sized,
+    CoreBackend: ?Sized,
+    RegistryBackend: ?Sized,
+    WorkerPool: waymark_worker_core::BaseWorkerPool,
+    CoreBackend: waymark_core_backend::CoreBackend,
+    RegistryBackend: waymark_workflow_registry_backend::WorkflowRegistryBackend,
+    // TODO: review after splitting out spawns
+    WorkerPool: Send + Sync + 'static,
+    CoreBackend: Send + Sync + 'static,
+{
     fn store_available_instance_slots(&self, active_instances: usize) {
         self.available_instance_slot_tracker
             .update_saturating(active_instances);
