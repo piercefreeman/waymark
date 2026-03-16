@@ -9,7 +9,6 @@ use uuid::Uuid;
 
 use waymark_backend_fault_injection::FaultInjectingBackend;
 use waymark_backend_memory::MemoryBackend;
-use waymark_backends_core::BackendError;
 use waymark_core_backend::{ActionAttemptStatus, CoreBackend, QueuedInstance};
 use waymark_dag_builder::convert_to_dag;
 use waymark_ir_parser::parse_program;

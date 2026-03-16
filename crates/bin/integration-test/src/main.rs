@@ -571,6 +571,8 @@ async fn run_case_postgres(
 async fn run_runloop<B>(worker_pool: RemoteWorkerPool, backend: B, timeout: Duration) -> Result<()>
 where
     B: CoreBackend + WorkflowRegistryBackend + Clone + Send + Sync + 'static,
+    <B as CoreBackend>::PollQueuedInstancesError: Send + Sync + 'static,
+    <B as CoreBackend>::PollQueuedInstancesError: core::error::Error,
 {
     let mut runloop = RunLoop::new(
         worker_pool,
