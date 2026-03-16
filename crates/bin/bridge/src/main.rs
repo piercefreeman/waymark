@@ -244,6 +244,19 @@ impl CoreBackend for InMemoryBackend {
         Ok(QueuedInstanceBatch { instances })
     }
 
+    type PollQueuedInstancesError = core::convert::Infallible;
+
+    async fn poll_queued_instances(
+        &self,
+        _size: std::num::NonZeroUsize,
+        _claim: LockClaim,
+    ) -> Result<
+        NEVec<QueuedInstance>,
+        waymark_core_backend::PollQueuedInstancesError<Self::PollQueuedInstancesError>,
+    > {
+        unimplemented!()
+    }
+
     async fn save_instances_done(&self, instances: &[InstanceDone]) -> BackendResult<()> {
         let mut guard = self
             .instances_done

@@ -2,6 +2,7 @@
 
 mod data;
 
+use nonempty_collections::NEVec;
 use uuid::Uuid;
 
 use waymark_backends_core::BackendResult;
@@ -28,6 +29,16 @@ pub trait CoreBackend: Send + Sync {
         claim: LockClaim,
     ) -> BackendResult<QueuedInstanceBatch>;
 
+    /// An error that can occur while polling the queued instances.
+    type PollQueuedInstancesError;
+
+    /// Return up to size queued instances without blocking.
+    async fn poll_queued_instances(
+        &self,
+        size: std::num::NonZeroUsize,
+        claim: LockClaim,
+    ) -> Result<NEVec<QueuedInstance>, PollQueuedInstancesError<Self::PollQueuedInstancesError>>;
+
     /// Refresh lock expiry for owned instances.
     async fn refresh_instance_locks(
         &self,
@@ -47,4 +58,49 @@ pub trait CoreBackend: Send + Sync {
 
     /// Insert queued instances for run-loop consumption.
     async fn queue_instances(&self, instances: &[QueuedInstance]) -> BackendResult<()>;
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum PollQueuedInstancesError<T> {
+    /// An error indicating there were no instances.
+    NoInstances(T),
+
+    /// An error indicaing some internal error condition.
+    Internal(T),
+}
+
+impl<T> PollQueuedInstancesError<T> {
+    pub fn into_inner(self) -> T {
+        match self {
+            PollQueuedInstancesError::NoInstances(val)
+            | PollQueuedInstancesError::Internal(val) => val,
+        }
+    }
+
+    pub fn blind_map<O>(self, f: impl FnOnce(T) -> O) -> PollQueuedInstancesError<O> {
+        match self {
+            PollQueuedInstancesError::NoInstances(val) => {
+                PollQueuedInstancesError::NoInstances(f(val))
+            }
+            PollQueuedInstancesError::Internal(val) => PollQueuedInstancesError::Internal(f(val)),
+        }
+    }
+}
+
+impl<T> AsRef<T> for PollQueuedInstancesError<T> {
+    fn as_ref(&self) -> &T {
+        match self {
+            PollQueuedInstancesError::NoInstances(val)
+            | PollQueuedInstancesError::Internal(val) => val,
+        }
+    }
+}
+
+impl<T> AsMut<T> for PollQueuedInstancesError<T> {
+    fn as_mut(&mut self) -> &mut T {
+        match self {
+            PollQueuedInstancesError::NoInstances(val)
+            | PollQueuedInstancesError::Internal(val) => val,
+        }
+    }
 }

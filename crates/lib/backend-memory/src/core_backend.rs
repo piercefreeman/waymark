@@ -1,4 +1,5 @@
 use chrono::Utc;
+use nonempty_collections::NEVec;
 use uuid::Uuid;
 use waymark_backends_core::{BackendError, BackendResult};
 use waymark_core_backend::{
@@ -98,6 +99,19 @@ impl waymark_core_backend::CoreBackend for crate::MemoryBackend {
             }
         }
         Ok(QueuedInstanceBatch { instances })
+    }
+
+    type PollQueuedInstancesError = core::convert::Infallible;
+
+    async fn poll_queued_instances(
+        &self,
+        _size: std::num::NonZeroUsize,
+        _claim: LockClaim,
+    ) -> Result<
+        NEVec<QueuedInstance>,
+        waymark_core_backend::PollQueuedInstancesError<Self::PollQueuedInstancesError>,
+    > {
+        unimplemented!()
     }
 
     async fn queue_instances(&self, instances: &[QueuedInstance]) -> BackendResult<()> {
