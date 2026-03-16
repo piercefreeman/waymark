@@ -12,6 +12,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::env;
 use std::net::SocketAddr;
+use std::num::NonZeroUsize;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -206,55 +207,76 @@ impl CoreBackend for InMemoryBackend {
         size: usize,
         claim: LockClaim,
     ) -> BackendResult<QueuedInstanceBatch> {
-        if size == 0 {
+        let Some(size) = NonZeroUsize::new(size) else {
             return Ok(QueuedInstanceBatch {
                 instances: Vec::new(),
             });
-        }
-        let mut guard = self
-            .queue
-            .lock()
-            .map_err(|_| BackendError::Message("in-memory queue lock poisoned".to_string()))?;
-        let now = Utc::now();
-        let mut instances = Vec::new();
-        while instances.len() < size {
-            let Some(instance) = guard.front() else {
-                break;
-            };
-            if let Some(scheduled_at) = instance.scheduled_at
-                && scheduled_at > now
-            {
-                break;
+        };
+
+        let result = self.poll_queued_instances(size, claim).await;
+
+        match result {
+            Ok(instances) => Ok(QueuedInstanceBatch {
+                instances: instances.into(),
+            }),
+            Err(waymark_core_backend::PollQueuedInstancesError::NoInstances { .. }) => {
+                Ok(QueuedInstanceBatch {
+                    instances: Vec::new(),
+                })
             }
-            let instance = guard.pop_front().expect("in-memory queue reported empty");
-            instances.push(instance);
+            Err(waymark_core_backend::PollQueuedInstancesError::Internal(error)) => Err(error),
         }
-        if !instances.is_empty() {
-            let mut locks = self
-                .instance_locks
-                .lock()
-                .map_err(|_| BackendError::Message("in-memory locks poisoned".to_string()))?;
-            for instance in &instances {
-                locks.insert(
-                    instance.instance_id,
-                    (Some(claim.lock_uuid), Some(claim.lock_expires_at)),
-                );
-            }
-        }
-        Ok(QueuedInstanceBatch { instances })
     }
 
-    type PollQueuedInstancesError = core::convert::Infallible;
+    type PollQueuedInstancesError = BackendError;
 
     async fn poll_queued_instances(
         &self,
-        _size: std::num::NonZeroUsize,
-        _claim: LockClaim,
+        size: NonZeroUsize,
+        claim: LockClaim,
     ) -> Result<
         NEVec<QueuedInstance>,
         waymark_core_backend::PollQueuedInstancesError<Self::PollQueuedInstancesError>,
     > {
-        unimplemented!()
+        let mut queue = self.queue.lock().expect("in-memory queue lock poisoned");
+
+        let now = Utc::now();
+
+        let mut take_ready_instance = || {
+            queue.pop_front_if(|instance| match instance.scheduled_at {
+                None => true,
+                Some(scheduled_at) => scheduled_at <= now,
+            })
+        };
+
+        let first_instance = take_ready_instance().ok_or({
+            waymark_core_backend::PollQueuedInstancesError::NoInstances(BackendError::Message(
+                "empty queue".to_string(),
+            ))
+        })?;
+
+        let mut instances = NEVec::with_capacity(size, first_instance);
+
+        while instances.len() < size {
+            let Some(instance) = take_ready_instance() else {
+                break;
+            };
+            instances.push(instance);
+        }
+
+        let mut locks = self
+            .instance_locks
+            .lock()
+            .expect("in-memory locks poisoned");
+
+        for instance in &instances {
+            locks.insert(
+                instance.instance_id,
+                (Some(claim.lock_uuid), Some(claim.lock_expires_at)),
+            );
+        }
+
+        Ok(instances)
     }
 
     async fn save_instances_done(&self, instances: &[InstanceDone]) -> BackendResult<()> {
