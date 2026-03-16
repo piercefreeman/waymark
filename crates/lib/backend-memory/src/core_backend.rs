@@ -1,3 +1,5 @@
+use std::num::NonZeroUsize;
+
 use chrono::Utc;
 use nonempty_collections::NEVec;
 use uuid::Uuid;
@@ -61,57 +63,81 @@ impl waymark_core_backend::CoreBackend for crate::MemoryBackend {
         size: usize,
         claim: LockClaim,
     ) -> BackendResult<QueuedInstanceBatch> {
-        if size == 0 {
+        let Some(size) = NonZeroUsize::new(size) else {
             return Ok(QueuedInstanceBatch {
                 instances: Vec::new(),
             });
-        }
-        let queue = match &self.instance_queue {
-            Some(queue) => queue,
-            None => {
-                return Ok(QueuedInstanceBatch {
-                    instances: Vec::new(),
-                });
-            }
         };
-        let mut guard = queue.lock().expect("instance queue poisoned");
-        let now = Utc::now();
-        let mut instances = Vec::new();
-        while instances.len() < size {
-            let Some(instance) = guard.front() else {
-                break;
-            };
-            if let Some(scheduled_at) = instance.scheduled_at
-                && scheduled_at > now
-            {
-                break;
-            }
-            let instance = guard.pop_front().expect("instance queue empty");
-            instances.push(instance);
+
+        let result = self.poll_queued_instances(size, claim).await;
+
+        match result {
+            Ok(instances) => Ok(QueuedInstanceBatch {
+                instances: instances.into(),
+            }),
+            Err(
+                waymark_core_backend::PollQueuedInstancesError::NoInstances(inner)
+                | waymark_core_backend::PollQueuedInstancesError::Internal(inner),
+            ) => match inner {
+                PollQueuedInstancesError::NoQueue | PollQueuedInstancesError::QueueEmpty => {
+                    Ok(QueuedInstanceBatch {
+                        instances: Vec::new(),
+                    })
+                }
+            },
         }
-        if !instances.is_empty() {
-            let mut locks = self.instance_locks.lock().expect("instance locks poisoned");
-            for instance in &instances {
-                locks.insert(
-                    instance.instance_id,
-                    (Some(claim.lock_uuid), Some(claim.lock_expires_at)),
-                );
-            }
-        }
-        Ok(QueuedInstanceBatch { instances })
     }
 
-    type PollQueuedInstancesError = core::convert::Infallible;
+    type PollQueuedInstancesError = PollQueuedInstancesError;
 
     async fn poll_queued_instances(
         &self,
-        _size: std::num::NonZeroUsize,
-        _claim: LockClaim,
+        size: std::num::NonZeroUsize,
+        claim: LockClaim,
     ) -> Result<
         NEVec<QueuedInstance>,
         waymark_core_backend::PollQueuedInstancesError<Self::PollQueuedInstancesError>,
     > {
-        unimplemented!()
+        let queue = self.instance_queue.as_ref().ok_or_else(|| {
+            waymark_core_backend::PollQueuedInstancesError::NoInstances(
+                PollQueuedInstancesError::NoQueue,
+            )
+        })?;
+
+        let mut queue = queue.lock().expect("instance queue poisoned");
+
+        let now = Utc::now();
+
+        let mut take_ready_instance = || {
+            queue.pop_front_if(|instance| match instance.scheduled_at {
+                None => true,
+                Some(scheduled_at) => scheduled_at <= now,
+            })
+        };
+
+        let first_instance = take_ready_instance().ok_or({
+            waymark_core_backend::PollQueuedInstancesError::NoInstances(
+                PollQueuedInstancesError::QueueEmpty,
+            )
+        })?;
+
+        let mut instances = NEVec::with_capacity(size, first_instance);
+        while instances.len() < size {
+            let Some(instance) = take_ready_instance() else {
+                break;
+            };
+            instances.push(instance);
+        }
+
+        let mut locks = self.instance_locks.lock().expect("instance locks poisoned");
+        for instance in &instances {
+            locks.insert(
+                instance.instance_id,
+                (Some(claim.lock_uuid), Some(claim.lock_expires_at)),
+            );
+        }
+
+        Ok(instances)
     }
 
     async fn queue_instances(&self, instances: &[QueuedInstance]) -> BackendResult<()> {
@@ -166,4 +192,13 @@ impl waymark_core_backend::CoreBackend for crate::MemoryBackend {
         }
         Ok(())
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum PollQueuedInstancesError {
+    #[error("backend is instantiated with no queue")]
+    NoQueue,
+
+    #[error("queue is empty")]
+    QueueEmpty,
 }
