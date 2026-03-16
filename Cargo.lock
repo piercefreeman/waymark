@@ -1613,6 +1613,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "nonempty-collections"
+version = "1.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3d127e00b37b19c36c28ac00e874240a61faeea14c7b759b1d9c77efa048322a"
+
+[[package]]
 name = "nu-ansi-term"
 version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3532,6 +3538,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "futures-core",
+ "nonempty-collections",
  "prost 0.12.6",
  "rmp-serde",
  "serde_json",
@@ -3787,6 +3794,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "mockall",
+ "nonempty-collections",
  "prost 0.12.6",
  "serde_json",
  "sha2",
@@ -4065,6 +4073,7 @@ dependencies = [
 name = "waymark-worker-core"
 version = "0.1.0"
 dependencies = [
+ "nonempty-collections",
  "serde_json",
  "thiserror",
  "uuid",
@@ -4074,6 +4083,7 @@ dependencies = [
 name = "waymark-worker-inline"
 version = "0.1.0"
 dependencies = [
+ "nonempty-collections",
  "serde_json",
  "tokio",
  "waymark-observability",
@@ -4094,6 +4104,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "futures-core",
+ "nonempty-collections",
  "prost 0.12.6",
  "serde_json",
  "thiserror",

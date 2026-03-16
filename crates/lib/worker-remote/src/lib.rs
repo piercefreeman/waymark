@@ -53,6 +53,7 @@ use std::{
 };
 
 use futures_core::future::BoxFuture;
+use nonempty_collections::NEVec;
 use serde_json::Value;
 use tokio::sync::RwLock;
 
@@ -1357,17 +1358,25 @@ impl BaseWorkerPool for RemoteWorkerPool {
 
     fn get_complete<'a>(&'a self) -> BoxFuture<'a, Vec<ActionCompletion>> {
         Box::pin(async move {
-            let mut receiver = self.inner.completion_rx.lock().await;
-            let mut completions = Vec::new();
-            match receiver.recv().await {
-                Some(first) => completions.push(first),
-                None => return completions,
+            match self.poll_complete().await {
+                Some(completions) => completions.into(),
+                None => Vec::new(),
             }
-            while let Ok(value) = receiver.try_recv() {
-                completions.push(value);
-            }
-            completions
         })
+    }
+
+    async fn poll_complete(&self) -> Option<NEVec<ActionCompletion>> {
+        let mut receiver = self.inner.completion_rx.lock().await;
+
+        let first = receiver.recv().await?;
+
+        let mut completions = NEVec::new(first);
+
+        while let Ok(item) = receiver.try_recv() {
+            completions.push(item);
+        }
+
+        Some(completions)
     }
 }
 

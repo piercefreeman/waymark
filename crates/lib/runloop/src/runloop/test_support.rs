@@ -12,6 +12,10 @@ mockall::mock! {
         fn get_complete<'a>(
             &'a self,
         ) -> Pin<Box<dyn Future<Output = Vec<ActionCompletion>> + Send + 'a>>;
+
+        fn poll_complete<'a>(
+            &'a self,
+        ) -> impl Future<Output = Option<nonempty_collections::NEVec<ActionCompletion>>> + Send + Sync + 'a;
     }
 }
 
