@@ -67,7 +67,7 @@ lint-extended-verify: lint-verify rust-lint-extended-verify
 
 rust-lint: rust-lint-base
 	taplo fmt
-	cargo shear --fix
+	cargo shear
 	typos
 	cargo deny check
 
