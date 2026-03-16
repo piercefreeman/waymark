@@ -754,10 +754,18 @@ async fn test_runloop_reproduces_no_progress_with_continued_queue_growth() {
         .expect("runloop task should stop before timeout")
         .expect("runloop task should not panic");
 
-    let Err(RunLoopError::Backend(BackendError::Message(msg))) = result else {
-        panic!("expected an Err(Backend(Message(...))) result, got {result:?}");
+    let Err(error) = result else {
+        panic!("expected an Err result, got {result:?}");
     };
-    assert_eq!(msg, "depth limit exceeded");
+    assert!(
+        matches!(
+            error,
+            RunLoopError::CoreBackendPoll(
+                waymark_backend_fault_injection::PollQueuedInstancesError::DepthLimitExceeded,
+            )
+        ),
+        "expected depth limit exceeded error"
+    );
 
     assert!(
         backend.get_queued_instances_calls() >= 1,

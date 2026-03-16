@@ -85,17 +85,30 @@ impl CoreBackend for FaultInjectingBackend {
         self.inner.get_queued_instances(size, claim).await
     }
 
-    type PollQueuedInstancesError = core::convert::Infallible;
+    type PollQueuedInstancesError = PollQueuedInstancesError;
 
     async fn poll_queued_instances(
         &self,
-        _size: std::num::NonZeroUsize,
-        _claim: LockClaim,
+        size: std::num::NonZeroUsize,
+        claim: LockClaim,
     ) -> Result<
         NEVec<QueuedInstance>,
         waymark_core_backend::PollQueuedInstancesError<Self::PollQueuedInstancesError>,
     > {
-        unimplemented!()
+        self.get_queued_instances_calls
+            .fetch_add(1, AtomicOrdering::SeqCst);
+        if self
+            .fail_get_queued_instances_with_depth_limit
+            .load(AtomicOrdering::SeqCst)
+        {
+            return Err(waymark_core_backend::PollQueuedInstancesError::Internal(
+                PollQueuedInstancesError::DepthLimitExceeded,
+            ));
+        }
+        self.inner
+            .poll_queued_instances(size, claim)
+            .await
+            .map_err(|err| err.blind_map(PollQueuedInstancesError::Memory))
     }
 
     async fn queue_instances(
@@ -136,4 +149,13 @@ impl WorkflowRegistryBackend for FaultInjectingBackend {
     async fn get_workflow_versions(&self, ids: &[Uuid]) -> BackendResult<Vec<WorkflowVersion>> {
         self.inner.get_workflow_versions(ids).await
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum PollQueuedInstancesError {
+    #[error("depth limit exceeded")]
+    DepthLimitExceeded,
+
+    #[error("memory backend: {0}")]
+    Memory(<MemoryBackend as waymark_core_backend::CoreBackend>::PollQueuedInstancesError),
 }
