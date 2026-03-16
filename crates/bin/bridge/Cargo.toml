@@ -24,6 +24,7 @@ waymark-workflow-registry-backend = { workspace = true }
 anyhow = { workspace = true }
 chrono = { workspace = true }
 futures-core = { workspace = true }
+nonempty-collections = { workspace = true }
 prost = { workspace = true }
 rmp-serde = { workspace = true }
 serde_json = { workspace = true }
