@@ -3801,6 +3801,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "mockall",
+ "nonempty-collections",
  "prost 0.12.6",
  "serde_json",
  "sha2",
@@ -4079,6 +4080,7 @@ dependencies = [
 name = "waymark-worker-core"
 version = "0.1.0"
 dependencies = [
+ "nonempty-collections",
  "serde_json",
  "thiserror",
  "uuid",
@@ -4088,6 +4090,7 @@ dependencies = [
 name = "waymark-worker-inline"
 version = "0.1.0"
 dependencies = [
+ "nonempty-collections",
  "serde_json",
  "tokio",
  "waymark-observability",
@@ -4108,6 +4111,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "futures-core",
+ "nonempty-collections",
  "prost 0.12.6",
  "serde_json",
  "thiserror",

@@ -485,19 +485,27 @@ impl BaseWorkerPool for StreamWorkerPool {
         Ok(())
     }
 
-    fn get_complete<'a>(&'a self) -> BoxFuture<'a, Vec<ActionCompletion>> {
+    fn get_complete(&self) -> BoxFuture<'_, Vec<ActionCompletion>> {
         Box::pin(async move {
-            let mut receiver = self.completion_rx.lock().await;
-            let mut completions = Vec::new();
-            match receiver.recv().await {
-                Some(first) => completions.push(first),
-                None => return completions,
+            match self.poll_complete().await {
+                Some(completions) => completions.into(),
+                None => Vec::new(),
             }
-            while let Ok(item) = receiver.try_recv() {
-                completions.push(item);
-            }
-            completions
         })
+    }
+
+    async fn poll_complete(&self) -> Option<NEVec<ActionCompletion>> {
+        let mut receiver = self.completion_rx.lock().await;
+
+        let first = receiver.recv().await?;
+
+        let mut completions = NEVec::new(first);
+
+        while let Ok(item) = receiver.try_recv() {
+            completions.push(item);
+        }
+
+        Some(completions)
     }
 }
 

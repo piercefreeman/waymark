@@ -32,6 +32,7 @@ waymark-runner-state = { workspace = true }
 waymark-worker-inline = { workspace = true }
 
 mockall = { workspace = true }
+nonempty-collections = { workspace = true }
 sha2 = { workspace = true }
 
 [lib]

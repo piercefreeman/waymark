@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use nonempty_collections::NEVec;
 use serde_json::Value;
 use tokio::sync::mpsc;
 
@@ -38,17 +39,18 @@ impl InlineWorkerPool {
     }
 
     #[obs]
-    async fn get_complete_impl(&self) -> Vec<ActionCompletion> {
+    async fn poll_complete_impl(&self) -> Option<NEVec<ActionCompletion>> {
         let mut receiver = self.receiver.lock().await;
-        let mut completions = Vec::new();
-        match receiver.recv().await {
-            Some(first) => completions.push(first),
-            None => return completions,
+
+        let first = receiver.recv().await?;
+
+        let mut completions = NEVec::new(first);
+
+        while let Ok(item) = receiver.try_recv() {
+            completions.push(item);
         }
-        while let Ok(value) = receiver.try_recv() {
-            completions.push(value);
-        }
-        completions
+
+        Some(completions)
     }
 }
 
@@ -100,6 +102,15 @@ impl BaseWorkerPool for InlineWorkerPool {
     }
 
     fn get_complete<'a>(&'a self) -> BoxFuture<'a, Vec<ActionCompletion>> {
-        Box::pin(self.get_complete_impl())
+        Box::pin(async move {
+            match self.poll_complete().await {
+                Some(completions) => completions.into(),
+                None => Vec::new(),
+            }
+        })
+    }
+
+    fn poll_complete(&self) -> impl Future<Output = Option<NEVec<ActionCompletion>>> {
+        self.poll_complete_impl()
     }
 }
