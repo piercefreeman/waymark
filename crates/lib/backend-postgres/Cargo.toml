@@ -30,6 +30,7 @@ rmp-serde = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 sqlx = { workspace = true, features = ["postgres", "uuid", "chrono"] }
+thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros"] }
 tracing = { workspace = true }
 uuid = { workspace = true }

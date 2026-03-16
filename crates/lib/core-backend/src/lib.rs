@@ -63,10 +63,12 @@ pub trait CoreBackend: Send + Sync {
 #[derive(Debug, thiserror::Error)]
 pub enum PollQueuedInstancesError<T> {
     /// An error indicating there were no instances.
-    NoInstances(T),
+    #[error("no instances: {0}")]
+    NoInstances(#[source] T),
 
     /// An error indicaing some internal error condition.
-    Internal(T),
+    #[error("internal error: {0}")]
+    Internal(#[source] T),
 }
 
 impl<T> PollQueuedInstancesError<T> {

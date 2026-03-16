@@ -1,5 +1,6 @@
 //! Postgres backend for persisting runner state and action results.
 
+mod codec;
 mod core;
 mod registry;
 mod scheduler;
@@ -104,12 +105,19 @@ impl PostgresBackend {
     }
 
     pub(crate) fn serialize<T: serde::Serialize>(value: &T) -> Result<Vec<u8>, BackendError> {
-        rmp_serde::to_vec_named(value).map_err(|e| BackendError::Message(e.to_string()))
+        codec::serialize(value).map_err(|e| BackendError::Message(e.to_string()))
     }
 
     pub(crate) fn deserialize<T: serde::de::DeserializeOwned>(
         payload: &[u8],
     ) -> Result<T, BackendError> {
-        rmp_serde::from_slice(payload).map_err(|e| BackendError::Message(e.to_string()))
+        codec::deserialize(payload).map_err(|e| BackendError::Message(e.to_string()))
     }
+}
+
+/// The common postgres backend error.
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error(transparent)]
+    Sqlx(sqlx::Error),
 }
