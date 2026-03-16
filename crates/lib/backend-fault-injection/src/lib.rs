@@ -82,6 +82,7 @@ impl CoreBackend for FaultInjectingBackend {
         {
             return Err(BackendError::Message("depth limit exceeded".to_string()));
         }
+        #[allow(deprecated)]
         self.inner.get_queued_instances(size, claim).await
     }
 

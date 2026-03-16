@@ -1213,11 +1213,15 @@ mod tests {
 
     async fn claim_instance(backend: &PostgresBackend, instance_id: Uuid) -> LockClaim {
         let claim = sample_lock_claim();
-        let batch = CoreBackend::get_queued_instances(backend, 10, claim.clone())
-            .await
-            .expect("claim queued instance");
-        assert_eq!(batch.instances.len(), 1);
-        assert_eq!(batch.instances[0].instance_id, instance_id);
+        let instances = CoreBackend::poll_queued_instances(
+            backend,
+            NonZeroUsize::new(10).unwrap(),
+            claim.clone(),
+        )
+        .await
+        .expect("claim queued instance");
+        assert_eq!(instances.len().get(), 1);
+        assert_eq!(instances[0].instance_id, instance_id);
         claim
     }
 
@@ -1331,11 +1335,15 @@ mod tests {
             .expect("queue instances");
 
         let claim = sample_lock_claim();
-        let batch = CoreBackend::get_queued_instances(&backend, 1, claim.clone())
-            .await
-            .expect("get queued instances");
-        assert_eq!(batch.instances.len(), 1);
-        assert_eq!(batch.instances[0].instance_id, instance_id);
+        let instances = CoreBackend::poll_queued_instances(
+            &backend,
+            NonZeroUsize::new(1).unwrap(),
+            claim.clone(),
+        )
+        .await
+        .expect("get queued instances");
+        assert_eq!(instances.len().get(), 1);
+        assert_eq!(instances[0].instance_id, instance_id);
 
         let row = sqlx::query("SELECT lock_uuid FROM queued_instances WHERE instance_id = $1")
             .bind(instance_id)
@@ -1375,10 +1383,14 @@ mod tests {
             .expect("queue instances");
 
         let initial_claim = sample_lock_claim();
-        let initial_batch = CoreBackend::get_queued_instances(&backend, 1, initial_claim.clone())
-            .await
-            .expect("initial claim");
-        assert_eq!(initial_batch.instances.len(), 1);
+        let initial_batch = CoreBackend::poll_queued_instances(
+            &backend,
+            NonZeroUsize::new(1).unwrap(),
+            initial_claim.clone(),
+        )
+        .await
+        .expect("initial claim");
+        assert_eq!(initial_batch.len().get(), 1);
 
         let execution_id = Uuid::new_v4();
         let mut completed_action_node = sample_execution_node(execution_id);
@@ -1436,12 +1448,16 @@ mod tests {
         assert_eq!(runner_status.as_deref(), Some(INSTANCE_STATUS_QUEUED));
 
         let second_claim = sample_lock_claim();
-        let batch = CoreBackend::get_queued_instances(&backend, 1, second_claim)
-            .await
-            .expect("rehydrate instance");
-        assert_eq!(batch.instances.len(), 1);
+        let batch = CoreBackend::poll_queued_instances(
+            &backend,
+            NonZeroUsize::new(1).unwrap(),
+            second_claim,
+        )
+        .await
+        .expect("rehydrate instance");
+        assert_eq!(batch.len().get(), 1);
         assert_eq!(
-            batch.instances[0].action_results.get(&execution_id),
+            batch[0].action_results.get(&execution_id),
             Some(&serde_json::json!({"ok": true}))
         );
     }
@@ -1725,10 +1741,14 @@ mod tests {
         .expect("queue instances");
 
         let claim = sample_lock_claim();
-        let claimed = CoreBackend::get_queued_instances(&backend, 10, claim.clone())
-            .await
-            .expect("claim queued instances");
-        assert_eq!(claimed.instances.len(), 2);
+        let claimed = CoreBackend::poll_queued_instances(
+            &backend,
+            NonZeroUsize::new(10).unwrap(),
+            claim.clone(),
+        )
+        .await
+        .expect("claim queued instances");
+        assert_eq!(claimed.len().get(), 2);
 
         let expired_at = Utc::now() - Duration::seconds(1);
         let live_at = Utc::now() + Duration::seconds(60);

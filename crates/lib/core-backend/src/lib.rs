@@ -23,6 +23,7 @@ pub trait CoreBackend: Send + Sync {
     async fn save_actions_done(&self, actions: &[ActionDone]) -> BackendResult<()>;
 
     /// Return up to size queued instances without blocking.
+    #[deprecated]
     async fn get_queued_instances(
         &self,
         size: usize,

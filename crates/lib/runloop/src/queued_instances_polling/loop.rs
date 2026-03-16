@@ -4,12 +4,12 @@ use std::time::Duration;
 use chrono::Utc;
 use tracing::{debug, info};
 use uuid::Uuid;
-use waymark_core_backend::{LockClaim, QueuedInstanceBatch};
+use waymark_core_backend::LockClaim;
 
 use crate::available_instance_slots;
 use crate::channel_utils::send_with_stop;
 
-pub struct Params<CoreBackend>
+pub struct Params<CoreBackend, BackendError>
 where
     CoreBackend: ?Sized,
 {
@@ -19,13 +19,16 @@ where
     pub poll_interval: Duration,
     pub lock_uuid: Uuid,
     pub lock_ttl: Duration,
-    pub queued_instance_tx: tokio::sync::mpsc::Sender<super::Message>,
+    pub queued_instance_tx: tokio::sync::mpsc::Sender<super::Message<BackendError>>,
 }
 
-pub async fn run<CoreBackend>(params: Params<CoreBackend>)
+pub type BackendErrorFor<T> = <T as waymark_core_backend::CoreBackend>::PollQueuedInstancesError;
+
+pub async fn run<CoreBackend>(params: Params<CoreBackend, BackendErrorFor<CoreBackend>>)
 where
     CoreBackend: ?Sized,
     CoreBackend: waymark_core_backend::CoreBackend,
+    CoreBackend::PollQueuedInstancesError: core::fmt::Debug,
 {
     let Params {
         shutdown_token,
@@ -55,37 +58,44 @@ where
         let lock_expires_at = Utc::now()
             + chrono::Duration::from_std(lock_ttl).unwrap_or_else(|_| chrono::Duration::seconds(0));
         let batch = core_backend
-            .get_queued_instances(
-                batch_size.get(), // TODO: switch `get_queued_instances` to `NonZeroUsize`
+            .poll_queued_instances(
+                batch_size,
                 LockClaim {
                     lock_uuid,
                     lock_expires_at,
                 },
             )
             .await;
+
         let message = match batch {
-            Ok(QueuedInstanceBatch { instances }) => {
+            Ok(instances) => {
                 let count = instances.len();
                 debug!(count, "polled queued instances");
                 super::Message::Batch { instances }
             }
-            Err(err) => super::Message::Error(err),
+            Err(waymark_core_backend::PollQueuedInstancesError::Internal(err)) => {
+                super::Message::Error(err)
+            }
+            Err(waymark_core_backend::PollQueuedInstancesError::NoInstances(error)) => {
+                // No instances were obtained.
+                tracing::trace!(?error, "no instances from core backend");
+                super::Message::Pending
+            }
         };
-        if !send_with_stop(
+
+        let sent_ok = send_with_stop(
             &queued_instance_tx,
             message,
             shutdown_token.cancelled(),
             "instance message",
         )
-        .await
-        {
+        .await;
+
+        if !sent_ok {
             break;
         }
-        if poll_interval > Duration::ZERO {
-            tokio::time::sleep(poll_interval).await;
-        } else {
-            tokio::time::sleep(Duration::from_millis(0)).await;
-        }
+
+        tokio::time::sleep(poll_interval).await;
     }
     info!("instance poller exiting");
 }

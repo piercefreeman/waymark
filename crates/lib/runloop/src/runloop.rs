@@ -52,13 +52,19 @@ mod lock_utils;
 
 /// Raised when the run loop cannot coordinate execution.
 #[derive(Debug, thiserror::Error)]
-pub enum Error {
+pub enum Error<CoreBackendPollError> {
     #[error("{0}")]
     Message(String),
+
+    #[error("core backend poll: {0}")]
+    CoreBackendPoll(#[source] CoreBackendPollError),
+
     #[error(transparent)]
     Backend(#[from] BackendError),
+
     #[error(transparent)]
     WorkerPool(#[from] WorkerPoolError),
+
     #[error(transparent)]
     RunnerExecutor(RunnerExecutorError),
 }
@@ -78,9 +84,9 @@ struct InflightActionDispatch {
     deadline_at: Option<DateTime<Utc>>,
 }
 
-enum CoordinatorEvent {
+enum CoordinatorEvent<CoreBackendPollError> {
     Completions(Vec<ActionCompletion>),
-    Instance(queued_instances_polling::Message),
+    Instance(queued_instances_polling::Message<CoreBackendPollError>),
     Shard(shard::Event),
     SleepWake(SleepWake),
     PersistAck(persist::Ack),
@@ -212,6 +218,9 @@ where
     // TODO: review after splitting out spawns
     WorkerPool: Send + Sync + 'static,
     CoreBackend: Send + Sync + 'static,
+    CoreBackend::PollQueuedInstancesError: core::fmt::Display,
+    CoreBackend::PollQueuedInstancesError: core::fmt::Debug,
+    CoreBackend::PollQueuedInstancesError: Send + Sync + 'static,
 {
     fn store_available_instance_slots(&self, active_instances: usize) {
         self.available_instance_slot_tracker
@@ -222,7 +231,9 @@ where
     }
 
     #[obs]
-    pub async fn run(&mut self) -> Result<(), Error> {
+    pub async fn run(
+        &mut self,
+    ) -> Result<(), Error<queued_instances_polling::r#loop::BackendErrorFor<CoreBackend>>> {
         self.worker_pool.launch().await.map_err(Error::WorkerPool)?;
 
         let (event_tx, mut event_rx) = mpsc::unbounded_channel::<shard::Event>();
@@ -248,7 +259,11 @@ where
         self.store_available_instance_slots(0);
 
         let (completion_tx, mut completion_rx) = mpsc::channel::<Vec<ActionCompletion>>(32);
-        let (instance_tx, mut instance_rx) = mpsc::channel::<queued_instances_polling::Message>(16);
+        let (instance_tx, mut instance_rx) = mpsc::channel::<
+            queued_instances_polling::Message<
+                queued_instances_polling::r#loop::BackendErrorFor<CoreBackend>,
+            >,
+        >(16);
         let (sleep_tx, mut sleep_rx) = mpsc::unbounded_channel::<SleepWake>();
 
         // TODO: move this initialization out of the runloop
@@ -413,7 +428,7 @@ where
             let mut all_failed_instances: Vec<InstanceDone> = Vec::new();
             let mut all_wakes: Vec<SleepWake> = Vec::new();
             let mut all_persist_acks: Vec<persist::Ack> = Vec::new();
-            let mut saw_empty_instances = false;
+            let mut queued_instances_poller_is_pending = false;
 
             match first_event {
                 CoordinatorEvent::Completions(completions) => {
@@ -422,15 +437,14 @@ where
                 CoordinatorEvent::Instance(queued_instances_polling::Message::Batch {
                     instances,
                 }) => {
-                    if instances.is_empty() {
-                        saw_empty_instances = true;
-                    } else {
-                        all_instances.extend(instances);
-                    }
+                    all_instances.extend(instances);
+                }
+                CoordinatorEvent::Instance(queued_instances_polling::Message::Pending) => {
+                    queued_instances_poller_is_pending = true;
                 }
                 CoordinatorEvent::Instance(queued_instances_polling::Message::Error(err)) => {
                     warn!(error = %err, "runloop exiting: instance poller backend error");
-                    break 'runloop Err(Error::Backend(err));
+                    break 'runloop Err(Error::CoreBackendPoll(err));
                 }
                 CoordinatorEvent::Shard(event) => match event {
                     shard::Event::Step(step) => all_steps.push(step),
@@ -462,15 +476,14 @@ where
             while let Ok(message) = instance_rx.try_recv() {
                 match message {
                     queued_instances_polling::Message::Batch { instances } => {
-                        if instances.is_empty() {
-                            saw_empty_instances = true;
-                        } else {
-                            all_instances.extend(instances);
-                        }
+                        all_instances.extend(instances);
+                    }
+                    queued_instances_polling::Message::Pending => {
+                        queued_instances_poller_is_pending = true;
                     }
                     queued_instances_polling::Message::Error(err) => {
                         warn!(error = %err, "runloop exiting: instance poller backend error");
-                        break 'runloop Err(Error::Backend(err));
+                        break 'runloop Err(Error::CoreBackendPoll(err));
                     }
                 }
             }
@@ -593,7 +606,7 @@ where
                     next_shard: &mut next_shard,
                     shard_count: self.shard_count,
                     all_instances,
-                    saw_empty_instances,
+                    saw_empty_instances: queued_instances_poller_is_pending,
                 };
 
                 let result = parts::new_instances::handle(params).await;
