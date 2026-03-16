@@ -3,6 +3,7 @@ use std::future::Future;
 use std::time::Duration as StdDuration;
 
 use chrono::{DateTime, Utc};
+use nonempty_collections::NEVec;
 use sqlx::{Postgres, QueryBuilder, Row};
 use tracing::warn;
 use uuid::Uuid;
@@ -863,6 +864,19 @@ impl waymark_core_backend::CoreBackend for PostgresBackend {
         claim: LockClaim,
     ) -> BackendResult<QueuedInstanceBatch> {
         self.get_queued_instances_impl(size, claim).await
+    }
+
+    type PollQueuedInstancesError = core::convert::Infallible;
+
+    async fn poll_queued_instances(
+        &self,
+        _size: std::num::NonZeroUsize,
+        _claim: LockClaim,
+    ) -> Result<
+        NEVec<QueuedInstance>,
+        waymark_core_backend::PollQueuedInstancesError<Self::PollQueuedInstancesError>,
+    > {
+        unimplemented!()
     }
 
     async fn save_instances_done(&self, instances: &[InstanceDone]) -> BackendResult<()> {

@@ -3,11 +3,13 @@ use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering as AtomicOrdering},
 };
 
+use nonempty_collections::NEVec;
 use uuid::Uuid;
 use waymark_backend_memory::MemoryBackend;
 use waymark_backends_core::{BackendError, BackendResult};
 use waymark_core_backend::{
-    CoreBackend, GraphUpdate, InstanceDone, InstanceLockStatus, LockClaim, QueuedInstanceBatch,
+    CoreBackend, GraphUpdate, InstanceDone, InstanceLockStatus, LockClaim, QueuedInstance,
+    QueuedInstanceBatch,
 };
 use waymark_workflow_registry_backend::{
     WorkflowRegistration, WorkflowRegistryBackend, WorkflowVersion,
@@ -81,6 +83,19 @@ impl CoreBackend for FaultInjectingBackend {
             return Err(BackendError::Message("depth limit exceeded".to_string()));
         }
         self.inner.get_queued_instances(size, claim).await
+    }
+
+    type PollQueuedInstancesError = core::convert::Infallible;
+
+    async fn poll_queued_instances(
+        &self,
+        _size: std::num::NonZeroUsize,
+        _claim: LockClaim,
+    ) -> Result<
+        NEVec<QueuedInstance>,
+        waymark_core_backend::PollQueuedInstancesError<Self::PollQueuedInstancesError>,
+    > {
+        unimplemented!()
     }
 
     async fn queue_instances(
