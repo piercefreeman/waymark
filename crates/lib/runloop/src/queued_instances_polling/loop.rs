@@ -5,9 +5,9 @@ use chrono::Utc;
 use tracing::{debug, info};
 use uuid::Uuid;
 use waymark_core_backend::{LockClaim, QueuedInstanceBatch};
+use waymark_utils_tokio_channel::send_with_stop;
 
 use crate::available_instance_slots;
-use crate::channel_utils::send_with_stop;
 
 pub struct Params<CoreBackend>
 where

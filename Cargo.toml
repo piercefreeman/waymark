@@ -40,6 +40,8 @@ waymark-scheduler-loop = { path = "crates/lib/scheduler-loop" }
 waymark-smoke-sources = { path = "crates/lib/smoke-sources" }
 waymark-support-integration = { path = "crates/lib/support-integration" }
 waymark-support-test = { path = "crates/lib/support-test" }
+waymark-utils-futures = { path = "crates/lib/utils-futures" }
+waymark-utils-tokio-channel = { path = "crates/lib/utils-tokio-channel" }
 waymark-webapp-backend = { path = "crates/lib/webapp-backend" }
 waymark-webapp-bringup = { path = "crates/lib/webapp-bringup" }
 waymark-webapp-config = { path = "crates/lib/webapp-config" }
@@ -62,6 +64,7 @@ clap = "4.5"
 console-subscriber = "0.5"
 cron = "0.12"
 futures-core = "0.3"
+futures-util = "0.3"
 http-body-util = "0.1"
 mockall = "0.14"
 proc-macro2 = "1"

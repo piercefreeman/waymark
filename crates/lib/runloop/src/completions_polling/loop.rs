@@ -3,7 +3,7 @@ use std::sync::Arc;
 use tracing::{debug, info};
 use waymark_worker_core::ActionCompletion;
 
-use crate::channel_utils::send_with_stop;
+use waymark_utils_tokio_channel::send_with_stop;
 
 pub struct Params<WorkerPool>
 where

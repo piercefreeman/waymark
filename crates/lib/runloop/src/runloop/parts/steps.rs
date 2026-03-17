@@ -1,8 +1,9 @@
 use std::collections::HashSet;
 
 use uuid::Uuid;
+use waymark_utils_tokio_channel::send_with_stop;
 
-use crate::{channel_utils::send_with_stop, commit_barrier::CommitBarrier, persist, shard};
+use crate::{commit_barrier::CommitBarrier, persist, shard};
 
 #[cfg(test)]
 mod tests;

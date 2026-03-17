@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use tracing::{info, warn};
+use waymark_utils_futures::{with_cancellation, with_race_callback};
 
 /// Sends an item into a bounded channel while racing against a cancellation token.
 ///
@@ -12,41 +12,42 @@ use tracing::{info, warn};
 /// the cancellation future, guaranteeing the task can exit cleanly. It also warns if the
 /// send is pending for more than 2 seconds, surfacing backpressure during normal operation.
 #[tracing::instrument(skip_all, fields(kind))]
-pub async fn send_with_stop<T>(
+pub async fn send_with_stop<T, CancellationSignalFut>(
     tx: &tokio::sync::mpsc::Sender<T>,
     item: T,
-    stop: tokio_util::sync::WaitForCancellationFuture<'_>,
+    stop: CancellationSignalFut,
     #[allow(unused_variables)] kind: &'static str, // used in tracing span
-) -> Result<(), SendWithStopError<T>> {
-    let mut send_fut = std::pin::pin!(tx.send(item));
-    let mut stop = std::pin::pin!(stop);
+) -> Result<(), Error<T>>
+where
+    CancellationSignalFut: Future<Output = ()>,
+{
+    let fut = tx.send(item);
 
-    let mut warned = false;
-    loop {
-        tokio::select! {
-            res = &mut send_fut => {
-                return match res {
-                    Ok(val) => Ok(val),
-                    Err(err) => {
-                        warn!("receiver dropped");
-                        Err(SendWithStopError::Send(err))
-                    }
-                }
-            }
-            _ = &mut stop => {
-                info!("sender stop notified during send");
-                return Err(SendWithStopError::Stop);
-            }
-            _ = tokio::time::sleep(Duration::from_secs(2)), if !warned => {
-                warn!("send pending >2s");
-                warned = true;
-            }
+    let fut = std::pin::pin!(fut);
+    let fut = with_race_callback(fut, tokio::time::sleep(Duration::from_secs(2)), || {
+        tracing::warn!("send pending >2s")
+    });
+
+    let fut = std::pin::pin!(fut);
+    let fut = with_cancellation(fut, stop);
+
+    let result = fut.await;
+
+    match result {
+        Ok(Ok(val)) => Ok(val),
+        Ok(Err(send_error)) => {
+            tracing::warn!("receiver dropped");
+            Err(Error::ReceiverDropped(send_error))
+        }
+        Err(with_cancellation::CancelledError { .. }) => {
+            tracing::info!("sender stop notified during send");
+            return Err(Error::Stop);
         }
     }
 }
 
-pub enum SendWithStopError<T> {
-    Send(tokio::sync::mpsc::error::SendError<T>),
+pub enum Error<T> {
+    ReceiverDropped(tokio::sync::mpsc::error::SendError<T>),
     Stop,
 }
 
@@ -74,7 +75,7 @@ mod tests {
             .expect("send task should complete")
             .expect("send task should not panic");
         assert!(
-            matches!(sent, Err(SendWithStopError::Stop)),
+            matches!(sent, Err(Error::Stop)),
             "send should abort when stop is notified"
         );
 
@@ -89,7 +90,7 @@ mod tests {
         let shutdown_token = tokio_util::sync::CancellationToken::new();
         let sent = send_with_stop(&tx, 99, shutdown_token.cancelled(), "test message").await;
         assert!(
-            matches!(sent, Err(SendWithStopError::Stop)),
+            matches!(sent, Err(Error::ReceiverDropped(_))),
             "send should fail when receiver is dropped"
         );
     }
