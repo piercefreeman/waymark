@@ -53,6 +53,7 @@ use std::{
 };
 
 use futures_core::future::BoxFuture;
+use nonempty_collections::NEVec;
 use serde_json::Value;
 use tokio::sync::RwLock;
 
@@ -1355,19 +1356,18 @@ impl BaseWorkerPool for RemoteWorkerPool {
         })
     }
 
-    fn get_complete<'a>(&'a self) -> BoxFuture<'a, Vec<ActionCompletion>> {
-        Box::pin(async move {
-            let mut receiver = self.inner.completion_rx.lock().await;
-            let mut completions = Vec::new();
-            match receiver.recv().await {
-                Some(first) => completions.push(first),
-                None => return completions,
-            }
-            while let Ok(value) = receiver.try_recv() {
-                completions.push(value);
-            }
-            completions
-        })
+    async fn poll_complete(&self) -> Option<NEVec<ActionCompletion>> {
+        let mut receiver = self.inner.completion_rx.lock().await;
+
+        let first = receiver.recv().await?;
+
+        let mut completions = NEVec::new(first);
+
+        while let Ok(item) = receiver.try_recv() {
+            completions.push(item);
+        }
+
+        Some(completions)
     }
 }
 
@@ -1802,9 +1802,10 @@ mod tests {
         });
 
         BaseWorkerPool::queue(&remote, request).expect("queue request");
-        let completions = BaseWorkerPool::get_complete(&remote).await;
+        let maybe_completions = BaseWorkerPool::poll_complete(&remote).await;
         responder.await.expect("responder task");
-        assert_eq!(completions.len(), 1);
+        let completions = maybe_completions.unwrap();
+        assert_eq!(completions.len().get(), 1);
         assert_eq!(completions[0].execution_id, execution_id);
         assert_eq!(completions[0].result, Value::Number(25.into()));
 

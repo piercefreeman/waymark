@@ -36,14 +36,16 @@ where
                 info!("completion task stop notified");
                 break;
             }
-            completions = worker_pool.get_complete() => {
+            Some(completions) = worker_pool.poll_complete() => {
                 debug!(count = completions.len(), "completion task received completions");
                 completions
             },
+            else => {
+                // No shutdown and no completions - we poll again.
+                continue;
+            }
         };
-        if completions.is_empty() {
-            continue;
-        }
+
         debug!(
             count = completions.len(),
             "completion task sending completions"
@@ -51,7 +53,7 @@ where
 
         if !send_with_stop(
             &completion_tx,
-            completions,
+            completions.into(), // TODO: pass non-empty vec
             shutdown_token.cancelled(),
             "completions",
         )

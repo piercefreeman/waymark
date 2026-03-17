@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 
+use nonempty_collections::NEVec;
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -58,8 +59,11 @@ pub trait BaseWorkerPool: Send + Sync {
     /// Submit an action request for execution.
     fn queue(&self, request: ActionRequest) -> Result<(), WorkerPoolError>;
 
-    /// Await and return a batch of completed actions.
-    fn get_complete<'a>(&'a self) -> BoxFuture<'a, Vec<ActionCompletion>>;
+    /// Await and return a batch of completed actions, guaranteeing at least
+    /// one action has completed.
+    fn poll_complete(
+        &self,
+    ) -> impl Future<Output = Option<NEVec<ActionCompletion>>> + Send + Sync + '_;
 }
 
 pub fn error_to_value(error: &WorkerPoolError) -> Value {
