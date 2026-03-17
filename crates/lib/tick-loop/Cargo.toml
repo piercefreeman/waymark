@@ -1,0 +1,12 @@
+[package]
+name = "waymark-tick-loop"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-utils-futures = { workspace = true }
+
+tokio = { workspace = true, features = ["time", "rt"] }
+tokio-util = { workspace = true }
+tracing = { workspace = true }

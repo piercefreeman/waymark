@@ -40,6 +40,7 @@ waymark-scheduler-loop = { path = "crates/lib/scheduler-loop" }
 waymark-smoke-sources = { path = "crates/lib/smoke-sources" }
 waymark-support-integration = { path = "crates/lib/support-integration" }
 waymark-support-test = { path = "crates/lib/support-test" }
+waymark-tick-loop = { path = "crates/lib/tick-loop" }
 waymark-utils-futures = { path = "crates/lib/utils-futures" }
 waymark-utils-tokio-channel = { path = "crates/lib/utils-tokio-channel" }
 waymark-webapp-backend = { path = "crates/lib/webapp-backend" }

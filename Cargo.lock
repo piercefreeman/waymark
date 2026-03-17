@@ -4025,6 +4025,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-tick-loop"
+version = "0.1.0"
+dependencies = [
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "waymark-utils-futures",
+]
+
+[[package]]
 name = "waymark-utils-futures"
 version = "0.1.0"
 dependencies = [
