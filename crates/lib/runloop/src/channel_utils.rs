@@ -11,11 +11,12 @@ use tracing::{info, warn};
 /// re-check the token. This helper breaks that deadlock by selecting over the send and
 /// the cancellation future, guaranteeing the task can exit cleanly. It also warns if the
 /// send is pending for more than 2 seconds, surfacing backpressure during normal operation.
+#[tracing::instrument(skip_all, fields(kind))]
 pub async fn send_with_stop<T>(
     tx: &tokio::sync::mpsc::Sender<T>,
     item: T,
     stop: tokio_util::sync::WaitForCancellationFuture<'_>,
-    kind: &'static str,
+    #[allow(unused_variables)] kind: &'static str, // used in tracing span
 ) -> bool {
     let send_fut = tx.send(item);
     tokio::pin!(send_fut);
@@ -27,17 +28,17 @@ pub async fn send_with_stop<T>(
         tokio::select! {
             res = &mut send_fut => {
                 if res.is_err() {
-                    warn!(%kind, "receiver dropped");
+                    warn!("receiver dropped");
                     return false;
                 }
                 return true;
             }
             _ = &mut stop => {
-                info!(%kind, "sender stop notified during send");
+                info!("sender stop notified during send");
                 return false;
             }
             _ = tokio::time::sleep(Duration::from_secs(2)), if !warned => {
-                warn!(%kind, "send pending >2s");
+                warn!("send pending >2s");
                 warned = true;
             }
         }
