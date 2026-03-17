@@ -49,14 +49,14 @@ where
             "completion task sending completions"
         );
 
-        if !send_with_stop(
+        let send_result = send_with_stop(
             &completion_tx,
             completions,
             shutdown_token.cancelled(),
             "completions",
         )
-        .await
-        {
+        .await;
+        if send_result.is_err() {
             break;
         }
 

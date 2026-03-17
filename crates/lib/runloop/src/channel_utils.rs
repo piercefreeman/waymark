@@ -17,25 +17,25 @@ pub async fn send_with_stop<T>(
     item: T,
     stop: tokio_util::sync::WaitForCancellationFuture<'_>,
     #[allow(unused_variables)] kind: &'static str, // used in tracing span
-) -> bool {
-    let send_fut = tx.send(item);
-    tokio::pin!(send_fut);
-
+) -> Result<(), SendWithStopError<T>> {
+    let mut send_fut = std::pin::pin!(tx.send(item));
     let mut stop = std::pin::pin!(stop);
 
     let mut warned = false;
     loop {
         tokio::select! {
             res = &mut send_fut => {
-                if res.is_err() {
-                    warn!("receiver dropped");
-                    return false;
+                return match res {
+                    Ok(val) => Ok(val),
+                    Err(err) => {
+                        warn!("receiver dropped");
+                        Err(SendWithStopError::Send(err))
+                    }
                 }
-                return true;
             }
             _ = &mut stop => {
                 info!("sender stop notified during send");
-                return false;
+                return Err(SendWithStopError::Stop);
             }
             _ = tokio::time::sleep(Duration::from_secs(2)), if !warned => {
                 warn!("send pending >2s");
@@ -45,9 +45,14 @@ pub async fn send_with_stop<T>(
     }
 }
 
+pub enum SendWithStopError<T> {
+    Send(tokio::sync::mpsc::error::SendError<T>),
+    Stop,
+}
+
 #[cfg(test)]
 mod tests {
-    use super::send_with_stop;
+    use super::*;
     use std::time::Duration;
 
     #[tokio::test]
@@ -68,7 +73,10 @@ mod tests {
             .await
             .expect("send task should complete")
             .expect("send task should not panic");
-        assert!(!sent, "send should abort when stop is notified");
+        assert!(
+            matches!(sent, Err(SendWithStopError::Stop)),
+            "send should abort when stop is notified"
+        );
 
         let _ = rx.recv().await;
     }
@@ -80,6 +88,9 @@ mod tests {
 
         let shutdown_token = tokio_util::sync::CancellationToken::new();
         let sent = send_with_stop(&tx, 99, shutdown_token.cancelled(), "test message").await;
-        assert!(!sent, "send should fail when receiver is dropped");
+        assert!(
+            matches!(sent, Err(SendWithStopError::Stop)),
+            "send should fail when receiver is dropped"
+        );
     }
 }

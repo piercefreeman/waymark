@@ -57,7 +57,7 @@ pub async fn handle(params: Params<'_>) -> Result<(), Error> {
         .collect();
     let batch_id = commit_barrier.register_batch(instance_ids.clone(), all_steps);
 
-    let sent = send_with_stop(
+    let send_result = send_with_stop(
         persist_tx,
         persist::Command {
             batch_id,
@@ -70,7 +70,8 @@ pub async fn handle(params: Params<'_>) -> Result<(), Error> {
         "persist command",
     )
     .await;
-    if !sent {
+
+    if send_result.is_err() {
         if let Some(batch) = commit_barrier.take_batch(batch_id) {
             for instance_id in batch.instance_ids {
                 commit_barrier.remove_instance(instance_id);
