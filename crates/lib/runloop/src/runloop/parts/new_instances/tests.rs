@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::mpsc as std_mpsc;
 
+use nonempty_collections::NEVec;
 use prost::Message;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
@@ -27,7 +28,6 @@ struct TestHarness {
     pub blocked_until_by_instance: HashMap<Uuid, chrono::DateTime<chrono::Utc>>,
     pub commit_barrier: CommitBarrier<shard::Step>,
     pub workflow_cache: HashMap<Uuid, Arc<waymark_dag::DAG>>,
-    pub instances_idle: bool,
     pub next_shard: usize,
 }
 
@@ -46,7 +46,6 @@ impl Default for TestHarness {
             blocked_until_by_instance: HashMap::new(),
             commit_barrier: CommitBarrier::new(),
             workflow_cache: HashMap::new(),
-            instances_idle: false,
             next_shard: 0,
         }
     }
@@ -55,7 +54,7 @@ impl Default for TestHarness {
 impl TestHarness {
     fn params<'a>(
         &'a mut self,
-        all_instances: Vec<QueuedInstance>,
+        all_instances: NEVec<QueuedInstance>,
     ) -> super::Params<'a, MemoryBackend> {
         super::Params {
             executor_shards: &mut self.executor_shards,
@@ -70,11 +69,9 @@ impl TestHarness {
             commit_barrier: &mut self.commit_barrier,
             workflow_cache: &mut self.workflow_cache,
             registry_backend: &self.backend,
-            instances_idle: &mut self.instances_idle,
             next_shard: &mut self.next_shard,
             shard_count: 2,
             all_instances,
-            saw_empty_instances: false,
         }
     }
 }
@@ -150,7 +147,7 @@ fn main(input: [x], output: [y]):
         .commit_barrier
         .register_batch(HashSet::from([instance_id, other_instance_id]), vec![]);
 
-    let result = super::handle(harness.params(vec![QueuedInstance {
+    let result = super::handle(harness.params(NEVec::new(QueuedInstance {
         workflow_version_id,
         schedule_id: None,
         dag: None,
@@ -159,7 +156,7 @@ fn main(input: [x], output: [y]):
         action_results: HashMap::new(),
         instance_id,
         scheduled_at: None,
-    }]))
+    })))
     .await;
 
     assert!(result.is_ok());

@@ -10,6 +10,7 @@ use std::thread;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
+use nonempty_collections::NEVec;
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -575,7 +576,10 @@ where
             }
 
             // Handle all instances.
-            {
+            if let Some(all_instances) = NEVec::try_from_vec(all_instances) {
+                // Record that we've been processing something this tick.
+                instances_idle = false;
+
                 let params = parts::new_instances::Params {
                     executor_shards: &mut executor_shards,
                     shard_senders: &mut shard_senders,
@@ -589,11 +593,9 @@ where
                     commit_barrier: &mut commit_barrier,
                     workflow_cache: &mut self.workflow_cache,
                     registry_backend: self.registry_backend.as_ref(),
-                    instances_idle: &mut instances_idle,
                     next_shard: &mut next_shard,
                     shard_count: self.shard_count,
                     all_instances,
-                    saw_empty_instances,
                 };
 
                 let result = parts::new_instances::handle(params).await;
@@ -615,6 +617,9 @@ where
                     };
                     break 'runloop Err(error);
                 }
+            } else if saw_empty_instances {
+                // Record that we've been idle this tick.
+                instances_idle = true;
             }
 
             // Handle failed instances.
