@@ -8,3 +8,6 @@ publish.workspace = true
 tokio = { workspace = true, features = ["time", "rt"] }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
