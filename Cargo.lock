@@ -4032,7 +4032,6 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
- "waymark-utils-futures",
 ]
 
 [[package]]

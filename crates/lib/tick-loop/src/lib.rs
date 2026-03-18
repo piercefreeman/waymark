@@ -36,16 +36,11 @@ where
 
     loop {
         let wait_fut = wait_if_needed();
-        let wait_fut = std::pin::pin!(wait_fut);
-        let wait_fut =
-            waymark_utils_futures::with_cancellation(wait_fut, cancellation_token.cancelled());
 
-        let wait_result = wait_fut.await;
-
-        if wait_result.is_err() || cancellation_token.is_cancelled() {
+        let Some(()) = cancellation_token.run_until_cancelled(wait_fut).await else {
             tracing::info!("tick loop cancelled");
             break;
-        }
+        };
 
         match tick_fn().await {
             std::ops::ControlFlow::Continue(()) => continue,
