@@ -3757,6 +3757,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-nonzero-duration"
+version = "0.1.0"
+
+[[package]]
 name = "waymark-observability"
 version = "0.1.0"
 dependencies = [
