@@ -2,6 +2,12 @@
 
 #![no_std]
 
+#[cfg(feature = "builder")]
+mod builder;
+
+#[cfg(feature = "builder")]
+pub use self::builder::{Builder, new};
+
 /// Tick loop params.
 pub struct Params<TickFn> {
     pub cancellation_token: tokio_util::sync::CancellationToken,
