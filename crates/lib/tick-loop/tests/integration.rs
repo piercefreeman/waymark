@@ -14,7 +14,7 @@ async fn exits_on_break() {
     let count2 = count.clone();
     run(Params {
         cancellation_token: CancellationToken::new(),
-        tick_interval: Duration::ZERO,
+        tick_interval: None,
         tick_fn: move || {
             let count = count2.clone();
             async move {
@@ -33,7 +33,7 @@ async fn tick_fn_called_multiple_times_before_break() {
     let count2 = count.clone();
     run(Params {
         cancellation_token: CancellationToken::new(),
-        tick_interval: Duration::ZERO,
+        tick_interval: None,
         tick_fn: move || {
             let count = count2.clone();
             async move {
@@ -59,7 +59,7 @@ async fn first_tick_runs_without_delay() {
         Duration::from_millis(100),
         run(Params {
             cancellation_token: CancellationToken::new(),
-            tick_interval: Duration::from_secs(3600),
+            tick_interval: Some(tokio::time::interval(Duration::from_secs(3600))),
             tick_fn: || async { ControlFlow::Break(()) },
         }),
     )
@@ -78,7 +78,7 @@ async fn tick_interval_delays_subsequent_ticks() {
 
     run(Params {
         cancellation_token: CancellationToken::new(),
-        tick_interval: interval,
+        tick_interval: Some(tokio::time::interval(interval)),
         tick_fn: move || {
             let count = count2.clone();
             async move {
@@ -111,7 +111,7 @@ async fn cancellation_stops_loop_during_interval_wait() {
     let loop_task = tokio::spawn(run(Params {
         cancellation_token: token.clone(),
         // Long interval so the loop would stall for 60 s without cancellation.
-        tick_interval: Duration::from_secs(60),
+        tick_interval: Some(tokio::time::interval(Duration::from_secs(60))),
         tick_fn: move || {
             let count = count2.clone();
             async move {

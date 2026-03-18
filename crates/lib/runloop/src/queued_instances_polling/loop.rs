@@ -81,10 +81,18 @@ where
         std::ops::ControlFlow::Continue(())
     };
 
+    let tick_interval = (!poll_interval.is_zero()).then(|| {
+        let mut tick_interval = tokio::time::interval(poll_interval);
+
+        tick_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+        tick_interval
+    });
+
     waymark_tick_loop::run(waymark_tick_loop::Params {
         cancellation_token: shutdown_token.clone(),
         tick_fn,
-        tick_interval: poll_interval,
+        tick_interval,
     })
     .await
 }
