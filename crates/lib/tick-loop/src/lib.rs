@@ -17,25 +17,28 @@ where
         mut tick_fn,
     } = params;
 
+    tracing::debug!("tick loop starting");
+
     let mut first_attempt = true;
-    let wait_if_needed = {
-        || async move {
-            let first_attempt = &mut first_attempt;
-            if !*first_attempt {
+
+    loop {
+        // On the first iteration skip the wait entirely; subsequent iterations
+        // respect the configured interval. Compute this BEFORE the async block
+        // so that `async move` captures the correct per-iteration boolean (a
+        // plain `bool` copy rather than a mutable borrow that would be aliased
+        // across futures).
+        let should_wait = !first_attempt;
+        first_attempt = false;
+
+        let wait_fut = async move {
+            if should_wait {
                 if tick_interval > std::time::Duration::ZERO {
                     tokio::time::sleep(tick_interval).await;
                 } else {
                     tokio::task::yield_now().await;
                 }
             }
-            *first_attempt = false;
-        }
-    };
-
-    tracing::debug!("tick loop starting");
-
-    loop {
-        let wait_fut = wait_if_needed();
+        };
 
         let Some(()) = cancellation_token.run_until_cancelled(wait_fut).await else {
             tracing::info!("tick loop cancelled");
