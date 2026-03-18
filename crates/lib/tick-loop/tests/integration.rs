@@ -1,4 +1,3 @@
-use std::ops::ControlFlow;
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
@@ -12,18 +11,19 @@ use waymark_tick_loop::{Params, run};
 async fn exits_on_break() {
     let count = Arc::new(AtomicUsize::new(0));
     let count2 = count.clone();
-    run(Params {
+    let result = run(Params {
         cancellation_token: CancellationToken::new(),
         tick_interval: None,
         tick_fn: move || {
             let count = count2.clone();
             async move {
                 count.fetch_add(1, Ordering::Relaxed);
-                ControlFlow::Break(())
+                Err(())
             }
         },
     })
     .await;
+    assert!(matches!(result, Err(waymark_tick_loop::Error::Tick(()))));
     assert_eq!(count.load(Ordering::Relaxed), 1);
 }
 
@@ -31,22 +31,19 @@ async fn exits_on_break() {
 async fn tick_fn_called_multiple_times_before_break() {
     let count = Arc::new(AtomicUsize::new(0));
     let count2 = count.clone();
-    run(Params {
+    let result = run(Params {
         cancellation_token: CancellationToken::new(),
         tick_interval: None,
         tick_fn: move || {
             let count = count2.clone();
             async move {
                 let prev = count.fetch_add(1, Ordering::Relaxed);
-                if prev < 4 {
-                    ControlFlow::Continue(())
-                } else {
-                    ControlFlow::Break(())
-                }
+                if prev < 4 { Ok(()) } else { Err(()) }
             }
         },
     })
     .await;
+    assert!(matches!(result, Err(waymark_tick_loop::Error::Tick(()))));
     assert_eq!(count.load(Ordering::Relaxed), 5);
 }
 
@@ -55,16 +52,17 @@ async fn tick_fn_called_multiple_times_before_break() {
 /// exceed the timeout and the test would fail.
 #[tokio::test]
 async fn first_tick_runs_without_delay() {
-    tokio::time::timeout(
+    let result = tokio::time::timeout(
         Duration::from_millis(100),
         run(Params {
             cancellation_token: CancellationToken::new(),
             tick_interval: Some(tokio::time::interval(Duration::from_secs(3600))),
-            tick_fn: || async { ControlFlow::Break(()) },
+            tick_fn: || async { Err(()) },
         }),
     )
     .await
     .expect("first tick should run immediately, not after tick_interval");
+    assert!(matches!(result, Err(waymark_tick_loop::Error::Tick(()))));
 }
 
 /// A non-zero tick_interval must delay subsequent ticks. We run exactly two
@@ -76,22 +74,19 @@ async fn tick_interval_delays_subsequent_ticks() {
     let count = Arc::new(AtomicUsize::new(0));
     let count2 = count.clone();
 
-    run(Params {
+    let result = run(Params {
         cancellation_token: CancellationToken::new(),
         tick_interval: Some(tokio::time::interval(interval)),
         tick_fn: move || {
             let count = count2.clone();
             async move {
                 let prev = count.fetch_add(1, Ordering::Relaxed);
-                if prev < 1 {
-                    ControlFlow::Continue(())
-                } else {
-                    ControlFlow::Break(())
-                }
+                if prev < 1 { Ok(()) } else { Err(()) }
             }
         },
     })
     .await;
+    assert!(matches!(result, Err(waymark_tick_loop::Error::Tick(()))));
 
     assert_eq!(count.load(Ordering::Relaxed), 2);
     assert!(
@@ -116,7 +111,7 @@ async fn cancellation_stops_loop_during_interval_wait() {
             let count = count2.clone();
             async move {
                 count.fetch_add(1, Ordering::Relaxed);
-                ControlFlow::Continue(())
+                Ok::<_, std::convert::Infallible>(())
             }
         },
     }));
@@ -125,10 +120,11 @@ async fn cancellation_stops_loop_during_interval_wait() {
     tokio::time::sleep(Duration::from_millis(10)).await;
     token.cancel();
 
-    tokio::time::timeout(Duration::from_millis(200), loop_task)
-        .await
-        .expect("loop should exit promptly after cancellation")
-        .expect("loop task");
+    let Err(waymark_tick_loop::Error::Cancelled) =
+        tokio::time::timeout(Duration::from_millis(200), loop_task)
+            .await
+            .expect("loop should exit promptly after cancellation")
+            .expect("loop task");
 
     assert_eq!(count.load(Ordering::Relaxed), 1);
 }

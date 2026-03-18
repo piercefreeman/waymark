@@ -44,7 +44,7 @@ where
     let tick_fn = || async move {
         let available_slots = available_instance_slots_tracker.get();
         let Some(batch_size) = std::num::NonZeroUsize::new(available_slots) else {
-            return std::ops::ControlFlow::Continue(());
+            return Ok(());
         };
 
         let lock_expires_at = Utc::now()
@@ -67,18 +67,13 @@ where
             Err(err) => super::Message::Error(err),
         };
 
-        let send_result = send_with_stop(
+        send_with_stop(
             queued_instance_tx,
             message,
             shutdown_token.cancelled(),
             "instance message",
         )
-        .await;
-        if send_result.is_err() {
-            return std::ops::ControlFlow::Break(());
-        }
-
-        std::ops::ControlFlow::Continue(())
+        .await
     };
 
     let tick_interval = (!poll_interval.is_zero()).then(|| {
@@ -89,10 +84,12 @@ where
         tick_interval
     });
 
-    waymark_tick_loop::run(waymark_tick_loop::Params {
+    let Err(error) = waymark_tick_loop::run(waymark_tick_loop::Params {
         cancellation_token: shutdown_token.clone(),
         tick_fn,
         tick_interval,
     })
-    .await
+    .await;
+
+    tracing::error!(?error, "queued instances loop terminated");
 }

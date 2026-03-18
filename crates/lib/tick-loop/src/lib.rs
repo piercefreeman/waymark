@@ -1,15 +1,31 @@
 //! Generic tick loop.
 
+#![no_std]
+
+/// Tick loop params.
 pub struct Params<TickFn> {
     pub cancellation_token: tokio_util::sync::CancellationToken,
     pub tick_interval: Option<tokio::time::Interval>,
     pub tick_fn: TickFn,
 }
 
-pub async fn run<TickFn, TickFut>(params: Params<TickFn>)
+/// An error that can originate from the tick loop.
+#[derive(Debug, thiserror::Error)]
+pub enum Error<TickError> {
+    #[error("tick loop cancelled")]
+    Cancelled,
+
+    #[error("tick failed: {0}")]
+    Tick(TickError),
+}
+
+pub async fn run<TickFn, TickFut, TickError>(
+    params: Params<TickFn>,
+) -> Result<core::convert::Infallible, Error<TickError>>
 where
     TickFn: FnMut() -> TickFut,
-    TickFut: Future<Output = std::ops::ControlFlow<()>>,
+    TickFut: Future<Output = Result<(), TickError>>,
+    TickError: core::fmt::Debug,
 {
     let Params {
         cancellation_token,
@@ -19,7 +35,7 @@ where
 
     tracing::debug!("tick loop starting");
 
-    loop {
+    let error = loop {
         let wait_fut = {
             let tick_interval = tick_interval.as_mut();
             async move {
@@ -31,14 +47,16 @@ where
 
         let Some(_) = cancellation_token.run_until_cancelled(wait_fut).await else {
             tracing::info!("tick loop cancelled");
-            break;
+            break Error::Cancelled;
         };
 
         match tick_fn().await {
-            std::ops::ControlFlow::Continue(()) => continue,
-            std::ops::ControlFlow::Break(outcome) => break outcome,
+            Ok(()) => continue,
+            Err(err) => break Error::Tick(err),
         }
-    }
+    };
 
-    tracing::debug!("tick loop exiting");
+    tracing::debug!(?error, "tick loop exiting");
+
+    Err(error)
 }
