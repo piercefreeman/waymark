@@ -51,6 +51,33 @@ pub enum Error<T> {
     Stop,
 }
 
+impl<T> core::fmt::Debug for Error<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ReceiverDropped(arg0) => f.debug_tuple("ReceiverDropped").field(arg0).finish(),
+            Self::Stop => write!(f, "Stop"),
+        }
+    }
+}
+
+impl<T> core::fmt::Display for Error<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ReceiverDropped(_) => write!(f, "receiver dropped"),
+            Self::Stop => write!(f, "stop"),
+        }
+    }
+}
+
+impl<T> core::error::Error for Error<T> {
+    fn cause(&self) -> Option<&dyn std::error::Error> {
+        match self {
+            Self::ReceiverDropped(val) => Some(val as _),
+            Self::Stop => None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
