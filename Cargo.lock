@@ -3830,6 +3830,7 @@ dependencies = [
  "waymark-proto",
  "waymark-runner",
  "waymark-runner-state",
+ "waymark-tick-loop",
  "waymark-utils-tokio-channel",
  "waymark-worker-core",
  "waymark-worker-inline",
