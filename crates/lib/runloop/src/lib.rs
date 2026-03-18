@@ -4,7 +4,6 @@ mod available_instance_slots;
 mod commit_barrier;
 mod runloop;
 
-mod channel_utils;
 mod error_value;
 
 mod completions_polling;
