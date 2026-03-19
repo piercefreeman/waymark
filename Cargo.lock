@@ -3608,7 +3608,6 @@ dependencies = [
 name = "waymark-core-backend"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "chrono",
  "nonempty-collections",
  "serde",

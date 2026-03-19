@@ -47,7 +47,6 @@ impl FaultInjectingBackend {
     }
 }
 
-#[async_trait::async_trait]
 impl CoreBackend for FaultInjectingBackend {
     async fn save_graphs(
         &self,

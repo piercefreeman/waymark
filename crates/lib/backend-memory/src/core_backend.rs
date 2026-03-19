@@ -6,7 +6,6 @@ use waymark_core_backend::{
     ActionDone, GraphUpdate, InstanceDone, InstanceLockStatus, LockClaim, QueuedInstance,
 };
 
-#[async_trait::async_trait]
 impl waymark_core_backend::CoreBackend for crate::MemoryBackend {
     async fn save_graphs(
         &self,
@@ -65,7 +64,7 @@ impl waymark_core_backend::CoreBackend for crate::MemoryBackend {
         let queue = self
             .instance_queue
             .as_ref()
-            .ok_or_else(|| PollQueuedInstancesError::NoQueue)?;
+            .ok_or(PollQueuedInstancesError::NoQueue)?;
 
         let mut queue = queue.lock().expect("instance queue poisoned");
 

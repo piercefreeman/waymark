@@ -901,7 +901,6 @@ impl PostgresBackend {
     }
 }
 
-#[async_trait::async_trait]
 impl waymark_core_backend::CoreBackend for PostgresBackend {
     async fn save_graphs(
         &self,
