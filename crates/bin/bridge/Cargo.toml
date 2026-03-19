@@ -22,6 +22,7 @@ waymark-worker-core = { workspace = true }
 waymark-workflow-registry-backend = { workspace = true }
 
 anyhow = { workspace = true }
+async-trait = { workspace = true }
 chrono = { workspace = true }
 futures-core = { workspace = true }
 nonempty-collections = { workspace = true }
