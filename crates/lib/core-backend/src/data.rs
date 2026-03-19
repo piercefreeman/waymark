@@ -35,12 +35,6 @@ pub struct QueuedInstance {
 }
 
 #[derive(Clone, Debug)]
-/// Result payload for queued instance polling.
-pub struct QueuedInstanceBatch {
-    pub instances: Vec<QueuedInstance>,
-}
-
-#[derive(Clone, Debug)]
 /// Lock claim settings for owned instances.
 pub struct LockClaim {
     pub lock_uuid: Uuid,

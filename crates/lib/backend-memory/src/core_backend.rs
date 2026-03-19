@@ -1,9 +1,9 @@
 use chrono::Utc;
+use nonempty_collections::NEVec;
 use uuid::Uuid;
 use waymark_backends_core::{BackendError, BackendResult};
 use waymark_core_backend::{
     ActionDone, GraphUpdate, InstanceDone, InstanceLockStatus, LockClaim, QueuedInstance,
-    QueuedInstanceBatch,
 };
 
 #[async_trait::async_trait]
@@ -55,49 +55,48 @@ impl waymark_core_backend::CoreBackend for crate::MemoryBackend {
         Ok(())
     }
 
-    async fn get_queued_instances(
+    type PollQueuedInstancesError = PollQueuedInstancesError;
+
+    async fn poll_queued_instances(
         &self,
-        size: usize,
+        size: std::num::NonZeroUsize,
         claim: LockClaim,
-    ) -> BackendResult<QueuedInstanceBatch> {
-        if size == 0 {
-            return Ok(QueuedInstanceBatch {
-                instances: Vec::new(),
-            });
-        }
-        let queue = match &self.instance_queue {
-            Some(queue) => queue,
-            None => {
-                return Ok(QueuedInstanceBatch {
-                    instances: Vec::new(),
-                });
-            }
-        };
-        let mut guard = queue.lock().expect("instance queue poisoned");
+    ) -> Result<NEVec<QueuedInstance>, Self::PollQueuedInstancesError> {
+        let queue = self
+            .instance_queue
+            .as_ref()
+            .ok_or_else(|| PollQueuedInstancesError::NoQueue)?;
+
+        let mut queue = queue.lock().expect("instance queue poisoned");
+
         let now = Utc::now();
-        let mut instances = Vec::new();
+
+        let mut take_ready_instance = || {
+            queue.pop_front_if(|instance| match instance.scheduled_at {
+                None => true,
+                Some(scheduled_at) => scheduled_at <= now,
+            })
+        };
+
+        let first_instance = take_ready_instance().ok_or(PollQueuedInstancesError::QueueEmpty)?;
+
+        let mut instances = NEVec::with_capacity(size, first_instance);
         while instances.len() < size {
-            let Some(instance) = guard.front() else {
+            let Some(instance) = take_ready_instance() else {
                 break;
             };
-            if let Some(scheduled_at) = instance.scheduled_at
-                && scheduled_at > now
-            {
-                break;
-            }
-            let instance = guard.pop_front().expect("instance queue empty");
             instances.push(instance);
         }
-        if !instances.is_empty() {
-            let mut locks = self.instance_locks.lock().expect("instance locks poisoned");
-            for instance in &instances {
-                locks.insert(
-                    instance.instance_id,
-                    (Some(claim.lock_uuid), Some(claim.lock_expires_at)),
-                );
-            }
+
+        let mut locks = self.instance_locks.lock().expect("instance locks poisoned");
+        for instance in &instances {
+            locks.insert(
+                instance.instance_id,
+                (Some(claim.lock_uuid), Some(claim.lock_expires_at)),
+            );
         }
-        Ok(QueuedInstanceBatch { instances })
+
+        Ok(instances)
     }
 
     async fn queue_instances(&self, instances: &[QueuedInstance]) -> BackendResult<()> {
@@ -151,5 +150,26 @@ impl waymark_core_backend::CoreBackend for crate::MemoryBackend {
             }
         }
         Ok(())
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum PollQueuedInstancesError {
+    #[error("backend is instantiated with no queue")]
+    NoQueue,
+
+    #[error("queue is empty")]
+    QueueEmpty,
+}
+
+impl waymark_core_backend::poll_queued_instances::Error for PollQueuedInstancesError {
+    fn kind(&self) -> waymark_core_backend::poll_queued_instances::ErrorKind {
+        // For the compatibility reasons, any error from the memory backend is
+        // treated as no instances; this may be revisited in the future.
+        match self {
+            PollQueuedInstancesError::NoQueue | PollQueuedInstancesError::QueueEmpty => {
+                waymark_core_backend::poll_queued_instances::ErrorKind::NoInstances
+            }
+        }
     }
 }

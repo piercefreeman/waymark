@@ -9,7 +9,6 @@ use uuid::Uuid;
 
 use waymark_backend_fault_injection::FaultInjectingBackend;
 use waymark_backend_memory::MemoryBackend;
-use waymark_backends_core::BackendError;
 use waymark_core_backend::{ActionAttemptStatus, CoreBackend, QueuedInstance};
 use waymark_dag_builder::convert_to_dag;
 use waymark_ir_parser::parse_program;
@@ -754,10 +753,18 @@ async fn test_runloop_reproduces_no_progress_with_continued_queue_growth() {
         .expect("runloop task should stop before timeout")
         .expect("runloop task should not panic");
 
-    let Err(RunLoopError::Backend(BackendError::Message(msg))) = result else {
-        panic!("expected an Err(Backend(Message(...))) result, got {result:?}");
+    let Err(error) = result else {
+        panic!("expected an Err result, got {result:?}");
     };
-    assert_eq!(msg, "depth limit exceeded");
+    assert!(
+        matches!(
+            error,
+            RunLoopError::CoreBackendPoll(
+                waymark_backend_fault_injection::PollQueuedInstancesError::DepthLimitExceeded,
+            )
+        ),
+        "expected depth limit exceeded error"
+    );
 
     assert!(
         backend.get_queued_instances_calls() >= 1,

@@ -17,8 +17,10 @@ waymark-workflow-registry-backend = { workspace = true }
 
 async-trait = { workspace = true }
 chrono = { workspace = true }
+nonempty-collections = { workspace = true }
 rmp-serde = { workspace = true }
 serde_json = { workspace = true }
+thiserror = { workspace = true }
 uuid = { workspace = true }
 
 [features]

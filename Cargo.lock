@@ -3422,6 +3422,8 @@ name = "waymark-backend-fault-injection"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "nonempty-collections",
+ "thiserror",
  "uuid",
  "waymark-backend-memory",
  "waymark-backends-core",
@@ -3435,8 +3437,10 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "nonempty-collections",
  "rmp-serde",
  "serde_json",
+ "thiserror",
  "uuid",
  "waymark-backends-core",
  "waymark-core-backend",
@@ -3455,12 +3459,14 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "nonempty-collections",
  "prost 0.12.6",
  "rmp-serde",
  "serde",
  "serde_json",
  "serial_test",
  "sqlx",
+ "thiserror",
  "tokio",
  "tracing",
  "uuid",
@@ -3555,6 +3561,7 @@ dependencies = [
  "rmp-serde",
  "serde_json",
  "sqlx",
+ "thiserror",
  "tokio",
  "tokio-stream",
  "tonic 0.11.0",
@@ -3595,6 +3602,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "nonempty-collections",
  "serde",
  "serde_json",
  "uuid",

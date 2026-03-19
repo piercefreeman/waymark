@@ -1,12 +1,22 @@
 //! Core backend traits for waymark.
 
 mod data;
+pub mod poll_queued_instances;
 
+use nonempty_collections::NEVec;
 use uuid::Uuid;
 
 use waymark_backends_core::BackendResult;
 
 pub use self::data::*;
+
+pub mod prelude {
+    //! Prelude makes the traits known to the compiler without polluting
+    //! the named items space.
+
+    pub use crate::CoreBackend as _;
+    pub use crate::poll_queued_instances::Error as _;
+}
 
 /// Abstract persistence backend for runner state.
 #[async_trait::async_trait]
@@ -21,12 +31,15 @@ pub trait CoreBackend: Send + Sync {
     /// Persist finished action attempts (success or failure).
     async fn save_actions_done(&self, actions: &[ActionDone]) -> BackendResult<()>;
 
+    /// An error that can occur while polling the queued instances.
+    type PollQueuedInstancesError: poll_queued_instances::Error;
+
     /// Return up to size queued instances without blocking.
-    async fn get_queued_instances(
+    async fn poll_queued_instances(
         &self,
-        size: usize,
+        size: std::num::NonZeroUsize,
         claim: LockClaim,
-    ) -> BackendResult<QueuedInstanceBatch>;
+    ) -> Result<NEVec<QueuedInstance>, Self::PollQueuedInstancesError>;
 
     /// Refresh lock expiry for owned instances.
     async fn refresh_instance_locks(

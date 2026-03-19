@@ -287,12 +287,16 @@ fn main(input: [number], output: [result]):
             lock_uuid: Uuid::new_v4(),
             lock_expires_at: Utc::now() + ChronoDuration::seconds(30),
         };
-        let batch = CoreBackend::get_queued_instances(&backend, 1, claim)
-            .await
-            .expect("claim queued");
-        assert_eq!(batch.instances.len(), 1);
+        let instances = CoreBackend::poll_queued_instances(
+            &backend,
+            std::num::NonZeroUsize::new(1).unwrap(),
+            claim,
+        )
+        .await
+        .expect("claim queued");
+        assert_eq!(instances.len().get(), 1);
 
-        let queued = &batch.instances[0];
+        let queued = &instances[0];
         assert_eq!(queued.schedule_id, Some(schedule.id));
         let state = queued.state.clone().expect("queued state");
         let mut executor = RunnerExecutor::without_updates_collection(

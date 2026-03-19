@@ -3,11 +3,12 @@ use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering as AtomicOrdering},
 };
 
+use nonempty_collections::NEVec;
 use uuid::Uuid;
 use waymark_backend_memory::MemoryBackend;
-use waymark_backends_core::{BackendError, BackendResult};
+use waymark_backends_core::BackendResult;
 use waymark_core_backend::{
-    CoreBackend, GraphUpdate, InstanceDone, InstanceLockStatus, LockClaim, QueuedInstanceBatch,
+    CoreBackend, GraphUpdate, InstanceDone, InstanceLockStatus, LockClaim, QueuedInstance,
 };
 use waymark_workflow_registry_backend::{
     WorkflowRegistration, WorkflowRegistryBackend, WorkflowVersion,
@@ -67,20 +68,25 @@ impl CoreBackend for FaultInjectingBackend {
         self.inner.save_instances_done(instances).await
     }
 
-    async fn get_queued_instances(
+    type PollQueuedInstancesError = PollQueuedInstancesError;
+
+    async fn poll_queued_instances(
         &self,
-        size: usize,
+        size: std::num::NonZeroUsize,
         claim: LockClaim,
-    ) -> BackendResult<QueuedInstanceBatch> {
+    ) -> Result<NEVec<QueuedInstance>, Self::PollQueuedInstancesError> {
         self.get_queued_instances_calls
             .fetch_add(1, AtomicOrdering::SeqCst);
         if self
             .fail_get_queued_instances_with_depth_limit
             .load(AtomicOrdering::SeqCst)
         {
-            return Err(BackendError::Message("depth limit exceeded".to_string()));
+            return Err(PollQueuedInstancesError::DepthLimitExceeded);
         }
-        self.inner.get_queued_instances(size, claim).await
+        self.inner
+            .poll_queued_instances(size, claim)
+            .await
+            .map_err(PollQueuedInstancesError::Memory)
     }
 
     async fn queue_instances(
@@ -120,5 +126,25 @@ impl WorkflowRegistryBackend for FaultInjectingBackend {
 
     async fn get_workflow_versions(&self, ids: &[Uuid]) -> BackendResult<Vec<WorkflowVersion>> {
         self.inner.get_workflow_versions(ids).await
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum PollQueuedInstancesError {
+    #[error("depth limit exceeded")]
+    DepthLimitExceeded,
+
+    #[error("memory backend: {0}")]
+    Memory(<MemoryBackend as waymark_core_backend::CoreBackend>::PollQueuedInstancesError),
+}
+
+impl waymark_core_backend::poll_queued_instances::Error for PollQueuedInstancesError {
+    fn kind(&self) -> waymark_core_backend::poll_queued_instances::ErrorKind {
+        match self {
+            PollQueuedInstancesError::DepthLimitExceeded => {
+                waymark_core_backend::poll_queued_instances::ErrorKind::Internal
+            }
+            PollQueuedInstancesError::Memory(inner) => inner.kind(),
+        }
     }
 }
