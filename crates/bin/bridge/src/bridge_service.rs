@@ -12,6 +12,7 @@ use tonic::{Request, Response, Status};
 use tracing::debug;
 use uuid::Uuid;
 
+use waymark_backend_memory::MemoryBackend;
 use waymark_core_backend::QueuedInstance;
 use waymark_dag_builder::convert_to_dag;
 use waymark_ir_conversions::literal_from_json_value;
@@ -23,8 +24,8 @@ use waymark_scheduler_core::{CreateScheduleParams, ScheduleId, ScheduleStatus, S
 use waymark_worker_core::ActionCompletion;
 use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBackend as _};
 
+use crate::StreamWorkerPool;
 use crate::WorkflowStore;
-use crate::{InMemoryBackend, StreamWorkerPool};
 
 pub struct BridgeService {
     pub store: Option<Arc<WorkflowStore>>,
@@ -215,8 +216,7 @@ impl proto::workflow_service_server::WorkflowService for BridgeService {
         );
 
         let queue = Arc::new(Mutex::new(VecDeque::new()));
-        let results = Arc::new(Mutex::new(HashMap::new()));
-        let backend = InMemoryBackend::new(Arc::clone(&queue), Arc::clone(&results));
+        let backend = MemoryBackend::with_queue(Arc::clone(&queue));
 
         let workflow_version = if registration.workflow_version.is_empty() {
             registration.ir_hash.clone()
@@ -254,7 +254,7 @@ impl proto::workflow_service_server::WorkflowService for BridgeService {
         let inflight = worker_pool.inflight();
 
         let response_tx_for_run = response_tx.clone();
-        let results_for_run = Arc::clone(&results);
+        let backend_for_run = backend.clone();
         tokio::task::spawn_blocking(move || {
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -298,10 +298,11 @@ impl proto::workflow_service_server::WorkflowService for BridgeService {
 
                 let payload = match run_result {
                     Ok(_) => {
-                        let done = results_for_run
-                            .lock()
-                            .ok()
-                            .and_then(|map| map.get(&instance_id).cloned());
+                        let done = backend_for_run
+                            .instances_done()
+                            .into_iter()
+                            .rev()
+                            .find(|instance| instance.executor_id == instance_id);
                         if let Some(done) = done {
                             crate::utils::build_workflow_arguments(done.result, done.error)
                         } else {

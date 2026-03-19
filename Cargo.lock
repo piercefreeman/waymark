@@ -3563,8 +3563,6 @@ name = "waymark-bridge"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "async-trait",
- "chrono",
  "envfury",
  "futures-core",
  "nonempty-collections",
@@ -3572,7 +3570,6 @@ dependencies = [
  "rmp-serde",
  "serde_json",
  "sqlx",
- "thiserror",
  "tokio",
  "tokio-stream",
  "tonic 0.11.0",
@@ -3580,9 +3577,9 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+ "waymark-backend-memory",
  "waymark-backend-postgres",
  "waymark-backend-postgres-migrations",
- "waymark-backends-core",
  "waymark-core-backend",
  "waymark-dag",
  "waymark-dag-builder",
