@@ -64,6 +64,7 @@ chrono = { version = "0.4", default-features = false }
 clap = "4.5"
 console-subscriber = "0.5"
 cron = "0.12"
+envfury = "0.2"
 futures-core = "0.3"
 futures-util = "0.3"
 http-body-util = "0.1"
