@@ -653,6 +653,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "envfury"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5d8ddcfead07f5b4acff7a73b51a6c991f2ffe7dab0f6cfd5f3a4a4998e14c2d"
+dependencies = [
+ "thiserror",
+]
+
+[[package]]
 name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3556,6 +3565,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
+ "envfury",
  "futures-core",
  "nonempty-collections",
  "prost 0.12.6",

@@ -20,8 +20,6 @@ use self::in_memory_backend::*;
 use self::stream_worker_pool::*;
 use self::workflow_store::*;
 
-use std::env;
-use std::net::SocketAddr;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -32,21 +30,16 @@ use waymark_proto::messages as proto;
 
 const DEFAULT_GRPC_ADDR: &str = "127.0.0.1:24117";
 
-fn grpc_addr_from_env() -> SocketAddr {
-    env::var("WAYMARK_BRIDGE_GRPC_ADDR")
-        .unwrap_or_else(|_| DEFAULT_GRPC_ADDR.to_string())
-        .parse()
-        .expect("invalid WAYMARK_BRIDGE_GRPC_ADDR")
-}
+struct PermissiveBool(pub bool);
 
-fn in_memory_mode() -> bool {
-    env::var("WAYMARK_BRIDGE_IN_MEMORY")
-        .ok()
-        .map(|value| {
-            let lowered = value.trim().to_ascii_lowercase();
-            !lowered.is_empty() && lowered != "0" && lowered != "false" && lowered != "no"
-        })
-        .unwrap_or(false)
+impl core::str::FromStr for PermissiveBool {
+    type Err = core::convert::Infallible;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        let lowered = s.trim().to_ascii_lowercase();
+        let val = !lowered.is_empty() && lowered != "0" && lowered != "false" && lowered != "no";
+        Ok(Self(val))
+    }
 }
 
 #[tokio::main]
@@ -59,14 +52,15 @@ async fn main() -> Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let grpc_addr = grpc_addr_from_env();
-    let in_memory = in_memory_mode();
+    let grpc_addr = envfury::or_parse("WAYMARK_BRIDGE_GRPC_ADDR", DEFAULT_GRPC_ADDR)?;
+    let PermissiveBool(in_memory) = envfury::or_parse("WAYMARK_BRIDGE_IN_MEMORY", "false")?;
 
     let store = if in_memory {
         None
     } else {
-        let dsn = env::var("WAYMARK_DATABASE_URL").context("WAYMARK_DATABASE_URL must be set")?;
-        Some(Arc::new(WorkflowStore::connect(&dsn).await?))
+        let dsn: String = envfury::must("WAYMARK_DATABASE_URL")?;
+        let workflow_store = WorkflowStore::connect(&dsn).await?;
+        Some(Arc::new(workflow_store))
     };
 
     let (mut health_reporter, health_service) = tonic_health::server::health_reporter();
