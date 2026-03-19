@@ -13,7 +13,7 @@ use tracing::debug;
 use uuid::Uuid;
 
 use waymark_backend_memory::MemoryBackend;
-use waymark_core_backend::QueuedInstance;
+use waymark_core_backend::{InstanceDone, QueuedInstance};
 use waymark_dag_builder::convert_to_dag;
 use waymark_ir_conversions::literal_from_json_value;
 use waymark_proto::{ast as ir, messages as proto};
@@ -26,6 +26,9 @@ use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBa
 
 use crate::StreamWorkerPool;
 use crate::WorkflowStore;
+
+#[cfg(test)]
+mod tests;
 
 pub struct BridgeService {
     pub store: Option<Arc<WorkflowStore>>,
@@ -298,11 +301,7 @@ impl proto::workflow_service_server::WorkflowService for BridgeService {
 
                 let payload = match run_result {
                     Ok(_) => {
-                        let done = backend_for_run
-                            .instances_done()
-                            .into_iter()
-                            .rev()
-                            .find(|instance| instance.executor_id == instance_id);
+                        let done = find_latest_instance_done(&backend_for_run, instance_id);
                         if let Some(done) = done {
                             crate::utils::build_workflow_arguments(done.result, done.error)
                         } else {
@@ -575,6 +574,14 @@ fn error_value(kind: &str, message: &str) -> serde_json::Value {
         serde_json::Value::String(message.to_string()),
     );
     serde_json::Value::Object(map)
+}
+
+fn find_latest_instance_done(backend: &MemoryBackend, instance_id: Uuid) -> Option<InstanceDone> {
+    backend
+        .instances_done()
+        .into_iter()
+        .rev()
+        .find(|instance| instance.executor_id == instance_id)
 }
 
 fn build_queued_instance(
