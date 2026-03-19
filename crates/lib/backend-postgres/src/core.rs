@@ -1057,7 +1057,6 @@ impl GarbageCollectorBackend for PostgresBackend {
     }
 }
 
-#[async_trait::async_trait]
 impl WorkerStatusBackend for PostgresBackend {
     async fn upsert_worker_status(&self, status: &WorkerStatusUpdate) -> BackendResult<()> {
         PostgresBackend::upsert_worker_status(self, status).await

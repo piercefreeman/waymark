@@ -4171,7 +4171,6 @@ dependencies = [
 name = "waymark-worker-status-backend"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "chrono",
  "uuid",
  "waymark-backends-core",

@@ -26,7 +26,9 @@ pub struct WorkerStatusUpdate {
 }
 
 /// Backend capability for recording worker status metrics.
-#[async_trait::async_trait]
-pub trait WorkerStatusBackend: Send + Sync {
-    async fn upsert_worker_status(&self, status: &WorkerStatusUpdate) -> BackendResult<()>;
+pub trait WorkerStatusBackend {
+    fn upsert_worker_status<'a>(
+        &'a self,
+        status: &'a WorkerStatusUpdate,
+    ) -> impl Future<Output = BackendResult<()>> + Send + 'a;
 }
