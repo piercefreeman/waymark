@@ -8,7 +8,6 @@ edition = "2024"
 waymark-backends-core = { workspace = true }
 waymark-scheduler-core = { workspace = true }
 
-async-trait = { workspace = true }
 uuid = { workspace = true }
 
 [lib]

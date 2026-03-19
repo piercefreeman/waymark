@@ -3886,7 +3886,6 @@ dependencies = [
 name = "waymark-scheduler-backend"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "uuid",
  "waymark-backends-core",
  "waymark-scheduler-core",

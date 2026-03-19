@@ -4,26 +4,60 @@ pub use waymark_backends_core::{BackendError, BackendResult};
 use waymark_scheduler_core::{CreateScheduleParams, ScheduleId, WorkflowSchedule};
 
 /// Backend capability for workflow schedule persistence.
-#[async_trait::async_trait]
-pub trait SchedulerBackend: Send + Sync {
-    async fn upsert_schedule(&self, params: &CreateScheduleParams) -> BackendResult<ScheduleId>;
-    async fn get_schedule(&self, id: ScheduleId) -> BackendResult<WorkflowSchedule>;
-    async fn get_schedule_by_name(
+pub trait SchedulerBackend {
+    fn upsert_schedule<'a>(
+        &'a self,
+        params: &'a CreateScheduleParams,
+    ) -> impl Future<Output = BackendResult<ScheduleId>> + Send + 'a;
+
+    fn get_schedule(
         &self,
-        workflow_name: &str,
-        schedule_name: &str,
-    ) -> BackendResult<Option<WorkflowSchedule>>;
-    async fn list_schedules(&self, limit: i64, offset: i64)
-    -> BackendResult<Vec<WorkflowSchedule>>;
-    async fn count_schedules(&self) -> BackendResult<i64>;
-    async fn update_schedule_status(&self, id: ScheduleId, status: &str) -> BackendResult<bool>;
-    async fn delete_schedule(&self, id: ScheduleId) -> BackendResult<bool>;
-    async fn find_due_schedules(&self, limit: i32) -> BackendResult<Vec<WorkflowSchedule>>;
-    async fn has_running_instance(&self, schedule_id: ScheduleId) -> BackendResult<bool>;
-    async fn mark_schedule_executed(
+        id: ScheduleId,
+    ) -> impl Future<Output = BackendResult<WorkflowSchedule>> + Send + '_;
+
+    fn get_schedule_by_name<'a>(
+        &'a self,
+        workflow_name: &'a str,
+        schedule_name: &'a str,
+    ) -> impl Future<Output = BackendResult<Option<WorkflowSchedule>>> + Send + 'a;
+
+    fn list_schedules(
+        &self,
+        limit: i64,
+        offset: i64,
+    ) -> impl Future<Output = BackendResult<Vec<WorkflowSchedule>>> + Send + '_;
+
+    fn count_schedules(&self) -> impl Future<Output = BackendResult<i64>> + Send + '_;
+
+    fn update_schedule_status<'a>(
+        &'a self,
+        id: ScheduleId,
+        status: &'a str,
+    ) -> impl Future<Output = BackendResult<bool>> + Send + 'a;
+
+    fn delete_schedule(
+        &self,
+        id: ScheduleId,
+    ) -> impl Future<Output = BackendResult<bool>> + Send + '_;
+
+    fn find_due_schedules(
+        &self,
+        limit: i32,
+    ) -> impl Future<Output = BackendResult<Vec<WorkflowSchedule>>> + Send + '_;
+
+    fn has_running_instance(
+        &self,
+        schedule_id: ScheduleId,
+    ) -> impl Future<Output = BackendResult<bool>> + Send + '_;
+
+    fn mark_schedule_executed(
         &self,
         schedule_id: ScheduleId,
         instance_id: Uuid,
-    ) -> BackendResult<()>;
-    async fn skip_schedule_run(&self, schedule_id: ScheduleId) -> BackendResult<()>;
+    ) -> impl Future<Output = BackendResult<()>> + Send + '_;
+
+    fn skip_schedule_run(
+        &self,
+        schedule_id: ScheduleId,
+    ) -> impl Future<Output = BackendResult<()>> + Send + '_;
 }
