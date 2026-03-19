@@ -3687,7 +3687,6 @@ dependencies = [
 name = "waymark-garbage-collector-backend"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "chrono",
  "waymark-backends-core",
 ]
@@ -3700,7 +3699,6 @@ version = "0.1.0"
 name = "waymark-garbage-collector-loop"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "chrono",
  "tokio",
  "tokio-util",

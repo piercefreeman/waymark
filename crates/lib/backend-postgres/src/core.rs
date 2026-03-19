@@ -1047,7 +1047,6 @@ impl PostgresBackend {
     }
 }
 
-#[async_trait::async_trait]
 impl GarbageCollectorBackend for PostgresBackend {
     async fn collect_done_instances(
         &self,

@@ -8,7 +8,6 @@ publish.workspace = true
 waymark-garbage-collector-backend = { workspace = true }
 waymark-garbage-collector-config = { workspace = true }
 
-async-trait = { workspace = true }
 chrono = { workspace = true, default-features = false, features = ["clock"] }
 tokio = { workspace = true, features = ["macros", "time"] }
 tokio-util = { workspace = true }
