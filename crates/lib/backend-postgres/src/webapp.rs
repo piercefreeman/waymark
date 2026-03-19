@@ -266,7 +266,6 @@ fn parse_instance_status(status: &str) -> Option<InstanceStatus> {
     }
 }
 
-#[async_trait::async_trait]
 impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
     async fn count_instances(&self, search: Option<&str>) -> BackendResult<i64> {
         let mut builder: QueryBuilder<Postgres> = QueryBuilder::new(

@@ -22,7 +22,6 @@ waymark-webapp-core = { workspace = true }
 waymark-worker-status-backend = { workspace = true }
 waymark-workflow-registry-backend = { workspace = true }
 
-async-trait = { workspace = true }
 chrono = { workspace = true }
 nonempty-collections = { workspace = true }
 prost = { workspace = true }
