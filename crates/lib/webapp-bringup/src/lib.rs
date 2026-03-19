@@ -4,17 +4,21 @@ use std::sync::Arc;
 
 use anyhow::Context as _;
 use tokio::net::TcpListener;
-use waymark_webapp_backend::WebappBackend;
 use waymark_webapp_config::WebappConfig;
 
 /// Start the webapp server.
 ///
 /// Returns None if the webapp is disabled via configuration.
-pub async fn start(
+pub async fn start<WebappBackend>(
     config: WebappConfig,
-    database: Arc<dyn WebappBackend>,
+    database: Arc<WebappBackend>,
     shutdown_signal: tokio_util::sync::WaitForCancellationFutureOwned,
-) -> Result<Option<tokio::task::JoinHandle<()>>, anyhow::Error> {
+) -> Result<Option<tokio::task::JoinHandle<()>>, anyhow::Error>
+where
+    WebappBackend: ?Sized,
+    WebappBackend: waymark_webapp_backend::WebappBackend,
+    WebappBackend: Send + Sync + 'static,
+{
     if !config.enabled {
         // TODO: ideally we'd want to avoid this kind of abstraction leak, i.e.
         // `WAYMARK_WEBAPP_ENABLED` is an implementation detail of the config,
