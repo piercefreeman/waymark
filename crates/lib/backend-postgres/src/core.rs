@@ -901,7 +901,6 @@ impl PostgresBackend {
     }
 }
 
-#[async_trait::async_trait]
 impl waymark_core_backend::CoreBackend for PostgresBackend {
     async fn save_graphs(
         &self,
@@ -1048,7 +1047,6 @@ impl PostgresBackend {
     }
 }
 
-#[async_trait::async_trait]
 impl GarbageCollectorBackend for PostgresBackend {
     async fn collect_done_instances(
         &self,
@@ -1059,7 +1057,6 @@ impl GarbageCollectorBackend for PostgresBackend {
     }
 }
 
-#[async_trait::async_trait]
 impl WorkerStatusBackend for PostgresBackend {
     async fn upsert_worker_status(&self, status: &WorkerStatusUpdate) -> BackendResult<()> {
         PostgresBackend::upsert_worker_status(self, status).await

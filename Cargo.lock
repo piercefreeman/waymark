@@ -3430,7 +3430,6 @@ dependencies = [
 name = "waymark-backend-fault-injection"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "nonempty-collections",
  "thiserror",
  "uuid",
@@ -3444,7 +3443,6 @@ dependencies = [
 name = "waymark-backend-memory"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "chrono",
  "nonempty-collections",
  "rmp-serde",
@@ -3466,7 +3464,6 @@ dependencies = [
 name = "waymark-backend-postgres"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "chrono",
  "nonempty-collections",
  "prost 0.12.6",
@@ -3608,7 +3605,6 @@ dependencies = [
 name = "waymark-core-backend"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "chrono",
  "nonempty-collections",
  "serde",
@@ -3688,7 +3684,6 @@ dependencies = [
 name = "waymark-garbage-collector-backend"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "chrono",
  "waymark-backends-core",
 ]
@@ -3701,7 +3696,6 @@ version = "0.1.0"
 name = "waymark-garbage-collector-loop"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "chrono",
  "tokio",
  "tokio-util",
@@ -3890,7 +3884,6 @@ dependencies = [
 name = "waymark-scheduler-backend"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "uuid",
  "waymark-backends-core",
  "waymark-scheduler-core",
@@ -4073,7 +4066,6 @@ dependencies = [
 name = "waymark-webapp-backend"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "uuid",
  "waymark-backends-core",
  "waymark-webapp-core",
@@ -4186,7 +4178,6 @@ dependencies = [
 name = "waymark-worker-status-backend"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "chrono",
  "uuid",
  "waymark-backends-core",
@@ -4217,7 +4208,6 @@ dependencies = [
 name = "waymark-workflow-registry-backend"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "uuid",
  "waymark-backends-core",
 ]

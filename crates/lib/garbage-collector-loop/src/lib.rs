@@ -96,7 +96,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
-    use async_trait::async_trait;
     use chrono::{Duration as ChronoDuration, Utc};
     use waymark_backends_core::BackendResult;
     use waymark_garbage_collector_config::GarbageCollectorConfig;
@@ -111,7 +110,6 @@ mod tests {
         observed_cutoffs: Arc<Mutex<Vec<chrono::DateTime<Utc>>>>,
     }
 
-    #[async_trait]
     impl GarbageCollectorBackend for StubGarbageCollectorBackend {
         async fn collect_done_instances(
             &self,

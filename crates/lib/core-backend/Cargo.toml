@@ -9,7 +9,6 @@ waymark-backends-core = { workspace = true }
 waymark-dag = { workspace = true }
 waymark-runner-state = { workspace = true }
 
-async-trait = { workspace = true }
 chrono = { workspace = true }
 nonempty-collections = { workspace = true }
 serde = { workspace = true, features = ["derive"] }

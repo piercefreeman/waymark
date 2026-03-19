@@ -7,7 +7,6 @@ use waymark_scheduler_backend::SchedulerBackend;
 use waymark_scheduler_core::compute_next_run;
 use waymark_scheduler_core::{CreateScheduleParams, ScheduleId, ScheduleType, WorkflowSchedule};
 
-#[async_trait::async_trait]
 impl SchedulerBackend for crate::PostgresBackend {
     async fn upsert_schedule(&self, params: &CreateScheduleParams) -> BackendResult<ScheduleId> {
         let next_run_at = compute_next_run(
