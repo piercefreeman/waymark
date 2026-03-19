@@ -48,6 +48,7 @@ impl WorkerPoolError {
 }
 
 /// Abstract worker pool with queue and batch completion polling.
+#[deprecated]
 pub trait BaseWorkerPool: Send + Sync {
     /// Start any background tasks required by the pool.
     ///
