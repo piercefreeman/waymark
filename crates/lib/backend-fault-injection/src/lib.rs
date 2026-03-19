@@ -114,7 +114,6 @@ impl CoreBackend for FaultInjectingBackend {
     }
 }
 
-#[async_trait::async_trait]
 impl WorkflowRegistryBackend for FaultInjectingBackend {
     async fn upsert_workflow_version(
         &self,
