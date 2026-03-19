@@ -645,10 +645,7 @@ impl PostgresBackend {
         &self,
         size: NonZeroUsize,
         claim: LockClaim,
-    ) -> Result<
-        NEVec<QueuedInstance>,
-        waymark_core_backend::PollQueuedInstancesError<PollQueuedInstancesError>,
-    > {
+    ) -> Result<NEVec<QueuedInstance>, PollQueuedInstancesError> {
         retry_transient_with(
             "poll_queued_instances_impl",
             || {
@@ -656,14 +653,12 @@ impl PostgresBackend {
                 async move { self.poll_queued_instances_once(size, claim).await }
             },
             |err| match err {
-                waymark_core_backend::PollQueuedInstancesError::NoInstances(err)
-                | waymark_core_backend::PollQueuedInstancesError::Internal(err) => {
-                    // TODO: check if we are ignoring backend messages here legitimately
-                    match err {
-                        PollQueuedInstancesError::Sqlx(err) => is_transient_sqlx_error(err),
-                        _ => false,
-                    }
-                }
+                PollQueuedInstancesError::Sqlx(err) => is_transient_sqlx_error(err),
+                PollQueuedInstancesError::InvalidSize { .. }
+                | PollQueuedInstancesError::EmptyRows
+                | PollQueuedInstancesError::QueuedInstanceDecode { .. }
+                | PollQueuedInstancesError::GraphUpdateDecode { .. }
+                | PollQueuedInstancesError::ActionResultDecode { .. } => false,
             },
         )
         .await
@@ -673,25 +668,19 @@ impl PostgresBackend {
         &self,
         size: NonZeroUsize,
         claim: LockClaim,
-    ) -> Result<
-        NEVec<QueuedInstance>,
-        waymark_core_backend::PollQueuedInstancesError<PollQueuedInstancesError>,
-    > {
-        let sqlx_as_internal = |err| {
-            waymark_core_backend::PollQueuedInstancesError::Internal(
-                PollQueuedInstancesError::Sqlx(err),
-            )
-        };
-
+    ) -> Result<NEVec<QueuedInstance>, PollQueuedInstancesError> {
         let now = Utc::now();
-        let mut tx = self.pool.begin().await.map_err(sqlx_as_internal)?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(PollQueuedInstancesError::Sqlx)?;
         Self::count_query(&self.query_counts, "select:queued_instances");
 
         let size: i64 = size
             .get()
             .try_into()
-            .map_err(PollQueuedInstancesError::InvalidSize)
-            .map_err(waymark_core_backend::PollQueuedInstancesError::Internal)?;
+            .map_err(PollQueuedInstancesError::InvalidSize)?;
 
         let rows = sqlx::query(
             r#"
@@ -723,13 +712,11 @@ impl PostgresBackend {
         .bind(claim.lock_expires_at)
         .fetch_all(&mut *tx)
         .await
-        .map_err(sqlx_as_internal)?;
+        .map_err(PollQueuedInstancesError::Sqlx)?;
 
         let Some(rows) = NEVec::try_from_vec(rows) else {
-            tx.commit().await.map_err(sqlx_as_internal)?;
-            return Err(waymark_core_backend::PollQueuedInstancesError::NoInstances(
-                PollQueuedInstancesError::EmptyRows,
-            ));
+            tx.commit().await.map_err(PollQueuedInstancesError::Sqlx)?;
+            return Err(PollQueuedInstancesError::EmptyRows);
         };
 
         let claimed_instance_ids: Vec<Uuid> =
@@ -739,14 +726,14 @@ impl PostgresBackend {
             .bind(INSTANCE_STATUS_RUNNING)
             .execute(&mut *tx)
             .await
-            .map_err(sqlx_as_internal)?;
+            .map_err(PollQueuedInstancesError::Sqlx)?;
 
         Self::count_batch_size(
             &self.batch_size_counts,
             "select:queued_instances",
             rows.len().get(),
         );
-        tx.commit().await.map_err(sqlx_as_internal)?;
+        tx.commit().await.map_err(PollQueuedInstancesError::Sqlx)?;
 
         let mut action_node_ids_by_instance: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
         let mut all_action_node_ids: Vec<Uuid> = Vec::new();
@@ -759,8 +746,7 @@ impl PostgresBackend {
                 let state_payload: Option<Vec<u8>> = row.get(2);
 
                 let mut instance: QueuedInstance = crate::codec::deserialize(&payload)
-                    .map_err(PollQueuedInstancesError::QueuedInstanceDecode)
-                    .map_err(waymark_core_backend::PollQueuedInstancesError::Internal)?;
+                    .map_err(PollQueuedInstancesError::QueuedInstanceDecode)?;
 
                 instance.instance_id = instance_id;
 
@@ -773,8 +759,7 @@ impl PostgresBackend {
                 // If we do - parse the graph and assign state.
 
                 let graph: GraphUpdate = crate::codec::deserialize(&state_payload)
-                    .map_err(PollQueuedInstancesError::GraphUpdateDecode)
-                    .map_err(waymark_core_backend::PollQueuedInstancesError::Internal)?;
+                    .map_err(PollQueuedInstancesError::GraphUpdateDecode)?;
 
                 let action_node_ids: Vec<Uuid> = graph
                     .nodes
@@ -819,7 +804,7 @@ impl PostgresBackend {
             .bind(&all_action_node_ids)
             .fetch_all(&self.pool)
             .await
-            .map_err(sqlx_as_internal)?;
+            .map_err(PollQueuedInstancesError::Sqlx)?;
 
             let mut action_results_by_execution_id: HashMap<Uuid, serde_json::Value> =
                 HashMap::new();
@@ -831,8 +816,7 @@ impl PostgresBackend {
                 };
 
                 let result: serde_json::Value = crate::codec::deserialize(&result_payload)
-                    .map_err(PollQueuedInstancesError::ActionResultDecode)
-                    .map_err(waymark_core_backend::PollQueuedInstancesError::Internal)?;
+                    .map_err(PollQueuedInstancesError::ActionResultDecode)?;
 
                 action_results_by_execution_id.insert(execution_id, result);
             }
@@ -937,10 +921,7 @@ impl waymark_core_backend::CoreBackend for PostgresBackend {
         &self,
         size: NonZeroUsize,
         claim: LockClaim,
-    ) -> Result<
-        NEVec<QueuedInstance>,
-        waymark_core_backend::PollQueuedInstancesError<Self::PollQueuedInstancesError>,
-    > {
+    ) -> Result<NEVec<QueuedInstance>, Self::PollQueuedInstancesError> {
         self.poll_queued_instances_impl(size, claim).await
     }
 

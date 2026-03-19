@@ -74,24 +74,19 @@ impl CoreBackend for FaultInjectingBackend {
         &self,
         size: std::num::NonZeroUsize,
         claim: LockClaim,
-    ) -> Result<
-        NEVec<QueuedInstance>,
-        waymark_core_backend::PollQueuedInstancesError<Self::PollQueuedInstancesError>,
-    > {
+    ) -> Result<NEVec<QueuedInstance>, Self::PollQueuedInstancesError> {
         self.get_queued_instances_calls
             .fetch_add(1, AtomicOrdering::SeqCst);
         if self
             .fail_get_queued_instances_with_depth_limit
             .load(AtomicOrdering::SeqCst)
         {
-            return Err(waymark_core_backend::PollQueuedInstancesError::Internal(
-                PollQueuedInstancesError::DepthLimitExceeded,
-            ));
+            return Err(PollQueuedInstancesError::DepthLimitExceeded);
         }
         self.inner
             .poll_queued_instances(size, claim)
             .await
-            .map_err(|err| err.blind_map(PollQueuedInstancesError::Memory))
+            .map_err(PollQueuedInstancesError::Memory)
     }
 
     async fn queue_instances(
@@ -141,4 +136,15 @@ pub enum PollQueuedInstancesError {
 
     #[error("memory backend: {0}")]
     Memory(<MemoryBackend as waymark_core_backend::CoreBackend>::PollQueuedInstancesError),
+}
+
+impl waymark_core_backend::poll_queued_instances::Error for PollQueuedInstancesError {
+    fn kind(&self) -> waymark_core_backend::poll_queued_instances::ErrorKind {
+        match self {
+            PollQueuedInstancesError::DepthLimitExceeded => {
+                waymark_core_backend::poll_queued_instances::ErrorKind::Internal
+            }
+            PollQueuedInstancesError::Memory(inner) => inner.kind(),
+        }
+    }
 }

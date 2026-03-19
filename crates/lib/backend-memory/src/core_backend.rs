@@ -61,15 +61,11 @@ impl waymark_core_backend::CoreBackend for crate::MemoryBackend {
         &self,
         size: std::num::NonZeroUsize,
         claim: LockClaim,
-    ) -> Result<
-        NEVec<QueuedInstance>,
-        waymark_core_backend::PollQueuedInstancesError<Self::PollQueuedInstancesError>,
-    > {
-        let queue = self.instance_queue.as_ref().ok_or_else(|| {
-            waymark_core_backend::PollQueuedInstancesError::NoInstances(
-                PollQueuedInstancesError::NoQueue,
-            )
-        })?;
+    ) -> Result<NEVec<QueuedInstance>, Self::PollQueuedInstancesError> {
+        let queue = self
+            .instance_queue
+            .as_ref()
+            .ok_or_else(|| PollQueuedInstancesError::NoQueue)?;
 
         let mut queue = queue.lock().expect("instance queue poisoned");
 
@@ -82,11 +78,7 @@ impl waymark_core_backend::CoreBackend for crate::MemoryBackend {
             })
         };
 
-        let first_instance = take_ready_instance().ok_or({
-            waymark_core_backend::PollQueuedInstancesError::NoInstances(
-                PollQueuedInstancesError::QueueEmpty,
-            )
-        })?;
+        let first_instance = take_ready_instance().ok_or(PollQueuedInstancesError::QueueEmpty)?;
 
         let mut instances = NEVec::with_capacity(size, first_instance);
         while instances.len() < size {
@@ -168,4 +160,16 @@ pub enum PollQueuedInstancesError {
 
     #[error("queue is empty")]
     QueueEmpty,
+}
+
+impl waymark_core_backend::poll_queued_instances::Error for PollQueuedInstancesError {
+    fn kind(&self) -> waymark_core_backend::poll_queued_instances::ErrorKind {
+        // For the compatibility reasons, any error from the memory backend is
+        // treated as no instances; this may be revisited in the future.
+        match self {
+            PollQueuedInstancesError::NoQueue | PollQueuedInstancesError::QueueEmpty => {
+                waymark_core_backend::poll_queued_instances::ErrorKind::NoInstances
+            }
+        }
+    }
 }

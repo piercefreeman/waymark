@@ -4,7 +4,7 @@ use std::time::Duration;
 use chrono::Utc;
 use tracing::{debug, info};
 use uuid::Uuid;
-use waymark_core_backend::LockClaim;
+use waymark_core_backend::{LockClaim, poll_queued_instances::Error as _};
 use waymark_utils_tokio_channel::send_with_stop;
 
 use crate::available_instance_slots;
@@ -73,14 +73,16 @@ where
                 debug!(count, "polled queued instances");
                 super::Message::Batch { instances }
             }
-            Err(waymark_core_backend::PollQueuedInstancesError::Internal(err)) => {
-                super::Message::Error(err)
-            }
-            Err(waymark_core_backend::PollQueuedInstancesError::NoInstances(error)) => {
-                // No instances were obtained.
-                tracing::trace!(?error, "no instances from core backend");
-                super::Message::Pending
-            }
+            Err(error) => match error.kind() {
+                waymark_core_backend::poll_queued_instances::ErrorKind::NoInstances => {
+                    // No instances were obtained.
+                    tracing::trace!(?error, "no instances from core backend");
+                    super::Message::Pending
+                }
+                waymark_core_backend::poll_queued_instances::ErrorKind::Internal => {
+                    super::Message::Error(error)
+                }
+            },
         };
 
         let send_result = send_with_stop(

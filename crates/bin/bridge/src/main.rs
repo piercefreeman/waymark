@@ -202,16 +202,13 @@ impl CoreBackend for InMemoryBackend {
         Ok(())
     }
 
-    type PollQueuedInstancesError = BackendError;
+    type PollQueuedInstancesError = PollQueuedInstancesError;
 
     async fn poll_queued_instances(
         &self,
         size: NonZeroUsize,
         claim: LockClaim,
-    ) -> Result<
-        NEVec<QueuedInstance>,
-        waymark_core_backend::PollQueuedInstancesError<Self::PollQueuedInstancesError>,
-    > {
+    ) -> Result<NEVec<QueuedInstance>, Self::PollQueuedInstancesError> {
         let mut queue = self.queue.lock().expect("in-memory queue lock poisoned");
 
         let now = Utc::now();
@@ -223,11 +220,7 @@ impl CoreBackend for InMemoryBackend {
             })
         };
 
-        let first_instance = take_ready_instance().ok_or({
-            waymark_core_backend::PollQueuedInstancesError::NoInstances(BackendError::Message(
-                "empty queue".to_string(),
-            ))
-        })?;
+        let first_instance = take_ready_instance().ok_or(PollQueuedInstancesError::EmptyQueue)?;
 
         let mut instances = NEVec::with_capacity(size, first_instance);
 
@@ -327,6 +320,22 @@ impl CoreBackend for InMemoryBackend {
             }
         }
         Ok(())
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum PollQueuedInstancesError {
+    #[error("empty queue")]
+    EmptyQueue,
+}
+
+impl waymark_core_backend::poll_queued_instances::Error for PollQueuedInstancesError {
+    fn kind(&self) -> waymark_core_backend::poll_queued_instances::ErrorKind {
+        match self {
+            PollQueuedInstancesError::EmptyQueue => {
+                waymark_core_backend::poll_queued_instances::ErrorKind::NoInstances
+            }
+        }
     }
 }
 
