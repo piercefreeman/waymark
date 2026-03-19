@@ -2,7 +2,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::Utc;
-use tracing::{debug, info};
 use uuid::Uuid;
 use waymark_core_backend::{LockClaim, poll_queued_instances::Error as _};
 use waymark_utils_tokio_channel::send_with_stop;
@@ -40,19 +39,15 @@ where
         queued_instance_tx,
     } = params;
 
-    loop {
-        if shutdown_token.is_cancelled() {
-            info!("instance poller stop flag set");
-            break;
-        }
+    let available_instance_slots_tracker = available_instance_slots_tracker.as_ref();
+    let core_backend = core_backend.as_ref();
+    let queued_instance_tx = &queued_instance_tx;
+    let shutdown_token = &shutdown_token;
+
+    let tick_fn = || async move {
         let available_slots = available_instance_slots_tracker.get();
         let Some(batch_size) = std::num::NonZeroUsize::new(available_slots) else {
-            if poll_interval > Duration::ZERO {
-                tokio::time::sleep(poll_interval).await;
-            } else {
-                tokio::time::sleep(Duration::from_millis(0)).await;
-            }
-            continue;
+            return Ok(());
         };
 
         let lock_expires_at = Utc::now()
@@ -70,7 +65,7 @@ where
         let message = match batch {
             Ok(instances) => {
                 let count = instances.len();
-                debug!(count, "polled queued instances");
+                tracing::debug!(count, "polled queued instances");
                 super::Message::Batch { instances }
             }
             Err(error) => match error.kind() {
@@ -85,22 +80,29 @@ where
             },
         };
 
-        let send_result = send_with_stop(
-            &queued_instance_tx,
+        send_with_stop(
+            queued_instance_tx,
             message,
             shutdown_token.cancelled(),
             "instance message",
         )
-        .await;
-        if send_result.is_err() {
-            break;
-        }
+        .await
+    };
 
-        if poll_interval > Duration::ZERO {
-            tokio::time::sleep(poll_interval).await;
-        } else {
-            tokio::time::sleep(Duration::from_millis(0)).await;
-        }
-    }
-    info!("instance poller exiting");
+    let tick_interval = (!poll_interval.is_zero()).then(|| {
+        let mut tick_interval = tokio::time::interval(poll_interval);
+
+        tick_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+        tick_interval
+    });
+
+    let Err(error) = waymark_tick_loop::run(waymark_tick_loop::Params {
+        cancellation_token: shutdown_token.clone(),
+        tick_fn,
+        tick_interval,
+    })
+    .await;
+
+    tracing::error!(?error, "queued instances loop terminated");
 }

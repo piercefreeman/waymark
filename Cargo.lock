@@ -3838,6 +3838,7 @@ dependencies = [
  "waymark-proto",
  "waymark-runner",
  "waymark-runner-state",
+ "waymark-tick-loop",
  "waymark-utils-tokio-channel",
  "waymark-worker-core",
  "waymark-worker-inline",
@@ -4030,6 +4031,16 @@ version = "0.1.0"
 dependencies = [
  "sqlx",
  "waymark-support-integration",
+]
+
+[[package]]
+name = "waymark-tick-loop"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "tracing",
 ]
 
 [[package]]
