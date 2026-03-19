@@ -1,4 +1,4 @@
-//! Worker pool interface for executing actions.
+//! Worker interface for executing actions.
 
 use std::collections::HashMap;
 
@@ -71,4 +71,55 @@ pub fn error_to_value(error: &WorkerPoolError) -> Value {
     map.insert("type".to_string(), Value::String(error.kind.clone()));
     map.insert("message".to_string(), Value::String(error.message.clone()));
     Value::Object(map)
+}
+
+/// A worker launcher.
+pub trait Launcher {
+    /// The handle to the running worker.
+    ///
+    /// This type is expected to provide all necessary traits that we demand
+    /// from a worker by either implementing them directly.
+    type Handle;
+
+    /// The worker execution future.
+    ///
+    /// The worker is expected to abort the execution when this future
+    /// is dropped.
+    type Execution: Future;
+
+    /// The error that can occur while launching.
+    type Error;
+
+    /// Start the worker with the given cancellation token.
+    ///
+    /// The worker is expected to gracefully stop upon receivieng the token
+    /// cancellation.
+    fn launch(
+        &self,
+        cancellation_token: tokio_util::sync::CancellationToken,
+    ) -> impl Future<Output = Result<(Self::Handle, Self::Execution), Self::Error>> + Send + '_;
+}
+
+/// Enqueue action onto a worker for execution.
+pub trait EnqueueAction {
+    /// A error than can occur while enqeuing the action onto the worker.
+    type Error;
+
+    /// Submit an action request for execution.
+    fn enqueue(
+        &self,
+        request: ActionRequest,
+    ) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send + '_;
+}
+
+/// Poll the worker for action completion notifications.
+pub trait PollActionCompletion {
+    /// A error than can occur while polling the worker for
+    /// an action completion.
+    type Error;
+
+    /// Await and return a batch of completed actions.
+    fn poll_complete(
+        &self,
+    ) -> impl Future<Output = Result<NEVec<ActionCompletion>, Self::Error>> + Send + '_;
 }
