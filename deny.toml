@@ -22,8 +22,18 @@ ignore = true
 registries = []
 
 [bans]
-multiple-versions = "warn"
+multiple-versions = "allow"
 wildcards = "allow"
+
+[bans.workspace-dependencies]
+duplicates = "deny"
+include-path-dependencies = true
+unused = "deny"
+
+[[bans.deny]]
+name = "async-trait"
+reason = "use GAT-based traits, avoid legacy async-trait"
+wrappers = ["axum", "axum-core", "tonic"]
 
 [sources]
 unknown-registry = "warn"
