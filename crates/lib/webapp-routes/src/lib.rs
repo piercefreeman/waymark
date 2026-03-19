@@ -14,7 +14,6 @@ use serde::Serialize;
 use tera::{Context as TeraContext, Tera};
 use tracing::error;
 use uuid::Uuid;
-use waymark_webapp_backend::WebappBackend;
 use waymark_webapp_core::WorkerStatus;
 use waymark_webapp_core::{
     ActionLogsResponse, FilterValuesResponse, HealthResponse, InstanceExportInfo, TimelineEntry,
@@ -56,13 +55,26 @@ pub fn init_templates() -> Result<Tera, tera::Error> {
 // Internal Server State
 // ============================================================================
 
-#[derive(Clone)]
-pub struct WebappState {
-    pub database: Arc<dyn WebappBackend>,
+pub struct WebappState<WebappBackend: ?Sized> {
+    pub database: Arc<WebappBackend>,
     pub templates: Arc<Tera>,
 }
 
-pub fn build_router(state: WebappState) -> Router {
+impl<WebappBackend: ?Sized> Clone for WebappState<WebappBackend> {
+    fn clone(&self) -> Self {
+        Self {
+            database: Arc::clone(&self.database),
+            templates: Arc::clone(&self.templates),
+        }
+    }
+}
+
+pub fn build_router<WebappBackend>(state: WebappState<WebappBackend>) -> Router
+where
+    WebappBackend: ?Sized,
+    WebappBackend: waymark_webapp_backend::WebappBackend,
+    WebappBackend: Send + Sync + 'static,
+{
     use axum::routing::post;
 
     Router::new()
@@ -112,10 +124,14 @@ struct InvocationListQuery {
     q: Option<String>,
 }
 
-async fn list_invocations(
-    State(state): State<WebappState>,
+async fn list_invocations<WebappBackend>(
+    State(state): State<WebappState<WebappBackend>>,
     axum::extract::Query(query): axum::extract::Query<InvocationListQuery>,
-) -> impl IntoResponse {
+) -> impl IntoResponse
+where
+    WebappBackend: ?Sized,
+    WebappBackend: waymark_webapp_backend::WebappBackend,
+{
     let per_page = 50i64;
     let search = query.q.as_deref().filter(|v| !v.trim().is_empty());
 
@@ -159,10 +175,14 @@ async fn list_invocations(
     }
 }
 
-async fn instance_detail(
-    State(state): State<WebappState>,
+async fn instance_detail<WebappBackend>(
+    State(state): State<WebappState<WebappBackend>>,
     Path(instance_id): Path<Uuid>,
-) -> impl IntoResponse {
+) -> impl IntoResponse
+where
+    WebappBackend: ?Sized,
+    WebappBackend: waymark_webapp_backend::WebappBackend,
+{
     let instance = match state.database.get_instance(instance_id).await {
         Ok(i) => i,
         Err(err) => {
@@ -196,11 +216,15 @@ struct RunDataQuery {
     include_nodes: Option<bool>,
 }
 
-async fn get_run_data(
-    State(state): State<WebappState>,
+async fn get_run_data<WebappBackend>(
+    State(state): State<WebappState<WebappBackend>>,
     Path(instance_id): Path<Uuid>,
     axum::extract::Query(query): axum::extract::Query<RunDataQuery>,
-) -> Result<Json<WorkflowRunDataResponse>, HttpError> {
+) -> Result<Json<WorkflowRunDataResponse>, HttpError>
+where
+    WebappBackend: ?Sized,
+    WebappBackend: waymark_webapp_backend::WebappBackend,
+{
     state
         .database
         .get_instance(instance_id)
@@ -256,10 +280,14 @@ async fn get_run_data(
     }))
 }
 
-async fn get_action_logs(
-    State(state): State<WebappState>,
+async fn get_action_logs<WebappBackend>(
+    State(state): State<WebappState<WebappBackend>>,
     Path((instance_id, action_id)): Path<(Uuid, Uuid)>,
-) -> Result<Json<ActionLogsResponse>, HttpError> {
+) -> Result<Json<ActionLogsResponse>, HttpError>
+where
+    WebappBackend: ?Sized,
+    WebappBackend: waymark_webapp_backend::WebappBackend,
+{
     state
         .database
         .get_instance(instance_id)
@@ -300,10 +328,14 @@ async fn get_action_logs(
     Ok(Json(ActionLogsResponse { logs }))
 }
 
-async fn export_instance(
-    State(state): State<WebappState>,
+async fn export_instance<WebappBackend>(
+    State(state): State<WebappState<WebappBackend>>,
     Path(instance_id): Path<Uuid>,
-) -> Result<Json<WorkflowInstanceExport>, HttpError> {
+) -> Result<Json<WorkflowInstanceExport>, HttpError>
+where
+    WebappBackend: ?Sized,
+    WebappBackend: waymark_webapp_backend::WebappBackend,
+{
     let instance = state
         .database
         .get_instance(instance_id)
@@ -348,10 +380,14 @@ async fn export_instance(
     Ok(Json(export))
 }
 
-async fn get_filter_values(
-    State(state): State<WebappState>,
+async fn get_filter_values<WebappBackend>(
+    State(state): State<WebappState<WebappBackend>>,
     Path(column): Path<String>,
-) -> impl IntoResponse {
+) -> impl IntoResponse
+where
+    WebappBackend: ?Sized,
+    WebappBackend: waymark_webapp_backend::WebappBackend,
+{
     let result = match column.as_str() {
         "workflow" => state.database.get_distinct_workflows().await,
         "status" => state.database.get_distinct_statuses().await,
@@ -384,10 +420,14 @@ struct WorkersQuery {
     minutes: Option<i64>,
 }
 
-async fn list_workers(
-    State(state): State<WebappState>,
+async fn list_workers<WebappBackend>(
+    State(state): State<WebappState<WebappBackend>>,
     axum::extract::Query(query): axum::extract::Query<WorkersQuery>,
-) -> impl IntoResponse {
+) -> impl IntoResponse
+where
+    WebappBackend: ?Sized,
+    WebappBackend: waymark_webapp_backend::WebappBackend,
+{
     let window_minutes = query.minutes.unwrap_or(5).clamp(1, 1440);
 
     // Check if worker_status table exists
@@ -417,10 +457,14 @@ struct ScheduleListQuery {
     page: Option<i64>,
 }
 
-async fn list_schedules(
-    State(state): State<WebappState>,
+async fn list_schedules<WebappBackend>(
+    State(state): State<WebappState<WebappBackend>>,
     axum::extract::Query(query): axum::extract::Query<ScheduleListQuery>,
-) -> impl IntoResponse {
+) -> impl IntoResponse
+where
+    WebappBackend: ?Sized,
+    WebappBackend: waymark_webapp_backend::WebappBackend,
+{
     // Check if schedules table exists
     if !state.database.schedules_table_exists().await {
         return Html(render_schedules_page(&state.templates, &[], 1, 1, 0));
@@ -463,11 +507,15 @@ async fn list_schedules(
     }
 }
 
-async fn schedule_detail(
-    State(state): State<WebappState>,
+async fn schedule_detail<WebappBackend>(
+    State(state): State<WebappState<WebappBackend>>,
     Path(schedule_id): Path<Uuid>,
     axum::extract::Query(query): axum::extract::Query<ScheduleDetailQuery>,
-) -> impl IntoResponse {
+) -> impl IntoResponse
+where
+    WebappBackend: ?Sized,
+    WebappBackend: waymark_webapp_backend::WebappBackend,
+{
     let per_page = 20i64;
 
     let schedule = match state.database.get_schedule(schedule_id).await {
@@ -528,10 +576,14 @@ struct ScheduleDetailQuery {
     page: Option<i64>,
 }
 
-async fn pause_schedule(
-    State(state): State<WebappState>,
+async fn pause_schedule<WebappBackend>(
+    State(state): State<WebappState<WebappBackend>>,
     Path(schedule_id): Path<Uuid>,
-) -> impl IntoResponse {
+) -> impl IntoResponse
+where
+    WebappBackend: ?Sized,
+    WebappBackend: waymark_webapp_backend::WebappBackend,
+{
     match state
         .database
         .update_schedule_status(schedule_id, "paused")
@@ -545,10 +597,14 @@ async fn pause_schedule(
     }
 }
 
-async fn resume_schedule(
-    State(state): State<WebappState>,
+async fn resume_schedule<WebappBackend>(
+    State(state): State<WebappState<WebappBackend>>,
     Path(schedule_id): Path<Uuid>,
-) -> impl IntoResponse {
+) -> impl IntoResponse
+where
+    WebappBackend: ?Sized,
+    WebappBackend: waymark_webapp_backend::WebappBackend,
+{
     match state
         .database
         .update_schedule_status(schedule_id, "active")
@@ -562,10 +618,14 @@ async fn resume_schedule(
     }
 }
 
-async fn delete_schedule(
-    State(state): State<WebappState>,
+async fn delete_schedule<WebappBackend>(
+    State(state): State<WebappState<WebappBackend>>,
     Path(schedule_id): Path<Uuid>,
-) -> impl IntoResponse {
+) -> impl IntoResponse
+where
+    WebappBackend: ?Sized,
+    WebappBackend: waymark_webapp_backend::WebappBackend,
+{
     match state
         .database
         .update_schedule_status(schedule_id, "deleted")
@@ -580,10 +640,14 @@ async fn delete_schedule(
     }
 }
 
-async fn get_schedule_filter_values(
-    State(state): State<WebappState>,
+async fn get_schedule_filter_values<WebappBackend>(
+    State(state): State<WebappState<WebappBackend>>,
     Path(column): Path<String>,
-) -> impl IntoResponse {
+) -> impl IntoResponse
+where
+    WebappBackend: ?Sized,
+    WebappBackend: waymark_webapp_backend::WebappBackend,
+{
     let result = match column.as_str() {
         "status" => state.database.get_distinct_schedule_statuses().await,
         "schedule_type" => state.database.get_distinct_schedule_types().await,
@@ -1293,7 +1357,6 @@ mod tests {
     use uuid::Uuid;
     use waymark_backend_memory::MemoryBackend;
     use waymark_backend_postgres::PostgresBackend;
-    use waymark_webapp_backend::WebappBackend;
     use waymark_worker_status_backend::{WorkerStatusBackend as _, WorkerStatusUpdate};
 
     use super::{WebappState, build_graph_data, build_router, init_templates};
@@ -1381,7 +1444,15 @@ mod tests {
         assert_eq!(action_b_node.module, "tests");
     }
 
-    async fn call_route(backend: Arc<dyn WebappBackend>, uri: &str) -> (StatusCode, String) {
+    async fn call_route<WebappBackend>(
+        backend: Arc<WebappBackend>,
+        uri: &str,
+    ) -> (StatusCode, String)
+    where
+        WebappBackend: ?Sized,
+        WebappBackend: waymark_webapp_backend::WebappBackend,
+        WebappBackend: Send + Sync + 'static,
+    {
         let templates = Arc::new(init_templates().expect("templates initialize"));
         let app = build_router(WebappState {
             database: backend,
@@ -1434,7 +1505,7 @@ mod tests {
             .await
             .expect("worker status upsert");
 
-        let backend: Arc<dyn WebappBackend> = Arc::new(backend);
+        let backend = Arc::new(backend);
         let routes: Vec<(String, &str)> = vec![
             ("/".to_string(), "Invocations"),
             ("/invocations".to_string(), "Invocations"),
@@ -1472,7 +1543,7 @@ mod tests {
             .acquire_timeout(Duration::from_millis(100))
             .connect_lazy("postgres://waymark:waymark@127.0.0.1:1/waymark")
             .expect("lazy postgres pool");
-        let backend: Arc<dyn WebappBackend> = Arc::new(PostgresBackend::new(pool));
+        let backend = Arc::new(PostgresBackend::new(pool));
         let routes: Vec<(String, &str)> = vec![
             ("/".to_string(), "Unable to load invocations"),
             ("/invocations".to_string(), "Unable to load invocations"),
@@ -1533,7 +1604,6 @@ mod tests {
             .await
             .expect("insert worker status");
 
-        let backend_dyn: Arc<dyn WebappBackend> = backend.clone();
         let routes: Vec<(String, &str)> = vec![
             ("/".to_string(), "Invocations"),
             ("/invocations".to_string(), "Invocations"),
@@ -1549,7 +1619,7 @@ mod tests {
         ];
 
         for (route, expected) in routes {
-            let (status, body) = call_route(backend_dyn.clone(), &route).await;
+            let (status, body) = call_route(backend.clone(), &route).await;
             assert_eq!(status, StatusCode::OK, "route={route}");
             assert!(!body.trim().is_empty(), "route={route}");
             assert!(
@@ -1558,13 +1628,13 @@ mod tests {
             );
         }
 
-        let (status, workers_body) = call_route(backend_dyn.clone(), "/workers").await;
+        let (status, workers_body) = call_route(backend.clone(), "/workers").await;
         assert_eq!(status, StatusCode::OK);
         assert!(!workers_body.trim().is_empty());
         assert!(workers_body.contains("Workers"));
         assert!(workers_body.contains(&pool_id.to_string()));
 
-        let (status, health_body) = call_route(backend_dyn, "/healthz").await;
+        let (status, health_body) = call_route(backend, "/healthz").await;
         assert_eq!(status, StatusCode::OK);
         assert!(health_body.contains("\"status\":\"ok\""));
         assert!(health_body.contains("\"service\":\"waymark-webapp\""));
