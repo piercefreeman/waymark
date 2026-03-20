@@ -5097,6 +5097,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-worker-remote-pool"
+version = "0.1.0"
+dependencies = [
+ "metrics",
+ "nonempty-collections",
+ "prost 0.12.6",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "waymark-managed-process",
+ "waymark-message-conversions",
+ "waymark-proto",
+ "waymark-runner-executor-core",
+ "waymark-worker-core",
+ "waymark-worker-message-protocol",
+ "waymark-worker-metrics",
+ "waymark-worker-process-pool",
+ "waymark-worker-process-spec",
+ "waymark-worker-status-core",
+]
+
+[[package]]
 name = "waymark-worker-reservation"
 version = "0.1.0"
 dependencies = [
