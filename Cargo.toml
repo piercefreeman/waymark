@@ -85,6 +85,7 @@ serde = "1"
 serde_json = "1"
 serial_test = "2"
 sha2 = "0.10"
+slotmap = "1"
 sqlx = { version = "0.8", default-features = false }
 syn = "2"
 tera = "1"
