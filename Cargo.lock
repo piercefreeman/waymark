@@ -4862,6 +4862,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-worker-remote-bridge-service"
+version = "0.1.0"
+dependencies = [
+ "futures-core",
+ "prost 0.12.6",
+ "tokio",
+ "tokio-stream",
+ "tonic 0.11.0",
+ "tracing",
+ "waymark-proto",
+ "waymark-worker-message-protocol",
+ "waymark-worker-reservation",
+]
+
+[[package]]
 name = "waymark-worker-reservation"
 version = "0.1.0"
 dependencies = [
