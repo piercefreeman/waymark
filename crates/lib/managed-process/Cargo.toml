@@ -1,0 +1,11 @@
+[package]
+name = "waymark-managed-process"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+nix = { workspace = true, features = ["signal"] }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["process", "time"] }
+tracing = { workspace = true }
