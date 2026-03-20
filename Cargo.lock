@@ -4272,6 +4272,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-worker-python"
+version = "0.1.0"
+dependencies = [
+ "tokio",
+ "tracing",
+ "waymark-reserved-process",
+ "waymark-worker-process-spec",
+ "waymark-worker-reservation",
+]
+
+[[package]]
 name = "waymark-worker-remote"
 version = "0.1.0"
 dependencies = [
