@@ -1,0 +1,8 @@
+[package]
+name = "waymark-worker-remote-core"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-proto = { workspace = true }
