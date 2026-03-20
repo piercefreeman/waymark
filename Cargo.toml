@@ -65,6 +65,8 @@ waymark-worker-core = { path = "crates/lib/worker-core" }
 waymark-worker-inline = { path = "crates/lib/worker-inline" }
 waymark-worker-message-protocol = { path = "crates/lib/worker-message-protocol" }
 waymark-worker-metrics = { path = "crates/lib/worker-metrics" }
+waymark-worker-process = { path = "crates/lib/worker-process" }
+waymark-worker-process-spec = { path = "crates/lib/worker-process-spec" }
 waymark-worker-remote = { path = "crates/lib/worker-remote" }
 waymark-worker-reservation = { path = "crates/lib/worker-reservation" }
 waymark-worker-status-backend = { path = "crates/lib/worker-status-backend" }
