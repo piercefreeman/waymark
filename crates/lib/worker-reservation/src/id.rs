@@ -17,3 +17,16 @@ impl core::str::FromStr for Id {
         Ok(Self::from(key_data))
     }
 }
+
+impl From<u64> for Id {
+    fn from(value: u64) -> Self {
+        let key_data = slotmap::KeyData::from_ffi(value);
+        Self::from(key_data)
+    }
+}
+
+impl From<Id> for u64 {
+    fn from(value: Id) -> Self {
+        value.0.as_ffi()
+    }
+}
