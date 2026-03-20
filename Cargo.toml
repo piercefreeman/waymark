@@ -35,6 +35,7 @@ waymark-observability-setup = { path = "crates/lib/observability-setup" }
 waymark-pool-status = { path = "crates/lib/pool-status" }
 waymark-prometheus-exporter-bringup = { path = "crates/lib/prometheus-exporter-bringup" }
 waymark-proto = { path = "crates/lib/proto" }
+waymark-reserved-process = { path = "crates/lib/reserved-process" }
 waymark-runloop = { path = "crates/lib/runloop" }
 waymark-runner = { path = "crates/lib/runner" }
 waymark-runner-retry-policy = { path = "crates/lib/runner-retry-policy" }
