@@ -1,0 +1,13 @@
+[package]
+name = "waymark-reserved-process"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-managed-process = { workspace = true }
+waymark-worker-reservation = { workspace = true }
+
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["process"] }
+tracing = { workspace = true }
