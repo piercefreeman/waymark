@@ -79,6 +79,7 @@ waymark-worker-status-reporter = { path = "crates/lib/worker-status-reporter" }
 waymark-workflow-registry-backend = { path = "crates/lib/workflow-registry-backend" }
 
 anyhow = "1"
+async-stream = "0.3"
 axum = "0.8"
 chrono = { version = "0.4", default-features = false }
 clap = "4.5"
@@ -128,6 +129,7 @@ tonic-health = "0.11"
 tower = "0.5"
 tracing = "0.1"
 tracing-chrome = "0.7"
+tracing-futures = "0.2"
 tracing-subscriber = "0.3"
 uuid = "1.23"
 zeroize = "1"

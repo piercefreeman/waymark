@@ -1,0 +1,23 @@
+[package]
+name = "waymark-worker-remote-bridge-service"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-proto = { workspace = true }
+waymark-worker-message-protocol = { workspace = true }
+waymark-worker-reservation = { workspace = true }
+
+async-stream = { workspace = true }
+futures-core = { workspace = true }
+prost = { workspace = true }
+tokio = { workspace = true, features = ["sync", "macros"] }
+tonic = { workspace = true }
+tracing = { workspace = true }
+tracing-futures = { workspace = true, features = ["futures-03"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "sync", "time"] }
+tokio-stream = { workspace = true, features = ["net"] }
+tokio-util = { workspace = true }
