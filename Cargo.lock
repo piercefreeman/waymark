@@ -4807,6 +4807,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-worker-message-protocol"
+version = "0.1.0"
+dependencies = [
+ "prost 0.12.6",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "uuid",
+ "waymark-proto",
+ "waymark-worker-metrics",
+]
+
+[[package]]
 name = "waymark-worker-metrics"
 version = "0.1.0"
 dependencies = [
