@@ -76,6 +76,7 @@ waymark-worker-process = { path = "crates/lib/worker-process" }
 waymark-worker-process-pool = { path = "crates/lib/worker-process-pool" }
 waymark-worker-process-spec = { path = "crates/lib/worker-process-spec" }
 waymark-worker-remote = { path = "crates/lib/worker-remote" }
+waymark-worker-remote-bridge-bringup = { path = "crates/lib/worker-remote-bridge-bringup" }
 waymark-worker-remote-bridge-service = { path = "crates/lib/worker-remote-bridge-service" }
 waymark-worker-reservation = { path = "crates/lib/worker-reservation" }
 waymark-worker-status-backend = { path = "crates/lib/worker-status-backend" }

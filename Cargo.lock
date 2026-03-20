@@ -5112,6 +5112,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-worker-remote-bringup"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "waymark-worker-process-pool",
+ "waymark-worker-process-spec",
+ "waymark-worker-remote-bridge-bringup",
+]
+
+[[package]]
 name = "waymark-worker-remote-pool"
 version = "0.1.0"
 dependencies = [
