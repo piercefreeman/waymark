@@ -4246,6 +4246,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-worker-process-pool"
+version = "0.1.0"
+dependencies = [
+ "nonempty-collections",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "waymark-managed-process",
+ "waymark-reserved-process",
+ "waymark-worker-message-protocol",
+ "waymark-worker-metrics",
+ "waymark-worker-process",
+ "waymark-worker-process-spec",
+ "waymark-worker-reservation",
+ "waymark-worker-status-core",
+]
+
+[[package]]
+name = "waymark-worker-process-spec"
+version = "0.1.0"
+dependencies = [
+ "waymark-reserved-process",
+ "waymark-worker-reservation",
+]
+
+[[package]]
 name = "waymark-worker-remote"
 version = "0.1.0"
 dependencies = [
