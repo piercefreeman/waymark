@@ -2948,6 +2948,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 
 [[package]]
+name = "slotmap"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bdd58c3c93c3d278ca835519292445cb4b0d4dc59ccfdf7ceadaab3f8aeb4038"
+dependencies = [
+ "version_check",
+]
+
+[[package]]
 name = "slug"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4826,6 +4835,15 @@ dependencies = [
  "waymark-worker-core",
  "waymark-worker-metrics",
  "waymark-worker-status-core",
+]
+
+[[package]]
+name = "waymark-worker-reservation"
+version = "0.1.0"
+dependencies = [
+ "slotmap",
+ "thiserror",
+ "tokio",
 ]
 
 [[package]]
