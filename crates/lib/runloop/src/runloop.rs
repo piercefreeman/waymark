@@ -70,6 +70,9 @@ pub enum Error<CoreBackendPollError> {
 
     #[error(transparent)]
     RunnerExecutor(RunnerExecutorError),
+
+    #[error(transparent)]
+    AvailableInstanceSlotsUpdate(crate::available_instance_slots::UpdateError),
 }
 
 #[derive(Clone, Debug)]
@@ -107,7 +110,7 @@ where
     core_backend: Arc<CoreBackend>,
     registry_backend: Arc<RegistryBackend>,
     workflow_cache: HashMap<Uuid, Arc<DAG>>,
-    available_instance_slots_tracker: Arc<crate::available_instance_slots::Tracker>,
+    available_instances_updater: AvailableInstancesUpdater,
     available_instance_slots_reader: crate::available_instance_slots::Reader,
     instance_done_batch_size: NonZeroUsize,
     poll_interval: Option<NonZeroDuration>,
@@ -118,7 +121,6 @@ where
     lock_heartbeat: NonZeroDuration,
     evict_sleep_threshold: NonZeroDuration,
     skip_sleep: bool,
-    active_instance_gauge: Option<Arc<AtomicUsize>>,
     shutdown_token: tokio_util::sync::CancellationToken,
     exit_on_idle: bool,
 }
@@ -184,6 +186,11 @@ where
             crate::available_instance_slots::Tracker::from_scratch(available_instance_slots_calc);
         let available_instance_slots_tracker = Arc::new(available_instance_slots_tracker);
 
+        let available_instances_updater = AvailableInstancesUpdater {
+            available_instance_slots_tracker,
+            active_instance_gauge: config.active_instance_gauge.clone(),
+        };
+
         let worker_pool = worker_pool.into();
         let backend = backend.into();
 
@@ -196,7 +203,7 @@ where
             core_backend,
             registry_backend,
             workflow_cache: HashMap::new(),
-            available_instance_slots_tracker,
+            available_instances_updater,
             available_instance_slots_reader,
             instance_done_batch_size,
             poll_interval: config.poll_interval,
@@ -207,7 +214,6 @@ where
             lock_heartbeat: config.lock_heartbeat,
             evict_sleep_threshold: config.evict_sleep_threshold,
             skip_sleep: config.skip_sleep,
-            active_instance_gauge: config.active_instance_gauge.clone(),
             shutdown_token,
             exit_on_idle,
         }
@@ -229,17 +235,6 @@ where
     CoreBackend::PollQueuedInstancesError: core::fmt::Debug,
     CoreBackend::PollQueuedInstancesError: Send + Sync + 'static,
 {
-    fn store_available_instance_slots(&self, active_instances: usize) {
-        // TODO: fix error handling later
-        let _ = self
-            .available_instance_slots_tracker
-            .update(active_instances);
-
-        if let Some(gauge) = &self.active_instance_gauge {
-            gauge.store(active_instances, Ordering::SeqCst);
-        }
-    }
-
     #[obs]
     pub async fn run(
         &mut self,
@@ -266,7 +261,9 @@ where
         }
         drop(event_tx);
 
-        self.store_available_instance_slots(0);
+        self.available_instances_updater
+            .update(0)
+            .map_err(Error::AvailableInstanceSlotsUpdate)?;
 
         let (completion_tx, mut completion_rx) = mpsc::channel::<Vec<ActionCompletion>>(32);
         let (instance_tx, mut instance_rx) = mpsc::channel::<
@@ -713,7 +710,12 @@ where
                 }
             }
 
-            self.store_available_instance_slots(executor_shards.len());
+            if let Err(error) = self
+                .available_instances_updater
+                .update(executor_shards.len())
+            {
+                break 'runloop Err(Error::AvailableInstanceSlotsUpdate(error));
+            };
 
             if instances_done_pending.len() >= self.instance_done_batch_size.get()
                 && let Err(err) =
@@ -779,10 +781,32 @@ where
             warn!(error = %err, count = remaining_locks.len(), "failed to release instance locks on shutdown");
         }
 
-        if let Some(gauge) = &self.active_instance_gauge {
-            gauge.store(0, Ordering::SeqCst);
-        }
+        // Available instances updater error is safe to ignore now that we're
+        // exiting the loop...
+        let _ = self.available_instances_updater.update(0);
 
         run_result
+    }
+}
+
+pub struct AvailableInstancesUpdater {
+    pub available_instance_slots_tracker: Arc<crate::available_instance_slots::Tracker>,
+    pub active_instance_gauge: Option<Arc<AtomicUsize>>,
+}
+
+impl AvailableInstancesUpdater {
+    fn update(
+        &self,
+        active_instances: usize,
+    ) -> Result<(), crate::available_instance_slots::UpdateError> {
+        let _ = self
+            .available_instance_slots_tracker
+            .update(active_instances);
+
+        if let Some(gauge) = &self.active_instance_gauge {
+            gauge.store(active_instances, Ordering::SeqCst);
+        }
+
+        Ok(())
     }
 }
