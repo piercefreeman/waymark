@@ -185,7 +185,7 @@ async fn main() -> Result<()> {
 
     // Run the runloop.
     let lock_uuid = Uuid::new_v4();
-    let mut runloop = waymark_runloop::RunLoop::new_with_shutdown(
+    let runloop = waymark_runloop::RunLoop::new_with_shutdown(
         remote_pool.clone(),
         backend.clone(),
         RunLoopConfig {

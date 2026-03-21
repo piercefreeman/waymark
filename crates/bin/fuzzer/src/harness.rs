@@ -48,7 +48,7 @@ pub async fn run_case(case_index: usize, case: &GeneratedCase) -> Result<()> {
         .push_back(queued);
 
     let worker_pool = InlineWorkerPool::new(action_registry());
-    let mut runloop = RunLoop::new(
+    let runloop = RunLoop::new(
         worker_pool,
         backend.clone(),
         RunLoopConfig {
