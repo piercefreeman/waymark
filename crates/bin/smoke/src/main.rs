@@ -111,7 +111,7 @@ async fn run_program_smoke(case: &SmokeCase, worker_pool: RemoteWorkerPool) -> R
         .queue_template_node(&entry_node, None)
         .map_err(|err| anyhow!(err.0))?;
 
-    let mut runloop = RunLoop::new(
+    let runloop = RunLoop::new(
         worker_pool,
         backend.clone(),
         RunLoopConfig {

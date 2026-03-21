@@ -99,7 +99,7 @@ fn main(input: [x], output: [y]):
     );
     let worker_pool = waymark_worker_inline::InlineWorkerPool::new(actions);
 
-    let mut runloop = RunLoop::new(
+    let runloop = RunLoop::new(
         worker_pool,
         backend.clone(),
         RunLoopConfig {
@@ -180,7 +180,7 @@ fn main(input: [x], output: [y]):
     );
     let worker_pool = waymark_worker_inline::InlineWorkerPool::new(actions);
 
-    let mut runloop = RunLoop::new(
+    let runloop = RunLoop::new(
         worker_pool,
         backend.clone(),
         RunLoopConfig {
@@ -317,7 +317,7 @@ fn main(input: [x], output: [y]):
     );
     let worker_pool = waymark_worker_inline::InlineWorkerPool::new(actions);
 
-    let mut runloop = RunLoop::new(
+    let runloop = RunLoop::new(
         worker_pool,
         backend.clone(),
         RunLoopConfig {
@@ -406,7 +406,7 @@ fn main(input: [], output: [y]):
     );
     let worker_pool = waymark_worker_inline::InlineWorkerPool::new(actions);
 
-    let mut runloop = RunLoop::new(
+    let runloop = RunLoop::new(
         worker_pool,
         backend.clone(),
         RunLoopConfig {
@@ -519,7 +519,7 @@ fn main(input: [x], output: [y]):
         .expect("register workflow version");
 
     let worker_pool = waymark_worker_inline::InlineWorkerPool::new(HashMap::new());
-    let mut runloop = RunLoop::new(
+    let runloop = RunLoop::new(
         worker_pool,
         backend.clone(),
         RunLoopConfig {
@@ -668,7 +668,7 @@ fn main(input: [limit], output: [result]):
     );
     let worker_pool = waymark_worker_inline::InlineWorkerPool::new(actions);
 
-    let mut runloop = RunLoop::new(
+    let runloop = RunLoop::new(
         worker_pool,
         backend.clone(),
         RunLoopConfig {
@@ -729,7 +729,7 @@ async fn test_runloop_reproduces_no_progress_with_continued_queue_growth() {
     let worker_pool = waymark_worker_inline::InlineWorkerPool::new(HashMap::new());
     let shutdown_token = tokio_util::sync::CancellationToken::new();
 
-    let mut runloop = RunLoop::new_with_shutdown(
+    let runloop = RunLoop::new_with_shutdown(
         worker_pool,
         backend.clone(),
         default_test_config(Uuid::new_v4()),
@@ -864,7 +864,7 @@ fn main(input: [x], output: [y]):
         .expect("register workflow version");
 
     let worker_pool = waymark_worker_inline::InlineWorkerPool::new(HashMap::new());
-    let mut runloop = RunLoop::new(
+    let runloop = RunLoop::new(
         worker_pool,
         backend.clone(),
         default_test_config(Uuid::new_v4()),
@@ -959,7 +959,7 @@ fn main(input: [], output: [result]):
         }),
     );
     let worker_pool = waymark_worker_inline::InlineWorkerPool::new(actions);
-    let mut runloop = RunLoop::new(
+    let runloop = RunLoop::new(
         worker_pool,
         backend.clone(),
         default_test_config(Uuid::new_v4()),
@@ -1042,7 +1042,7 @@ fn main(input: [], output: [result]):
         Arc::new(|_kwargs| Box::pin(async move { Ok(Value::Number(7.into())) })),
     );
     let worker_pool = waymark_worker_inline::InlineWorkerPool::new(actions);
-    let mut runloop = RunLoop::new(
+    let runloop = RunLoop::new(
         worker_pool,
         backend.clone(),
         default_test_config(Uuid::new_v4()),

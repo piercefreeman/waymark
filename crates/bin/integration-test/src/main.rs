@@ -574,7 +574,7 @@ where
     <B as CoreBackend>::PollQueuedInstancesError: Send + Sync + 'static,
     <B as CoreBackend>::PollQueuedInstancesError: core::error::Error,
 {
-    let mut runloop = RunLoop::new(
+    let runloop = RunLoop::new(
         worker_pool,
         backend,
         RunLoopConfig {
