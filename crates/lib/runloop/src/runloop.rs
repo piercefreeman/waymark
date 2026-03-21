@@ -1,6 +1,7 @@
 //! Runloop for coordinating executors and worker pools.
 
 use std::collections::{HashMap, HashSet};
+use std::num::NonZeroUsize;
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
@@ -16,6 +17,7 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 use waymark_backends_core::BackendError;
 use waymark_core_backend::{InstanceDone, QueuedInstance};
+use waymark_nonzero_duration::NonZeroDuration;
 
 use crate::commit_barrier::CommitBarrier;
 use crate::instance_lock_heartbeat;
@@ -106,14 +108,14 @@ where
     registry_backend: Arc<RegistryBackend>,
     workflow_cache: HashMap<Uuid, Arc<DAG>>,
     available_instance_slot_tracker: Arc<crate::available_instance_slots::Tracker>,
-    instance_done_batch_size: usize,
-    poll_interval: Duration,
-    persistence_interval: Duration,
-    shard_count: usize,
+    instance_done_batch_size: NonZeroUsize,
+    poll_interval: Option<NonZeroDuration>,
+    persistence_interval: Option<NonZeroDuration>,
+    shard_count: NonZeroUsize,
     lock_uuid: Uuid,
-    lock_ttl: Duration,
-    lock_heartbeat: Duration,
-    evict_sleep_threshold: Duration,
+    lock_ttl: NonZeroDuration,
+    lock_heartbeat: NonZeroDuration,
+    evict_sleep_threshold: NonZeroDuration,
     skip_sleep: bool,
     active_instance_gauge: Option<Arc<AtomicUsize>>,
     shutdown_token: tokio_util::sync::CancellationToken,
@@ -122,15 +124,15 @@ where
 
 #[derive(Clone, Debug)]
 pub struct RunLoopConfig {
-    pub max_concurrent_instances: usize,
-    pub executor_shards: usize,
-    pub instance_done_batch_size: Option<usize>,
-    pub poll_interval: Duration,
-    pub persistence_interval: Duration,
+    pub max_concurrent_instances: NonZeroUsize,
+    pub executor_shards: NonZeroUsize,
+    pub instance_done_batch_size: Option<NonZeroUsize>,
+    pub poll_interval: Option<NonZeroDuration>,
+    pub persistence_interval: Option<NonZeroDuration>,
     pub lock_uuid: Uuid,
-    pub lock_ttl: Duration,
-    pub lock_heartbeat: Duration,
-    pub evict_sleep_threshold: Duration,
+    pub lock_ttl: NonZeroDuration,
+    pub lock_heartbeat: NonZeroDuration,
+    pub evict_sleep_threshold: NonZeroDuration,
     pub skip_sleep: bool,
     pub active_instance_gauge: Option<Arc<AtomicUsize>>,
 }
@@ -170,10 +172,12 @@ where
         shutdown_token: tokio_util::sync::CancellationToken,
         exit_on_idle: bool,
     ) -> Self {
-        #[allow(deprecated)]
-        let available_instance_slots_calc =
-            crate::available_instance_slots::Calc::new_saturating(config.max_concurrent_instances);
-        let instance_done_batch_size = available_instance_slots_calc.max_concurrent_instances.get();
+        let available_instance_slots_calc = crate::available_instance_slots::Calc {
+            max_concurrent_instances: config.max_concurrent_instances,
+        };
+        let instance_done_batch_size = config
+            .instance_done_batch_size
+            .unwrap_or(config.max_concurrent_instances);
 
         let available_instance_slot_tracker =
             crate::available_instance_slots::Tracker::from_scratch(available_instance_slots_calc);
@@ -195,7 +199,7 @@ where
             instance_done_batch_size,
             poll_interval: config.poll_interval,
             persistence_interval: config.persistence_interval,
-            shard_count: std::cmp::max(1, config.executor_shards),
+            shard_count: config.executor_shards,
             lock_uuid: config.lock_uuid,
             lock_ttl: config.lock_ttl,
             lock_heartbeat: config.lock_heartbeat,
@@ -239,10 +243,10 @@ where
 
         let (event_tx, mut event_rx) = mpsc::unbounded_channel::<shard::Event>();
         let mut shard_senders: Vec<std_mpsc::Sender<shard::Command>> =
-            Vec::with_capacity(self.shard_count);
-        let mut shard_handles = Vec::with_capacity(self.shard_count);
+            Vec::with_capacity(self.shard_count.get());
+        let mut shard_handles = Vec::with_capacity(self.shard_count.get());
 
-        for shard_id in 0..self.shard_count {
+        for shard_id in 0..self.shard_count.get() {
             let (cmd_tx, cmd_rx) = std_mpsc::channel();
             let event_tx = event_tx.clone();
             let handle = thread::Builder::new()
@@ -328,20 +332,19 @@ where
             lock_uuid: self.lock_uuid,
         }));
 
-        let persistence_interval = if self.persistence_interval > Duration::ZERO {
-            self.persistence_interval
-        } else {
-            Duration::from_secs(3600)
-        };
-        let mut persistence_tick = tokio::time::interval(persistence_interval);
-        let timeout_scan_interval = if self.poll_interval > Duration::ZERO {
-            std::cmp::max(
-                Duration::from_millis(25),
-                std::cmp::min(self.poll_interval, Duration::from_millis(250)),
-            )
-        } else {
-            Duration::from_millis(100)
-        };
+        let persistence_interval = self
+            .persistence_interval
+            .unwrap_or(NonZeroDuration::from_secs(3600).unwrap());
+        let mut persistence_tick = tokio::time::interval(persistence_interval.get());
+        let timeout_scan_interval = self
+            .poll_interval
+            .map(|poll_interval| {
+                std::cmp::max(
+                    Duration::from_millis(25),
+                    std::cmp::min(poll_interval.get(), Duration::from_millis(250)),
+                )
+            })
+            .unwrap_or(Duration::from_millis(100));
         let mut action_timeout_tick = tokio::time::interval(timeout_scan_interval);
         action_timeout_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
@@ -397,7 +400,10 @@ where
                     Some(CoordinatorEvent::PersistAck(ack))
                 }
                 _ = persistence_tick.tick() => {
-                    if self.persistence_interval > Duration::ZERO {
+                    // TODO: why do we only do this if the `self.persistence_interval`
+                    // is set, while we also have a local `persistence_interval` that
+                    // is guaranteed to be set?
+                    if self.persistence_interval.is_some() {
                         let params = ops::flush_instances_done::Params {
                             core_backend: self.core_backend.as_ref(),
                             pending: &mut instances_done_pending,
@@ -704,7 +710,7 @@ where
 
             self.store_available_instance_slots(executor_shards.len());
 
-            if instances_done_pending.len() >= self.instance_done_batch_size
+            if instances_done_pending.len() >= self.instance_done_batch_size.get()
                 && let Err(err) =
                     ops::flush_instances_done::run(ops::flush_instances_done::Params {
                         core_backend: self.core_backend.as_ref(),

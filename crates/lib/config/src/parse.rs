@@ -1,6 +1,8 @@
 use core::str::FromStr;
 use std::time::Duration;
 
+use waymark_nonzero_duration::NonZeroDuration;
+
 #[derive(Default)]
 pub struct CommaSeparated<T>(pub Vec<T>);
 
@@ -32,15 +34,37 @@ impl FromStr for FromMillis<Duration> {
     }
 }
 
+impl FromStr for FromMillis<NonZeroDuration> {
+    type Err = core::num::ParseIntError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self(NonZeroDuration::from_nonzero_millis(s.parse()?)))
+    }
+}
+
+impl FromStr for FromMillis<Option<NonZeroDuration>> {
+    type Err = <FromMillis<NonZeroDuration> as FromStr>::Err;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let FromMillis(duration) = s.parse()?;
+        Ok(Self(duration))
+    }
+}
+
 pub struct FromMillisMin<T, const MIN: u64>(pub T);
 
-impl<const MIN: u64> FromStr for FromMillisMin<Duration, MIN> {
+impl<T, const MIN: u64> FromStr for FromMillisMin<T, MIN>
+where
+    FromMillis<T>: FromStr<Err = core::num::ParseIntError>,
+{
     type Err = core::num::ParseIntError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let ms: u64 = s.parse()?;
         let ms = ms.max(MIN);
-        Ok(Self(Duration::from_millis(ms)))
+
+        let FromMillis(val) = ms.to_string().parse()?;
+        Ok(Self(val))
     }
 }
 

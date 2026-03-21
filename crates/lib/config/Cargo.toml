@@ -6,6 +6,7 @@ publish.workspace = true
 
 [dependencies]
 waymark-garbage-collector-config = { workspace = true }
+waymark-nonzero-duration = { workspace = true }
 waymark-scheduler-config = { workspace = true }
 waymark-webapp-config = { workspace = true }
 

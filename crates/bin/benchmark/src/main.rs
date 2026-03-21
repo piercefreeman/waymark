@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 use std::env;
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -31,7 +32,7 @@ use waymark_worker_core::WorkerPoolError;
 use waymark_worker_inline::{ActionCallable, InlineWorkerPool};
 
 const DEFAULT_DSN: &str = LOCAL_POSTGRES_DSN;
-const DEFAULT_MAX_CONCURRENT_INSTANCES: usize = 500;
+const DEFAULT_MAX_CONCURRENT_INSTANCES: NonZeroUsize = NonZeroUsize::new(500).unwrap();
 
 #[derive(Parser, Debug)]
 #[command(
@@ -39,12 +40,12 @@ const DEFAULT_MAX_CONCURRENT_INSTANCES: usize = 500;
     about = "Benchmark mixed IR workloads against Postgres."
 )]
 struct BenchmarkArgs {
-    #[arg(long, default_value_t = 10_000)]
-    count: usize,
+    #[arg(long, default_value_t = 10_000.try_into().unwrap())]
+    count: NonZeroUsize,
     #[arg(long, default_value_t = 5)]
     base: i64,
-    #[arg(long, default_value_t = 250)]
-    batch_size: usize,
+    #[arg(long, default_value_t = 250.try_into().unwrap())]
+    batch_size: NonZeroUsize,
     #[arg(long, default_value = DEFAULT_DSN)]
     dsn: String,
     #[arg(long, default_value_t = false)]
@@ -177,8 +178,8 @@ fn build_instance(case: &BenchmarkCase, workflow_version_id: Uuid) -> QueuedInst
 async fn queue_benchmark_instances(
     backend: &PostgresBackend,
     cases: &HashMap<String, BenchmarkCase>,
-    count_per_case: usize,
-    batch_size: usize,
+    count_per_case: NonZeroUsize,
+    batch_size: NonZeroUsize,
 ) -> usize {
     let mut version_ids = HashMap::new();
     for (name, case) in cases {
@@ -198,7 +199,7 @@ async fn queue_benchmark_instances(
 
     let mut case_names = Vec::new();
     for name in cases.keys() {
-        for _ in 0..count_per_case {
+        for _ in 0..count_per_case.get() {
             case_names.push(name.clone());
         }
     }
@@ -210,7 +211,7 @@ async fn queue_benchmark_instances(
         let case = cases.get(&name).expect("case");
         let version_id = *version_ids.get(&name).expect("workflow version");
         batch.push(build_instance(case, version_id));
-        if batch.len() >= batch_size {
+        if batch.len() >= batch_size.get() {
             backend
                 .queue_instances(&batch)
                 .await
@@ -304,12 +305,12 @@ struct BenchmarkStats {
 
 #[obs]
 async fn run_benchmark(
-    count_per_case: usize,
+    count_per_case: NonZeroUsize,
     base: i64,
-    batch_size: usize,
+    batch_size: NonZeroUsize,
     dsn: &str,
-    max_concurrent_instances: usize,
-    executor_shards: usize,
+    max_concurrent_instances: NonZeroUsize,
+    executor_shards: NonZeroUsize,
 ) -> BenchmarkStats {
     let cases = build_cases(base);
     if dsn == LOCAL_POSTGRES_DSN {
@@ -335,12 +336,12 @@ async fn run_benchmark(
             max_concurrent_instances,
             executor_shards,
             instance_done_batch_size: None,
-            poll_interval: Duration::from_secs_f64(0.05),
-            persistence_interval: Duration::from_secs_f64(0.1),
+            poll_interval: Some(Duration::from_secs_f64(0.05).try_into().unwrap()),
+            persistence_interval: Some(Duration::from_secs_f64(0.1).try_into().unwrap()),
             lock_uuid: Uuid::new_v4(),
-            lock_ttl: Duration::from_secs(15),
-            lock_heartbeat: Duration::from_secs(5),
-            evict_sleep_threshold: Duration::from_secs(10),
+            lock_ttl: Duration::from_secs(15).try_into().unwrap(),
+            lock_heartbeat: Duration::from_secs(5).try_into().unwrap(),
+            evict_sleep_threshold: Duration::from_secs(10).try_into().unwrap(),
             skip_sleep: false,
             active_instance_gauge: None,
         },
@@ -355,24 +356,18 @@ async fn run_benchmark(
     }
 }
 
-fn benchmark_max_concurrent() -> usize {
+fn benchmark_max_concurrent() -> NonZeroUsize {
     env::var("WAYMARK_MAX_CONCURRENT_INSTANCES")
         .ok()
-        .and_then(|value| value.trim().parse::<usize>().ok())
+        .and_then(|value| value.trim().parse::<NonZeroUsize>().ok())
         .unwrap_or(DEFAULT_MAX_CONCURRENT_INSTANCES)
-        .max(1)
 }
 
-fn benchmark_executor_shards() -> usize {
+fn benchmark_executor_shards() -> NonZeroUsize {
     env::var("WAYMARK_EXECUTOR_SHARDS")
         .ok()
-        .and_then(|value| value.trim().parse::<usize>().ok())
-        .unwrap_or_else(|| {
-            std::thread::available_parallelism()
-                .map(|count| count.get())
-                .unwrap_or(1)
-        })
-        .max(1)
+        .and_then(|value| value.trim().parse::<NonZeroUsize>().ok())
+        .unwrap_or_else(|| std::thread::available_parallelism().unwrap_or(1.try_into().unwrap()))
 }
 
 fn main() {

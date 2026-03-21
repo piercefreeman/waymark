@@ -28,18 +28,6 @@ pub struct Tracker {
 }
 
 impl Calc {
-    /// Create a new [`Calc`] instance with the `max_concurrent_instances`
-    /// initialized to the provided value or 1.
-    #[deprecated = "prefer accepting the actual NonZeroUsize as user input"]
-    pub fn new_saturating(max_concurrent_instances: usize) -> Self {
-        let max_concurrent_instances = NonZeroUsize::new(max_concurrent_instances)
-            .unwrap_or_else(|| unsafe { NonZeroUsize::new_unchecked(1) });
-
-        Self {
-            max_concurrent_instances,
-        }
-    }
-
     /// Get the amount of available slots by discounting the active instances
     /// from the max number of instances.
     /// Saturates to `0` if `active_instances` exceeds
