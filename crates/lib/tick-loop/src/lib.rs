@@ -25,12 +25,11 @@ pub enum Error<TickError> {
     Tick(TickError),
 }
 
-pub async fn run<TickFn, TickFut, TickError>(
+pub async fn run<'f, TickFn, TickError>(
     params: Params<TickFn>,
 ) -> Result<core::convert::Infallible, Error<TickError>>
 where
-    TickFn: FnMut() -> TickFut,
-    TickFut: Future<Output = Result<(), TickError>>,
+    TickFn: AsyncFnMut() -> Result<(), TickError> + 'f,
     TickError: core::fmt::Debug,
 {
     let Params {
