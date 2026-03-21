@@ -172,15 +172,12 @@ where
         shutdown_token: tokio_util::sync::CancellationToken,
         exit_on_idle: bool,
     ) -> Self {
-        let available_instance_slots_calc = crate::available_instance_slots::Calc {
-            max_concurrent_instances: config.max_concurrent_instances,
-        };
         let instance_done_batch_size = config
             .instance_done_batch_size
             .unwrap_or(config.max_concurrent_instances);
 
         let available_instance_slot_tracker =
-            crate::available_instance_slots::Tracker::from_scratch(available_instance_slots_calc);
+            crate::available_instance_slots::Tracker::new(config.max_concurrent_instances);
         let available_instance_slot_tracker = Arc::new(available_instance_slot_tracker);
 
         let worker_pool = worker_pool.into();
@@ -227,9 +224,8 @@ where
     CoreBackend::PollQueuedInstancesError: core::fmt::Debug,
     CoreBackend::PollQueuedInstancesError: Send + Sync + 'static,
 {
+    #[deprecated]
     fn store_available_instance_slots(&self, active_instances: usize) {
-        self.available_instance_slot_tracker
-            .update_saturating(active_instances);
         if let Some(gauge) = &self.active_instance_gauge {
             gauge.store(active_instances, Ordering::SeqCst);
         }
@@ -260,8 +256,6 @@ where
             shard_handles.push(handle);
         }
         drop(event_tx);
-
-        self.store_available_instance_slots(0);
 
         let (completion_tx, mut completion_rx) = mpsc::channel::<Vec<ActionCompletion>>(32);
         let (instance_tx, mut instance_rx) = mpsc::channel::<
@@ -429,6 +423,7 @@ where
                 }
             };
 
+            let mut total_reserve: Option<crate::available_instance_slots::NonZeroReserve> = None;
             let mut all_completions: Vec<ActionCompletion> = Vec::new();
             let mut all_instances: Vec<QueuedInstance> = Vec::new();
             let mut all_steps: Vec<shard::Step> = Vec::new();
@@ -443,8 +438,10 @@ where
                 }
                 CoordinatorEvent::Instance(queued_instances_polling::Message::Batch {
                     instances,
+                    reserve,
                 }) => {
                     all_instances.extend(instances);
+                    total_reserve = Some(reserve);
                 }
                 CoordinatorEvent::Instance(queued_instances_polling::Message::Pending) => {
                     queued_instances_poller_is_pending = true;
@@ -482,8 +479,13 @@ where
             }
             while let Ok(message) = instance_rx.try_recv() {
                 match message {
-                    queued_instances_polling::Message::Batch { instances } => {
+                    queued_instances_polling::Message::Batch { instances, reserve } => {
                         all_instances.extend(instances);
+                        if let Some(total_reserve) = total_reserve.as_mut() {
+                            total_reserve.merge(reserve);
+                        } else {
+                            total_reserve = Some(reserve);
+                        }
                     }
                     queued_instances_polling::Message::Pending => {
                         queued_instances_poller_is_pending = true;

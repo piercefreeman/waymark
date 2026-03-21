@@ -1,98 +1,110 @@
-//! The available instance slots privitives.
+//! The available instance slots tracker.
 
-#![deny(missing_docs, clippy::missing_docs_in_private_items)]
+#![warn(missing_docs, clippy::missing_docs_in_private_items)]
 
-use std::{num::NonZeroUsize, sync::atomic::AtomicUsize};
+use std::{num::NonZeroUsize, sync::Arc};
 
-/// [`Calc`] encapsulates the notion of the available instance slots.
-/// It is responsible for providing the computations necessary to obtain
-/// the amount of available instance slots based on the max concurrent
-/// instances.
-pub struct Calc {
-    /// The max amount of concurrent instances.
-    /// At least one instance is required.
-    pub max_concurrent_instances: NonZeroUsize,
-}
-
-/// [`Tracker`] encapsulates an available instance slots calculation logic and
-/// a matrialized copy of computed available instance slots.
-///
-/// It also provides access to the available instance slots in an atomic and
-/// thread-safe way.
+/// [`Tracker`] keeps track of the number of available instances, and allows
+/// waiting and reserving them.
+#[derive(Debug)]
 pub struct Tracker {
-    /// Calculation logic and parameters for computing the available slots.
-    pub calc: Calc,
-
-    /// The materialized copy of the pre-computed available slots value.
-    pub available_slots: AtomicUsize,
+    /// Internal semaphore.
+    ///
+    /// Private, since making it pub would allow adding permits, which would
+    /// break the assumed invariants.
+    semaphore: Arc<tokio::sync::Semaphore>,
 }
 
-impl Calc {
-    /// Get the amount of available slots by discounting the active instances
-    /// from the max number of instances.
-    /// Saturates to `0` if `active_instances` exceeds
-    /// the configured `max_concurrent_instances`.
-    pub fn discounting_active_saturating(&self, active_instances: usize) -> usize {
-        self.max_concurrent_instances
-            .get()
-            .saturating_sub(active_instances)
-    }
+/// A non-zero reserve, guaranteed to hold a non-zero amount of permits.
+#[derive(Debug)]
+pub struct NonZeroReserve {
+    /// The internal permit, guanranteed to be non-zero by construction.
+    permit: tokio::sync::OwnedSemaphorePermit,
+}
 
-    /// Get the amount of available slots by discounting the active instances
-    /// from the max number of instances.
-    /// Returns `None` if `active_instances` exceeds
-    /// the configured `max_concurrent_instances`.
-    pub fn discounting_active_checked(&self, active_instances: usize) -> Option<usize> {
-        self.max_concurrent_instances
-            .get()
-            .checked_sub(active_instances)
-    }
+/// An error when acquiring the permit from a closed semaphore.
+#[derive(Debug, thiserror::Error)]
+#[error("semaphore closed")]
+pub struct AcquireError;
+
+/// An error when not holding enough permits to give them back.
+#[derive(Debug, thiserror::Error)]
+#[error("not holding enough permits to give {to_give_back} back")]
+pub struct NotHoldingEnoughToGiveBackError {
+    /// The amount of permits that were attempted to give back.
+    pub to_give_back: NonZeroUsize,
 }
 
 impl Tracker {
-    /// Create a new tracker with no active instances.
-    pub fn from_scratch(calc: Calc) -> Self {
-        // Should always succeed.
-        Self::with_active_instances(calc, 0).unwrap()
+    /// Create a new tracker with the provided maximum number of concurrent
+    /// instances.
+    pub fn new(max_concurrent_instances: NonZeroUsize) -> Self {
+        let semaphore = tokio::sync::Semaphore::new(max_concurrent_instances.get());
+        let semaphore = semaphore.into();
+        Self { semaphore }
     }
 
-    /// Create a new tracker with the specified amount of active instances.
-    pub fn with_active_instances(calc: Calc, active_instances: usize) -> Option<Self> {
-        let available_slots = calc.discounting_active_checked(active_instances)?;
-        let available_slots = AtomicUsize::new(available_slots);
-        Some(Self {
-            calc,
-            available_slots,
-        })
+    /// Wait for at least one slot to become available and then reserve all
+    /// currently available slots.
+    pub async fn reserve(&self) -> Result<NonZeroReserve, AcquireError> {
+        // Wait and acquire at least one permit.
+        let mut permit = self
+            .semaphore
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| AcquireError)?;
+
+        // This is a quite crude and inefficient implementation, but this will
+        // do for now.
+        // TODO: implement a custom Semaphore for this that allows consuming
+        // up to `n` permits atomically (as opposed to exactly `n` like what
+        // `tokio::sync::Semaphore::try_acquire_many{_owned}` do).
+        loop {
+            let available_permits = self.semaphore.available_permits();
+            if available_permits == 0 {
+                break;
+            }
+
+            let result = self
+                .semaphore
+                .clone()
+                .try_acquire_many_owned(available_permits as u32);
+            let next_permit = match result {
+                Ok(permit) => permit,
+                Err(tokio::sync::TryAcquireError::Closed) => return Err(AcquireError),
+                Err(tokio::sync::TryAcquireError::NoPermits) => continue,
+            };
+
+            permit.merge(next_permit);
+            break;
+        }
+
+        Ok(NonZeroReserve { permit })
+    }
+}
+
+impl NonZeroReserve {
+    /// Return how many slots are currently reserved by this reserve.
+    pub fn reserved_slots(&self) -> NonZeroUsize {
+        self.permit.num_permits().try_into().unwrap()
     }
 
-    /// Store raw available slots value.
-    fn store_raw(&self, available_slots: usize) {
-        self.available_slots
-            .store(available_slots, std::sync::atomic::Ordering::SeqCst);
+    /// Return `to_give_back` reserved slots back to the tracker.
+    pub fn give_back(
+        &mut self,
+        to_give_back: NonZeroUsize,
+    ) -> Result<(), NotHoldingEnoughToGiveBackError> {
+        let permits_to_give_back = self
+            .permit
+            .split(to_give_back.get())
+            .ok_or(NotHoldingEnoughToGiveBackError { to_give_back })?;
+        drop(permits_to_give_back);
+        Ok(())
     }
 
-    /// Update the available slots by discounting the provided active instances
-    /// value.
-    /// Returns `None` if the number of active instances exceeds the capacity.
-    #[allow(dead_code)]
-    pub fn update_checked(&self, active_instances: usize) -> Option<()> {
-        let available_slots = self.calc.discounting_active_checked(active_instances)?;
-        self.store_raw(available_slots);
-        Some(())
-    }
-
-    /// Update the available slots by discounting the provided active instances
-    /// value.
-    /// Saturates to `0` if the number of active instances exceeds the capacity.
-    pub fn update_saturating(&self, active_instances: usize) {
-        let available_slots = self.calc.discounting_active_saturating(active_instances);
-        self.store_raw(available_slots);
-    }
-
-    /// Get the currently stored value of available instance slot amount.
-    pub fn get(&self) -> usize {
-        self.available_slots
-            .load(std::sync::atomic::Ordering::SeqCst)
+    /// Merge another non-zero reserve into this one.
+    pub fn merge(&mut self, other: NonZeroReserve) {
+        self.permit.merge(other.permit);
     }
 }

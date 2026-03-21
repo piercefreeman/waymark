@@ -21,6 +21,18 @@ where
     pub queued_instance_tx: tokio::sync::mpsc::Sender<super::Message<BackendError>>,
 }
 
+#[derive(Debug, thiserror::Error)]
+enum Error<T> {
+    #[error("reserving available slot: {0}")]
+    AvailableSlotsReservation(available_instance_slots::AcquireError),
+
+    #[error("giving back available slot: {0}")]
+    AvailableSlotsGiveBack(available_instance_slots::NotHoldingEnoughToGiveBackError),
+
+    #[error("sending the instance message: {0}")]
+    SendWithStop(send_with_stop::Error<T>),
+}
+
 pub type BackendErrorFor<T> = <T as waymark_core_backend::CoreBackend>::PollQueuedInstancesError;
 
 pub async fn run<CoreBackend>(params: Params<CoreBackend, BackendErrorFor<CoreBackend>>)
@@ -45,10 +57,11 @@ where
     let shutdown_token = &shutdown_token;
 
     let tick_fn = || async move {
-        let available_slots = available_instance_slots_tracker.get();
-        let Some(batch_size) = std::num::NonZeroUsize::new(available_slots) else {
-            return Ok(());
-        };
+        let mut reserve = available_instance_slots_tracker
+            .reserve()
+            .await
+            .map_err(Error::AvailableSlotsReservation)?;
+        let batch_size = reserve.reserved_slots();
 
         let lock_expires_at = Utc::now()
             + chrono::Duration::from_std(lock_ttl.get())
@@ -67,7 +80,12 @@ where
             Ok(instances) => {
                 let count = instances.len();
                 tracing::debug!(count, "polled queued instances");
-                super::Message::Batch { instances }
+
+                reserve
+                    .give_back(count)
+                    .map_err(Error::AvailableSlotsGiveBack)?;
+
+                super::Message::Batch { instances, reserve }
             }
             Err(error) => match error.kind() {
                 waymark_core_backend::poll_queued_instances::ErrorKind::NoInstances => {
@@ -88,6 +106,7 @@ where
             "instance message",
         )
         .await
+        .map_err(Error::SendWithStop)
     };
 
     let tick_interval = poll_interval.map(|poll_interval| {
