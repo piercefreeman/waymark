@@ -654,9 +654,9 @@ dependencies = [
 
 [[package]]
 name = "envfury"
-version = "0.2.1"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5d8ddcfead07f5b4acff7a73b51a6c991f2ffe7dab0f6cfd5f3a4a4998e14c2d"
+checksum = "cdefb73612e7fa39bd875a78d0a509c63e4968731e65d05569e2b13b53e2fe28"
 dependencies = [
  "thiserror",
 ]
@@ -3596,6 +3596,7 @@ name = "waymark-config"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "envfury",
  "waymark-garbage-collector-config",
  "waymark-scheduler-config",
  "waymark-webapp-config",
