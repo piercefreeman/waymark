@@ -39,55 +39,53 @@ where
         queued_instance_tx,
     } = params;
 
-    let available_instance_slots_tracker = available_instance_slots_tracker.as_ref();
-    let core_backend = core_backend.as_ref();
-    let queued_instance_tx = &queued_instance_tx;
-    let shutdown_token = &shutdown_token;
+    let tick_fn = {
+        let shutdown_token = shutdown_token.clone();
+        async move || {
+            let available_slots = available_instance_slots_tracker.get();
+            let Some(batch_size) = std::num::NonZeroUsize::new(available_slots) else {
+                return Ok(());
+            };
 
-    let tick_fn = || async move {
-        let available_slots = available_instance_slots_tracker.get();
-        let Some(batch_size) = std::num::NonZeroUsize::new(available_slots) else {
-            return Ok(());
-        };
+            let lock_expires_at = Utc::now()
+                + chrono::Duration::from_std(lock_ttl.get())
+                    .unwrap_or_else(|_| chrono::Duration::seconds(0));
+            let batch = core_backend
+                .poll_queued_instances(
+                    batch_size,
+                    LockClaim {
+                        lock_uuid,
+                        lock_expires_at,
+                    },
+                )
+                .await;
 
-        let lock_expires_at = Utc::now()
-            + chrono::Duration::from_std(lock_ttl.get())
-                .unwrap_or_else(|_| chrono::Duration::seconds(0));
-        let batch = core_backend
-            .poll_queued_instances(
-                batch_size,
-                LockClaim {
-                    lock_uuid,
-                    lock_expires_at,
+            let message = match batch {
+                Ok(instances) => {
+                    let count = instances.len();
+                    tracing::debug!(count, "polled queued instances");
+                    super::Message::Batch { instances }
+                }
+                Err(error) => match error.kind() {
+                    waymark_core_backend::poll_queued_instances::ErrorKind::NoInstances => {
+                        // No instances were obtained.
+                        tracing::trace!(?error, "no instances from core backend");
+                        super::Message::Pending
+                    }
+                    waymark_core_backend::poll_queued_instances::ErrorKind::Internal => {
+                        super::Message::Error(error)
+                    }
                 },
+            };
+
+            send_with_stop(
+                &queued_instance_tx,
+                message,
+                shutdown_token.cancelled(),
+                "instance message",
             )
-            .await;
-
-        let message = match batch {
-            Ok(instances) => {
-                let count = instances.len();
-                tracing::debug!(count, "polled queued instances");
-                super::Message::Batch { instances }
-            }
-            Err(error) => match error.kind() {
-                waymark_core_backend::poll_queued_instances::ErrorKind::NoInstances => {
-                    // No instances were obtained.
-                    tracing::trace!(?error, "no instances from core backend");
-                    super::Message::Pending
-                }
-                waymark_core_backend::poll_queued_instances::ErrorKind::Internal => {
-                    super::Message::Error(error)
-                }
-            },
-        };
-
-        send_with_stop(
-            queued_instance_tx,
-            message,
-            shutdown_token.cancelled(),
-            "instance message",
-        )
-        .await
+            .await
+        }
     };
 
     let tick_interval = poll_interval.map(|poll_interval| {
