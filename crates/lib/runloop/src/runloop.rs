@@ -107,7 +107,8 @@ where
     core_backend: Arc<CoreBackend>,
     registry_backend: Arc<RegistryBackend>,
     workflow_cache: HashMap<Uuid, Arc<DAG>>,
-    available_instance_slot_tracker: Arc<crate::available_instance_slots::Tracker>,
+    available_instance_slots_tracker: Arc<crate::available_instance_slots::Tracker>,
+    available_instance_slots_reader: crate::available_instance_slots::Reader,
     instance_done_batch_size: NonZeroUsize,
     poll_interval: Option<NonZeroDuration>,
     persistence_interval: Option<NonZeroDuration>,
@@ -179,9 +180,9 @@ where
             .instance_done_batch_size
             .unwrap_or(config.max_concurrent_instances);
 
-        let available_instance_slot_tracker =
+        let (available_instance_slots_tracker, available_instance_slots_reader) =
             crate::available_instance_slots::Tracker::from_scratch(available_instance_slots_calc);
-        let available_instance_slot_tracker = Arc::new(available_instance_slot_tracker);
+        let available_instance_slots_tracker = Arc::new(available_instance_slots_tracker);
 
         let worker_pool = worker_pool.into();
         let backend = backend.into();
@@ -195,7 +196,8 @@ where
             core_backend,
             registry_backend,
             workflow_cache: HashMap::new(),
-            available_instance_slot_tracker,
+            available_instance_slots_tracker,
+            available_instance_slots_reader,
             instance_done_batch_size,
             poll_interval: config.poll_interval,
             persistence_interval: config.persistence_interval,
@@ -228,8 +230,11 @@ where
     CoreBackend::PollQueuedInstancesError: Send + Sync + 'static,
 {
     fn store_available_instance_slots(&self, active_instances: usize) {
-        self.available_instance_slot_tracker
-            .update_saturating(active_instances);
+        // TODO: fix error handling later
+        let _ = self
+            .available_instance_slots_tracker
+            .update(active_instances);
+
         if let Some(gauge) = &self.active_instance_gauge {
             gauge.store(active_instances, Ordering::SeqCst);
         }
@@ -309,7 +314,7 @@ where
             let params = queued_instances_polling::r#loop::Params {
                 shutdown_token: self.shutdown_token.clone(),
                 core_backend: self.core_backend.clone(),
-                available_instance_slots_tracker: Arc::clone(&self.available_instance_slot_tracker),
+                available_instance_slots_reader: self.available_instance_slots_reader.clone(),
                 poll_interval: self.poll_interval,
                 lock_uuid: self.lock_uuid,
                 lock_ttl: self.lock_ttl,
