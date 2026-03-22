@@ -7,30 +7,31 @@ use std::num::{NonZeroU64, NonZeroUsize};
 use std::time::Duration;
 
 use waymark_garbage_collector_config::GarbageCollectorConfig;
+use waymark_nonzero_duration::NonZeroDuration;
 use waymark_scheduler_config::SchedulerConfig;
 
 #[derive(Debug, Clone)]
 pub struct WorkerConfig {
     pub database_url: String,
     pub worker_grpc_addr: SocketAddr,
-    pub worker_count: usize,
-    pub concurrent_per_worker: usize,
+    pub worker_count: NonZeroUsize,
+    pub concurrent_per_worker: NonZeroUsize,
     pub user_modules: Vec<String>,
-    pub max_action_lifecycle: Option<u64>,
-    pub poll_interval: Duration,
-    pub max_concurrent_instances: usize,
-    pub executor_shards: usize,
-    pub instance_done_batch_size: Option<usize>,
-    pub persistence_interval: Duration,
-    pub lock_ttl: Duration,
-    pub lock_heartbeat: Duration,
-    pub evict_sleep_threshold: Duration,
-    pub expired_lock_reclaimer_interval: Duration,
-    pub expired_lock_reclaimer_batch_size: usize,
+    pub max_action_lifecycle: Option<NonZeroU64>,
+    pub poll_interval: Option<NonZeroDuration>,
+    pub max_concurrent_instances: NonZeroUsize,
+    pub executor_shards: NonZeroUsize,
+    pub instance_done_batch_size: Option<NonZeroUsize>,
+    pub persistence_interval: Option<NonZeroDuration>,
+    pub lock_ttl: NonZeroDuration,
+    pub lock_heartbeat: NonZeroDuration,
+    pub evict_sleep_threshold: NonZeroDuration,
+    pub expired_lock_reclaimer_interval: NonZeroDuration,
+    pub expired_lock_reclaimer_batch_size: NonZeroUsize,
     pub scheduler: SchedulerConfig,
     pub garbage_collector: GarbageCollectorConfig,
     pub webapp: waymark_webapp_config::WebappConfig,
-    pub profile_interval: Duration,
+    pub profile_interval: NonZeroDuration,
 }
 
 impl WorkerConfig {
@@ -43,7 +44,7 @@ impl WorkerConfig {
 
         let worker_count = envfury::or_else("WAYMARK_WORKER_COUNT", default_worker_count)?;
 
-        let concurrent_per_worker = envfury::or("WAYMARK_CONCURRENT_PER_WORKER", 10)?;
+        let concurrent_per_worker = envfury::or_parse("WAYMARK_CONCURRENT_PER_WORKER", "10")?;
 
         let CommaSeparated(user_modules) = envfury::or_parse("WAYMARK_USER_MODULE", "")?;
 
@@ -113,20 +114,20 @@ impl WorkerConfig {
         Ok(Self {
             database_url,
             worker_grpc_addr,
-            worker_count: worker_count.get(),
+            worker_count,
             concurrent_per_worker,
             user_modules,
             max_action_lifecycle,
             poll_interval,
             max_concurrent_instances,
-            executor_shards: executor_shards.get(),
+            executor_shards,
             instance_done_batch_size,
             persistence_interval,
             lock_ttl,
             lock_heartbeat,
             evict_sleep_threshold,
             expired_lock_reclaimer_interval,
-            expired_lock_reclaimer_batch_size: expired_lock_reclaimer_batch_size.get(),
+            expired_lock_reclaimer_batch_size,
             scheduler,
             garbage_collector,
             webapp,

@@ -9,6 +9,7 @@ use tracing::{info, warn};
 use uuid::Uuid;
 use waymark_backends_core::BackendError;
 use waymark_core_backend::{ActionDone, GraphUpdate, InstanceLockStatus, LockClaim};
+use waymark_nonzero_duration::NonZeroDuration;
 
 const PERSIST_COALESCE_WINDOW: Duration = Duration::from_millis(2);
 const PERSIST_COALESCE_MAX_COMMANDS: usize = 128;
@@ -20,7 +21,7 @@ where
     pub command_rx: tokio::sync::mpsc::Receiver<super::Command>,
     pub ack_tx: tokio::sync::mpsc::UnboundedSender<super::Ack>,
     pub core_backend: Arc<CoreBackend>,
-    pub lock_ttl: Duration,
+    pub lock_ttl: NonZeroDuration,
     pub lock_uuid: Uuid,
 }
 
@@ -77,7 +78,7 @@ where
                 return Ok(HashMap::new());
             }
             let lock_expires_at = Utc::now()
-                + chrono::Duration::from_std(lock_ttl)
+                + chrono::Duration::from_std(lock_ttl.get())
                     .unwrap_or_else(|_| chrono::Duration::seconds(0));
             let lock_statuses = core_backend
                 .save_graphs(

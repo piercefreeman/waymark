@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
+    num::NonZeroUsize,
     sync::Arc,
 };
 
@@ -47,7 +48,7 @@ pub struct Params<'a, WorkflowRegistryBackend: ?Sized> {
     /// Round-robin cursor used to spread newly claimed instances across shards.
     pub next_shard: &'a mut usize,
     /// Total number of available shards used with the round-robin cursor.
-    pub shard_count: usize,
+    pub shard_count: NonZeroUsize,
     /// Newly claimed instances collected during the current coordinator tick.
     pub all_instances: NEVec<QueuedInstance>,
 }
