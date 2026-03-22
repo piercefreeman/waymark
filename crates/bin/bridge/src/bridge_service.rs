@@ -280,7 +280,7 @@ impl proto::workflow_service_server::WorkflowService for BridgeService {
             };
 
             runtime.block_on(async move {
-                let mut runloop = RunLoop::new(
+                let runloop = RunLoop::new(
                     worker_pool,
                     backend,
                     RunLoopConfig {

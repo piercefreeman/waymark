@@ -237,7 +237,7 @@ where
 {
     #[obs]
     pub async fn run(
-        &mut self,
+        mut self,
     ) -> Result<(), Error<queued_instances_polling::r#loop::BackendErrorFor<CoreBackend>>> {
         self.worker_pool.launch().await.map_err(Error::WorkerPool)?;
 

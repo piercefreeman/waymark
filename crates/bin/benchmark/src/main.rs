@@ -329,7 +329,7 @@ async fn run_benchmark(
     println!("Queued {total} instances across {} IR jobs", cases.len());
 
     let worker_pool = InlineWorkerPool::new(action_registry());
-    let mut runloop = RunLoop::new(
+    let runloop = RunLoop::new(
         worker_pool,
         backend.clone(),
         RunLoopConfig {
