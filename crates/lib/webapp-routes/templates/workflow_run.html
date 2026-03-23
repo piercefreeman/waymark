@@ -16,12 +16,25 @@
             <h1 class="text-3xl font-semibold tracking-tight text-zinc-900 dark:text-white">Run {{ instance.id }}</h1>
             <p class="text-sm text-zinc-600 dark:text-zinc-400">{{ workflow.name }}</p>
         </div>
-        <button id="export-btn" onclick="exportInstance()" class="inline-flex items-center gap-2 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-4 py-2 text-sm font-medium text-zinc-700 dark:text-zinc-300 shadow-sm hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors">
-            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-            </svg>
-            Export JSON
-        </button>
+        <div class="flex flex-col gap-2 sm:flex-row">
+            <button
+                id="queue-latest-btn"
+                type="button"
+                onclick="openQueueLatestModal()"
+                class="inline-flex items-center justify-center gap-2 rounded-lg border border-blue-500/50 bg-blue-500/10 px-4 py-2 text-sm font-medium text-blue-700 transition hover:bg-blue-500/15 dark:text-blue-300"
+            >
+                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                </svg>
+                Queue Latest
+            </button>
+            <button id="export-btn" type="button" onclick="exportInstance()" class="inline-flex items-center justify-center gap-2 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-4 py-2 text-sm font-medium text-zinc-700 dark:text-zinc-300 shadow-sm hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors">
+                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+                Export JSON
+            </button>
+        </div>
     </div>
     <dl class="grid gap-6 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-6 md:grid-cols-2 lg:grid-cols-3">
         <div class="space-y-1">
@@ -179,13 +192,102 @@
 </div>
 <!-- Backdrop (invisible - just for click-to-close) -->
 <div id="detail-backdrop" class="fixed inset-0 z-40 opacity-0 pointer-events-none transition-opacity duration-300"></div>
+
+<div id="queue-latest-modal" class="fixed inset-0 z-50 hidden items-center justify-center px-4">
+    <div class="absolute inset-0 bg-zinc-950/50 backdrop-blur-sm" onclick="closeQueueLatestModal()"></div>
+    <div class="relative w-full max-w-lg rounded-2xl border border-white/30 bg-white/90 p-6 shadow-[0_0_60px_-15px_rgba(0,0,0,0.35)] backdrop-blur-xl dark:border-zinc-700/50 dark:bg-black/80">
+        <div class="space-y-3">
+            <div>
+                <p class="text-xs uppercase tracking-[0.3em] text-blue-600 dark:text-blue-300">Queue New Run</p>
+                <h2 class="mt-2 text-2xl font-semibold text-zinc-900 dark:text-white">Queue this workflow on the latest version?</h2>
+            </div>
+            <p class="text-sm leading-6 text-zinc-600 dark:text-zinc-300">
+                This will create a new queued workflow instance for <span class="font-medium text-zinc-900 dark:text-white">{{ workflow.name }}</span> using the same input payload shown on this page.
+            </p>
+            <div class="rounded-xl border border-blue-500/30 bg-blue-500/10 p-4 text-sm text-blue-900 dark:text-blue-100">
+                The new run will target the latest registered workflow version, not necessarily the version used by run <span class="font-mono">{{ instance.id }}</span>.
+            </div>
+            <p id="queue-latest-error" class="hidden rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-700 dark:text-red-300"></p>
+        </div>
+        <div class="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+            <button
+                id="queue-latest-cancel"
+                type="button"
+                onclick="closeQueueLatestModal()"
+                class="inline-flex items-center justify-center rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            >
+                Cancel
+            </button>
+            <button
+                id="queue-latest-confirm"
+                type="button"
+                onclick="queueLatestInstance()"
+                class="inline-flex items-center justify-center gap-2 rounded-lg border border-blue-500/50 bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-500"
+            >
+                Queue Latest Run
+            </button>
+        </div>
+    </div>
+</div>
 {% endblock content %}
 
 {% block scripts %}
 <script>
 const runDataUrl = "/api/instance/{{ instance.id }}/run-data";
 const runActionLogsUrl = "/api/instance/{{ instance.id }}/action-logs";
+const requeueUrl = "/api/instance/{{ instance.id }}/requeue";
 const exportUrl = "/api/instance/{{ instance.id }}/export";
+
+function openQueueLatestModal() {
+  const modal = document.getElementById('queue-latest-modal');
+  const error = document.getElementById('queue-latest-error');
+  error.classList.add('hidden');
+  error.textContent = '';
+  modal.classList.remove('hidden');
+  modal.classList.add('flex');
+}
+
+function closeQueueLatestModal() {
+  const modal = document.getElementById('queue-latest-modal');
+  if (!modal) return;
+  modal.classList.add('hidden');
+  modal.classList.remove('flex');
+}
+
+async function queueLatestInstance() {
+  const confirmBtn = document.getElementById('queue-latest-confirm');
+  const cancelBtn = document.getElementById('queue-latest-cancel');
+  const error = document.getElementById('queue-latest-error');
+  const originalText = confirmBtn.innerHTML;
+  error.classList.add('hidden');
+  error.textContent = '';
+  confirmBtn.disabled = true;
+  cancelBtn.disabled = true;
+  confirmBtn.innerHTML = `
+    <svg class="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+    </svg>
+    Queueing...
+  `;
+
+  try {
+    const response = await fetch(requeueUrl, { method: 'POST' });
+    if (!response.ok) {
+      throw new Error(`Queue failed (${response.status})`);
+    }
+    const data = await response.json();
+    window.location.href = data.redirect_url || `/instance/${data.instance_id}`;
+  } catch (err) {
+    console.error('Queue latest failed:', err);
+    error.textContent = `Failed to queue latest workflow run: ${err.message}`;
+    error.classList.remove('hidden');
+  } finally {
+    confirmBtn.disabled = false;
+    cancelBtn.disabled = false;
+    confirmBtn.innerHTML = originalText;
+  }
+}
 
 async function exportInstance() {
   const btn = document.getElementById('export-btn');
@@ -224,6 +326,13 @@ async function exportInstance() {
     btn.innerHTML = originalText;
   }
 }
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') {
+    closeQueueLatestModal();
+  }
+});
+
 let nodeData = [];
 const graphData = {{ graph_data | json_encode | safe }};
 const actionLogsCache = {};

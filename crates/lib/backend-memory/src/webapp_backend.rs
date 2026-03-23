@@ -39,6 +39,12 @@ impl WebappBackend for crate::MemoryBackend {
         Ok(None)
     }
 
+    async fn requeue_instance_to_latest_version(&self, instance_id: Uuid) -> BackendResult<Uuid> {
+        Err(BackendError::Message(format!(
+            "requeue is not supported by memory backend for instance: {instance_id}"
+        )))
+    }
+
     async fn get_workflow_graph(
         &self,
         _instance_id: Uuid,

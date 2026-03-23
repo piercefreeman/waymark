@@ -20,6 +20,7 @@ pub trait WebappBackend: Send + Sync {
         &self,
         instance_id: Uuid,
     ) -> BackendResult<Option<ExecutionGraphView>>;
+    async fn requeue_instance_to_latest_version(&self, instance_id: Uuid) -> BackendResult<Uuid>;
     async fn get_workflow_graph(
         &self,
         instance_id: Uuid,

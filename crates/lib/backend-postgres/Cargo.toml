@@ -11,6 +11,7 @@ waymark-core-backend = { workspace = true }
 waymark-dag = { workspace = true }
 waymark-dag-builder = { workspace = true }
 waymark-garbage-collector-backend = { workspace = true }
+waymark-ir-conversions = { workspace = true }
 waymark-observability = { workspace = true }
 waymark-proto = { workspace = true }
 waymark-runner = { workspace = true }
@@ -28,7 +29,7 @@ prost = { workspace = true }
 rmp-serde = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-sqlx = { workspace = true, features = ["postgres", "uuid", "chrono"] }
+sqlx = { workspace = true, features = ["postgres", "uuid", "chrono", "runtime-tokio"] }
 tokio = { workspace = true, features = ["macros"] }
 tracing = { workspace = true }
 uuid = { workspace = true }

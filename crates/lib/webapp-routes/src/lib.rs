@@ -74,6 +74,10 @@ pub fn build_router(state: WebappState) -> Router {
             "/api/instance/{instance_id}/action-logs/{action_id}",
             get(get_action_logs),
         )
+        .route(
+            "/api/instance/{instance_id}/requeue",
+            post(requeue_instance),
+        )
         .route("/api/instance/{instance_id}/export", get(export_instance))
         .route(
             "/api/invocations/filter-values/{column}",
@@ -346,6 +350,34 @@ async fn export_instance(
     };
 
     Ok(Json(export))
+}
+
+#[derive(Debug, Serialize)]
+struct RequeueInstanceResponse {
+    instance_id: String,
+    redirect_url: String,
+}
+
+async fn requeue_instance(
+    State(state): State<WebappState>,
+    Path(instance_id): Path<Uuid>,
+) -> Result<Json<RequeueInstanceResponse>, HttpError> {
+    let queued_instance_id = state
+        .database
+        .requeue_instance_to_latest_version(instance_id)
+        .await
+        .map_err(|err| {
+            error!(?err, %instance_id, "failed to requeue instance to latest workflow version");
+            HttpError {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                message: "failed to queue latest workflow instance".to_string(),
+            }
+        })?;
+
+    Ok(Json(RequeueInstanceResponse {
+        instance_id: queued_instance_id.to_string(),
+        redirect_url: format!("/instance/{queued_instance_id}"),
+    }))
 }
 
 async fn get_filter_values(
@@ -1379,6 +1411,28 @@ mod tests {
         assert_eq!(action_b_node.loop_back_from, Vec::<String>::new());
         assert_eq!(action_b_node.action, "tests.action_b");
         assert_eq!(action_b_node.module, "tests");
+    }
+
+    #[test]
+    fn render_instance_detail_page_includes_queue_latest_controls() {
+        let templates = init_templates().expect("templates initialize");
+        let instance = waymark_webapp_core::InstanceDetail {
+            id: Uuid::new_v4(),
+            entry_node: Uuid::new_v4(),
+            created_at: chrono::Utc::now(),
+            status: waymark_webapp_core::InstanceStatus::Completed,
+            workflow_name: Some("tests.workflow".to_string()),
+            input_payload: "{\n  \"value\": 7\n}".to_string(),
+            result_payload: "{\n  \"ok\": true\n}".to_string(),
+            error_payload: None,
+        };
+
+        let rendered = super::render_instance_detail_page(&templates, &instance, None);
+        assert!(rendered.contains("Queue Latest"));
+        assert!(rendered.contains("same input payload shown on this page"));
+        assert!(rendered.contains("latest registered workflow version"));
+        assert!(rendered.contains("/api/instance/"));
+        assert!(rendered.contains("/requeue"));
     }
 
     async fn call_route(backend: Arc<dyn WebappBackend>, uri: &str) -> (StatusCode, String) {

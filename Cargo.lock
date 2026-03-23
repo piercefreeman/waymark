@@ -3458,6 +3458,7 @@ dependencies = [
  "waymark-dag",
  "waymark-dag-builder",
  "waymark-garbage-collector-backend",
+ "waymark-ir-conversions",
  "waymark-ir-parser",
  "waymark-observability",
  "waymark-proto",
