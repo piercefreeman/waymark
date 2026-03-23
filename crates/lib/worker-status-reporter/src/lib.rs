@@ -12,7 +12,7 @@ use waymark_nonzero_duration::NonZeroDuration;
 pub async fn run<B, P>(
     pool_id: Uuid,
     backend: B,
-    worker_pool: P,
+    worker_pool: impl AsRef<P>,
     active_instances: Arc<AtomicUsize>,
     interval: NonZeroDuration,
     shutdown: tokio_util::sync::WaitForCancellationFutureOwned,
@@ -35,7 +35,7 @@ pub async fn run<B, P>(
     loop {
         tokio::select! {
             _ = ticker.tick() => {
-                let stats = worker_pool.stats_snapshot();
+                let stats = worker_pool.as_ref().stats_snapshot();
                 let actions_per_sec = stats.throughput_per_min / 60.0;
                 let active_instances_count = active_instances.load(Ordering::SeqCst);
                 let active_instances_u32 =
