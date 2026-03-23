@@ -14,6 +14,6 @@ pub struct WorkerPoolStatsSnapshot {
     pub median_handling_ms: Option<i64>,
 }
 
-pub trait WorkerPoolStats: Send + Sync {
+pub trait WorkerPoolStats {
     fn stats_snapshot(&self) -> WorkerPoolStatsSnapshot;
 }
