@@ -1,14 +1,12 @@
-use std::{
-    sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    },
-    time::Duration,
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
 };
 
 use chrono::Utc;
 use tracing::{info, warn};
 use uuid::Uuid;
+use waymark_nonzero_duration::NonZeroDuration;
 
 /// Run the control loop that reports worker status to the database.
 pub async fn run<B, P>(
@@ -16,14 +14,14 @@ pub async fn run<B, P>(
     backend: B,
     worker_pool: P,
     active_instances: Arc<AtomicUsize>,
-    interval: Duration,
+    interval: NonZeroDuration,
     shutdown: tokio_util::sync::WaitForCancellationFutureOwned,
 ) where
     B: waymark_worker_status_backend::WorkerStatusBackend + Send + Sync + 'static,
     P: waymark_worker_status_core::WorkerPoolStats + Send + Sync + 'static,
 {
     let mut time_series = waymark_pool_status::PoolTimeSeries::new();
-    let mut ticker = tokio::time::interval(interval);
+    let mut ticker = tokio::time::interval(interval.get());
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
     info!(

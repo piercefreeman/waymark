@@ -1,9 +1,9 @@
 use std::sync::Arc;
-use std::time::Duration;
 
 use chrono::Utc;
 use uuid::Uuid;
 use waymark_core_backend::{LockClaim, poll_queued_instances::Error as _};
+use waymark_nonzero_duration::NonZeroDuration;
 use waymark_utils_tokio_channel::send_with_stop;
 
 use crate::available_instance_slots;
@@ -15,9 +15,9 @@ where
     pub shutdown_token: tokio_util::sync::CancellationToken,
     pub core_backend: Arc<CoreBackend>,
     pub available_instance_slots_tracker: Arc<available_instance_slots::Tracker>,
-    pub poll_interval: Duration,
+    pub poll_interval: Option<NonZeroDuration>,
     pub lock_uuid: Uuid,
-    pub lock_ttl: Duration,
+    pub lock_ttl: NonZeroDuration,
     pub queued_instance_tx: tokio::sync::mpsc::Sender<super::Message<BackendError>>,
 }
 
@@ -51,7 +51,8 @@ where
         };
 
         let lock_expires_at = Utc::now()
-            + chrono::Duration::from_std(lock_ttl).unwrap_or_else(|_| chrono::Duration::seconds(0));
+            + chrono::Duration::from_std(lock_ttl.get())
+                .unwrap_or_else(|_| chrono::Duration::seconds(0));
         let batch = core_backend
             .poll_queued_instances(
                 batch_size,
@@ -89,8 +90,8 @@ where
         .await
     };
 
-    let tick_interval = (!poll_interval.is_zero()).then(|| {
-        let mut tick_interval = tokio::time::interval(poll_interval);
+    let tick_interval = poll_interval.map(|poll_interval| {
+        let mut tick_interval = tokio::time::interval(poll_interval.get());
 
         tick_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 

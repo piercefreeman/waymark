@@ -70,7 +70,7 @@ impl TestHarness {
             workflow_cache: &mut self.workflow_cache,
             registry_backend: &self.backend,
             next_shard: &mut self.next_shard,
-            shard_count: 2,
+            shard_count: 2.try_into().unwrap(),
             all_instances,
         }
     }
