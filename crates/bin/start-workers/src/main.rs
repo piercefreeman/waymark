@@ -66,6 +66,8 @@ async fn main() -> Result<()> {
     // Load configuration and announce startup.
     let config = WorkerConfig::from_env()?;
 
+    tracing::debug!(target: "raw-config", ?config, "raw config");
+
     info!(
         worker_count = config.worker_count,
         concurrent_per_worker = config.concurrent_per_worker,
