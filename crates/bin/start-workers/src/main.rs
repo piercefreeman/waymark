@@ -51,7 +51,6 @@ use waymark_nonzero_duration::NonZeroDuration;
 use waymark_proto::ast as ir;
 use waymark_runloop::RunLoopConfig;
 use waymark_scheduler_loop::{DagResolver, WorkflowDag};
-use waymark_worker_remote::{PythonWorkerConfig, RemoteWorkerPool};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -94,24 +93,27 @@ async fn main() -> Result<()> {
     let backend = PostgresBackend::new(pool);
 
     // Start the worker pool (bridge + python workers).
-    let mut worker_config = PythonWorkerConfig::new();
+    let mut worker_config = waymark_worker_python::Config::new();
     if !config.user_modules.is_empty() {
         worker_config = worker_config.with_user_modules(config.user_modules.clone());
     }
 
-    let remote_pool = RemoteWorkerPool::new_with_config(
-        worker_config,
-        config.worker_count.get(),
+    let worker_process_spec_builder = |bridge_server_addr| waymark_worker_python::Spec {
+        bridge_server_addr,
+        config: worker_config,
+    };
+
+    let (process_pool, bridge_task) = waymark_worker_remote_bringup::start(
+        shutdown_token.clone(),
         Some(config.worker_grpc_addr),
-        config.max_action_lifecycle.map(|val| val.get()),
-        config.concurrent_per_worker.get(),
+        worker_process_spec_builder,
+        config.worker_count,
+        config.max_action_lifecycle,
+        config.concurrent_per_worker,
     )
     .await?;
-    info!(
-        count = config.worker_count,
-        bridge_addr = %remote_pool.bridge_addr(),
-        "python worker pool started"
-    );
+
+    let process_pool = Arc::new(process_pool);
 
     // Start the webapp server.
     let webapp_backend = Arc::new(backend.clone());
@@ -161,7 +163,7 @@ async fn main() -> Result<()> {
     let status_reporter_handle = tokio::spawn(waymark_worker_status_reporter::run(
         pool_id,
         backend.clone(),
-        remote_pool.clone(),
+        process_pool.clone(),
         active_instance_gauge.clone(),
         config.profile_interval,
         shutdown_token.clone().cancelled_owned(),
@@ -186,9 +188,10 @@ async fn main() -> Result<()> {
     });
 
     // Run the runloop.
+    let remote_pool = waymark_worker_remote_pool::RemoteWorkerPool::new(process_pool.clone());
     let lock_uuid = Uuid::new_v4();
     let runloop = waymark_runloop::RunLoop::new_with_shutdown(
-        remote_pool.clone(),
+        remote_pool,
         backend.clone(),
         RunLoopConfig {
             max_concurrent_instances: config.max_concurrent_instances,
@@ -219,12 +222,13 @@ async fn main() -> Result<()> {
     }
 
     let _ = shutdown_handle.await;
+    let _ = tokio::time::timeout(Duration::from_secs(5), bridge_task).await;
     let _ = tokio::time::timeout(Duration::from_secs(5), scheduler_handle).await;
     let _ = tokio::time::timeout(Duration::from_secs(5), garbage_collector_handle).await;
     let _ = tokio::time::timeout(Duration::from_secs(2), status_reporter_handle).await;
     let _ = tokio::time::timeout(Duration::from_secs(2), expired_lock_reclaimer_handle).await;
 
-    if let Err(err) = remote_pool.shutdown().await {
+    if let Err(err) = process_pool.shutdown_arc().await {
         warn!(error = %err, "worker pool shutdown failed");
     }
 

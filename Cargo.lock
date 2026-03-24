@@ -4079,7 +4079,9 @@ dependencies = [
  "waymark-runloop",
  "waymark-scheduler-loop",
  "waymark-webapp-bringup",
- "waymark-worker-remote",
+ "waymark-worker-python",
+ "waymark-worker-remote-bringup",
+ "waymark-worker-remote-pool",
  "waymark-worker-status-reporter",
 ]
 
