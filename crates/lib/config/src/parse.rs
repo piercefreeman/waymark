@@ -42,15 +42,6 @@ impl FromStr for FromMillis<NonZeroDuration> {
     }
 }
 
-impl FromStr for FromMillis<Option<NonZeroDuration>> {
-    type Err = <FromMillis<NonZeroDuration> as FromStr>::Err;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let FromMillis(duration) = s.parse()?;
-        Ok(Self(duration))
-    }
-}
-
 pub struct FromMillisMin<T, const MIN: u64>(pub T);
 
 impl<T, const MIN: u64> FromStr for FromMillisMin<T, MIN>
