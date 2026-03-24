@@ -14,6 +14,7 @@ use std::sync::{Arc, Mutex};
 use sqlx::PgPool;
 use waymark_backends_core::{BackendError, BackendResult};
 use waymark_observability::obs;
+use waymark_secret_string::SecretStr;
 
 /// Persist runner state and action results in Postgres.
 #[derive(Clone)]
@@ -33,8 +34,8 @@ impl PostgresBackend {
     }
 
     #[obs]
-    pub async fn connect(dsn: &str) -> BackendResult<Self> {
-        let pool = PgPool::connect(dsn).await?;
+    pub async fn connect(dsn: &SecretStr) -> BackendResult<Self> {
+        let pool = PgPool::connect(dsn.expose_secret()).await?;
         waymark_backend_postgres_migrations::run(&pool)
             .await
             .map_err(|err| BackendError::Message(err.to_string()))?;

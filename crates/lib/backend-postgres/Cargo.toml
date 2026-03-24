@@ -17,6 +17,7 @@ waymark-runner = { workspace = true }
 waymark-runner-state = { workspace = true }
 waymark-scheduler-backend = { workspace = true }
 waymark-scheduler-core = { workspace = true }
+waymark-secret-string = { workspace = true }
 waymark-webapp-backend = { workspace = true }
 waymark-webapp-core = { workspace = true }
 waymark-worker-status-backend = { workspace = true }

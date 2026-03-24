@@ -15,6 +15,7 @@ use sqlx::PgPool;
 use uuid::Uuid;
 use waymark_backend_postgres::PostgresBackend;
 use waymark_core_backend::QueuedInstance;
+use waymark_secret_string::{SecretStr, SecretString};
 use waymark_support_integration::{LOCAL_POSTGRES_DSN, ensure_local_postgres};
 use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBackend as _};
 
@@ -31,7 +32,7 @@ use waymark_smoke_sources::{
 use waymark_worker_core::WorkerPoolError;
 use waymark_worker_inline::{ActionCallable, InlineWorkerPool};
 
-const DEFAULT_DSN: &str = LOCAL_POSTGRES_DSN;
+const DEFAULT_DSN: &SecretStr = LOCAL_POSTGRES_DSN;
 const DEFAULT_MAX_CONCURRENT_INSTANCES: NonZeroUsize = NonZeroUsize::new(500).unwrap();
 
 #[derive(Parser, Debug)]
@@ -46,8 +47,8 @@ struct BenchmarkArgs {
     base: i64,
     #[arg(long, default_value_t = 250.try_into().unwrap())]
     batch_size: NonZeroUsize,
-    #[arg(long, default_value = DEFAULT_DSN)]
-    dsn: String,
+    #[arg(long, default_value = DEFAULT_DSN.expose_secret())]
+    dsn: SecretString,
     #[arg(long, default_value_t = false)]
     observe: bool,
     #[arg(long, num_args = 0..=1, default_missing_value = "target/benchmark-trace.json")]
@@ -308,17 +309,19 @@ async fn run_benchmark(
     count_per_case: NonZeroUsize,
     base: i64,
     batch_size: NonZeroUsize,
-    dsn: &str,
+    dsn: &SecretStr,
     max_concurrent_instances: NonZeroUsize,
     executor_shards: NonZeroUsize,
 ) -> BenchmarkStats {
     let cases = build_cases(base);
-    if dsn == LOCAL_POSTGRES_DSN {
+    if dsn.expose_secret() == LOCAL_POSTGRES_DSN.expose_secret() {
         ensure_local_postgres()
             .await
             .expect("bootstrap local postgres");
     }
-    let pool = PgPool::connect(dsn).await.expect("connect postgres");
+    let pool = PgPool::connect(dsn.expose_secret())
+        .await
+        .expect("connect postgres");
     drop_benchmark_tables(&pool).await;
     waymark_backend_postgres_migrations::run(&pool)
         .await

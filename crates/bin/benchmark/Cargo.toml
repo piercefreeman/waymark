@@ -16,6 +16,7 @@ waymark-observability-setup = { workspace = true }
 waymark-proto = { workspace = true, features = ["serde", "client", "server"] }
 waymark-runloop = { workspace = true }
 waymark-runner-state = { workspace = true }
+waymark-secret-string = { workspace = true }
 waymark-smoke-sources = { workspace = true }
 waymark-support-integration = { workspace = true }
 waymark-worker-core = { workspace = true }

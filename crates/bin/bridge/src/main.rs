@@ -23,6 +23,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use waymark_secret_string::SecretString;
 
 use waymark_proto::messages as proto;
 
@@ -56,7 +57,7 @@ async fn main() -> Result<()> {
     let store = if in_memory {
         None
     } else {
-        let dsn: String = envfury::must("WAYMARK_DATABASE_URL")?;
+        let dsn: SecretString = envfury::must("WAYMARK_DATABASE_URL")?;
         let workflow_store = WorkflowStore::connect(&dsn).await?;
         Some(Arc::new(workflow_store))
     };
