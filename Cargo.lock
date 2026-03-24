@@ -4276,6 +4276,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tokio",
+ "tokio-util",
  "uuid",
  "waymark-backend-memory",
  "waymark-backend-postgres",
@@ -4291,7 +4292,12 @@ dependencies = [
  "waymark-runner-state",
  "waymark-secret-string",
  "waymark-support-integration",
- "waymark-worker-remote",
+ "waymark-worker-core",
+ "waymark-worker-process-pool",
+ "waymark-worker-process-spec",
+ "waymark-worker-python",
+ "waymark-worker-remote-bringup",
+ "waymark-worker-remote-pool",
  "waymark-workflow-registry-backend",
 ]
 
