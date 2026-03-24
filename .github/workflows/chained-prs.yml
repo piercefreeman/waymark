@@ -1,0 +1,13 @@
+name: Chained PR
+
+on:
+  pull_request:
+    branches-ignore: [ main ]
+
+jobs:
+  check:
+    name: "Do not merge yet if this fails!"
+    runs-on: ubuntu-latest
+    steps:
+      # Fail unconditionally.
+      - run: "false"
