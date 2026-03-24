@@ -4582,7 +4582,10 @@ dependencies = [
  "waymark-runloop",
  "waymark-runner-state",
  "waymark-smoke-sources",
- "waymark-worker-remote",
+ "waymark-worker-process-spec",
+ "waymark-worker-python",
+ "waymark-worker-remote-bringup",
+ "waymark-worker-remote-pool",
  "waymark-workflow-registry-backend",
 ]
 
