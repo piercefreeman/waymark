@@ -3934,6 +3934,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-secret-string"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "zeroize",
+]
+
+[[package]]
 name = "waymark-smoke"
 version = "0.1.0"
 dependencies = [
