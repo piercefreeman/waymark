@@ -201,7 +201,10 @@ async fn main() -> Result<()> {
         },
         shutdown_token.child_token(),
     );
-    let result = runloop.run().await;
+    let result = {
+        let _guard = shutdown_token.drop_guard();
+        runloop.run().await
+    };
     match result {
         Ok(_) => {
             warn!("runloop exited cleanly (unexpected)");
