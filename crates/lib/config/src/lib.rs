@@ -51,6 +51,7 @@ impl WorkerConfig {
         let max_action_lifecycle = envfury::maybe("WAYMARK_MAX_ACTION_LIFECYCLE")?;
 
         let FromMillis(poll_interval) = envfury::or_parse("WAYMARK_POLL_INTERVAL_MS", "100")?;
+        let poll_interval = Some(poll_interval);
 
         let max_concurrent_instances =
             envfury::or_parse("WAYMARK_MAX_CONCURRENT_INSTANCES", "500")?;
@@ -61,6 +62,7 @@ impl WorkerConfig {
 
         let FromMillis(persistence_interval) =
             envfury::or_parse("WAYMARK_PERSIST_INTERVAL_MS", "500")?;
+        let persistence_interval = Some(persistence_interval);
 
         let FromMillis(lock_ttl) = envfury::or_parse("WAYMARK_LOCK_TTL_MS", "15000")?;
 
