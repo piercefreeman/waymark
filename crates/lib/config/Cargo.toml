@@ -8,6 +8,7 @@ publish.workspace = true
 waymark-garbage-collector-config = { workspace = true }
 waymark-nonzero-duration = { workspace = true }
 waymark-scheduler-config = { workspace = true }
+waymark-secret-string = { workspace = true }
 waymark-webapp-config = { workspace = true }
 
 anyhow = { workspace = true }

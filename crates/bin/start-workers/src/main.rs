@@ -89,7 +89,7 @@ async fn main() -> Result<()> {
     let shutdown_token = tokio_util::sync::CancellationToken::new();
 
     // Initialize the database and backend.
-    let pool = PgPool::connect(&config.database_url).await?;
+    let pool = PgPool::connect(config.database_url.expose_secret()).await?;
     waymark_backend_postgres_migrations::run(&pool).await?;
     let backend = PostgresBackend::new(pool);
 

@@ -9,10 +9,11 @@ use std::time::Duration;
 use waymark_garbage_collector_config::GarbageCollectorConfig;
 use waymark_nonzero_duration::NonZeroDuration;
 use waymark_scheduler_config::SchedulerConfig;
+use waymark_secret_string::SecretString;
 
 #[derive(Debug, Clone)]
 pub struct WorkerConfig {
-    pub database_url: String,
+    pub database_url: SecretString,
     pub worker_grpc_addr: SocketAddr,
     pub worker_count: NonZeroUsize,
     pub concurrent_per_worker: NonZeroUsize,

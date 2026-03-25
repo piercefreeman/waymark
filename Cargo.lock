@@ -3489,6 +3489,7 @@ dependencies = [
  "waymark-runner-state",
  "waymark-scheduler-backend",
  "waymark-scheduler-core",
+ "waymark-secret-string",
  "waymark-support-test",
  "waymark-webapp-backend",
  "waymark-webapp-core",
@@ -3536,6 +3537,7 @@ dependencies = [
  "waymark-proto",
  "waymark-runloop",
  "waymark-runner-state",
+ "waymark-secret-string",
  "waymark-smoke-sources",
  "waymark-support-integration",
  "waymark-worker-core",
@@ -3587,6 +3589,7 @@ dependencies = [
  "waymark-runner-state",
  "waymark-scheduler-backend",
  "waymark-scheduler-core",
+ "waymark-secret-string",
  "waymark-worker-core",
  "waymark-workflow-registry-backend",
 ]
@@ -3600,6 +3603,7 @@ dependencies = [
  "waymark-garbage-collector-config",
  "waymark-nonzero-duration",
  "waymark-scheduler-config",
+ "waymark-secret-string",
  "waymark-webapp-config",
 ]
 
@@ -3730,6 +3734,7 @@ dependencies = [
  "waymark-proto",
  "waymark-runloop",
  "waymark-runner-state",
+ "waymark-secret-string",
  "waymark-support-integration",
  "waymark-worker-remote",
  "waymark-workflow-registry-backend",
@@ -3934,6 +3939,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-secret-string"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "zeroize",
+]
+
+[[package]]
 name = "waymark-smoke"
 version = "0.1.0"
 dependencies = [
@@ -3991,6 +4005,7 @@ dependencies = [
  "waymark-ir-parser",
  "waymark-proto",
  "waymark-runner-state",
+ "waymark-secret-string",
  "waymark-workflow-registry-backend",
 ]
 
@@ -4028,6 +4043,7 @@ dependencies = [
  "sqlx",
  "tokio",
  "waymark-backend-postgres-migrations",
+ "waymark-secret-string",
 ]
 
 [[package]]

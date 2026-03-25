@@ -7,6 +7,7 @@ use uuid::Uuid;
 use waymark_backend_postgres::PostgresBackend;
 use waymark_core_backend::QueuedInstance;
 use waymark_proto::messages as proto;
+use waymark_secret_string::SecretStr;
 use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBackend};
 
 #[derive(Clone)]
@@ -15,8 +16,8 @@ pub struct WorkflowStore {
 }
 
 impl WorkflowStore {
-    pub async fn connect(dsn: &str) -> Result<Self> {
-        let pool = PgPool::connect(dsn).await?;
+    pub async fn connect(dsn: &SecretStr) -> Result<Self> {
+        let pool = PgPool::connect(dsn.expose_secret()).await?;
         waymark_backend_postgres_migrations::run(&pool).await?;
         let backend = PostgresBackend::new(pool);
         Ok(Self { backend })

@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::Row;
 use uuid::Uuid;
+use waymark_secret_string::SecretString;
 
 use waymark_backend_memory::MemoryBackend;
 use waymark_backend_postgres::PostgresBackend;
@@ -437,10 +438,11 @@ async fn setup_worker_pool(
 }
 
 async fn connect_postgres_backend() -> Result<PostgresBackend> {
-    let dsn =
-        std::env::var("WAYMARK_DATABASE_URL").unwrap_or_else(|_| LOCAL_POSTGRES_DSN.to_string());
+    let dsn = std::env::var("WAYMARK_DATABASE_URL")
+        .map(SecretString::from)
+        .unwrap_or_else(|_| SecretString::from(LOCAL_POSTGRES_DSN));
 
-    if dsn == LOCAL_POSTGRES_DSN {
+    if dsn.expose_secret() == LOCAL_POSTGRES_DSN.expose_secret() {
         ensure_local_postgres()
             .await
             .context("auto-bootstrap local postgres for integration runner")?;

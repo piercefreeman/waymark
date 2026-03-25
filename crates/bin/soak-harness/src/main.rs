@@ -36,9 +36,11 @@ use waymark_dag_builder::convert_to_dag;
 use waymark_ir_parser::parse_program;
 use waymark_proto::ast as ir;
 use waymark_runner_state::RunnerState;
+use waymark_secret_string::{SecretStr, SecretString};
 use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBackend as _};
 
-const DEFAULT_DSN: &str = "postgresql://waymark:waymark@127.0.0.1:5433/waymark";
+const DEFAULT_DSN: &SecretStr =
+    SecretStr::new("postgresql://waymark:waymark@127.0.0.1:5433/waymark");
 const DEFAULT_WORKFLOW_NAME: &str = "waymark_soak_timeout_mix_v1";
 const DB_READY_TIMEOUT: Duration = Duration::from_secs(90);
 const DB_RETRY_DELAY: Duration = Duration::from_millis(500);
@@ -50,8 +52,12 @@ const MAX_SAMPLE_HISTORY: usize = 20_000;
     about = "Run a long-lived, timeout-capable Waymark soak workload with diagnostics"
 )]
 struct SoakArgs {
-    #[arg(long, env = "WAYMARK_DATABASE_URL", default_value = DEFAULT_DSN)]
-    dsn: String,
+    #[arg(
+        long,
+        env = "WAYMARK_DATABASE_URL",
+        default_value = DEFAULT_DSN.expose_secret()
+    )]
+    dsn: SecretString,
     #[arg(long, default_value_t = false)]
     skip_postgres_boot: bool,
     #[arg(long, default_value_t = false)]
@@ -449,7 +455,7 @@ async fn boot_postgres() -> Result<()> {
     Ok(())
 }
 
-async fn wait_for_database(dsn: &str, timeout: Duration) -> Result<PgPool> {
+async fn wait_for_database(dsn: &SecretStr, timeout: Duration) -> Result<PgPool> {
     let deadline = Instant::now() + timeout;
     let mut last_error: Option<String> = None;
 
@@ -457,7 +463,7 @@ async fn wait_for_database(dsn: &str, timeout: Duration) -> Result<PgPool> {
         match PgPoolOptions::new()
             .max_connections(16)
             .acquire_timeout(Duration::from_secs(5))
-            .connect(dsn)
+            .connect(dsn.expose_secret())
             .await
         {
             Ok(pool) => return Ok(pool),
@@ -469,7 +475,8 @@ async fn wait_for_database(dsn: &str, timeout: Duration) -> Result<PgPool> {
     }
 
     Err(anyhow!(
-        "timed out waiting for Postgres at {dsn}; last error: {}",
+        "timed out waiting for Postgres at {}; last error: {}",
+        dsn.expose_secret(),
         last_error.unwrap_or_else(|| "unknown".to_string())
     ))
 }
@@ -485,7 +492,7 @@ async fn start_workers(args: &SoakArgs, run_dir: &Path) -> Result<WorkerProcess>
 
     let mut cmd = start_workers_command();
     cmd.current_dir(PathBuf::from(env!("CARGO_MANIFEST_DIR")));
-    cmd.env("WAYMARK_DATABASE_URL", &args.dsn);
+    cmd.env("WAYMARK_DATABASE_URL", args.dsn.expose_secret());
     cmd.env("WAYMARK_USER_MODULE", &args.user_module);
     cmd.env("WAYMARK_WORKER_COUNT", args.worker_count.to_string());
     cmd.env(
