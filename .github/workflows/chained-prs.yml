@@ -9,5 +9,15 @@ jobs:
     name: "Do not merge yet if this fails!"
     runs-on: ubuntu-latest
     steps:
-      # Fail unconditionally.
-      - run: "false"
+      - name: Explain failure
+        run: |
+          cat <<'EOF'
+          This PR's base branch is not 'main'.
+
+          PRs in this repository are expected to target 'main' directly.
+          If you are working with a chain of PRs, this check will fail on
+          intermediate PRs until the earlier ones are merged and the base
+          branch is updated to 'main'. Do not merge this PR until the
+          earlier PRs in the chain have landed and this check passes.
+          EOF
+          exit 1
