@@ -1480,28 +1480,6 @@ mod tests {
         assert_eq!(action_b_node.module, "tests");
     }
 
-    #[test]
-    fn render_instance_detail_page_includes_queue_latest_controls() {
-        let templates = init_templates().expect("templates initialize");
-        let instance = waymark_webapp_core::InstanceDetail {
-            id: Uuid::new_v4(),
-            entry_node: Uuid::new_v4(),
-            created_at: chrono::Utc::now(),
-            status: waymark_webapp_core::InstanceStatus::Completed,
-            workflow_name: Some("tests.workflow".to_string()),
-            input_payload: "{\n  \"value\": 7\n}".to_string(),
-            result_payload: "{\n  \"ok\": true\n}".to_string(),
-            error_payload: None,
-        };
-
-        let rendered = super::render_instance_detail_page(&templates, &instance, None);
-        assert!(rendered.contains("Queue Latest"));
-        assert!(rendered.contains("same input payload shown on this page"));
-        assert!(rendered.contains("latest registered workflow version"));
-        assert!(rendered.contains("/api/instance/"));
-        assert!(rendered.contains("/requeue"));
-    }
-
     async fn call_route<WebappBackend>(
         backend: Arc<WebappBackend>,
         uri: &str,

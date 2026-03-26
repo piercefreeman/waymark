@@ -1353,6 +1353,10 @@ fn build_queued_instance(
     input_payload: &serde_json::Map<String, Value>,
 ) -> BackendResult<QueuedInstance> {
     let mut state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
+    // TODO: Centralize initial input seeding and the `input {name} = {value}` label
+    // convention. This duplicates the bridge path in
+    // `crates/bin/bridge/src/bridge_service.rs::build_queued_instance`, and
+    // webapp requeue should use the same helper as normal workflow submission.
     for (name, value) in input_payload {
         let expr = literal_from_json_value(value);
         let label = format!("input {name} = {value}");
