@@ -4315,6 +4315,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-jsonlines"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
 name = "waymark-managed-process"
 version = "0.1.0"
 dependencies = [
