@@ -7,6 +7,8 @@ version = "0.1.0"
 publish = false
 
 [workspace.dependencies]
+waymark-action-correlator = { path = "crates/lib/action-correlator" }
+waymark-action-correlator-core = { path = "crates/lib/action-correlator-core" }
 waymark-backend-fault-injection = { path = "crates/lib/backend-fault-injection" }
 waymark-backend-memory = { path = "crates/lib/backend-memory" }
 waymark-backend-postgres = { path = "crates/lib/backend-postgres" }
@@ -24,6 +26,7 @@ waymark-garbage-collector-loop = { path = "crates/lib/garbage-collector-loop" }
 waymark-ir-conversions = { path = "crates/lib/ir-conversions" }
 waymark-ir-format = { path = "crates/lib/ir-format" }
 waymark-ir-parser = { path = "crates/lib/ir-parser" }
+waymark-jsonlines = { path = "crates/lib/jsonlines" }
 waymark-message-conversions = { path = "crates/lib/message-conversions" }
 waymark-nonzero-duration = { path = "crates/lib/nonzero-duration" }
 waymark-observability = { path = "crates/lib/observability" }
@@ -57,8 +60,11 @@ waymark-worker-remote = { path = "crates/lib/worker-remote" }
 waymark-worker-status-backend = { path = "crates/lib/worker-status-backend" }
 waymark-worker-status-core = { path = "crates/lib/worker-status-core" }
 waymark-worker-status-reporter = { path = "crates/lib/worker-status-reporter" }
+waymark-worker-vcr-core = { path = "crates/lib/worker-vcr-core" }
+waymark-worker-vcr-file = { path = "crates/lib/worker-vcr-file" }
 waymark-worker-vcr-recorder = { path = "crates/lib/worker-vcr-recorder" }
-waymark-worker-vcr-recorder-bringup = { path = "crates/lib/worker-vcr-recorder-bringup" }
+waymark-worker-vcr-recorder-pool = { path = "crates/lib/worker-vcr-recorder-pool" }
+waymark-worker-vcr-recorder-pool-bringup = { path = "crates/lib/worker-vcr-recorder-pool-bringup" }
 waymark-workflow-registry-backend = { path = "crates/lib/workflow-registry-backend" }
 
 anyhow = "1"

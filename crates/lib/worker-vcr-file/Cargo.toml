@@ -1,0 +1,13 @@
+[package]
+name = "waymark-worker-vcr-file"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-jsonlines = { workspace = true }
+waymark-worker-core = { workspace = true }
+waymark-worker-vcr-core = { workspace = true }
+
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }

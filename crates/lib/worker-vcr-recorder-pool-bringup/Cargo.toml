@@ -1,10 +1,11 @@
 [package]
-name = "waymark-worker-vcr-recorder-bringup"
+name = "waymark-worker-vcr-recorder-pool-bringup"
 edition = "2024"
 version.workspace = true
 publish.workspace = true
 
 [dependencies]
 waymark-worker-vcr-recorder = { workspace = true }
+waymark-worker-vcr-recorder-pool = { workspace = true }
 
 either = { workspace = true }
