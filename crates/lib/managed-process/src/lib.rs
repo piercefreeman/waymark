@@ -5,6 +5,9 @@
 #[cfg(unix)]
 mod platform_unix;
 
+#[cfg(target_os = "linux")]
+mod platform_linux;
+
 mod graceful_termination;
 
 pub use self::graceful_termination::*;
@@ -32,8 +35,8 @@ pub fn spawn(command: impl Into<tokio::process::Command>) -> Result<Child, std::
 
     command.stderr(Stdio::inherit()).kill_on_drop(true);
 
-    #[cfg(unix)]
-    inject_sigterm_pdeathsig(&mut command);
+    #[cfg(target_os = "linux")]
+    platform_linux::inject_sigterm_pdeathsig(&mut command);
 
     let child = command.spawn()?;
 
