@@ -52,7 +52,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-use futures_core::future::BoxFuture;
 use nonempty_collections::NEVec;
 use serde_json::Value;
 use tokio::sync::RwLock;
@@ -1312,39 +1311,37 @@ impl RemoteWorkerPool {
 }
 
 impl BaseWorkerPool for RemoteWorkerPool {
-    fn launch<'a>(&'a self) -> BoxFuture<'a, Result<(), WorkerPoolError>> {
-        Box::pin(async move {
-            if self.inner.launched.swap(true, Ordering::SeqCst) {
-                return Ok(());
+    async fn launch(&self) -> std::result::Result<(), waymark_worker_core::WorkerPoolError> {
+        if self.inner.launched.swap(true, Ordering::SeqCst) {
+            return Ok(());
+        }
+
+        let request_rx = {
+            let mut guard = self.inner.request_rx.lock().map_err(|_| {
+                WorkerPoolError::new("RemoteWorkerPoolError", "failed to lock request receiver")
+            })?;
+            guard.take()
+        };
+
+        let Some(mut request_rx) = request_rx else {
+            return Ok(());
+        };
+
+        let pool = Arc::clone(&self.inner.pool);
+        let completion_tx = self.inner.completion_tx.clone();
+
+        tokio::spawn(async move {
+            while let Some(request) = request_rx.recv().await {
+                let completion_tx = completion_tx.clone();
+                let pool = Arc::clone(&pool);
+                tokio::spawn(async move {
+                    let completion = execute_remote_request(pool, request).await;
+                    let _ = completion_tx.send(completion).await;
+                });
             }
+        });
 
-            let request_rx = {
-                let mut guard = self.inner.request_rx.lock().map_err(|_| {
-                    WorkerPoolError::new("RemoteWorkerPoolError", "failed to lock request receiver")
-                })?;
-                guard.take()
-            };
-
-            let Some(mut request_rx) = request_rx else {
-                return Ok(());
-            };
-
-            let pool = Arc::clone(&self.inner.pool);
-            let completion_tx = self.inner.completion_tx.clone();
-
-            tokio::spawn(async move {
-                while let Some(request) = request_rx.recv().await {
-                    let completion_tx = completion_tx.clone();
-                    let pool = Arc::clone(&pool);
-                    tokio::spawn(async move {
-                        let completion = execute_remote_request(pool, request).await;
-                        let _ = completion_tx.send(completion).await;
-                    });
-                }
-            });
-
-            Ok(())
-        })
+        Ok(())
     }
 
     fn queue(&self, request: ActionRequest) -> Result<(), WorkerPoolError> {

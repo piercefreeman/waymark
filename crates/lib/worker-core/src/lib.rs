@@ -6,8 +6,6 @@ use nonempty_collections::NEVec;
 use serde_json::Value;
 use uuid::Uuid;
 
-type BoxFuture<'a, T> = std::pin::Pin<Box<dyn Future<Output = T> + Send + 'a>>;
-
 /// Action execution request routed through the worker pool.
 #[derive(Clone, Debug)]
 pub struct ActionRequest {
@@ -48,12 +46,12 @@ impl WorkerPoolError {
 }
 
 /// Abstract worker pool with queue and batch completion polling.
-pub trait BaseWorkerPool: Send + Sync {
+pub trait BaseWorkerPool {
     /// Start any background tasks required by the pool.
     ///
     /// Default implementation is a no-op for pools that don't need launch work.
-    fn launch<'a>(&'a self) -> BoxFuture<'a, Result<(), WorkerPoolError>> {
-        Box::pin(async { Ok(()) })
+    fn launch(&self) -> impl Future<Output = Result<(), WorkerPoolError>> + Send + '_ {
+        async { Ok(()) }
     }
 
     /// Submit an action request for execution.
@@ -61,9 +59,7 @@ pub trait BaseWorkerPool: Send + Sync {
 
     /// Await and return a batch of completed actions, guaranteeing at least
     /// one action has completed.
-    fn poll_complete(
-        &self,
-    ) -> impl Future<Output = Option<NEVec<ActionCompletion>>> + Send + Sync + '_;
+    fn poll_complete(&self) -> impl Future<Output = Option<NEVec<ActionCompletion>>> + Send + '_;
 }
 
 pub fn error_to_value(error: &WorkerPoolError) -> Value {
