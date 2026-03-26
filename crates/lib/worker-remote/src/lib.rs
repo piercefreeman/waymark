@@ -52,7 +52,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-use futures_core::future::BoxFuture;
 use nonempty_collections::NEVec;
 use serde_json::Value;
 use tokio::sync::RwLock;
@@ -1312,7 +1311,11 @@ impl RemoteWorkerPool {
 }
 
 impl BaseWorkerPool for RemoteWorkerPool {
-    fn launch<'a>(&'a self) -> BoxFuture<'a, Result<(), WorkerPoolError>> {
+    fn launch<'a>(
+        &'a self,
+    ) -> impl futures_core::Future<
+        Output = std::result::Result<(), waymark_worker_core::WorkerPoolError>,
+    > + 'a {
         Box::pin(async move {
             if self.inner.launched.swap(true, Ordering::SeqCst) {
                 return Ok(());
