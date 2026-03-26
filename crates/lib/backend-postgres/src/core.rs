@@ -1,8 +1,13 @@
-use std::collections::HashMap;
+mod error;
+
+pub use self::error::*;
+
 use std::future::Future;
 use std::time::Duration as StdDuration;
+use std::{collections::HashMap, num::NonZeroUsize};
 
 use chrono::{DateTime, Utc};
+use nonempty_collections::{IntoNonEmptyIterator as _, NEVec, NonEmptyIterator as _};
 use sqlx::{Postgres, QueryBuilder, Row};
 use tracing::warn;
 use uuid::Uuid;
@@ -13,7 +18,6 @@ use waymark_worker_status_backend::{WorkerStatusBackend, WorkerStatusUpdate};
 use super::PostgresBackend;
 use waymark_core_backend::{
     ActionDone, GraphUpdate, InstanceDone, InstanceLockStatus, LockClaim, QueuedInstance,
-    QueuedInstanceBatch,
 };
 use waymark_observability::obs;
 use waymark_runner_state::RunnerState;
@@ -58,11 +62,18 @@ fn is_transient_sqlstate(code: &str) -> bool {
     )
 }
 
-fn is_transient_backend_error(err: &BackendError) -> bool {
+fn is_transient_sqlx_error(err: &sqlx::Error) -> bool {
     match err {
-        BackendError::Inner(sqlx::Error::Database(db_err)) => {
+        sqlx::Error::Database(db_err) => {
             db_err.code().as_deref().is_some_and(is_transient_sqlstate)
         }
+        _ => false,
+    }
+}
+
+fn is_transient_backend_error(err: &BackendError) -> bool {
+    match err {
+        BackendError::Inner(err) => is_transient_sqlx_error(err),
         // Fallback for cases where sqlstate is not preserved in wrapping.
         BackendError::Message(message) => {
             message.contains("deadlock detected")
@@ -72,22 +83,23 @@ fn is_transient_backend_error(err: &BackendError) -> bool {
     }
 }
 
-async fn retry_transient_backend<T, Op, Fut>(
+async fn retry_transient_with<T, E, Op, Fut, IsTransientErrFn>(
     operation: &'static str,
     mut op: Op,
-) -> BackendResult<T>
+    mut is_transient_error: IsTransientErrFn,
+) -> Fut::Output
 where
     Op: FnMut() -> Fut,
-    Fut: Future<Output = BackendResult<T>>,
+    Fut: Future<Output = Result<T, E>>,
+    E: core::fmt::Display,
+    IsTransientErrFn: for<'a> FnMut(&'a E) -> bool,
 {
     let mut attempt = 0usize;
     let mut backoff_ms = TRANSIENT_RETRY_INITIAL_BACKOFF_MS;
     loop {
         match op().await {
             Ok(value) => return Ok(value),
-            Err(err)
-                if attempt < TRANSIENT_RETRY_MAX_ATTEMPTS && is_transient_backend_error(&err) =>
-            {
+            Err(err) if attempt < TRANSIENT_RETRY_MAX_ATTEMPTS && is_transient_error(&err) => {
                 attempt += 1;
                 warn!(
                     operation,
@@ -102,6 +114,14 @@ where
             Err(err) => return Err(err),
         }
     }
+}
+
+async fn retry_transient_backend<T, Op, Fut>(operation: &'static str, op: Op) -> Fut::Output
+where
+    Op: FnMut() -> Fut,
+    Fut: Future<Output = Result<T, BackendError>>,
+{
+    retry_transient_with(operation, op, is_transient_backend_error).await
 }
 
 impl PostgresBackend {
@@ -621,31 +641,47 @@ impl PostgresBackend {
     }
 
     #[obs]
-    async fn get_queued_instances_impl(
+    async fn poll_queued_instances_impl(
         &self,
-        size: usize,
+        size: NonZeroUsize,
         claim: LockClaim,
-    ) -> BackendResult<QueuedInstanceBatch> {
-        retry_transient_backend("get_queued_instances_impl", || {
-            let claim = claim.clone();
-            async move { self.get_queued_instances_once(size, claim).await }
-        })
+    ) -> Result<NEVec<QueuedInstance>, PollQueuedInstancesError> {
+        retry_transient_with(
+            "poll_queued_instances_impl",
+            || {
+                let claim = claim.clone();
+                async move { self.poll_queued_instances_once(size, claim).await }
+            },
+            |err| match err {
+                PollQueuedInstancesError::Sqlx(err) => is_transient_sqlx_error(err),
+                PollQueuedInstancesError::InvalidSize { .. }
+                | PollQueuedInstancesError::EmptyRows
+                | PollQueuedInstancesError::QueuedInstanceDecode { .. }
+                | PollQueuedInstancesError::GraphUpdateDecode { .. }
+                | PollQueuedInstancesError::ActionResultDecode { .. } => false,
+            },
+        )
         .await
     }
 
-    async fn get_queued_instances_once(
+    async fn poll_queued_instances_once(
         &self,
-        size: usize,
+        size: NonZeroUsize,
         claim: LockClaim,
-    ) -> BackendResult<QueuedInstanceBatch> {
-        if size == 0 {
-            return Ok(QueuedInstanceBatch {
-                instances: Vec::new(),
-            });
-        }
+    ) -> Result<NEVec<QueuedInstance>, PollQueuedInstancesError> {
         let now = Utc::now();
-        let mut tx = self.pool.begin().await?;
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(PollQueuedInstancesError::Sqlx)?;
         Self::count_query(&self.query_counts, "select:queued_instances");
+
+        let size: i64 = size
+            .get()
+            .try_into()
+            .map_err(PollQueuedInstancesError::InvalidSize)?;
+
         let rows = sqlx::query(
             r#"
             WITH claimed AS (
@@ -671,18 +707,17 @@ impl PostgresBackend {
             "#,
         )
         .bind(now)
-        .bind(size as i64)
+        .bind(size)
         .bind(claim.lock_uuid)
         .bind(claim.lock_expires_at)
         .fetch_all(&mut *tx)
-        .await?;
+        .await
+        .map_err(PollQueuedInstancesError::Sqlx)?;
 
-        if rows.is_empty() {
-            tx.commit().await?;
-            return Ok(QueuedInstanceBatch {
-                instances: Vec::new(),
-            });
-        }
+        let Some(rows) = NEVec::try_from_vec(rows) else {
+            tx.commit().await.map_err(PollQueuedInstancesError::Sqlx)?;
+            return Err(PollQueuedInstancesError::EmptyRows);
+        };
 
         let claimed_instance_ids: Vec<Uuid> =
             rows.iter().map(|row| row.get("instance_id")).collect();
@@ -690,44 +725,63 @@ impl PostgresBackend {
             .bind(&claimed_instance_ids)
             .bind(INSTANCE_STATUS_RUNNING)
             .execute(&mut *tx)
-            .await?;
+            .await
+            .map_err(PollQueuedInstancesError::Sqlx)?;
 
         Self::count_batch_size(
             &self.batch_size_counts,
             "select:queued_instances",
-            rows.len(),
+            rows.len().get(),
         );
-        tx.commit().await?;
+        tx.commit().await.map_err(PollQueuedInstancesError::Sqlx)?;
 
-        let mut instances = Vec::new();
         let mut action_node_ids_by_instance: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
         let mut all_action_node_ids: Vec<Uuid> = Vec::new();
-        for row in rows {
-            let instance_id: Uuid = row.get(0);
-            let payload: Vec<u8> = row.get(1);
-            let state_payload: Option<Vec<u8>> = row.get(2);
-            let mut instance: QueuedInstance = Self::deserialize(&payload)?;
-            instance.instance_id = instance_id;
-            if let Some(state_payload) = state_payload {
-                let graph: GraphUpdate = Self::deserialize(&state_payload)?;
+
+        let mut instances: NEVec<QueuedInstance> = rows
+            .into_nonempty_iter()
+            .map(|row| {
+                let instance_id: Uuid = row.get(0);
+                let payload: Vec<u8> = row.get(1);
+                let state_payload: Option<Vec<u8>> = row.get(2);
+
+                let mut instance: QueuedInstance = crate::codec::deserialize(&payload)
+                    .map_err(PollQueuedInstancesError::QueuedInstanceDecode)?;
+
+                instance.instance_id = instance_id;
+
+                let Some(state_payload) = state_payload else {
+                    // If we don't have the state payload - then that's
+                    // the whole instance.
+                    return Ok(instance);
+                };
+
+                // If we do - parse the graph and assign state.
+
+                let graph: GraphUpdate = crate::codec::deserialize(&state_payload)
+                    .map_err(PollQueuedInstancesError::GraphUpdateDecode)?;
+
                 let action_node_ids: Vec<Uuid> = graph
                     .nodes
                     .iter()
                     .filter_map(|(node_id, node)| node.is_action_call().then_some(*node_id))
                     .collect();
+
                 if !action_node_ids.is_empty() {
-                    all_action_node_ids.extend(action_node_ids.iter().copied());
+                    all_action_node_ids.extend(&action_node_ids);
                     action_node_ids_by_instance.insert(instance_id, action_node_ids);
                 }
+
                 instance.state = Some(RunnerState::new(
                     None,
                     Some(graph.nodes),
                     Some(graph.edges),
                     false,
                 ));
-            }
-            instances.push(instance);
-        }
+
+                Ok(instance)
+            })
+            .collect::<Result<_, _>>()?;
 
         if !all_action_node_ids.is_empty() {
             all_action_node_ids.sort_unstable();
@@ -749,7 +803,8 @@ impl PostgresBackend {
             )
             .bind(&all_action_node_ids)
             .fetch_all(&self.pool)
-            .await?;
+            .await
+            .map_err(PollQueuedInstancesError::Sqlx)?;
 
             let mut action_results_by_execution_id: HashMap<Uuid, serde_json::Value> =
                 HashMap::new();
@@ -759,7 +814,10 @@ impl PostgresBackend {
                 let Some(result_payload) = result_payload else {
                     continue;
                 };
-                let result: serde_json::Value = Self::deserialize(&result_payload)?;
+
+                let result: serde_json::Value = crate::codec::deserialize(&result_payload)
+                    .map_err(PollQueuedInstancesError::ActionResultDecode)?;
+
                 action_results_by_execution_id.insert(execution_id, result);
             }
 
@@ -776,7 +834,7 @@ impl PostgresBackend {
             }
         }
 
-        Ok(QueuedInstanceBatch { instances })
+        Ok(instances)
     }
 
     #[obs]
@@ -843,7 +901,6 @@ impl PostgresBackend {
     }
 }
 
-#[async_trait::async_trait]
 impl waymark_core_backend::CoreBackend for PostgresBackend {
     async fn save_graphs(
         &self,
@@ -857,12 +914,14 @@ impl waymark_core_backend::CoreBackend for PostgresBackend {
         self.save_actions_done_impl(actions).await
     }
 
-    async fn get_queued_instances(
+    type PollQueuedInstancesError = PollQueuedInstancesError;
+
+    async fn poll_queued_instances(
         &self,
-        size: usize,
+        size: NonZeroUsize,
         claim: LockClaim,
-    ) -> BackendResult<QueuedInstanceBatch> {
-        self.get_queued_instances_impl(size, claim).await
+    ) -> Result<NEVec<QueuedInstance>, Self::PollQueuedInstancesError> {
+        self.poll_queued_instances_impl(size, claim).await
     }
 
     async fn save_instances_done(&self, instances: &[InstanceDone]) -> BackendResult<()> {
@@ -988,7 +1047,6 @@ impl PostgresBackend {
     }
 }
 
-#[async_trait::async_trait]
 impl GarbageCollectorBackend for PostgresBackend {
     async fn collect_done_instances(
         &self,
@@ -999,7 +1057,6 @@ impl GarbageCollectorBackend for PostgresBackend {
     }
 }
 
-#[async_trait::async_trait]
 impl WorkerStatusBackend for PostgresBackend {
     async fn upsert_worker_status(&self, status: &WorkerStatusUpdate) -> BackendResult<()> {
         PostgresBackend::upsert_worker_status(self, status).await
@@ -1092,11 +1149,15 @@ mod tests {
 
     async fn claim_instance(backend: &PostgresBackend, instance_id: Uuid) -> LockClaim {
         let claim = sample_lock_claim();
-        let batch = CoreBackend::get_queued_instances(backend, 10, claim.clone())
-            .await
-            .expect("claim queued instance");
-        assert_eq!(batch.instances.len(), 1);
-        assert_eq!(batch.instances[0].instance_id, instance_id);
+        let instances = CoreBackend::poll_queued_instances(
+            backend,
+            NonZeroUsize::new(10).unwrap(),
+            claim.clone(),
+        )
+        .await
+        .expect("claim queued instance");
+        assert_eq!(instances.len().get(), 1);
+        assert_eq!(instances[0].instance_id, instance_id);
         claim
     }
 
@@ -1210,11 +1271,15 @@ mod tests {
             .expect("queue instances");
 
         let claim = sample_lock_claim();
-        let batch = CoreBackend::get_queued_instances(&backend, 1, claim.clone())
-            .await
-            .expect("get queued instances");
-        assert_eq!(batch.instances.len(), 1);
-        assert_eq!(batch.instances[0].instance_id, instance_id);
+        let instances = CoreBackend::poll_queued_instances(
+            &backend,
+            NonZeroUsize::new(1).unwrap(),
+            claim.clone(),
+        )
+        .await
+        .expect("get queued instances");
+        assert_eq!(instances.len().get(), 1);
+        assert_eq!(instances[0].instance_id, instance_id);
 
         let row = sqlx::query("SELECT lock_uuid FROM queued_instances WHERE instance_id = $1")
             .bind(instance_id)
@@ -1254,10 +1319,14 @@ mod tests {
             .expect("queue instances");
 
         let initial_claim = sample_lock_claim();
-        let initial_batch = CoreBackend::get_queued_instances(&backend, 1, initial_claim.clone())
-            .await
-            .expect("initial claim");
-        assert_eq!(initial_batch.instances.len(), 1);
+        let initial_batch = CoreBackend::poll_queued_instances(
+            &backend,
+            NonZeroUsize::new(1).unwrap(),
+            initial_claim.clone(),
+        )
+        .await
+        .expect("initial claim");
+        assert_eq!(initial_batch.len().get(), 1);
 
         let execution_id = Uuid::new_v4();
         let mut completed_action_node = sample_execution_node(execution_id);
@@ -1315,12 +1384,16 @@ mod tests {
         assert_eq!(runner_status.as_deref(), Some(INSTANCE_STATUS_QUEUED));
 
         let second_claim = sample_lock_claim();
-        let batch = CoreBackend::get_queued_instances(&backend, 1, second_claim)
-            .await
-            .expect("rehydrate instance");
-        assert_eq!(batch.instances.len(), 1);
+        let batch = CoreBackend::poll_queued_instances(
+            &backend,
+            NonZeroUsize::new(1).unwrap(),
+            second_claim,
+        )
+        .await
+        .expect("rehydrate instance");
+        assert_eq!(batch.len().get(), 1);
         assert_eq!(
-            batch.instances[0].action_results.get(&execution_id),
+            batch[0].action_results.get(&execution_id),
             Some(&serde_json::json!({"ok": true}))
         );
     }
@@ -1604,10 +1677,14 @@ mod tests {
         .expect("queue instances");
 
         let claim = sample_lock_claim();
-        let claimed = CoreBackend::get_queued_instances(&backend, 10, claim.clone())
-            .await
-            .expect("claim queued instances");
-        assert_eq!(claimed.instances.len(), 2);
+        let claimed = CoreBackend::poll_queued_instances(
+            &backend,
+            NonZeroUsize::new(10).unwrap(),
+            claim.clone(),
+        )
+        .await
+        .expect("claim queued instances");
+        assert_eq!(claimed.len().get(), 2);
 
         let expired_at = Utc::now() - Duration::seconds(1);
         let live_at = Utc::now() + Duration::seconds(60);

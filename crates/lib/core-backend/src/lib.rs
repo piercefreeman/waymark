@@ -1,50 +1,71 @@
 //! Core backend traits for waymark.
 
 mod data;
+pub mod poll_queued_instances;
 
+use nonempty_collections::NEVec;
 use uuid::Uuid;
 
 use waymark_backends_core::BackendResult;
 
 pub use self::data::*;
 
+pub mod prelude {
+    //! Prelude makes the traits known to the compiler without polluting
+    //! the named items space.
+
+    pub use crate::CoreBackend as _;
+    pub use crate::poll_queued_instances::Error as _;
+}
+
 /// Abstract persistence backend for runner state.
-#[async_trait::async_trait]
-pub trait CoreBackend: Send + Sync {
+pub trait CoreBackend {
     /// Persist updated execution graphs.
-    async fn save_graphs(
-        &self,
+    fn save_graphs<'a>(
+        &'a self,
         claim: LockClaim,
-        graphs: &[GraphUpdate],
-    ) -> BackendResult<Vec<InstanceLockStatus>>;
+        graphs: &'a [GraphUpdate],
+    ) -> impl Future<Output = BackendResult<Vec<InstanceLockStatus>>> + Send + 'a;
 
     /// Persist finished action attempts (success or failure).
-    async fn save_actions_done(&self, actions: &[ActionDone]) -> BackendResult<()>;
+    fn save_actions_done<'a>(
+        &'a self,
+        actions: &'a [ActionDone],
+    ) -> impl Future<Output = BackendResult<()>> + Send + 'a;
+
+    /// An error that can occur while polling the queued instances.
+    type PollQueuedInstancesError: poll_queued_instances::Error;
 
     /// Return up to size queued instances without blocking.
-    async fn get_queued_instances(
+    fn poll_queued_instances(
         &self,
-        size: usize,
+        size: std::num::NonZeroUsize,
         claim: LockClaim,
-    ) -> BackendResult<QueuedInstanceBatch>;
+    ) -> impl Future<Output = Result<NEVec<QueuedInstance>, Self::PollQueuedInstancesError>> + Send + '_;
 
     /// Refresh lock expiry for owned instances.
-    async fn refresh_instance_locks(
-        &self,
+    fn refresh_instance_locks<'a>(
+        &'a self,
         claim: LockClaim,
-        instance_ids: &[Uuid],
-    ) -> BackendResult<Vec<InstanceLockStatus>>;
+        instance_ids: &'a [Uuid],
+    ) -> impl Future<Output = BackendResult<Vec<InstanceLockStatus>>> + Send + 'a;
 
     /// Release instance locks when evicting from memory.
-    async fn release_instance_locks(
-        &self,
+    fn release_instance_locks<'a>(
+        &'a self,
         lock_uuid: Uuid,
-        instance_ids: &[Uuid],
-    ) -> BackendResult<()>;
+        instance_ids: &'a [Uuid],
+    ) -> impl Future<Output = BackendResult<()>> + Send + 'a;
 
     /// Persist completed workflow instances.
-    async fn save_instances_done(&self, instances: &[InstanceDone]) -> BackendResult<()>;
+    fn save_instances_done<'a>(
+        &'a self,
+        instances: &'a [InstanceDone],
+    ) -> impl Future<Output = BackendResult<()>> + Send + 'a;
 
     /// Insert queued instances for run-loop consumption.
-    async fn queue_instances(&self, instances: &[QueuedInstance]) -> BackendResult<()>;
+    fn queue_instances<'a>(
+        &'a self,
+        instances: &'a [QueuedInstance],
+    ) -> impl Future<Output = BackendResult<()>> + Send + 'a;
 }

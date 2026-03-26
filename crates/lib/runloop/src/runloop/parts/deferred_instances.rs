@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
+use waymark_nonzero_duration::NonZeroDuration;
 use waymark_runner::SleepRequest;
 
 use crate::{
@@ -35,7 +36,7 @@ pub struct Params<'a, CoreBackend: ?Sized> {
     /// Lock owner ID for this runloop, used when releasing instance locks.
     pub lock_uuid: Uuid,
     /// Maximum tolerated remaining sleep duration before the instance is evicted.
-    pub evict_sleep_threshold: std::time::Duration,
+    pub evict_sleep_threshold: NonZeroDuration,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -86,7 +87,7 @@ where
                 return None;
             }
             let sleep_for = wake_at.signed_duration_since(now).to_std().ok()?;
-            if sleep_for > evict_sleep_threshold {
+            if sleep_for > evict_sleep_threshold.get() {
                 Some(*instance_id)
             } else {
                 None

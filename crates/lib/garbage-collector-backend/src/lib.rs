@@ -10,11 +10,10 @@ pub struct GarbageCollectionResult {
 }
 
 /// Backend capability for deleting old finished workflow data.
-#[async_trait::async_trait]
-pub trait GarbageCollectorBackend: Send + Sync {
-    async fn collect_done_instances(
+pub trait GarbageCollectorBackend {
+    fn collect_done_instances(
         &self,
         older_than: DateTime<Utc>,
         limit: usize,
-    ) -> BackendResult<GarbageCollectionResult>;
+    ) -> impl Future<Output = BackendResult<GarbageCollectionResult>> + Send + '_;
 }

@@ -6,7 +6,6 @@ use waymark_scheduler_core::{
     CreateScheduleParams, ScheduleId, ScheduleType, WorkflowSchedule, compute_next_run,
 };
 
-#[async_trait::async_trait]
 impl SchedulerBackend for crate::MemoryBackend {
     async fn upsert_schedule(&self, params: &CreateScheduleParams) -> BackendResult<ScheduleId> {
         let mut guard = self.schedules.lock().expect("schedules poisoned");

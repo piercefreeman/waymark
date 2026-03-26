@@ -13,6 +13,7 @@ waymark-dag-builder = { workspace = true }
 waymark-ir-parser = { workspace = true }
 waymark-proto = { workspace = true }
 waymark-runner-state = { workspace = true }
+waymark-secret-string = { workspace = true }
 waymark-workflow-registry-backend = { workspace = true }
 
 anyhow = { workspace = true }

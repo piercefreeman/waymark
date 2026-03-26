@@ -81,13 +81,13 @@ jobs:
         with:
           shared-key: waymark
 
-      - name: Rust lint
-        run: make rust-lint-verify
-
       - name: Install cargo tools
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-shear,cargo-hack,taplo-cli,typos-cli,cargo-deny
+
+      - name: Rust lint
+        run: make rust-lint-verify
 
       - name: Rust lint (extended)
         run: make rust-lint-extended-verify

@@ -3,7 +3,6 @@ use waymark_workflow_registry_backend::{
     BackendError, BackendResult, WorkflowRegistration, WorkflowRegistryBackend, WorkflowVersion,
 };
 
-#[async_trait::async_trait]
 impl WorkflowRegistryBackend for crate::MemoryBackend {
     async fn upsert_workflow_version(
         &self,

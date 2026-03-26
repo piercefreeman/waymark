@@ -32,6 +32,7 @@
 //! - WAYMARK_WEBAPP_ENABLED / WAYMARK_WEBAPP_ADDR: Web dashboard configuration
 //! - WAYMARK_RUNNER_PROFILE_INTERVAL_MS: Status reporting interval (default: 5000)
 
+use std::num::NonZeroUsize;
 use std::sync::{Arc, atomic::AtomicUsize};
 use std::time::Duration;
 
@@ -46,6 +47,7 @@ use uuid::Uuid;
 use waymark_backend_postgres::PostgresBackend;
 use waymark_config::WorkerConfig;
 use waymark_dag_builder::convert_to_dag;
+use waymark_nonzero_duration::NonZeroDuration;
 use waymark_proto::ast as ir;
 use waymark_runloop::RunLoopConfig;
 use waymark_scheduler_loop::{DagResolver, WorkflowDag};
@@ -63,6 +65,8 @@ async fn main() -> Result<()> {
 
     // Load configuration and announce startup.
     let config = WorkerConfig::from_env()?;
+
+    tracing::debug!(target: "raw-config", ?config, "raw config");
 
     info!(
         worker_count = config.worker_count,
@@ -85,7 +89,7 @@ async fn main() -> Result<()> {
     let shutdown_token = tokio_util::sync::CancellationToken::new();
 
     // Initialize the database and backend.
-    let pool = PgPool::connect(&config.database_url).await?;
+    let pool = PgPool::connect(config.database_url.expose_secret()).await?;
     waymark_backend_postgres_migrations::run(&pool).await?;
     let backend = PostgresBackend::new(pool);
 
@@ -97,10 +101,10 @@ async fn main() -> Result<()> {
 
     let remote_pool = RemoteWorkerPool::new_with_config(
         worker_config,
-        config.worker_count,
+        config.worker_count.get(),
         Some(config.worker_grpc_addr),
-        config.max_action_lifecycle,
-        config.concurrent_per_worker,
+        config.max_action_lifecycle.map(|val| val.get()),
+        config.concurrent_per_worker.get(),
     )
     .await?;
     info!(
@@ -183,7 +187,7 @@ async fn main() -> Result<()> {
 
     // Run the runloop.
     let lock_uuid = Uuid::new_v4();
-    let mut runloop = waymark_runloop::RunLoop::new_with_shutdown(
+    let runloop = waymark_runloop::RunLoop::new_with_shutdown(
         remote_pool.clone(),
         backend.clone(),
         RunLoopConfig {
@@ -201,7 +205,10 @@ async fn main() -> Result<()> {
         },
         shutdown_token.child_token(),
     );
-    let result = runloop.run().await;
+    let result = {
+        let _guard = shutdown_token.drop_guard();
+        runloop.run().await
+    };
     match result {
         Ok(_) => {
             warn!("runloop exited cleanly (unexpected)");
@@ -266,12 +273,12 @@ fn build_dag_resolver(pool: sqlx::PgPool) -> DagResolver {
 
 fn spawn_expired_lock_reclaimer(
     backend: PostgresBackend,
-    interval: Duration,
-    batch_size: usize,
+    interval: NonZeroDuration,
+    batch_size: NonZeroUsize,
     shutdown: tokio_util::sync::WaitForCancellationFutureOwned,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(interval);
+        let mut ticker = tokio::time::interval(interval.get());
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         info!(
             interval_ms = interval.as_millis(),
@@ -283,10 +290,10 @@ fn spawn_expired_lock_reclaimer(
                 _ = ticker.tick() => {
                     let mut reclaimed_total = 0usize;
                     loop {
-                        match backend.reclaim_expired_instance_locks(batch_size).await {
+                        match backend.reclaim_expired_instance_locks(batch_size.get()).await {
                             Ok(reclaimed) => {
                                 reclaimed_total += reclaimed;
-                                if reclaimed < batch_size {
+                                if reclaimed < batch_size.get() {
                                     break;
                                 }
                             }

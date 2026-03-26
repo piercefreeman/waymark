@@ -11,7 +11,6 @@ use waymark_webapp_core::{
 };
 use waymark_worker_status_backend::WorkerStatusUpdate;
 
-#[async_trait::async_trait]
 impl WebappBackend for crate::MemoryBackend {
     async fn count_instances(&self, _search: Option<&str>) -> BackendResult<i64> {
         Ok(0)

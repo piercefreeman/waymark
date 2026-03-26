@@ -15,6 +15,7 @@ waymark-ir-conversions = { workspace = true }
 waymark-proto = { workspace = true }
 waymark-runloop = { workspace = true }
 waymark-runner-state = { workspace = true }
+waymark-secret-string = { workspace = true }
 waymark-support-integration = { workspace = true }
 waymark-worker-remote = { workspace = true }
 waymark-workflow-registry-backend = { workspace = true }

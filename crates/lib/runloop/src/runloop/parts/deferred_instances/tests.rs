@@ -1,10 +1,10 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::mpsc as std_mpsc;
-use std::time::Duration;
 
 use chrono::Utc;
 use uuid::Uuid;
 use waymark_backend_memory::MemoryBackend;
+use waymark_nonzero_duration::NonZeroDuration;
 use waymark_runner::SleepRequest;
 
 use crate::commit_barrier::CommitBarrier;
@@ -24,7 +24,7 @@ struct TestHarness {
     pub blocked_until_by_instance: HashMap<Uuid, chrono::DateTime<Utc>>,
     pub commit_barrier: CommitBarrier<shard::Step>,
     pub shard_senders: Vec<std_mpsc::Sender<shard::Command>>,
-    pub evict_sleep_threshold: Duration,
+    pub evict_sleep_threshold: NonZeroDuration,
 }
 
 impl Default for TestHarness {
@@ -42,7 +42,7 @@ impl Default for TestHarness {
             blocked_until_by_instance: HashMap::new(),
             commit_barrier: CommitBarrier::new(),
             shard_senders: Vec::new(),
-            evict_sleep_threshold: Duration::from_secs(10),
+            evict_sleep_threshold: NonZeroDuration::from_secs(10).unwrap(),
         }
     }
 }

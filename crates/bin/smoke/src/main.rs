@@ -111,19 +111,19 @@ async fn run_program_smoke(case: &SmokeCase, worker_pool: RemoteWorkerPool) -> R
         .queue_template_node(&entry_node, None)
         .map_err(|err| anyhow!(err.0))?;
 
-    let mut runloop = RunLoop::new(
+    let runloop = RunLoop::new(
         worker_pool,
         backend.clone(),
         RunLoopConfig {
-            max_concurrent_instances: 25,
-            executor_shards: 1,
+            max_concurrent_instances: 25.try_into().unwrap(),
+            executor_shards: 1.try_into().unwrap(),
             instance_done_batch_size: None,
-            poll_interval: Duration::from_secs_f64(0.05),
-            persistence_interval: Duration::from_secs_f64(0.1),
+            poll_interval: Some(Duration::from_secs_f64(0.05).try_into().unwrap()),
+            persistence_interval: Some(Duration::from_secs_f64(0.1).try_into().unwrap()),
             lock_uuid: Uuid::new_v4(),
-            lock_ttl: Duration::from_secs(15),
-            lock_heartbeat: Duration::from_secs(5),
-            evict_sleep_threshold: Duration::from_secs(10),
+            lock_ttl: Duration::from_secs(15).try_into().unwrap(),
+            lock_heartbeat: Duration::from_secs(5).try_into().unwrap(),
+            evict_sleep_threshold: Duration::from_secs(10).try_into().unwrap(),
             skip_sleep: false,
             active_instance_gauge: None,
         },

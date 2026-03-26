@@ -9,10 +9,10 @@ use uuid::Uuid;
 
 use waymark_backend_fault_injection::FaultInjectingBackend;
 use waymark_backend_memory::MemoryBackend;
-use waymark_backends_core::BackendError;
 use waymark_core_backend::{ActionAttemptStatus, CoreBackend, QueuedInstance};
 use waymark_dag_builder::convert_to_dag;
 use waymark_ir_parser::parse_program;
+use waymark_nonzero_duration::NonZeroDuration;
 use waymark_proto::ast as ir;
 use waymark_runloop::{RunLoop, RunLoopConfig, RunLoopError};
 use waymark_runner::RunnerExecutor;
@@ -22,15 +22,15 @@ use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBa
 
 fn default_test_config(lock_uuid: Uuid) -> RunLoopConfig {
     RunLoopConfig {
-        max_concurrent_instances: 25,
-        executor_shards: 1,
+        max_concurrent_instances: 25.try_into().unwrap(),
+        executor_shards: 1.try_into().unwrap(),
         instance_done_batch_size: None,
-        poll_interval: Duration::from_millis(10),
-        persistence_interval: Duration::from_millis(10),
+        poll_interval: NonZeroDuration::from_millis(10),
+        persistence_interval: NonZeroDuration::from_millis(10),
         lock_uuid,
-        lock_ttl: Duration::from_secs(15),
-        lock_heartbeat: Duration::from_secs(5),
-        evict_sleep_threshold: Duration::from_secs(10),
+        lock_ttl: NonZeroDuration::from_secs(15).unwrap(),
+        lock_heartbeat: NonZeroDuration::from_secs(5).unwrap(),
+        evict_sleep_threshold: NonZeroDuration::from_secs(10).unwrap(),
         skip_sleep: false,
         active_instance_gauge: None,
     }
@@ -99,19 +99,20 @@ fn main(input: [x], output: [y]):
     );
     let worker_pool = waymark_worker_inline::InlineWorkerPool::new(actions);
 
-    let mut runloop = RunLoop::new(
+    let runloop = RunLoop::new(
         worker_pool,
         backend.clone(),
         RunLoopConfig {
-            max_concurrent_instances: 25,
-            executor_shards: 1,
+            max_concurrent_instances: 25.try_into().unwrap(),
+            executor_shards: 1.try_into().unwrap(),
             instance_done_batch_size: None,
-            poll_interval: Duration::from_secs_f64(0.0),
-            persistence_interval: Duration::from_secs_f64(0.1),
+            // TODO: do we really want no interval here?
+            poll_interval: None,
+            persistence_interval: Some(Duration::from_secs_f64(0.1).try_into().unwrap()),
             lock_uuid: Uuid::new_v4(),
-            lock_ttl: Duration::from_secs(15),
-            lock_heartbeat: Duration::from_secs(5),
-            evict_sleep_threshold: Duration::from_secs(10),
+            lock_ttl: Duration::from_secs(15).try_into().unwrap(),
+            lock_heartbeat: Duration::from_secs(5).try_into().unwrap(),
+            evict_sleep_threshold: Duration::from_secs(10).try_into().unwrap(),
             skip_sleep: false,
             active_instance_gauge: None,
         },
@@ -179,19 +180,20 @@ fn main(input: [x], output: [y]):
     );
     let worker_pool = waymark_worker_inline::InlineWorkerPool::new(actions);
 
-    let mut runloop = RunLoop::new(
+    let runloop = RunLoop::new(
         worker_pool,
         backend.clone(),
         RunLoopConfig {
-            max_concurrent_instances: 25,
-            executor_shards: 2,
+            max_concurrent_instances: 25.try_into().unwrap(),
+            executor_shards: 2.try_into().unwrap(),
             instance_done_batch_size: None,
-            poll_interval: Duration::from_secs_f64(0.0),
-            persistence_interval: Duration::from_secs_f64(0.1),
+            // TODO: do we really want no interval here?
+            poll_interval: None,
+            persistence_interval: Some(Duration::from_secs_f64(0.1).try_into().unwrap()),
             lock_uuid: Uuid::new_v4(),
-            lock_ttl: Duration::from_secs(15),
-            lock_heartbeat: Duration::from_secs(5),
-            evict_sleep_threshold: Duration::from_secs(10),
+            lock_ttl: Duration::from_secs(15).try_into().unwrap(),
+            lock_heartbeat: Duration::from_secs(5).try_into().unwrap(),
+            evict_sleep_threshold: Duration::from_secs(10).try_into().unwrap(),
             skip_sleep: false,
             active_instance_gauge: None,
         },
@@ -315,19 +317,20 @@ fn main(input: [x], output: [y]):
     );
     let worker_pool = waymark_worker_inline::InlineWorkerPool::new(actions);
 
-    let mut runloop = RunLoop::new(
+    let runloop = RunLoop::new(
         worker_pool,
         backend.clone(),
         RunLoopConfig {
-            max_concurrent_instances: 25,
-            executor_shards: 1,
+            max_concurrent_instances: 25.try_into().unwrap(),
+            executor_shards: 1.try_into().unwrap(),
             instance_done_batch_size: None,
-            poll_interval: Duration::from_secs_f64(0.0),
-            persistence_interval: Duration::from_secs_f64(0.1),
+            // TODO: do we really want no interval here?
+            poll_interval: None,
+            persistence_interval: Some(Duration::from_secs_f64(0.1).try_into().unwrap()),
             lock_uuid: Uuid::new_v4(),
-            lock_ttl: Duration::from_secs(15),
-            lock_heartbeat: Duration::from_secs(5),
-            evict_sleep_threshold: Duration::from_secs(10),
+            lock_ttl: Duration::from_secs(15).try_into().unwrap(),
+            lock_heartbeat: Duration::from_secs(5).try_into().unwrap(),
+            evict_sleep_threshold: Duration::from_secs(10).try_into().unwrap(),
             skip_sleep: true,
             active_instance_gauge: None,
         },
@@ -403,19 +406,20 @@ fn main(input: [], output: [y]):
     );
     let worker_pool = waymark_worker_inline::InlineWorkerPool::new(actions);
 
-    let mut runloop = RunLoop::new(
+    let runloop = RunLoop::new(
         worker_pool,
         backend.clone(),
         RunLoopConfig {
-            max_concurrent_instances: 25,
-            executor_shards: 1,
+            max_concurrent_instances: 25.try_into().unwrap(),
+            executor_shards: 1.try_into().unwrap(),
             instance_done_batch_size: None,
-            poll_interval: Duration::from_secs_f64(0.0),
-            persistence_interval: Duration::from_secs_f64(0.05),
+            // TODO: do we really want no interval here?
+            poll_interval: None,
+            persistence_interval: Some(Duration::from_secs_f64(0.05).try_into().unwrap()),
             lock_uuid: Uuid::new_v4(),
-            lock_ttl: Duration::from_secs(15),
-            lock_heartbeat: Duration::from_secs(5),
-            evict_sleep_threshold: Duration::from_secs(10),
+            lock_ttl: Duration::from_secs(15).try_into().unwrap(),
+            lock_heartbeat: Duration::from_secs(5).try_into().unwrap(),
+            evict_sleep_threshold: Duration::from_secs(10).try_into().unwrap(),
             skip_sleep: false,
             active_instance_gauge: None,
         },
@@ -515,19 +519,20 @@ fn main(input: [x], output: [y]):
         .expect("register workflow version");
 
     let worker_pool = waymark_worker_inline::InlineWorkerPool::new(HashMap::new());
-    let mut runloop = RunLoop::new(
+    let runloop = RunLoop::new(
         worker_pool,
         backend.clone(),
         RunLoopConfig {
-            max_concurrent_instances: 25,
-            executor_shards: 1,
+            max_concurrent_instances: 25.try_into().unwrap(),
+            executor_shards: 1.try_into().unwrap(),
             instance_done_batch_size: None,
-            poll_interval: Duration::from_secs_f64(0.0),
-            persistence_interval: Duration::from_secs_f64(0.1),
+            // TODO: do we really want no interval here?
+            poll_interval: None,
+            persistence_interval: Some(Duration::from_secs_f64(0.1).try_into().unwrap()),
             lock_uuid: Uuid::new_v4(),
-            lock_ttl: Duration::from_secs(15),
-            lock_heartbeat: Duration::from_secs(5),
-            evict_sleep_threshold: Duration::from_secs(10),
+            lock_ttl: Duration::from_secs(15).try_into().unwrap(),
+            lock_heartbeat: Duration::from_secs(5).try_into().unwrap(),
+            evict_sleep_threshold: Duration::from_secs(10).try_into().unwrap(),
             skip_sleep: false,
             active_instance_gauge: None,
         },
@@ -663,19 +668,20 @@ fn main(input: [limit], output: [result]):
     );
     let worker_pool = waymark_worker_inline::InlineWorkerPool::new(actions);
 
-    let mut runloop = RunLoop::new(
+    let runloop = RunLoop::new(
         worker_pool,
         backend.clone(),
         RunLoopConfig {
-            max_concurrent_instances: 25,
-            executor_shards: 1,
+            max_concurrent_instances: 25.try_into().unwrap(),
+            executor_shards: 1.try_into().unwrap(),
             instance_done_batch_size: None,
-            poll_interval: Duration::from_secs_f64(0.0),
-            persistence_interval: Duration::from_secs_f64(0.1),
+            // TODO: do we really want no interval here?
+            poll_interval: None,
+            persistence_interval: Some(Duration::from_secs_f64(0.1).try_into().unwrap()),
             lock_uuid: Uuid::new_v4(),
-            lock_ttl: Duration::from_secs(15),
-            lock_heartbeat: Duration::from_secs(5),
-            evict_sleep_threshold: Duration::from_secs(10),
+            lock_ttl: Duration::from_secs(15).try_into().unwrap(),
+            lock_heartbeat: Duration::from_secs(5).try_into().unwrap(),
+            evict_sleep_threshold: Duration::from_secs(10).try_into().unwrap(),
             skip_sleep: false,
             active_instance_gauge: None,
         },
@@ -723,7 +729,7 @@ async fn test_runloop_reproduces_no_progress_with_continued_queue_growth() {
     let worker_pool = waymark_worker_inline::InlineWorkerPool::new(HashMap::new());
     let shutdown_token = tokio_util::sync::CancellationToken::new();
 
-    let mut runloop = RunLoop::new_with_shutdown(
+    let runloop = RunLoop::new_with_shutdown(
         worker_pool,
         backend.clone(),
         default_test_config(Uuid::new_v4()),
@@ -754,10 +760,18 @@ async fn test_runloop_reproduces_no_progress_with_continued_queue_growth() {
         .expect("runloop task should stop before timeout")
         .expect("runloop task should not panic");
 
-    let Err(RunLoopError::Backend(BackendError::Message(msg))) = result else {
-        panic!("expected an Err(Backend(Message(...))) result, got {result:?}");
+    let Err(error) = result else {
+        panic!("expected an Err result, got {result:?}");
     };
-    assert_eq!(msg, "depth limit exceeded");
+    assert!(
+        matches!(
+            error,
+            RunLoopError::CoreBackendPoll(
+                waymark_backend_fault_injection::PollQueuedInstancesError::DepthLimitExceeded,
+            )
+        ),
+        "expected depth limit exceeded error"
+    );
 
     assert!(
         backend.get_queued_instances_calls() >= 1,
@@ -850,7 +864,7 @@ fn main(input: [x], output: [y]):
         .expect("register workflow version");
 
     let worker_pool = waymark_worker_inline::InlineWorkerPool::new(HashMap::new());
-    let mut runloop = RunLoop::new(
+    let runloop = RunLoop::new(
         worker_pool,
         backend.clone(),
         default_test_config(Uuid::new_v4()),
@@ -945,7 +959,7 @@ fn main(input: [], output: [result]):
         }),
     );
     let worker_pool = waymark_worker_inline::InlineWorkerPool::new(actions);
-    let mut runloop = RunLoop::new(
+    let runloop = RunLoop::new(
         worker_pool,
         backend.clone(),
         default_test_config(Uuid::new_v4()),
@@ -1028,7 +1042,7 @@ fn main(input: [], output: [result]):
         Arc::new(|_kwargs| Box::pin(async move { Ok(Value::Number(7.into())) })),
     );
     let worker_pool = waymark_worker_inline::InlineWorkerPool::new(actions);
-    let mut runloop = RunLoop::new(
+    let runloop = RunLoop::new(
         worker_pool,
         backend.clone(),
         default_test_config(Uuid::new_v4()),

@@ -10,7 +10,8 @@ waymark-backends-core = { workspace = true }
 waymark-core-backend = { workspace = true }
 waymark-workflow-registry-backend = { workspace = true }
 
-async-trait = { workspace = true }
+nonempty-collections = { workspace = true }
+thiserror = { workspace = true }
 uuid = { workspace = true }
 
 [lib]

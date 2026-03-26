@@ -24,12 +24,14 @@ pub struct WorkflowVersion {
 }
 
 /// Backend capability for registering workflow DAGs.
-#[async_trait::async_trait]
-pub trait WorkflowRegistryBackend: Send + Sync {
-    async fn upsert_workflow_version(
-        &self,
-        registration: &WorkflowRegistration,
-    ) -> BackendResult<Uuid>;
+pub trait WorkflowRegistryBackend {
+    fn upsert_workflow_version<'a>(
+        &'a self,
+        registration: &'a WorkflowRegistration,
+    ) -> impl Future<Output = BackendResult<Uuid>> + Send + 'a;
 
-    async fn get_workflow_versions(&self, ids: &[Uuid]) -> BackendResult<Vec<WorkflowVersion>>;
+    fn get_workflow_versions<'a>(
+        &'a self,
+        ids: &'a [Uuid],
+    ) -> impl Future<Output = BackendResult<Vec<WorkflowVersion>>> + Send + 'a;
 }

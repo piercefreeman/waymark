@@ -1,6 +1,7 @@
 //! Runloop for coordinating executors and worker pools.
 
 use std::collections::{HashMap, HashSet};
+use std::num::NonZeroUsize;
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
@@ -10,11 +11,13 @@ use std::thread;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
+use nonempty_collections::NEVec;
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 use waymark_backends_core::BackendError;
 use waymark_core_backend::{InstanceDone, QueuedInstance};
+use waymark_nonzero_duration::NonZeroDuration;
 
 use crate::commit_barrier::CommitBarrier;
 use crate::instance_lock_heartbeat;
@@ -52,15 +55,24 @@ mod lock_utils;
 
 /// Raised when the run loop cannot coordinate execution.
 #[derive(Debug, thiserror::Error)]
-pub enum Error {
+pub enum Error<CoreBackendPollError> {
     #[error("{0}")]
     Message(String),
+
+    #[error("core backend poll: {0}")]
+    CoreBackendPoll(#[source] CoreBackendPollError),
+
     #[error(transparent)]
     Backend(#[from] BackendError),
+
     #[error(transparent)]
     WorkerPool(#[from] WorkerPoolError),
+
     #[error(transparent)]
     RunnerExecutor(RunnerExecutorError),
+
+    #[error(transparent)]
+    AvailableInstanceSlotsUpdate(crate::available_instance_slots::UpdateError),
 }
 
 #[derive(Clone, Debug)]
@@ -78,9 +90,9 @@ struct InflightActionDispatch {
     deadline_at: Option<DateTime<Utc>>,
 }
 
-enum CoordinatorEvent {
+enum CoordinatorEvent<CoreBackendPollError> {
     Completions(Vec<ActionCompletion>),
-    Instance(queued_instances_polling::Message),
+    Instance(queued_instances_polling::Message<CoreBackendPollError>),
     Shard(shard::Event),
     SleepWake(SleepWake),
     PersistAck(persist::Ack),
@@ -98,32 +110,32 @@ where
     core_backend: Arc<CoreBackend>,
     registry_backend: Arc<RegistryBackend>,
     workflow_cache: HashMap<Uuid, Arc<DAG>>,
-    available_instance_slot_tracker: Arc<crate::available_instance_slots::Tracker>,
-    instance_done_batch_size: usize,
-    poll_interval: Duration,
-    persistence_interval: Duration,
-    shard_count: usize,
+    available_instances_updater: AvailableInstancesUpdater,
+    available_instance_slots_reader: crate::available_instance_slots::Reader,
+    instance_done_batch_size: NonZeroUsize,
+    poll_interval: Option<NonZeroDuration>,
+    persistence_interval: Option<NonZeroDuration>,
+    shard_count: NonZeroUsize,
     lock_uuid: Uuid,
-    lock_ttl: Duration,
-    lock_heartbeat: Duration,
-    evict_sleep_threshold: Duration,
+    lock_ttl: NonZeroDuration,
+    lock_heartbeat: NonZeroDuration,
+    evict_sleep_threshold: NonZeroDuration,
     skip_sleep: bool,
-    active_instance_gauge: Option<Arc<AtomicUsize>>,
     shutdown_token: tokio_util::sync::CancellationToken,
     exit_on_idle: bool,
 }
 
 #[derive(Clone, Debug)]
 pub struct RunLoopConfig {
-    pub max_concurrent_instances: usize,
-    pub executor_shards: usize,
-    pub instance_done_batch_size: Option<usize>,
-    pub poll_interval: Duration,
-    pub persistence_interval: Duration,
+    pub max_concurrent_instances: NonZeroUsize,
+    pub executor_shards: NonZeroUsize,
+    pub instance_done_batch_size: Option<NonZeroUsize>,
+    pub poll_interval: Option<NonZeroDuration>,
+    pub persistence_interval: Option<NonZeroDuration>,
     pub lock_uuid: Uuid,
-    pub lock_ttl: Duration,
-    pub lock_heartbeat: Duration,
-    pub evict_sleep_threshold: Duration,
+    pub lock_ttl: NonZeroDuration,
+    pub lock_heartbeat: NonZeroDuration,
+    pub evict_sleep_threshold: NonZeroDuration,
     pub skip_sleep: bool,
     pub active_instance_gauge: Option<Arc<AtomicUsize>>,
 }
@@ -163,14 +175,21 @@ where
         shutdown_token: tokio_util::sync::CancellationToken,
         exit_on_idle: bool,
     ) -> Self {
-        #[allow(deprecated)]
-        let available_instance_slots_calc =
-            crate::available_instance_slots::Calc::new_saturating(config.max_concurrent_instances);
-        let instance_done_batch_size = available_instance_slots_calc.max_concurrent_instances.get();
+        let available_instance_slots_calc = crate::available_instance_slots::Calc {
+            max_concurrent_instances: config.max_concurrent_instances,
+        };
+        let instance_done_batch_size = config
+            .instance_done_batch_size
+            .unwrap_or(config.max_concurrent_instances);
 
-        let available_instance_slot_tracker =
+        let (available_instance_slots_tracker, available_instance_slots_reader) =
             crate::available_instance_slots::Tracker::from_scratch(available_instance_slots_calc);
-        let available_instance_slot_tracker = Arc::new(available_instance_slot_tracker);
+        let available_instance_slots_tracker = Arc::new(available_instance_slots_tracker);
+
+        let available_instances_updater = AvailableInstancesUpdater {
+            available_instance_slots_tracker,
+            active_instance_gauge: config.active_instance_gauge.clone(),
+        };
 
         let worker_pool = worker_pool.into();
         let backend = backend.into();
@@ -184,17 +203,17 @@ where
             core_backend,
             registry_backend,
             workflow_cache: HashMap::new(),
-            available_instance_slot_tracker,
+            available_instances_updater,
+            available_instance_slots_reader,
             instance_done_batch_size,
             poll_interval: config.poll_interval,
             persistence_interval: config.persistence_interval,
-            shard_count: std::cmp::max(1, config.executor_shards),
+            shard_count: config.executor_shards,
             lock_uuid: config.lock_uuid,
             lock_ttl: config.lock_ttl,
             lock_heartbeat: config.lock_heartbeat,
             evict_sleep_threshold: config.evict_sleep_threshold,
             skip_sleep: config.skip_sleep,
-            active_instance_gauge: config.active_instance_gauge.clone(),
             shutdown_token,
             exit_on_idle,
         }
@@ -212,25 +231,22 @@ where
     // TODO: review after splitting out spawns
     WorkerPool: Send + Sync + 'static,
     CoreBackend: Send + Sync + 'static,
+    CoreBackend::PollQueuedInstancesError: core::fmt::Display,
+    CoreBackend::PollQueuedInstancesError: core::fmt::Debug,
+    CoreBackend::PollQueuedInstancesError: Send + Sync + 'static,
 {
-    fn store_available_instance_slots(&self, active_instances: usize) {
-        self.available_instance_slot_tracker
-            .update_saturating(active_instances);
-        if let Some(gauge) = &self.active_instance_gauge {
-            gauge.store(active_instances, Ordering::SeqCst);
-        }
-    }
-
     #[obs]
-    pub async fn run(&mut self) -> Result<(), Error> {
+    pub async fn run(
+        mut self,
+    ) -> Result<(), Error<queued_instances_polling::r#loop::BackendErrorFor<CoreBackend>>> {
         self.worker_pool.launch().await.map_err(Error::WorkerPool)?;
 
         let (event_tx, mut event_rx) = mpsc::unbounded_channel::<shard::Event>();
         let mut shard_senders: Vec<std_mpsc::Sender<shard::Command>> =
-            Vec::with_capacity(self.shard_count);
-        let mut shard_handles = Vec::with_capacity(self.shard_count);
+            Vec::with_capacity(self.shard_count.get());
+        let mut shard_handles = Vec::with_capacity(self.shard_count.get());
 
-        for shard_id in 0..self.shard_count {
+        for shard_id in 0..self.shard_count.get() {
             let (cmd_tx, cmd_rx) = std_mpsc::channel();
             let event_tx = event_tx.clone();
             let handle = thread::Builder::new()
@@ -245,10 +261,16 @@ where
         }
         drop(event_tx);
 
-        self.store_available_instance_slots(0);
+        self.available_instances_updater
+            .update(0)
+            .map_err(Error::AvailableInstanceSlotsUpdate)?;
 
         let (completion_tx, mut completion_rx) = mpsc::channel::<Vec<ActionCompletion>>(32);
-        let (instance_tx, mut instance_rx) = mpsc::channel::<queued_instances_polling::Message>(16);
+        let (instance_tx, mut instance_rx) = mpsc::channel::<
+            queued_instances_polling::Message<
+                queued_instances_polling::r#loop::BackendErrorFor<CoreBackend>,
+            >,
+        >(16);
         let (sleep_tx, mut sleep_rx) = mpsc::unbounded_channel::<SleepWake>();
 
         // TODO: move this initialization out of the runloop
@@ -289,7 +311,7 @@ where
             let params = queued_instances_polling::r#loop::Params {
                 shutdown_token: self.shutdown_token.clone(),
                 core_backend: self.core_backend.clone(),
-                available_instance_slots_tracker: Arc::clone(&self.available_instance_slot_tracker),
+                available_instance_slots_reader: self.available_instance_slots_reader.clone(),
                 poll_interval: self.poll_interval,
                 lock_uuid: self.lock_uuid,
                 lock_ttl: self.lock_ttl,
@@ -312,20 +334,19 @@ where
             lock_uuid: self.lock_uuid,
         }));
 
-        let persistence_interval = if self.persistence_interval > Duration::ZERO {
-            self.persistence_interval
-        } else {
-            Duration::from_secs(3600)
-        };
-        let mut persistence_tick = tokio::time::interval(persistence_interval);
-        let timeout_scan_interval = if self.poll_interval > Duration::ZERO {
-            std::cmp::max(
-                Duration::from_millis(25),
-                std::cmp::min(self.poll_interval, Duration::from_millis(250)),
-            )
-        } else {
-            Duration::from_millis(100)
-        };
+        let persistence_interval = self
+            .persistence_interval
+            .unwrap_or(NonZeroDuration::from_secs(3600).unwrap());
+        let mut persistence_tick = tokio::time::interval(persistence_interval.get());
+        let timeout_scan_interval = self
+            .poll_interval
+            .map(|poll_interval| {
+                std::cmp::max(
+                    Duration::from_millis(25),
+                    std::cmp::min(poll_interval.get(), Duration::from_millis(250)),
+                )
+            })
+            .unwrap_or(Duration::from_millis(100));
         let mut action_timeout_tick = tokio::time::interval(timeout_scan_interval);
         action_timeout_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
@@ -381,7 +402,10 @@ where
                     Some(CoordinatorEvent::PersistAck(ack))
                 }
                 _ = persistence_tick.tick() => {
-                    if self.persistence_interval > Duration::ZERO {
+                    // TODO: why do we only do this if the `self.persistence_interval`
+                    // is set, while we also have a local `persistence_interval` that
+                    // is guaranteed to be set?
+                    if self.persistence_interval.is_some() {
                         let params = ops::flush_instances_done::Params {
                             core_backend: self.core_backend.as_ref(),
                             pending: &mut instances_done_pending,
@@ -413,7 +437,7 @@ where
             let mut all_failed_instances: Vec<InstanceDone> = Vec::new();
             let mut all_wakes: Vec<SleepWake> = Vec::new();
             let mut all_persist_acks: Vec<persist::Ack> = Vec::new();
-            let mut saw_empty_instances = false;
+            let mut queued_instances_poller_is_pending = false;
 
             match first_event {
                 CoordinatorEvent::Completions(completions) => {
@@ -422,15 +446,14 @@ where
                 CoordinatorEvent::Instance(queued_instances_polling::Message::Batch {
                     instances,
                 }) => {
-                    if instances.is_empty() {
-                        saw_empty_instances = true;
-                    } else {
-                        all_instances.extend(instances);
-                    }
+                    all_instances.extend(instances);
+                }
+                CoordinatorEvent::Instance(queued_instances_polling::Message::Pending) => {
+                    queued_instances_poller_is_pending = true;
                 }
                 CoordinatorEvent::Instance(queued_instances_polling::Message::Error(err)) => {
                     warn!(error = %err, "runloop exiting: instance poller backend error");
-                    break 'runloop Err(Error::Backend(err));
+                    break 'runloop Err(Error::CoreBackendPoll(err));
                 }
                 CoordinatorEvent::Shard(event) => match event {
                     shard::Event::Step(step) => all_steps.push(step),
@@ -462,15 +485,14 @@ where
             while let Ok(message) = instance_rx.try_recv() {
                 match message {
                     queued_instances_polling::Message::Batch { instances } => {
-                        if instances.is_empty() {
-                            saw_empty_instances = true;
-                        } else {
-                            all_instances.extend(instances);
-                        }
+                        all_instances.extend(instances);
+                    }
+                    queued_instances_polling::Message::Pending => {
+                        queued_instances_poller_is_pending = true;
                     }
                     queued_instances_polling::Message::Error(err) => {
                         warn!(error = %err, "runloop exiting: instance poller backend error");
-                        break 'runloop Err(Error::Backend(err));
+                        break 'runloop Err(Error::CoreBackendPoll(err));
                     }
                 }
             }
@@ -575,7 +597,10 @@ where
             }
 
             // Handle all instances.
-            {
+            if let Some(all_instances) = NEVec::try_from_vec(all_instances) {
+                // Record that we've been processing something this tick.
+                instances_idle = false;
+
                 let params = parts::new_instances::Params {
                     executor_shards: &mut executor_shards,
                     shard_senders: &mut shard_senders,
@@ -589,11 +614,9 @@ where
                     commit_barrier: &mut commit_barrier,
                     workflow_cache: &mut self.workflow_cache,
                     registry_backend: self.registry_backend.as_ref(),
-                    instances_idle: &mut instances_idle,
                     next_shard: &mut next_shard,
                     shard_count: self.shard_count,
                     all_instances,
-                    saw_empty_instances,
                 };
 
                 let result = parts::new_instances::handle(params).await;
@@ -615,6 +638,9 @@ where
                     };
                     break 'runloop Err(error);
                 }
+            } else if queued_instances_poller_is_pending {
+                // Record that we've been idle this tick.
+                instances_idle = true;
             }
 
             // Handle failed instances.
@@ -684,9 +710,14 @@ where
                 }
             }
 
-            self.store_available_instance_slots(executor_shards.len());
+            if let Err(error) = self
+                .available_instances_updater
+                .update(executor_shards.len())
+            {
+                break 'runloop Err(Error::AvailableInstanceSlotsUpdate(error));
+            };
 
-            if instances_done_pending.len() >= self.instance_done_batch_size
+            if instances_done_pending.len() >= self.instance_done_batch_size.get()
                 && let Err(err) =
                     ops::flush_instances_done::run(ops::flush_instances_done::Params {
                         core_backend: self.core_backend.as_ref(),
@@ -750,10 +781,32 @@ where
             warn!(error = %err, count = remaining_locks.len(), "failed to release instance locks on shutdown");
         }
 
-        if let Some(gauge) = &self.active_instance_gauge {
-            gauge.store(0, Ordering::SeqCst);
-        }
+        // Available instances updater error is safe to ignore now that we're
+        // exiting the loop...
+        let _ = self.available_instances_updater.update(0);
 
         run_result
+    }
+}
+
+pub struct AvailableInstancesUpdater {
+    pub available_instance_slots_tracker: Arc<crate::available_instance_slots::Tracker>,
+    pub active_instance_gauge: Option<Arc<AtomicUsize>>,
+}
+
+impl AvailableInstancesUpdater {
+    fn update(
+        &self,
+        active_instances: usize,
+    ) -> Result<(), crate::available_instance_slots::UpdateError> {
+        let _ = self
+            .available_instance_slots_tracker
+            .update(active_instances);
+
+        if let Some(gauge) = &self.active_instance_gauge {
+            gauge.store(active_instances, Ordering::SeqCst);
+        }
+
+        Ok(())
     }
 }

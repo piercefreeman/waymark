@@ -7,8 +7,10 @@ use anyhow::{Context, Result, anyhow, bail};
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use tokio::process::Command;
 use tokio::sync::OnceCell;
+use waymark_secret_string::SecretStr;
 
-pub const LOCAL_POSTGRES_DSN: &str = "postgresql://waymark:waymark@127.0.0.1:5433/waymark";
+pub const LOCAL_POSTGRES_DSN: &SecretStr =
+    SecretStr::new("postgresql://waymark:waymark@127.0.0.1:5433/waymark");
 
 const READY_TIMEOUT: Duration = Duration::from_secs(45);
 const RETRY_DELAY: Duration = Duration::from_millis(500);
@@ -29,11 +31,11 @@ pub async fn ensure_local_postgres() -> Result<()> {
 }
 
 /// Connect a PgPool using integration defaults.
-pub async fn connect_pool(dsn: &str) -> Result<PgPool> {
+pub async fn connect_pool(dsn: &SecretStr) -> Result<PgPool> {
     Ok(PgPoolOptions::new()
         .max_connections(POOL_MAX_CONNECTIONS)
         .acquire_timeout(POOL_ACQUIRE_TIMEOUT)
-        .connect(dsn)
+        .connect(dsn.expose_secret())
         .await?)
 }
 
@@ -76,7 +78,7 @@ async fn run_compose_up() -> Result<()> {
     Ok(())
 }
 
-async fn wait_for_postgres(dsn: &str) -> Result<PgPool> {
+async fn wait_for_postgres(dsn: &SecretStr) -> Result<PgPool> {
     let deadline = Instant::now() + READY_TIMEOUT;
     let mut last_error = None;
 
@@ -91,7 +93,8 @@ async fn wait_for_postgres(dsn: &str) -> Result<PgPool> {
     }
 
     Err(anyhow!(
-        "timed out waiting for postgres at {dsn}; last error: {}",
+        "timed out waiting for postgres at {}; last error: {}",
+        dsn.expose_secret(),
         last_error
             .map(|err| err.to_string())
             .unwrap_or_else(|| "unknown".to_string())

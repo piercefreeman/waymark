@@ -1,0 +1,32 @@
+name: Chained PR
+
+on:
+  pull_request:
+    branches-ignore: [ main ]
+
+jobs:
+  check:
+    name: "Do not merge yet if this fails!"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Chained PR
+        run: |
+          cat <<'EOF' | tee -a "$GITHUB_STEP_SUMMARY"
+          ## ⛔ Do not merge: PR is not targeting `main`
+
+          This PR's base branch is **not `main`**.
+
+          PRs in this repository are expected to target `main` directly.
+          If you are working with a chain of PRs, this check will fail on
+          intermediate PRs until the earlier ones are merged and the base
+          branch is updated to `main`. Do not merge this PR until the
+          earlier PRs in the chain have landed and this check passes.
+          EOF
+          cat <<'EOF' | tr '\n' ' '
+          ::error::This PR is not targeting `main`.
+          It may be part of a PR chain -
+          do not merge until earlier PRs in the chain have landed
+          and the base branch is updated to `main`.
+          EOF
+          exit 1
+

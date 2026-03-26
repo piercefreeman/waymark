@@ -9,13 +9,17 @@ waymark-backends-core = { workspace = true }
 waymark-core-backend = { workspace = true }
 waymark-dag = { workspace = true }
 waymark-dag-builder = { workspace = true }
+waymark-nonzero-duration = { workspace = true }
 waymark-observability = { workspace = true }
 waymark-proto = { workspace = true }
 waymark-runner = { workspace = true }
+waymark-tick-loop = { workspace = true }
+waymark-utils-tokio-channel = { workspace = true }
 waymark-worker-core = { workspace = true }
 waymark-workflow-registry-backend = { workspace = true }
 
 chrono = { workspace = true, default-features = false }
+nonempty-collections = { workspace = true }
 prost = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

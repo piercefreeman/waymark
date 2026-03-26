@@ -1,0 +1,15 @@
+[package]
+name = "waymark-utils-tokio-channel"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-utils-futures = { workspace = true }
+
+tokio = { workspace = true, features = ["time", "sync"] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tokio-util = { workspace = true }

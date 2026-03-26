@@ -7,7 +7,6 @@ use waymark_workflow_registry_backend::{
 
 use super::PostgresBackend;
 
-#[async_trait::async_trait]
 impl WorkflowRegistryBackend for PostgresBackend {
     async fn upsert_workflow_version(
         &self,

@@ -25,6 +25,7 @@ waymark-ir-conversions = { path = "crates/lib/ir-conversions" }
 waymark-ir-format = { path = "crates/lib/ir-format" }
 waymark-ir-parser = { path = "crates/lib/ir-parser" }
 waymark-message-conversions = { path = "crates/lib/message-conversions" }
+waymark-nonzero-duration = { path = "crates/lib/nonzero-duration" }
 waymark-observability = { path = "crates/lib/observability" }
 waymark-observability-macros = { path = "crates/lib/observability-macros" }
 waymark-observability-setup = { path = "crates/lib/observability-setup" }
@@ -37,9 +38,13 @@ waymark-scheduler-backend = { path = "crates/lib/scheduler-backend" }
 waymark-scheduler-config = { path = "crates/lib/scheduler-config" }
 waymark-scheduler-core = { path = "crates/lib/scheduler-core" }
 waymark-scheduler-loop = { path = "crates/lib/scheduler-loop" }
+waymark-secret-string = { path = "crates/lib/secret-string" }
 waymark-smoke-sources = { path = "crates/lib/smoke-sources" }
 waymark-support-integration = { path = "crates/lib/support-integration" }
 waymark-support-test = { path = "crates/lib/support-test" }
+waymark-tick-loop = { path = "crates/lib/tick-loop" }
+waymark-utils-futures = { path = "crates/lib/utils-futures" }
+waymark-utils-tokio-channel = { path = "crates/lib/utils-tokio-channel" }
 waymark-webapp-backend = { path = "crates/lib/webapp-backend" }
 waymark-webapp-bringup = { path = "crates/lib/webapp-bringup" }
 waymark-webapp-config = { path = "crates/lib/webapp-config" }
@@ -55,15 +60,17 @@ waymark-worker-status-reporter = { path = "crates/lib/worker-status-reporter" }
 waymark-workflow-registry-backend = { path = "crates/lib/workflow-registry-backend" }
 
 anyhow = "1"
-async-trait = "0.1"
 axum = "0.8"
 chrono = { version = "0.4", default-features = false }
 clap = "4.5"
 console-subscriber = "0.5"
 cron = "0.12"
+envfury = "0.2"
 futures-core = "0.3"
+futures-util = "0.3"
 http-body-util = "0.1"
 mockall = "0.14"
+nix = "0.31"
 nonempty-collections = "1"
 proc-macro2 = "1"
 proptest = "1.9"
@@ -93,3 +100,4 @@ tracing = "0.1"
 tracing-chrome = "0.7"
 tracing-subscriber = "0.3"
 uuid = "1"
+zeroize = "1"

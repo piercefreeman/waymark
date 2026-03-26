@@ -7,7 +7,6 @@ edition = "2024"
 [dependencies]
 waymark-backends-core = { workspace = true }
 
-async-trait = { workspace = true }
 chrono = { workspace = true }
 uuid = { workspace = true }
 

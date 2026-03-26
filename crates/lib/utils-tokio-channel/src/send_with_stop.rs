@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use tracing::{info, warn};
+use waymark_utils_futures::{with_cancellation, with_race_callback};
 
 /// Sends an item into a bounded channel while racing against a cancellation token.
 ///
@@ -12,42 +12,75 @@ use tracing::{info, warn};
 /// the cancellation future, guaranteeing the task can exit cleanly. It also warns if the
 /// send is pending for more than 2 seconds, surfacing backpressure during normal operation.
 #[tracing::instrument(skip_all, fields(kind))]
-pub async fn send_with_stop<T>(
+pub async fn send_with_stop<T, CancellationSignalFut>(
     tx: &tokio::sync::mpsc::Sender<T>,
     item: T,
-    stop: tokio_util::sync::WaitForCancellationFuture<'_>,
+    stop: CancellationSignalFut,
     #[allow(unused_variables)] kind: &'static str, // used in tracing span
-) -> bool {
-    let send_fut = tx.send(item);
-    tokio::pin!(send_fut);
+) -> Result<(), Error<T>>
+where
+    CancellationSignalFut: Future<Output = ()>,
+{
+    let fut = tx.send(item);
 
-    let mut stop = std::pin::pin!(stop);
+    let fut = std::pin::pin!(fut);
+    let fut = with_race_callback(fut, tokio::time::sleep(Duration::from_secs(2)), || {
+        tracing::warn!("send pending >2s")
+    });
 
-    let mut warned = false;
-    loop {
-        tokio::select! {
-            res = &mut send_fut => {
-                if res.is_err() {
-                    warn!("receiver dropped");
-                    return false;
-                }
-                return true;
-            }
-            _ = &mut stop => {
-                info!("sender stop notified during send");
-                return false;
-            }
-            _ = tokio::time::sleep(Duration::from_secs(2)), if !warned => {
-                warn!("send pending >2s");
-                warned = true;
-            }
+    let fut = std::pin::pin!(fut);
+    let fut = with_cancellation(fut, stop);
+
+    let result = fut.await;
+
+    match result {
+        Ok(Ok(val)) => Ok(val),
+        Ok(Err(send_error)) => {
+            tracing::warn!("receiver dropped");
+            Err(Error::ReceiverDropped(send_error))
+        }
+        Err(with_cancellation::CancelledError { .. }) => {
+            tracing::info!("sender stop notified during send");
+            return Err(Error::Stop);
+        }
+    }
+}
+
+pub enum Error<T> {
+    ReceiverDropped(tokio::sync::mpsc::error::SendError<T>),
+    Stop,
+}
+
+impl<T> core::fmt::Debug for Error<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ReceiverDropped(arg0) => f.debug_tuple("ReceiverDropped").field(arg0).finish(),
+            Self::Stop => write!(f, "Stop"),
+        }
+    }
+}
+
+impl<T> core::fmt::Display for Error<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ReceiverDropped(_) => write!(f, "receiver dropped"),
+            Self::Stop => write!(f, "stop"),
+        }
+    }
+}
+
+impl<T> core::error::Error for Error<T> {
+    fn cause(&self) -> Option<&dyn std::error::Error> {
+        match self {
+            Self::ReceiverDropped(val) => Some(val as _),
+            Self::Stop => None,
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::send_with_stop;
+    use super::*;
     use std::time::Duration;
 
     #[tokio::test]
@@ -68,7 +101,10 @@ mod tests {
             .await
             .expect("send task should complete")
             .expect("send task should not panic");
-        assert!(!sent, "send should abort when stop is notified");
+        assert!(
+            matches!(sent, Err(Error::Stop)),
+            "send should abort when stop is notified"
+        );
 
         let _ = rx.recv().await;
     }
@@ -80,6 +116,9 @@ mod tests {
 
         let shutdown_token = tokio_util::sync::CancellationToken::new();
         let sent = send_with_stop(&tx, 99, shutdown_token.cancelled(), "test message").await;
-        assert!(!sent, "send should fail when receiver is dropped");
+        assert!(
+            matches!(sent, Err(Error::ReceiverDropped(_))),
+            "send should fail when receiver is dropped"
+        );
     }
 }

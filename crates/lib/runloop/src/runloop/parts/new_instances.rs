@@ -1,9 +1,11 @@
 use std::{
     collections::{HashMap, HashSet},
+    num::NonZeroUsize,
     sync::Arc,
 };
 
 use chrono::{DateTime, Utc};
+use nonempty_collections::NEVec;
 use tracing::{debug, warn};
 use uuid::Uuid;
 use waymark_core_backend::QueuedInstance;
@@ -43,16 +45,12 @@ pub struct Params<'a, WorkflowRegistryBackend: ?Sized> {
     /// Backend used to fetch workflow definitions that are missing from the local cache.
     pub registry_backend: &'a WorkflowRegistryBackend,
 
-    /// Idle flag updated when the instance poller reports no more queued work.
-    pub instances_idle: &'a mut bool,
     /// Round-robin cursor used to spread newly claimed instances across shards.
     pub next_shard: &'a mut usize,
     /// Total number of available shards used with the round-robin cursor.
-    pub shard_count: usize,
+    pub shard_count: NonZeroUsize,
     /// Newly claimed instances collected during the current coordinator tick.
-    pub all_instances: Vec<QueuedInstance>,
-    /// Whether the instance poller explicitly reported an empty batch this tick.
-    pub saw_empty_instances: bool,
+    pub all_instances: NEVec<QueuedInstance>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -94,26 +92,15 @@ where
         commit_barrier,
         workflow_cache,
         registry_backend,
-        instances_idle,
         next_shard,
         shard_count,
         mut all_instances,
-        saw_empty_instances,
     } = params;
-
-    if all_instances.is_empty() {
-        if saw_empty_instances {
-            *instances_idle = true;
-        }
-        return Ok(());
-    }
-
-    *instances_idle = false;
 
     let params = super::ops::hydrate_instances::Params {
         workflow_cache,
         registry_backend,
-        instances: &mut all_instances,
+        instances: all_instances.as_mut(),
     };
 
     super::ops::hydrate_instances::run(params)
@@ -122,7 +109,7 @@ where
     debug!(count = all_instances.len(), "hydrated queued instances");
 
     let mut by_shard: HashMap<usize, Vec<QueuedInstance>> = HashMap::new();
-    let mut claimed_instance_ids = Vec::with_capacity(all_instances.len());
+    let mut claimed_instance_ids = Vec::with_capacity(all_instances.len().get());
     let mut replaced_instance_ids = Vec::new();
     for instance in all_instances {
         let shard_idx =

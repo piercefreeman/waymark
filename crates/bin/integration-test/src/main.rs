@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::Row;
 use uuid::Uuid;
+use waymark_secret_string::SecretString;
 
 use waymark_backend_memory::MemoryBackend;
 use waymark_backend_postgres::PostgresBackend;
@@ -437,10 +438,11 @@ async fn setup_worker_pool(
 }
 
 async fn connect_postgres_backend() -> Result<PostgresBackend> {
-    let dsn =
-        std::env::var("WAYMARK_DATABASE_URL").unwrap_or_else(|_| LOCAL_POSTGRES_DSN.to_string());
+    let dsn = std::env::var("WAYMARK_DATABASE_URL")
+        .map(SecretString::from)
+        .unwrap_or_else(|_| SecretString::from(LOCAL_POSTGRES_DSN));
 
-    if dsn == LOCAL_POSTGRES_DSN {
+    if dsn.expose_secret() == LOCAL_POSTGRES_DSN.expose_secret() {
         ensure_local_postgres()
             .await
             .context("auto-bootstrap local postgres for integration runner")?;
@@ -571,20 +573,22 @@ async fn run_case_postgres(
 async fn run_runloop<B>(worker_pool: RemoteWorkerPool, backend: B, timeout: Duration) -> Result<()>
 where
     B: CoreBackend + WorkflowRegistryBackend + Clone + Send + Sync + 'static,
+    <B as CoreBackend>::PollQueuedInstancesError: Send + Sync + 'static,
+    <B as CoreBackend>::PollQueuedInstancesError: core::error::Error,
 {
-    let mut runloop = RunLoop::new(
+    let runloop = RunLoop::new(
         worker_pool,
         backend,
         RunLoopConfig {
-            max_concurrent_instances: 16,
-            executor_shards: 1,
-            instance_done_batch_size: Some(16),
-            poll_interval: Duration::from_millis(10),
-            persistence_interval: Duration::from_millis(20),
+            max_concurrent_instances: 16.try_into().unwrap(),
+            executor_shards: 1.try_into().unwrap(),
+            instance_done_batch_size: Some(16.try_into().unwrap()),
+            poll_interval: Some(Duration::from_millis(10).try_into().unwrap()),
+            persistence_interval: Some(Duration::from_millis(20).try_into().unwrap()),
             lock_uuid: Uuid::new_v4(),
-            lock_ttl: Duration::from_secs(15),
-            lock_heartbeat: Duration::from_secs(5),
-            evict_sleep_threshold: Duration::from_secs(10),
+            lock_ttl: Duration::from_secs(15).try_into().unwrap(),
+            lock_heartbeat: Duration::from_secs(5).try_into().unwrap(),
+            evict_sleep_threshold: Duration::from_secs(10).try_into().unwrap(),
             skip_sleep: false,
             active_instance_gauge: None,
         },

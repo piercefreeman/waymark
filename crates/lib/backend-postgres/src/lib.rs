@@ -1,5 +1,6 @@
 //! Postgres backend for persisting runner state and action results.
 
+mod codec;
 mod core;
 mod registry;
 mod scheduler;
@@ -13,6 +14,7 @@ use std::sync::{Arc, Mutex};
 use sqlx::PgPool;
 use waymark_backends_core::{BackendError, BackendResult};
 use waymark_observability::obs;
+use waymark_secret_string::SecretStr;
 
 /// Persist runner state and action results in Postgres.
 #[derive(Clone)]
@@ -32,8 +34,8 @@ impl PostgresBackend {
     }
 
     #[obs]
-    pub async fn connect(dsn: &str) -> BackendResult<Self> {
-        let pool = PgPool::connect(dsn).await?;
+    pub async fn connect(dsn: &SecretStr) -> BackendResult<Self> {
+        let pool = PgPool::connect(dsn.expose_secret()).await?;
         waymark_backend_postgres_migrations::run(&pool)
             .await
             .map_err(|err| BackendError::Message(err.to_string()))?;
@@ -104,12 +106,19 @@ impl PostgresBackend {
     }
 
     pub(crate) fn serialize<T: serde::Serialize>(value: &T) -> Result<Vec<u8>, BackendError> {
-        rmp_serde::to_vec_named(value).map_err(|e| BackendError::Message(e.to_string()))
+        codec::serialize(value).map_err(|e| BackendError::Message(e.to_string()))
     }
 
     pub(crate) fn deserialize<T: serde::de::DeserializeOwned>(
         payload: &[u8],
     ) -> Result<T, BackendError> {
-        rmp_serde::from_slice(payload).map_err(|e| BackendError::Message(e.to_string()))
+        codec::deserialize(payload).map_err(|e| BackendError::Message(e.to_string()))
     }
+}
+
+/// The common postgres backend error.
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error(transparent)]
+    Sqlx(sqlx::Error),
 }

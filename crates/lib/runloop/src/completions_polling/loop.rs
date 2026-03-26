@@ -3,7 +3,7 @@ use std::sync::Arc;
 use tracing::{debug, info};
 use waymark_worker_core::ActionCompletion;
 
-use crate::channel_utils::send_with_stop;
+use waymark_utils_tokio_channel::send_with_stop;
 
 pub struct Params<WorkerPool>
 where
@@ -51,14 +51,14 @@ where
             "completion task sending completions"
         );
 
-        if !send_with_stop(
+        let send_result = send_with_stop(
             &completion_tx,
             completions.into(), // TODO: pass non-empty vec
             shutdown_token.cancelled(),
             "completions",
         )
-        .await
-        {
+        .await;
+        if send_result.is_err() {
             break;
         }
 

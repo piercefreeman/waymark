@@ -341,6 +341,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
+name = "cfg_aliases"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
+
+[[package]]
 name = "chrono"
 version = "0.4.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -653,6 +659,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "envfury"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cdefb73612e7fa39bd875a78d0a509c63e4968731e65d05569e2b13b53e2fe28"
+dependencies = [
+ "thiserror",
+]
+
+[[package]]
 name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -816,6 +831,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cecba35d7ad927e23624b22ad55235f2239cfa44fd10428eecbeba6d6a717718"
 
 [[package]]
+name = "futures-macro"
+version = "0.3.32"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e835b70203e41293343137df5c0664546da5745f82ec9b84d40be8336958447b"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "futures-sink"
 version = "0.3.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -836,6 +862,7 @@ dependencies = [
  "futures-channel",
  "futures-core",
  "futures-io",
+ "futures-macro",
  "futures-sink",
  "futures-task",
  "memchr",
@@ -1601,6 +1628,18 @@ name = "multimap"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d87ecb2933e8aeadb3e3a02b828fed80a7528047e68b4f424523a0981a3a084"
+
+[[package]]
+name = "nix"
+version = "0.31.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5d6d0705320c1e6ba1d912b5e37cf18071b6c2e9b7fa8215a1e8a7651966f5d3"
+dependencies = [
+ "bitflags 2.11.0",
+ "cfg-if",
+ "cfg_aliases",
+ "libc",
+]
 
 [[package]]
 name = "nom"
@@ -3409,7 +3448,8 @@ dependencies = [
 name = "waymark-backend-fault-injection"
 version = "0.1.0"
 dependencies = [
- "async-trait",
+ "nonempty-collections",
+ "thiserror",
  "uuid",
  "waymark-backend-memory",
  "waymark-backends-core",
@@ -3421,10 +3461,11 @@ dependencies = [
 name = "waymark-backend-memory"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "chrono",
+ "nonempty-collections",
  "rmp-serde",
  "serde_json",
+ "thiserror",
  "uuid",
  "waymark-backends-core",
  "waymark-core-backend",
@@ -3441,14 +3482,15 @@ dependencies = [
 name = "waymark-backend-postgres"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "chrono",
+ "nonempty-collections",
  "prost 0.12.6",
  "rmp-serde",
  "serde",
  "serde_json",
  "serial_test",
  "sqlx",
+ "thiserror",
  "tokio",
  "tracing",
  "uuid",
@@ -3466,6 +3508,7 @@ dependencies = [
  "waymark-runner-state",
  "waymark-scheduler-backend",
  "waymark-scheduler-core",
+ "waymark-secret-string",
  "waymark-support-test",
  "waymark-webapp-backend",
  "waymark-webapp-core",
@@ -3513,6 +3556,7 @@ dependencies = [
  "waymark-proto",
  "waymark-runloop",
  "waymark-runner-state",
+ "waymark-secret-string",
  "waymark-smoke-sources",
  "waymark-support-integration",
  "waymark-worker-core",
@@ -3537,7 +3581,7 @@ name = "waymark-bridge"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "chrono",
+ "envfury",
  "futures-core",
  "nonempty-collections",
  "prost 0.12.6",
@@ -3551,9 +3595,9 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+ "waymark-backend-memory",
  "waymark-backend-postgres",
  "waymark-backend-postgres-migrations",
- "waymark-backends-core",
  "waymark-core-backend",
  "waymark-dag",
  "waymark-dag-builder",
@@ -3564,6 +3608,7 @@ dependencies = [
  "waymark-runner-state",
  "waymark-scheduler-backend",
  "waymark-scheduler-core",
+ "waymark-secret-string",
  "waymark-worker-core",
  "waymark-workflow-registry-backend",
 ]
@@ -3573,8 +3618,11 @@ name = "waymark-config"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "envfury",
  "waymark-garbage-collector-config",
+ "waymark-nonzero-duration",
  "waymark-scheduler-config",
+ "waymark-secret-string",
  "waymark-webapp-config",
 ]
 
@@ -3582,8 +3630,8 @@ dependencies = [
 name = "waymark-core-backend"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "chrono",
+ "nonempty-collections",
  "serde",
  "serde_json",
  "uuid",
@@ -3661,7 +3709,6 @@ dependencies = [
 name = "waymark-garbage-collector-backend"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "chrono",
  "waymark-backends-core",
 ]
@@ -3674,7 +3721,6 @@ version = "0.1.0"
 name = "waymark-garbage-collector-loop"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "chrono",
  "tokio",
  "tokio-util",
@@ -3707,6 +3753,7 @@ dependencies = [
  "waymark-proto",
  "waymark-runloop",
  "waymark-runner-state",
+ "waymark-secret-string",
  "waymark-support-integration",
  "waymark-worker-remote",
  "waymark-workflow-registry-backend",
@@ -3738,12 +3785,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-managed-process"
+version = "0.1.0"
+dependencies = [
+ "nix",
+ "thiserror",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "waymark-message-conversions"
 version = "0.1.0"
 dependencies = [
  "serde_json",
  "waymark-proto",
 ]
+
+[[package]]
+name = "waymark-nonzero-duration"
+version = "0.1.0"
 
 [[package]]
 name = "waymark-observability"
@@ -3811,10 +3872,13 @@ dependencies = [
  "waymark-dag",
  "waymark-dag-builder",
  "waymark-ir-parser",
+ "waymark-nonzero-duration",
  "waymark-observability",
  "waymark-proto",
  "waymark-runner",
  "waymark-runner-state",
+ "waymark-tick-loop",
+ "waymark-utils-tokio-channel",
  "waymark-worker-core",
  "waymark-worker-inline",
  "waymark-workflow-registry-backend",
@@ -3857,7 +3921,6 @@ dependencies = [
 name = "waymark-scheduler-backend"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "uuid",
  "waymark-backends-core",
  "waymark-scheduler-core",
@@ -3902,6 +3965,15 @@ dependencies = [
  "waymark-scheduler-backend",
  "waymark-scheduler-config",
  "waymark-scheduler-core",
+]
+
+[[package]]
+name = "waymark-secret-string"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "zeroize",
 ]
 
 [[package]]
@@ -3962,6 +4034,7 @@ dependencies = [
  "waymark-ir-parser",
  "waymark-proto",
  "waymark-runner-state",
+ "waymark-secret-string",
  "waymark-workflow-registry-backend",
 ]
 
@@ -3982,6 +4055,7 @@ dependencies = [
  "waymark-config",
  "waymark-dag-builder",
  "waymark-garbage-collector-loop",
+ "waymark-nonzero-duration",
  "waymark-proto",
  "waymark-runloop",
  "waymark-scheduler-loop",
@@ -3998,6 +4072,7 @@ dependencies = [
  "sqlx",
  "tokio",
  "waymark-backend-postgres-migrations",
+ "waymark-secret-string",
 ]
 
 [[package]]
@@ -4009,10 +4084,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-tick-loop"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "waymark-utils-futures"
+version = "0.1.0"
+dependencies = [
+ "futures-util",
+ "thiserror",
+]
+
+[[package]]
+name = "waymark-utils-tokio-channel"
+version = "0.1.0"
+dependencies = [
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "waymark-utils-futures",
+]
+
+[[package]]
 name = "waymark-webapp-backend"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "uuid",
  "waymark-backends-core",
  "waymark-webapp-core",
@@ -4125,7 +4227,6 @@ dependencies = [
 name = "waymark-worker-status-backend"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "chrono",
  "uuid",
  "waymark-backends-core",
@@ -4147,6 +4248,7 @@ dependencies = [
  "tokio-util",
  "tracing",
  "uuid",
+ "waymark-nonzero-duration",
  "waymark-pool-status",
  "waymark-worker-status-backend",
  "waymark-worker-status-core",
@@ -4156,7 +4258,6 @@ dependencies = [
 name = "waymark-workflow-registry-backend"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "uuid",
  "waymark-backends-core",
 ]
