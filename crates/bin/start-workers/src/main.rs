@@ -187,8 +187,10 @@ async fn main() -> Result<()> {
 
     // Run the runloop.
     let lock_uuid = Uuid::new_v4();
+    let runloop_remote_pool =
+        waymark_worker_vcr_recorder_bringup::with_vcr_recorder_pool(remote_pool.clone(), true);
     let runloop = waymark_runloop::RunLoop::new_with_shutdown(
-        remote_pool.clone(),
+        runloop_remote_pool,
         backend.clone(),
         RunLoopConfig {
             max_concurrent_instances: config.max_concurrent_instances,

@@ -57,6 +57,8 @@ waymark-worker-remote = { path = "crates/lib/worker-remote" }
 waymark-worker-status-backend = { path = "crates/lib/worker-status-backend" }
 waymark-worker-status-core = { path = "crates/lib/worker-status-core" }
 waymark-worker-status-reporter = { path = "crates/lib/worker-status-reporter" }
+waymark-worker-vcr-recorder = { path = "crates/lib/worker-vcr-recorder" }
+waymark-worker-vcr-recorder-bringup = { path = "crates/lib/worker-vcr-recorder-bringup" }
 waymark-workflow-registry-backend = { path = "crates/lib/workflow-registry-backend" }
 
 anyhow = "1"

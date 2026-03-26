@@ -4071,6 +4071,7 @@ dependencies = [
  "waymark-webapp-bringup",
  "waymark-worker-remote",
  "waymark-worker-status-reporter",
+ "waymark-worker-vcr-recorder-bringup",
 ]
 
 [[package]]
@@ -4262,6 +4263,35 @@ dependencies = [
  "waymark-pool-status",
  "waymark-worker-status-backend",
  "waymark-worker-status-core",
+]
+
+[[package]]
+name = "waymark-worker-vcr-core"
+version = "0.1.0"
+dependencies = [
+ "uuid",
+ "waymark-worker-core",
+]
+
+[[package]]
+name = "waymark-worker-vcr-playback"
+version = "0.1.0"
+
+[[package]]
+name = "waymark-worker-vcr-recorder"
+version = "0.1.0"
+dependencies = [
+ "nonempty-collections",
+ "tracing",
+ "waymark-worker-core",
+]
+
+[[package]]
+name = "waymark-worker-vcr-recorder-bringup"
+version = "0.1.0"
+dependencies = [
+ "either",
+ "waymark-worker-vcr-recorder",
 ]
 
 [[package]]

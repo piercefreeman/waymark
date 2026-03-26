@@ -17,6 +17,7 @@ waymark-scheduler-loop = { workspace = true }
 waymark-webapp-bringup = { workspace = true }
 waymark-worker-remote = { workspace = true }
 waymark-worker-status-reporter = { workspace = true }
+waymark-worker-vcr-recorder-bringup = { workspace = true }
 
 anyhow = { workspace = true }
 prost = { workspace = true }
