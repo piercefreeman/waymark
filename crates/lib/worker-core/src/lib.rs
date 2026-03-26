@@ -50,7 +50,7 @@ pub trait BaseWorkerPool {
     /// Start any background tasks required by the pool.
     ///
     /// Default implementation is a no-op for pools that don't need launch work.
-    fn launch(&self) -> impl Future<Output = Result<(), WorkerPoolError>> + '_ {
+    fn launch(&self) -> impl Future<Output = Result<(), WorkerPoolError>> + Send + '_ {
         async { Ok(()) }
     }
 
@@ -59,9 +59,7 @@ pub trait BaseWorkerPool {
 
     /// Await and return a batch of completed actions, guaranteeing at least
     /// one action has completed.
-    fn poll_complete(
-        &self,
-    ) -> impl Future<Output = Option<NEVec<ActionCompletion>>> + Send + Sync + '_;
+    fn poll_complete(&self) -> impl Future<Output = Option<NEVec<ActionCompletion>>> + Send + '_;
 }
 
 pub fn error_to_value(error: &WorkerPoolError) -> Value {
