@@ -4294,28 +4294,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "waymark-worker-remote"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "futures-core",
- "nonempty-collections",
- "prost 0.12.6",
- "serde_json",
- "thiserror",
- "tokio",
- "tokio-stream",
- "tonic 0.11.0",
- "tracing",
- "uuid",
- "waymark-message-conversions",
- "waymark-proto",
- "waymark-worker-core",
- "waymark-worker-metrics",
- "waymark-worker-status-core",
-]
-
-[[package]]
 name = "waymark-worker-remote-bridge-bringup"
 version = "0.1.0"
 dependencies = [
