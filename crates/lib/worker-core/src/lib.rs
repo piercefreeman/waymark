@@ -68,3 +68,27 @@ pub fn error_to_value(error: &WorkerPoolError) -> Value {
     map.insert("message".to_string(), Value::String(error.message.clone()));
     Value::Object(map)
 }
+
+#[cfg(feature = "either")]
+impl<Left: BaseWorkerPool, Right: BaseWorkerPool> BaseWorkerPool for either::Either<Left, Right> {
+    fn launch(&self) -> impl Future<Output = Result<(), WorkerPoolError>> + Send + '_ {
+        match self {
+            either::Either::Left(left) => either::Either::Left(left.launch()),
+            either::Either::Right(right) => either::Either::Right(right.launch()),
+        }
+    }
+
+    fn queue(&self, request: ActionRequest) -> Result<(), WorkerPoolError> {
+        match self {
+            either::Either::Left(left) => left.queue(request),
+            either::Either::Right(right) => right.queue(request),
+        }
+    }
+
+    fn poll_complete(&self) -> impl Future<Output = Option<NEVec<ActionCompletion>>> + Send + '_ {
+        match self {
+            either::Either::Left(left) => either::Either::Left(left.poll_complete()),
+            either::Either::Right(right) => either::Either::Right(right.poll_complete()),
+        }
+    }
+}

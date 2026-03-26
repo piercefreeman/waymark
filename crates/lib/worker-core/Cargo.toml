@@ -4,7 +4,11 @@ edition = "2024"
 version.workspace = true
 publish.workspace = true
 
+[features]
+default = ["either"]
+
 [dependencies]
+either = { workspace = true, optional = true }
 nonempty-collections = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
