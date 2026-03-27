@@ -1,0 +1,10 @@
+[package]
+name = "waymark-prometheus-exporter-bringup"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+metrics = { workspace = true }
+metrics-exporter-prometheus = { workspace = true }
+tokio = { workspace = true, features = ["rt"] }
