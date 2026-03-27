@@ -16,7 +16,7 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
-from waymark.proto import messages_pb2 as pb2
+from proto import messages_pb2 as pb2
 
 from .dependencies import provide_dependencies
 from .registry import registry

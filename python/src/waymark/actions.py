@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from functools import wraps
 from typing import Any, Callable, Optional, TypeVar, overload
 
-from waymark.proto import messages_pb2 as pb2
+from proto import messages_pb2 as pb2
 
 from .dependencies import provide_dependencies
 from .registry import AsyncAction, registry

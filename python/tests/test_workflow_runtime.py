@@ -10,10 +10,10 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
+from proto import messages_pb2 as pb2
 from waymark import registry as action_registry
 from waymark.actions import action
 from waymark.dependencies import Depend
-from waymark.proto import messages_pb2 as pb2
 from waymark.workflow_runtime import ActionExecutionResult, _coerce_value, execute_action
 
 

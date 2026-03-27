@@ -11,7 +11,7 @@ import typing
 import grpc
 import grpc.aio
 
-from . import messages_pb2
+from proto import messages_pb2
 
 if sys.version_info >= (3, 13):
     import typing as typing_extensions

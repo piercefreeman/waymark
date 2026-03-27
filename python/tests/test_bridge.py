@@ -8,6 +8,7 @@ import grpc
 import pytest
 from grpc import aio  # type: ignore[attr-defined]
 
+from proto import messages_pb2 as pb2
 from waymark import bridge
 from waymark.bridge import (
     RunBatchResult,
@@ -16,7 +17,6 @@ from waymark.bridge import (
     run_instances_batch,
     wait_for_instance,
 )
-from waymark.proto import messages_pb2 as pb2
 
 
 class TestWorkflowStub:
