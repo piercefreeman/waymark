@@ -14,9 +14,9 @@ from typing import AsyncIterator, NoReturn, Optional
 import grpc
 from grpc import aio  # type: ignore[attr-defined]
 
-from proto import messages_pb2 as pb2
-from proto import messages_pb2_grpc as pb2_grpc
 from waymark.logger import configure as configure_logger
+from waymark.proto import messages_pb2 as pb2
+from waymark.proto import messages_pb2_grpc as pb2_grpc
 
 from .actions import serialize_error_payload, serialize_result_payload
 from .workflow_runtime import execute_action

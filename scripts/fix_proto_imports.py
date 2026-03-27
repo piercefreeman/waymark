@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""Post-process generated protobuf files to enforce package-relative imports."""
+"""Post-process generated protobuf files to enforce package-local imports."""
 
 from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 PROTO_DIRS = [
-    ROOT_DIR / "python" / "proto",
-    ROOT_DIR / "core-python" / "proto",
+    ROOT_DIR / "python" / "src" / "waymark" / "proto",
 ]
 
 
@@ -15,7 +14,7 @@ def _rewrite_messages_pb2_grpc(proto_dir: Path) -> None:
     if target.exists():
         text = target.read_text()
         needle = "import messages_pb2 as messages__pb2"
-        replacement = "from proto import messages_pb2 as messages__pb2"
+        replacement = "from . import messages_pb2 as messages__pb2"
         if needle in text and replacement not in text:
             target.write_text(text.replace(needle, replacement))
 
@@ -23,7 +22,7 @@ def _rewrite_messages_pb2_grpc(proto_dir: Path) -> None:
     if stub_target.exists():
         stub_text = stub_target.read_text()
         stub_needle = "import messages_pb2"
-        stub_replacement = "from proto import messages_pb2"
+        stub_replacement = "from . import messages_pb2"
         if stub_needle in stub_text and stub_replacement not in stub_text:
             stub_target.write_text(stub_text.replace(stub_needle, stub_replacement))
 
@@ -35,7 +34,7 @@ def _rewrite_messages_pb2_imports(proto_dir: Path) -> None:
         return
     text = target.read_text()
     needle = "import ast_pb2 as ast__pb2"
-    replacement = "from proto import ast_pb2 as ast__pb2"
+    replacement = "from . import ast_pb2 as ast__pb2"
     if needle in text and replacement not in text:
         text = text.replace(needle, replacement)
         target.write_text(text)
@@ -44,7 +43,7 @@ def _rewrite_messages_pb2_imports(proto_dir: Path) -> None:
     if stub_target.exists():
         stub_text = stub_target.read_text()
         stub_needle = "import ast_pb2"
-        stub_replacement = "from proto import ast_pb2"
+        stub_replacement = "from . import ast_pb2"
         if stub_needle in stub_text and stub_replacement not in stub_text:
             stub_target.write_text(stub_text.replace(stub_needle, stub_replacement))
 

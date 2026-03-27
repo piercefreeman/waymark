@@ -9,9 +9,9 @@ import grpc
 import pytest
 from grpc import aio  # type: ignore[attr-defined]
 
-from proto import messages_pb2 as pb2
 from waymark import schedule as schedule_module
 from waymark.exceptions import ScheduleAlreadyExistsError
+from waymark.proto import messages_pb2 as pb2
 from waymark.schedule import (
     ScheduleInfo,
     _parse_iso_datetime,
