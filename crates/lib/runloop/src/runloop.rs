@@ -455,10 +455,14 @@ where
                     instances,
                 }) => {
                     metrics::counter!("waymark_runloop_ticks_by_cause_total", "cause" => "instances").increment(1);
+                    metrics::counter!("waymark_runloop_polled_instances_total", "where" => "first")
+                        .increment(instances.len().get() as _);
                     all_instances.extend(instances);
                 }
                 CoordinatorEvent::Instance(queued_instances_polling::Message::Pending) => {
                     metrics::counter!("waymark_runloop_ticks_by_cause_total", "cause" => "instances_pending").increment(1);
+                    metrics::counter!("waymark_runloop_polled_instance_pending_total", "where" => "first")
+                        .increment(1);
                     queued_instances_poller_is_pending = true;
                 }
                 CoordinatorEvent::Instance(queued_instances_polling::Message::Error(err)) => {
@@ -503,9 +507,11 @@ where
             while let Ok(message) = instance_rx.try_recv() {
                 match message {
                     queued_instances_polling::Message::Batch { instances } => {
+                        metrics::counter!("waymark_runloop_polled_instances_total", "where" => "batch").increment(instances.len().get() as _);
                         all_instances.extend(instances);
                     }
                     queued_instances_polling::Message::Pending => {
+                        metrics::counter!("waymark_runloop_polled_instance_pending_total", "where" => "batch").increment(1);
                         queued_instances_poller_is_pending = true;
                     }
                     queued_instances_polling::Message::Error(err) => {
