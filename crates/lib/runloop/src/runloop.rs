@@ -739,7 +739,7 @@ where
                 break 'runloop Err(err.into());
             }
 
-            tracing::debug!(
+            tracing::trace!(
                 target: "runloop-ticks",
 
                 instances_idle,
