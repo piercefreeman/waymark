@@ -1,0 +1,11 @@
+[package]
+name = "waymark-timed"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[features]
+default = ["metrics"]
+
+[dependencies]
+metrics = { workspace = true, optional = true }
