@@ -4414,6 +4414,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-timed"
+version = "0.1.0"
+dependencies = [
+ "metrics",
+]
+
+[[package]]
 name = "waymark-utils-futures"
 version = "0.1.0"
 dependencies = [
