@@ -8,6 +8,7 @@ mod error_value;
 
 mod completions_polling;
 mod instance_lock_heartbeat;
+mod metrics_utils;
 mod persist;
 mod queued_instances_polling;
 mod shard;
