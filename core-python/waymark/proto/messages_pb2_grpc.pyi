@@ -7,7 +7,7 @@ import abc
 import collections.abc
 import grpc
 import grpc.aio
-from proto import messages_pb2
+from . import messages_pb2
 import sys
 import typing
 

@@ -1,16 +1,20 @@
-PY_PROTO_OUT := python/proto
-PY_CORE_PROTO_OUT := core-python/proto
+PY_PROTO_OUT := python/src/waymark/proto
+PY_CORE_PROTO_OUT := core-python/waymark/proto
+LEGACY_PY_PROTO_OUT := python/proto
+LEGACY_PY_CORE_PROTO_OUT := core-python/proto
 
 .PHONY: all build-proto clean lint lint-verify lint-extended lint-extended-verify python-lint python-lint-verify rust-lint rust-lint-verify rust-lint-extended rust-lint-extended-verify coverage python-coverage rust-coverage benchmark benchmark-console benchmark-console-run benchmark-trace
 
 all: build-proto
 
 build-proto:
+	@rm -rf $(LEGACY_PY_PROTO_OUT) $(LEGACY_PY_CORE_PROTO_OUT)
 	@mkdir -p $(PY_PROTO_OUT) $(PY_CORE_PROTO_OUT)
+	@touch python/src/waymark/proto/__init__.py core-python/waymark/__init__.py core-python/waymark/proto/__init__.py
 	cd python && uv run python -m grpc_tools.protoc \
 		--proto_path=../proto \
-		--plugin=protoc-gen-mypy="$$(pwd)/.venv/bin/protoc-gen-mypy" \
-		--plugin=protoc-gen-mypy_grpc="$$(pwd)/.venv/bin/protoc-gen-mypy_grpc" \
+		--plugin=protoc-gen-mypy="$$(uv run which protoc-gen-mypy)" \
+		--plugin=protoc-gen-mypy_grpc="$$(uv run which protoc-gen-mypy_grpc)" \
 		--python_out=../$(PY_PROTO_OUT) \
 		--grpc_python_out=../$(PY_PROTO_OUT) \
 		--mypy_out=../$(PY_PROTO_OUT) \
@@ -18,8 +22,8 @@ build-proto:
 		../proto/messages.proto ../proto/ast.proto
 	cd python && uv run python -m grpc_tools.protoc \
 		--proto_path=../proto \
-		--plugin=protoc-gen-mypy="$$(pwd)/.venv/bin/protoc-gen-mypy" \
-		--plugin=protoc-gen-mypy_grpc="$$(pwd)/.venv/bin/protoc-gen-mypy_grpc" \
+		--plugin=protoc-gen-mypy="$$(uv run which protoc-gen-mypy)" \
+		--plugin=protoc-gen-mypy_grpc="$$(uv run which protoc-gen-mypy_grpc)" \
 		--python_out=../$(PY_CORE_PROTO_OUT) \
 		--grpc_python_out=../$(PY_CORE_PROTO_OUT) \
 		--mypy_out=../$(PY_CORE_PROTO_OUT) \
@@ -32,6 +36,8 @@ clean:
 	rm -rf target
 	rm -rf $(PY_PROTO_OUT)
 	rm -rf $(PY_CORE_PROTO_OUT)
+	rm -rf $(LEGACY_PY_PROTO_OUT)
+	rm -rf $(LEGACY_PY_CORE_PROTO_OUT)
 
 lint: python-lint rust-lint
 
@@ -40,7 +46,7 @@ lint-verify: python-lint-verify rust-lint-verify
 python-lint:
 	cd python && uv run ruff format .
 	cd python && uv run ruff check . --fix
-	cd python && uv run ty check . --exclude proto/messages_pb2_grpc.py --extra-search-path proto
+	cd python && uv run ty check . --exclude src/waymark/proto/messages_pb2_grpc.py --extra-search-path src
 	cd scripts && uv run ruff format .
 	cd scripts && uv run ruff check . --fix
 	cd scripts && uv run ty check .
@@ -48,7 +54,7 @@ python-lint:
 python-lint-verify:
 	cd python && uv run ruff format --check .
 	cd python && uv run ruff check .
-	cd python && uv run ty check . --exclude proto/messages_pb2_grpc.py --extra-search-path proto
+	cd python && uv run ty check . --exclude src/waymark/proto/messages_pb2_grpc.py --extra-search-path src
 	cd scripts && uv run ruff format --check .
 	cd scripts && uv run ruff check .
 	cd scripts && uv run ty check .

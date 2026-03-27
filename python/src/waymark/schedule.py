@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Literal, Optional, Type, Union
 
 from grpc import StatusCode, aio  # type: ignore[attr-defined]
 
-from proto import messages_pb2 as pb2
+from waymark.proto import messages_pb2 as pb2
 
 from .bridge import _workflow_stub, ensure_singleton
 from .exceptions import ScheduleAlreadyExistsError
