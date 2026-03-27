@@ -4443,6 +4443,7 @@ dependencies = [
  "waymark-dag-builder",
  "waymark-ids",
  "waymark-ir-parser",
+ "waymark-metrics-util",
  "waymark-nonzero-duration",
  "waymark-observability",
  "waymark-proto",
