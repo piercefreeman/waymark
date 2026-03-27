@@ -448,14 +448,17 @@ where
 
             match first_event {
                 CoordinatorEvent::Completions(completions) => {
+                    metrics::counter!("waymark_runloop_ticks_by_cause_total", "cause" => "completions").increment(1);
                     all_completions.extend(completions);
                 }
                 CoordinatorEvent::Instance(queued_instances_polling::Message::Batch {
                     instances,
                 }) => {
+                    metrics::counter!("waymark_runloop_ticks_by_cause_total", "cause" => "instances").increment(1);
                     all_instances.extend(instances);
                 }
                 CoordinatorEvent::Instance(queued_instances_polling::Message::Pending) => {
+                    metrics::counter!("waymark_runloop_ticks_by_cause_total", "cause" => "instances_pending").increment(1);
                     queued_instances_poller_is_pending = true;
                 }
                 CoordinatorEvent::Instance(queued_instances_polling::Message::Error(err)) => {
@@ -463,12 +466,16 @@ where
                     break 'runloop Err(Error::CoreBackendPoll(err));
                 }
                 CoordinatorEvent::Shard(event) => match event {
-                    shard::Event::Step(step) => all_steps.push(step),
+                    shard::Event::Step(step) => {
+                        metrics::counter!("waymark_runloop_ticks_by_cause_total", "cause" => "shard_step").increment(1);
+                        all_steps.push(step)
+                    }
                     shard::Event::InstanceFailed {
                         executor_id,
                         entry_node,
                         error,
                     } => {
+                        metrics::counter!("waymark_runloop_ticks_by_cause_total", "cause" => "shard_instance_failed").increment(1);
                         all_failed_instances.push(InstanceDone {
                             executor_id,
                             entry_node,
@@ -478,12 +485,16 @@ where
                     }
                 },
                 CoordinatorEvent::SleepWake(wake) => {
+                    metrics::counter!("waymark_runloop_ticks_by_cause_total", "cause" => "sleep_wake").increment(1);
                     all_wakes.push(wake);
                 }
                 CoordinatorEvent::PersistAck(ack) => {
+                    metrics::counter!("waymark_runloop_ticks_by_cause_total", "cause" => "persist_ack").increment(1);
                     all_persist_acks.push(ack);
                 }
-                CoordinatorEvent::ActionTimeoutTick => {}
+                CoordinatorEvent::ActionTimeoutTick => {
+                    metrics::counter!("waymark_runloop_ticks_by_cause_total", "cause" => "action_timeout_tick").increment(1);
+                }
             }
 
             while let Ok(completions) = completion_rx.try_recv() {
