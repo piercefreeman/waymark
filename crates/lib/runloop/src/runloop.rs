@@ -739,6 +739,8 @@ where
                 break 'runloop Err(err.into());
             }
 
+            metrics::counter!("waymark_runloop_ticks_total").increment(1);
+
             tracing::trace!(
                 target: "runloop-ticks",
 
