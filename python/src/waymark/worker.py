@@ -11,9 +11,9 @@ from typing import Any, AsyncIterator, cast
 
 import grpc
 
+from proto import messages_pb2 as pb2
+from proto import messages_pb2_grpc as pb2_grpc
 from waymark.actions import serialize_error_payload, serialize_result_payload
-from waymark.proto import messages_pb2 as pb2
-from waymark.proto import messages_pb2_grpc as pb2_grpc
 
 from . import workflow_runtime
 from .logger import configure as configure_logger

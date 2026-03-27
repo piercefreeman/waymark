@@ -25,8 +25,8 @@ from typing import (
     get_type_hints,
 )
 
-from waymark.proto import ast_pb2 as ir
-from waymark.proto import messages_pb2 as pb2
+from proto import ast_pb2 as ir
+from proto import messages_pb2 as pb2
 
 from . import bridge
 from .actions import deserialize_result_payload

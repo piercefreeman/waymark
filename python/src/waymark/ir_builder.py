@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from enum import EnumMeta
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Mapping, NoReturn, Optional, Set, Union
 
-from waymark.proto import ast_pb2 as ir
+from proto import ast_pb2 as ir
 from waymark.registry import registry
 
 
