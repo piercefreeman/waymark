@@ -243,8 +243,9 @@ where
     ) -> Result<(), Error<queued_instances_polling::r#loop::BackendErrorFor<CoreBackend>>> {
         self.worker_pool.launch().await.map_err(Error::WorkerPool)?;
 
-        let (event_tx, mut event_rx) = mpsc::unbounded_channel::<shard::Event>();
-        let mut shard_senders: Vec<std_mpsc::Sender<shard::Command>> =
+        let (event_tx, mut event_rx) =
+            mpsc::unbounded_channel::<waymark_timed::Opaque<shard::Event>>();
+        let mut shard_senders: Vec<std_mpsc::Sender<waymark_timed::Opaque<shard::Command>>> =
             Vec::with_capacity(self.shard_count.get());
         let mut shard_handles = Vec::with_capacity(self.shard_count.get());
 
@@ -398,6 +399,7 @@ where
                     CoordinatorEvent::SleepWake(wake)
                 }
                 Some(event) = event_rx.recv() => {
+                    let event = event.into_inner_measured("shard_event");
                     CoordinatorEvent::Shard(event)
                 }
                 Some(ack) = persist_ack_rx.recv() => {
@@ -515,6 +517,7 @@ where
             }
 
             while let Ok(event) = event_rx.try_recv() {
+                let event = event.into_inner_measured("shard_event_try");
                 match event {
                     shard::Event::Step(step) => all_steps.push(step),
                     shard::Event::InstanceFailed {
@@ -801,7 +804,7 @@ where
         }
 
         for sender in shard_senders {
-            let _ = sender.send(shard::Command::Shutdown);
+            let _ = sender.send(shard::Command::Shutdown.into());
         }
         for handle in shard_handles {
             if let Err(err) = handle.join() {

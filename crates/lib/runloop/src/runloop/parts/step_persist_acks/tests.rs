@@ -17,7 +17,7 @@ use crate::{persist, shard};
 struct TestHarness {
     pub lock_uuid: LockId,
     pub executor_shards: HashMap<InstanceId, usize>,
-    pub shard_senders: Vec<std_mpsc::Sender<shard::Command>>,
+    pub shard_senders: Vec<std_mpsc::Sender<waymark_timed::Opaque<shard::Command>>>,
     pub lock_tracker: instance_lock_heartbeat::Tracker,
     pub inflight_actions: HashMap<InstanceId, usize>,
     pub inflight_dispatches: HashMap<ExecutionId, InflightActionDispatch>,
@@ -85,7 +85,7 @@ impl TestHarness {
 #[tokio::test]
 async fn returns_failed_ack_error_and_preserves_state() {
     let mut harness = TestHarness::default();
-    let (shard_tx, shard_rx) = std_mpsc::channel::<shard::Command>();
+    let (shard_tx, shard_rx) = std_mpsc::channel::<waymark_timed::Opaque<shard::Command>>();
     harness.shard_senders.push(shard_tx);
     harness.executor_shards.insert(InstanceId::new_uuid_v4(), 0);
 
@@ -114,7 +114,7 @@ async fn returns_failed_ack_error_and_preserves_state() {
 async fn ignores_unknown_persist_batch_ack() {
     let instance_id = InstanceId::new_uuid_v4();
     let mut harness = TestHarness::default();
-    let (shard_tx, shard_rx) = std_mpsc::channel::<shard::Command>();
+    let (shard_tx, shard_rx) = std_mpsc::channel::<waymark_timed::Opaque<shard::Command>>();
     harness.shard_senders.push(shard_tx);
     harness.executor_shards.insert(instance_id, 0);
 
@@ -145,7 +145,7 @@ async fn evicts_only_lock_mismatch_instances_from_persisted_batch() {
     let evict_node = ExecutionId::new_uuid_v4();
 
     let mut harness = TestHarness::default();
-    let (shard_tx, shard_rx) = std_mpsc::channel::<shard::Command>();
+    let (shard_tx, shard_rx) = std_mpsc::channel::<waymark_timed::Opaque<shard::Command>>();
     harness.shard_senders.push(shard_tx);
     harness.executor_shards.insert(keep_instance, 0);
     harness.executor_shards.insert(evict_instance, 0);
@@ -264,6 +264,7 @@ async fn evicts_only_lock_mismatch_instances_from_persisted_batch() {
     let cmd = shard_rx
         .try_recv()
         .expect("eviction command should be sent");
+    let cmd = cmd.into_inner();
     let shard::Command::Evict(ids) = cmd else {
         panic!("expected Evict command");
     };
