@@ -1,16 +1,12 @@
 PY_PROTO_OUT := python/src/waymark/proto
-PY_CORE_PROTO_OUT := core-python/waymark/proto
-LEGACY_PY_PROTO_OUT := python/proto
-LEGACY_PY_CORE_PROTO_OUT := core-python/proto
 
 .PHONY: all build-proto clean lint lint-verify lint-extended lint-extended-verify python-lint python-lint-verify rust-lint rust-lint-verify rust-lint-extended rust-lint-extended-verify coverage python-coverage rust-coverage benchmark benchmark-console benchmark-console-run benchmark-trace
 
 all: build-proto
 
 build-proto:
-	@rm -rf $(LEGACY_PY_PROTO_OUT) $(LEGACY_PY_CORE_PROTO_OUT)
-	@mkdir -p $(PY_PROTO_OUT) $(PY_CORE_PROTO_OUT)
-	@touch python/src/waymark/proto/__init__.py core-python/waymark/__init__.py core-python/waymark/proto/__init__.py
+	@mkdir -p $(PY_PROTO_OUT)
+	@touch python/src/waymark/proto/__init__.py
 	cd python && uv run python -m grpc_tools.protoc \
 		--proto_path=../proto \
 		--plugin=protoc-gen-mypy="$$(uv run which protoc-gen-mypy)" \
@@ -20,24 +16,12 @@ build-proto:
 		--mypy_out=../$(PY_PROTO_OUT) \
 		--mypy_grpc_out=../$(PY_PROTO_OUT) \
 		../proto/messages.proto ../proto/ast.proto
-	cd python && uv run python -m grpc_tools.protoc \
-		--proto_path=../proto \
-		--plugin=protoc-gen-mypy="$$(uv run which protoc-gen-mypy)" \
-		--plugin=protoc-gen-mypy_grpc="$$(uv run which protoc-gen-mypy_grpc)" \
-		--python_out=../$(PY_CORE_PROTO_OUT) \
-		--grpc_python_out=../$(PY_CORE_PROTO_OUT) \
-		--mypy_out=../$(PY_CORE_PROTO_OUT) \
-		--mypy_grpc_out=../$(PY_CORE_PROTO_OUT) \
-		../proto/messages.proto ../proto/ast.proto
 	cd python && uv run python ../scripts/fix_proto_imports.py
 	$(MAKE) lint
 
 clean:
 	rm -rf target
 	rm -rf $(PY_PROTO_OUT)
-	rm -rf $(PY_CORE_PROTO_OUT)
-	rm -rf $(LEGACY_PY_PROTO_OUT)
-	rm -rf $(LEGACY_PY_CORE_PROTO_OUT)
 
 lint: python-lint rust-lint
 

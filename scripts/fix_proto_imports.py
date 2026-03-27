@@ -6,7 +6,6 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).resolve().parent.parent
 PROTO_DIRS = [
     ROOT_DIR / "python" / "src" / "waymark" / "proto",
-    ROOT_DIR / "core-python" / "waymark" / "proto",
 ]
 
 
