@@ -268,7 +268,8 @@ where
             .update(0)
             .map_err(Error::AvailableInstanceSlotsUpdate)?;
 
-        let (completion_tx, mut completion_rx) = mpsc::channel::<Vec<ActionCompletion>>(32);
+        let (completion_tx, mut completion_rx) =
+            mpsc::channel::<waymark_timed::Opaque<Vec<ActionCompletion>>>(32);
         let (instance_tx, mut instance_rx) = mpsc::channel::<
             queued_instances_polling::Message<
                 queued_instances_polling::r#loop::BackendErrorFor<CoreBackend>,
@@ -390,6 +391,7 @@ where
                     break 'runloop Ok(());
                 }
                 Some(completions) = completion_rx.recv() => {
+                    let completions = completions.into_inner_measured("completions");
                     CoordinatorEvent::Completions(completions)
                 }
                 Some(message) = instance_rx.recv() => {
@@ -507,6 +509,7 @@ where
             }
 
             while let Ok(completions) = completion_rx.try_recv() {
+                let completions = completions.into_inner_measured("completions_try");
                 all_completions.extend(completions);
             }
             while let Ok(message) = instance_rx.try_recv() {
