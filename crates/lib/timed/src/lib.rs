@@ -107,3 +107,9 @@ impl<T> From<Transparent<T>> for Opaque<T> {
         Transparent::into_opaque(value)
     }
 }
+
+impl<T> From<T> for Opaque<T> {
+    fn from(value: T) -> Self {
+        Self::wrap(value)
+    }
+}

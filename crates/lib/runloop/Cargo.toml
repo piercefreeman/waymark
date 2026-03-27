@@ -14,6 +14,7 @@ waymark-observability = { workspace = true }
 waymark-proto = { workspace = true }
 waymark-runner = { workspace = true }
 waymark-tick-loop = { workspace = true }
+waymark-timed = { workspace = true }
 waymark-utils-tokio-channel = { workspace = true }
 waymark-worker-core = { workspace = true }
 waymark-workflow-registry-backend = { workspace = true }

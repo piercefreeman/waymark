@@ -23,7 +23,7 @@ struct TestHarness {
     pub sleeping_by_instance: HashMap<Uuid, HashSet<Uuid>>,
     pub blocked_until_by_instance: HashMap<Uuid, chrono::DateTime<Utc>>,
     pub commit_barrier: CommitBarrier<shard::Step>,
-    pub shard_senders: Vec<std_mpsc::Sender<shard::Command>>,
+    pub shard_senders: Vec<std_mpsc::Sender<waymark_timed::Opaque<shard::Command>>>,
     pub evict_sleep_threshold: NonZeroDuration,
 }
 
@@ -72,7 +72,7 @@ async fn evicts_instance_over_threshold_without_inflight_actions() {
     let node_id = Uuid::new_v4();
 
     let mut harness = TestHarness::default();
-    let (shard_tx, shard_rx) = std_mpsc::channel::<shard::Command>();
+    let (shard_tx, shard_rx) = std_mpsc::channel::<waymark_timed::Opaque<shard::Command>>();
     harness.shard_senders.push(shard_tx);
     harness.executor_shards.insert(instance_id, 0);
     harness.lock_tracker.insert_all([instance_id]);
@@ -115,6 +115,7 @@ async fn evicts_instance_over_threshold_without_inflight_actions() {
     assert!(!harness.blocked_until_by_instance.contains_key(&instance_id));
 
     let cmd = shard_rx.try_recv().expect("evict command should be sent");
+    let cmd = cmd.into_inner();
     let shard::Command::Evict(ids) = cmd else {
         panic!("expected Evict command");
     };
@@ -126,7 +127,7 @@ async fn does_not_evict_when_inflight_actions_exist() {
     let instance_id = Uuid::new_v4();
 
     let mut harness = TestHarness::default();
-    let (shard_tx, shard_rx) = std_mpsc::channel::<shard::Command>();
+    let (shard_tx, shard_rx) = std_mpsc::channel::<waymark_timed::Opaque<shard::Command>>();
     harness.shard_senders.push(shard_tx);
     harness.executor_shards.insert(instance_id, 0);
     harness.inflight_actions.insert(instance_id, 2);
