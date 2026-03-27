@@ -677,11 +677,14 @@ impl PostgresBackend {
             .await
             .map_err(PollQueuedInstancesError::Sqlx)?;
         Self::count_query(&self.query_counts, "select:queued_instances");
+        metrics::counter!("waymark_backend_postgres_query_poll_instances_total").increment(1);
 
         let size: i64 = size
             .get()
             .try_into()
             .map_err(PollQueuedInstancesError::InvalidSize)?;
+
+        let before = std::time::Instant::now();
 
         let rows = sqlx::query(
             r#"
@@ -714,6 +717,9 @@ impl PostgresBackend {
         .fetch_all(&mut *tx)
         .await
         .map_err(PollQueuedInstancesError::Sqlx)?;
+
+        metrics::histogram!("waymark_backend_postgres_query_poll_instances_seconds")
+            .record(before.elapsed());
 
         let Some(rows) = NEVec::try_from_vec(rows) else {
             tx.commit().await.map_err(PollQueuedInstancesError::Sqlx)?;
