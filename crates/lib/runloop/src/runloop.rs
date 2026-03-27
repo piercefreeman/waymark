@@ -387,19 +387,19 @@ where
                     break 'runloop Ok(());
                 }
                 Some(completions) = completion_rx.recv() => {
-                    Some(CoordinatorEvent::Completions(completions))
+                    CoordinatorEvent::Completions(completions)
                 }
                 Some(message) = instance_rx.recv() => {
-                    Some(CoordinatorEvent::Instance(message))
+                    CoordinatorEvent::Instance(message)
                 }
                 Some(wake) = sleep_rx.recv() => {
-                    Some(CoordinatorEvent::SleepWake(wake))
+                    CoordinatorEvent::SleepWake(wake)
                 }
                 Some(event) = event_rx.recv() => {
-                    Some(CoordinatorEvent::Shard(event))
+                    CoordinatorEvent::Shard(event)
                 }
                 Some(ack) = persist_ack_rx.recv() => {
-                    Some(CoordinatorEvent::PersistAck(ack))
+                    CoordinatorEvent::PersistAck(ack)
                 }
                 _ = persistence_tick.tick() => {
                     // TODO: why do we only do this if the `self.persistence_interval`
@@ -413,22 +413,15 @@ where
                         ops::flush_instances_done::run(params)
                         .await?;
                     }
-                    None
+                    continue;
                 }
                 _ = action_timeout_tick.tick() => {
-                    Some(CoordinatorEvent::ActionTimeoutTick)
+                    CoordinatorEvent::ActionTimeoutTick
                 }
                 else => {
                     warn!("runloop exiting: event channels closed");
                     break 'runloop Ok(());
                 },
-            };
-
-            let first_event = match first_event {
-                Some(event) => event,
-                None => {
-                    continue;
-                }
             };
 
             let mut all_completions: Vec<ActionCompletion> = Vec::new();
