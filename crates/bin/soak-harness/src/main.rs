@@ -47,6 +47,8 @@ async fn main() -> Result<()> {
     fs::create_dir_all(&run_dir)
         .with_context(|| format!("create run directory {}", run_dir.display()))?;
 
+    symlink_last(&args.diagnostic_dir, &run_id)?;
+
     info!(run_dir = %run_dir.display(), "starting soak harness");
     info!(?args, "soak harness config");
 
@@ -155,6 +157,17 @@ async fn main() -> Result<()> {
             "soak harness detected an issue; see {}",
             diagnostics_path.display()
         );
+    }
+
+    Ok(())
+}
+
+fn symlink_last(diagnostic_dir: &std::path::Path, run_id: &str) -> Result<()> {
+    #[cfg(unix)]
+    {
+        let tmp = diagnostic_dir.join("new_last");
+        std::os::unix::fs::symlink(run_id, &tmp)?;
+        fs::rename(tmp, diagnostic_dir.join("last"))?;
     }
 
     Ok(())
