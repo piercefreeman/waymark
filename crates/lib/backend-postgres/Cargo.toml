@@ -25,6 +25,7 @@ waymark-worker-status-backend = { workspace = true }
 waymark-workflow-registry-backend = { workspace = true }
 
 chrono = { workspace = true }
+metrics = { workspace = true }
 nonempty-collections = { workspace = true }
 prost = { workspace = true }
 rmp-serde = { workspace = true }
