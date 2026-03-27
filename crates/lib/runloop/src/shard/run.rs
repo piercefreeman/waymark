@@ -33,8 +33,8 @@ pub enum Error {
 
 pub fn run_executor_shard(
     shard_id: usize,
-    receiver: std_mpsc::Receiver<shard::Command>,
-    sender: mpsc::UnboundedSender<shard::Event>,
+    receiver: std_mpsc::Receiver<waymark_timed::Opaque<shard::Command>>,
+    sender: mpsc::UnboundedSender<waymark_timed::Opaque<shard::Event>>,
 ) {
     let mut executors: HashMap<Uuid, shard::Executor> = HashMap::new();
 
@@ -42,15 +42,19 @@ pub fn run_executor_shard(
         |executor_id: Uuid,
          entry_node: Uuid,
          err: Error,
-         sender: &mpsc::UnboundedSender<shard::Event>| {
-            let _ = sender.send(shard::Event::InstanceFailed {
-                executor_id,
-                entry_node,
-                error: err.to_string(),
-            });
+         sender: &mpsc::UnboundedSender<waymark_timed::Opaque<shard::Event>>| {
+            let _ = sender.send(
+                shard::Event::InstanceFailed {
+                    executor_id,
+                    entry_node,
+                    error: err.to_string(),
+                }
+                .into(),
+            );
         };
 
     while let Ok(command) = receiver.recv() {
+        let command = command.into_inner_measured("shard_command");
         match command {
             shard::Command::AssignInstances(instances) => {
                 debug!(
@@ -113,7 +117,7 @@ pub fn run_executor_shard(
                         }
                     };
                     let done = step.instance_done.is_some();
-                    if sender.send(shard::Event::Step(step)).is_err() {
+                    if sender.send(shard::Event::Step(step).into()).is_err() {
                         return;
                     }
                     if !done {
@@ -154,7 +158,7 @@ pub fn run_executor_shard(
                         }
                     };
                     let done = step.instance_done.is_some();
-                    if sender.send(shard::Event::Step(step)).is_err() {
+                    if sender.send(shard::Event::Step(step).into()).is_err() {
                         return;
                     }
                     if done {
@@ -192,7 +196,7 @@ pub fn run_executor_shard(
                         }
                     };
                     let done = step.instance_done.is_some();
-                    if sender.send(shard::Event::Step(step)).is_err() {
+                    if sender.send(shard::Event::Step(step).into()).is_err() {
                         return;
                     }
                     if done {

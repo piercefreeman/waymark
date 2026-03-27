@@ -20,7 +20,7 @@ struct TestHarness {
     pub lock_tracker: instance_lock_heartbeat::Tracker,
     pub lock_uuid: Uuid,
     pub executor_shards: HashMap<Uuid, usize>,
-    pub shard_senders: Vec<std_mpsc::Sender<shard::Command>>,
+    pub shard_senders: Vec<std_mpsc::Sender<waymark_timed::Opaque<shard::Command>>>,
     pub inflight_actions: HashMap<Uuid, usize>,
     pub inflight_dispatches: HashMap<Uuid, InflightActionDispatch>,
     pub sleeping_nodes: HashMap<Uuid, waymark_runner::SleepRequest>,
@@ -104,8 +104,8 @@ fn main(input: [x], output: [y]):
     let other_instance_id = Uuid::new_v4();
     let stale_node = Uuid::new_v4();
 
-    let (shard_tx0, shard_rx0) = std_mpsc::channel::<shard::Command>();
-    let (shard_tx1, _shard_rx1) = std_mpsc::channel::<shard::Command>();
+    let (shard_tx0, shard_rx0) = std_mpsc::channel::<waymark_timed::Opaque<shard::Command>>();
+    let (shard_tx1, _shard_rx1) = std_mpsc::channel::<waymark_timed::Opaque<shard::Command>>();
     harness.shard_senders = vec![shard_tx0, shard_tx1];
     harness.executor_shards = HashMap::from([(instance_id, 0usize), (other_instance_id, 1usize)]);
     harness.inflight_actions = HashMap::from([(instance_id, 3usize)]);
@@ -202,6 +202,7 @@ fn main(input: [x], output: [y]):
     let cmd = shard_rx0
         .try_recv()
         .expect("instance assignment should be sent");
+    let cmd = cmd.into_inner();
     let shard::Command::AssignInstances(batch) = cmd else {
         panic!("expected AssignInstances command");
     };

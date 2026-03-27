@@ -22,7 +22,7 @@ pub struct Params<'a, WorkflowRegistryBackend: ?Sized> {
     /// Maps each active instance/executor to the shard currently responsible for it.
     pub executor_shards: &'a mut HashMap<Uuid, usize>,
     /// Per-shard command channels used to assign hydrated instances to shard workers.
-    pub shard_senders: &'a [std::sync::mpsc::Sender<shard::Command>],
+    pub shard_senders: &'a [std::sync::mpsc::Sender<waymark_timed::Opaque<shard::Command>>],
     /// Tracks which backend locks this runloop currently believes it owns.
     pub lock_tracker: &'a instance_lock_heartbeat::Tracker,
     /// Lock owner ID for this runloop, used here only for logging purposes.
@@ -158,7 +158,7 @@ where
 
     for (shard_idx, batch) in by_shard {
         if let Some(sender) = shard_senders.get(shard_idx) {
-            let _ = sender.send(shard::Command::AssignInstances(batch));
+            let _ = sender.send(shard::Command::AssignInstances(batch).into());
         }
     }
 
