@@ -64,6 +64,13 @@ async fn main() -> Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
+    let metrics_addr: std::net::SocketAddr = envfury::or_parse("METRICS_ADDR", "0.0.0.0:9118")?;
+    metrics_exporter_prometheus::PrometheusBuilder::new()
+        .with_recommended_naming(true)
+        .with_http_listener(metrics_addr)
+        .set_bucket_duration(std::time::Duration::from_secs(600))?
+        .install()?;
+
     // Load configuration and announce startup.
     let config = WorkerConfig::from_env()?;
 
