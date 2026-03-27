@@ -737,6 +737,16 @@ where
             {
                 break 'runloop Err(err.into());
             }
+
+            tracing::debug!(
+                target: "runloop-ticks",
+                instances_idle,
+                executors = executor_shards.len(),
+                sleeping = sleeping_nodes.len(),
+                inflight = inflight_actions.len(),
+                blocked = blocked_until_by_instance.len(),
+                "runloop tick"
+            );
         };
 
         info!(
