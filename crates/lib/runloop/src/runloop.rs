@@ -494,6 +494,8 @@ where
                         error,
                     } => {
                         metrics::counter!("waymark_runloop_ticks_by_cause_total", "cause" => "shard_instance_failed").increment(1);
+                        metrics::counter!("waymark_runloop_shard_instance_failed_total", "where" => "first")
+                            .increment(1);
                         all_failed_instances.push(InstanceDone {
                             executor_id,
                             entry_node,
@@ -551,6 +553,8 @@ where
                         entry_node,
                         error,
                     } => {
+                        metrics::counter!("waymark_runloop_shard_instance_failed_total", "where" => "batch")
+                            .increment(1);
                         all_failed_instances.push(InstanceDone {
                             executor_id,
                             entry_node,
