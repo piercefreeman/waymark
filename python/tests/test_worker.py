@@ -1,7 +1,7 @@
 import asyncio
 
+from proto import messages_pb2 as pb2
 from waymark import worker
-from waymark.proto import messages_pb2 as pb2
 
 
 def test_outgoing_stream_includes_handshake() -> None:

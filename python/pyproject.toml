@@ -24,29 +24,25 @@ select = ["E", "F", "I", "N", "W", "B"]
 ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
-"src/waymark/proto/messages_pb2.py" = ["E402", "N802"]
-"src/waymark/proto/messages_pb2.pyi" = ["N802"]
-"src/waymark/proto/messages_pb2_grpc.py" = ["N802"]
-"src/waymark/proto/messages_pb2_grpc.pyi" = ["N802"]
-"src/waymark/proto/ast_pb2.py" = ["E402", "N802"]
-"src/waymark/proto/ast_pb2.pyi" = ["N802"]
+"proto/messages_pb2.py" = ["E402", "N802"]
+"proto/messages_pb2.pyi" = ["N802"]
+"proto/messages_pb2_grpc.py" = ["N802"]
+"proto/messages_pb2_grpc.pyi" = ["N802"]
+"proto/ast_pb2.py" = ["E402", "N802"]
+"proto/ast_pb2.pyi" = ["N802"]
 
 [tool.ruff.format]
-exclude = [
-  "src/waymark/proto/messages_pb2.py",
-  "src/waymark/proto/messages_pb2_grpc.py",
-  "src/waymark/proto/ast_pb2.py",
-]
+exclude = ["proto/messages_pb2.py", "proto/messages_pb2_grpc.py", "proto/ast_pb2.py"]
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/waymark"]
+packages = ["src/waymark", "proto"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src", "README.md"]
+include = ["src", "proto", "README.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

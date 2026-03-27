@@ -4,7 +4,8 @@
 [files]
 extend-exclude = [
   # Generated files
-  "python/src/waymark/proto/**",
+  "python/proto/**",
+  "core-python/proto/**",
   "target/**",
   # Proto generated Rust code
   "crates/lib/proto/src/*.rs",
