@@ -86,6 +86,10 @@ where
             "/api/instance/{instance_id}/action-logs/{action_id}",
             get(get_action_logs),
         )
+        .route(
+            "/api/instance/{instance_id}/requeue",
+            post(requeue_instance),
+        )
         .route("/api/instance/{instance_id}/export", get(export_instance))
         .route(
             "/api/invocations/filter-values/{column}",
@@ -378,6 +382,38 @@ where
     };
 
     Ok(Json(export))
+}
+
+#[derive(Debug, Serialize)]
+struct RequeueInstanceResponse {
+    instance_id: String,
+    redirect_url: String,
+}
+
+async fn requeue_instance<WebappBackend>(
+    State(state): State<WebappState<WebappBackend>>,
+    Path(instance_id): Path<Uuid>,
+) -> Result<Json<RequeueInstanceResponse>, HttpError>
+where
+    WebappBackend: ?Sized,
+    WebappBackend: waymark_webapp_backend::WebappBackend,
+{
+    let queued_instance_id = state
+        .database
+        .requeue_instance_to_latest_version(instance_id)
+        .await
+        .map_err(|err| {
+            error!(?err, %instance_id, "failed to requeue instance to latest workflow version");
+            HttpError {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                message: "failed to queue latest workflow instance".to_string(),
+            }
+        })?;
+
+    Ok(Json(RequeueInstanceResponse {
+        instance_id: queued_instance_id.to_string(),
+        redirect_url: format!("/instance/{queued_instance_id}"),
+    }))
 }
 
 async fn get_filter_values<WebappBackend>(

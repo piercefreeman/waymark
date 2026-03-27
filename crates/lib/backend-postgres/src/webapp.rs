@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use chrono::{DateTime, Utc};
 use prost::Message;
@@ -8,9 +8,10 @@ use sqlx::{Postgres, QueryBuilder, Row};
 use uuid::Uuid;
 
 use waymark_backends_core::{BackendError, BackendResult};
-use waymark_core_backend::GraphUpdate;
+use waymark_core_backend::{GraphUpdate, QueuedInstance};
 use waymark_dag::{DAGNode, EdgeType};
 use waymark_dag_builder::convert_to_dag;
+use waymark_ir_conversions::literal_from_json_value;
 use waymark_proto::ast as ir;
 use waymark_runner::replay_action_kwargs;
 use waymark_runner_state::{
@@ -460,6 +461,61 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
             .collect();
 
         Ok(Some(ExecutionGraphView { nodes, edges }))
+    }
+
+    async fn requeue_instance_to_latest_version(&self, instance_id: Uuid) -> BackendResult<Uuid> {
+        let row = sqlx::query(
+            r#"
+            SELECT
+                ri.state,
+                COALESCE(ri.workflow_name, wv.workflow_name) AS workflow_name
+            FROM runner_instances ri
+            LEFT JOIN workflow_versions wv ON wv.id = ri.workflow_version_id
+            WHERE ri.instance_id = $1
+            "#,
+        )
+        .bind(instance_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| BackendError::Message(format!("instance not found: {instance_id}")))?;
+
+        let state_bytes: Option<Vec<u8>> = row.get("state");
+        let workflow_name: Option<String> = row.get("workflow_name");
+        let workflow_name = workflow_name.ok_or_else(|| {
+            BackendError::Message(format!("instance {instance_id} is missing a workflow name"))
+        })?;
+
+        let input_payload = extract_input_payload_map(&state_bytes)?;
+        let latest_version = sqlx::query(
+            r#"
+            SELECT id, program_proto
+            FROM workflow_versions
+            WHERE workflow_name = $1
+            ORDER BY created_at DESC, id DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(&workflow_name)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| {
+            BackendError::Message(format!(
+                "no registered workflow versions found for workflow: {workflow_name}"
+            ))
+        })?;
+
+        let workflow_version_id: Uuid = latest_version.get("id");
+        let program_proto: Vec<u8> = latest_version.get("program_proto");
+        let program = ir::Program::decode(&program_proto[..])
+            .map_err(|err| BackendError::Message(format!("failed to decode workflow IR: {err}")))?;
+        let dag = Arc::new(convert_to_dag(&program).map_err(|err| {
+            BackendError::Message(format!("failed to convert workflow DAG: {err}"))
+        })?);
+
+        let queued = build_queued_instance(workflow_version_id, dag, &input_payload)?;
+        let queued_instance_id = queued.instance_id;
+        self.queue_instances(&[queued]).await?;
+        Ok(queued_instance_id)
     }
 
     async fn get_workflow_graph(
@@ -1236,27 +1292,40 @@ fn extract_input_preview(state_bytes: &Option<Vec<u8>>) -> String {
 }
 
 fn format_input_payload(state_bytes: &Option<Vec<u8>>) -> String {
-    let Some(bytes) = state_bytes else {
-        return "{}".to_string();
-    };
-
-    match rmp_serde::from_slice::<GraphUpdate>(bytes) {
-        Ok(graph) => format_extracted_inputs(&graph.nodes),
+    match extract_input_payload_map(state_bytes) {
+        Ok(input_map) if !input_map.is_empty() => pretty_json(&Value::Object(input_map)),
         Err(_) => "{}".to_string(),
+        _ => "{}".to_string(),
     }
 }
 
+#[cfg(test)]
 fn format_extracted_inputs(nodes: &HashMap<Uuid, ExecutionNode>) -> String {
+    let input_map = extract_input_map(nodes);
+    if input_map.is_empty() {
+        return "{}".to_string();
+    }
+    pretty_json(&Value::Object(input_map))
+}
+
+fn extract_input_payload_map(
+    state_bytes: &Option<Vec<u8>>,
+) -> BackendResult<serde_json::Map<String, Value>> {
+    let Some(bytes) = state_bytes else {
+        return Ok(serde_json::Map::new());
+    };
+    let graph: GraphUpdate = rmp_serde::from_slice(bytes)
+        .map_err(|err| BackendError::Message(format!("failed to decode state: {err}")))?;
+    Ok(extract_input_map(&graph.nodes))
+}
+
+fn extract_input_map(nodes: &HashMap<Uuid, ExecutionNode>) -> serde_json::Map<String, Value> {
     let mut input_pairs: Vec<(String, Value)> = nodes
         .values()
         .filter_map(extract_input_assignment)
         .collect();
-    if input_pairs.is_empty() {
-        return "{}".to_string();
-    }
     input_pairs.sort_by(|(left, _), (right, _)| left.cmp(right));
-    let input_map: serde_json::Map<String, Value> = input_pairs.into_iter().collect();
-    pretty_json(&Value::Object(input_map))
+    input_pairs.into_iter().collect()
 }
 
 fn extract_input_assignment(node: &ExecutionNode) -> Option<(String, Value)> {
@@ -1276,6 +1345,44 @@ fn extract_input_assignment(node: &ExecutionNode) -> Option<(String, Value)> {
 fn parse_input_assignment_label(label: &str) -> Option<(&str, &str)> {
     let payload = label.strip_prefix("input ")?;
     payload.split_once(" = ")
+}
+
+fn build_queued_instance(
+    workflow_version_id: Uuid,
+    dag: Arc<waymark_dag::DAG>,
+    input_payload: &serde_json::Map<String, Value>,
+) -> BackendResult<QueuedInstance> {
+    let mut state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
+    // TODO: Centralize initial input seeding and the `input {name} = {value}` label
+    // convention. This duplicates the bridge path in
+    // `crates/bin/bridge/src/bridge_service.rs::build_queued_instance`, and
+    // webapp requeue should use the same helper as normal workflow submission.
+    for (name, value) in input_payload {
+        let expr = literal_from_json_value(value);
+        let label = format!("input {name} = {value}");
+        state
+            .record_assignment(vec![name.clone()], &expr, None, Some(label))
+            .map_err(|err| BackendError::Message(err.0))?;
+    }
+
+    let entry_template_id = dag
+        .entry_node
+        .as_ref()
+        .ok_or_else(|| BackendError::Message("DAG entry node not found".to_string()))?;
+    let entry_exec = state
+        .queue_template_node(entry_template_id, None)
+        .map_err(|err| BackendError::Message(err.0))?;
+
+    Ok(QueuedInstance {
+        workflow_version_id,
+        schedule_id: None,
+        dag: None,
+        entry_node: entry_exec.node_id,
+        state: Some(state),
+        action_results: HashMap::new(),
+        instance_id: Uuid::new_v4(),
+        scheduled_at: None,
+    })
 }
 
 fn value_expr_to_json(value_expr: &ValueExpr) -> Value {
@@ -1666,6 +1773,44 @@ mod tests {
         }
     }
 
+    fn sample_input_node(name: &str, value: Value) -> ExecutionNode {
+        let mut assignments = HashMap::new();
+        assignments.insert(
+            name.to_string(),
+            ValueExpr::Literal(LiteralValue {
+                value: value.clone(),
+            }),
+        );
+        ExecutionNode {
+            node_id: Uuid::new_v4(),
+            node_type: "assignment".to_string(),
+            label: format!("input {name} = {value}"),
+            status: NodeStatus::Completed,
+            template_id: None,
+            targets: vec![name.to_string()],
+            action: None,
+            value_expr: None,
+            assignments,
+            action_attempt: 0,
+            started_at: None,
+            completed_at: None,
+            scheduled_at: None,
+        }
+    }
+
+    fn sample_input_graph(instance_id: Uuid) -> GraphUpdate {
+        let input_number = sample_input_node("value", serde_json::json!(7));
+        let input_label = sample_input_node("label", serde_json::json!("latest"));
+        GraphUpdate {
+            instance_id,
+            nodes: HashMap::from([
+                (input_number.node_id, input_number),
+                (input_label.node_id, input_label),
+            ]),
+            edges: HashSet::new(),
+        }
+    }
+
     async fn insert_instance_with_graph_with_workflow(
         backend: &PostgresBackend,
         workflow_name: &str,
@@ -1693,6 +1838,31 @@ mod tests {
 
     async fn insert_instance_with_graph(backend: &PostgresBackend) -> (Uuid, Uuid, Uuid) {
         insert_instance_with_graph_with_workflow(backend, "tests.workflow").await
+    }
+
+    async fn insert_instance_with_input_graph(
+        backend: &PostgresBackend,
+        workflow_name: &str,
+        workflow_version_id: Uuid,
+    ) -> Uuid {
+        let instance_id = Uuid::new_v4();
+        let entry_node = Uuid::new_v4();
+        let graph = sample_input_graph(instance_id);
+        let state_payload = rmp_serde::to_vec_named(&graph).expect("encode graph update");
+
+        sqlx::query(
+            "INSERT INTO runner_instances (instance_id, entry_node, workflow_version_id, workflow_name, state) VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(instance_id)
+        .bind(entry_node)
+        .bind(workflow_version_id)
+        .bind(workflow_name)
+        .bind(state_payload)
+        .execute(backend.pool())
+        .await
+        .expect("insert runner instance with inputs");
+
+        instance_id
     }
 
     async fn insert_action_result(backend: &PostgresBackend, execution_id: Uuid) {
@@ -1953,6 +2123,78 @@ fn main(input: [items], output: [total]):
         assert_eq!(instance.id, instance_id);
         assert_eq!(instance.status, InstanceStatus::Running);
         assert_eq!(instance.workflow_name, Some("tests.workflow".to_string()));
+    }
+
+    #[serial(postgres)]
+    #[tokio::test]
+    async fn webapp_requeue_instance_to_latest_version_uses_same_inputs() {
+        let backend = setup_backend().await;
+        let workflow_name = "tests.requeue";
+        let current_version_id = WorkflowRegistryBackend::upsert_workflow_version(
+            &backend,
+            &WorkflowRegistration {
+                workflow_name: workflow_name.to_string(),
+                workflow_version: "v1".to_string(),
+                ir_hash: "hash-v1".to_string(),
+                program_proto: sample_program_proto(),
+                concurrent: false,
+            },
+        )
+        .await
+        .expect("insert current version");
+        let latest_version_id = WorkflowRegistryBackend::upsert_workflow_version(
+            &backend,
+            &WorkflowRegistration {
+                workflow_name: workflow_name.to_string(),
+                workflow_version: "v2".to_string(),
+                ir_hash: "hash-v2".to_string(),
+                program_proto: sample_program_proto(),
+                concurrent: false,
+            },
+        )
+        .await
+        .expect("insert latest version");
+        sqlx::query("UPDATE workflow_versions SET created_at = $2 WHERE id = $1")
+            .bind(current_version_id)
+            .bind(Utc::now() - ChronoDuration::minutes(5))
+            .execute(backend.pool())
+            .await
+            .expect("backdate current version");
+        sqlx::query("UPDATE workflow_versions SET created_at = $2 WHERE id = $1")
+            .bind(latest_version_id)
+            .bind(Utc::now())
+            .execute(backend.pool())
+            .await
+            .expect("mark latest version as newest");
+
+        let source_instance_id =
+            insert_instance_with_input_graph(&backend, workflow_name, current_version_id).await;
+
+        let queued_instance_id =
+            WebappBackend::requeue_instance_to_latest_version(&backend, source_instance_id)
+                .await
+                .expect("requeue instance");
+
+        let queued_payload: Vec<u8> =
+            sqlx::query_scalar("SELECT payload FROM queued_instances WHERE instance_id = $1")
+                .bind(queued_instance_id)
+                .fetch_one(backend.pool())
+                .await
+                .expect("fetch queued payload");
+        let queued: QueuedInstance =
+            rmp_serde::from_slice(&queued_payload).expect("decode queued payload");
+        assert_eq!(queued.workflow_version_id, latest_version_id);
+        let queued_state = queued.state.expect("queued instance state");
+        let rendered_inputs = format_extracted_inputs(&queued_state.nodes);
+        let rendered_value: Value =
+            serde_json::from_str(&rendered_inputs).expect("decode queued input payload");
+        assert_eq!(
+            rendered_value,
+            serde_json::json!({
+                "label": "latest",
+                "value": 7
+            })
+        );
     }
 
     #[serial(postgres)]

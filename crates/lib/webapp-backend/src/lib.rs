@@ -1,3 +1,5 @@
+use std::future::Future;
+
 use uuid::Uuid;
 use waymark_backends_core::BackendResult;
 use waymark_webapp_core::{
@@ -28,6 +30,11 @@ pub trait WebappBackend {
         &self,
         instance_id: Uuid,
     ) -> impl Future<Output = BackendResult<Option<ExecutionGraphView>>> + Send + '_;
+
+    fn requeue_instance_to_latest_version(
+        &self,
+        instance_id: Uuid,
+    ) -> impl Future<Output = BackendResult<Uuid>> + Send + '_;
 
     fn get_workflow_graph(
         &self,
