@@ -70,7 +70,7 @@ pub async fn start_workers(args: &crate::cli::SoakArgs, run_dir: &Path) -> Resul
 }
 
 fn start_workers_command() -> Command {
-    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..");
     let local_debug_bin = repo_root
         .join("target")
         .join("debug")
