@@ -484,6 +484,8 @@ where
                 CoordinatorEvent::Shard(event) => match event {
                     shard::Event::Step(step) => {
                         metrics::counter!("waymark_runloop_ticks_by_cause_total", "cause" => "shard_step").increment(1);
+                        metrics::counter!("waymark_runloop_shard_steps_total", "where" => "first")
+                            .increment(1);
                         all_steps.push(step)
                     }
                     shard::Event::InstanceFailed {
@@ -539,7 +541,11 @@ where
                 let event =
                     event.into_inner_measured_multi(&["shard_event_try", "shard_event_both"]);
                 match event {
-                    shard::Event::Step(step) => all_steps.push(step),
+                    shard::Event::Step(step) => {
+                        metrics::counter!("waymark_runloop_shard_steps_total", "where" => "batch")
+                            .increment(1);
+                        all_steps.push(step);
+                    }
                     shard::Event::InstanceFailed {
                         executor_id,
                         entry_node,
