@@ -451,6 +451,8 @@ where
             match first_event {
                 CoordinatorEvent::Completions(completions) => {
                     metrics::counter!("waymark_runloop_ticks_by_cause_total", "cause" => "completions").increment(1);
+                    metrics::counter!("waymark_runloop_polled_completions_total", "where" => "first")
+                        .increment(completions.len() as _);
                     all_completions.extend(completions);
                 }
                 CoordinatorEvent::Instance(queued_instances_polling::Message::Batch {
@@ -509,6 +511,8 @@ where
 
             while let Ok(completions) = completion_rx.try_recv() {
                 let completions = completions.into_inner_measured("completions_try");
+                metrics::counter!("waymark_runloop_polled_completions_total", "where" => "batch")
+                    .increment(completions.len() as _);
                 all_completions.extend(completions);
             }
             while let Ok(message) = instance_rx.try_recv() {
