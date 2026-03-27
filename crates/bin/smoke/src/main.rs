@@ -1,4 +1,4 @@
-//! CLI smoke check for Python worker components.
+//! CLI smoke check for core-python components.
 
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
@@ -29,10 +29,7 @@ use waymark_smoke_sources::{
 use waymark_worker_remote::{PythonWorkerConfig, RemoteWorkerPool};
 
 #[derive(Parser, Debug)]
-#[command(
-    name = "waymark-smoke",
-    about = "Smoke check Python worker components."
-)]
+#[command(name = "waymark-smoke", about = "Smoke check core-python components.")]
 struct SmokeArgs {
     #[arg(long, default_value_t = 5)]
     base: i64,

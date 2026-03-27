@@ -12,7 +12,7 @@ from uuid import UUID
 from google.protobuf import json_format, struct_pb2
 from pydantic import BaseModel
 
-from waymark.proto import messages_pb2 as pb2
+from proto import messages_pb2 as pb2
 
 NULL_VALUE = struct_pb2.NULL_VALUE  # type: ignore[attr-defined]
 

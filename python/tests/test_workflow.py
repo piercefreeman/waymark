@@ -10,10 +10,10 @@ from uuid import UUID, uuid4
 import pytest
 from pydantic import BaseModel
 
+from proto import ast_pb2 as ir
+from proto import messages_pb2 as pb2
 from waymark import bridge
 from waymark.actions import action, serialize_result_payload
-from waymark.proto import ast_pb2 as ir
-from waymark.proto import messages_pb2 as pb2
 from waymark.serialization import arguments_to_kwargs
 
 workflow_module = importlib.import_module("waymark.workflow")

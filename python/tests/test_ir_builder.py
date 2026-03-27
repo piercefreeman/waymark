@@ -19,7 +19,7 @@ from collections.abc import Iterator
 from enum import Enum
 from typing import List, Optional
 
-from waymark.proto import ast_pb2 as ir
+from proto import ast_pb2 as ir
 
 # Global variable for test_global_statement_raises_error test
 some_var: int = 0
