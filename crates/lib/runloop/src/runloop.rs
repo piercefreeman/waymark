@@ -21,6 +21,7 @@ use waymark_nonzero_duration::NonZeroDuration;
 
 use crate::commit_barrier::CommitBarrier;
 use crate::instance_lock_heartbeat;
+use crate::metrics_utils::MetricVal;
 use crate::{error_value, persist, queued_instances_polling, shard};
 use waymark_ids::{ExecutionId, InstanceId, LockId};
 
@@ -424,6 +425,17 @@ where
                     break 'runloop Ok(());
                 },
             };
+
+            metrics::histogram!("waymark_runloop_channel_len", "channel" => "completion_rx")
+                .record(MetricVal(completion_rx.len()));
+            metrics::histogram!("waymark_runloop_channel_len", "channel" => "instance_rx")
+                .record(MetricVal(instance_rx.len()));
+            metrics::histogram!("waymark_runloop_channel_len", "channel" => "sleep_rx")
+                .record(MetricVal(sleep_rx.len()));
+            metrics::histogram!("waymark_runloop_channel_len", "channel" => "event_rx")
+                .record(MetricVal(event_rx.len()));
+            metrics::histogram!("waymark_runloop_channel_len", "channel" => "persist_ack_rx")
+                .record(MetricVal(persist_ack_rx.len()));
 
             let mut all_completions: Vec<ActionCompletion> = Vec::new();
             let mut all_instances: Vec<QueuedInstance> = Vec::new();
