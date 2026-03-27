@@ -731,11 +731,20 @@ where
 
             tracing::debug!(
                 target: "runloop-ticks",
+
                 instances_idle,
-                executors = executor_shards.len(),
-                sleeping = sleeping_nodes.len(),
-                inflight = inflight_actions.len(),
-                blocked = blocked_until_by_instance.len(),
+                next_shard,
+
+                shard_senders_len = shard_senders.len(),
+
+                executor_shards_len = executor_shards.len(),
+                inflight_actions_len = inflight_actions.len(),
+                inflight_dispatches_len = inflight_dispatches.len(),
+                sleeping_nodes_len = sleeping_nodes.len(),
+                sleeping_by_instance_len = sleeping_by_instance.len(),
+                blocked_until_by_instance_len = blocked_until_by_instance.len(),
+                instances_done_pending_len = instances_done_pending.len(),
+
                 "runloop tick"
             );
         };
