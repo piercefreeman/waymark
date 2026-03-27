@@ -10,6 +10,7 @@ waymark-core-backend = { workspace = true }
 waymark-dag = { workspace = true }
 waymark-dag-builder = { workspace = true }
 waymark-ids = { workspace = true }
+waymark-metrics-util = { workspace = true }
 waymark-nonzero-duration = { workspace = true }
 waymark-observability = { workspace = true }
 waymark-proto = { workspace = true }
