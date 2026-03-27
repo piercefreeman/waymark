@@ -22,6 +22,7 @@ waymark-worker-core = { workspace = true }
 waymark-workflow-registry-backend = { workspace = true }
 
 chrono = { workspace = true, default-features = false }
+metrics = { workspace = true }
 nonempty-collections = { workspace = true }
 prost = { workspace = true }
 serde_json = { workspace = true }

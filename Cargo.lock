@@ -4404,6 +4404,7 @@ name = "waymark-runloop"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "metrics",
  "mockall",
  "nonempty-collections",
  "prost 0.12.6",
