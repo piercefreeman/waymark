@@ -24,6 +24,7 @@ waymark-garbage-collector-loop = { path = "crates/lib/garbage-collector-loop" }
 waymark-ir-conversions = { path = "crates/lib/ir-conversions" }
 waymark-ir-format = { path = "crates/lib/ir-format" }
 waymark-ir-parser = { path = "crates/lib/ir-parser" }
+waymark-managed-process = { path = "crates/lib/managed-process" }
 waymark-message-conversions = { path = "crates/lib/message-conversions" }
 waymark-nonzero-duration = { path = "crates/lib/nonzero-duration" }
 waymark-observability = { path = "crates/lib/observability" }
@@ -31,6 +32,7 @@ waymark-observability-macros = { path = "crates/lib/observability-macros" }
 waymark-observability-setup = { path = "crates/lib/observability-setup" }
 waymark-pool-status = { path = "crates/lib/pool-status" }
 waymark-proto = { path = "crates/lib/proto" }
+waymark-reserved-process = { path = "crates/lib/reserved-process" }
 waymark-runloop = { path = "crates/lib/runloop" }
 waymark-runner = { path = "crates/lib/runner" }
 waymark-runner-state = { path = "crates/lib/runner-state" }
@@ -52,8 +54,17 @@ waymark-webapp-core = { path = "crates/lib/webapp-core" }
 waymark-webapp-routes = { path = "crates/lib/webapp-routes" }
 waymark-worker-core = { path = "crates/lib/worker-core" }
 waymark-worker-inline = { path = "crates/lib/worker-inline" }
+waymark-worker-message-protocol = { path = "crates/lib/worker-message-protocol" }
 waymark-worker-metrics = { path = "crates/lib/worker-metrics" }
-waymark-worker-remote = { path = "crates/lib/worker-remote" }
+waymark-worker-process = { path = "crates/lib/worker-process" }
+waymark-worker-process-pool = { path = "crates/lib/worker-process-pool" }
+waymark-worker-process-spec = { path = "crates/lib/worker-process-spec" }
+waymark-worker-python = { path = "crates/lib/worker-python" }
+waymark-worker-remote-bridge-bringup = { path = "crates/lib/worker-remote-bridge-bringup" }
+waymark-worker-remote-bridge-service = { path = "crates/lib/worker-remote-bridge-service" }
+waymark-worker-remote-bringup = { path = "crates/lib/worker-remote-bringup" }
+waymark-worker-remote-pool = { path = "crates/lib/worker-remote-pool" }
+waymark-worker-reservation = { path = "crates/lib/worker-reservation" }
 waymark-worker-status-backend = { path = "crates/lib/worker-status-backend" }
 waymark-worker-status-core = { path = "crates/lib/worker-status-core" }
 waymark-worker-status-reporter = { path = "crates/lib/worker-status-reporter" }
@@ -86,6 +97,7 @@ serde = "1"
 serde_json = "1"
 serial_test = "2"
 sha2 = "0.10"
+slotmap = "1"
 sqlx = { version = "0.8", default-features = false }
 syn = "2"
 tera = "1"

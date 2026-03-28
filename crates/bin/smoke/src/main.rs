@@ -26,7 +26,6 @@ use waymark_smoke_sources::{
     build_control_flow_program, build_parallel_spread_program, build_program,
     build_try_except_program, build_while_loop_program,
 };
-use waymark_worker_remote::{PythonWorkerConfig, RemoteWorkerPool};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -68,7 +67,13 @@ fn slugify(name: &str) -> String {
         .collect()
 }
 
-async fn run_program_smoke(case: &SmokeCase, worker_pool: RemoteWorkerPool) -> Result<()> {
+async fn run_program_smoke<Spec>(
+    case: &SmokeCase,
+    worker_pool: Arc<waymark_worker_remote_pool::RemoteWorkerPool<Spec>>,
+) -> Result<()>
+where
+    Spec: waymark_worker_process_spec::Spec + Send + Sync + 'static,
+{
     println!("\nIR program ({})", case.name);
     println!("{}", format_program(&case.program));
     println!("IR inputs ({}): {:?}", case.name, case.inputs);
@@ -114,7 +119,7 @@ async fn run_program_smoke(case: &SmokeCase, worker_pool: RemoteWorkerPool) -> R
         .queue_template_node(&entry_node, None)
         .map_err(|err| anyhow!(err.0))?;
 
-    let runloop = RunLoop::new(
+    let runloop = RunLoop::<waymark_worker_remote_pool::RemoteWorkerPool<Spec>, _, _>::new(
         worker_pool,
         backend.clone(),
         RunLoopConfig {
@@ -159,14 +164,31 @@ async fn run_program_smoke(case: &SmokeCase, worker_pool: RemoteWorkerPool) -> R
 }
 
 async fn run_smoke(base: i64) -> i32 {
-    let config = PythonWorkerConfig::new().with_user_module("tests.fixtures.test_actions");
-    let worker_pool = match RemoteWorkerPool::new_with_config(config, 2, None, None, 10).await {
-        Ok(pool) => pool,
+    let config =
+        waymark_worker_python::Config::new().with_user_module("tests.fixtures.test_actions");
+
+    let result = waymark_worker_remote_bringup::start(
+        Default::default(),
+        None,
+        |bridge_server_addr| waymark_worker_python::Spec {
+            config,
+            bridge_server_addr,
+        },
+        2.try_into().unwrap(),
+        None,
+        10.try_into().unwrap(),
+    )
+    .await;
+
+    let (process_pool, bridge_server_task) = match result {
+        Ok(val) => val,
         Err(err) => {
             println!("Failed to start python worker pool: {err}");
             return 1;
         }
     };
+    let worker_pool = waymark_worker_remote_pool::RemoteWorkerPool::new(process_pool);
+    let worker_pool = Arc::new(worker_pool);
 
     let mut cases = Vec::new();
     cases.push(SmokeCase {
@@ -213,7 +235,10 @@ async fn run_smoke(base: i64) -> i32 {
         }
     }
 
-    if let Err(err) = worker_pool.shutdown().await {
+    bridge_server_task.abort();
+    let _ = bridge_server_task.await;
+
+    if let Err(err) = worker_pool.shutdown_arc().await {
         println!("Failed to shut down worker pool: {err}");
     }
 

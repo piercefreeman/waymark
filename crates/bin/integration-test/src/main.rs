@@ -6,6 +6,7 @@
 //! 3. Assert backend output matches inline Python output.
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, Mutex};
@@ -29,7 +30,6 @@ use waymark_proto::ast as ir;
 use waymark_runloop::{RunLoop, RunLoopConfig};
 use waymark_runner_state::RunnerState;
 use waymark_support_integration::{LOCAL_POSTGRES_DSN, connect_pool, ensure_local_postgres};
-use waymark_worker_remote::{PythonWorkerConfig, RemoteWorkerPool};
 use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBackend};
 
 #[derive(Parser, Debug)]
@@ -44,8 +44,8 @@ struct Args {
     cases: Vec<String>,
 
     /// Number of Python workers for backend execution.
-    #[arg(long, default_value_t = 2)]
-    worker_count: usize,
+    #[arg(long, default_value_t = 2.try_into().unwrap())]
+    worker_count: NonZeroUsize,
 
     /// Timeout per backend execution, in seconds.
     #[arg(long, default_value_t = 120)]
@@ -199,6 +199,8 @@ async fn main() -> Result<()> {
         bail!("no fixture cases selected");
     }
 
+    let shutdown_token = tokio_util::sync::CancellationToken::new();
+
     let mut prepared_cases = Vec::new();
     for case in selected_cases {
         prepared_cases.push(prepare_case(&repo_root, case.clone()).with_context(|| {
@@ -215,9 +217,19 @@ async fn main() -> Result<()> {
         None
     };
 
-    let worker_pool = setup_worker_pool(&repo_root, &prepared_cases, args.worker_count)
-        .await
-        .context("start integration worker pool")?;
+    let (worker_process_pool, bridge_server_task) = setup_worker_pool(
+        shutdown_token.clone(),
+        &repo_root,
+        &prepared_cases,
+        args.worker_count,
+    )
+    .await
+    .context("start integration worker pool")?;
+
+    let worker_process_pool = Arc::new(worker_process_pool);
+    let worker_pool =
+        waymark_worker_remote_pool::RemoteWorkerPool::new(Arc::clone(&worker_process_pool));
+    let worker_pool = Arc::new(worker_pool);
 
     let mut failures = Vec::new();
     let mut comparisons = 0usize;
@@ -259,8 +271,10 @@ async fn main() -> Result<()> {
             }
         }
     }
+    bridge_server_task.abort();
+    let _ = bridge_server_task.await;
 
-    if let Err(err) = worker_pool.shutdown().await {
+    if let Err(err) = worker_pool.shutdown_arc().await {
         eprintln!("failed to shutdown worker pool: {err}");
     }
 
@@ -284,6 +298,7 @@ async fn main() -> Result<()> {
         prepared_cases.len(),
         comparisons
     );
+
     Ok(())
 }
 
@@ -413,10 +428,14 @@ fn run_python_helper(repo_root: &Path, case: &FixtureCase) -> Result<HelperOutpu
 }
 
 async fn setup_worker_pool(
+    shutdown_token: tokio_util::sync::CancellationToken,
     repo_root: &Path,
     cases: &[PreparedCase],
-    worker_count: usize,
-) -> Result<RemoteWorkerPool> {
+    worker_count: NonZeroUsize,
+) -> Result<(
+    waymark_worker_process_pool::Pool<waymark_worker_python::Spec>,
+    tokio::task::JoinHandle<()>,
+)> {
     let mut modules = cases
         .iter()
         .map(|prepared| prepared.case.module_name.to_string())
@@ -424,7 +443,7 @@ async fn setup_worker_pool(
     modules.sort();
     modules.dedup();
 
-    let config = PythonWorkerConfig::new()
+    let config = waymark_worker_python::Config::new()
         .with_user_modules(modules)
         .with_python_paths(vec![
             repo_root.join("python"),
@@ -432,9 +451,21 @@ async fn setup_worker_pool(
             repo_root.join("tests/integration_tests"),
         ]);
 
-    RemoteWorkerPool::new_with_config(config, worker_count.max(1), None, None, 10)
-        .await
-        .context("create remote worker pool")
+    let (pool, task) = waymark_worker_remote_bringup::start(
+        shutdown_token,
+        None,
+        |bridge_server_addr| waymark_worker_python::Spec {
+            bridge_server_addr,
+            config,
+        },
+        worker_count,
+        None,
+        10.try_into().unwrap(),
+    )
+    .await
+    .context("create remote worker pool")?;
+
+    Ok((pool, task))
 }
 
 async fn connect_postgres_backend() -> Result<PostgresBackend> {
@@ -457,11 +488,15 @@ async fn connect_postgres_backend() -> Result<PostgresBackend> {
     Ok(PostgresBackend::new(pool))
 }
 
-async fn run_case_in_memory(
+async fn run_case_in_memory<Spec>(
     prepared: &PreparedCase,
-    worker_pool: RemoteWorkerPool,
+    worker_pool: Arc<waymark_worker_remote_pool::RemoteWorkerPool<Spec>>,
     timeout: Duration,
-) -> Result<CaseOutcome> {
+) -> Result<CaseOutcome>
+where
+    Spec: waymark_worker_process_spec::Spec + Send + Sync + 'static,
+    waymark_worker_remote_pool::RemoteWorkerPool<Spec>: waymark_worker_core::BaseWorkerPool,
+{
     let queue = Arc::new(Mutex::new(VecDeque::new()));
     let backend = MemoryBackend::with_queue(queue);
 
@@ -504,12 +539,16 @@ async fn run_case_in_memory(
     )))
 }
 
-async fn run_case_postgres(
+async fn run_case_postgres<Spec>(
     prepared: &PreparedCase,
     backend: &PostgresBackend,
-    worker_pool: RemoteWorkerPool,
+    worker_pool: Arc<waymark_worker_remote_pool::RemoteWorkerPool<Spec>>,
     timeout: Duration,
-) -> Result<CaseOutcome> {
+) -> Result<CaseOutcome>
+where
+    Spec: waymark_worker_process_spec::Spec + Send + Sync + 'static,
+    waymark_worker_remote_pool::RemoteWorkerPool<Spec>: waymark_worker_core::BaseWorkerPool,
+{
     backend
         .clear_all()
         .await
@@ -570,13 +609,19 @@ async fn run_case_postgres(
     )))
 }
 
-async fn run_runloop<B>(worker_pool: RemoteWorkerPool, backend: B, timeout: Duration) -> Result<()>
+async fn run_runloop<Backend, Spec>(
+    worker_pool: Arc<waymark_worker_remote_pool::RemoteWorkerPool<Spec>>,
+    backend: Backend,
+    timeout: Duration,
+) -> Result<()>
 where
-    B: CoreBackend + WorkflowRegistryBackend + Clone + Send + Sync + 'static,
-    <B as CoreBackend>::PollQueuedInstancesError: Send + Sync + 'static,
-    <B as CoreBackend>::PollQueuedInstancesError: core::error::Error,
+    Backend: CoreBackend + WorkflowRegistryBackend + Clone + Send + Sync + 'static,
+    <Backend as CoreBackend>::PollQueuedInstancesError: Send + Sync + 'static,
+    <Backend as CoreBackend>::PollQueuedInstancesError: core::error::Error,
+    Spec: waymark_worker_process_spec::Spec + Send + Sync + 'static,
+    waymark_worker_remote_pool::RemoteWorkerPool<Spec>: waymark_worker_core::BaseWorkerPool,
 {
-    let runloop = RunLoop::new(
+    let runloop = RunLoop::<waymark_worker_remote_pool::RemoteWorkerPool<Spec>, _, _>::new(
         worker_pool,
         backend,
         RunLoopConfig {
