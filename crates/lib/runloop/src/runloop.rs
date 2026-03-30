@@ -327,10 +327,13 @@ where
         });
 
         // TODO: move this initialization out of the runloop
-        let (persist_tx, persist_rx) = mpsc::channel::<persist::Command>(64);
-        let (persist_ack_tx, mut persist_ack_rx) = mpsc::unbounded_channel::<persist::Ack>();
+        let (persist_tx, persist_rx) =
+            waymark_timed_channel::tokio::mpsc::channel::<persist::Command>(64);
+        let (persist_ack_tx, persist_ack_rx) =
+            waymark_timed_channel::tokio::mpsc::unbounded_channel::<persist::Ack>();
+        let mut persist_ack_rx = persist_ack_rx.tag::<persist::r#loop::AckDesc>();
         let persist_handle = tokio::spawn(persist::r#loop::run(persist::r#loop::Params {
-            command_rx: persist_rx,
+            command_rx: persist_rx.tag::<persist::r#loop::CommandDesc>(),
             ack_tx: persist_ack_tx,
             core_backend: self.core_backend.clone(),
             lock_ttl: self.lock_ttl,

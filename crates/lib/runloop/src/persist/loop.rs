@@ -14,12 +14,15 @@ use waymark_nonzero_duration::NonZeroDuration;
 const PERSIST_COALESCE_WINDOW: Duration = Duration::from_millis(2);
 const PERSIST_COALESCE_MAX_COMMANDS: usize = 128;
 
+waymark_timed_channel::named_what!(CommandDesc, "persist_command");
+waymark_timed_channel::named_what!(AckDesc, "persist_ack");
+
 pub struct Params<CoreBackend>
 where
     CoreBackend: ?Sized,
 {
-    pub command_rx: tokio::sync::mpsc::Receiver<super::Command>,
-    pub ack_tx: tokio::sync::mpsc::UnboundedSender<super::Ack>,
+    pub command_rx: waymark_timed_channel::tokio::mpsc::Receiver<super::Command, CommandDesc>,
+    pub ack_tx: waymark_timed_channel::tokio::mpsc::UnboundedSender<super::Ack>,
     pub core_backend: Arc<CoreBackend>,
     pub lock_ttl: NonZeroDuration,
     pub lock_uuid: Uuid,
