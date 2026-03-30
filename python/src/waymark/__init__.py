@@ -9,7 +9,7 @@ from .actions import (
     serialize_error_payload,
     serialize_result_payload,
 )
-from .dependencies import Depend, provide_dependencies
+from .dependencies import Depend, Depends, provide_dependencies
 from .exceptions import (
     ExhaustedRetries,
     ExhaustedRetriesError,
@@ -45,6 +45,7 @@ __all__ = [
     "deserialize_result_payload",
     "serialize_error_payload",
     "Depend",
+    "Depends",
     "provide_dependencies",
     "bridge",
     "ExhaustedRetries",

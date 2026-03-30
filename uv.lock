@@ -1,6 +1,10 @@
 version = 1
 revision = 3
 requires-python = ">=3.10"
+resolution-markers = [
+    "python_full_version >= '3.12'",
+    "python_full_version < '3.12'",
+]
 
 [manifest]
 members = [
@@ -699,6 +703,36 @@ wheels = [
 ]
 
 [[package]]
+name = "mountaineer-di"
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version >= '3.12'",
+]
+dependencies = [
+    { name = "pydantic", marker = "python_full_version >= '3.12'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/12/85/c2916fc2f76cc579038ab52b999e792d7fcb5a5dc7b3aba0f3270a1427d5/mountaineer_di-0.1.0.tar.gz", hash = "sha256:ad2e14c08b853eac2e26b1a4a6745adc729d534029b4cce1178e96102a7129a1", size = 29429, upload-time = "2026-03-30T03:22:45.746Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/00/48/ad565bc77d861df005de5ccdd05505c80caf82acdbd11c8efbc6e3354fc4/mountaineer_di-0.1.0-py3-none-any.whl", hash = "sha256:529e26b7887d8634216e7e79f523b725f8151821d94dd729c4f2ec954c0ddde8", size = 10224, upload-time = "2026-03-30T03:22:44.606Z" },
+]
+
+[[package]]
+name = "mountaineer-di"
+version = "0.1.2"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version < '3.12'",
+]
+dependencies = [
+    { name = "pydantic", marker = "python_full_version < '3.12'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c2/14/1990a29b4e945cb61ddee58d030dac0692a62c322d8d3facec3cb9932606/mountaineer_di-0.1.2.tar.gz", hash = "sha256:22e144e79d1aeefebd9989bcd7c63d2632396fdf5f7f6fa165343922a736260a", size = 30449, upload-time = "2026-03-30T03:36:20.36Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a2/3e/e3e7efb91a76a1cdfb5f2b2a827c9b0fe4e361b3fbaf8cfc1bf94679cf0b/mountaineer_di-0.1.2-py3-none-any.whl", hash = "sha256:8a87bd119db9c4b812fa7f992e1659b3c84e8819842393abd3dd63fba66c31cf", size = 10225, upload-time = "2026-03-30T03:36:19.033Z" },
+]
+
+[[package]]
 name = "mypy-protobuf"
 version = "3.7.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1394,6 +1428,8 @@ source = { editable = "python" }
 dependencies = [
     { name = "googleapis-common-protos" },
     { name = "grpcio" },
+    { name = "mountaineer-di", version = "0.1.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "mountaineer-di", version = "0.1.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "protobuf" },
     { name = "pydantic" },
 ]
@@ -1417,6 +1453,7 @@ dev = [
 requires-dist = [
     { name = "googleapis-common-protos", specifier = ">=1.72.0" },
     { name = "grpcio", specifier = ">=1.66,<2" },
+    { name = "mountaineer-di" },
     { name = "protobuf", specifier = ">=5.29,<6" },
     { name = "pydantic", specifier = ">=2,<3" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },

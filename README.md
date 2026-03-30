@@ -24,7 +24,7 @@ Let's say you need to send welcome emails to a batch of users, but only the acti
 
 ```python
 import asyncio
-from waymark import Workflow, action, workflow
+from waymark import Depends, Workflow, action, workflow
 
 @workflow
 class WelcomeEmailWorkflow(Workflow):
@@ -49,7 +49,7 @@ And here's how you define the actions distributed to your worker cluster:
 @action
 async def fetch_users(
     user_ids: list[str],
-    db: Annotated[Database, Depend(get_db)],
+    db: Annotated[Database, Depends(get_db)],
 ) -> list[User]:
     return await db.get_many(User, user_ids)
 
@@ -57,10 +57,13 @@ async def fetch_users(
 async def send_email(
     to: str,
     subject: str,
-    emailer: Annotated[EmailClient, Depend(get_email_client)],
+    emailer: Annotated[EmailClient, Depends(get_email_client)],
 ) -> EmailResult:
     return await emailer.send(to=to, subject=subject)
 ```
+
+Waymark re-exports `mountaineer-di`'s `Depends(...)` helper directly. The older
+`Depend(...)` name remains available as a compatibility alias.
 
 To kick off a background job and wait for completion:
 

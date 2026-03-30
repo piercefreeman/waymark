@@ -11,7 +11,7 @@ import pytest
 
 from waymark import Workflow, workflow
 from waymark.actions import action
-from waymark.dependencies import Depend
+from waymark.dependencies import Depend, Depends
 
 # Track whether dependencies were actually resolved
 dependency_calls: list[str] = []
@@ -42,7 +42,7 @@ async def action_with_dependency(
 async def action_with_multiple_dependencies(
     value: int,
     db_conn: Annotated[str, Depend(provide_database_connection)],
-    cache: Annotated[str, Depend(provide_cache_client)],
+    cache: Annotated[str, Depends(provide_cache_client)],
 ) -> str:
     """Action that requires multiple dependencies."""
     return f"processed {value} with {db_conn} and {cache}"
@@ -91,6 +91,14 @@ class TestWorkflowDependencyResolution:
         # Dependencies should be resolved and the action should execute successfully
         assert result == "processed 10 with db://localhost:5432/test"
         assert "database" in dependency_calls
+
+    def test_action_with_multiple_dependencies_called_directly(self):
+        """Test mixed Depend()/Depends() markers on direct action execution."""
+        result = asyncio.run(action_with_multiple_dependencies(value=100))  # type: ignore[call-arg]
+
+        assert result == "processed 100 with db://localhost:5432/test and redis://localhost:6379"
+        assert "database" in dependency_calls
+        assert "cache" in dependency_calls
 
     def test_workflow_with_dependency_runs_under_pytest(self):
         """Test that a workflow with dependent actions runs under pytest.

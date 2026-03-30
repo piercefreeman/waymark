@@ -2,7 +2,7 @@ import asyncio
 from contextlib import asynccontextmanager, contextmanager
 from typing import Annotated, Any, AsyncIterator, Iterator
 
-from waymark.dependencies import Depend, provide_dependencies
+from waymark.dependencies import Depend, DependMarker, Depends, provide_dependencies
 
 
 def test_provide_dependencies_resolves_regular_values() -> None:
@@ -18,6 +18,32 @@ def test_provide_dependencies_resolves_regular_values() -> None:
 
     result = asyncio.run(run())
     assert result == "dependent"
+
+
+def test_provide_dependencies_supports_mountaineer_depends() -> None:
+    def dependency() -> str:
+        return "native"
+
+    async def target(value: Annotated[str, Depends(dependency)]) -> str:
+        return value
+
+    async def run() -> str:
+        async with provide_dependencies(target) as kwargs:
+            return await target(**kwargs)
+
+    result = asyncio.run(run())
+    assert result == "native"
+
+
+def test_depend_alias_returns_mountaineer_marker() -> None:
+    def dependency() -> str:
+        return "dependent"
+
+    marker = Depend(dependency)
+
+    assert isinstance(marker, DependMarker)
+    assert marker.dependency is dependency
+    assert marker.use_cache is True
 
 
 def test_provide_dependencies_passes_kwargs_to_dependencies() -> None:
