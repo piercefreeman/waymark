@@ -802,6 +802,10 @@ where
             metrics::histogram!("waymark_runloop_ticks_stats_inflight_actions_total")
                 .record(MetricVal(total_in_flight_actions));
 
+            let commit_barrier_pending_batch_count = commit_barrier.pending_batch_count();
+            metrics::histogram!("waymark_runloop_ticks_stats_commit_barrier_pending_batch_len")
+                .record(MetricVal(commit_barrier_pending_batch_count));
+
             tracing::trace!(
                 target: "runloop-ticks",
 
