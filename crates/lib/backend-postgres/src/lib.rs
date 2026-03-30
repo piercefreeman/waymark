@@ -95,7 +95,8 @@ impl PostgresBackend {
             .clone()
     }
 
-    pub(crate) fn count_query(counts: &Arc<Mutex<HashMap<String, usize>>>, label: &str) {
+    pub(crate) fn count_query(counts: &Arc<Mutex<HashMap<String, usize>>>, label: &'static str) {
+        metrics::counter!("waymark_postgres_queries_total", "label" => label).increment(1);
         let mut guard = counts.lock().expect("query counts poisoned");
         *guard.entry(label.to_string()).or_insert(0) += 1;
     }
