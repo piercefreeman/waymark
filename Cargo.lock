@@ -4216,7 +4216,6 @@ dependencies = [
  "waymark-runner",
  "waymark-runner-state",
  "waymark-tick-loop",
- "waymark-timed",
  "waymark-timed-channel",
  "waymark-utils-tokio-channel",
  "waymark-worker-core",

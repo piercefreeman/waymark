@@ -14,8 +14,7 @@ struct TestHarness {
 impl Default for TestHarness {
     fn default() -> Self {
         let shutdown = tokio_util::sync::CancellationToken::new();
-        let (persist_tx, persist_rx) =
-            waymark_timed_channel::tokio::sync::mpsc::channel::<_, ()>(1);
+        let (persist_tx, persist_rx) = waymark_timed_channel::tokio::sync::mpsc::channel(1);
         drop(persist_rx);
         Self {
             shutdown,

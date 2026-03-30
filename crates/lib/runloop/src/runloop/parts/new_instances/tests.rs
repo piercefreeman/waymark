@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::sync::mpsc as std_mpsc;
 
 use nonempty_collections::NEVec;
 use prost::Message;
@@ -21,7 +20,7 @@ struct TestHarness {
     pub lock_tracker: instance_lock_heartbeat::Tracker,
     pub lock_uuid: LockId,
     pub executor_shards: HashMap<InstanceId, usize>,
-    pub shard_senders: Vec<std_mpsc::Sender<waymark_timed::Opaque<shard::Command>>>,
+    pub shard_senders: Vec<waymark_timed_channel::std::mpsc::Sender<shard::Command>>,
     pub inflight_actions: HashMap<InstanceId, usize>,
     pub inflight_dispatches: HashMap<ExecutionId, InflightActionDispatch>,
     pub sleeping_nodes: HashMap<ExecutionId, waymark_runner::SleepRequest>,
@@ -105,8 +104,8 @@ fn main(input: [x], output: [y]):
     let other_instance_id = InstanceId::new_uuid_v4();
     let stale_node = ExecutionId::new_uuid_v4();
 
-    let (shard_tx0, shard_rx0) = std_mpsc::channel::<waymark_timed::Opaque<shard::Command>>();
-    let (shard_tx1, _shard_rx1) = std_mpsc::channel::<waymark_timed::Opaque<shard::Command>>();
+    let (shard_tx0, shard_rx0) = waymark_timed_channel::std::mpsc::channel::<shard::Command>();
+    let (shard_tx1, _shard_rx1) = waymark_timed_channel::std::mpsc::channel::<shard::Command>();
     harness.shard_senders = vec![shard_tx0, shard_tx1];
     harness.executor_shards = HashMap::from([(instance_id, 0usize), (other_instance_id, 1usize)]);
     harness.inflight_actions = HashMap::from([(instance_id, 3usize)]);

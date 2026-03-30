@@ -5,7 +5,6 @@ use std::num::NonZeroUsize;
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
-    mpsc as std_mpsc,
 };
 use std::thread;
 use std::time::Duration;
@@ -244,18 +243,24 @@ where
         self.worker_pool.launch().await.map_err(Error::WorkerPool)?;
 
         let (event_tx, mut event_rx) =
-            mpsc::unbounded_channel::<waymark_timed::Opaque<shard::Event>>();
-        let mut shard_senders: Vec<std_mpsc::Sender<waymark_timed::Opaque<shard::Command>>> =
+            waymark_timed_channel::tokio::mpsc::unbounded_channel::<shard::Event>();
+        let mut shard_senders: Vec<waymark_timed_channel::std::mpsc::Sender<shard::Command>> =
             Vec::with_capacity(self.shard_count.get());
         let mut shard_handles = Vec::with_capacity(self.shard_count.get());
 
         for shard_id in 0..self.shard_count.get() {
-            let (cmd_tx, cmd_rx) = std_mpsc::channel();
+            let (cmd_tx, cmd_rx) = waymark_timed_channel::std::mpsc::channel::<shard::Command>();
             let event_tx = event_tx.clone();
             let handle = thread::Builder::new()
                 .name(format!("waymark-executor-{shard_id}"))
                 .stack_size(128 * 1024 * 1024 /* 128 MB */)
-                .spawn(move || shard::run_executor_shard(shard_id, cmd_rx, event_tx))
+                .spawn(move || {
+                    shard::run_executor_shard(
+                        shard_id,
+                        cmd_rx.tag::<shard::CommandDesc>(),
+                        event_tx,
+                    )
+                })
                 .map_err(|err| {
                     Error::Message(format!("failed to spawn executor shard {shard_id}: {err}"))
                 })?;
@@ -269,7 +274,7 @@ where
             .map_err(Error::AvailableInstanceSlotsUpdate)?;
 
         let (completion_tx, mut completion_rx) =
-            mpsc::channel::<waymark_timed::Opaque<Vec<ActionCompletion>>>(32);
+            waymark_timed_channel::tokio::mpsc::channel::<Vec<ActionCompletion>>(32);
         let (instance_tx, mut instance_rx) = mpsc::channel::<
             queued_instances_polling::Message<
                 queued_instances_polling::r#loop::BackendErrorFor<CoreBackend>,
@@ -863,7 +868,7 @@ where
         }
 
         for sender in shard_senders {
-            let _ = sender.send(shard::Command::Shutdown.into());
+            let _ = sender.send(shard::Command::Shutdown);
         }
         for handle in shard_handles {
             if let Err(err) = handle.join() {

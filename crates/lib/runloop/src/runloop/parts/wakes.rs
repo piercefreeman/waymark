@@ -13,7 +13,7 @@ pub struct Params<'a> {
     /// Maps each active instance/executor to the shard currently responsible for it.
     pub executor_shards: &'a mut HashMap<InstanceId, usize>,
     /// Per-shard command channels used to forward wake events back to executors.
-    pub shard_senders: &'a [std::sync::mpsc::Sender<waymark_timed::Opaque<shard::Command>>],
+    pub shard_senders: &'a [waymark_timed_channel::std::mpsc::Sender<shard::Command>],
     /// Active sleep requests keyed by execution node so wake handling can validate deadlines.
     pub sleeping_nodes: &'a mut HashMap<ExecutionId, SleepRequest>,
     /// Reverse index of sleeping node IDs by executor for bulk cleanup and blocked-until recomputation.
@@ -97,7 +97,7 @@ pub fn handle(params: Params<'_>) {
 
     for (shard_idx, nodes) in by_shard {
         if let Some(sender) = shard_senders.get(shard_idx) {
-            let _ = sender.send(shard::Command::Wake(nodes).into());
+            let _ = sender.send(shard::Command::Wake(nodes));
         }
     }
 }
