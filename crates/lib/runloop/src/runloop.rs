@@ -798,6 +798,10 @@ where
             metrics::histogram!("waymark_runloop_ticks_stats_instances_done_pending_len")
                 .record(MetricVal(instances_done_pending.len()));
 
+            let total_in_flight_actions: usize = inflight_actions.values().sum();
+            metrics::histogram!("waymark_runloop_ticks_stats_inflight_actions_total")
+                .record(MetricVal(total_in_flight_actions));
+
             tracing::trace!(
                 target: "runloop-ticks",
 
