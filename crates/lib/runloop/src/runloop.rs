@@ -784,6 +784,21 @@ where
 
             metrics::counter!("waymark_runloop_ticks_total").increment(1);
 
+            metrics::histogram!("waymark_runloop_ticks_stats_executor_shards_len")
+                .record(MetricsVal(executor_shards.len()));
+            metrics::histogram!("waymark_runloop_ticks_stats_inflight_actions_len")
+                .record(MetricsVal(inflight_actions.len()));
+            metrics::histogram!("waymark_runloop_ticks_stats_inflight_dispatches_len")
+                .record(MetricsVal(inflight_dispatches.len()));
+            metrics::histogram!("waymark_runloop_ticks_stats_sleeping_nodes_len")
+                .record(MetricsVal(sleeping_nodes.len()));
+            metrics::histogram!("waymark_runloop_ticks_stats_sleeping_by_instance_len")
+                .record(MetricsVal(sleeping_by_instance.len()));
+            metrics::histogram!("waymark_runloop_ticks_stats_blocked_until_by_instance_len")
+                .record(MetricsVal(blocked_until_by_instance.len()));
+            metrics::histogram!("waymark_runloop_ticks_stats_instances_done_pending_len")
+                .record(MetricsVal(instances_done_pending.len()));
+
             tracing::trace!(
                 target: "runloop-ticks",
 
