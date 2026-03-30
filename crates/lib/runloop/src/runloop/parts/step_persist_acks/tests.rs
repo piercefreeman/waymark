@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::mpsc as std_mpsc;
 
 use chrono::Utc;
 use uuid::Uuid;
@@ -16,7 +15,7 @@ use crate::{persist, shard};
 struct TestHarness {
     pub lock_uuid: Uuid,
     pub executor_shards: HashMap<Uuid, usize>,
-    pub shard_senders: Vec<std_mpsc::Sender<waymark_timed::Opaque<shard::Command>>>,
+    pub shard_senders: Vec<waymark_timed_channel::std::mpsc::Sender<shard::Command>>,
     pub lock_tracker: instance_lock_heartbeat::Tracker,
     pub inflight_actions: HashMap<Uuid, usize>,
     pub inflight_dispatches: HashMap<Uuid, InflightActionDispatch>,
@@ -84,7 +83,7 @@ impl TestHarness {
 #[tokio::test]
 async fn returns_failed_ack_error_and_preserves_state() {
     let mut harness = TestHarness::default();
-    let (shard_tx, shard_rx) = std_mpsc::channel::<waymark_timed::Opaque<shard::Command>>();
+    let (shard_tx, shard_rx) = waymark_timed_channel::std::mpsc::channel::<shard::Command>();
     harness.shard_senders.push(shard_tx);
     harness.executor_shards.insert(Uuid::new_v4(), 0);
 
@@ -113,7 +112,7 @@ async fn returns_failed_ack_error_and_preserves_state() {
 async fn ignores_unknown_persist_batch_ack() {
     let instance_id = Uuid::new_v4();
     let mut harness = TestHarness::default();
-    let (shard_tx, shard_rx) = std_mpsc::channel::<waymark_timed::Opaque<shard::Command>>();
+    let (shard_tx, shard_rx) = waymark_timed_channel::std::mpsc::channel::<shard::Command>();
     harness.shard_senders.push(shard_tx);
     harness.executor_shards.insert(instance_id, 0);
 
@@ -144,7 +143,7 @@ async fn evicts_only_lock_mismatch_instances_from_persisted_batch() {
     let evict_node = Uuid::new_v4();
 
     let mut harness = TestHarness::default();
-    let (shard_tx, shard_rx) = std_mpsc::channel::<waymark_timed::Opaque<shard::Command>>();
+    let (shard_tx, shard_rx) = waymark_timed_channel::std::mpsc::channel::<shard::Command>();
     harness.shard_senders.push(shard_tx);
     harness.executor_shards.insert(keep_instance, 0);
     harness.executor_shards.insert(evict_instance, 0);

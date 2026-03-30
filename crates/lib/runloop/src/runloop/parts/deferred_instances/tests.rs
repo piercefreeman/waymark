@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::mpsc as std_mpsc;
 
 use chrono::Utc;
 use uuid::Uuid;
@@ -23,7 +22,7 @@ struct TestHarness {
     pub sleeping_by_instance: HashMap<Uuid, HashSet<Uuid>>,
     pub blocked_until_by_instance: HashMap<Uuid, chrono::DateTime<Utc>>,
     pub commit_barrier: CommitBarrier<shard::Step>,
-    pub shard_senders: Vec<std_mpsc::Sender<waymark_timed::Opaque<shard::Command>>>,
+    pub shard_senders: Vec<waymark_timed_channel::std::mpsc::Sender<shard::Command>>,
     pub evict_sleep_threshold: NonZeroDuration,
 }
 
@@ -72,7 +71,7 @@ async fn evicts_instance_over_threshold_without_inflight_actions() {
     let node_id = Uuid::new_v4();
 
     let mut harness = TestHarness::default();
-    let (shard_tx, shard_rx) = std_mpsc::channel::<waymark_timed::Opaque<shard::Command>>();
+    let (shard_tx, shard_rx) = waymark_timed_channel::std::mpsc::channel::<shard::Command>();
     harness.shard_senders.push(shard_tx);
     harness.executor_shards.insert(instance_id, 0);
     harness.lock_tracker.insert_all([instance_id]);
@@ -127,7 +126,7 @@ async fn does_not_evict_when_inflight_actions_exist() {
     let instance_id = Uuid::new_v4();
 
     let mut harness = TestHarness::default();
-    let (shard_tx, shard_rx) = std_mpsc::channel::<waymark_timed::Opaque<shard::Command>>();
+    let (shard_tx, shard_rx) = waymark_timed_channel::std::mpsc::channel::<shard::Command>();
     harness.shard_senders.push(shard_tx);
     harness.executor_shards.insert(instance_id, 0);
     harness.inflight_actions.insert(instance_id, 2);

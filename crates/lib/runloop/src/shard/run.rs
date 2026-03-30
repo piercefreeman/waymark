@@ -1,6 +1,5 @@
-use std::{collections::HashMap, sync::mpsc as std_mpsc};
+use std::collections::HashMap;
 
-use tokio::sync::mpsc;
 use tracing::{debug, warn};
 use uuid::Uuid;
 use waymark_worker_core::ActionCompletion;
@@ -31,10 +30,13 @@ pub enum Error {
     Wake(super::executor::HandleWakeError),
 }
 
+waymark_timed_channel::named_what!(CommandDesc, "shard_command");
+waymark_timed_channel::named_what!(EventDesc, "shard_event");
+
 pub fn run_executor_shard(
     shard_id: usize,
-    receiver: std_mpsc::Receiver<waymark_timed::Opaque<shard::Command>>,
-    sender: mpsc::UnboundedSender<waymark_timed::Opaque<shard::Event>>,
+    receiver: waymark_timed_channel::std::mpsc::Receiver<shard::Command, CommandDesc>,
+    sender: waymark_timed_channel::tokio::mpsc::UnboundedSender<shard::Event>,
 ) {
     let mut executors: HashMap<Uuid, shard::Executor> = HashMap::new();
 
@@ -42,19 +44,15 @@ pub fn run_executor_shard(
         |executor_id: Uuid,
          entry_node: Uuid,
          err: Error,
-         sender: &mpsc::UnboundedSender<waymark_timed::Opaque<shard::Event>>| {
-            let _ = sender.send(
-                shard::Event::InstanceFailed {
-                    executor_id,
-                    entry_node,
-                    error: err.to_string(),
-                }
-                .into(),
-            );
+         sender: &waymark_timed_channel::tokio::mpsc::UnboundedSender<shard::Event>| {
+            let _ = sender.send(shard::Event::InstanceFailed {
+                executor_id,
+                entry_node,
+                error: err.to_string(),
+            });
         };
 
     while let Ok(command) = receiver.recv() {
-        let command = command.into_inner_measured("shard_command");
         match command {
             shard::Command::AssignInstances(instances) => {
                 debug!(
@@ -117,7 +115,7 @@ pub fn run_executor_shard(
                         }
                     };
                     let done = step.instance_done.is_some();
-                    if sender.send(shard::Event::Step(step).into()).is_err() {
+                    if sender.send(shard::Event::Step(step)).is_err() {
                         return;
                     }
                     if !done {
@@ -158,7 +156,7 @@ pub fn run_executor_shard(
                         }
                     };
                     let done = step.instance_done.is_some();
-                    if sender.send(shard::Event::Step(step).into()).is_err() {
+                    if sender.send(shard::Event::Step(step)).is_err() {
                         return;
                     }
                     if done {
@@ -196,7 +194,7 @@ pub fn run_executor_shard(
                         }
                     };
                     let done = step.instance_done.is_some();
-                    if sender.send(shard::Event::Step(step).into()).is_err() {
+                    if sender.send(shard::Event::Step(step)).is_err() {
                         return;
                     }
                     if done {

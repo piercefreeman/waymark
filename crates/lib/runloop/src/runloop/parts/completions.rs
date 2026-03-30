@@ -13,7 +13,7 @@ pub struct Params<'a> {
     /// Maps each active instance/executor to the shard currently responsible for it.
     pub executor_shards: &'a mut HashMap<Uuid, usize>,
     /// Per-shard command channels used to forward accepted completions back to executors.
-    pub shard_senders: &'a [std::sync::mpsc::Sender<waymark_timed::Opaque<shard::Command>>],
+    pub shard_senders: &'a [waymark_timed_channel::std::mpsc::Sender<shard::Command>],
     /// Counts how many action executions are still outstanding for each executor.
     pub inflight_actions: &'a mut HashMap<Uuid, usize>,
     /// Tracks the currently valid dispatch token/attempt for each inflight action execution.
@@ -115,7 +115,7 @@ pub fn handle(params: Params<'_>) {
     }
     for (shard_idx, batch) in by_shard {
         if let Some(sender) = shard_senders.get(shard_idx) {
-            let _ = sender.send(shard::Command::ActionCompletions(batch).into());
+            let _ = sender.send(shard::Command::ActionCompletions(batch));
         }
     }
 }

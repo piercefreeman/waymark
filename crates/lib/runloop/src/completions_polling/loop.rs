@@ -11,7 +11,7 @@ where
 {
     pub shutdown_token: tokio_util::sync::CancellationToken,
     pub worker_pool: Arc<WorkerPool>,
-    pub completion_tx: tokio::sync::mpsc::Sender<waymark_timed::Opaque<Vec<ActionCompletion>>>,
+    pub completion_tx: waymark_timed_channel::tokio::sync::mpsc::Sender<Vec<ActionCompletion>>,
 }
 
 pub async fn run<WorkerPool>(params: Params<WorkerPool>)
