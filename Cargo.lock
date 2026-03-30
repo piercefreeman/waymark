@@ -4423,6 +4423,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-timed-channel"
+version = "0.1.0"
+dependencies = [
+ "tokio",
+ "waymark-timed",
+]
+
+[[package]]
 name = "waymark-utils-futures"
 version = "0.1.0"
 dependencies = [
