@@ -10,6 +10,7 @@ waymark-backend-postgres-migrations = { workspace = true }
 waymark-config = { workspace = true }
 waymark-dag-builder = { workspace = true }
 waymark-garbage-collector-loop = { workspace = true }
+waymark-jsonlines = { workspace = true }
 waymark-nonzero-duration = { workspace = true }
 waymark-proto = { workspace = true }
 waymark-runloop = { workspace = true }
@@ -17,6 +18,8 @@ waymark-scheduler-loop = { workspace = true }
 waymark-webapp-bringup = { workspace = true }
 waymark-worker-remote = { workspace = true }
 waymark-worker-status-reporter = { workspace = true }
+waymark-worker-vcr-recorder = { workspace = true }
+waymark-worker-vcr-recorder-pool-bringup = { workspace = true }
 
 anyhow = { workspace = true }
 prost = { workspace = true }

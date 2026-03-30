@@ -3445,6 +3445,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-action-correlator"
+version = "0.1.0"
+dependencies = [
+ "nonempty-collections",
+ "tokio",
+ "tracing",
+ "uuid",
+ "waymark-action-correlator-core",
+ "waymark-worker-core",
+]
+
+[[package]]
+name = "waymark-action-correlator-core"
+version = "0.1.0"
+dependencies = [
+ "waymark-worker-core",
+]
+
+[[package]]
 name = "waymark-backend-fault-injection"
 version = "0.1.0"
 dependencies = [
@@ -3785,6 +3804,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-jsonlines"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
 name = "waymark-managed-process"
 version = "0.1.0"
 dependencies = [
@@ -4055,6 +4084,7 @@ dependencies = [
  "waymark-config",
  "waymark-dag-builder",
  "waymark-garbage-collector-loop",
+ "waymark-jsonlines",
  "waymark-nonzero-duration",
  "waymark-proto",
  "waymark-runloop",
@@ -4062,6 +4092,8 @@ dependencies = [
  "waymark-webapp-bringup",
  "waymark-worker-remote",
  "waymark-worker-status-reporter",
+ "waymark-worker-vcr-recorder",
+ "waymark-worker-vcr-recorder-pool-bringup",
 ]
 
 [[package]]
@@ -4253,6 +4285,76 @@ dependencies = [
  "waymark-pool-status",
  "waymark-worker-status-backend",
  "waymark-worker-status-core",
+]
+
+[[package]]
+name = "waymark-worker-vcr-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "uuid",
+ "waymark-worker-core",
+]
+
+[[package]]
+name = "waymark-worker-vcr-file"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "waymark-jsonlines",
+ "waymark-worker-core",
+ "waymark-worker-vcr-core",
+]
+
+[[package]]
+name = "waymark-worker-vcr-playback"
+version = "0.1.0"
+dependencies = [
+ "nonempty-collections",
+ "tracing",
+ "waymark-worker-core",
+]
+
+[[package]]
+name = "waymark-worker-vcr-recorder"
+version = "0.1.0"
+dependencies = [
+ "nonempty-collections",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "uuid",
+ "waymark-action-correlator",
+ "waymark-action-correlator-core",
+ "waymark-jsonlines",
+ "waymark-worker-core",
+ "waymark-worker-vcr-file",
+]
+
+[[package]]
+name = "waymark-worker-vcr-recorder-pool"
+version = "0.1.0"
+dependencies = [
+ "nonempty-collections",
+ "tokio",
+ "tracing",
+ "uuid",
+ "waymark-action-correlator",
+ "waymark-action-correlator-core",
+ "waymark-jsonlines",
+ "waymark-worker-core",
+ "waymark-worker-vcr-file",
+ "waymark-worker-vcr-recorder",
+]
+
+[[package]]
+name = "waymark-worker-vcr-recorder-pool-bringup"
+version = "0.1.0"
+dependencies = [
+ "either",
+ "waymark-worker-vcr-recorder",
+ "waymark-worker-vcr-recorder-pool",
 ]
 
 [[package]]
