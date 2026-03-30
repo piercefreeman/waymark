@@ -1,0 +1,18 @@
+[package]
+name = "waymark-ids"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[features]
+default = ["serde", "uuid-v4", "sqlx-postgres"]
+
+serde = ["dep:serde", "uuid/serde"]
+sqlx-postgres = ["dep:sqlx", "sqlx/postgres"]
+uuid-v4 = ["uuid/v4"]
+
+[dependencies]
+serde = { workspace = true, features = ["derive"], optional = true }
+sqlx = { workspace = true, default-features = false, features = ["uuid"], optional = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }

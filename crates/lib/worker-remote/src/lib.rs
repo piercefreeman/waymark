@@ -1408,6 +1408,7 @@ mod tests {
 
     use serde_json::json;
     use tokio::process::Child;
+    use waymark_ids::{ExecutionId, InstanceId};
 
     use super::*;
     use waymark_worker_core::BaseWorkerPool;
@@ -1685,8 +1686,8 @@ mod tests {
             return;
         };
         let request = ActionRequest {
-            executor_id: Uuid::new_v4(),
-            execution_id: Uuid::new_v4(),
+            executor_id: InstanceId::new_uuid_v4(),
+            execution_id: ExecutionId::new_uuid_v4(),
             action_name: "double".to_string(),
             module_name: Some("tests.actions".to_string()),
             kwargs: HashMap::from([("value".to_string(), Value::Number(9.into()))]),
@@ -1752,8 +1753,8 @@ mod tests {
             .await
             .expect("launch remote pool");
         let request = ActionRequest {
-            executor_id: Uuid::new_v4(),
-            execution_id: Uuid::new_v4(),
+            executor_id: InstanceId::new_uuid_v4(),
+            execution_id: ExecutionId::new_uuid_v4(),
             action_name: "square".to_string(),
             module_name: Some("tests.actions".to_string()),
             kwargs: HashMap::from([("value".to_string(), Value::Number(5.into()))]),

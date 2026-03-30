@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::Row;
 use uuid::Uuid;
+use waymark_ids::{InstanceId, LockId};
 use waymark_secret_string::SecretString;
 
 use waymark_backend_memory::MemoryBackend;
@@ -471,7 +472,7 @@ async fn run_case_in_memory(
             .map_err(|err| anyhow!(err.to_string()))
             .context("register workflow version in memory backend")?;
 
-    let instance_id = Uuid::new_v4();
+    let instance_id = InstanceId::new_uuid_v4();
     let queued = build_queued_instance(
         instance_id,
         workflow_version_id,
@@ -522,7 +523,7 @@ async fn run_case_postgres(
             .map_err(|err| anyhow!(err.to_string()))
             .context("register workflow version in postgres backend")?;
 
-    let instance_id = Uuid::new_v4();
+    let instance_id = InstanceId::new_uuid_v4();
     let queued = build_queued_instance(
         instance_id,
         workflow_version_id,
@@ -585,7 +586,7 @@ where
             instance_done_batch_size: Some(16.try_into().unwrap()),
             poll_interval: Some(Duration::from_millis(10).try_into().unwrap()),
             persistence_interval: Some(Duration::from_millis(20).try_into().unwrap()),
-            lock_uuid: Uuid::new_v4(),
+            lock_uuid: LockId::new_uuid_v4(),
             lock_ttl: Duration::from_secs(15).try_into().unwrap(),
             lock_heartbeat: Duration::from_secs(5).try_into().unwrap(),
             evict_sleep_threshold: Duration::from_secs(10).try_into().unwrap(),
@@ -602,7 +603,7 @@ where
 }
 
 fn build_queued_instance(
-    instance_id: Uuid,
+    instance_id: InstanceId,
     workflow_version_id: Uuid,
     dag: Arc<DAG>,
     kwargs: &HashMap<String, Value>,

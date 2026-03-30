@@ -9,9 +9,9 @@ use rand::{Rng, SeedableRng};
 use serde::Serialize;
 use sqlx::PgPool;
 use tracing::{info, warn};
-use uuid::Uuid;
 use waymark_backend_postgres::PostgresBackend;
 use waymark_core_backend::QueuedInstance;
+use waymark_ids::InstanceId;
 use waymark_proto::ast as ir;
 use waymark_runner_state::RunnerState;
 
@@ -399,7 +399,7 @@ fn build_instance(
         entry_node: entry_node.node_id,
         state: Some(state),
         action_results: HashMap::new(),
-        instance_id: Uuid::new_v4(),
+        instance_id: InstanceId::new_uuid_v4(),
         scheduled_at: None,
     })
 }

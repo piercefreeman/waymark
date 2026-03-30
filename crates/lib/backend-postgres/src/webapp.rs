@@ -11,6 +11,7 @@ use waymark_backends_core::{BackendError, BackendResult};
 use waymark_core_backend::{GraphUpdate, QueuedInstance};
 use waymark_dag::{DAGNode, EdgeType};
 use waymark_dag_builder::convert_to_dag;
+use waymark_ids::{ExecutionId, InstanceId};
 use waymark_ir_conversions::literal_from_json_value;
 use waymark_proto::ast as ir;
 use waymark_runner::replay_action_kwargs;
@@ -326,7 +327,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
 
         let mut instances = Vec::new();
         for row in rows {
-            let instance_id: Uuid = row.get("instance_id");
+            let instance_id: InstanceId = row.get("instance_id");
             let entry_node: Uuid = row.get("entry_node");
             let created_at: DateTime<Utc> = row.get("created_at");
             let state_bytes: Option<Vec<u8>> = row.get("state");
@@ -354,7 +355,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
         Ok(instances)
     }
 
-    async fn get_instance(&self, instance_id: Uuid) -> BackendResult<InstanceDetail> {
+    async fn get_instance(&self, instance_id: InstanceId) -> BackendResult<InstanceDetail> {
         let row = sqlx::query(
             r#"
             SELECT
@@ -383,8 +384,8 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
         .await?
         .ok_or_else(|| BackendError::Message(format!("instance not found: {}", instance_id)))?;
 
-        let instance_id: Uuid = row.get("instance_id");
-        let entry_node: Uuid = row.get("entry_node");
+        let instance_id: InstanceId = row.get("instance_id");
+        let entry_node: ExecutionId = row.get("entry_node");
         let created_at: DateTime<Utc> = row.get("created_at");
         let state_bytes: Option<Vec<u8>> = row.get("state");
         let result_bytes: Option<Vec<u8>> = row.get("result");
@@ -414,7 +415,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
 
     async fn get_execution_graph(
         &self,
-        instance_id: Uuid,
+        instance_id: InstanceId,
     ) -> BackendResult<Option<ExecutionGraphView>> {
         let row = sqlx::query(
             r#"
@@ -463,7 +464,10 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
         Ok(Some(ExecutionGraphView { nodes, edges }))
     }
 
-    async fn requeue_instance_to_latest_version(&self, instance_id: Uuid) -> BackendResult<Uuid> {
+    async fn requeue_instance_to_latest_version(
+        &self,
+        instance_id: InstanceId,
+    ) -> BackendResult<InstanceId> {
         let row = sqlx::query(
             r#"
             SELECT
@@ -520,7 +524,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
 
     async fn get_workflow_graph(
         &self,
-        instance_id: Uuid,
+        instance_id: InstanceId,
     ) -> BackendResult<Option<ExecutionGraphView>> {
         let row = sqlx::query(
             r#"
@@ -610,7 +614,10 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
         Ok(Some(ExecutionGraphView { nodes, edges }))
     }
 
-    async fn get_action_results(&self, instance_id: Uuid) -> BackendResult<Vec<TimelineEntry>> {
+    async fn get_action_results(
+        &self,
+        instance_id: InstanceId,
+    ) -> BackendResult<Vec<TimelineEntry>> {
         let row = sqlx::query(
             r#"
             SELECT state
@@ -638,7 +645,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
             Some(graph_update.edges),
             false,
         );
-        let action_nodes: HashMap<Uuid, ExecutionNode> = graph_update
+        let action_nodes: HashMap<ExecutionId, ExecutionNode> = graph_update
             .nodes
             .into_iter()
             .filter(|(_, node)| node.is_action_call())
@@ -646,7 +653,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
         if action_nodes.is_empty() {
             return Ok(Vec::new());
         }
-        let execution_ids: Vec<Uuid> = action_nodes.keys().copied().collect();
+        let execution_ids: Vec<ExecutionId> = action_nodes.keys().copied().collect();
 
         let rows = sqlx::query(
             r#"
@@ -663,7 +670,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
         let mut decoded_rows = Vec::with_capacity(rows.len());
         for row in rows {
             let created_at: DateTime<Utc> = row.get("created_at");
-            let execution_id: Uuid = row.get("execution_id");
+            let execution_id: ExecutionId = row.get("execution_id");
             let attempt: i32 = row.get("attempt");
             let status: Option<String> = row.get("status");
             let started_at: Option<DateTime<Utc>> = row.get("started_at");
@@ -694,7 +701,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
             }
         }
 
-        let mut request_preview_cache: HashMap<Uuid, String> = HashMap::new();
+        let mut request_preview_cache: HashMap<ExecutionId, String> = HashMap::new();
         let mut entries = Vec::with_capacity(decoded_rows.len());
         for row in decoded_rows {
             let node = action_nodes.get(&row.execution_id);
@@ -1151,7 +1158,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
 
 struct DecodedActionResultRow {
     created_at: DateTime<Utc>,
-    execution_id: Uuid,
+    execution_id: ExecutionId,
     attempt: i32,
     status: Option<String>,
     started_at: Option<DateTime<Utc>>,
@@ -1168,8 +1175,8 @@ fn decode_msgpack_json(bytes: &[u8]) -> BackendResult<Value> {
 fn render_action_request_preview(
     action: Option<&ActionCallSpec>,
     state: &RunnerState,
-    action_results: &HashMap<Uuid, Value>,
-    node_id: Uuid,
+    action_results: &HashMap<ExecutionId, Value>,
+    node_id: ExecutionId,
 ) -> String {
     let Some(action) = action else {
         return "{}".to_string();
@@ -1300,7 +1307,7 @@ fn format_input_payload(state_bytes: &Option<Vec<u8>>) -> String {
 }
 
 #[cfg(test)]
-fn format_extracted_inputs(nodes: &HashMap<Uuid, ExecutionNode>) -> String {
+fn format_extracted_inputs(nodes: &HashMap<ExecutionId, ExecutionNode>) -> String {
     let input_map = extract_input_map(nodes);
     if input_map.is_empty() {
         return "{}".to_string();
@@ -1319,7 +1326,9 @@ fn extract_input_payload_map(
     Ok(extract_input_map(&graph.nodes))
 }
 
-fn extract_input_map(nodes: &HashMap<Uuid, ExecutionNode>) -> serde_json::Map<String, Value> {
+fn extract_input_map(
+    nodes: &HashMap<ExecutionId, ExecutionNode>,
+) -> serde_json::Map<String, Value> {
     let mut input_pairs: Vec<(String, Value)> = nodes
         .values()
         .filter_map(extract_input_assignment)
@@ -1380,7 +1389,7 @@ fn build_queued_instance(
         entry_node: entry_exec.node_id,
         state: Some(state),
         action_results: HashMap::new(),
-        instance_id: Uuid::new_v4(),
+        instance_id: InstanceId::new_uuid_v4(),
         scheduled_at: None,
     })
 }
@@ -1516,6 +1525,7 @@ mod tests {
     use prost::Message;
     use serial_test::serial;
     use uuid::Uuid;
+    use waymark_ids::ExecutionId;
     use waymark_scheduler_backend::SchedulerBackend;
     use waymark_webapp_backend::WebappBackend;
     use waymark_worker_status_backend::{WorkerStatusBackend, WorkerStatusUpdate};
@@ -1545,9 +1555,9 @@ mod tests {
             }),
         );
         nodes.insert(
-            Uuid::new_v4(),
+            ExecutionId::new_uuid_v4(),
             ExecutionNode {
-                node_id: Uuid::new_v4(),
+                node_id: ExecutionId::new_uuid_v4(),
                 node_type: "assignment".to_string(),
                 label: "input iterations = 3".to_string(),
                 status: NodeStatus::Completed,
@@ -1571,9 +1581,9 @@ mod tests {
             }),
         );
         nodes.insert(
-            Uuid::new_v4(),
+            ExecutionId::new_uuid_v4(),
             ExecutionNode {
-                node_id: Uuid::new_v4(),
+                node_id: ExecutionId::new_uuid_v4(),
                 node_type: "assignment".to_string(),
                 label: "input sleep_seconds = 20".to_string(),
                 status: NodeStatus::Completed,
@@ -1673,7 +1683,7 @@ mod tests {
         let completed_at = started_at + ChronoDuration::milliseconds(450);
         let fallback = Utc::now();
         let node = ExecutionNode {
-            node_id: Uuid::new_v4(),
+            node_id: ExecutionId::new_uuid_v4(),
             node_type: "action_call".to_string(),
             label: "@tests.action()".to_string(),
             status: NodeStatus::Completed,
@@ -1705,7 +1715,7 @@ mod tests {
         let completed_at = started_at + ChronoDuration::milliseconds(600);
         let fallback = Utc::now();
         let node = ExecutionNode {
-            node_id: Uuid::new_v4(),
+            node_id: ExecutionId::new_uuid_v4(),
             node_type: "action_call".to_string(),
             label: "@tests.action()".to_string(),
             status: NodeStatus::Completed,
@@ -1731,7 +1741,7 @@ mod tests {
         assert_eq!(duration_ms, None);
     }
 
-    fn sample_execution_node(execution_id: Uuid) -> ExecutionNode {
+    fn sample_execution_node(execution_id: ExecutionId) -> ExecutionNode {
         ExecutionNode {
             node_id: execution_id,
             node_type: "action_call".to_string(),
@@ -1758,7 +1768,7 @@ mod tests {
         }
     }
 
-    fn sample_graph(instance_id: Uuid, execution_id: Uuid) -> GraphUpdate {
+    fn sample_graph(instance_id: InstanceId, execution_id: ExecutionId) -> GraphUpdate {
         let mut nodes = HashMap::new();
         nodes.insert(execution_id, sample_execution_node(execution_id));
 
@@ -1782,7 +1792,7 @@ mod tests {
             }),
         );
         ExecutionNode {
-            node_id: Uuid::new_v4(),
+            node_id: ExecutionId::new_uuid_v4(),
             node_type: "assignment".to_string(),
             label: format!("input {name} = {value}"),
             status: NodeStatus::Completed,
@@ -1798,7 +1808,7 @@ mod tests {
         }
     }
 
-    fn sample_input_graph(instance_id: Uuid) -> GraphUpdate {
+    fn sample_input_graph(instance_id: InstanceId) -> GraphUpdate {
         let input_number = sample_input_node("value", serde_json::json!(7));
         let input_label = sample_input_node("label", serde_json::json!("latest"));
         GraphUpdate {
@@ -1814,10 +1824,10 @@ mod tests {
     async fn insert_instance_with_graph_with_workflow(
         backend: &PostgresBackend,
         workflow_name: &str,
-    ) -> (Uuid, Uuid, Uuid) {
-        let instance_id = Uuid::new_v4();
-        let entry_node = Uuid::new_v4();
-        let execution_id = Uuid::new_v4();
+    ) -> (InstanceId, ExecutionId, ExecutionId) {
+        let instance_id = InstanceId::new_uuid_v4();
+        let entry_node = ExecutionId::new_uuid_v4();
+        let execution_id = ExecutionId::new_uuid_v4();
         let workflow_version_id = insert_workflow_version(backend, workflow_name).await;
         let graph = sample_graph(instance_id, execution_id);
         let state_payload = rmp_serde::to_vec_named(&graph).expect("encode graph update");
@@ -1836,7 +1846,9 @@ mod tests {
         (instance_id, entry_node, execution_id)
     }
 
-    async fn insert_instance_with_graph(backend: &PostgresBackend) -> (Uuid, Uuid, Uuid) {
+    async fn insert_instance_with_graph(
+        backend: &PostgresBackend,
+    ) -> (InstanceId, ExecutionId, ExecutionId) {
         insert_instance_with_graph_with_workflow(backend, "tests.workflow").await
     }
 
@@ -1844,9 +1856,9 @@ mod tests {
         backend: &PostgresBackend,
         workflow_name: &str,
         workflow_version_id: Uuid,
-    ) -> Uuid {
-        let instance_id = Uuid::new_v4();
-        let entry_node = Uuid::new_v4();
+    ) -> InstanceId {
+        let instance_id = InstanceId::new_uuid_v4();
+        let entry_node = ExecutionId::new_uuid_v4();
         let graph = sample_input_graph(instance_id);
         let state_payload = rmp_serde::to_vec_named(&graph).expect("encode graph update");
 
@@ -1865,7 +1877,7 @@ mod tests {
         instance_id
     }
 
-    async fn insert_action_result(backend: &PostgresBackend, execution_id: Uuid) {
+    async fn insert_action_result(backend: &PostgresBackend, execution_id: ExecutionId) {
         let payload = rmp_serde::to_vec_named(&serde_json::json!({"ok": true}))
             .expect("encode action result");
         sqlx::query(
@@ -1959,10 +1971,10 @@ fn main(input: [items], output: [total]):
         schedule_id: Uuid,
         created_at: DateTime<Utc>,
         with_result: bool,
-    ) -> Uuid {
-        let instance_id = Uuid::new_v4();
-        let entry_node = Uuid::new_v4();
-        let execution_id = Uuid::new_v4();
+    ) -> InstanceId {
+        let instance_id = InstanceId::new_uuid_v4();
+        let entry_node = ExecutionId::new_uuid_v4();
+        let execution_id = ExecutionId::new_uuid_v4();
         let workflow_version_id = insert_workflow_version(backend, "tests.workflow").await;
         let graph = sample_graph(instance_id, execution_id);
         let state_payload = rmp_serde::to_vec_named(&graph).expect("encode graph update");
@@ -2286,9 +2298,9 @@ fn main(input: [items], output: [total]):
     #[tokio::test]
     async fn webapp_get_workflow_graph_marks_loop_back_edges() {
         let backend = setup_backend().await;
-        let instance_id = Uuid::new_v4();
-        let entry_node = Uuid::new_v4();
-        let execution_id = Uuid::new_v4();
+        let instance_id = InstanceId::new_uuid_v4();
+        let entry_node = ExecutionId::new_uuid_v4();
+        let execution_id = ExecutionId::new_uuid_v4();
         let workflow_version_id =
             insert_loop_workflow_version(&backend, "tests.loop_workflow").await;
         let graph = sample_graph(instance_id, execution_id);

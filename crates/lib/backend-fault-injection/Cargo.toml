@@ -8,6 +8,7 @@ edition = "2024"
 waymark-backend-memory = { workspace = true }
 waymark-backends-core = { workspace = true }
 waymark-core-backend = { workspace = true }
+waymark-ids = { workspace = true }
 waymark-workflow-registry-backend = { workspace = true }
 
 nonempty-collections = { workspace = true }

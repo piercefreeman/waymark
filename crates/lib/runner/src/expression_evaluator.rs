@@ -3,9 +3,9 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use serde_json::Value;
-use uuid::Uuid;
 
 use waymark_dag::{DAGEdge, EdgeType};
+use waymark_ids::ExecutionId;
 use waymark_ir_conversions::literal_to_json_value;
 use waymark_observability::obs;
 use waymark_proto::ast as ir;
@@ -155,7 +155,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
     #[obs]
     pub fn resolve_action_kwargs(
         &self,
-        node_id: Uuid,
+        node_id: ExecutionId,
         action: &ActionCallSpec,
     ) -> Result<HashMap<String, Value>, RunnerExecutorError> {
         let mut resolved = HashMap::new();
@@ -180,7 +180,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
     fn evaluate_value_expr_for_node(
         &self,
         expr: &ValueExpr,
-        current_node_id: Option<Uuid>,
+        current_node_id: Option<ExecutionId>,
     ) -> Result<Value, RunnerExecutorError> {
         let stack = Rc::new(RefCell::new(HashSet::new()));
         let resolve_variable = {
@@ -214,8 +214,12 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
         evaluator.visit(expr)
     }
 
-    fn find_variable_source_node(&self, current_node_id: Uuid, name: &str) -> Option<Uuid> {
-        let timeline_index: HashMap<Uuid, usize> = self
+    fn find_variable_source_node(
+        &self,
+        current_node_id: ExecutionId,
+        name: &str,
+    ) -> Option<ExecutionId> {
+        let timeline_index: HashMap<ExecutionId, usize> = self
             .state()
             .timeline
             .iter()
@@ -240,9 +244,9 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
 
     fn evaluate_variable_with_context(
         &self,
-        current_node_id: Option<Uuid>,
+        current_node_id: Option<ExecutionId>,
         name: &str,
-        stack: Rc<RefCell<HashSet<(Uuid, String)>>>,
+        stack: Rc<RefCell<HashSet<(ExecutionId, String)>>>,
     ) -> Result<Value, RunnerExecutorError> {
         let node_id = current_node_id
             .and_then(|node_id| self.find_variable_source_node(node_id, name))
@@ -253,9 +257,9 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
 
     pub(super) fn evaluate_assignment(
         &self,
-        node_id: Uuid,
+        node_id: ExecutionId,
         target: &str,
-        stack: Rc<RefCell<HashSet<(Uuid, String)>>>,
+        stack: Rc<RefCell<HashSet<(ExecutionId, String)>>>,
     ) -> Result<Value, RunnerExecutorError> {
         let key = (node_id, target.to_string());
         if let Some(value) = self.eval_cache_get(&key) {
@@ -671,8 +675,6 @@ mod tests {
     use std::rc::Rc;
     use std::sync::Arc;
 
-    use uuid::Uuid;
-
     use super::*;
     use waymark_dag::{DAG, DAGEdge};
     use waymark_ir_parser::IRParser;
@@ -756,7 +758,7 @@ mod tests {
             )]),
         };
         let resolved = executor
-            .resolve_action_kwargs(Uuid::new_v4(), &action)
+            .resolve_action_kwargs(ExecutionId::new_uuid_v4(), &action)
             .expect("resolve kwargs");
         assert_eq!(resolved.get("value"), Some(&Value::Number(10.into())));
     }
@@ -883,7 +885,7 @@ mod tests {
     #[test]
     fn test_resolve_action_result_happy_path() {
         let mut executor = empty_executor::<false>();
-        let action_id = Uuid::new_v4();
+        let action_id = ExecutionId::new_uuid_v4();
         executor.set_action_result(
             action_id,
             Value::Array(vec![Value::Number(7.into()), Value::Number(8.into())]),

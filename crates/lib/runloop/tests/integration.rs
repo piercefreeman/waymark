@@ -11,6 +11,7 @@ use waymark_backend_fault_injection::FaultInjectingBackend;
 use waymark_backend_memory::MemoryBackend;
 use waymark_core_backend::{ActionAttemptStatus, CoreBackend, QueuedInstance};
 use waymark_dag_builder::convert_to_dag;
+use waymark_ids::{ExecutionId, InstanceId, LockId};
 use waymark_ir_parser::parse_program;
 use waymark_nonzero_duration::NonZeroDuration;
 use waymark_proto::ast as ir;
@@ -20,7 +21,7 @@ use waymark_runner_state::{NodeStatus, RunnerState};
 use waymark_worker_inline::ActionCallable;
 use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBackend};
 
-fn default_test_config(lock_uuid: Uuid) -> RunLoopConfig {
+fn default_test_config(lock_uuid: LockId) -> RunLoopConfig {
     RunLoopConfig {
         max_concurrent_instances: 25.try_into().unwrap(),
         executor_shards: 1.try_into().unwrap(),
@@ -109,7 +110,7 @@ fn main(input: [x], output: [y]):
             // TODO: do we really want no interval here?
             poll_interval: None,
             persistence_interval: Some(Duration::from_secs_f64(0.1).try_into().unwrap()),
-            lock_uuid: Uuid::new_v4(),
+            lock_uuid: LockId::new_uuid_v4(),
             lock_ttl: Duration::from_secs(15).try_into().unwrap(),
             lock_heartbeat: Duration::from_secs(5).try_into().unwrap(),
             evict_sleep_threshold: Duration::from_secs(10).try_into().unwrap(),
@@ -124,7 +125,7 @@ fn main(input: [x], output: [y]):
         entry_node: entry_exec.node_id,
         state: Some(state),
         action_results: HashMap::new(),
-        instance_id: Uuid::new_v4(),
+        instance_id: InstanceId::new_uuid_v4(),
         scheduled_at: None,
     });
 
@@ -190,7 +191,7 @@ fn main(input: [x], output: [y]):
             // TODO: do we really want no interval here?
             poll_interval: None,
             persistence_interval: Some(Duration::from_secs_f64(0.1).try_into().unwrap()),
-            lock_uuid: Uuid::new_v4(),
+            lock_uuid: LockId::new_uuid_v4(),
             lock_ttl: Duration::from_secs(15).try_into().unwrap(),
             lock_heartbeat: Duration::from_secs(5).try_into().unwrap(),
             evict_sleep_threshold: Duration::from_secs(10).try_into().unwrap(),
@@ -230,7 +231,7 @@ fn main(input: [x], output: [y]):
             entry_node: entry_exec.node_id,
             state: Some(state),
             action_results: HashMap::new(),
-            instance_id: Uuid::new_v4(),
+            instance_id: InstanceId::new_uuid_v4(),
             scheduled_at: None,
         });
     }
@@ -327,7 +328,7 @@ fn main(input: [x], output: [y]):
             // TODO: do we really want no interval here?
             poll_interval: None,
             persistence_interval: Some(Duration::from_secs_f64(0.1).try_into().unwrap()),
-            lock_uuid: Uuid::new_v4(),
+            lock_uuid: LockId::new_uuid_v4(),
             lock_ttl: Duration::from_secs(15).try_into().unwrap(),
             lock_heartbeat: Duration::from_secs(5).try_into().unwrap(),
             evict_sleep_threshold: Duration::from_secs(10).try_into().unwrap(),
@@ -342,7 +343,7 @@ fn main(input: [x], output: [y]):
         entry_node: entry_exec.node_id,
         state: Some(state),
         action_results: HashMap::new(),
-        instance_id: Uuid::new_v4(),
+        instance_id: InstanceId::new_uuid_v4(),
         scheduled_at: None,
     });
 
@@ -416,7 +417,7 @@ fn main(input: [], output: [y]):
             // TODO: do we really want no interval here?
             poll_interval: None,
             persistence_interval: Some(Duration::from_secs_f64(0.05).try_into().unwrap()),
-            lock_uuid: Uuid::new_v4(),
+            lock_uuid: LockId::new_uuid_v4(),
             lock_ttl: Duration::from_secs(15).try_into().unwrap(),
             lock_heartbeat: Duration::from_secs(5).try_into().unwrap(),
             evict_sleep_threshold: Duration::from_secs(10).try_into().unwrap(),
@@ -431,7 +432,7 @@ fn main(input: [], output: [y]):
         entry_node: entry_exec.node_id,
         state: Some(state),
         action_results: HashMap::new(),
-        instance_id: Uuid::new_v4(),
+        instance_id: InstanceId::new_uuid_v4(),
         scheduled_at: None,
     });
 
@@ -529,7 +530,7 @@ fn main(input: [x], output: [y]):
             // TODO: do we really want no interval here?
             poll_interval: None,
             persistence_interval: Some(Duration::from_secs_f64(0.1).try_into().unwrap()),
-            lock_uuid: Uuid::new_v4(),
+            lock_uuid: LockId::new_uuid_v4(),
             lock_ttl: Duration::from_secs(15).try_into().unwrap(),
             lock_heartbeat: Duration::from_secs(5).try_into().unwrap(),
             evict_sleep_threshold: Duration::from_secs(10).try_into().unwrap(),
@@ -537,7 +538,7 @@ fn main(input: [x], output: [y]):
             active_instance_gauge: None,
         },
     );
-    let instance_id = Uuid::new_v4();
+    let instance_id = InstanceId::new_uuid_v4();
     queue.lock().expect("queue lock").push_back(QueuedInstance {
         workflow_version_id,
         schedule_id: None,
@@ -678,7 +679,7 @@ fn main(input: [limit], output: [result]):
             // TODO: do we really want no interval here?
             poll_interval: None,
             persistence_interval: Some(Duration::from_secs_f64(0.1).try_into().unwrap()),
-            lock_uuid: Uuid::new_v4(),
+            lock_uuid: LockId::new_uuid_v4(),
             lock_ttl: Duration::from_secs(15).try_into().unwrap(),
             lock_heartbeat: Duration::from_secs(5).try_into().unwrap(),
             evict_sleep_threshold: Duration::from_secs(10).try_into().unwrap(),
@@ -693,7 +694,7 @@ fn main(input: [limit], output: [result]):
         entry_node: entry_exec.node_id,
         state: Some(state),
         action_results: HashMap::new(),
-        instance_id: Uuid::new_v4(),
+        instance_id: InstanceId::new_uuid_v4(),
         scheduled_at: None,
     });
 
@@ -732,7 +733,7 @@ async fn test_runloop_reproduces_no_progress_with_continued_queue_growth() {
     let runloop = RunLoop::new_with_shutdown(
         worker_pool,
         backend.clone(),
-        default_test_config(Uuid::new_v4()),
+        default_test_config(LockId::new_uuid_v4()),
         shutdown_token.clone(),
     );
     let runloop = tokio::spawn(async move { runloop.run().await });
@@ -743,10 +744,10 @@ async fn test_runloop_reproduces_no_progress_with_continued_queue_growth() {
                 workflow_version_id: Uuid::new_v4(),
                 schedule_id: None,
                 dag: None,
-                entry_node: Uuid::new_v4(),
+                entry_node: ExecutionId::new_uuid_v4(),
                 state: None,
                 action_results: HashMap::new(),
-                instance_id: Uuid::new_v4(),
+                instance_id: InstanceId::new_uuid_v4(),
                 scheduled_at: None,
             }])
             .await
@@ -867,9 +868,9 @@ fn main(input: [x], output: [y]):
     let runloop = RunLoop::new(
         worker_pool,
         backend.clone(),
-        default_test_config(Uuid::new_v4()),
+        default_test_config(LockId::new_uuid_v4()),
     );
-    let instance_id = Uuid::new_v4();
+    let instance_id = InstanceId::new_uuid_v4();
     queue.lock().expect("queue lock").push_back(QueuedInstance {
         workflow_version_id,
         schedule_id: None,
@@ -962,9 +963,9 @@ fn main(input: [], output: [result]):
     let runloop = RunLoop::new(
         worker_pool,
         backend.clone(),
-        default_test_config(Uuid::new_v4()),
+        default_test_config(LockId::new_uuid_v4()),
     );
-    let instance_id = Uuid::new_v4();
+    let instance_id = InstanceId::new_uuid_v4();
     queue.lock().expect("queue lock").push_back(QueuedInstance {
         workflow_version_id,
         schedule_id: None,
@@ -1045,9 +1046,9 @@ fn main(input: [], output: [result]):
     let runloop = RunLoop::new(
         worker_pool,
         backend.clone(),
-        default_test_config(Uuid::new_v4()),
+        default_test_config(LockId::new_uuid_v4()),
     );
-    let instance_id = Uuid::new_v4();
+    let instance_id = InstanceId::new_uuid_v4();
     queue.lock().expect("queue lock").push_back(QueuedInstance {
         workflow_version_id,
         schedule_id: None,

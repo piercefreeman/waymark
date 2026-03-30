@@ -3279,9 +3279,9 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
 name = "uuid"
-version = "1.21.0"
+version = "1.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b672338555252d43fd2240c714dc444b8c6fb0a5c5335e65a07bba7742735ddb"
+checksum = "5ac8b6f42ead25368cf5b098aeb3dc8a1a2c05a3eee8a9a1a68c640edbfc79d9"
 dependencies = [
  "getrandom 0.4.1",
  "js-sys",
@@ -3454,6 +3454,7 @@ dependencies = [
  "waymark-backend-memory",
  "waymark-backends-core",
  "waymark-core-backend",
+ "waymark-ids",
  "waymark-workflow-registry-backend",
 ]
 
@@ -3470,6 +3471,7 @@ dependencies = [
  "waymark-backends-core",
  "waymark-core-backend",
  "waymark-garbage-collector-backend",
+ "waymark-ids",
  "waymark-scheduler-backend",
  "waymark-scheduler-core",
  "waymark-webapp-backend",
@@ -3500,6 +3502,7 @@ dependencies = [
  "waymark-dag",
  "waymark-dag-builder",
  "waymark-garbage-collector-backend",
+ "waymark-ids",
  "waymark-ir-conversions",
  "waymark-ir-parser",
  "waymark-observability",
@@ -3550,6 +3553,7 @@ dependencies = [
  "waymark-core-backend",
  "waymark-dag",
  "waymark-dag-builder",
+ "waymark-ids",
  "waymark-ir-conversions",
  "waymark-observability",
  "waymark-observability-setup",
@@ -3601,6 +3605,7 @@ dependencies = [
  "waymark-core-backend",
  "waymark-dag",
  "waymark-dag-builder",
+ "waymark-ids",
  "waymark-ir-conversions",
  "waymark-message-conversions",
  "waymark-proto",
@@ -3637,6 +3642,7 @@ dependencies = [
  "uuid",
  "waymark-backends-core",
  "waymark-dag",
+ "waymark-ids",
  "waymark-runner-state",
 ]
 
@@ -3696,6 +3702,7 @@ dependencies = [
  "waymark-core-backend",
  "waymark-dag",
  "waymark-dag-builder",
+ "waymark-ids",
  "waymark-ir-parser",
  "waymark-proto",
  "waymark-runloop",
@@ -3731,6 +3738,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-ids"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "sqlx",
+ "thiserror",
+ "uuid",
+]
+
+[[package]]
 name = "waymark-integration-test"
 version = "0.1.0"
 dependencies = [
@@ -3749,6 +3766,7 @@ dependencies = [
  "waymark-core-backend",
  "waymark-dag",
  "waymark-dag-builder",
+ "waymark-ids",
  "waymark-ir-conversions",
  "waymark-proto",
  "waymark-runloop",
@@ -3871,6 +3889,7 @@ dependencies = [
  "waymark-core-backend",
  "waymark-dag",
  "waymark-dag-builder",
+ "waymark-ids",
  "waymark-ir-parser",
  "waymark-nonzero-duration",
  "waymark-observability",
@@ -3892,10 +3911,10 @@ dependencies = [
  "rustc-hash",
  "serde_json",
  "thiserror",
- "uuid",
  "waymark-core-backend",
  "waymark-dag",
  "waymark-dag-builder",
+ "waymark-ids",
  "waymark-ir-conversions",
  "waymark-ir-parser",
  "waymark-observability",
@@ -3911,8 +3930,8 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
- "uuid",
  "waymark-dag",
+ "waymark-ids",
  "waymark-ir-conversions",
  "waymark-proto",
 ]
@@ -3921,8 +3940,8 @@ dependencies = [
 name = "waymark-scheduler-backend"
 version = "0.1.0"
 dependencies = [
- "uuid",
  "waymark-backends-core",
+ "waymark-ids",
  "waymark-scheduler-core",
 ]
 
@@ -3939,6 +3958,7 @@ dependencies = [
  "rand 0.8.5",
  "serde",
  "uuid",
+ "waymark-ids",
 ]
 
 [[package]]
@@ -3956,6 +3976,7 @@ dependencies = [
  "waymark-core-backend",
  "waymark-dag",
  "waymark-dag-builder",
+ "waymark-ids",
  "waymark-ir-conversions",
  "waymark-ir-parser",
  "waymark-message-conversions",
@@ -3986,11 +4007,11 @@ dependencies = [
  "serde_json",
  "sha2",
  "tokio",
- "uuid",
  "waymark-backend-memory",
  "waymark-core-backend",
  "waymark-dag-builder",
  "waymark-dag-viz",
+ "waymark-ids",
  "waymark-ir-conversions",
  "waymark-ir-format",
  "waymark-proto",
@@ -4031,6 +4052,7 @@ dependencies = [
  "waymark-core-backend",
  "waymark-dag",
  "waymark-dag-builder",
+ "waymark-ids",
  "waymark-ir-parser",
  "waymark-proto",
  "waymark-runner-state",
@@ -4055,6 +4077,7 @@ dependencies = [
  "waymark-config",
  "waymark-dag-builder",
  "waymark-garbage-collector-loop",
+ "waymark-ids",
  "waymark-nonzero-duration",
  "waymark-proto",
  "waymark-runloop",
@@ -4117,6 +4140,7 @@ version = "0.1.0"
 dependencies = [
  "uuid",
  "waymark-backends-core",
+ "waymark-ids",
  "waymark-webapp-core",
 ]
 
@@ -4145,6 +4169,7 @@ dependencies = [
  "chrono",
  "serde",
  "uuid",
+ "waymark-ids",
 ]
 
 [[package]]
@@ -4165,6 +4190,7 @@ dependencies = [
  "uuid",
  "waymark-backend-memory",
  "waymark-backend-postgres",
+ "waymark-ids",
  "waymark-pool-status",
  "waymark-support-test",
  "waymark-webapp-backend",
@@ -4181,6 +4207,7 @@ dependencies = [
  "serde_json",
  "thiserror",
  "uuid",
+ "waymark-ids",
 ]
 
 [[package]]
@@ -4217,6 +4244,7 @@ dependencies = [
  "tonic 0.11.0",
  "tracing",
  "uuid",
+ "waymark-ids",
  "waymark-message-conversions",
  "waymark-proto",
  "waymark-worker-core",

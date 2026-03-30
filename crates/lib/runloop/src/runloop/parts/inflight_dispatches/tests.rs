@@ -2,13 +2,14 @@ use std::collections::HashMap;
 
 use chrono::Utc;
 use uuid::Uuid;
+use waymark_ids::{ExecutionId, InstanceId};
 use waymark_worker_core::ActionCompletion;
 
 use crate::runloop::InflightActionDispatch;
 
 #[derive(Default)]
 struct TestHarness {
-    pub dispatches: HashMap<Uuid, InflightActionDispatch>,
+    pub dispatches: HashMap<ExecutionId, InflightActionDispatch>,
     pub completions: Vec<ActionCompletion>,
 }
 
@@ -23,8 +24,8 @@ impl TestHarness {
 
 #[test]
 fn no_deadline_not_timed_out() {
-    let executor_id = Uuid::new_v4();
-    let execution_id = Uuid::new_v4();
+    let executor_id = InstanceId::new_uuid_v4();
+    let execution_id = ExecutionId::new_uuid_v4();
     let mut harness = TestHarness::default();
     harness.dispatches.insert(
         execution_id,
@@ -44,8 +45,8 @@ fn no_deadline_not_timed_out() {
 
 #[test]
 fn past_deadline_generates_timeout_completion() {
-    let executor_id = Uuid::new_v4();
-    let execution_id = Uuid::new_v4();
+    let executor_id = InstanceId::new_uuid_v4();
+    let execution_id = ExecutionId::new_uuid_v4();
     let dispatch_token = Uuid::new_v4();
     let mut harness = TestHarness::default();
     harness.dispatches.insert(
@@ -75,8 +76,8 @@ fn past_deadline_generates_timeout_completion() {
 
 #[test]
 fn future_deadline_not_timed_out() {
-    let executor_id = Uuid::new_v4();
-    let execution_id = Uuid::new_v4();
+    let executor_id = InstanceId::new_uuid_v4();
+    let execution_id = ExecutionId::new_uuid_v4();
     let mut harness = TestHarness::default();
     harness.dispatches.insert(
         execution_id,
@@ -96,9 +97,9 @@ fn future_deadline_not_timed_out() {
 
 #[test]
 fn timeout_is_prepended_before_existing_completions() {
-    let executor_id = Uuid::new_v4();
-    let timed_out_execution_id = Uuid::new_v4();
-    let normal_execution_id = Uuid::new_v4();
+    let executor_id = InstanceId::new_uuid_v4();
+    let timed_out_execution_id = ExecutionId::new_uuid_v4();
+    let normal_execution_id = ExecutionId::new_uuid_v4();
     let dispatch_token = Uuid::new_v4();
     let mut harness = TestHarness::default();
     harness.dispatches.insert(
@@ -129,8 +130,8 @@ fn timeout_is_prepended_before_existing_completions() {
 
 #[test]
 fn timeout_completion_contains_attempt_and_timeout_seconds_fields() {
-    let executor_id = Uuid::new_v4();
-    let execution_id = Uuid::new_v4();
+    let executor_id = InstanceId::new_uuid_v4();
+    let execution_id = ExecutionId::new_uuid_v4();
     let dispatch_token = Uuid::new_v4();
     let mut harness = TestHarness::default();
     harness.dispatches.insert(

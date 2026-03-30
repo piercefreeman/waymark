@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use uuid::Uuid;
+use waymark_ids::InstanceId;
 use waymark_utils_tokio_channel::send_with_stop;
 
 use crate::{commit_barrier::CommitBarrier, persist, shard};
@@ -50,9 +50,9 @@ pub async fn handle(params: Params<'_>) -> Result<(), Error> {
         return Ok(());
     }
 
-    let instance_ids: HashSet<Uuid> = all_steps.iter().map(|step| step.executor_id).collect();
+    let instance_ids: HashSet<InstanceId> = all_steps.iter().map(|step| step.executor_id).collect();
     let (actions_done, graph_updates) = collect_step_updates(&all_steps);
-    let graph_instance_ids: HashSet<Uuid> = graph_updates
+    let graph_instance_ids: HashSet<InstanceId> = graph_updates
         .iter()
         .map(|update| update.instance_id)
         .collect();

@@ -4,9 +4,9 @@ mod data;
 pub mod poll_queued_instances;
 
 use nonempty_collections::NEVec;
-use uuid::Uuid;
 
 use waymark_backends_core::BackendResult;
+use waymark_ids::{InstanceId, LockId};
 
 pub use self::data::*;
 
@@ -47,14 +47,14 @@ pub trait CoreBackend {
     fn refresh_instance_locks<'a>(
         &'a self,
         claim: LockClaim,
-        instance_ids: &'a [Uuid],
+        instance_ids: &'a [InstanceId],
     ) -> impl Future<Output = BackendResult<Vec<InstanceLockStatus>>> + Send + 'a;
 
     /// Release instance locks when evicting from memory.
     fn release_instance_locks<'a>(
         &'a self,
-        lock_uuid: Uuid,
-        instance_ids: &'a [Uuid],
+        lock_uuid: LockId,
+        instance_ids: &'a [InstanceId],
     ) -> impl Future<Output = BackendResult<()>> + Send + 'a;
 
     /// Persist completed workflow instances.

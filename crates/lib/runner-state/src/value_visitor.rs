@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+use waymark_ids::ExecutionId;
 
 use super::state::{
     ActionCallSpec, ActionResultValue, BinaryOpValue, DictEntryValue, DictValue, DotValue,
@@ -121,15 +121,15 @@ impl<'a> ValueExprResolver<'a> {
 /// - total = a + @sum(values)
 ///   Returns the node ids that last defined `a` and the action node for sum().
 pub struct ValueExprSourceCollector<'a> {
-    resolve_variable: &'a dyn Fn(&str) -> Option<Uuid>,
+    resolve_variable: &'a dyn Fn(&str) -> Option<ExecutionId>,
 }
 
 impl<'a> ValueExprSourceCollector<'a> {
-    pub fn new(resolve_variable: &'a dyn Fn(&str) -> Option<Uuid>) -> Self {
+    pub fn new(resolve_variable: &'a dyn Fn(&str) -> Option<ExecutionId>) -> Self {
         Self { resolve_variable }
     }
 
-    pub fn visit(&self, expr: &ValueExpr) -> HashSet<Uuid> {
+    pub fn visit(&self, expr: &ValueExpr) -> HashSet<ExecutionId> {
         match expr {
             ValueExpr::Literal(_) => HashSet::new(),
             ValueExpr::Variable(value) => {
@@ -348,8 +348,8 @@ pub fn resolve_value_tree(
 ///   Returns the latest assignment node for a and the action node for sum().
 pub fn collect_value_sources(
     value: &ValueExpr,
-    resolve_variable: &dyn Fn(&str) -> Option<Uuid>,
-) -> HashSet<Uuid> {
+    resolve_variable: &dyn Fn(&str) -> Option<ExecutionId>,
+) -> HashSet<ExecutionId> {
     let collector = ValueExprSourceCollector::new(resolve_variable);
     collector.visit(value)
 }
@@ -359,7 +359,6 @@ mod tests {
     use std::collections::{HashMap, HashSet};
 
     use serde_json::Value;
-    use uuid::Uuid;
 
     use super::*;
     use waymark_proto::ast as ir;
@@ -401,8 +400,8 @@ mod tests {
 
     #[test]
     fn test_value_expr_source_collector_visit_happy_path() {
-        let variable_source = Uuid::new_v4();
-        let action_source = Uuid::new_v4();
+        let variable_source = ExecutionId::new_uuid_v4();
+        let action_source = ExecutionId::new_uuid_v4();
         let resolve = |name: &str| {
             if name == "x" {
                 Some(variable_source)
@@ -505,8 +504,8 @@ mod tests {
 
     #[test]
     fn test_collect_value_sources_happy_path() {
-        let source_a = Uuid::new_v4();
-        let source_b = Uuid::new_v4();
+        let source_a = ExecutionId::new_uuid_v4();
+        let source_b = ExecutionId::new_uuid_v4();
         let expr = ValueExpr::FunctionCall(FunctionCallValue {
             name: "sum".to_string(),
             args: vec![ValueExpr::Variable(VariableValue {

@@ -12,6 +12,7 @@ use sqlx::{Postgres, QueryBuilder, Row};
 use tracing::warn;
 use uuid::Uuid;
 use waymark_garbage_collector_backend::{GarbageCollectionResult, GarbageCollectorBackend};
+use waymark_ids::{ExecutionId, InstanceId, LockId};
 use waymark_scheduler_backend::{BackendError, BackendResult};
 use waymark_worker_status_backend::{WorkerStatusBackend, WorkerStatusUpdate};
 
@@ -561,7 +562,7 @@ impl PostgresBackend {
         runner_builder.push(")");
         runner_builder.build().execute(&self.pool).await?;
 
-        let ids: Vec<Uuid> = graphs.iter().map(|graph| graph.instance_id).collect();
+        let ids: Vec<InstanceId> = graphs.iter().map(|graph| graph.instance_id).collect();
         let lock_rows = sqlx::query(
             "SELECT instance_id, lock_uuid, lock_expires_at FROM queued_instances WHERE instance_id = ANY($1)",
         )
@@ -569,9 +570,9 @@ impl PostgresBackend {
         .fetch_all(&self.pool)
         .await?;
 
-        let mut lock_map: HashMap<Uuid, InstanceLockStatus> = HashMap::new();
+        let mut lock_map: HashMap<InstanceId, InstanceLockStatus> = HashMap::new();
         for row in lock_rows {
-            let instance_id: Uuid = row.get(0);
+            let instance_id: InstanceId = row.get(0);
             lock_map.insert(
                 instance_id,
                 InstanceLockStatus {
@@ -735,13 +736,13 @@ impl PostgresBackend {
         );
         tx.commit().await.map_err(PollQueuedInstancesError::Sqlx)?;
 
-        let mut action_node_ids_by_instance: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
-        let mut all_action_node_ids: Vec<Uuid> = Vec::new();
+        let mut action_node_ids_by_instance: HashMap<InstanceId, Vec<ExecutionId>> = HashMap::new();
+        let mut all_action_node_ids: Vec<ExecutionId> = Vec::new();
 
         let mut instances: NEVec<QueuedInstance> = rows
             .into_nonempty_iter()
             .map(|row| {
-                let instance_id: Uuid = row.get(0);
+                let instance_id: InstanceId = row.get(0);
                 let payload: Vec<u8> = row.get(1);
                 let state_payload: Option<Vec<u8>> = row.get(2);
 
@@ -761,7 +762,7 @@ impl PostgresBackend {
                 let graph: GraphUpdate = crate::codec::deserialize(&state_payload)
                     .map_err(PollQueuedInstancesError::GraphUpdateDecode)?;
 
-                let action_node_ids: Vec<Uuid> = graph
+                let action_node_ids: Vec<ExecutionId> = graph
                     .nodes
                     .iter()
                     .filter_map(|(node_id, node)| node.is_action_call().then_some(*node_id))
@@ -806,10 +807,10 @@ impl PostgresBackend {
             .await
             .map_err(PollQueuedInstancesError::Sqlx)?;
 
-            let mut action_results_by_execution_id: HashMap<Uuid, serde_json::Value> =
+            let mut action_results_by_execution_id: HashMap<ExecutionId, serde_json::Value> =
                 HashMap::new();
             for row in rows {
-                let execution_id: Uuid = row.get("execution_id");
+                let execution_id: ExecutionId = row.get("execution_id");
                 let result_payload: Option<Vec<u8>> = row.get("result");
                 let Some(result_payload) = result_payload else {
                     continue;
@@ -849,7 +850,7 @@ impl PostgresBackend {
         if instances.is_empty() {
             return Ok(());
         }
-        let ids: Vec<Uuid> = instances
+        let ids: Vec<InstanceId> = instances
             .iter()
             .map(|instance| instance.executor_id)
             .collect();
@@ -931,7 +932,7 @@ impl waymark_core_backend::CoreBackend for PostgresBackend {
     async fn refresh_instance_locks(
         &self,
         claim: LockClaim,
-        instance_ids: &[Uuid],
+        instance_ids: &[InstanceId],
     ) -> BackendResult<Vec<InstanceLockStatus>> {
         retry_transient_backend("refresh_instance_locks", || {
             let claim = claim.clone();
@@ -942,8 +943,8 @@ impl waymark_core_backend::CoreBackend for PostgresBackend {
 
     async fn release_instance_locks(
         &self,
-        lock_uuid: Uuid,
-        instance_ids: &[Uuid],
+        lock_uuid: LockId,
+        instance_ids: &[InstanceId],
     ) -> BackendResult<()> {
         if instance_ids.is_empty() {
             return Ok(());
@@ -1003,7 +1004,7 @@ impl PostgresBackend {
     async fn refresh_instance_locks_once(
         &self,
         claim: LockClaim,
-        instance_ids: &[Uuid],
+        instance_ids: &[InstanceId],
     ) -> BackendResult<Vec<InstanceLockStatus>> {
         if instance_ids.is_empty() {
             return Ok(Vec::new());
@@ -1075,6 +1076,7 @@ mod tests {
     use sqlx::Row;
     use uuid::Uuid;
     use waymark_core_backend::{ActionAttemptStatus, CoreBackend};
+    use waymark_ids::ExecutionId;
 
     use super::super::test_helpers::setup_backend;
     use super::*;
@@ -1086,7 +1088,7 @@ mod tests {
         RunnerState::new(None, None, None, false)
     }
 
-    fn sample_queued_instance(instance_id: Uuid, entry_node: Uuid) -> QueuedInstance {
+    fn sample_queued_instance(instance_id: InstanceId, entry_node: ExecutionId) -> QueuedInstance {
         QueuedInstance {
             workflow_version_id: Uuid::new_v4(),
             schedule_id: None,
@@ -1099,7 +1101,7 @@ mod tests {
         }
     }
 
-    fn sample_execution_node(node_id: Uuid) -> ExecutionNode {
+    fn sample_execution_node(node_id: ExecutionId) -> ExecutionNode {
         ExecutionNode {
             node_id,
             node_type: "action_call".to_string(),
@@ -1123,7 +1125,7 @@ mod tests {
 
     fn sample_lock_claim() -> LockClaim {
         LockClaim {
-            lock_uuid: Uuid::new_v4(),
+            lock_uuid: LockId::new_uuid_v4(),
             lock_expires_at: Utc::now() + Duration::seconds(30),
         }
     }
@@ -1147,7 +1149,7 @@ mod tests {
         .expect("insert workflow version row");
     }
 
-    async fn claim_instance(backend: &PostgresBackend, instance_id: Uuid) -> LockClaim {
+    async fn claim_instance(backend: &PostgresBackend, instance_id: InstanceId) -> LockClaim {
         let claim = sample_lock_claim();
         let instances = CoreBackend::poll_queued_instances(
             backend,
@@ -1165,8 +1167,8 @@ mod tests {
     #[tokio::test]
     async fn core_queue_instances_happy_path() {
         let backend = setup_backend().await;
-        let instance_id = Uuid::new_v4();
-        let entry_node = Uuid::new_v4();
+        let instance_id = InstanceId::new_uuid_v4();
+        let entry_node = ExecutionId::new_uuid_v4();
         let queued = sample_queued_instance(instance_id, entry_node);
         let expected_workflow_version_id = queued.workflow_version_id;
 
@@ -1222,8 +1224,8 @@ mod tests {
     #[tokio::test]
     async fn core_queue_instances_persists_workflow_name_when_registered() {
         let backend = setup_backend().await;
-        let instance_id = Uuid::new_v4();
-        let entry_node = Uuid::new_v4();
+        let instance_id = InstanceId::new_uuid_v4();
+        let entry_node = ExecutionId::new_uuid_v4();
         let workflow_version_id = Uuid::new_v4();
         insert_workflow_version_row(&backend, workflow_version_id, "tests.searchable").await;
 
@@ -1263,8 +1265,8 @@ mod tests {
     #[tokio::test]
     async fn core_get_queued_instances_updates_runner_status_without_mutating_queue_status() {
         let backend = setup_backend().await;
-        let instance_id = Uuid::new_v4();
-        let entry_node = Uuid::new_v4();
+        let instance_id = InstanceId::new_uuid_v4();
+        let entry_node = ExecutionId::new_uuid_v4();
         let queued = sample_queued_instance(instance_id, entry_node);
         CoreBackend::queue_instances(&backend, &[queued])
             .await
@@ -1286,7 +1288,7 @@ mod tests {
             .fetch_one(backend.pool())
             .await
             .expect("queued lock row");
-        let lock_uuid: Option<Uuid> = row.get("lock_uuid");
+        let lock_uuid: Option<LockId> = row.get("lock_uuid");
         assert_eq!(lock_uuid, Some(claim.lock_uuid));
 
         let queued_status: Option<String> = sqlx::query_scalar(
@@ -1312,8 +1314,8 @@ mod tests {
     #[tokio::test]
     async fn core_get_queued_instances_restores_action_results_from_actions_done() {
         let backend = setup_backend().await;
-        let instance_id = Uuid::new_v4();
-        let entry_node = Uuid::new_v4();
+        let instance_id = InstanceId::new_uuid_v4();
+        let entry_node = ExecutionId::new_uuid_v4();
         CoreBackend::queue_instances(&backend, &[sample_queued_instance(instance_id, entry_node)])
             .await
             .expect("queue instances");
@@ -1328,7 +1330,7 @@ mod tests {
         .expect("initial claim");
         assert_eq!(initial_batch.len().get(), 1);
 
-        let execution_id = Uuid::new_v4();
+        let execution_id = ExecutionId::new_uuid_v4();
         let mut completed_action_node = sample_execution_node(execution_id);
         completed_action_node.status = NodeStatus::Completed;
         completed_action_node.scheduled_at = None;
@@ -1402,14 +1404,14 @@ mod tests {
     #[tokio::test]
     async fn core_save_graphs_happy_path() {
         let backend = setup_backend().await;
-        let instance_id = Uuid::new_v4();
-        let entry_node = Uuid::new_v4();
+        let instance_id = InstanceId::new_uuid_v4();
+        let entry_node = ExecutionId::new_uuid_v4();
         CoreBackend::queue_instances(&backend, &[sample_queued_instance(instance_id, entry_node)])
             .await
             .expect("queue instances");
         let claim = claim_instance(&backend, instance_id).await;
 
-        let execution_id = Uuid::new_v4();
+        let execution_id = ExecutionId::new_uuid_v4();
         let mut nodes = HashMap::new();
         nodes.insert(execution_id, sample_execution_node(execution_id));
         let graph = GraphUpdate {
@@ -1459,15 +1461,15 @@ mod tests {
     #[tokio::test]
     async fn core_save_graphs_returns_lock_status_for_duplicate_instance_updates() {
         let backend = setup_backend().await;
-        let instance_id = Uuid::new_v4();
-        let entry_node = Uuid::new_v4();
+        let instance_id = InstanceId::new_uuid_v4();
+        let entry_node = ExecutionId::new_uuid_v4();
         CoreBackend::queue_instances(&backend, &[sample_queued_instance(instance_id, entry_node)])
             .await
             .expect("queue instances");
         let claim = claim_instance(&backend, instance_id).await;
 
-        let first_node_id = Uuid::new_v4();
-        let second_node_id = Uuid::new_v4();
+        let first_node_id = ExecutionId::new_uuid_v4();
+        let second_node_id = ExecutionId::new_uuid_v4();
         let first_graph = GraphUpdate {
             instance_id,
             nodes: HashMap::from([(first_node_id, sample_execution_node(first_node_id))]),
@@ -1497,7 +1499,7 @@ mod tests {
     #[tokio::test]
     async fn core_save_actions_done_happy_path() {
         let backend = setup_backend().await;
-        let execution_id = Uuid::new_v4();
+        let execution_id = ExecutionId::new_uuid_v4();
         CoreBackend::save_actions_done(
             &backend,
             &[ActionDone {
@@ -1521,7 +1523,7 @@ mod tests {
         .await
         .expect("action row");
 
-        assert_eq!(row.get::<Uuid, _>("execution_id"), execution_id);
+        assert_eq!(row.get::<ExecutionId, _>("execution_id"), execution_id);
         assert_eq!(row.get::<i32, _>("attempt"), 1);
         assert_eq!(row.get::<String, _>("status"), "completed");
         assert!(
@@ -1538,8 +1540,8 @@ mod tests {
     #[tokio::test]
     async fn core_refresh_instance_locks_happy_path() {
         let backend = setup_backend().await;
-        let instance_id = Uuid::new_v4();
-        let entry_node = Uuid::new_v4();
+        let instance_id = InstanceId::new_uuid_v4();
+        let entry_node = ExecutionId::new_uuid_v4();
         CoreBackend::queue_instances(&backend, &[sample_queued_instance(instance_id, entry_node)])
             .await
             .expect("queue instances");
@@ -1572,8 +1574,8 @@ mod tests {
     #[tokio::test]
     async fn core_refresh_instance_locks_skip_locked_does_not_block_or_override() {
         let backend = setup_backend().await;
-        let instance_id = Uuid::new_v4();
-        let entry_node = Uuid::new_v4();
+        let instance_id = InstanceId::new_uuid_v4();
+        let entry_node = ExecutionId::new_uuid_v4();
         CoreBackend::queue_instances(&backend, &[sample_queued_instance(instance_id, entry_node)])
             .await
             .expect("queue instances");
@@ -1617,8 +1619,8 @@ mod tests {
     #[tokio::test]
     async fn core_release_instance_locks_happy_path() {
         let backend = setup_backend().await;
-        let instance_id = Uuid::new_v4();
-        let entry_node = Uuid::new_v4();
+        let instance_id = InstanceId::new_uuid_v4();
+        let entry_node = ExecutionId::new_uuid_v4();
         CoreBackend::queue_instances(&backend, &[sample_queued_instance(instance_id, entry_node)])
             .await
             .expect("queue instances");
@@ -1663,9 +1665,9 @@ mod tests {
     #[tokio::test]
     async fn core_reclaim_expired_instance_locks_happy_path() {
         let backend = setup_backend().await;
-        let expired_id = Uuid::new_v4();
-        let live_id = Uuid::new_v4();
-        let entry_node = Uuid::new_v4();
+        let expired_id = InstanceId::new_uuid_v4();
+        let live_id = InstanceId::new_uuid_v4();
+        let entry_node = ExecutionId::new_uuid_v4();
         CoreBackend::queue_instances(
             &backend,
             &[
@@ -1720,11 +1722,11 @@ mod tests {
         .fetch_all(backend.pool())
         .await
         .expect("fetch lock rows");
-        let mut lock_rows: HashMap<Uuid, (Option<Uuid>, Option<chrono::DateTime<Utc>>)> =
+        let mut lock_rows: HashMap<InstanceId, (Option<LockId>, Option<chrono::DateTime<Utc>>)> =
             HashMap::new();
         for row in rows {
-            let instance_id: Uuid = row.get("instance_id");
-            let lock_uuid: Option<Uuid> = row.get("lock_uuid");
+            let instance_id: InstanceId = row.get("instance_id");
+            let lock_uuid: Option<LockId> = row.get("lock_uuid");
             let lock_expires_at: Option<chrono::DateTime<Utc>> = row.get("lock_expires_at");
             lock_rows.insert(instance_id, (lock_uuid, lock_expires_at));
         }
@@ -1765,8 +1767,8 @@ mod tests {
     #[tokio::test]
     async fn core_save_instances_done_happy_path() {
         let backend = setup_backend().await;
-        let instance_id = Uuid::new_v4();
-        let entry_node = Uuid::new_v4();
+        let instance_id = InstanceId::new_uuid_v4();
+        let entry_node = ExecutionId::new_uuid_v4();
         CoreBackend::queue_instances(&backend, &[sample_queued_instance(instance_id, entry_node)])
             .await
             .expect("queue instances");
@@ -1815,8 +1817,8 @@ mod tests {
     #[tokio::test]
     async fn core_save_instances_done_updates_runner_even_if_queue_row_missing() {
         let backend = setup_backend().await;
-        let instance_id = Uuid::new_v4();
-        let entry_node = Uuid::new_v4();
+        let instance_id = InstanceId::new_uuid_v4();
+        let entry_node = ExecutionId::new_uuid_v4();
         CoreBackend::queue_instances(&backend, &[sample_queued_instance(instance_id, entry_node)])
             .await
             .expect("queue instances");
@@ -1905,9 +1907,9 @@ mod tests {
     #[tokio::test]
     async fn garbage_collector_deletes_old_done_instances_and_actions() {
         let backend = setup_backend().await;
-        let instance_id = Uuid::new_v4();
-        let execution_id = Uuid::new_v4();
-        let entry_node = Uuid::new_v4();
+        let instance_id = InstanceId::new_uuid_v4();
+        let execution_id = ExecutionId::new_uuid_v4();
+        let entry_node = ExecutionId::new_uuid_v4();
         let workflow_version_id = Uuid::new_v4();
 
         let state = GraphUpdate {
@@ -1977,8 +1979,8 @@ mod tests {
     #[tokio::test]
     async fn garbage_collector_keeps_recent_done_instances() {
         let backend = setup_backend().await;
-        let instance_id = Uuid::new_v4();
-        let entry_node = Uuid::new_v4();
+        let instance_id = InstanceId::new_uuid_v4();
+        let entry_node = ExecutionId::new_uuid_v4();
         let workflow_version_id = Uuid::new_v4();
         let state_payload = PostgresBackend::serialize(&GraphUpdate {
             instance_id,

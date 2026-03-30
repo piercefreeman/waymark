@@ -1,24 +1,23 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use uuid::Uuid;
-
+use waymark_ids::{ExecutionId, InstanceId};
 use waymark_worker_core::ActionCompletion;
 
 pub struct PendingPersistBatch<Step> {
-    pub instance_ids: HashSet<Uuid>,
+    pub instance_ids: HashSet<InstanceId>,
     pub steps: Vec<Step>,
 }
 
 pub enum DeferredInstanceEvent {
     Completion(ActionCompletion),
-    Wake(Uuid),
+    Wake(ExecutionId),
 }
 
 pub struct CommitBarrier<Step> {
     next_batch_id: u64,
-    blocked_instances: HashSet<Uuid>,
+    blocked_instances: HashSet<InstanceId>,
     pending_batches: HashMap<u64, PendingPersistBatch<Step>>,
-    deferred_events: HashMap<Uuid, VecDeque<DeferredInstanceEvent>>,
+    deferred_events: HashMap<InstanceId, VecDeque<DeferredInstanceEvent>>,
 }
 
 impl<Step> Default for CommitBarrier<Step> {
@@ -37,7 +36,7 @@ impl<Step> CommitBarrier<Step> {
         Self::default()
     }
 
-    pub fn register_batch(&mut self, instance_ids: HashSet<Uuid>, steps: Vec<Step>) -> u64 {
+    pub fn register_batch(&mut self, instance_ids: HashSet<InstanceId>, steps: Vec<Step>) -> u64 {
         let mut batch_id = self.next_batch_id;
         while self.pending_batches.contains_key(&batch_id) {
             batch_id = batch_id.wrapping_add(1);
@@ -72,7 +71,11 @@ impl<Step> CommitBarrier<Step> {
         }
     }
 
-    pub fn route_wake(&mut self, executor_id: Uuid, node_id: Uuid) -> Option<Uuid> {
+    pub fn route_wake(
+        &mut self,
+        executor_id: InstanceId,
+        node_id: ExecutionId,
+    ) -> Option<ExecutionId> {
         if self.blocked_instances.contains(&executor_id) {
             self.deferred_events
                 .entry(executor_id)
@@ -84,14 +87,14 @@ impl<Step> CommitBarrier<Step> {
         }
     }
 
-    pub fn unblock_instance(&mut self, instance_id: Uuid) -> VecDeque<DeferredInstanceEvent> {
+    pub fn unblock_instance(&mut self, instance_id: InstanceId) -> VecDeque<DeferredInstanceEvent> {
         self.blocked_instances.remove(&instance_id);
         self.deferred_events
             .remove(&instance_id)
             .unwrap_or_default()
     }
 
-    pub fn remove_instance(&mut self, instance_id: Uuid) {
+    pub fn remove_instance(&mut self, instance_id: InstanceId) {
         self.blocked_instances.remove(&instance_id);
         self.deferred_events.remove(&instance_id);
         for batch in self.pending_batches.values_mut() {
@@ -110,11 +113,12 @@ mod tests {
 
     use serde_json::json;
     use uuid::Uuid;
+    use waymark_ids::ExecutionId;
 
-    use super::{CommitBarrier, DeferredInstanceEvent};
+    use super::{CommitBarrier, DeferredInstanceEvent, InstanceId};
     use waymark_worker_core::ActionCompletion;
 
-    fn completion(executor_id: Uuid, execution_id: Uuid) -> ActionCompletion {
+    fn completion(executor_id: InstanceId, execution_id: ExecutionId) -> ActionCompletion {
         ActionCompletion {
             executor_id,
             execution_id,
@@ -127,8 +131,8 @@ mod tests {
     #[test]
     fn routes_directly_when_not_blocked() {
         let mut barrier: CommitBarrier<u8> = CommitBarrier::new();
-        let instance_id = Uuid::new_v4();
-        let execution_id = Uuid::new_v4();
+        let instance_id = InstanceId::new_uuid_v4();
+        let execution_id = ExecutionId::new_uuid_v4();
         let completion = completion(instance_id, execution_id);
         assert!(barrier.route_completion(completion).is_some());
         assert!(barrier.route_wake(instance_id, execution_id).is_some());
@@ -137,8 +141,8 @@ mod tests {
     #[test]
     fn defers_while_blocked_and_flushes_on_unblock() {
         let mut barrier: CommitBarrier<u8> = CommitBarrier::new();
-        let instance_id = Uuid::new_v4();
-        let execution_id = Uuid::new_v4();
+        let instance_id = InstanceId::new_uuid_v4();
+        let execution_id = ExecutionId::new_uuid_v4();
         let batch_id = barrier.register_batch(HashSet::from([instance_id]), vec![1]);
         assert_eq!(batch_id, 1);
 
@@ -167,8 +171,8 @@ mod tests {
     #[test]
     fn remove_instance_prunes_pending_batch_membership() {
         let mut barrier: CommitBarrier<u8> = CommitBarrier::new();
-        let first = Uuid::new_v4();
-        let second = Uuid::new_v4();
+        let first = InstanceId::new_uuid_v4();
+        let second = InstanceId::new_uuid_v4();
         let batch_id = barrier.register_batch(HashSet::from([first, second]), vec![1, 2]);
 
         barrier.remove_instance(first);

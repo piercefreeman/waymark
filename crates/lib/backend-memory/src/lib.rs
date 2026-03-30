@@ -25,6 +25,7 @@ use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use waymark_core_backend::{ActionDone, GraphUpdate, InstanceDone, QueuedInstance};
+use waymark_ids::{InstanceId, LockId};
 use waymark_scheduler_core::{ScheduleId, WorkflowSchedule};
 use waymark_worker_status_backend::WorkerStatusUpdate;
 use waymark_workflow_registry_backend::WorkflowRegistration;
@@ -32,7 +33,7 @@ use waymark_workflow_registry_backend::WorkflowRegistration;
 type WorkflowVersionKey = (String, String);
 type WorkflowVersionValue = (Uuid, WorkflowRegistration);
 type WorkflowVersionStore = HashMap<WorkflowVersionKey, WorkflowVersionValue>;
-type InstanceLockStore = HashMap<Uuid, (Option<Uuid>, Option<DateTime<Utc>>)>;
+type InstanceLockStore = HashMap<InstanceId, (Option<LockId>, Option<DateTime<Utc>>)>;
 
 /// Backend that stores updates in memory for tests or local runs.
 #[derive(Clone)]

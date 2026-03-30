@@ -11,6 +11,7 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 use waymark_backend_memory::MemoryBackend;
 use waymark_core_backend::QueuedInstance;
+use waymark_ids::{InstanceId, LockId};
 use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBackend as _};
 
 use super::generator::GeneratedCase;
@@ -40,7 +41,7 @@ pub async fn run_case(case_index: usize, case: &GeneratedCase) -> Result<()> {
     let queue = Arc::new(Mutex::new(VecDeque::new()));
     let backend = MemoryBackend::with_queue(queue.clone());
     let workflow_version_id = register_workflow(case_index, &backend, &program).await?;
-    let instance_id = Uuid::new_v4();
+    let instance_id = InstanceId::new_uuid_v4();
     let queued = build_instance(instance_id, workflow_version_id, dag, case.base_input)?;
     queue
         .lock()
@@ -57,7 +58,7 @@ pub async fn run_case(case_index: usize, case: &GeneratedCase) -> Result<()> {
             instance_done_batch_size: None,
             poll_interval: Some(Duration::from_millis(5).try_into().unwrap()),
             persistence_interval: Some(Duration::from_millis(20).try_into().unwrap()),
-            lock_uuid: Uuid::new_v4(),
+            lock_uuid: LockId::new_uuid_v4(),
             lock_ttl: Duration::from_secs(15).try_into().unwrap(),
             lock_heartbeat: Duration::from_secs(5).try_into().unwrap(),
             evict_sleep_threshold: Duration::from_secs(10).try_into().unwrap(),
@@ -117,7 +118,7 @@ async fn register_workflow(
 }
 
 fn build_instance(
-    instance_id: Uuid,
+    instance_id: InstanceId,
     workflow_version_id: Uuid,
     dag: Arc<waymark_dag::DAG>,
     base: i64,

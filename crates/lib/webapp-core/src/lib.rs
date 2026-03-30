@@ -3,6 +3,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+use waymark_ids::{ExecutionId, InstanceId};
 
 /// Instance status.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -28,7 +29,7 @@ impl std::fmt::Display for InstanceStatus {
 /// Summary of a workflow instance for listing.
 #[derive(Debug, Clone, Serialize)]
 pub struct InstanceSummary {
-    pub id: Uuid,
+    pub id: InstanceId,
     pub entry_node: Uuid,
     pub created_at: DateTime<Utc>,
     pub status: InstanceStatus,
@@ -39,8 +40,8 @@ pub struct InstanceSummary {
 /// Full details of a workflow instance.
 #[derive(Debug, Clone, Serialize)]
 pub struct InstanceDetail {
-    pub id: Uuid,
-    pub entry_node: Uuid,
+    pub id: InstanceId,
+    pub entry_node: ExecutionId,
     pub created_at: DateTime<Utc>,
     pub status: InstanceStatus,
     pub workflow_name: Option<String>,
@@ -241,7 +242,7 @@ pub struct ScheduleDetail {
 /// Invocation summary row for schedule detail pages.
 #[derive(Debug, Clone, Serialize)]
 pub struct ScheduleInvocationSummary {
-    pub id: Uuid,
+    pub id: InstanceId,
     pub created_at: DateTime<Utc>,
     pub status: InstanceStatus,
 }

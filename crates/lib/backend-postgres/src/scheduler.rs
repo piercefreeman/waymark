@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use sqlx::Row;
 use uuid::Uuid;
 use waymark_backends_core::{BackendError, BackendResult};
+use waymark_ids::InstanceId;
 use waymark_scheduler_backend::SchedulerBackend;
 
 use waymark_scheduler_core::compute_next_run;
@@ -193,7 +194,7 @@ impl SchedulerBackend for crate::PostgresBackend {
     async fn mark_schedule_executed(
         &self,
         schedule_id: ScheduleId,
-        instance_id: Uuid,
+        instance_id: InstanceId,
     ) -> BackendResult<()> {
         let schedule = SchedulerBackend::get_schedule(self, schedule_id).await?;
         let schedule_type = ScheduleType::parse(&schedule.schedule_type)
@@ -268,7 +269,7 @@ struct ScheduleRow {
     status: String,
     next_run_at: Option<DateTime<Utc>>,
     last_run_at: Option<DateTime<Utc>>,
-    last_instance_id: Option<Uuid>,
+    last_instance_id: Option<InstanceId>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
     priority: i32,
@@ -304,6 +305,7 @@ mod tests {
     use serial_test::serial;
     use sqlx::Row;
     use uuid::Uuid;
+    use waymark_ids::InstanceId;
 
     use crate::PostgresBackend;
 
@@ -524,7 +526,7 @@ mod tests {
         let backend = setup_backend().await;
 
         let schedule_id = insert_schedule(&backend, "running-instance").await;
-        let instance_id = Uuid::new_v4();
+        let instance_id = InstanceId::new_uuid_v4();
         sqlx::query(
             "INSERT INTO runner_instances (instance_id, entry_node, schedule_id) VALUES ($1, $2, $3)",
         )
@@ -553,7 +555,7 @@ mod tests {
         let backend = setup_backend().await;
 
         let id = insert_schedule(&backend, "mark-executed").await;
-        let instance_id = Uuid::new_v4();
+        let instance_id = InstanceId::new_uuid_v4();
         SchedulerBackend::mark_schedule_executed(&backend, id, instance_id)
             .await
             .expect("mark schedule executed");
@@ -566,7 +568,7 @@ mod tests {
         .await
         .expect("select schedule");
 
-        let last_instance_id: Option<Uuid> = row.get("last_instance_id");
+        let last_instance_id: Option<InstanceId> = row.get("last_instance_id");
         let last_run_at: Option<chrono::DateTime<Utc>> = row.get("last_run_at");
         let next_run_at: Option<chrono::DateTime<Utc>> = row.get("next_run_at");
 

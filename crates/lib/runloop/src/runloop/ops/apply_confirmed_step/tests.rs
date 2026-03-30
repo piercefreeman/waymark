@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 use waymark_core_backend::InstanceDone;
+use waymark_ids::{ExecutionId, InstanceId};
 use waymark_runner::SleepRequest;
 use waymark_worker_core::{ActionRequest, WorkerPoolError};
 
@@ -13,13 +14,13 @@ use crate::runloop::{InflightActionDispatch, SleepWake};
 use crate::shard;
 
 struct TestHarness {
-    pub executor_shards: HashMap<Uuid, usize>,
+    pub executor_shards: HashMap<InstanceId, usize>,
     pub lock_tracker: instance_lock_heartbeat::Tracker,
-    pub inflight_actions: HashMap<Uuid, usize>,
-    pub inflight_dispatches: HashMap<Uuid, InflightActionDispatch>,
-    pub sleeping_nodes: HashMap<Uuid, SleepRequest>,
-    pub sleeping_by_instance: HashMap<Uuid, HashSet<Uuid>>,
-    pub blocked_until: HashMap<Uuid, DateTime<Utc>>,
+    pub inflight_actions: HashMap<InstanceId, usize>,
+    pub inflight_dispatches: HashMap<ExecutionId, InflightActionDispatch>,
+    pub sleeping_nodes: HashMap<ExecutionId, SleepRequest>,
+    pub sleeping_by_instance: HashMap<InstanceId, HashSet<ExecutionId>>,
+    pub blocked_until: HashMap<InstanceId, DateTime<Utc>>,
     pub barrier: CommitBarrier<shard::Step>,
     pub instances_done_pending: Vec<InstanceDone>,
     pub worker_pool: MockWorkerPool,
@@ -71,8 +72,8 @@ impl TestHarness {
 
 #[tokio::test]
 async fn records_action_dispatch() {
-    let executor_id = Uuid::new_v4();
-    let execution_id = Uuid::new_v4();
+    let executor_id = InstanceId::new_uuid_v4();
+    let execution_id = ExecutionId::new_uuid_v4();
     let dispatch_token = Uuid::new_v4();
 
     let mut harness = TestHarness::default();
@@ -125,8 +126,8 @@ async fn records_action_dispatch() {
 
 #[tokio::test]
 async fn queue_error_is_returned() {
-    let executor_id = Uuid::new_v4();
-    let execution_id = Uuid::new_v4();
+    let executor_id = InstanceId::new_uuid_v4();
+    let execution_id = ExecutionId::new_uuid_v4();
 
     let mut harness = TestHarness::default();
     harness.executor_shards.insert(executor_id, 0);
@@ -163,8 +164,8 @@ async fn queue_error_is_returned() {
 
 #[tokio::test]
 async fn timeout_sets_deadline() {
-    let executor_id = Uuid::new_v4();
-    let execution_id = Uuid::new_v4();
+    let executor_id = InstanceId::new_uuid_v4();
+    let execution_id = ExecutionId::new_uuid_v4();
 
     let mut harness = TestHarness::default();
     harness.executor_shards.insert(executor_id, 0);
@@ -218,9 +219,9 @@ async fn timeout_sets_deadline() {
 
 #[tokio::test]
 async fn instance_done_removes_executor_state() {
-    let executor_id = Uuid::new_v4();
-    let execution_id = Uuid::new_v4();
-    let node_id = Uuid::new_v4();
+    let executor_id = InstanceId::new_uuid_v4();
+    let execution_id = ExecutionId::new_uuid_v4();
+    let node_id = ExecutionId::new_uuid_v4();
 
     let mut harness = TestHarness::default();
     harness.executor_shards.insert(executor_id, 0);
@@ -254,7 +255,7 @@ async fn instance_done_removes_executor_state() {
         updates: None,
         instance_done: Some(InstanceDone {
             executor_id,
-            entry_node: Uuid::new_v4(),
+            entry_node: ExecutionId::new_uuid_v4(),
             result: Some(serde_json::json!("done")),
             error: None,
         }),
@@ -278,8 +279,8 @@ async fn instance_done_removes_executor_state() {
 
 #[tokio::test]
 async fn sleep_request_registers_node() {
-    let executor_id = Uuid::new_v4();
-    let node_id = Uuid::new_v4();
+    let executor_id = InstanceId::new_uuid_v4();
+    let node_id = ExecutionId::new_uuid_v4();
     let wake_at = Utc::now() + chrono::Duration::seconds(120);
 
     let mut harness = TestHarness::default();
@@ -316,8 +317,8 @@ async fn sleep_request_registers_node() {
 
 #[tokio::test]
 async fn skip_sleep_overrides_wake_to_now() {
-    let executor_id = Uuid::new_v4();
-    let node_id = Uuid::new_v4();
+    let executor_id = InstanceId::new_uuid_v4();
+    let node_id = ExecutionId::new_uuid_v4();
     let requested_wake_at = Utc::now() + chrono::Duration::seconds(120);
 
     let mut harness = TestHarness::default();
@@ -359,8 +360,8 @@ async fn skip_sleep_overrides_wake_to_now() {
 
 #[tokio::test]
 async fn later_duplicate_sleep_request_keeps_existing_earlier_wake() {
-    let executor_id = Uuid::new_v4();
-    let node_id = Uuid::new_v4();
+    let executor_id = InstanceId::new_uuid_v4();
+    let node_id = ExecutionId::new_uuid_v4();
     let existing_wake = Utc::now() + chrono::Duration::seconds(20);
     let later_wake = Utc::now() + chrono::Duration::seconds(90);
 

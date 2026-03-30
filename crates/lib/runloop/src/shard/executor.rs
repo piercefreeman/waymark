@@ -3,21 +3,26 @@ use std::collections::HashSet;
 use tracing::debug;
 use uuid::Uuid;
 use waymark_core_backend::InstanceDone;
+use waymark_ids::{ExecutionId, InstanceId};
 use waymark_runner::{RunnerExecutor, replay_variables};
 use waymark_worker_core::{ActionCompletion, ActionRequest};
 
 use crate::error_value;
 
 pub(super) struct Executor {
-    pub executor_id: Uuid,
+    pub executor_id: InstanceId,
     pub executor: RunnerExecutor<true>,
-    pub entry_node: Uuid,
-    pub inflight: HashSet<Uuid>,
+    pub entry_node: ExecutionId,
+    pub inflight: HashSet<ExecutionId>,
     pub completed: bool,
 }
 
 impl Executor {
-    pub fn new(executor_id: Uuid, executor: RunnerExecutor<true>, entry_node: Uuid) -> Self {
+    pub fn new(
+        executor_id: InstanceId,
+        executor: RunnerExecutor<true>,
+        entry_node: ExecutionId,
+    ) -> Self {
         Self {
             executor_id,
             executor,
@@ -94,7 +99,7 @@ pub enum HandleWakeError {
 impl Executor {
     pub fn handle_wake(
         &mut self,
-        node_ids: Vec<Uuid>,
+        node_ids: Vec<ExecutionId>,
     ) -> Result<Option<super::Step>, HandleWakeError> {
         let mut finished_nodes = Vec::new();
         for node_id in node_ids {
@@ -127,7 +132,7 @@ pub enum ApplyStepError {
 
     #[error("invalid negative action attempt for node {node_id}: {action_attempt}")]
     NegativeAction {
-        node_id: uuid::Uuid,
+        node_id: ExecutionId,
         action_attempt: i32,
     },
 }
@@ -208,8 +213,8 @@ impl Executor {
 }
 
 fn build_instance_done<const SHOULD_COLLECT_UPDATES: bool>(
-    executor_id: Uuid,
-    entry_node: Uuid,
+    executor_id: InstanceId,
+    entry_node: ExecutionId,
     executor: &RunnerExecutor<SHOULD_COLLECT_UPDATES>,
 ) -> InstanceDone {
     if let Some(error_payload) = executor.terminal_error().cloned() {

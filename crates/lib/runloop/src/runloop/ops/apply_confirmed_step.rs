@@ -7,8 +7,8 @@ use std::{
 };
 
 use chrono::{DateTime, Utc};
-use uuid::Uuid;
 use waymark_core_backend::InstanceDone;
+use waymark_ids::{ExecutionId, InstanceId};
 use waymark_runner::SleepRequest;
 
 use crate::{
@@ -20,19 +20,19 @@ use crate::{
 
 pub struct Params<'a, WorkerPool: ?Sized> {
     /// Maps each active instance/executor to the shard currently responsible for it.
-    pub executor_shards: &'a mut HashMap<Uuid, usize>,
+    pub executor_shards: &'a mut HashMap<InstanceId, usize>,
     /// Tracks which backend locks this runloop currently believes it owns.
     pub lock_tracker: &'a instance_lock_heartbeat::Tracker,
     /// Counts how many action executions are still outstanding for each executor.
-    pub inflight_actions: &'a mut HashMap<Uuid, usize>,
+    pub inflight_actions: &'a mut HashMap<InstanceId, usize>,
     /// Tracks the currently valid dispatch token/attempt for each inflight action execution.
-    pub inflight_dispatches: &'a mut HashMap<Uuid, InflightActionDispatch>,
+    pub inflight_dispatches: &'a mut HashMap<ExecutionId, InflightActionDispatch>,
     /// Active sleep requests keyed by execution node for registration and cleanup.
-    pub sleeping_nodes: &'a mut HashMap<Uuid, SleepRequest>,
+    pub sleeping_nodes: &'a mut HashMap<ExecutionId, SleepRequest>,
     /// Reverse index of sleeping node IDs by executor for sleep bookkeeping and cleanup.
-    pub sleeping_by_instance: &'a mut HashMap<Uuid, HashSet<Uuid>>,
+    pub sleeping_by_instance: &'a mut HashMap<InstanceId, HashSet<ExecutionId>>,
     /// Earliest wake time currently blocking each executor from making progress.
-    pub blocked_until_by_instance: &'a mut HashMap<Uuid, DateTime<Utc>>,
+    pub blocked_until_by_instance: &'a mut HashMap<InstanceId, DateTime<Utc>>,
     /// Tracks deferred instance events so completed instances can be fully removed.
     pub commit_barrier: &'a mut CommitBarrier<shard::Step>,
     /// Buffer of terminal instance outcomes that still need durable persistence.

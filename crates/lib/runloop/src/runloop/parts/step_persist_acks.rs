@@ -2,8 +2,8 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use chrono::{DateTime, Utc};
 use tracing::warn;
-use uuid::Uuid;
 use waymark_core_backend::{InstanceDone, InstanceLockStatus};
+use waymark_ids::{ExecutionId, InstanceId, LockId};
 use waymark_runner::SleepRequest;
 use waymark_worker_core::ActionCompletion;
 
@@ -29,21 +29,21 @@ pub enum Error {
 
 pub struct Params<'a, CoreBackend: ?Sized, WorkerPool: ?Sized> {
     /// Maps each active instance/executor to the shard currently responsible for it.
-    pub executor_shards: &'a mut HashMap<Uuid, usize>,
+    pub executor_shards: &'a mut HashMap<InstanceId, usize>,
     /// Per-shard command channels used to send follow-up completions, wakes, and evictions.
     pub shard_senders: &'a [std::sync::mpsc::Sender<shard::Command>],
     /// Tracks which backend locks this runloop currently believes it owns.
     pub lock_tracker: &'a instance_lock_heartbeat::Tracker,
     /// Counts how many action executions are still outstanding for each executor.
-    pub inflight_actions: &'a mut HashMap<Uuid, usize>,
+    pub inflight_actions: &'a mut HashMap<InstanceId, usize>,
     /// Tracks the currently valid dispatch token/attempt for each inflight action execution.
-    pub inflight_dispatches: &'a mut HashMap<Uuid, InflightActionDispatch>,
+    pub inflight_dispatches: &'a mut HashMap<ExecutionId, InflightActionDispatch>,
     /// Active sleep requests keyed by execution node so confirmed steps can register and clean sleeps.
-    pub sleeping_nodes: &'a mut HashMap<Uuid, SleepRequest>,
+    pub sleeping_nodes: &'a mut HashMap<ExecutionId, SleepRequest>,
     /// Reverse index of sleeping node IDs by executor for sleep bookkeeping and cleanup.
-    pub sleeping_by_instance: &'a mut HashMap<Uuid, HashSet<Uuid>>,
+    pub sleeping_by_instance: &'a mut HashMap<InstanceId, HashSet<ExecutionId>>,
     /// Earliest wake time currently blocking each executor from making progress.
-    pub blocked_until_by_instance: &'a mut HashMap<Uuid, DateTime<Utc>>,
+    pub blocked_until_by_instance: &'a mut HashMap<InstanceId, DateTime<Utc>>,
     /// Tracks deferred instance events that are released once persistence succeeds.
     pub commit_barrier: &'a mut CommitBarrier<shard::Step>,
     /// Buffer of terminal instance outcomes that still need durable persistence.
@@ -55,7 +55,7 @@ pub struct Params<'a, CoreBackend: ?Sized, WorkerPool: ?Sized> {
     /// Worker pool used to dispatch actions from newly confirmed shard steps.
     pub worker_pool: &'a WorkerPool,
     /// Lock owner ID for this runloop, used to validate persist acknowledgments.
-    pub lock_uuid: Uuid,
+    pub lock_uuid: LockId,
     /// Test/debug knob that forces sleeps to wake immediately.
     pub skip_sleep: bool,
     /// Persist acknowledgments collected during the current coordinator tick.
@@ -145,21 +145,21 @@ where
 
 struct StepsPersistedParams<'a, CoreBackend: ?Sized, WorkerPool: ?Sized> {
     /// Maps each active instance/executor to the shard currently responsible for it.
-    pub executor_shards: &'a mut HashMap<Uuid, usize>,
+    pub executor_shards: &'a mut HashMap<InstanceId, usize>,
     /// Per-shard command channels used to send follow-up completions, wakes, and evictions.
     pub shard_senders: &'a [std::sync::mpsc::Sender<shard::Command>],
     /// Tracks which backend locks this runloop currently believes it owns.
     pub lock_tracker: &'a instance_lock_heartbeat::Tracker,
     /// Counts how many action executions are still outstanding for each executor.
-    pub inflight_actions: &'a mut HashMap<Uuid, usize>,
+    pub inflight_actions: &'a mut HashMap<InstanceId, usize>,
     /// Tracks the currently valid dispatch token/attempt for each inflight action execution.
-    pub inflight_dispatches: &'a mut HashMap<Uuid, InflightActionDispatch>,
+    pub inflight_dispatches: &'a mut HashMap<ExecutionId, InflightActionDispatch>,
     /// Active sleep requests keyed by execution node so confirmed steps can register and clean sleeps.
-    pub sleeping_nodes: &'a mut HashMap<Uuid, SleepRequest>,
+    pub sleeping_nodes: &'a mut HashMap<ExecutionId, SleepRequest>,
     /// Reverse index of sleeping node IDs by executor for sleep bookkeeping and cleanup.
-    pub sleeping_by_instance: &'a mut HashMap<Uuid, HashSet<Uuid>>,
+    pub sleeping_by_instance: &'a mut HashMap<InstanceId, HashSet<ExecutionId>>,
     /// Earliest wake time currently blocking each executor from making progress.
-    pub blocked_until_by_instance: &'a mut HashMap<Uuid, DateTime<Utc>>,
+    pub blocked_until_by_instance: &'a mut HashMap<InstanceId, DateTime<Utc>>,
     /// Tracks deferred instance events that are released once persistence succeeds.
     pub commit_barrier: &'a mut CommitBarrier<shard::Step>,
     /// Buffer of terminal instance outcomes that still need durable persistence.
@@ -171,7 +171,7 @@ struct StepsPersistedParams<'a, CoreBackend: ?Sized, WorkerPool: ?Sized> {
     /// Worker pool used to dispatch actions from newly confirmed shard steps.
     pub worker_pool: &'a WorkerPool,
     /// Lock owner ID for this runloop, used to validate persist acknowledgments.
-    pub lock_uuid: Uuid,
+    pub lock_uuid: LockId,
     /// Test/debug knob that forces sleeps to wake immediately.
     pub skip_sleep: bool,
     /// Persisted batch that just became durable and can now be applied.
@@ -216,7 +216,7 @@ where
         lock_statuses,
     } = params;
 
-    let evict_ids: HashSet<Uuid> =
+    let evict_ids: HashSet<InstanceId> =
         crate::runloop::lock_utils::lock_mismatches_for(&lock_statuses, lock_uuid)
             .into_iter()
             .filter(|instance_id| batch.instance_ids.contains(instance_id))
@@ -285,9 +285,9 @@ where
 }
 
 fn flush_deferred_instance_events(
-    instance_id: Uuid,
+    instance_id: InstanceId,
     events: VecDeque<DeferredInstanceEvent>,
-    executor_shards: &HashMap<Uuid, usize>,
+    executor_shards: &HashMap<InstanceId, usize>,
     shard_senders: &[std::sync::mpsc::Sender<shard::Command>],
 ) {
     let Some(shard_idx) = executor_shards.get(&instance_id).copied() else {
@@ -297,7 +297,7 @@ fn flush_deferred_instance_events(
         return;
     };
     let mut completion_batch: Vec<ActionCompletion> = Vec::new();
-    let mut wake_batch: Vec<Uuid> = Vec::new();
+    let mut wake_batch: Vec<ExecutionId> = Vec::new();
     for event in events {
         match event {
             DeferredInstanceEvent::Completion(completion) => {

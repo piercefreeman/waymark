@@ -6,9 +6,9 @@ use std::{
 
 use chrono::Utc;
 use tracing::{info, warn};
-use uuid::Uuid;
 use waymark_backends_core::BackendError;
 use waymark_core_backend::{ActionDone, GraphUpdate, InstanceLockStatus, LockClaim};
+use waymark_ids::{InstanceId, LockId};
 use waymark_nonzero_duration::NonZeroDuration;
 
 const PERSIST_COALESCE_WINDOW: Duration = Duration::from_millis(2);
@@ -22,7 +22,7 @@ where
     pub ack_tx: tokio::sync::mpsc::UnboundedSender<super::Ack>,
     pub core_backend: Arc<CoreBackend>,
     pub lock_ttl: NonZeroDuration,
-    pub lock_uuid: Uuid,
+    pub lock_uuid: LockId,
 }
 
 pub async fn run<CoreBackend>(params: Params<CoreBackend>)
@@ -70,7 +70,7 @@ where
             all_graph_updates.append(&mut command.graph_updates);
         }
 
-        let outcome: Result<HashMap<Uuid, InstanceLockStatus>, BackendError> = async {
+        let outcome: Result<HashMap<InstanceId, InstanceLockStatus>, BackendError> = async {
             if !all_actions_done.is_empty() {
                 core_backend.save_actions_done(&all_actions_done).await?;
             }
@@ -89,7 +89,7 @@ where
                     &all_graph_updates,
                 )
                 .await?;
-            let mut lock_status_by_instance: HashMap<Uuid, InstanceLockStatus> =
+            let mut lock_status_by_instance: HashMap<InstanceId, InstanceLockStatus> =
                 HashMap::with_capacity(lock_statuses.len());
             for status in lock_statuses {
                 lock_status_by_instance.insert(status.instance_id, status);

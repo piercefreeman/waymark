@@ -8,7 +8,7 @@ use std::time::Duration;
 use chrono::{DateTime, Utc};
 use rustc_hash::FxHashMap;
 use serde_json::Value;
-use uuid::Uuid;
+use waymark_ids::{ExecutionId, InstanceId};
 
 use crate::expression_evaluator::is_exception_value;
 use crate::retry::{RetryDecision, RetryPolicyEvaluator, timeout_seconds_from_policies};
@@ -50,12 +50,12 @@ pub struct ExecutorStep {
 #[derive(Clone, Debug)]
 /// Sleep requests emitted by the executor with wake-up times.
 pub struct SleepRequest {
-    pub node_id: Uuid,
+    pub node_id: ExecutionId,
     pub wake_at: DateTime<Utc>,
 }
 
 /// Action result payloads keyed by execution node id.
-type ExecutionResultMap = HashMap<Uuid, Value>;
+type ExecutionResultMap = HashMap<ExecutionId, Value>;
 
 struct FinishedNodeOutcome {
     /// Node to continue graph traversal from.
@@ -74,8 +74,8 @@ struct IncrementAccumulator {
     pending_starts: Vec<(ExecutionNode, Option<Value>)>,
     actions: Vec<ExecutionNode>,
     sleep_requests: Vec<SleepRequest>,
-    seen_actions: HashSet<Uuid>,
-    seen_sleep_nodes: HashSet<Uuid>,
+    seen_actions: HashSet<ExecutionId>,
+    seen_sleep_nodes: HashSet<ExecutionId>,
 }
 
 impl IncrementAccumulator {
@@ -150,13 +150,13 @@ pub struct RunnerExecutor<const SHOULD_COLLECT_UPDATES: bool> {
     state: RunnerState,
     action_results: ExecutionResultMap,
     template_index: DagEdgeIndex,
-    incoming_exec_edges: FxHashMap<Uuid, Vec<ExecutionEdge>>,
+    incoming_exec_edges: FxHashMap<ExecutionId, Vec<ExecutionEdge>>,
     /// Index: template_id -> list of execution node IDs with that template
-    template_to_exec_nodes: FxHashMap<String, Vec<Uuid>>,
+    template_to_exec_nodes: FxHashMap<String, Vec<ExecutionId>>,
     /// Cached assignment evaluations for the current increment pass.
     /// Cleared at the start of each increment call.
-    eval_cache: RefCell<FxHashMap<(Uuid, String), Value>>,
-    instance_id: Option<Uuid>,
+    eval_cache: RefCell<FxHashMap<(ExecutionId, String), Value>>,
+    instance_id: Option<InstanceId>,
     terminal_error: Option<Value>,
 }
 
@@ -215,11 +215,11 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
         &self.action_results
     }
 
-    pub fn instance_id(&self) -> Option<Uuid> {
+    pub fn instance_id(&self) -> Option<InstanceId> {
         self.instance_id
     }
 
-    pub fn set_instance_id(&mut self, instance_id: Uuid) {
+    pub fn set_instance_id(&mut self, instance_id: InstanceId) {
         self.instance_id = Some(instance_id);
     }
 
@@ -227,27 +227,27 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
         self.terminal_error.as_ref()
     }
 
-    pub(super) fn eval_cache_get(&self, key: &(Uuid, String)) -> Option<Value> {
+    pub(super) fn eval_cache_get(&self, key: &(ExecutionId, String)) -> Option<Value> {
         self.eval_cache.borrow().get(key).cloned()
     }
 
-    pub(super) fn eval_cache_insert(&self, key: (Uuid, String), value: Value) {
+    pub(super) fn eval_cache_insert(&self, key: (ExecutionId, String), value: Value) {
         self.eval_cache.borrow_mut().insert(key, value);
     }
 
     /// Store an action result value for a specific execution node id.
-    pub fn set_action_result(&mut self, node_id: Uuid, result: Value) {
+    pub fn set_action_result(&mut self, node_id: ExecutionId, result: Value) {
         self.action_results.insert(node_id, result);
     }
 
     /// Remove any cached action result for a specific execution node.
     /// Used when re-queuing an action so we don't replay stale results.
-    pub fn clear_action_result(&mut self, node_id: Uuid) {
+    pub fn clear_action_result(&mut self, node_id: ExecutionId) {
         self.action_results.remove(&node_id);
     }
 
     /// Resolve timeout policy seconds for an action node.
-    pub fn action_timeout_seconds(&self, node_id: Uuid) -> Result<u32, RunnerExecutorError> {
+    pub fn action_timeout_seconds(&self, node_id: ExecutionId) -> Result<u32, RunnerExecutorError> {
         let node = self.execution_node(node_id)?;
         if !node.is_action_call() {
             return Ok(0);
@@ -298,7 +298,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
     #[obs]
     pub fn increment(
         &mut self,
-        finished_nodes: &[Uuid],
+        finished_nodes: &[ExecutionId],
     ) -> Result<ExecutorStep, RunnerExecutorError> {
         self.eval_cache.borrow_mut().clear();
         let mut accum = IncrementAccumulator::default();
@@ -326,7 +326,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
 
     fn collect_increment_results(
         &mut self,
-        finished_nodes: &[Uuid],
+        finished_nodes: &[ExecutionId],
         accum: &mut IncrementAccumulator,
     ) -> Result<(), RunnerExecutorError> {
         for &node_id in finished_nodes {
@@ -376,7 +376,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
         let mut pending = vec![(node, exception_value)];
         let mut actions = Vec::new();
         let mut sleep_requests = Vec::new();
-        let mut forwarded_completed: HashSet<Uuid> = HashSet::new();
+        let mut forwarded_completed: HashSet<ExecutionId> = HashSet::new();
 
         while let Some((current, current_exception)) = pending.pop() {
             // template_id is the DAG node id, not the execution id.
@@ -415,7 +415,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
         pending: &mut Vec<(ExecutionNode, Option<Value>)>,
         actions: &mut Vec<ExecutionNode>,
         sleep_requests: &mut Vec<SleepRequest>,
-        forwarded_completed: &mut HashSet<Uuid>,
+        forwarded_completed: &mut HashSet<ExecutionId>,
     ) -> Result<(), RunnerExecutorError> {
         if self.forward_completed_successor(&successor, pending, forwarded_completed) {
             return Ok(());
@@ -435,7 +435,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
         &self,
         successor: &ExecutionNode,
         pending: &mut Vec<(ExecutionNode, Option<Value>)>,
-        forwarded_completed: &mut HashSet<Uuid>,
+        forwarded_completed: &mut HashSet<ExecutionId>,
     ) -> bool {
         if successor.status != NodeStatus::Completed {
             return false;
@@ -484,7 +484,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
     #[obs]
     fn apply_finished_node(
         &mut self,
-        node_id: Uuid,
+        node_id: ExecutionId,
     ) -> Result<FinishedNodeOutcome, RunnerExecutorError> {
         if self.execution_node(node_id)?.is_action_call() {
             return self.apply_finished_action_node(node_id);
@@ -503,7 +503,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
 
     fn apply_finished_action_node(
         &mut self,
-        node_id: Uuid,
+        node_id: ExecutionId,
     ) -> Result<FinishedNodeOutcome, RunnerExecutorError> {
         let metadata = self.finished_action_metadata(node_id)?;
         if is_exception_value(&metadata.result) {
@@ -514,7 +514,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
 
     fn finished_action_metadata(
         &self,
-        node_id: Uuid,
+        node_id: ExecutionId,
     ) -> Result<FinishedActionMetadata, RunnerExecutorError> {
         let node = self.execution_node(node_id)?;
         let result =
@@ -530,7 +530,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
 
     fn apply_successful_action_completion(
         &mut self,
-        node_id: Uuid,
+        node_id: ExecutionId,
         metadata: FinishedActionMetadata,
     ) -> Result<FinishedNodeOutcome, RunnerExecutorError> {
         self.state
@@ -562,7 +562,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
 
     fn apply_exception_action_completion(
         &mut self,
-        node_id: Uuid,
+        node_id: ExecutionId,
         metadata: FinishedActionMetadata,
     ) -> Result<FinishedNodeOutcome, RunnerExecutorError> {
         let exception_value = metadata.result;
@@ -619,7 +619,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
 
     fn apply_action_failure_transition(
         &mut self,
-        node_id: Uuid,
+        node_id: ExecutionId,
         exception_value: Option<&Value>,
         finished_at: DateTime<Utc>,
     ) -> Result<ActionFailureTransition, RunnerExecutorError> {
@@ -637,7 +637,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
 
     fn transition_action_to_retry(
         &mut self,
-        node_id: Uuid,
+        node_id: ExecutionId,
         finished_at: DateTime<Utc>,
     ) -> Result<ExecutionNode, RunnerExecutorError> {
         // Retry transition invariants:
@@ -662,7 +662,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
 
     fn transition_action_to_failed(
         &mut self,
-        node_id: Uuid,
+        node_id: ExecutionId,
         exception_value: Option<&Value>,
         finished_at: DateTime<Utc>,
     ) -> Result<(), RunnerExecutorError> {
@@ -676,7 +676,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
 
     fn assign_exception_scope(
         &mut self,
-        node_id: Uuid,
+        node_id: ExecutionId,
         exception_value: Value,
     ) -> Result<(), RunnerExecutorError> {
         let exception_expr = ValueExpr::Literal(LiteralValue {
@@ -694,7 +694,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
 
     fn failure_has_exception_handler(
         &self,
-        node_id: Uuid,
+        node_id: ExecutionId,
         exception_value: &Value,
     ) -> Result<bool, RunnerExecutorError> {
         let node = self.execution_node(node_id)?;
@@ -1144,7 +1144,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
                 "aggregator sources/value mismatch".to_string(),
             ));
         }
-        let timeline_index: HashMap<Uuid, usize> = self
+        let timeline_index: HashMap<ExecutionId, usize> = self
             .state
             .timeline
             .iter()
@@ -1164,7 +1164,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
         &self,
         source: &ExecutionNode,
         value: &ValueExpr,
-        timeline_index: &HashMap<Uuid, usize>,
+        timeline_index: &HashMap<ExecutionId, usize>,
     ) -> (i32, i32) {
         let mut primary = 2;
         let mut secondary = *timeline_index.get(&source.node_id).unwrap_or(&0) as i32;
@@ -1232,8 +1232,10 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
         ))
     }
 
-    fn build_incoming_exec_edges(state: &RunnerState) -> FxHashMap<Uuid, Vec<ExecutionEdge>> {
-        let mut incoming: FxHashMap<Uuid, Vec<ExecutionEdge>> = FxHashMap::default();
+    fn build_incoming_exec_edges(
+        state: &RunnerState,
+    ) -> FxHashMap<ExecutionId, Vec<ExecutionEdge>> {
+        let mut incoming: FxHashMap<ExecutionId, Vec<ExecutionEdge>> = FxHashMap::default();
         for edge in &state.edges {
             if edge.edge_type != EdgeType::StateMachine {
                 continue;
@@ -1243,8 +1245,8 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
         incoming
     }
 
-    fn build_template_to_exec_nodes(state: &RunnerState) -> FxHashMap<String, Vec<Uuid>> {
-        let mut index: FxHashMap<String, Vec<Uuid>> = FxHashMap::default();
+    fn build_template_to_exec_nodes(state: &RunnerState) -> FxHashMap<String, Vec<ExecutionId>> {
+        let mut index: FxHashMap<String, Vec<ExecutionId>> = FxHashMap::default();
         for (node_id, node) in &state.nodes {
             if let Some(template_id) = &node.template_id {
                 index.entry(template_id.clone()).or_default().push(*node_id);
@@ -1254,14 +1256,14 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
     }
 
     /// Register a new execution node in the template index
-    fn register_exec_node(&mut self, template_id: &str, node_id: Uuid) {
+    fn register_exec_node(&mut self, template_id: &str, node_id: ExecutionId) {
         self.template_to_exec_nodes
             .entry(template_id.to_string())
             .or_default()
             .push(node_id);
     }
 
-    fn add_exec_edge(&mut self, source: Uuid, target: Uuid) {
+    fn add_exec_edge(&mut self, source: ExecutionId, target: ExecutionId) {
         let edge = ExecutionEdge {
             source,
             target,
@@ -1277,7 +1279,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
             .push(edge);
     }
 
-    fn connected_template_sources(&self, exec_node_id: Uuid) -> HashSet<String> {
+    fn connected_template_sources(&self, exec_node_id: ExecutionId) -> HashSet<String> {
         let mut connected = HashSet::new();
         for edge in self
             .incoming_exec_edges
@@ -1296,7 +1298,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
 
     fn find_connected_successor(
         &self,
-        source_id: Uuid,
+        source_id: ExecutionId,
         template_id: &str,
     ) -> Option<ExecutionNode> {
         for edge in &self.state.edges {
@@ -1326,7 +1328,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
             .cloned()
             .collect();
         if !candidates.is_empty() {
-            let timeline_index: HashMap<Uuid, usize> = self
+            let timeline_index: HashMap<ExecutionId, usize> = self
                 .state
                 .timeline
                 .iter()
@@ -1350,7 +1352,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
         // Use the index to find candidate nodes - O(k) where k is nodes for this template
         if let Some(node_ids) = self.template_to_exec_nodes.get(template_id) {
             // Find the most recent non-completed node
-            let mut best_node_id: Option<Uuid> = None;
+            let mut best_node_id: Option<ExecutionId> = None;
             let mut best_timeline_pos: Option<usize> = None;
 
             for &node_id in node_ids {
@@ -1388,7 +1390,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
         Ok(node)
     }
 
-    fn execution_node(&self, node_id: Uuid) -> Result<&ExecutionNode, RunnerExecutorError> {
+    fn execution_node(&self, node_id: ExecutionId) -> Result<&ExecutionNode, RunnerExecutorError> {
         self.state
             .nodes
             .get(&node_id)
@@ -1397,7 +1399,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
 
     fn execution_node_mut(
         &mut self,
-        node_id: Uuid,
+        node_id: ExecutionId,
     ) -> Result<&mut ExecutionNode, RunnerExecutorError> {
         self.state
             .nodes
@@ -1405,7 +1407,10 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
             .ok_or_else(|| RunnerExecutorError(format!("execution node not found: {node_id}")))
     }
 
-    fn execution_node_clone(&self, node_id: Uuid) -> Result<ExecutionNode, RunnerExecutorError> {
+    fn execution_node_clone(
+        &self,
+        node_id: ExecutionId,
+    ) -> Result<ExecutionNode, RunnerExecutorError> {
         self.execution_node(node_id).cloned()
     }
 
@@ -1485,7 +1490,7 @@ fn compute_action_duration_ms(
 }
 
 fn build_action_done(
-    execution_id: Uuid,
+    execution_id: ExecutionId,
     attempt: i32,
     status: ActionAttemptStatus,
     started_at: Option<DateTime<Utc>>,
@@ -1598,7 +1603,7 @@ mod tests {
 
     #[test]
     fn test_build_action_done_sets_duration_from_started_and_completed() {
-        let execution_id = Uuid::new_v4();
+        let execution_id = ExecutionId::new_uuid_v4();
         let started_at = Utc::now();
         let completed_at = started_at + chrono::Duration::milliseconds(275);
         let done = build_action_done(
@@ -1690,11 +1695,11 @@ mod tests {
 
     fn snapshot_state(
         state: &RunnerState,
-        action_results: &HashMap<Uuid, Value>,
+        action_results: &HashMap<ExecutionId, Value>,
     ) -> (
-        HashMap<Uuid, ExecutionNode>,
+        HashMap<ExecutionId, ExecutionNode>,
         HashSet<ExecutionEdge>,
-        HashMap<Uuid, Value>,
+        HashMap<ExecutionId, Value>,
     ) {
         (
             state.nodes.clone(),
@@ -1705,9 +1710,9 @@ mod tests {
 
     fn create_rehydrated_executor<const SHOULD_COLLECT_UPDATES: bool>(
         dag: &Arc<DAG>,
-        nodes: HashMap<Uuid, ExecutionNode>,
+        nodes: HashMap<ExecutionId, ExecutionNode>,
         edges: HashSet<ExecutionEdge>,
-        action_results: HashMap<Uuid, Value>,
+        action_results: HashMap<ExecutionId, Value>,
     ) -> RunnerExecutor<SHOULD_COLLECT_UPDATES> {
         let state = RunnerState::new(Some(Arc::clone(dag)), Some(nodes), Some(edges), false);
         RunnerExecutor::new(Arc::clone(dag), state, action_results)
@@ -1750,7 +1755,7 @@ mod tests {
 
     fn build_executor_at_entry<const SHOULD_COLLECT_UPDATES: bool>(
         dag: &Arc<DAG>,
-    ) -> (RunnerExecutor<SHOULD_COLLECT_UPDATES>, Uuid) {
+    ) -> (RunnerExecutor<SHOULD_COLLECT_UPDATES>, ExecutionId) {
         let mut state = RunnerState::new(Some(Arc::clone(dag)), None, None, false);
         let entry_template = dag.entry_node.as_ref().expect("dag entry node");
         let entry_exec = state
@@ -1850,7 +1855,7 @@ mod tests {
                 }
             }
 
-            let mut finished_nodes: Vec<Uuid> =
+            let mut finished_nodes: Vec<ExecutionId> =
                 active_actions.iter().map(|node| node.node_id).collect();
             finished_nodes.extend(
                 executor
@@ -2586,7 +2591,7 @@ fn main(input: [], output: [done]):
         let exec = state.queue_template_node(&action.id, None).expect("queue");
 
         let mut executor = RunnerExecutor::<true>::new(dag, state, HashMap::new());
-        executor.set_instance_id(Uuid::new_v4());
+        executor.set_instance_id(InstanceId::new_uuid_v4());
         executor.set_action_result(
             exec.node_id,
             serde_json::json!({"type": "ValueError", "message": "boom"}),
@@ -2640,7 +2645,7 @@ fn main(input: [], output: [done]):
         let exec = state.queue_template_node(&action.id, None).expect("queue");
 
         let mut executor = RunnerExecutor::<true>::new(dag, state, HashMap::new());
-        executor.set_instance_id(Uuid::new_v4());
+        executor.set_instance_id(InstanceId::new_uuid_v4());
         executor.set_action_result(
             exec.node_id,
             serde_json::json!({"type": "ValueError", "message": "retry me"}),

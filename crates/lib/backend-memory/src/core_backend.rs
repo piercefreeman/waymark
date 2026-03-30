@@ -1,10 +1,10 @@
 use chrono::Utc;
 use nonempty_collections::NEVec;
-use uuid::Uuid;
 use waymark_backends_core::{BackendError, BackendResult};
 use waymark_core_backend::{
     ActionDone, GraphUpdate, InstanceDone, InstanceLockStatus, LockClaim, QueuedInstance,
 };
+use waymark_ids::{InstanceId, LockId};
 
 impl waymark_core_backend::CoreBackend for crate::MemoryBackend {
     async fn save_graphs(
@@ -115,7 +115,7 @@ impl waymark_core_backend::CoreBackend for crate::MemoryBackend {
     async fn refresh_instance_locks(
         &self,
         claim: LockClaim,
-        instance_ids: &[Uuid],
+        instance_ids: &[InstanceId],
     ) -> BackendResult<Vec<InstanceLockStatus>> {
         let mut guard = self.instance_locks.lock().expect("instance locks poisoned");
         let mut locks = Vec::new();
@@ -137,8 +137,8 @@ impl waymark_core_backend::CoreBackend for crate::MemoryBackend {
 
     async fn release_instance_locks(
         &self,
-        lock_uuid: Uuid,
-        instance_ids: &[Uuid],
+        lock_uuid: LockId,
+        instance_ids: &[InstanceId],
     ) -> BackendResult<()> {
         let mut guard = self.instance_locks.lock().expect("instance locks poisoned");
         for instance_id in instance_ids {

@@ -15,6 +15,7 @@ use uuid::Uuid;
 use waymark_backend_memory::MemoryBackend;
 use waymark_core_backend::{InstanceDone, QueuedInstance};
 use waymark_dag_builder::convert_to_dag;
+use waymark_ids::{InstanceId, LockId};
 use waymark_ir_conversions::literal_from_json_value;
 use waymark_proto::{ast as ir, messages as proto};
 use waymark_runloop::{RunLoop, RunLoopConfig};
@@ -65,7 +66,7 @@ impl proto::workflow_service_server::WorkflowService for BridgeService {
             .await
             .map_err(|err| Status::internal(format!("database error: {err}")))?;
 
-        let instance_id = Uuid::new_v4();
+        let instance_id = InstanceId::new_uuid_v4();
         let queued = build_queued_instance(
             instance_id,
             version_id,
@@ -126,7 +127,7 @@ impl proto::workflow_service_server::WorkflowService for BridgeService {
         let include_ids = request.include_instance_ids;
 
         for _ in 0..target_count {
-            let instance_id = Uuid::new_v4();
+            let instance_id = InstanceId::new_uuid_v4();
             let inputs = if !inputs_list.is_empty() {
                 inputs_list.remove(0)
             } else {
@@ -237,7 +238,7 @@ impl proto::workflow_service_server::WorkflowService for BridgeService {
             .await
             .map_err(|err| Status::internal(format!("workflow upsert failed: {err}")))?;
 
-        let instance_id = Uuid::new_v4();
+        let instance_id = InstanceId::new_uuid_v4();
         let queued = build_queued_instance(
             instance_id,
             version_id,
@@ -292,7 +293,7 @@ impl proto::workflow_service_server::WorkflowService for BridgeService {
                         persistence_interval: Some(
                             Duration::from_secs_f64(0.1).try_into().unwrap(),
                         ),
-                        lock_uuid: Uuid::new_v4(),
+                        lock_uuid: LockId::new_uuid_v4(),
                         lock_ttl: Duration::from_secs(15).try_into().unwrap(),
                         lock_heartbeat: Duration::from_secs(5).try_into().unwrap(),
                         evict_sleep_threshold: Duration::from_secs(10).try_into().unwrap(),
@@ -579,7 +580,10 @@ fn error_value(kind: &str, message: &str) -> serde_json::Value {
     serde_json::Value::Object(map)
 }
 
-fn find_latest_instance_done(backend: &MemoryBackend, instance_id: Uuid) -> Option<InstanceDone> {
+fn find_latest_instance_done(
+    backend: &MemoryBackend,
+    instance_id: InstanceId,
+) -> Option<InstanceDone> {
     backend
         .instances_done()
         .into_iter()
@@ -588,7 +592,7 @@ fn find_latest_instance_done(backend: &MemoryBackend, instance_id: Uuid) -> Opti
 }
 
 fn build_queued_instance(
-    instance_id: Uuid,
+    instance_id: InstanceId,
     workflow_version_id: Uuid,
     dag: Arc<waymark_dag::DAG>,
     initial_context: Option<proto::WorkflowArguments>,

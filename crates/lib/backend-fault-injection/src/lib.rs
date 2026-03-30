@@ -10,6 +10,7 @@ use waymark_backends_core::BackendResult;
 use waymark_core_backend::{
     CoreBackend, GraphUpdate, InstanceDone, InstanceLockStatus, LockClaim, QueuedInstance,
 };
+use waymark_ids::{InstanceId, LockId};
 use waymark_workflow_registry_backend::{
     WorkflowRegistration, WorkflowRegistryBackend, WorkflowVersion,
 };
@@ -98,15 +99,15 @@ impl CoreBackend for FaultInjectingBackend {
     async fn refresh_instance_locks(
         &self,
         claim: LockClaim,
-        instance_ids: &[Uuid],
+        instance_ids: &[InstanceId],
     ) -> BackendResult<Vec<InstanceLockStatus>> {
         self.inner.refresh_instance_locks(claim, instance_ids).await
     }
 
     async fn release_instance_locks(
         &self,
-        lock_uuid: Uuid,
-        instance_ids: &[Uuid],
+        lock_uuid: LockId,
+        instance_ids: &[InstanceId],
     ) -> BackendResult<()> {
         self.inner
             .release_instance_locks(lock_uuid, instance_ids)

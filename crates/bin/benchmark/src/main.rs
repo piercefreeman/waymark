@@ -15,6 +15,7 @@ use sqlx::PgPool;
 use uuid::Uuid;
 use waymark_backend_postgres::PostgresBackend;
 use waymark_core_backend::QueuedInstance;
+use waymark_ids::{InstanceId, LockId};
 use waymark_secret_string::{SecretStr, SecretString};
 use waymark_support_integration::{LOCAL_POSTGRES_DSN, ensure_local_postgres};
 use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBackend as _};
@@ -171,7 +172,7 @@ fn build_instance(case: &BenchmarkCase, workflow_version_id: Uuid) -> QueuedInst
         entry_node: entry_exec.node_id,
         state: Some(state),
         action_results: HashMap::new(),
-        instance_id: Uuid::new_v4(),
+        instance_id: InstanceId::new_uuid_v4(),
         scheduled_at: None,
     }
 }
@@ -341,7 +342,7 @@ async fn run_benchmark(
             instance_done_batch_size: None,
             poll_interval: Some(Duration::from_secs_f64(0.05).try_into().unwrap()),
             persistence_interval: Some(Duration::from_secs_f64(0.1).try_into().unwrap()),
-            lock_uuid: Uuid::new_v4(),
+            lock_uuid: LockId::new_uuid_v4(),
             lock_ttl: Duration::from_secs(15).try_into().unwrap(),
             lock_heartbeat: Duration::from_secs(5).try_into().unwrap(),
             evict_sleep_threshold: Duration::from_secs(10).try_into().unwrap(),

@@ -11,6 +11,7 @@ waymark-core-backend = { workspace = true }
 waymark-dag = { workspace = true }
 waymark-dag-builder = { workspace = true }
 waymark-garbage-collector-backend = { workspace = true }
+waymark-ids = { workspace = true }
 waymark-ir-conversions = { workspace = true }
 waymark-observability = { workspace = true }
 waymark-proto = { workspace = true }

@@ -1,6 +1,5 @@
-use uuid::Uuid;
-
 pub use waymark_backends_core::{BackendError, BackendResult};
+use waymark_ids::InstanceId;
 use waymark_scheduler_core::{CreateScheduleParams, ScheduleId, WorkflowSchedule};
 
 /// Backend capability for workflow schedule persistence.
@@ -53,7 +52,7 @@ pub trait SchedulerBackend {
     fn mark_schedule_executed(
         &self,
         schedule_id: ScheduleId,
-        instance_id: Uuid,
+        instance_id: InstanceId,
     ) -> impl Future<Output = BackendResult<()>> + Send + '_;
 
     fn skip_schedule_run(

@@ -13,6 +13,8 @@ use uuid::Uuid;
 use waymark_dag::DAG;
 use waymark_runner_state::{ExecutionEdge, ExecutionNode, NodeStatus, RunnerState};
 
+use waymark_ids::{ExecutionId, InstanceId, LockId};
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 /// Queued instance payload for the run loop.
 pub struct QueuedInstance {
@@ -21,15 +23,15 @@ pub struct QueuedInstance {
     pub schedule_id: Option<Uuid>,
     #[serde(skip, default)]
     pub dag: Option<Arc<DAG>>,
-    pub entry_node: Uuid,
+    pub entry_node: ExecutionId,
     pub state: Option<RunnerState>,
     #[serde(
-        default = "default_action_results",
+        default = "HashMap::new",
         deserialize_with = "deserialize_action_results"
     )]
-    pub action_results: HashMap<Uuid, serde_json::Value>,
-    #[serde(default = "default_instance_id")]
-    pub instance_id: Uuid,
+    pub action_results: HashMap<ExecutionId, serde_json::Value>,
+    #[serde(default = "InstanceId::new_uuid_v4")]
+    pub instance_id: InstanceId,
     #[serde(default)]
     pub scheduled_at: Option<DateTime<Utc>>,
 }
@@ -37,23 +39,23 @@ pub struct QueuedInstance {
 #[derive(Clone, Debug)]
 /// Lock claim settings for owned instances.
 pub struct LockClaim {
-    pub lock_uuid: Uuid,
+    pub lock_uuid: LockId,
     pub lock_expires_at: DateTime<Utc>,
 }
 
 #[derive(Clone, Debug)]
 /// Current lock status for an instance.
 pub struct InstanceLockStatus {
-    pub instance_id: Uuid,
-    pub lock_uuid: Option<Uuid>,
+    pub instance_id: InstanceId,
+    pub lock_uuid: Option<LockId>,
     pub lock_expires_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 /// Completed instance payload with result or exception.
 pub struct InstanceDone {
-    pub executor_id: Uuid,
-    pub entry_node: Uuid,
+    pub executor_id: InstanceId,
+    pub entry_node: ExecutionId,
     pub result: Option<serde_json::Value>,
     pub error: Option<serde_json::Value>,
 }
@@ -64,13 +66,13 @@ pub struct InstanceDone {
 /// This intentionally stores only runtime nodes and edges (no DAG template or
 /// derived caches) so persistence stays lightweight.
 pub struct GraphUpdate {
-    pub instance_id: Uuid,
-    pub nodes: HashMap<Uuid, ExecutionNode>,
+    pub instance_id: InstanceId,
+    pub nodes: HashMap<ExecutionId, ExecutionNode>,
     pub edges: HashSet<ExecutionEdge>,
 }
 
 impl GraphUpdate {
-    pub fn from_state(instance_id: Uuid, state: &RunnerState) -> Self {
+    pub fn from_state(instance_id: InstanceId, state: &RunnerState) -> Self {
         Self {
             instance_id,
             nodes: state.nodes.clone(),
@@ -98,7 +100,7 @@ impl GraphUpdate {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 /// Batch payload representing a finished action attempt (success or failure).
 pub struct ActionDone {
-    pub execution_id: Uuid,
+    pub execution_id: ExecutionId,
     pub attempt: i32,
     pub status: ActionAttemptStatus,
     pub started_at: Option<DateTime<Utc>>,
@@ -125,20 +127,12 @@ impl std::fmt::Display for ActionAttemptStatus {
     }
 }
 
-fn default_instance_id() -> Uuid {
-    Uuid::new_v4()
-}
-
-fn default_action_results() -> HashMap<Uuid, serde_json::Value> {
-    HashMap::new()
-}
-
 fn deserialize_action_results<'de, D>(
     deserializer: D,
-) -> Result<HashMap<Uuid, serde_json::Value>, D::Error>
+) -> Result<HashMap<ExecutionId, serde_json::Value>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
-    let value = Option::<HashMap<Uuid, serde_json::Value>>::deserialize(deserializer)?;
+    let value = Option::<HashMap<ExecutionId, serde_json::Value>>::deserialize(deserializer)?;
     Ok(value.unwrap_or_default())
 }

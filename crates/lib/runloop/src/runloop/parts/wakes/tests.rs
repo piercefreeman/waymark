@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::mpsc;
 
 use chrono::{DateTime, Utc};
-use uuid::Uuid;
+use waymark_ids::{ExecutionId, InstanceId};
 use waymark_runner::SleepRequest;
 
 use crate::commit_barrier::CommitBarrier;
@@ -10,10 +10,10 @@ use crate::runloop::SleepWake;
 use crate::shard;
 
 struct TestHarness {
-    pub executor_shards: HashMap<Uuid, usize>,
-    pub sleeping_nodes: HashMap<Uuid, SleepRequest>,
-    pub sleeping_by_instance: HashMap<Uuid, HashSet<Uuid>>,
-    pub blocked_until: HashMap<Uuid, DateTime<Utc>>,
+    pub executor_shards: HashMap<InstanceId, usize>,
+    pub sleeping_nodes: HashMap<ExecutionId, SleepRequest>,
+    pub sleeping_by_instance: HashMap<InstanceId, HashSet<ExecutionId>>,
+    pub blocked_until: HashMap<InstanceId, DateTime<Utc>>,
     pub barrier: CommitBarrier<shard::Step>,
     pub shard_senders: Vec<mpsc::Sender<shard::Command>>,
 }
@@ -47,8 +47,8 @@ impl TestHarness {
 
 #[test]
 fn ignores_unknown_node() {
-    let executor_id = Uuid::new_v4();
-    let unknown_node = Uuid::new_v4();
+    let executor_id = InstanceId::new_uuid_v4();
+    let unknown_node = ExecutionId::new_uuid_v4();
     let mut harness = TestHarness::default();
     let (shard_tx, shard_rx) = mpsc::channel::<shard::Command>();
     harness.shard_senders.push(shard_tx);
@@ -67,8 +67,8 @@ fn ignores_unknown_node() {
 
 #[test]
 fn ignores_node_with_future_wake_at() {
-    let executor_id = Uuid::new_v4();
-    let node_id = Uuid::new_v4();
+    let executor_id = InstanceId::new_uuid_v4();
+    let node_id = ExecutionId::new_uuid_v4();
     let future_wake = Utc::now() + chrono::Duration::seconds(60);
     let mut harness = TestHarness::default();
     let (shard_tx, shard_rx) = mpsc::channel::<shard::Command>();
@@ -101,8 +101,8 @@ fn ignores_node_with_future_wake_at() {
 
 #[test]
 fn routes_ready_node_to_shard() {
-    let executor_id = Uuid::new_v4();
-    let node_id = Uuid::new_v4();
+    let executor_id = InstanceId::new_uuid_v4();
+    let node_id = ExecutionId::new_uuid_v4();
     let past_wake = Utc::now() - chrono::Duration::seconds(5);
     let mut harness = TestHarness::default();
     let (shard_tx, shard_rx) = mpsc::channel::<shard::Command>();
@@ -144,9 +144,9 @@ fn routes_ready_node_to_shard() {
 
 #[test]
 fn waking_one_of_multiple_nodes_recomputes_blocked_until() {
-    let executor_id = Uuid::new_v4();
-    let first_node = Uuid::new_v4();
-    let second_node = Uuid::new_v4();
+    let executor_id = InstanceId::new_uuid_v4();
+    let first_node = ExecutionId::new_uuid_v4();
+    let second_node = ExecutionId::new_uuid_v4();
     let first_wake = Utc::now() - chrono::Duration::seconds(5);
     let second_wake = Utc::now() + chrono::Duration::seconds(45);
     let mut harness = TestHarness::default();
