@@ -806,6 +806,13 @@ where
             metrics::histogram!("waymark_runloop_ticks_stats_commit_barrier_pending_batch_len")
                 .record(MetricsVal(commit_barrier_pending_batch_count));
 
+            let blocked_idle_instances_count = blocked_until_by_instance
+                .keys()
+                .filter(|instance_id| inflight_actions.get(instance_id).copied().unwrap_or(0) == 0)
+                .count();
+            metrics::histogram!("waymark_runloop_ticks_stats_blocked_idle_instances_len")
+                .record(MetricsVal(blocked_idle_instances_count));
+
             tracing::trace!(
                 target: "runloop-ticks",
 
@@ -821,6 +828,9 @@ where
                 sleeping_by_instance_len = sleeping_by_instance.len(),
                 blocked_until_by_instance_len = blocked_until_by_instance.len(),
                 instances_done_pending_len = instances_done_pending.len(),
+                total_in_flight_actions,
+                commit_barrier_pending_batch_count,
+                blocked_idle_instances_count,
 
                 "runloop tick"
             );
