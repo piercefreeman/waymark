@@ -725,6 +725,9 @@ impl PostgresBackend {
             return Err(PollQueuedInstancesError::EmptyRows);
         };
 
+        metrics::counter!("waymark_backend_postgres_query_poll_instances_rows_total")
+            .increment(rows.len().get() as _);
+
         let claimed_instance_ids: Vec<Uuid> =
             rows.iter().map(|row| row.get("instance_id")).collect();
         sqlx::query("UPDATE runner_instances SET current_status = $2 WHERE instance_id = ANY($1)")
