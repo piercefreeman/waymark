@@ -20,6 +20,7 @@ waymark-worker-status-reporter = { workspace = true }
 
 anyhow = { workspace = true }
 envfury = { workspace = true }
+metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
 prost = { workspace = true }
 sqlx = { workspace = true }
