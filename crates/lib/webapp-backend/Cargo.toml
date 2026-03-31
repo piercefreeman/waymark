@@ -6,6 +6,7 @@ edition = "2024"
 
 [dependencies]
 waymark-backends-core = { workspace = true }
+waymark-ids = { workspace = true }
 waymark-webapp-core = { workspace = true }
 
 uuid = { workspace = true }

@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
 use chrono::Utc;
-use uuid::Uuid;
+
 use waymark_core_backend::{LockClaim, poll_queued_instances::Error as _};
+use waymark_ids::LockId;
 use waymark_nonzero_duration::NonZeroDuration;
 use waymark_utils_tokio_channel::send_with_stop;
 
@@ -16,7 +17,7 @@ where
     pub core_backend: Arc<CoreBackend>,
     pub available_instance_slots_reader: available_instance_slots::Reader,
     pub poll_interval: Option<NonZeroDuration>,
-    pub lock_uuid: Uuid,
+    pub lock_uuid: LockId,
     pub lock_ttl: NonZeroDuration,
     pub queued_instance_tx: tokio::sync::mpsc::Sender<super::Message<BackendError>>,
 }

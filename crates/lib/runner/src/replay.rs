@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use serde_json::Value;
-use uuid::Uuid;
+use waymark_ids::ExecutionId;
 
 use crate::expression_evaluator::{
     add_values, compare_values, int_value, is_exception_value, is_truthy, len_of_value, numeric_op,
@@ -31,11 +31,11 @@ pub struct ReplayResult {
 /// Replay variable values from a runner state snapshot.
 pub struct ReplayEngine<'a> {
     state: &'a RunnerState,
-    action_results: &'a HashMap<Uuid, Value>,
-    cache: RefCell<HashMap<(Uuid, String), Value>>,
-    timeline: Vec<Uuid>,
-    index: HashMap<Uuid, usize>,
-    incoming_data: HashMap<Uuid, Vec<Uuid>>,
+    action_results: &'a HashMap<ExecutionId, Value>,
+    cache: RefCell<HashMap<(ExecutionId, String), Value>>,
+    timeline: Vec<ExecutionId>,
+    index: HashMap<ExecutionId, usize>,
+    incoming_data: HashMap<ExecutionId, Vec<ExecutionId>>,
 }
 
 impl<'a> ReplayEngine<'a> {
@@ -47,7 +47,7 @@ impl<'a> ReplayEngine<'a> {
     /// Example:
     /// - timeline = [node_a, node_b]
     /// - index[node_b] == 1 and incoming data edges are pre-sorted.
-    pub fn new(state: &'a RunnerState, action_results: &'a HashMap<Uuid, Value>) -> Self {
+    pub fn new(state: &'a RunnerState, action_results: &'a HashMap<ExecutionId, Value>) -> Self {
         let timeline = if state.timeline.is_empty() {
             state.nodes.keys().cloned().collect()
         } else {
@@ -110,7 +110,7 @@ impl<'a> ReplayEngine<'a> {
     /// the node's incoming data-flow edges.
     pub fn replay_action_kwargs(
         &self,
-        node_id: Uuid,
+        node_id: ExecutionId,
     ) -> Result<HashMap<String, Value>, ReplayError> {
         let node = self
             .state
@@ -140,9 +140,9 @@ impl<'a> ReplayEngine<'a> {
     ///   Evaluating x resolves y first, then computes x.
     fn evaluate_assignment(
         &self,
-        node_id: Uuid,
+        node_id: ExecutionId,
         target: &str,
-        stack: Rc<RefCell<HashSet<(Uuid, String)>>>,
+        stack: Rc<RefCell<HashSet<(ExecutionId, String)>>>,
     ) -> Result<Value, ReplayError> {
         let key = (node_id, target.to_string());
         if let Some(value) = self.cache.borrow().get(&key) {
@@ -198,7 +198,7 @@ impl<'a> ReplayEngine<'a> {
 
     fn evaluate_value_expr_at_node(
         &self,
-        node_id: Uuid,
+        node_id: ExecutionId,
         expr: &ValueExpr,
     ) -> Result<Value, ReplayError> {
         let stack = Rc::new(RefCell::new(HashSet::new()));
@@ -242,9 +242,9 @@ impl<'a> ReplayEngine<'a> {
     ///   Resolving x from assign_2 evaluates action_1's assignment.
     fn resolve_variable(
         &self,
-        current_node_id: Uuid,
+        current_node_id: ExecutionId,
         name: &str,
-        stack: Rc<RefCell<HashSet<(Uuid, String)>>>,
+        stack: Rc<RefCell<HashSet<(ExecutionId, String)>>>,
     ) -> Result<Value, ReplayError> {
         let mut source_node_id = self.find_variable_source_node(current_node_id, name);
         if source_node_id.is_none() && name == EXCEPTION_SCOPE_VAR {
@@ -263,7 +263,11 @@ impl<'a> ReplayEngine<'a> {
     ///
     /// Example:
     /// - if node_b comes after node_a, node_b cannot be a source for node_a.
-    fn find_variable_source_node(&self, current_node_id: Uuid, name: &str) -> Option<Uuid> {
+    fn find_variable_source_node(
+        &self,
+        current_node_id: ExecutionId,
+        name: &str,
+    ) -> Option<ExecutionId> {
         let sources = self.incoming_data.get(&current_node_id)?;
         let current_idx = self
             .index
@@ -473,9 +477,9 @@ fn evaluate_global_function(
 /// lookups can short-circuit on the first viable definition.
 fn build_incoming_data_map(
     state: &RunnerState,
-    index: &HashMap<Uuid, usize>,
-) -> HashMap<Uuid, Vec<Uuid>> {
-    let mut incoming: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
+    index: &HashMap<ExecutionId, usize>,
+) -> HashMap<ExecutionId, Vec<ExecutionId>> {
+    let mut incoming: HashMap<ExecutionId, Vec<ExecutionId>> = HashMap::new();
     for edge in &state.edges {
         if edge.edge_type != EdgeType::DataFlow {
             continue;
@@ -500,7 +504,7 @@ fn build_incoming_data_map(
 /// assignment for each variable and returns a fully materialized mapping.
 pub fn replay_variables(
     state: &RunnerState,
-    action_results: &HashMap<Uuid, Value>,
+    action_results: &HashMap<ExecutionId, Value>,
 ) -> Result<ReplayResult, ReplayError> {
     ReplayEngine::new(state, action_results).replay_variables()
 }
@@ -508,8 +512,8 @@ pub fn replay_variables(
 /// Replay concrete kwargs for a specific action node from a state snapshot.
 pub fn replay_action_kwargs(
     state: &RunnerState,
-    action_results: &HashMap<Uuid, Value>,
-    node_id: Uuid,
+    action_results: &HashMap<ExecutionId, Value>,
+    node_id: ExecutionId,
 ) -> Result<HashMap<String, Value>, ReplayError> {
     ReplayEngine::new(state, action_results).replay_action_kwargs(node_id)
 }

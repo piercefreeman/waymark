@@ -1,10 +1,10 @@
 use std::collections::HashSet;
 
-use uuid::Uuid;
 use waymark_core_backend::InstanceLockStatus;
+use waymark_ids::{InstanceId, LockId};
 
 /// Returns a list of Instance IDs.
-pub fn lock_mismatches_for(locks: &[InstanceLockStatus], lock_uuid: Uuid) -> HashSet<Uuid> {
+pub fn lock_mismatches_for(locks: &[InstanceLockStatus], lock_uuid: LockId) -> HashSet<InstanceId> {
     locks
         .iter()
         .filter(|status| status.lock_uuid != Some(lock_uuid))
@@ -18,13 +18,13 @@ mod tests {
     use std::collections::HashSet;
 
     use chrono::Utc;
-    use uuid::Uuid;
     use waymark_core_backend::InstanceLockStatus;
+    use waymark_ids::{InstanceId, LockId};
 
     #[test]
     fn ignores_expired_lock_with_matching_owner() {
-        let lock_uuid = Uuid::new_v4();
-        let instance_id = Uuid::new_v4();
+        let lock_uuid = LockId::new_uuid_v4();
+        let instance_id = InstanceId::new_uuid_v4();
 
         let statuses = vec![InstanceLockStatus {
             instance_id,
@@ -38,7 +38,7 @@ mod tests {
 
         let mismatched = vec![InstanceLockStatus {
             instance_id,
-            lock_uuid: Some(Uuid::new_v4()),
+            lock_uuid: Some(LockId::new_uuid_v4()),
             lock_expires_at: Some(Utc::now() + chrono::Duration::seconds(60)),
         }];
         let evict_ids = lock_mismatches_for(&mismatched, lock_uuid);
@@ -47,20 +47,20 @@ mod tests {
 
     #[test]
     fn all_mismatched_locks_return_all() {
-        let lock_uuid = Uuid::new_v4();
-        let id1 = Uuid::new_v4();
-        let id2 = Uuid::new_v4();
-        let id3 = Uuid::new_v4();
+        let lock_uuid = LockId::new_uuid_v4();
+        let id1 = InstanceId::new_uuid_v4();
+        let id2 = InstanceId::new_uuid_v4();
+        let id3 = InstanceId::new_uuid_v4();
 
         let statuses = vec![
             InstanceLockStatus {
                 instance_id: id1,
-                lock_uuid: Some(Uuid::new_v4()),
+                lock_uuid: Some(LockId::new_uuid_v4()),
                 lock_expires_at: Some(Utc::now() + chrono::Duration::seconds(60)),
             },
             InstanceLockStatus {
                 instance_id: id2,
-                lock_uuid: Some(Uuid::new_v4()),
+                lock_uuid: Some(LockId::new_uuid_v4()),
                 lock_expires_at: Some(Utc::now() + chrono::Duration::seconds(60)),
             },
             InstanceLockStatus {
@@ -75,10 +75,10 @@ mod tests {
 
     #[test]
     fn mixed_matching_and_mismatched_locks() {
-        let lock_uuid = Uuid::new_v4();
-        let matching_id = Uuid::new_v4();
-        let mismatched_id = Uuid::new_v4();
-        let none_lock_id = Uuid::new_v4();
+        let lock_uuid = LockId::new_uuid_v4();
+        let matching_id = InstanceId::new_uuid_v4();
+        let mismatched_id = InstanceId::new_uuid_v4();
+        let none_lock_id = InstanceId::new_uuid_v4();
 
         let statuses = vec![
             InstanceLockStatus {
@@ -88,7 +88,7 @@ mod tests {
             },
             InstanceLockStatus {
                 instance_id: mismatched_id,
-                lock_uuid: Some(Uuid::new_v4()),
+                lock_uuid: Some(LockId::new_uuid_v4()),
                 lock_expires_at: Some(Utc::now() + chrono::Duration::seconds(60)),
             },
             InstanceLockStatus {

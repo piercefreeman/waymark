@@ -4,6 +4,7 @@ use std::sync::mpsc as std_mpsc;
 use chrono::Utc;
 use uuid::Uuid;
 use waymark_backend_memory::MemoryBackend;
+use waymark_ids::{ExecutionId, InstanceId, LockId};
 use waymark_nonzero_duration::NonZeroDuration;
 use waymark_runner::SleepRequest;
 
@@ -13,15 +14,15 @@ use crate::runloop::InflightActionDispatch;
 use crate::shard;
 
 struct TestHarness {
-    pub lock_uuid: Uuid,
+    pub lock_uuid: LockId,
     pub backend: MemoryBackend,
     pub lock_tracker: instance_lock_heartbeat::Tracker,
-    pub executor_shards: HashMap<Uuid, usize>,
-    pub inflight_actions: HashMap<Uuid, usize>,
-    pub inflight_dispatches: HashMap<Uuid, InflightActionDispatch>,
-    pub sleeping_nodes: HashMap<Uuid, SleepRequest>,
-    pub sleeping_by_instance: HashMap<Uuid, HashSet<Uuid>>,
-    pub blocked_until_by_instance: HashMap<Uuid, chrono::DateTime<Utc>>,
+    pub executor_shards: HashMap<InstanceId, usize>,
+    pub inflight_actions: HashMap<InstanceId, usize>,
+    pub inflight_dispatches: HashMap<ExecutionId, InflightActionDispatch>,
+    pub sleeping_nodes: HashMap<ExecutionId, SleepRequest>,
+    pub sleeping_by_instance: HashMap<InstanceId, HashSet<ExecutionId>>,
+    pub blocked_until_by_instance: HashMap<InstanceId, chrono::DateTime<Utc>>,
     pub commit_barrier: CommitBarrier<shard::Step>,
     pub shard_senders: Vec<std_mpsc::Sender<shard::Command>>,
     pub evict_sleep_threshold: NonZeroDuration,
@@ -29,7 +30,7 @@ struct TestHarness {
 
 impl Default for TestHarness {
     fn default() -> Self {
-        let lock_uuid = Uuid::new_v4();
+        let lock_uuid = LockId::new_uuid_v4();
         Self {
             lock_uuid,
             backend: MemoryBackend::new(),
@@ -68,8 +69,8 @@ impl TestHarness {
 
 #[tokio::test]
 async fn evicts_instance_over_threshold_without_inflight_actions() {
-    let instance_id = Uuid::new_v4();
-    let node_id = Uuid::new_v4();
+    let instance_id = InstanceId::new_uuid_v4();
+    let node_id = ExecutionId::new_uuid_v4();
 
     let mut harness = TestHarness::default();
     let (shard_tx, shard_rx) = std_mpsc::channel::<shard::Command>();
@@ -78,7 +79,7 @@ async fn evicts_instance_over_threshold_without_inflight_actions() {
     harness.lock_tracker.insert_all([instance_id]);
     harness.inflight_actions.insert(instance_id, 0);
     harness.inflight_dispatches.insert(
-        Uuid::new_v4(),
+        ExecutionId::new_uuid_v4(),
         InflightActionDispatch {
             executor_id: instance_id,
             attempt_number: 1,
@@ -123,7 +124,7 @@ async fn evicts_instance_over_threshold_without_inflight_actions() {
 
 #[tokio::test]
 async fn does_not_evict_when_inflight_actions_exist() {
-    let instance_id = Uuid::new_v4();
+    let instance_id = InstanceId::new_uuid_v4();
 
     let mut harness = TestHarness::default();
     let (shard_tx, shard_rx) = std_mpsc::channel::<shard::Command>();

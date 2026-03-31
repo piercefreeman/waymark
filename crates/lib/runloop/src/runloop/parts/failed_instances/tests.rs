@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 use waymark_core_backend::InstanceDone;
+use waymark_ids::{ExecutionId, InstanceId};
 use waymark_runner::SleepRequest;
 
 use crate::commit_barrier::CommitBarrier;
@@ -12,12 +13,12 @@ use crate::shard;
 
 struct TestHarness {
     pub lock_tracker: instance_lock_heartbeat::Tracker,
-    pub executor_shards: HashMap<Uuid, usize>,
-    pub inflight_actions: HashMap<Uuid, usize>,
-    pub inflight_dispatches: HashMap<Uuid, InflightActionDispatch>,
-    pub sleeping_nodes: HashMap<Uuid, SleepRequest>,
-    pub sleeping_by_instance: HashMap<Uuid, HashSet<Uuid>>,
-    pub blocked_until: HashMap<Uuid, DateTime<Utc>>,
+    pub executor_shards: HashMap<InstanceId, usize>,
+    pub inflight_actions: HashMap<InstanceId, usize>,
+    pub inflight_dispatches: HashMap<ExecutionId, InflightActionDispatch>,
+    pub sleeping_nodes: HashMap<ExecutionId, SleepRequest>,
+    pub sleeping_by_instance: HashMap<InstanceId, HashSet<ExecutionId>>,
+    pub blocked_until: HashMap<InstanceId, DateTime<Utc>>,
     pub barrier: CommitBarrier<shard::Step>,
     pub instances_done_pending: Vec<InstanceDone>,
 }
@@ -57,9 +58,9 @@ impl TestHarness {
 
 #[test]
 fn cleans_up_all_state() {
-    let executor_id = Uuid::new_v4();
-    let execution_id = Uuid::new_v4();
-    let node_id = Uuid::new_v4();
+    let executor_id = InstanceId::new_uuid_v4();
+    let execution_id = ExecutionId::new_uuid_v4();
+    let node_id = ExecutionId::new_uuid_v4();
 
     let mut harness = TestHarness::default();
     harness.lock_tracker.insert_all([executor_id]);
@@ -91,7 +92,7 @@ fn cleans_up_all_state() {
 
     super::handle(harness.params(vec![InstanceDone {
         executor_id,
-        entry_node: Uuid::new_v4(),
+        entry_node: ExecutionId::new_uuid_v4(),
         result: None,
         error: Some(serde_json::json!({"type": "ExecutionError", "message": "boom"})),
     }]));

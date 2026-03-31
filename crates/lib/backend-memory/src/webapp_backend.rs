@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use chrono::Utc;
 use uuid::Uuid;
 use waymark_backends_core::{BackendError, BackendResult};
+use waymark_ids::InstanceId;
 use waymark_webapp_backend::WebappBackend;
 use waymark_webapp_core::{
     ExecutionGraphView, InstanceDetail, InstanceStatus, InstanceSummary, ScheduleDetail,
@@ -25,7 +26,7 @@ impl WebappBackend for crate::MemoryBackend {
         Ok(Vec::new())
     }
 
-    async fn get_instance(&self, instance_id: Uuid) -> BackendResult<InstanceDetail> {
+    async fn get_instance(&self, instance_id: InstanceId) -> BackendResult<InstanceDetail> {
         Err(BackendError::Message(format!(
             "instance not found: {instance_id}"
         )))
@@ -33,12 +34,15 @@ impl WebappBackend for crate::MemoryBackend {
 
     async fn get_execution_graph(
         &self,
-        _instance_id: Uuid,
+        _instance_id: InstanceId,
     ) -> BackendResult<Option<ExecutionGraphView>> {
         Ok(None)
     }
 
-    async fn requeue_instance_to_latest_version(&self, instance_id: Uuid) -> BackendResult<Uuid> {
+    async fn requeue_instance_to_latest_version(
+        &self,
+        instance_id: InstanceId,
+    ) -> BackendResult<InstanceId> {
         Err(BackendError::Message(format!(
             "requeue is not supported by memory backend for instance: {instance_id}"
         )))
@@ -46,12 +50,15 @@ impl WebappBackend for crate::MemoryBackend {
 
     async fn get_workflow_graph(
         &self,
-        _instance_id: Uuid,
+        _instance_id: InstanceId,
     ) -> BackendResult<Option<ExecutionGraphView>> {
         Ok(None)
     }
 
-    async fn get_action_results(&self, _instance_id: Uuid) -> BackendResult<Vec<TimelineEntry>> {
+    async fn get_action_results(
+        &self,
+        _instance_id: InstanceId,
+    ) -> BackendResult<Vec<TimelineEntry>> {
         Ok(Vec::new())
     }
 

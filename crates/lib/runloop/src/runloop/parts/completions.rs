@@ -4,20 +4,20 @@ mod tests;
 use std::collections::HashMap;
 
 use tracing::{debug, warn};
-use uuid::Uuid;
+use waymark_ids::{ExecutionId, InstanceId};
 use waymark_worker_core::ActionCompletion;
 
 use crate::{commit_barrier::CommitBarrier, runloop::InflightActionDispatch, shard};
 
 pub struct Params<'a> {
     /// Maps each active instance/executor to the shard currently responsible for it.
-    pub executor_shards: &'a mut HashMap<Uuid, usize>,
+    pub executor_shards: &'a mut HashMap<InstanceId, usize>,
     /// Per-shard command channels used to forward accepted completions back to executors.
     pub shard_senders: &'a [std::sync::mpsc::Sender<shard::Command>],
     /// Counts how many action executions are still outstanding for each executor.
-    pub inflight_actions: &'a mut HashMap<Uuid, usize>,
+    pub inflight_actions: &'a mut HashMap<InstanceId, usize>,
     /// Tracks the currently valid dispatch token/attempt for each inflight action execution.
-    pub inflight_dispatches: &'a mut HashMap<Uuid, InflightActionDispatch>,
+    pub inflight_dispatches: &'a mut HashMap<ExecutionId, InflightActionDispatch>,
     /// Defers completions for instances that cannot advance until a persisted batch is acknowledged.
     pub commit_barrier: &'a mut CommitBarrier<shard::Step>,
     /// Worker completions collected during the current coordinator tick.

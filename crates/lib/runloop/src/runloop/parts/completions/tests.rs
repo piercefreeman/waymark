@@ -2,15 +2,16 @@ use std::collections::{HashMap, HashSet};
 use std::sync::mpsc;
 
 use uuid::Uuid;
+use waymark_ids::{ExecutionId, InstanceId};
 
 use crate::commit_barrier::CommitBarrier;
 use crate::runloop::InflightActionDispatch;
 use crate::shard;
 
 struct TestHarness {
-    pub executor_shards: HashMap<Uuid, usize>,
-    pub inflight_actions: HashMap<Uuid, usize>,
-    pub inflight_dispatches: HashMap<Uuid, InflightActionDispatch>,
+    pub executor_shards: HashMap<InstanceId, usize>,
+    pub inflight_actions: HashMap<InstanceId, usize>,
+    pub inflight_dispatches: HashMap<ExecutionId, InflightActionDispatch>,
     pub commit_barrier: CommitBarrier<shard::Step>,
     pub shard_senders: Vec<mpsc::Sender<shard::Command>>,
 }
@@ -45,8 +46,8 @@ impl TestHarness {
 
 #[test]
 fn drops_unknown_execution_id() {
-    let executor_id = Uuid::new_v4();
-    let execution_id = Uuid::new_v4();
+    let executor_id = InstanceId::new_uuid_v4();
+    let execution_id = ExecutionId::new_uuid_v4();
     let dispatch_token = Uuid::new_v4();
     let mut harness = TestHarness::default();
     let (shard_tx, _shard_rx) = mpsc::channel::<shard::Command>();
@@ -71,9 +72,9 @@ fn drops_unknown_execution_id() {
 
 #[test]
 fn drops_mismatched_executor_id() {
-    let executor_id = Uuid::new_v4();
-    let other_executor = Uuid::new_v4();
-    let execution_id = Uuid::new_v4();
+    let executor_id = InstanceId::new_uuid_v4();
+    let other_executor = InstanceId::new_uuid_v4();
+    let execution_id = ExecutionId::new_uuid_v4();
     let dispatch_token = Uuid::new_v4();
     let mut harness = TestHarness::default();
     let (shard_tx, _shard_rx) = mpsc::channel::<shard::Command>();
@@ -107,8 +108,8 @@ fn drops_mismatched_executor_id() {
 
 #[test]
 fn drops_stale_dispatch_token() {
-    let executor_id = Uuid::new_v4();
-    let execution_id = Uuid::new_v4();
+    let executor_id = InstanceId::new_uuid_v4();
+    let execution_id = ExecutionId::new_uuid_v4();
     let dispatch_token = Uuid::new_v4();
     let stale_token = Uuid::new_v4();
     let mut harness = TestHarness::default();
@@ -144,8 +145,8 @@ fn drops_stale_dispatch_token() {
 
 #[test]
 fn drops_stale_attempt_number() {
-    let executor_id = Uuid::new_v4();
-    let execution_id = Uuid::new_v4();
+    let executor_id = InstanceId::new_uuid_v4();
+    let execution_id = ExecutionId::new_uuid_v4();
     let dispatch_token = Uuid::new_v4();
     let mut harness = TestHarness::default();
     let (shard_tx, _shard_rx) = mpsc::channel::<shard::Command>();
@@ -180,8 +181,8 @@ fn drops_stale_attempt_number() {
 
 #[test]
 fn valid_decrements_inflight_and_routes_to_shard() {
-    let executor_id = Uuid::new_v4();
-    let execution_id = Uuid::new_v4();
+    let executor_id = InstanceId::new_uuid_v4();
+    let execution_id = ExecutionId::new_uuid_v4();
     let dispatch_token = Uuid::new_v4();
     let mut harness = TestHarness::default();
     let (shard_tx, shard_rx) = mpsc::channel::<shard::Command>();
@@ -226,8 +227,8 @@ fn valid_decrements_inflight_and_routes_to_shard() {
 
 #[test]
 fn blocked_instance_defers_completion_until_unblock() {
-    let executor_id = Uuid::new_v4();
-    let execution_id = Uuid::new_v4();
+    let executor_id = InstanceId::new_uuid_v4();
+    let execution_id = ExecutionId::new_uuid_v4();
     let dispatch_token = Uuid::new_v4();
     let mut harness = TestHarness::default();
     let (shard_tx, shard_rx) = mpsc::channel::<shard::Command>();
@@ -275,8 +276,8 @@ fn blocked_instance_defers_completion_until_unblock() {
 
 #[test]
 fn accepted_completion_for_unknown_shard_is_dropped_after_accounting() {
-    let executor_id = Uuid::new_v4();
-    let execution_id = Uuid::new_v4();
+    let executor_id = InstanceId::new_uuid_v4();
+    let execution_id = ExecutionId::new_uuid_v4();
     let dispatch_token = Uuid::new_v4();
     let mut harness = TestHarness::default();
     let (shard_tx, shard_rx) = mpsc::channel::<shard::Command>();

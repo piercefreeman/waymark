@@ -8,6 +8,7 @@ edition = "2024"
 waymark-backends-core = { workspace = true }
 waymark-core-backend = { workspace = true }
 waymark-garbage-collector-backend = { workspace = true, optional = true }
+waymark-ids = { workspace = true }
 waymark-scheduler-backend = { workspace = true, optional = true }
 waymark-scheduler-core = { workspace = true }
 waymark-webapp-backend = { workspace = true, optional = true }

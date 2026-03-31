@@ -1,7 +1,6 @@
-use uuid::Uuid;
-
 use waymark_backend_memory::MemoryBackend;
 use waymark_core_backend::{CoreBackend as _, InstanceDone};
+use waymark_ids::{ExecutionId, InstanceId};
 
 use super::find_latest_instance_done;
 
@@ -9,9 +8,9 @@ use super::find_latest_instance_done;
 async fn find_latest_instance_done_returns_most_recent_match() {
     let backend = MemoryBackend::new();
 
-    let target_instance = Uuid::new_v4();
-    let other_instance = Uuid::new_v4();
-    let shared_entry = Uuid::new_v4();
+    let target_instance = InstanceId::new_uuid_v4();
+    let other_instance = InstanceId::new_uuid_v4();
+    let shared_entry = ExecutionId::new_uuid_v4();
 
     let first_target = InstanceDone {
         executor_id: target_instance,
@@ -50,15 +49,15 @@ async fn find_latest_instance_done_returns_none_when_missing() {
 
     backend
         .save_instances_done(&[InstanceDone {
-            executor_id: Uuid::new_v4(),
-            entry_node: Uuid::new_v4(),
+            executor_id: InstanceId::new_uuid_v4(),
+            entry_node: ExecutionId::new_uuid_v4(),
             result: Some(serde_json::json!({"value": "other"})),
             error: None,
         }])
         .await
         .expect("save_instances_done should succeed");
 
-    let missing = find_latest_instance_done(&backend, Uuid::new_v4());
+    let missing = find_latest_instance_done(&backend, InstanceId::new_uuid_v4());
 
     assert!(missing.is_none());
 }

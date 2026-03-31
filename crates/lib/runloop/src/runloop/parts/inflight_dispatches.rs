@@ -4,7 +4,7 @@ mod tests;
 use std::collections::HashMap;
 
 use chrono::Utc;
-use uuid::Uuid;
+use waymark_ids::ExecutionId;
 use waymark_worker_core::ActionCompletion;
 
 use crate::runloop::InflightActionDispatch;
@@ -13,7 +13,7 @@ pub struct Params<'a> {
     /// Completion batch being assembled for the current coordinator tick.
     pub all_completions: &'a mut Vec<ActionCompletion>,
     /// Tracks the currently valid dispatch token, attempt, and deadline for inflight actions.
-    pub inflight_dispatches: &'a HashMap<Uuid, InflightActionDispatch>,
+    pub inflight_dispatches: &'a HashMap<ExecutionId, InflightActionDispatch>,
 }
 
 /// Detects timed-out actions and prepends synthetic timeout completions.
@@ -36,7 +36,7 @@ pub fn handle(params: Params<'_>) {
         return;
     }
 
-    let timed_out_ids: Vec<Uuid> = {
+    let timed_out_ids: Vec<ExecutionId> = {
         let now = Utc::now();
         inflight_dispatches
             .iter()
@@ -80,7 +80,7 @@ pub fn handle(params: Params<'_>) {
 }
 
 fn action_timeout_value(
-    execution_id: Uuid,
+    execution_id: ExecutionId,
     attempt_number: u32,
     timeout_seconds: u32,
 ) -> serde_json::Value {

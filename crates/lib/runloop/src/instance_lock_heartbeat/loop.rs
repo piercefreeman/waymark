@@ -3,8 +3,8 @@ use std::sync::Arc;
 use chrono::{Duration as ChronoDuration, Utc};
 
 use tracing::{debug, info, warn};
-use uuid::Uuid;
 use waymark_core_backend::LockClaim;
+use waymark_ids::LockId;
 use waymark_nonzero_duration::NonZeroDuration;
 
 pub struct Params<CoreBackend>
@@ -15,7 +15,7 @@ where
     pub core_backend: Arc<CoreBackend>,
     pub tracker: super::Tracker,
     pub heartbeat_interval: NonZeroDuration,
-    pub lock_uuid: Uuid,
+    pub lock_uuid: LockId,
     pub lock_ttl: NonZeroDuration,
 }
 

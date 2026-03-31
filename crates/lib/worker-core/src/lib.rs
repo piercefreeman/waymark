@@ -5,12 +5,13 @@ use std::collections::HashMap;
 use nonempty_collections::NEVec;
 use serde_json::Value;
 use uuid::Uuid;
+use waymark_ids::{ExecutionId, InstanceId};
 
 /// Action execution request routed through the worker pool.
 #[derive(Clone, Debug)]
 pub struct ActionRequest {
-    pub executor_id: Uuid,
-    pub execution_id: Uuid,
+    pub executor_id: InstanceId,
+    pub execution_id: ExecutionId,
     pub action_name: String,
     pub module_name: Option<String>,
     pub kwargs: HashMap<String, Value>,
@@ -22,8 +23,8 @@ pub struct ActionRequest {
 /// Completed action result emitted by the worker pool.
 #[derive(Clone, Debug)]
 pub struct ActionCompletion {
-    pub executor_id: Uuid,
-    pub execution_id: Uuid,
+    pub executor_id: InstanceId,
+    pub execution_id: ExecutionId,
     pub attempt_number: u32,
     pub dispatch_token: Uuid,
     pub result: Value,

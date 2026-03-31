@@ -7,6 +7,7 @@ use prost::Message as _;
 use tokio::sync::{Mutex as AsyncMutex, mpsc};
 use uuid::Uuid;
 
+use waymark_ids::{ExecutionId, InstanceId};
 use waymark_proto::messages as proto;
 use waymark_worker_core::{ActionCompletion, ActionRequest, BaseWorkerPool, WorkerPoolError};
 
@@ -18,7 +19,7 @@ pub struct StreamWorkerPool {
 
 #[derive(Clone, Copy)]
 pub struct StreamInflightAction {
-    executor_id: Uuid,
+    executor_id: InstanceId,
     attempt_number: u32,
     dispatch_token: Uuid,
 }
@@ -112,7 +113,7 @@ pub fn action_result_to_completion(
         .lock()
         .ok()
         .and_then(|mut map| map.remove(&action_id))?;
-    let execution_id = Uuid::parse_str(&action_id).ok()?;
+    let execution_id: ExecutionId = action_id.parse().ok()?;
 
     let payload = result
         .payload

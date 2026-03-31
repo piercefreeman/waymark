@@ -11,6 +11,7 @@ waymark-backend-postgres-migrations = { workspace = true }
 waymark-core-backend = { workspace = true }
 waymark-dag = { workspace = true }
 waymark-dag-builder = { workspace = true }
+waymark-ids = { workspace = true }
 waymark-ir-conversions = { workspace = true }
 waymark-message-conversions = { workspace = true }
 waymark-proto = { workspace = true }

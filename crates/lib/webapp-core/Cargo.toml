@@ -5,6 +5,8 @@ publish.workspace = true
 edition = "2024"
 
 [dependencies]
+waymark-ids = { workspace = true }
+
 chrono = { workspace = true, features = ["serde"] }
 serde = { workspace = true, features = ["derive"] }
 uuid = { workspace = true, features = ["serde"] }

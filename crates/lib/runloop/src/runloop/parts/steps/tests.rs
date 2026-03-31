@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use uuid::Uuid;
+use waymark_ids::InstanceId;
 
 use crate::commit_barrier::CommitBarrier;
 use crate::{persist, shard};
@@ -37,7 +37,7 @@ impl TestHarness {
 
 #[tokio::test]
 async fn submit_failure_rolls_back_batch_membership() {
-    let instance_id = Uuid::new_v4();
+    let instance_id = InstanceId::new_uuid_v4();
     let step = shard::Step {
         executor_id: instance_id,
         actions: Vec::new(),

@@ -47,6 +47,7 @@ use uuid::Uuid;
 use waymark_backend_postgres::PostgresBackend;
 use waymark_config::WorkerConfig;
 use waymark_dag_builder::convert_to_dag;
+use waymark_ids::LockId;
 use waymark_nonzero_duration::NonZeroDuration;
 use waymark_proto::ast as ir;
 use waymark_runloop::RunLoopConfig;
@@ -186,7 +187,7 @@ async fn main() -> Result<()> {
     });
 
     // Run the runloop.
-    let lock_uuid = Uuid::new_v4();
+    let lock_uuid = LockId::new_uuid_v4();
     let runloop = waymark_runloop::RunLoop::new_with_shutdown(
         remote_pool.clone(),
         backend.clone(),

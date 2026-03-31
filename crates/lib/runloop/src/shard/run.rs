@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::mpsc as std_mpsc};
 
 use tokio::sync::mpsc;
 use tracing::{debug, warn};
-use uuid::Uuid;
+use waymark_ids::{ExecutionId, InstanceId};
 use waymark_worker_core::ActionCompletion;
 
 use crate::shard;
@@ -36,11 +36,11 @@ pub fn run_executor_shard(
     receiver: std_mpsc::Receiver<shard::Command>,
     sender: mpsc::UnboundedSender<shard::Event>,
 ) {
-    let mut executors: HashMap<Uuid, shard::Executor> = HashMap::new();
+    let mut executors: HashMap<InstanceId, shard::Executor> = HashMap::new();
 
     let send_instance_failed =
-        |executor_id: Uuid,
-         entry_node: Uuid,
+        |executor_id: InstanceId,
+         entry_node: ExecutionId,
          err: Error,
          sender: &mpsc::UnboundedSender<shard::Event>| {
             let _ = sender.send(shard::Event::InstanceFailed {
@@ -122,7 +122,7 @@ pub fn run_executor_shard(
                 }
             }
             shard::Command::ActionCompletions(completions) => {
-                let mut grouped: HashMap<Uuid, Vec<ActionCompletion>> = HashMap::new();
+                let mut grouped: HashMap<InstanceId, Vec<ActionCompletion>> = HashMap::new();
                 for completion in completions {
                     grouped
                         .entry(completion.executor_id)
@@ -163,7 +163,7 @@ pub fn run_executor_shard(
                 }
             }
             shard::Command::Wake(node_ids) => {
-                let mut grouped: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
+                let mut grouped: HashMap<InstanceId, Vec<ExecutionId>> = HashMap::new();
                 for node_id in node_ids {
                     for (executor_id, owner) in &executors {
                         if owner.executor.state().nodes.contains_key(&node_id) {

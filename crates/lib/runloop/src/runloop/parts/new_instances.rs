@@ -9,6 +9,7 @@ use nonempty_collections::NEVec;
 use tracing::{debug, warn};
 use uuid::Uuid;
 use waymark_core_backend::QueuedInstance;
+use waymark_ids::{ExecutionId, InstanceId, LockId};
 use waymark_runner::SleepRequest;
 
 use crate::{
@@ -20,23 +21,23 @@ mod tests;
 
 pub struct Params<'a, WorkflowRegistryBackend: ?Sized> {
     /// Maps each active instance/executor to the shard currently responsible for it.
-    pub executor_shards: &'a mut HashMap<Uuid, usize>,
+    pub executor_shards: &'a mut HashMap<InstanceId, usize>,
     /// Per-shard command channels used to assign hydrated instances to shard workers.
     pub shard_senders: &'a [std::sync::mpsc::Sender<shard::Command>],
     /// Tracks which backend locks this runloop currently believes it owns.
     pub lock_tracker: &'a instance_lock_heartbeat::Tracker,
     /// Lock owner ID for this runloop, used here only for logging purposes.
-    pub lock_uuid: Uuid,
+    pub lock_uuid: LockId,
     /// Counts how many action executions are still outstanding for each executor.
-    pub inflight_actions: &'a mut HashMap<Uuid, usize>,
+    pub inflight_actions: &'a mut HashMap<InstanceId, usize>,
     /// Tracks the currently valid dispatch token/attempt for each inflight action execution.
-    pub inflight_dispatches: &'a mut HashMap<Uuid, InflightActionDispatch>,
+    pub inflight_dispatches: &'a mut HashMap<ExecutionId, InflightActionDispatch>,
     /// Active sleep requests keyed by execution node so reclaimed instances can clear stale sleeps.
-    pub sleeping_nodes: &'a mut HashMap<Uuid, SleepRequest>,
+    pub sleeping_nodes: &'a mut HashMap<ExecutionId, SleepRequest>,
     /// Reverse index of sleeping node IDs by executor for cleanup when instances are reclaimed.
-    pub sleeping_by_instance: &'a mut HashMap<Uuid, HashSet<Uuid>>,
+    pub sleeping_by_instance: &'a mut HashMap<InstanceId, HashSet<ExecutionId>>,
     /// Earliest wake time currently blocking each executor from making progress.
-    pub blocked_until_by_instance: &'a mut HashMap<Uuid, DateTime<Utc>>,
+    pub blocked_until_by_instance: &'a mut HashMap<InstanceId, DateTime<Utc>>,
     /// Tracks deferred instance events so reclaimed instances can discard stale barriers.
     pub commit_barrier: &'a mut CommitBarrier<shard::Step>,
 
@@ -141,7 +142,7 @@ where
             replaced = replaced_instance_ids.len(),
             "replacing active executors for reclaimed queued instances"
         );
-        let replaced_set: HashSet<Uuid> = replaced_instance_ids.iter().copied().collect();
+        let replaced_set: HashSet<InstanceId> = replaced_instance_ids.iter().copied().collect();
         inflight_dispatches.retain(|_, dispatch| !replaced_set.contains(&dispatch.executor_id));
         for instance_id in &replaced_set {
             commit_barrier.remove_instance(*instance_id);

@@ -3,6 +3,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+use waymark_ids::InstanceId;
 
 /// Unique identifier for a schedule.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -105,7 +106,7 @@ pub struct WorkflowSchedule {
     pub status: String,
     pub next_run_at: Option<DateTime<Utc>>,
     pub last_run_at: Option<DateTime<Utc>>,
-    pub last_instance_id: Option<Uuid>,
+    pub last_instance_id: Option<InstanceId>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub priority: i32,

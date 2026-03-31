@@ -10,9 +10,9 @@ use clap::Parser;
 use prost::Message;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use uuid::Uuid;
 use waymark_backend_memory::MemoryBackend;
 use waymark_core_backend::QueuedInstance;
+use waymark_ids::{InstanceId, LockId};
 use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBackend as _};
 
 use waymark_dag_builder::convert_to_dag;
@@ -123,7 +123,7 @@ async fn run_program_smoke(case: &SmokeCase, worker_pool: RemoteWorkerPool) -> R
             instance_done_batch_size: None,
             poll_interval: Some(Duration::from_secs_f64(0.05).try_into().unwrap()),
             persistence_interval: Some(Duration::from_secs_f64(0.1).try_into().unwrap()),
-            lock_uuid: Uuid::new_v4(),
+            lock_uuid: LockId::new_uuid_v4(),
             lock_ttl: Duration::from_secs(15).try_into().unwrap(),
             lock_heartbeat: Duration::from_secs(5).try_into().unwrap(),
             evict_sleep_threshold: Duration::from_secs(10).try_into().unwrap(),
@@ -138,7 +138,7 @@ async fn run_program_smoke(case: &SmokeCase, worker_pool: RemoteWorkerPool) -> R
         entry_node: entry_exec.node_id,
         state: Some(state),
         action_results: HashMap::new(),
-        instance_id: Uuid::new_v4(),
+        instance_id: InstanceId::new_uuid_v4(),
         scheduled_at: None,
     });
     runloop

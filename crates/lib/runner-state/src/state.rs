@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+use waymark_ids::ExecutionId;
 
 use crate::util::is_truthy;
 use crate::value_visitor::{ValueExpr, collect_value_sources, resolve_value_tree};
@@ -41,7 +41,7 @@ pub struct VariableValue {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ActionResultValue {
-    pub node_id: Uuid,
+    pub node_id: ExecutionId,
     pub action_name: String,
     pub iteration_index: Option<i32>,
     pub result_index: Option<i32>,
@@ -192,7 +192,7 @@ impl TryFrom<&str> for ExecutionNodeType {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ExecutionNode {
-    pub node_id: Uuid,
+    pub node_id: ExecutionId,
     pub node_type: String,
     pub label: String,
     pub status: NodeStatus,
@@ -232,7 +232,7 @@ impl ExecutionNode {
 
 #[derive(Clone, Debug, Default)]
 pub struct QueueNodeParams {
-    pub node_id: Option<Uuid>,
+    pub node_id: Option<ExecutionId>,
     pub template_id: Option<String>,
     pub targets: Option<Vec<String>>,
     pub action: Option<ActionCallSpec>,
@@ -242,8 +242,8 @@ pub struct QueueNodeParams {
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ExecutionEdge {
-    pub source: Uuid,
-    pub target: Uuid,
+    pub source: ExecutionId,
+    pub target: ExecutionId,
     pub edge_type: EdgeType,
 }
 
@@ -302,19 +302,19 @@ pub struct ExecutionEdge {
 pub struct RunnerState {
     #[serde(skip, default)]
     pub dag: Option<Arc<DAG>>,
-    pub nodes: HashMap<Uuid, ExecutionNode>,
+    pub nodes: HashMap<ExecutionId, ExecutionNode>,
     pub edges: HashSet<ExecutionEdge>,
-    pub ready_queue: Vec<Uuid>,
-    pub timeline: Vec<Uuid>,
+    pub ready_queue: Vec<ExecutionId>,
+    pub timeline: Vec<ExecutionId>,
     link_queued_nodes: bool,
-    latest_assignments: HashMap<String, Uuid>,
+    latest_assignments: HashMap<String, ExecutionId>,
     graph_dirty: bool,
 }
 
 impl RunnerState {
     pub fn new(
         dag: Option<Arc<DAG>>,
-        nodes: Option<HashMap<Uuid, ExecutionNode>>,
+        nodes: Option<HashMap<ExecutionId, ExecutionNode>>,
         edges: Option<HashSet<ExecutionEdge>>,
         link_queued_nodes: bool,
     ) -> Self {
@@ -340,7 +340,7 @@ impl RunnerState {
     }
 
     /// TODO: make this `pub(crate)` again
-    pub fn latest_assignment(&self, name: &str) -> Option<Uuid> {
+    pub fn latest_assignment(&self, name: &str) -> Option<ExecutionId> {
         self.latest_assignments.get(name).copied()
     }
 
@@ -368,7 +368,7 @@ impl RunnerState {
             .ok_or_else(|| RunnerStateError(format!("template node not found: {template_id}")))?
             .clone();
 
-        let node_id = Uuid::new_v4();
+        let node_id = ExecutionId::new_uuid_v4();
         let node = ExecutionNode {
             node_id,
             node_type: template.node_type().to_string(),
@@ -420,7 +420,7 @@ impl RunnerState {
             value_expr,
             scheduled_at,
         } = params;
-        let node_id = node_id.unwrap_or_else(Uuid::new_v4);
+        let node_id = node_id.unwrap_or_else(ExecutionId::new_uuid_v4);
         let action_attempt = if matches!(node_type_enum, ExecutionNodeType::ActionCall) {
             1
         } else {
@@ -487,7 +487,7 @@ impl RunnerState {
         Ok(result)
     }
 
-    pub fn mark_running(&mut self, node_id: Uuid) -> Result<(), RunnerStateError> {
+    pub fn mark_running(&mut self, node_id: ExecutionId) -> Result<(), RunnerStateError> {
         let is_action = {
             let node = self.get_node_mut(node_id)?;
             node.status = NodeStatus::Running;
@@ -505,7 +505,7 @@ impl RunnerState {
         Ok(())
     }
 
-    pub fn mark_completed(&mut self, node_id: Uuid) -> Result<(), RunnerStateError> {
+    pub fn mark_completed(&mut self, node_id: ExecutionId) -> Result<(), RunnerStateError> {
         let is_action = {
             let node = self.get_node_mut(node_id)?;
             node.status = NodeStatus::Completed;
@@ -523,7 +523,7 @@ impl RunnerState {
         Ok(())
     }
 
-    pub fn mark_failed(&mut self, node_id: Uuid) -> Result<(), RunnerStateError> {
+    pub fn mark_failed(&mut self, node_id: ExecutionId) -> Result<(), RunnerStateError> {
         let is_action = {
             let node = self.get_node_mut(node_id)?;
             node.status = NodeStatus::Failed;
@@ -543,7 +543,7 @@ impl RunnerState {
 
     pub fn set_node_scheduled_at(
         &mut self,
-        node_id: Uuid,
+        node_id: ExecutionId,
         scheduled_at: Option<DateTime<Utc>>,
     ) -> Result<(), RunnerStateError> {
         let node = self.get_node_mut(node_id)?;
@@ -552,7 +552,10 @@ impl RunnerState {
         Ok(())
     }
 
-    pub fn increment_action_attempt(&mut self, node_id: Uuid) -> Result<(), RunnerStateError> {
+    pub fn increment_action_attempt(
+        &mut self,
+        node_id: ExecutionId,
+    ) -> Result<(), RunnerStateError> {
         let node = self.get_node_mut(node_id)?;
         if !node.is_action_call() {
             return Err(RunnerStateError(
@@ -574,7 +577,7 @@ impl RunnerState {
         dirty
     }
 
-    pub fn add_edge(&mut self, source: Uuid, target: Uuid, edge_type: EdgeType) {
+    pub fn add_edge(&mut self, source: ExecutionId, target: ExecutionId, edge_type: EdgeType) {
         self.register_edge(ExecutionEdge {
             source,
             target,
@@ -656,16 +659,16 @@ impl RunnerState {
         }
     }
 
-    fn build_timeline(&self) -> Vec<Uuid> {
+    fn build_timeline(&self) -> Vec<ExecutionId> {
         if self.edges.is_empty() {
             return self.nodes.keys().cloned().collect();
         }
-        let mut adjacency: HashMap<Uuid, Vec<Uuid>> = self
+        let mut adjacency: HashMap<ExecutionId, Vec<ExecutionId>> = self
             .nodes
             .keys()
             .map(|node_id| (*node_id, Vec::new()))
             .collect();
-        let mut in_degree: HashMap<Uuid, usize> =
+        let mut in_degree: HashMap<ExecutionId, usize> =
             self.nodes.keys().map(|node_id| (*node_id, 0)).collect();
         let mut edges: Vec<&ExecutionEdge> = self.edges.iter().collect();
         edges.sort_by_key(|edge| (edge.source, edge.target));
@@ -678,13 +681,13 @@ impl RunnerState {
                 *in_degree.entry(edge.target).or_insert(0) += 1;
             }
         }
-        let mut queue: Vec<Uuid> = in_degree
+        let mut queue: Vec<ExecutionId> = in_degree
             .iter()
             .filter(|(_, degree)| **degree == 0)
             .map(|(node_id, _)| *node_id)
             .collect();
         queue.sort_by_key(|id| id.to_string());
-        let mut order: Vec<Uuid> = Vec::new();
+        let mut order: Vec<ExecutionId> = Vec::new();
         while !queue.is_empty() {
             let node_id = queue.remove(0);
             order.push(node_id);
@@ -702,7 +705,7 @@ impl RunnerState {
                 queue.sort_by_key(|id| id.to_string());
             }
         }
-        let mut remaining: Vec<Uuid> = self
+        let mut remaining: Vec<ExecutionId> = self
             .nodes
             .keys()
             .filter(|node_id| !order.contains(node_id))
@@ -713,7 +716,10 @@ impl RunnerState {
         order
     }
 
-    fn get_node_mut(&mut self, node_id: Uuid) -> Result<&mut ExecutionNode, RunnerStateError> {
+    fn get_node_mut(
+        &mut self,
+        node_id: ExecutionId,
+    ) -> Result<&mut ExecutionNode, RunnerStateError> {
         self.nodes
             .get_mut(&node_id)
             .ok_or_else(|| RunnerStateError(format!("execution node not found: {node_id}")))
@@ -1117,7 +1123,7 @@ impl RunnerState {
     /// TODO: make this `pub(crate)` again
     pub fn mark_latest_assignments(
         &mut self,
-        node_id: Uuid,
+        node_id: ExecutionId,
         assignments: &HashMap<String, ValueExpr>,
     ) {
         for target in assignments.keys() {
@@ -1135,7 +1141,7 @@ impl RunnerState {
     ///   A data-flow edge is added from the values assignment node to the action.
     ///
     /// TODO: make this `pub(crate)` again
-    pub fn record_data_flow_from_value(&mut self, node_id: Uuid, value: &ValueExpr) {
+    pub fn record_data_flow_from_value(&mut self, node_id: ExecutionId, value: &ValueExpr) {
         let source_ids =
             collect_value_sources(value, &|name| self.latest_assignments.get(name).copied());
         self.record_data_flow_edges(node_id, &source_ids);
@@ -1145,7 +1151,7 @@ impl RunnerState {
     ///
     /// Example:
     /// - sources {A, B} and node C produce edges A -> C and B -> C.
-    fn record_data_flow_edges(&mut self, node_id: Uuid, source_ids: &HashSet<Uuid>) {
+    fn record_data_flow_edges(&mut self, node_id: ExecutionId, source_ids: &HashSet<ExecutionId>) {
         for source_id in source_ids {
             if *source_id == node_id {
                 continue;
@@ -1544,7 +1550,7 @@ impl RunnerState {
         &mut self,
         targets: Vec<String>,
         expr: &ir::Expr,
-        node_id: Option<Uuid>,
+        node_id: Option<ExecutionId>,
         label: Option<String>,
     ) -> Result<ExecutionNode, RunnerStateError> {
         let value_expr = self.expr_to_value(expr, None)?;
@@ -1563,10 +1569,10 @@ impl RunnerState {
         &mut self,
         targets: Vec<String>,
         value_expr: ValueExpr,
-        node_id: Option<Uuid>,
+        node_id: Option<ExecutionId>,
         label: Option<String>,
     ) -> Result<ExecutionNode, RunnerStateError> {
-        let exec_node_id = node_id.unwrap_or_else(Uuid::new_v4);
+        let exec_node_id = node_id.unwrap_or_else(ExecutionId::new_uuid_v4);
         let node = self.queue_node(
             "assignment",
             label.as_deref().unwrap_or("assignment"),

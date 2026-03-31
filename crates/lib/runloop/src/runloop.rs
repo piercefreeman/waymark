@@ -22,6 +22,7 @@ use waymark_nonzero_duration::NonZeroDuration;
 use crate::commit_barrier::CommitBarrier;
 use crate::instance_lock_heartbeat;
 use crate::{error_value, persist, queued_instances_polling, shard};
+use waymark_ids::{ExecutionId, InstanceId, LockId};
 
 use waymark_dag::DAG;
 use waymark_observability::obs;
@@ -77,13 +78,13 @@ pub enum Error<CoreBackendPollError> {
 
 #[derive(Clone, Debug)]
 struct SleepWake {
-    executor_id: Uuid,
-    node_id: Uuid,
+    executor_id: InstanceId,
+    node_id: ExecutionId,
 }
 
 #[derive(Clone, Debug)]
 struct InflightActionDispatch {
-    executor_id: Uuid,
+    executor_id: InstanceId,
     attempt_number: u32,
     dispatch_token: Uuid,
     timeout_seconds: u32,
@@ -116,7 +117,7 @@ where
     poll_interval: Option<NonZeroDuration>,
     persistence_interval: Option<NonZeroDuration>,
     shard_count: NonZeroUsize,
-    lock_uuid: Uuid,
+    lock_uuid: LockId,
     lock_ttl: NonZeroDuration,
     lock_heartbeat: NonZeroDuration,
     evict_sleep_threshold: NonZeroDuration,
@@ -132,7 +133,7 @@ pub struct RunLoopConfig {
     pub instance_done_batch_size: Option<NonZeroUsize>,
     pub poll_interval: Option<NonZeroDuration>,
     pub persistence_interval: Option<NonZeroDuration>,
-    pub lock_uuid: Uuid,
+    pub lock_uuid: LockId,
     pub lock_ttl: NonZeroDuration,
     pub lock_heartbeat: NonZeroDuration,
     pub evict_sleep_threshold: NonZeroDuration,
@@ -351,12 +352,12 @@ where
         action_timeout_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
         let mut next_shard = 0usize;
-        let mut executor_shards: HashMap<Uuid, usize> = HashMap::new();
-        let mut inflight_actions: HashMap<Uuid, usize> = HashMap::new();
-        let mut inflight_dispatches: HashMap<Uuid, InflightActionDispatch> = HashMap::new();
-        let mut sleeping_nodes: HashMap<Uuid, SleepRequest> = HashMap::new();
-        let mut sleeping_by_instance: HashMap<Uuid, HashSet<Uuid>> = HashMap::new();
-        let mut blocked_until_by_instance: HashMap<Uuid, DateTime<Utc>> = HashMap::new();
+        let mut executor_shards: HashMap<InstanceId, usize> = HashMap::new();
+        let mut inflight_actions: HashMap<InstanceId, usize> = HashMap::new();
+        let mut inflight_dispatches: HashMap<ExecutionId, InflightActionDispatch> = HashMap::new();
+        let mut sleeping_nodes: HashMap<ExecutionId, SleepRequest> = HashMap::new();
+        let mut sleeping_by_instance: HashMap<InstanceId, HashSet<ExecutionId>> = HashMap::new();
+        let mut blocked_until_by_instance: HashMap<InstanceId, DateTime<Utc>> = HashMap::new();
         let mut commit_barrier: CommitBarrier<shard::Step> = CommitBarrier::new();
         let mut instances_idle = false;
         let mut instances_done_pending: Vec<InstanceDone> = Vec::new();

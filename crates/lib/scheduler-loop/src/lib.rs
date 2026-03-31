@@ -10,6 +10,7 @@ use serde_json::Value;
 use tracing::{debug, error, info};
 use uuid::Uuid;
 use waymark_core_backend::QueuedInstance;
+use waymark_ids::InstanceId;
 use waymark_ir_conversions::literal_from_json_value;
 use waymark_proto::messages as proto;
 use waymark_scheduler_config::SchedulerConfig;
@@ -159,7 +160,7 @@ where
             .map_err(|err| err.0)?;
 
         // Create a queued instance
-        let instance_id = Uuid::new_v4();
+        let instance_id = InstanceId::new_uuid_v4();
         let queued = QueuedInstance {
             workflow_version_id: workflow.version_id,
             schedule_id: Some(schedule.id),
@@ -200,6 +201,7 @@ mod tests {
     use serde_json::Value;
     use waymark_backend_memory::MemoryBackend;
     use waymark_core_backend::{CoreBackend, LockClaim};
+    use waymark_ids::LockId;
     use waymark_scheduler_backend::SchedulerBackend;
     use waymark_scheduler_config::SchedulerConfig;
     use waymark_scheduler_core::{CreateScheduleParams, ScheduleType};
@@ -284,7 +286,7 @@ fn main(input: [number], output: [result]):
             .expect("fire schedule");
 
         let claim = LockClaim {
-            lock_uuid: Uuid::new_v4(),
+            lock_uuid: LockId::new_uuid_v4(),
             lock_expires_at: Utc::now() + ChronoDuration::seconds(30),
         };
         let instances = CoreBackend::poll_queued_instances(

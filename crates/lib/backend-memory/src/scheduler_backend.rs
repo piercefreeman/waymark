@@ -1,6 +1,6 @@
 use chrono::Utc;
-use uuid::Uuid;
 use waymark_backends_core::{BackendError, BackendResult};
+use waymark_ids::InstanceId;
 use waymark_scheduler_backend::SchedulerBackend;
 use waymark_scheduler_core::{
     CreateScheduleParams, ScheduleId, ScheduleType, WorkflowSchedule, compute_next_run,
@@ -163,7 +163,7 @@ impl SchedulerBackend for crate::MemoryBackend {
     async fn mark_schedule_executed(
         &self,
         schedule_id: ScheduleId,
-        instance_id: Uuid,
+        instance_id: InstanceId,
     ) -> BackendResult<()> {
         let mut guard = self.schedules.lock().expect("schedules poisoned");
         let schedule = guard

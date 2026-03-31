@@ -8,6 +8,7 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 use waymark_backend_memory::MemoryBackend;
 use waymark_core_backend::QueuedInstance;
+use waymark_ids::{ExecutionId, InstanceId, LockId};
 use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBackend};
 
 use crate::commit_barrier::CommitBarrier;
@@ -18,14 +19,14 @@ use crate::shard;
 struct TestHarness {
     pub backend: MemoryBackend,
     pub lock_tracker: instance_lock_heartbeat::Tracker,
-    pub lock_uuid: Uuid,
-    pub executor_shards: HashMap<Uuid, usize>,
+    pub lock_uuid: LockId,
+    pub executor_shards: HashMap<InstanceId, usize>,
     pub shard_senders: Vec<std_mpsc::Sender<shard::Command>>,
-    pub inflight_actions: HashMap<Uuid, usize>,
-    pub inflight_dispatches: HashMap<Uuid, InflightActionDispatch>,
-    pub sleeping_nodes: HashMap<Uuid, waymark_runner::SleepRequest>,
-    pub sleeping_by_instance: HashMap<Uuid, HashSet<Uuid>>,
-    pub blocked_until_by_instance: HashMap<Uuid, chrono::DateTime<chrono::Utc>>,
+    pub inflight_actions: HashMap<InstanceId, usize>,
+    pub inflight_dispatches: HashMap<ExecutionId, InflightActionDispatch>,
+    pub sleeping_nodes: HashMap<ExecutionId, waymark_runner::SleepRequest>,
+    pub sleeping_by_instance: HashMap<InstanceId, HashSet<ExecutionId>>,
+    pub blocked_until_by_instance: HashMap<InstanceId, chrono::DateTime<chrono::Utc>>,
     pub commit_barrier: CommitBarrier<shard::Step>,
     pub workflow_cache: HashMap<Uuid, Arc<waymark_dag::DAG>>,
     pub next_shard: usize,
@@ -35,7 +36,7 @@ impl Default for TestHarness {
     fn default() -> Self {
         Self {
             backend: MemoryBackend::new(),
-            lock_uuid: Uuid::new_v4(),
+            lock_uuid: LockId::new_uuid_v4(),
             lock_tracker: instance_lock_heartbeat::Tracker::default(),
             executor_shards: HashMap::new(),
             shard_senders: Vec::new(),
@@ -100,9 +101,9 @@ fn main(input: [x], output: [y]):
         .await
         .expect("register workflow version");
 
-    let instance_id = Uuid::new_v4();
-    let other_instance_id = Uuid::new_v4();
-    let stale_node = Uuid::new_v4();
+    let instance_id = InstanceId::new_uuid_v4();
+    let other_instance_id = InstanceId::new_uuid_v4();
+    let stale_node = ExecutionId::new_uuid_v4();
 
     let (shard_tx0, shard_rx0) = std_mpsc::channel::<shard::Command>();
     let (shard_tx1, _shard_rx1) = std_mpsc::channel::<shard::Command>();
@@ -111,7 +112,7 @@ fn main(input: [x], output: [y]):
     harness.inflight_actions = HashMap::from([(instance_id, 3usize)]);
     harness.inflight_dispatches = HashMap::from([
         (
-            Uuid::new_v4(),
+            ExecutionId::new_uuid_v4(),
             InflightActionDispatch {
                 executor_id: instance_id,
                 attempt_number: 1,
@@ -121,7 +122,7 @@ fn main(input: [x], output: [y]):
             },
         ),
         (
-            Uuid::new_v4(),
+            ExecutionId::new_uuid_v4(),
             InflightActionDispatch {
                 executor_id: other_instance_id,
                 attempt_number: 1,
@@ -151,7 +152,7 @@ fn main(input: [x], output: [y]):
         workflow_version_id,
         schedule_id: None,
         dag: None,
-        entry_node: Uuid::new_v4(),
+        entry_node: ExecutionId::new_uuid_v4(),
         state: None,
         action_results: HashMap::new(),
         instance_id,

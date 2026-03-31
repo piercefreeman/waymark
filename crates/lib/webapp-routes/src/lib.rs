@@ -14,6 +14,7 @@ use serde::Serialize;
 use tera::{Context as TeraContext, Tera};
 use tracing::error;
 use uuid::Uuid;
+use waymark_ids::InstanceId;
 use waymark_webapp_core::WorkerStatus;
 use waymark_webapp_core::{
     ActionLogsResponse, FilterValuesResponse, HealthResponse, InstanceExportInfo, TimelineEntry,
@@ -181,7 +182,7 @@ where
 
 async fn instance_detail<WebappBackend>(
     State(state): State<WebappState<WebappBackend>>,
-    Path(instance_id): Path<Uuid>,
+    Path(instance_id): Path<InstanceId>,
 ) -> impl IntoResponse
 where
     WebappBackend: ?Sized,
@@ -222,7 +223,7 @@ struct RunDataQuery {
 
 async fn get_run_data<WebappBackend>(
     State(state): State<WebappState<WebappBackend>>,
-    Path(instance_id): Path<Uuid>,
+    Path(instance_id): Path<InstanceId>,
     axum::extract::Query(query): axum::extract::Query<RunDataQuery>,
 ) -> Result<Json<WorkflowRunDataResponse>, HttpError>
 where
@@ -286,7 +287,7 @@ where
 
 async fn get_action_logs<WebappBackend>(
     State(state): State<WebappState<WebappBackend>>,
-    Path((instance_id, action_id)): Path<(Uuid, Uuid)>,
+    Path((instance_id, action_id)): Path<(InstanceId, Uuid)>,
 ) -> Result<Json<ActionLogsResponse>, HttpError>
 where
     WebappBackend: ?Sized,
@@ -334,7 +335,7 @@ where
 
 async fn export_instance<WebappBackend>(
     State(state): State<WebappState<WebappBackend>>,
-    Path(instance_id): Path<Uuid>,
+    Path(instance_id): Path<InstanceId>,
 ) -> Result<Json<WorkflowInstanceExport>, HttpError>
 where
     WebappBackend: ?Sized,
@@ -392,7 +393,7 @@ struct RequeueInstanceResponse {
 
 async fn requeue_instance<WebappBackend>(
     State(state): State<WebappState<WebappBackend>>,
-    Path(instance_id): Path<Uuid>,
+    Path(instance_id): Path<InstanceId>,
 ) -> Result<Json<RequeueInstanceResponse>, HttpError>
 where
     WebappBackend: ?Sized,

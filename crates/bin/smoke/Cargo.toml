@@ -9,6 +9,7 @@ waymark-backend-memory = { workspace = true }
 waymark-core-backend = { workspace = true }
 waymark-dag-builder = { workspace = true }
 waymark-dag-viz = { workspace = true }
+waymark-ids = { workspace = true }
 waymark-ir-conversions = { workspace = true }
 waymark-ir-format = { workspace = true }
 waymark-proto = { workspace = true, features = ["serde", "client", "server"] }
@@ -24,4 +25,3 @@ prost = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
-uuid = { workspace = true }

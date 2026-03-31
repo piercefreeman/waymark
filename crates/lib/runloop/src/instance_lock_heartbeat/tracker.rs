@@ -3,17 +3,17 @@
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
-use uuid::Uuid;
+use waymark_ids::InstanceId;
 
 #[derive(Clone, Default)]
 pub struct Tracker {
-    owned: Arc<Mutex<HashSet<Uuid>>>,
+    owned: Arc<Mutex<HashSet<InstanceId>>>,
 }
 
 impl Tracker {
     pub fn insert_all<I>(&self, ids: I)
     where
-        I: IntoIterator<Item = Uuid>,
+        I: IntoIterator<Item = InstanceId>,
     {
         let mut guard = self.owned.lock().expect("lock tracker poisoned");
         for id in ids {
@@ -23,7 +23,7 @@ impl Tracker {
 
     pub fn remove_all<I>(&self, ids: I)
     where
-        I: IntoIterator<Item = Uuid>,
+        I: IntoIterator<Item = InstanceId>,
     {
         let mut guard = self.owned.lock().expect("lock tracker poisoned");
         for id in ids {
@@ -31,7 +31,7 @@ impl Tracker {
         }
     }
 
-    pub fn snapshot(&self) -> Vec<Uuid> {
+    pub fn snapshot(&self) -> Vec<InstanceId> {
         let owned = self.owned.lock().expect("lock tracker poisoned");
         owned.iter().copied().collect()
     }
