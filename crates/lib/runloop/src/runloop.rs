@@ -399,7 +399,7 @@ where
                     break 'runloop Ok(());
                 }
                 Some(completions) = completion_rx.recv() => {
-                    let completions = completions.into_inner_measured("completions");
+                    let completions = completions.into_inner_measured_multi(&["completions",  "completions_both"]);
                     CoordinatorEvent::Completions(completions)
                 }
                 Some(message) = instance_rx.recv() => {
@@ -409,7 +409,7 @@ where
                     CoordinatorEvent::SleepWake(wake)
                 }
                 Some(event) = event_rx.recv() => {
-                    let event = event.into_inner_measured("shard_event");
+                    let event = event.into_inner_measured_multi(&["shard_event", "shard_event_both"]);
                     CoordinatorEvent::Shard(event)
                 }
                 Some(ack) = persist_ack_rx.recv() => {
@@ -519,7 +519,8 @@ where
             }
 
             while let Ok(completions) = completion_rx.try_recv() {
-                let completions = completions.into_inner_measured("completions_try");
+                let completions =
+                    completions.into_inner_measured_multi(&["completions_try", "completions_both"]);
                 metrics::counter!("waymark_runloop_polled_completions_total", "where" => "batch")
                     .increment(completions.len() as _);
                 all_completions.extend(completions);
@@ -542,7 +543,8 @@ where
             }
 
             while let Ok(event) = event_rx.try_recv() {
-                let event = event.into_inner_measured("shard_event_try");
+                let event =
+                    event.into_inner_measured_multi(&["shard_event_try", "shard_event_both"]);
                 match event {
                     shard::Event::Step(step) => {
                         metrics::counter!("waymark_runloop_shard_steps_total", "where" => "batch")
