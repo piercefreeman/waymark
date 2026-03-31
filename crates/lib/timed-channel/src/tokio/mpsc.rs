@@ -28,16 +28,11 @@ impl<T> Sender<T> {
 
 impl<T, What: crate::What> Receiver<T, What> {
     pub async fn recv(&mut self) -> Option<T> {
-        self.channel
-            .recv()
-            .await
-            .map(|item| waymark_timed::Opaque::into_inner_measured(item, What::description()))
+        self.channel.recv().await.map(Self::measure_opaque_item)
     }
 
     pub fn try_recv(&mut self) -> Result<T, tokio::sync::mpsc::error::TryRecvError> {
-        self.channel
-            .try_recv()
-            .map(|item| waymark_timed::Opaque::into_inner_measured(item, What::description()))
+        self.channel.try_recv().map(Self::measure_opaque_item)
     }
 }
 
@@ -54,15 +49,10 @@ impl<T> UnboundedSender<T> {
 
 impl<T, What: crate::What> UnboundedReceiver<T, What> {
     pub async fn recv(&mut self) -> Option<T> {
-        self.channel
-            .recv()
-            .await
-            .map(|item| waymark_timed::Opaque::into_inner_measured(item, What::description()))
+        self.channel.recv().await.map(Self::measure_opaque_item)
     }
 
     pub fn try_recv(&mut self) -> Result<T, tokio::sync::mpsc::error::TryRecvError> {
-        self.channel
-            .try_recv()
-            .map(|item| waymark_timed::Opaque::into_inner_measured(item, What::description()))
+        self.channel.try_recv().map(Self::measure_opaque_item)
     }
 }

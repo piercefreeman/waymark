@@ -20,8 +20,6 @@ impl<T> Sender<T> {
 
 impl<T, What: crate::What> Receiver<T, What> {
     pub fn recv(&self) -> Result<T, std::sync::mpsc::RecvError> {
-        self.channel
-            .recv()
-            .map(|item| waymark_timed::Opaque::into_inner_measured(item, What::description()))
+        self.channel.recv().map(Self::measure_opaque_item)
     }
 }
