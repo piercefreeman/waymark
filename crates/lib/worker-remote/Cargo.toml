@@ -13,6 +13,7 @@ waymark-worker-status-core = { workspace = true }
 
 anyhow = { workspace = true }                           # TODO: drop
 futures-core = { workspace = true }
+metrics = { workspace = true }
 nonempty-collections = { workspace = true }
 prost = { workspace = true }
 serde_json = { workspace = true }

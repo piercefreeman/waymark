@@ -4546,6 +4546,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "futures-core",
+ "metrics",
  "nonempty-collections",
  "prost 0.12.6",
  "serde_json",
