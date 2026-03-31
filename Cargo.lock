@@ -4650,6 +4650,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "envfury",
+ "metrics",
  "prost 0.12.6",
  "sqlx",
  "thiserror",
