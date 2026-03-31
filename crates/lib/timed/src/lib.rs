@@ -40,6 +40,10 @@ impl<T> Opaque<T> {
         Transparent::created_at(&self.0)
     }
 
+    pub fn into_inner_measured_with(self, f: impl FnOnce(std::time::Duration)) -> T {
+        Transparent::into_inner_measured_with(self.0, f)
+    }
+
     #[cfg(feature = "metrics")]
     pub fn into_inner_measured(self, what: &'static str) -> T {
         Transparent::into_inner_measured(self.0, what)
@@ -79,6 +83,12 @@ impl<T> Transparent<T> {
         value.created_at
     }
 
+    pub fn into_inner_measured_with(value: Self, f: impl FnOnce(std::time::Duration)) -> T {
+        let elapsed = Self::since_creation(&value);
+        f(elapsed);
+        Self::into_inner(value)
+    }
+
     #[cfg(feature = "metrics")]
     pub fn into_inner_measured(value: Self, what: &'static str) -> T {
         Self::into_inner_measured_multi(value, &[what])
@@ -86,13 +96,11 @@ impl<T> Transparent<T> {
 
     #[cfg(feature = "metrics")]
     pub fn into_inner_measured_multi(value: Self, what: &[&'static str]) -> T {
-        let elapsed = Self::since_creation(&value);
-
-        for what in what {
-            metrics::histogram!("waymark_timed_seconds", "what" => *what).record(elapsed);
-        }
-
-        Self::into_inner(value)
+        Self::into_inner_measured_with(value, |elapsed| {
+            for what in what {
+                metrics::histogram!("waymark_timed_seconds", "what" => *what).record(elapsed);
+            }
+        })
     }
 }
 
