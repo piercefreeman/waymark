@@ -44,6 +44,11 @@ impl<T> Opaque<T> {
     pub fn into_inner_measured(self, what: &'static str) -> T {
         Transparent::into_inner_measured(self.0, what)
     }
+
+    #[cfg(feature = "metrics")]
+    pub fn into_inner_measured_multi(self, what: &[&'static str]) -> T {
+        Transparent::into_inner_measured_multi(self.0, what)
+    }
 }
 
 impl<T> Transparent<T> {
@@ -76,8 +81,17 @@ impl<T> Transparent<T> {
 
     #[cfg(feature = "metrics")]
     pub fn into_inner_measured(value: Self, what: &'static str) -> T {
+        Self::into_inner_measured_multi(value, &[what])
+    }
+
+    #[cfg(feature = "metrics")]
+    pub fn into_inner_measured_multi(value: Self, what: &[&'static str]) -> T {
         let elapsed = Self::since_creation(&value);
-        metrics::histogram!("waymark_timed_seconds", "what" => what).record(elapsed);
+
+        for what in what {
+            metrics::histogram!("waymark_timed_seconds", "what" => *what).record(elapsed);
+        }
+
         Self::into_inner(value)
     }
 }
