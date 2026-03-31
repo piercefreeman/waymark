@@ -23,6 +23,7 @@ waymark-worker-status-reporter = { workspace = true }
 
 anyhow = { workspace = true }
 envfury = { workspace = true }
+metrics = { workspace = true }
 prost = { workspace = true }
 sqlx = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal"] }
