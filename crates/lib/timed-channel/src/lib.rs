@@ -117,3 +117,9 @@ impl<C, What> Rx<C, What> {
         }
     }
 }
+
+impl<C, What: self::What> Rx<C, What> {
+    fn measure_opaque_item<T>(item: waymark_timed::Opaque<T>) -> T {
+        waymark_timed::Opaque::into_inner_measured(item, What::description())
+    }
+}
