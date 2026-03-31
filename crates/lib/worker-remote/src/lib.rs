@@ -1167,12 +1167,15 @@ async fn execute_remote_request(
         };
     };
 
+    let before = std::time::Instant::now();
     let worker_idx = loop {
         if let Some(idx) = pool.try_acquire_slot() {
             break idx;
         }
         tokio::time::sleep(Duration::from_millis(5)).await;
     };
+    metrics::histogram!("waymark_worker_remote_execute_remote_request_worker_wait_seconds")
+        .record(before.elapsed());
 
     let worker = pool.get_worker(worker_idx).await;
     let dispatch = ActionDispatchPayload {
