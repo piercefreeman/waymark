@@ -1189,7 +1189,11 @@ async fn execute_remote_request(
         dispatch_token,
     };
 
-    match worker.send_action(dispatch).await {
+    let before = std::time::Instant::now();
+    let result = worker.send_action(dispatch).await;
+    metrics::histogram!("waymark_worker_remote_send_action_seconds").record(before.elapsed());
+
+    match result {
         Ok(metrics) => {
             pool.record_latency(metrics.ack_latency, metrics.worker_duration);
             pool.record_completion(worker_idx, Arc::clone(&pool));
@@ -1336,7 +1340,13 @@ impl BaseWorkerPool for RemoteWorkerPool {
                 let completion_tx = completion_tx.clone();
                 let pool = Arc::clone(&pool);
                 tokio::spawn(async move {
+                    let before = std::time::Instant::now();
+
                     let completion = execute_remote_request(pool, request).await;
+
+                    metrics::histogram!("waymark_worker_remote_execute_remote_request_seconds")
+                        .record(before.elapsed());
+
                     let _ = completion_tx.send(completion).await;
                 });
             }
