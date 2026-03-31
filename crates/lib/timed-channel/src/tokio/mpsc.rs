@@ -33,6 +33,12 @@ impl<T, What: crate::What> Receiver<T, What> {
             .await
             .map(|item| waymark_timed::Opaque::into_inner_measured(item, What::description()))
     }
+
+    pub fn try_recv(&mut self) -> Result<T, tokio::sync::mpsc::error::TryRecvError> {
+        self.channel
+            .try_recv()
+            .map(|item| waymark_timed::Opaque::into_inner_measured(item, What::description()))
+    }
 }
 
 impl<T> UnboundedSender<T> {
