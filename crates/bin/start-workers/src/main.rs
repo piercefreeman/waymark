@@ -65,7 +65,10 @@ async fn main() -> Result<()> {
     // Load configuration and announce startup.
     let config = WorkerConfig::from_env()?;
 
-    tracing::debug!(target: "raw-config", ?config, "raw config");
+    // Prepare a new Lock ID to use in the runloop.
+    let lock_uuid = LockId::new_uuid_v4();
+
+    tracing::debug!(target: "raw-config", ?config, %lock_uuid, "raw config");
 
     info!(
         worker_count = config.worker_count,
@@ -81,6 +84,7 @@ async fn main() -> Result<()> {
         garbage_collector_batch_size = config.garbage_collector.batch_size,
         garbage_collector_retention_secs = config.garbage_collector.retention.as_secs(),
         max_action_lifecycle = ?config.max_action_lifecycle,
+        %lock_uuid,
         "starting worker infrastructure"
     );
 
@@ -113,6 +117,8 @@ async fn main() -> Result<()> {
         "persistence_interval_seconds" => config.persistence_interval.map(|val| val.as_secs_f64().to_string()).unwrap_or("no".into()),
 
         "profile_interval_seconds" => config.profile_interval.as_secs_f64().to_string(),
+
+        "lock_uuid" => lock_uuid.to_string(),
     )
     .set(1);
 
@@ -219,7 +225,6 @@ async fn main() -> Result<()> {
     });
 
     // Run the runloop.
-    let lock_uuid = LockId::new_uuid_v4();
     let runloop = waymark_runloop::RunLoop::new_with_shutdown(
         remote_pool.clone(),
         backend.clone(),
