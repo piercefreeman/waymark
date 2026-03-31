@@ -81,7 +81,7 @@ impl WorkerConfig {
         let scheduler = {
             let FromMillis(poll_interval) =
                 envfury::or_parse("WAYMARK_SCHEDULER_POLL_INTERVAL_MS", "1000")?;
-            let batch_size = envfury::or_parse("WAYMARK_SCHEDULER_POLL_INTERVAL_MS", "100")?;
+            let batch_size = envfury::or_parse("WAYMARK_SCHEDULER_BATCH_SIZE", "100")?;
 
             SchedulerConfig {
                 poll_interval,
