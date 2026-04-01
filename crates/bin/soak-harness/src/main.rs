@@ -40,6 +40,11 @@ async fn main() -> Result<()> {
     fs::create_dir_all(&run_dir)
         .with_context(|| format!("create run directory {}", run_dir.display()))?;
 
+    // Create a convenience symlink pointing to this run directory at
+    // the `diagnostic_dir`; the goal is to allow repeating
+    // the same `cat`/`tail` command for reading the latest-run logs.
+    symlink_last(&args.diagnostic_dir, &run_id)?;
+
     info!(run_dir = %run_dir.display(), "starting soak harness");
     info!(?args, "soak harness config");
 
@@ -148,6 +153,29 @@ async fn main() -> Result<()> {
             "soak harness detected an issue; see {}",
             diagnostics_path.display()
         );
+    }
+
+    Ok(())
+}
+
+/// Creates a `last` symlink that points to the current run directory adjacent
+/// to it.
+fn symlink_last(diagnostic_dir: &std::path::Path, run_id: &str) -> Result<()> {
+    symlink_if_possible(std::path::Path::new(run_id), diagnostic_dir.join("last"))?;
+    Ok(())
+}
+
+/// Creates a new or atomically replaces an existing symlink if the OS supports
+/// it; if it doesn't - do nothing.
+fn symlink_if_possible(
+    target: impl AsRef<std::path::Path>,
+    link: impl AsRef<std::path::Path>,
+) -> Result<()> {
+    #[cfg(unix)]
+    {
+        let new_link = link.as_ref().with_added_extension("new");
+        std::os::unix::fs::symlink(target, &new_link)?;
+        fs::rename(new_link, link)?;
     }
 
     Ok(())
