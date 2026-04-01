@@ -60,9 +60,7 @@ pub async fn start_workers(args: &crate::cli::SoakArgs, run_dir: &Path) -> Resul
     );
     cmd.env("WAYMARK_WEBAPP_ENABLED", webapp_enabled.to_string());
     cmd.env("WAYMARK_WEBAPP_ADDR", &args.webapp_addr);
-    if std::env::var_os("RUST_LOG").is_none() {
-        cmd.env("RUST_LOG", "waymark=info,start_workers=info");
-    }
+
     cmd.stdout(Stdio::from(log_file));
     cmd.stderr(Stdio::from(log_file_err));
 
