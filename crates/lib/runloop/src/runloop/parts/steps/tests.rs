@@ -7,14 +7,14 @@ use crate::{persist, shard};
 
 struct TestHarness {
     pub shutdown: tokio_util::sync::CancellationToken,
-    pub persist_tx: tokio::sync::mpsc::Sender<persist::Command>,
+    pub persist_tx: waymark_timed_channel::tokio::mpsc::Sender<persist::Command>,
     pub commit_barrier: CommitBarrier<shard::Step>,
 }
 
 impl Default for TestHarness {
     fn default() -> Self {
         let shutdown = tokio_util::sync::CancellationToken::new();
-        let (persist_tx, persist_rx) = tokio::sync::mpsc::channel(1);
+        let (persist_tx, persist_rx) = waymark_timed_channel::tokio::sync::mpsc::channel(1);
         drop(persist_rx);
         Self {
             shutdown,

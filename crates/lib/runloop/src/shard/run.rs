@@ -1,6 +1,5 @@
-use std::{collections::HashMap, sync::mpsc as std_mpsc};
+use std::collections::HashMap;
 
-use tokio::sync::mpsc;
 use tracing::{debug, warn};
 use waymark_ids::{ExecutionId, InstanceId};
 use waymark_worker_core::ActionCompletion;
@@ -31,10 +30,13 @@ pub enum Error {
     Wake(super::executor::HandleWakeError),
 }
 
+waymark_timed_channel::named_what!(CommandDesc, "shard_command");
+waymark_timed_channel::named_what!(EventDesc, "shard_event");
+
 pub fn run_executor_shard(
     shard_id: usize,
-    receiver: std_mpsc::Receiver<shard::Command>,
-    sender: mpsc::UnboundedSender<shard::Event>,
+    receiver: waymark_timed_channel::std::mpsc::Receiver<shard::Command, CommandDesc>,
+    sender: waymark_timed_channel::tokio::mpsc::UnboundedSender<shard::Event>,
 ) {
     let mut executors: HashMap<InstanceId, shard::Executor> = HashMap::new();
 
@@ -42,7 +44,7 @@ pub fn run_executor_shard(
         |executor_id: InstanceId,
          entry_node: ExecutionId,
          err: Error,
-         sender: &mpsc::UnboundedSender<shard::Event>| {
+         sender: &waymark_timed_channel::tokio::mpsc::UnboundedSender<shard::Event>| {
             let _ = sender.send(shard::Event::InstanceFailed {
                 executor_id,
                 entry_node,

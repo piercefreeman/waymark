@@ -5,7 +5,6 @@ use std::num::NonZeroUsize;
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
-    mpsc as std_mpsc,
 };
 use std::thread;
 use std::time::Duration;
@@ -242,18 +241,25 @@ where
     ) -> Result<(), Error<queued_instances_polling::r#loop::BackendErrorFor<CoreBackend>>> {
         self.worker_pool.launch().await.map_err(Error::WorkerPool)?;
 
-        let (event_tx, mut event_rx) = mpsc::unbounded_channel::<shard::Event>();
-        let mut shard_senders: Vec<std_mpsc::Sender<shard::Command>> =
+        let (event_tx, mut event_rx) =
+            waymark_timed_channel::tokio::mpsc::unbounded_channel::<shard::Event>();
+        let mut shard_senders: Vec<waymark_timed_channel::std::mpsc::Sender<shard::Command>> =
             Vec::with_capacity(self.shard_count.get());
         let mut shard_handles = Vec::with_capacity(self.shard_count.get());
 
         for shard_id in 0..self.shard_count.get() {
-            let (cmd_tx, cmd_rx) = std_mpsc::channel();
+            let (cmd_tx, cmd_rx) = waymark_timed_channel::std::mpsc::channel::<shard::Command>();
             let event_tx = event_tx.clone();
             let handle = thread::Builder::new()
                 .name(format!("waymark-executor-{shard_id}"))
                 .stack_size(128 * 1024 * 1024 /* 128 MB */)
-                .spawn(move || shard::run_executor_shard(shard_id, cmd_rx, event_tx))
+                .spawn(move || {
+                    shard::run_executor_shard(
+                        shard_id,
+                        cmd_rx.tag::<shard::CommandDesc>(),
+                        event_tx,
+                    )
+                })
                 .map_err(|err| {
                     Error::Message(format!("failed to spawn executor shard {shard_id}: {err}"))
                 })?;
@@ -266,7 +272,8 @@ where
             .update(0)
             .map_err(Error::AvailableInstanceSlotsUpdate)?;
 
-        let (completion_tx, mut completion_rx) = mpsc::channel::<Vec<ActionCompletion>>(32);
+        let (completion_tx, mut completion_rx) =
+            waymark_timed_channel::tokio::mpsc::channel::<Vec<ActionCompletion>>(32);
         let (instance_tx, mut instance_rx) = mpsc::channel::<
             queued_instances_polling::Message<
                 queued_instances_polling::r#loop::BackendErrorFor<CoreBackend>,
@@ -325,10 +332,13 @@ where
         });
 
         // TODO: move this initialization out of the runloop
-        let (persist_tx, persist_rx) = mpsc::channel::<persist::Command>(64);
-        let (persist_ack_tx, mut persist_ack_rx) = mpsc::unbounded_channel::<persist::Ack>();
+        let (persist_tx, persist_rx) =
+            waymark_timed_channel::tokio::mpsc::channel::<persist::Command>(64);
+        let (persist_ack_tx, persist_ack_rx) =
+            waymark_timed_channel::tokio::mpsc::unbounded_channel::<persist::Ack>();
+        let mut persist_ack_rx = persist_ack_rx.tag::<persist::r#loop::AckDesc>();
         let persist_handle = tokio::spawn(persist::r#loop::run(persist::r#loop::Params {
-            command_rx: persist_rx,
+            command_rx: persist_rx.tag::<persist::r#loop::CommandDesc>(),
             ack_tx: persist_ack_tx,
             core_backend: self.core_backend.clone(),
             lock_ttl: self.lock_ttl,
@@ -388,7 +398,8 @@ where
                     break 'runloop Ok(());
                 }
                 Some(completions) = completion_rx.recv() => {
-                    CoordinatorEvent::Completions(completions)
+                    let completions = completions.into_inner_measured_multi(&["completions",  "completions_both"]);
+                   CoordinatorEvent::Completions(completions)
                 }
                 Some(message) = instance_rx.recv() => {
                     CoordinatorEvent::Instance(message)
@@ -397,6 +408,7 @@ where
                     CoordinatorEvent::SleepWake(wake)
                 }
                 Some(event) = event_rx.recv() => {
+                    let event = event.into_inner_measured_multi(&["shard_event", "shard_event_both"]);
                     CoordinatorEvent::Shard(event)
                 }
                 Some(ack) = persist_ack_rx.recv() => {
@@ -474,6 +486,8 @@ where
             }
 
             while let Ok(completions) = completion_rx.try_recv() {
+                let completions =
+                    completions.into_inner_measured_multi(&["completions_try", "completions_both"]);
                 all_completions.extend(completions);
             }
             while let Ok(message) = instance_rx.try_recv() {
@@ -492,6 +506,8 @@ where
             }
 
             while let Ok(event) = event_rx.try_recv() {
+                let event =
+                    event.into_inner_measured_multi(&["shard_event_try", "shard_event_both"]);
                 match event {
                     shard::Event::Step(step) => all_steps.push(step),
                     shard::Event::InstanceFailed {
