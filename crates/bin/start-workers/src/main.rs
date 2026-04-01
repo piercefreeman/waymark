@@ -41,7 +41,6 @@ use prost::Message;
 use sqlx::{PgPool, Row};
 use tokio::signal;
 use tracing::{error, info, warn};
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use uuid::Uuid;
 use waymark_backend_postgres::PostgresBackend;
@@ -56,13 +55,7 @@ use waymark_worker_remote::{PythonWorkerConfig, RemoteWorkerPool};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "waymark=info,start_workers=info".into()),
-        )
-        .with(tracing_subscriber::fmt::layer())
-        .init();
+    waymark_fn_main_common::init_tracing()?;
 
     // Load configuration and announce startup.
     let config = WorkerConfig::from_env()?;

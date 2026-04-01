@@ -22,7 +22,6 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use tracing::info;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use waymark_secret_string::SecretString;
 
 use waymark_proto::messages as proto;
@@ -43,13 +42,7 @@ impl core::str::FromStr for PermissiveBool {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "waymark=info".into()),
-        )
-        .with(tracing_subscriber::fmt::layer())
-        .init();
+    waymark_fn_main_common::init_tracing()?;
 
     let grpc_addr = envfury::or_parse("WAYMARK_BRIDGE_GRPC_ADDR", DEFAULT_GRPC_ADDR)?;
     let PermissiveBool(in_memory) = envfury::or_parse("WAYMARK_BRIDGE_IN_MEMORY", "false")?;

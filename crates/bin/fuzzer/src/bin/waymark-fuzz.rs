@@ -4,6 +4,8 @@ use waymark_fuzzer::{FuzzArgs, run};
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    waymark_fn_main_common::init_tracing()?;
+
     let args = FuzzArgs::parse();
     run(args).await
 }

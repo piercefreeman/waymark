@@ -9,6 +9,7 @@ waymark-backend-postgres = { workspace = true }
 waymark-backend-postgres-migrations = { workspace = true }
 waymark-config = { workspace = true }
 waymark-dag-builder = { workspace = true }
+waymark-fn-main-common = { workspace = true }
 waymark-garbage-collector-loop = { workspace = true }
 waymark-ids = { workspace = true }
 waymark-nonzero-duration = { workspace = true }
@@ -25,5 +26,4 @@ sqlx = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal"] }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true, features = ["env-filter"] }
 uuid = { workspace = true }

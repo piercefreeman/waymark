@@ -18,6 +18,7 @@ waymark-dag = { path = "crates/lib/dag" }
 waymark-dag-builder = { path = "crates/lib/dag-builder" }
 waymark-dag-validator = { path = "crates/lib/dag-validator" }
 waymark-dag-viz = { path = "crates/lib/dag-viz" }
+waymark-fn-main-common = { path = "crates/lib/fn-main-common" }
 waymark-garbage-collector-backend = { path = "crates/lib/garbage-collector-backend" }
 waymark-garbage-collector-config = { path = "crates/lib/garbage-collector-config" }
 waymark-garbage-collector-loop = { path = "crates/lib/garbage-collector-loop" }
