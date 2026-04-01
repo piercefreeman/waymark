@@ -222,6 +222,8 @@ async fn run_smoke(base: i64) -> i32 {
 }
 
 pub fn main() {
+    waymark_fn_main_common::init().expect("tracing setup");
+
     let args = SmokeArgs::parse();
     let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
     let code = runtime.block_on(run_smoke(args.base));

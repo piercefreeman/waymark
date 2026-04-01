@@ -10,6 +10,7 @@ waymark-backend-postgres-migrations = { workspace = true }
 waymark-core-backend = { workspace = true }
 waymark-dag = { workspace = true }
 waymark-dag-builder = { workspace = true }
+waymark-fn-main-common = { workspace = true }
 waymark-ids = { workspace = true }
 waymark-ir-parser = { workspace = true }
 waymark-proto = { workspace = true }
@@ -28,5 +29,4 @@ sha2 = { workspace = true }
 sqlx = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "process", "signal"] }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true, features = ["env-filter"] }
 uuid = { workspace = true }

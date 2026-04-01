@@ -24,20 +24,13 @@ use anyhow::{Context, Result, bail};
 use chrono::Utc;
 use clap::Parser;
 use tracing::{error, info};
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use waymark_backend_postgres::PostgresBackend;
 
 const DB_READY_TIMEOUT: Duration = Duration::from_secs(90);
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "waymark=info,soak_harness=info".into()),
-        )
-        .with(tracing_subscriber::fmt::layer())
-        .init();
+    waymark_fn_main_common::init()?;
 
     let args = cli::SoakArgs::parse();
     cli::validate_args(&args)?;

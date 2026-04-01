@@ -23,7 +23,6 @@ use tonic::transport::Channel;
 use tonic_health::pb::HealthCheckRequest;
 use tonic_health::pb::health_client::HealthClient;
 use tracing::{debug, info};
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 /// Number of ports to probe
 const PORT_PROBE_COUNT: u16 = 10;
@@ -42,13 +41,7 @@ const HEALTH_SERVICE_NAME: &str = "waymark.messages.WorkflowService";
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "boot_waymark_singleton=info".into()),
-        )
-        .with(tracing_subscriber::fmt::layer())
-        .init();
+    waymark_fn_main_common::init()?;
 
     let args: Vec<String> = env::args().collect();
     let port_file = parse_port_file_arg(&args);

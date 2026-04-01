@@ -9,6 +9,7 @@ waymark-backend-memory = { workspace = true }
 waymark-core-backend = { workspace = true }
 waymark-dag = { workspace = true }
 waymark-dag-builder = { workspace = true }
+waymark-fn-main-common = { workspace = true }
 waymark-ids = { workspace = true }
 waymark-ir-parser = { workspace = true }
 waymark-proto = { workspace = true }

@@ -190,6 +190,8 @@ struct CaseOutcome {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    waymark_fn_main_common::init()?;
+
     let args = Args::parse();
     let backend_kinds = parse_backends(&args.backends)?;
     let selected_cases = select_cases(&args.cases)?;

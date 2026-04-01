@@ -3577,7 +3577,7 @@ dependencies = [
  "tonic 0.11.0",
  "tonic-health",
  "tracing",
- "tracing-subscriber",
+ "waymark-fn-main-common",
 ]
 
 [[package]]
@@ -3597,7 +3597,6 @@ dependencies = [
  "tonic 0.11.0",
  "tonic-health",
  "tracing",
- "tracing-subscriber",
  "uuid",
  "waymark-backend-memory",
  "waymark-backend-postgres",
@@ -3605,6 +3604,7 @@ dependencies = [
  "waymark-core-backend",
  "waymark-dag",
  "waymark-dag-builder",
+ "waymark-fn-main-common",
  "waymark-ids",
  "waymark-ir-conversions",
  "waymark-message-conversions",
@@ -3687,6 +3687,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-fn-main-common"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "waymark-fuzzer"
 version = "0.1.0"
 dependencies = [
@@ -3702,6 +3710,7 @@ dependencies = [
  "waymark-core-backend",
  "waymark-dag",
  "waymark-dag-builder",
+ "waymark-fn-main-common",
  "waymark-ids",
  "waymark-ir-parser",
  "waymark-proto",
@@ -3766,6 +3775,7 @@ dependencies = [
  "waymark-core-backend",
  "waymark-dag",
  "waymark-dag-builder",
+ "waymark-fn-main-common",
  "waymark-ids",
  "waymark-ir-conversions",
  "waymark-proto",
@@ -4011,6 +4021,7 @@ dependencies = [
  "waymark-core-backend",
  "waymark-dag-builder",
  "waymark-dag-viz",
+ "waymark-fn-main-common",
  "waymark-ids",
  "waymark-ir-conversions",
  "waymark-ir-format",
@@ -4045,13 +4056,13 @@ dependencies = [
  "sqlx",
  "tokio",
  "tracing",
- "tracing-subscriber",
  "uuid",
  "waymark-backend-postgres",
  "waymark-backend-postgres-migrations",
  "waymark-core-backend",
  "waymark-dag",
  "waymark-dag-builder",
+ "waymark-fn-main-common",
  "waymark-ids",
  "waymark-ir-parser",
  "waymark-proto",
@@ -4070,12 +4081,12 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
- "tracing-subscriber",
  "uuid",
  "waymark-backend-postgres",
  "waymark-backend-postgres-migrations",
  "waymark-config",
  "waymark-dag-builder",
+ "waymark-fn-main-common",
  "waymark-garbage-collector-loop",
  "waymark-ids",
  "waymark-nonzero-duration",
