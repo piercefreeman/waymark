@@ -39,7 +39,13 @@ wrappers = ["axum", "axum-core", "tonic"]
 name = "tracing-subscriber"
 use-instead = "waymark-fn-main-common"
 reason = "do not redo the base fn main setup manually"
-wrappers = ["waymark-fn-main-common", "waymark-observability-setup", "console-subscriber", "tracing-chrome"]
+wrappers = [
+  "waymark-fn-main-common",
+  "waymark-observability-setup",
+  "console-subscriber",
+  "tracing-chrome",
+  "tracing-error",
+]
 
 [sources]
 unknown-registry = "warn"
