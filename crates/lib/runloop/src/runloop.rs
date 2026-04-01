@@ -814,6 +814,13 @@ where
             metrics::histogram!("waymark_runloop_ticks_stats_blocked_idle_instances_len")
                 .record(MetricsVal(blocked_idle_instances_count));
 
+            metrics::histogram!("waymark_runloop_ticks_stats_available_instance_slots_peek")
+                .record(MetricsVal(
+                    self.available_instances_updater
+                        .available_instance_slots_tracker
+                        .peek_available(),
+                ));
+
             tracing::trace!(
                 target: "runloop-ticks",
 
