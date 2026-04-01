@@ -35,6 +35,12 @@ name = "async-trait"
 reason = "use GAT-based traits, avoid legacy async-trait"
 wrappers = ["axum", "axum-core", "tonic"]
 
+[[bans.deny]]
+name = "tracing-subscriber"
+use-instead = "waymark-fn-main-common"
+reason = "do not redo the base fn main setup manually"
+wrappers = ["waymark-fn-main-common", "waymark-observability-setup", "console-subscriber", "tracing-chrome"]
+
 [sources]
 unknown-registry = "warn"
 unknown-git = "warn"
