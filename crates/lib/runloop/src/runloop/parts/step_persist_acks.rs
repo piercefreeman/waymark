@@ -31,7 +31,7 @@ pub struct Params<'a, CoreBackend: ?Sized, WorkerPool: ?Sized> {
     /// Maps each active instance/executor to the shard currently responsible for it.
     pub executor_shards: &'a mut HashMap<InstanceId, usize>,
     /// Per-shard command channels used to send follow-up completions, wakes, and evictions.
-    pub shard_senders: &'a [std::sync::mpsc::Sender<shard::Command>],
+    pub shard_senders: &'a [waymark_timed_channel::std::mpsc::Sender<shard::Command>],
     /// Tracks which backend locks this runloop currently believes it owns.
     pub lock_tracker: &'a instance_lock_heartbeat::Tracker,
     /// Counts how many action executions are still outstanding for each executor.
@@ -147,7 +147,7 @@ struct StepsPersistedParams<'a, CoreBackend: ?Sized, WorkerPool: ?Sized> {
     /// Maps each active instance/executor to the shard currently responsible for it.
     pub executor_shards: &'a mut HashMap<InstanceId, usize>,
     /// Per-shard command channels used to send follow-up completions, wakes, and evictions.
-    pub shard_senders: &'a [std::sync::mpsc::Sender<shard::Command>],
+    pub shard_senders: &'a [waymark_timed_channel::std::mpsc::Sender<shard::Command>],
     /// Tracks which backend locks this runloop currently believes it owns.
     pub lock_tracker: &'a instance_lock_heartbeat::Tracker,
     /// Counts how many action executions are still outstanding for each executor.
@@ -288,7 +288,7 @@ fn flush_deferred_instance_events(
     instance_id: InstanceId,
     events: VecDeque<DeferredInstanceEvent>,
     executor_shards: &HashMap<InstanceId, usize>,
-    shard_senders: &[std::sync::mpsc::Sender<shard::Command>],
+    shard_senders: &[waymark_timed_channel::std::mpsc::Sender<shard::Command>],
 ) {
     let Some(shard_idx) = executor_shards.get(&instance_id).copied() else {
         return;

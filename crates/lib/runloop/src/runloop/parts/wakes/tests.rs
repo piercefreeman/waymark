@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::mpsc;
 
 use chrono::{DateTime, Utc};
 use waymark_ids::{ExecutionId, InstanceId};
@@ -15,7 +14,7 @@ struct TestHarness {
     pub sleeping_by_instance: HashMap<InstanceId, HashSet<ExecutionId>>,
     pub blocked_until: HashMap<InstanceId, DateTime<Utc>>,
     pub barrier: CommitBarrier<shard::Step>,
-    pub shard_senders: Vec<mpsc::Sender<shard::Command>>,
+    pub shard_senders: Vec<waymark_timed_channel::std::mpsc::Sender<shard::Command>>,
 }
 
 impl Default for TestHarness {
@@ -50,7 +49,7 @@ fn ignores_unknown_node() {
     let executor_id = InstanceId::new_uuid_v4();
     let unknown_node = ExecutionId::new_uuid_v4();
     let mut harness = TestHarness::default();
-    let (shard_tx, shard_rx) = mpsc::channel::<shard::Command>();
+    let (shard_tx, shard_rx) = waymark_timed_channel::std::mpsc::channel::<shard::Command>();
     harness.shard_senders.push(shard_tx);
     harness.executor_shards.insert(executor_id, 0);
 
@@ -71,7 +70,7 @@ fn ignores_node_with_future_wake_at() {
     let node_id = ExecutionId::new_uuid_v4();
     let future_wake = Utc::now() + chrono::Duration::seconds(60);
     let mut harness = TestHarness::default();
-    let (shard_tx, shard_rx) = mpsc::channel::<shard::Command>();
+    let (shard_tx, shard_rx) = waymark_timed_channel::std::mpsc::channel::<shard::Command>();
     harness.shard_senders.push(shard_tx);
     harness.executor_shards.insert(executor_id, 0);
     harness.sleeping_nodes = HashMap::from([(
@@ -105,7 +104,7 @@ fn routes_ready_node_to_shard() {
     let node_id = ExecutionId::new_uuid_v4();
     let past_wake = Utc::now() - chrono::Duration::seconds(5);
     let mut harness = TestHarness::default();
-    let (shard_tx, shard_rx) = mpsc::channel::<shard::Command>();
+    let (shard_tx, shard_rx) = waymark_timed_channel::std::mpsc::channel::<shard::Command>();
     harness.shard_senders.push(shard_tx);
     harness.executor_shards.insert(executor_id, 0);
     harness.sleeping_nodes = HashMap::from([(
@@ -136,6 +135,7 @@ fn routes_ready_node_to_shard() {
         "blocked-until should be cleared"
     );
     let cmd = shard_rx.try_recv().expect("shard should receive a command");
+    let cmd = cmd.into_inner();
     let shard::Command::Wake(nodes) = cmd else {
         panic!("expected Wake command");
     };
@@ -150,7 +150,7 @@ fn waking_one_of_multiple_nodes_recomputes_blocked_until() {
     let first_wake = Utc::now() - chrono::Duration::seconds(5);
     let second_wake = Utc::now() + chrono::Duration::seconds(45);
     let mut harness = TestHarness::default();
-    let (shard_tx, shard_rx) = mpsc::channel::<shard::Command>();
+    let (shard_tx, shard_rx) = waymark_timed_channel::std::mpsc::channel::<shard::Command>();
     harness.shard_senders.push(shard_tx);
     harness.executor_shards.insert(executor_id, 0);
     harness.sleeping_nodes = HashMap::from([
@@ -184,6 +184,7 @@ fn waking_one_of_multiple_nodes_recomputes_blocked_until() {
     let cmd = shard_rx
         .try_recv()
         .expect("shard should receive wake command");
+    let cmd = cmd.into_inner();
     let shard::Command::Wake(nodes) = cmd else {
         panic!("expected Wake command");
     };

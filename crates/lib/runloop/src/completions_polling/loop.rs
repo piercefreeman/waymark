@@ -11,7 +11,7 @@ where
 {
     pub shutdown_token: tokio_util::sync::CancellationToken,
     pub worker_pool: Arc<WorkerPool>,
-    pub completion_tx: tokio::sync::mpsc::Sender<Vec<ActionCompletion>>,
+    pub completion_tx: waymark_timed_channel::tokio::sync::mpsc::Sender<Vec<ActionCompletion>>,
 }
 
 pub async fn run<WorkerPool>(params: Params<WorkerPool>)
@@ -51,9 +51,11 @@ where
             "completion task sending completions"
         );
 
+        let completions: Vec<_> = completions.into(); // TODO: pass non-empty vec
+
         let send_result = send_with_stop(
             &completion_tx,
-            completions.into(), // TODO: pass non-empty vec
+            completions.into(),
             shutdown_token.cancelled(),
             "completions",
         )

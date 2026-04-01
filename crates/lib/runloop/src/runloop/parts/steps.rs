@@ -12,7 +12,7 @@ pub struct Params<'a> {
     /// Cancellation future used to abandon persistence submission during shutdown.
     pub shutdown_signal: tokio_util::sync::WaitForCancellationFuture<'a>,
     /// Channel to the persistence task that durably records step side effects.
-    pub persist_tx: &'a tokio::sync::mpsc::Sender<persist::Command>,
+    pub persist_tx: &'a waymark_timed_channel::tokio::mpsc::Sender<persist::Command>,
     /// Coordinates which instance events must wait for persistence acknowledgments.
     pub commit_barrier: &'a mut CommitBarrier<shard::Step>,
     /// Shard steps collected during the current coordinator tick.
@@ -66,7 +66,8 @@ pub async fn handle(params: Params<'_>) -> Result<(), Error> {
             graph_instance_ids,
             actions_done,
             graph_updates,
-        },
+        }
+        .into(),
         shutdown_signal,
         "persist command",
     )
