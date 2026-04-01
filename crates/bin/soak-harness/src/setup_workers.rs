@@ -1,4 +1,5 @@
 use std::fs::File;
+use std::path::Component;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::{Duration, Instant};
@@ -19,6 +20,12 @@ pub struct WorkerProcess {
 pub async fn start_workers(args: &crate::cli::SoakArgs, run_dir: &Path) -> Result<WorkerProcess> {
     let webapp_enabled = !args.disable_webapp;
     let log_path = run_dir.join("start-workers.log");
+    // `CARGO_MANIFEST_DIR` here is `crates/bin/soak-harness`, while the soak action module lives at
+    // `<workspace>/python/tests/fixtures_actions/soak_actions.py` and the child binary is resolved from
+    // `<workspace>/target/debug/waymark-start-workers`. Run the child from the workspace root and seed
+    // `PYTHONPATH` with the workspace Python directories so `tests.fixtures_actions.soak_actions`
+    // remains importable even if worker-remote falls back to the caller's current directory.
+    let repo_root = repo_root();
     let log_file = File::create(&log_path)
         .with_context(|| format!("create worker log file {}", log_path.display()))?;
     let log_file_err = log_file
@@ -26,9 +33,10 @@ pub async fn start_workers(args: &crate::cli::SoakArgs, run_dir: &Path) -> Resul
         .with_context(|| format!("clone worker log handle {}", log_path.display()))?;
 
     let mut cmd = start_workers_command();
-    cmd.current_dir(PathBuf::from(env!("CARGO_MANIFEST_DIR")));
+    cmd.current_dir(&repo_root);
     cmd.env("WAYMARK_DATABASE_URL", args.dsn.expose_secret());
     cmd.env("WAYMARK_USER_MODULE", &args.user_module);
+    cmd.env("PYTHONPATH", soak_python_path(&repo_root)?);
     cmd.env("WAYMARK_WORKER_COUNT", args.worker_count.to_string());
     cmd.env(
         "WAYMARK_CONCURRENT_PER_WORKER",
@@ -70,7 +78,7 @@ pub async fn start_workers(args: &crate::cli::SoakArgs, run_dir: &Path) -> Resul
 }
 
 fn start_workers_command() -> Command {
-    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..");
+    let repo_root = repo_root();
     let local_debug_bin = repo_root
         .join("target")
         .join("debug")
@@ -94,6 +102,30 @@ fn start_workers_command() -> Command {
         .arg("waymark-start-workers")
         .arg("--");
     command
+}
+
+fn repo_root() -> PathBuf {
+    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    for _ in 0..3 {
+        debug_assert!(
+            path.components().next_back() != Some(Component::RootDir),
+            "expected soak harness to live under workspace root"
+        );
+        path.pop();
+    }
+    path
+}
+
+fn soak_python_path(repo_root: &Path) -> Result<std::ffi::OsString> {
+    let mut python_paths = vec![
+        repo_root.join("python"),
+        repo_root.join("python").join("src"),
+    ];
+    if let Some(existing) = std::env::var_os("PYTHONPATH") {
+        python_paths.extend(std::env::split_paths(&existing));
+    }
+
+    std::env::join_paths(&python_paths).context("build soak PYTHONPATH")
 }
 
 fn find_executable(bin: &str) -> Option<PathBuf> {
