@@ -30,7 +30,7 @@ const DB_READY_TIMEOUT: Duration = Duration::from_secs(90);
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    waymark_fn_main_common::init_tracing()?;
+    waymark_fn_main_common::init()?;
 
     let args = cli::SoakArgs::parse();
     cli::validate_args(&args)?;

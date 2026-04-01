@@ -55,7 +55,7 @@ use waymark_worker_remote::{PythonWorkerConfig, RemoteWorkerPool};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    waymark_fn_main_common::init_tracing()?;
+    waymark_fn_main_common::init()?;
 
     // Load configuration and announce startup.
     let config = WorkerConfig::from_env()?;

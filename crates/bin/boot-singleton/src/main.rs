@@ -41,7 +41,7 @@ const HEALTH_SERVICE_NAME: &str = "waymark.messages.WorkflowService";
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    waymark_fn_main_common::init_tracing()?;
+    waymark_fn_main_common::init()?;
 
     let args: Vec<String> = env::args().collect();
     let port_file = parse_port_file_arg(&args);

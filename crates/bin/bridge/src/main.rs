@@ -42,7 +42,7 @@ impl core::str::FromStr for PermissiveBool {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    waymark_fn_main_common::init_tracing()?;
+    waymark_fn_main_common::init()?;
 
     let grpc_addr = envfury::or_parse("WAYMARK_BRIDGE_GRPC_ADDR", DEFAULT_GRPC_ADDR)?;
     let PermissiveBool(in_memory) = envfury::or_parse("WAYMARK_BRIDGE_IN_MEMORY", "false")?;

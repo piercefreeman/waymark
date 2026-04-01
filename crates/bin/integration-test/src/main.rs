@@ -190,7 +190,7 @@ struct CaseOutcome {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    waymark_fn_main_common::init_tracing()?;
+    waymark_fn_main_common::init()?;
 
     let args = Args::parse();
     let backend_kinds = parse_backends(&args.backends)?;
