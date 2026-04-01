@@ -8,3 +8,6 @@ publish.workspace = true
 waymark-timed = { workspace = true }
 
 tokio = { workspace = true, features = ["sync"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt", "time"] }
