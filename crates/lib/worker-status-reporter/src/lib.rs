@@ -73,7 +73,11 @@ pub async fn run<B, P>(
                     time_series: Some(time_series.encode()),
                 };
 
-                if let Err(err) = backend.upsert_worker_status(&status).await {
+                let before = std::time::Instant::now();
+                let result = backend.upsert_worker_status(&status).await;
+                metrics::histogram!("waymark_worker_status_reporter_loop_upsert_worker_status_seconds").record(before.elapsed());
+                metrics::counter!("waymark_worker_status_reporter_loop_upsert_worker_status_total", "success" => result.is_ok().to_string()).increment(1);
+                if let Err(err) = result {
                     warn!(error = %err, "failed to update worker status");
                 }
             }
