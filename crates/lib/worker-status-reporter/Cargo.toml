@@ -11,6 +11,7 @@ waymark-worker-status-backend = { workspace = true }
 waymark-worker-status-core = { workspace = true }
 
 chrono = { workspace = true, default-features = false, features = ["clock"] }
+metrics = { workspace = true }
 tokio = { workspace = true, features = ["macros", "time"] }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
