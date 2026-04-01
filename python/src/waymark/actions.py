@@ -68,7 +68,7 @@ def action(
 ) -> Callable[[TAsync], TAsync] | TAsync:
     """Decorator for registering async actions.
 
-    Actions decorated with @action will automatically resolve Depend() markers
+    Actions decorated with @action will automatically resolve dependency markers
     when called directly (e.g., during pytest runs where workflows bypass the
     gRPC bridge).
     """
