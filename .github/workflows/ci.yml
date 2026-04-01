@@ -414,7 +414,7 @@ jobs:
   integration:
     runs-on: ubuntu-latest
     needs: [python-tests, rust-tests]
-    timeout-minutes: 10
+    timeout-minutes: 20
     if: github.ref == 'refs/heads/main' || (github.event_name == 'pull_request' && contains(toJson(github.event.pull_request.labels), 'full-build'))
     services:
       postgres:
@@ -461,6 +461,40 @@ jobs:
           WAYMARK_DATABASE_URL: postgresql://mountaineer:mountaineer@localhost:5432/mountaineer_daemons
           WAYMARK_SKIP_UV_SYNC: "1"
         run: cargo run --bin waymark-integration-test -- --backends in-memory,postgres
+
+      - name: Run soak smoke test
+        env:
+          WAYMARK_DATABASE_URL: postgresql://mountaineer:mountaineer@localhost:5432/mountaineer_daemons
+          WAYMARK_SKIP_UV_SYNC: "1"
+        run: |
+          cargo build --bin waymark-start-workers --bin waymark-soak-harness
+          cargo run --bin waymark-soak-harness -- \
+            --skip-postgres-boot \
+            --disable-webapp \
+            --duration-hours 0.0166667 \
+            --worker-count 2 \
+            --concurrent-per-worker 20 \
+            --max-concurrent-instances 200 \
+            --poll-interval-ms 50 \
+            --persist-interval-ms 100 \
+            --profile-interval-ms 1000 \
+            --startup-log-interval-secs 10 \
+            --timeout-seconds 2 \
+            --queue-rate-per-minute 60 \
+            --actions-per-workflow 3 \
+            --queue-batch-size 10 \
+            --target-ready-queue 20 \
+            --max-top-up-per-tick 20 \
+            --max-queue-per-tick 20 \
+            --tick-seconds 5 \
+            --timeout-percent 10 \
+            --failure-percent 10 \
+            --slow-percent 20 \
+            --payload-bytes 256 \
+            --issue-min-ready-queue 5 \
+            --issue-consecutive-samples 4 \
+            --issue-last-action-stale-secs 15 \
+            --issue-status-stale-secs 10
 
   example-app-tests:
     runs-on: ubuntu-latest
