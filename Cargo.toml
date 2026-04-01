@@ -32,6 +32,7 @@ waymark-observability = { path = "crates/lib/observability" }
 waymark-observability-macros = { path = "crates/lib/observability-macros" }
 waymark-observability-setup = { path = "crates/lib/observability-setup" }
 waymark-pool-status = { path = "crates/lib/pool-status" }
+waymark-prometheus-exporter-bringup = { path = "crates/lib/prometheus-exporter-bringup" }
 waymark-proto = { path = "crates/lib/proto" }
 waymark-runloop = { path = "crates/lib/runloop" }
 waymark-runner = { path = "crates/lib/runner" }
@@ -72,6 +73,8 @@ envfury = "0.2"
 futures-core = "0.3"
 futures-util = "0.3"
 http-body-util = "0.1"
+metrics = "0.24"
+metrics-exporter-prometheus = "0.18"
 mockall = "0.14"
 nix = "0.31"
 nonempty-collections = "1"

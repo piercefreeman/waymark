@@ -57,6 +57,9 @@ use waymark_worker_remote::{PythonWorkerConfig, RemoteWorkerPool};
 async fn main() -> Result<()> {
     waymark_fn_main_common::init()?;
 
+    let metrics_addr: std::net::SocketAddr = envfury::or_parse("METRICS_ADDR", "0.0.0.0:9118")?;
+    waymark_prometheus_exporter_bringup::spawn_and_install_recorder(metrics_addr)?;
+
     // Load configuration and announce startup.
     let config = WorkerConfig::from_env()?;
 
