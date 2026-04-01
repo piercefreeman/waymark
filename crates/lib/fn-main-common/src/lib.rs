@@ -12,7 +12,21 @@
 #[error(transparent)]
 pub struct InitTracingError(pub Box<dyn std::error::Error + Send + Sync + 'static>);
 
+/// Error returned the initialization fails.
+#[derive(Debug, thiserror::Error)]
+pub enum InitError {
+    /// The `tracing` init failed.
+    #[error("tracing: {0}")]
+    Tracing(InitTracingError),
+}
+
 /// Initializes the global tracing subscriber for the process.
 pub fn init_tracing() -> Result<(), InitTracingError> {
     tracing_subscriber::fmt::try_init().map_err(InitTracingError)
+}
+
+/// Perform common global initialization.
+pub fn init() -> Result<(), InitError> {
+    init_tracing().map_err(InitError::Tracing)?;
+    Ok(())
 }
