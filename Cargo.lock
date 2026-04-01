@@ -4021,6 +4021,7 @@ dependencies = [
  "waymark-core-backend",
  "waymark-dag-builder",
  "waymark-dag-viz",
+ "waymark-fn-main-common",
  "waymark-ids",
  "waymark-ir-conversions",
  "waymark-ir-format",
