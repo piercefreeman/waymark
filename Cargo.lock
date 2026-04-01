@@ -4819,6 +4819,7 @@ name = "waymark-worker-status-reporter"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "metrics",
  "tokio",
  "tokio-util",
  "tracing",
