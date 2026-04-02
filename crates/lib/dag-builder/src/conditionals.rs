@@ -2,9 +2,10 @@
 
 use waymark_proto::ast as ir;
 
+use crate::DagConversionError;
+
 use super::converter::DAGConverter;
-use waymark_dag::{BranchNode, JoinNode};
-use waymark_dag::{ConvertedSubgraph, DAGEdge, DagConversionError};
+use waymark_dag::{BranchNode, ConvertedSubgraph, DAGEdge, JoinNode};
 
 /// Convert conditional blocks into branch/join nodes.
 impl DAGConverter {

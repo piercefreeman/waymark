@@ -4,8 +4,7 @@ pub mod models;
 pub mod nodes;
 
 pub use models::{
-    ConvertedSubgraph, DAG, DAGEdge, DAGNode, DagConversionError, DagEdgeIndex,
-    EXCEPTION_SCOPE_VAR, EdgeType,
+    ConvertedSubgraph, DAG, DAGEdge, DAGNode, DagEdgeIndex, EXCEPTION_SCOPE_VAR, EdgeType,
 };
 pub use nodes::{
     ActionCallNode, ActionCallParams, AggregatorNode, AssignmentNode, BranchNode, BreakNode,

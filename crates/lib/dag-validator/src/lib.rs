@@ -4,9 +4,14 @@ use std::collections::HashSet;
 
 use waymark_proto::ast as ir;
 
-use waymark_dag::{DAG, DAGNode, DagConversionError, EXCEPTION_SCOPE_VAR, EdgeType};
+use waymark_dag::{DAG, DAGNode, EXCEPTION_SCOPE_VAR, EdgeType};
 
-pub fn validate_dag(dag: &DAG) -> Result<(), DagConversionError> {
+/// Raised when IR -> DAG conversion fails.
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
+pub struct DagValidationError(pub String);
+
+pub fn validate_dag(dag: &DAG) -> Result<(), DagValidationError> {
     validate_edges_reference_existing_nodes(dag)?;
     validate_output_nodes_have_no_outgoing_edges(dag)?;
     validate_loop_incr_edges(dag)?;
@@ -17,16 +22,16 @@ pub fn validate_dag(dag: &DAG) -> Result<(), DagConversionError> {
 }
 
 /// Fail if any edge references a missing source or target node.
-pub fn validate_edges_reference_existing_nodes(dag: &DAG) -> Result<(), DagConversionError> {
+pub fn validate_edges_reference_existing_nodes(dag: &DAG) -> Result<(), DagValidationError> {
     for edge in &dag.edges {
         if !dag.nodes.contains_key(&edge.source) {
-            return Err(DagConversionError(format!(
+            return Err(DagValidationError(format!(
                 "DAG edge references non-existent source node '{}' -> '{}'",
                 edge.source, edge.target
             )));
         }
         if !dag.nodes.contains_key(&edge.target) {
-            return Err(DagConversionError(format!(
+            return Err(DagValidationError(format!(
                 "DAG edge references non-existent target node '{}' (from '{}', edge_type={:?}, exception_types={:?})",
                 edge.target, edge.source, edge.edge_type, edge.exception_types
             )));
@@ -36,7 +41,7 @@ pub fn validate_edges_reference_existing_nodes(dag: &DAG) -> Result<(), DagConve
 }
 
 /// Fail if a main output node has non-exception control flow continuing past it.
-pub fn validate_output_nodes_have_no_outgoing_edges(dag: &DAG) -> Result<(), DagConversionError> {
+pub fn validate_output_nodes_have_no_outgoing_edges(dag: &DAG) -> Result<(), DagValidationError> {
     for (node_id, node) in &dag.nodes {
         if node.node_type() == "output" && !node_id.contains(':') {
             for edge in &dag.edges {
@@ -44,7 +49,7 @@ pub fn validate_output_nodes_have_no_outgoing_edges(dag: &DAG) -> Result<(), Dag
                     && edge.edge_type == EdgeType::StateMachine
                     && edge.exception_types.is_none()
                 {
-                    return Err(DagConversionError(format!(
+                    return Err(DagValidationError(format!(
                         "Main output node '{}' has non-exception outgoing state machine edge to '{}'",
                         node_id, edge.target
                     )));
@@ -59,7 +64,7 @@ pub fn validate_output_nodes_have_no_outgoing_edges(dag: &DAG) -> Result<(), Dag
 ///
 /// Loop increment nodes should only connect to loop condition nodes via loop-back edges,
 /// or have exception edges. Any other state-machine edge indicates a conversion bug.
-pub fn validate_loop_incr_edges(dag: &DAG) -> Result<(), DagConversionError> {
+pub fn validate_loop_incr_edges(dag: &DAG) -> Result<(), DagValidationError> {
     for node_id in dag.nodes.keys() {
         if !node_id.contains("loop_incr") {
             continue;
@@ -74,7 +79,7 @@ pub fn validate_loop_incr_edges(dag: &DAG) -> Result<(), DagConversionError> {
             if edge.is_loop_back && edge.target.contains("loop_cond") {
                 continue;
             }
-            return Err(DagConversionError(format!(
+            return Err(DagValidationError(format!(
                 "Loop increment node '{}' has unexpected state machine edge to '{}'. Loop_incr should only have loop_back edges to loop_cond or exception edges. This suggests incorrect 'last_real_node' tracking during function expansion.",
                 node_id, edge.target
             )));
@@ -84,7 +89,7 @@ pub fn validate_loop_incr_edges(dag: &DAG) -> Result<(), DagConversionError> {
 }
 
 /// Fail if duplicate state-machine edges exist between the same nodes.
-pub fn validate_no_duplicate_state_machine_edges(dag: &DAG) -> Result<(), DagConversionError> {
+pub fn validate_no_duplicate_state_machine_edges(dag: &DAG) -> Result<(), DagValidationError> {
     let mut seen: HashSet<String> = HashSet::new();
     for edge in &dag.edges {
         if edge.edge_type != EdgeType::StateMachine {
@@ -100,7 +105,7 @@ pub fn validate_no_duplicate_state_machine_edges(dag: &DAG) -> Result<(), DagCon
                 edge.guard_string.as_deref().unwrap_or("")
             );
             if seen.contains(&key) {
-                return Err(DagConversionError(format!(
+                return Err(DagValidationError(format!(
                     "Duplicate state machine edge: {} -> {} (loop_back={}, is_else={})",
                     edge.source, edge.target, edge.is_loop_back, edge.is_else
                 )));
@@ -112,12 +117,12 @@ pub fn validate_no_duplicate_state_machine_edges(dag: &DAG) -> Result<(), DagCon
 }
 
 /// Fail if input nodes have incoming state-machine edges.
-pub fn validate_input_nodes_have_no_incoming_edges(dag: &DAG) -> Result<(), DagConversionError> {
+pub fn validate_input_nodes_have_no_incoming_edges(dag: &DAG) -> Result<(), DagValidationError> {
     for (node_id, node) in &dag.nodes {
         if node.is_input() {
             for edge in &dag.edges {
                 if edge.target == *node_id && edge.edge_type == EdgeType::StateMachine {
-                    return Err(DagConversionError(format!(
+                    return Err(DagValidationError(format!(
                         "Input node '{}' has incoming state machine edge from '{}'",
                         node_id, edge.source
                     )));
@@ -129,7 +134,7 @@ pub fn validate_input_nodes_have_no_incoming_edges(dag: &DAG) -> Result<(), DagC
 }
 
 /// Fail if a node references a variable that has no incoming data-flow edge.
-pub fn validate_variable_references_have_data_flow(dag: &DAG) -> Result<(), DagConversionError> {
+pub fn validate_variable_references_have_data_flow(dag: &DAG) -> Result<(), DagValidationError> {
     let incoming_data_flow: HashSet<(String, String)> = dag
         .edges
         .iter()
@@ -168,7 +173,7 @@ pub fn validate_variable_references_have_data_flow(dag: &DAG) -> Result<(), DagC
     }
     missing_references.sort();
     missing_references.dedup();
-    Err(DagConversionError(format!(
+    Err(DagValidationError(format!(
         "Undefined variable references detected: {}",
         missing_references.join("; ")
     )))

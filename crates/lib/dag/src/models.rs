@@ -16,11 +16,6 @@ use super::nodes::{
 
 pub const EXCEPTION_SCOPE_VAR: &str = "__waymark_exception__";
 
-/// Raised when IR -> DAG conversion fails.
-#[derive(Debug, thiserror::Error)]
-#[error("{0}")]
-pub struct DagConversionError(pub String);
-
 /// Classifies edges as control-flow (state machine) or data-flow.
 ///
 /// We keep the distinction so visualization and scheduling can render them
