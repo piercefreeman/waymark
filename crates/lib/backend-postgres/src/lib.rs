@@ -14,6 +14,7 @@ use std::sync::{Arc, Mutex};
 
 use sqlx::PgPool;
 use waymark_backends_core::{BackendError, BackendResult};
+use waymark_metrics_util::Val as MetricsVal;
 use waymark_observability::obs;
 use waymark_secret_string::SecretStr;
 use waymark_timed_future::TimedFutureExt as _;
@@ -103,12 +104,14 @@ impl PostgresBackend {
 
     pub(crate) fn count_batch_size(
         counts: &Arc<Mutex<HashMap<String, HashMap<usize, usize>>>>,
-        label: &str,
+        label: &'static str,
         size: usize,
     ) {
         if size == 0 {
             return;
         }
+        metrics::histogram!("waymark_postgres_queries_batch_size", "label" => label)
+            .record(MetricsVal(size));
         let mut guard = counts.lock().expect("batch size counts poisoned");
         let entry = guard.entry(label.to_string()).or_default();
         *entry.entry(size).or_insert(0) += 1;

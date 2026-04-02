@@ -3981,6 +3981,7 @@ dependencies = [
  "waymark-ids",
  "waymark-ir-conversions",
  "waymark-ir-parser",
+ "waymark-metrics-util",
  "waymark-observability",
  "waymark-proto",
  "waymark-runner",
