@@ -24,15 +24,6 @@ use waymark_webapp_core::{
     WorkerActionRow, WorkerAggregateStats, WorkerStatus,
 };
 
-const INSTANCE_STATUS_FALLBACK_SQL: &str = r#"
-CASE
-    WHEN ri.error IS NOT NULL THEN 'failed'
-    WHEN ri.result IS NOT NULL THEN 'completed'
-    WHEN ri.state IS NOT NULL THEN 'running'
-    ELSE 'queued'
-END
-"#;
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum InstanceSearchToken {
     Term(String),
@@ -233,12 +224,16 @@ fn push_instance_search_expr_sql(
         InstanceSearchExpr::Term(term) => {
             let pattern = format!("%{term}%");
             builder.push("(");
-            builder.push("COALESCE(ri.workflow_name, wv.workflow_name, '') ILIKE ");
+            builder.push("COALESCE(ri.workflow_name, '') ILIKE ");
             builder.push_bind(pattern.clone());
-            builder.push(" OR COALESCE(ri.current_status, ");
-            builder.push(INSTANCE_STATUS_FALLBACK_SQL);
-            builder.push(", '') ILIKE ");
-            builder.push_bind(pattern);
+            builder.push(" OR ");
+            if let Some(status) = parse_instance_status(term) {
+                builder.push("ri.current_status = ");
+                builder.push_bind(instance_status_sql(status));
+            } else {
+                builder.push("COALESCE(ri.current_status, '') ILIKE ");
+                builder.push_bind(pattern);
+            }
             builder.push(")");
         }
         InstanceSearchExpr::And(left, right) => {
@@ -268,13 +263,21 @@ fn parse_instance_status(status: &str) -> Option<InstanceStatus> {
     }
 }
 
+fn instance_status_sql(status: InstanceStatus) -> &'static str {
+    match status {
+        InstanceStatus::Queued => "queued",
+        InstanceStatus::Running => "running",
+        InstanceStatus::Completed => "completed",
+        InstanceStatus::Failed => "failed",
+    }
+}
+
 impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
     async fn count_instances(&self, search: Option<&str>) -> BackendResult<i64> {
         let mut builder: QueryBuilder<Postgres> = QueryBuilder::new(
             r#"
             SELECT COUNT(*)::BIGINT
             FROM runner_instances ri
-            LEFT JOIN workflow_versions wv ON wv.id = ri.workflow_version_id
             "#,
         );
 
@@ -302,8 +305,8 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
                 ri.state,
                 ri.result,
                 ri.error,
-                COALESCE(ri.workflow_name, wv.workflow_name) AS workflow_name,
-                COALESCE(ri.current_status,
+                ri.workflow_name,
+                COALESCE(ri.current_status, 
                     CASE
                         WHEN ri.error IS NOT NULL THEN 'failed'
                         WHEN ri.result IS NOT NULL THEN 'completed'
@@ -312,7 +315,6 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
                     END
                 ) AS current_status
             FROM runner_instances ri
-            LEFT JOIN workflow_versions wv ON wv.id = ri.workflow_version_id
             "#,
         );
         if let Some(search_expr) = search.and_then(parse_instance_search_expr) {
@@ -365,7 +367,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
                 ri.state,
                 ri.result,
                 ri.error,
-                COALESCE(ri.workflow_name, wv.workflow_name) AS workflow_name,
+                ri.workflow_name AS workflow_name,
                 COALESCE(ri.current_status,
                     CASE
                         WHEN ri.error IS NOT NULL THEN 'failed'
@@ -375,7 +377,6 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
                     END
                 ) AS current_status
             FROM runner_instances ri
-            LEFT JOIN workflow_versions wv ON wv.id = ri.workflow_version_id
             WHERE ri.instance_id = $1
             "#,
         )
@@ -472,9 +473,8 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
             r#"
             SELECT
                 ri.state,
-                COALESCE(ri.workflow_name, wv.workflow_name) AS workflow_name
+                ri.workflow_name AS workflow_name
             FROM runner_instances ri
-            LEFT JOIN workflow_versions wv ON wv.id = ri.workflow_version_id
             WHERE ri.instance_id = $1
             "#,
         )
@@ -770,10 +770,9 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
     async fn get_distinct_workflows(&self) -> BackendResult<Vec<String>> {
         let rows = sqlx::query(
             r#"
-            SELECT DISTINCT COALESCE(ri.workflow_name, wv.workflow_name) AS workflow_name
+            SELECT DISTINCT ri.workflow_name AS workflow_name
             FROM runner_instances ri
-            LEFT JOIN workflow_versions wv ON wv.id = ri.workflow_version_id
-            WHERE COALESCE(ri.workflow_name, wv.workflow_name) IS NOT NULL
+            WHERE ri.workflow_name IS NOT NULL
             ORDER BY workflow_name
             "#,
         )
@@ -1092,12 +1091,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
                 MAX(total_in_flight) as total_in_flight,
                 MAX(median_instance_duration_secs) as median_instance_duration_secs,
                 MAX(active_instance_count) as active_instance_count,
-                (
-                    SELECT COUNT(*)::BIGINT
-                    FROM runner_instances ri
-                    WHERE ri.result IS NOT NULL
-                      AND ri.error IS NULL
-                ) as total_instances_completed,
+                                MAX(total_instances_completed) as total_instances_completed,
                 MAX(instances_per_sec) as instances_per_sec,
                 MAX(instances_per_min) as instances_per_min,
                 (
@@ -1833,11 +1827,13 @@ mod tests {
         let state_payload = rmp_serde::to_vec_named(&graph).expect("encode graph update");
 
         sqlx::query(
-            "INSERT INTO runner_instances (instance_id, entry_node, workflow_version_id, state) VALUES ($1, $2, $3, $4)",
+            "INSERT INTO runner_instances (instance_id, entry_node, workflow_version_id, workflow_name, current_status, state) VALUES ($1, $2, $3, $4, $5, $6)",
         )
         .bind(instance_id)
         .bind(entry_node)
         .bind(workflow_version_id)
+        .bind(workflow_name)
+        .bind("running")
         .bind(state_payload)
         .execute(backend.pool())
         .await
@@ -1988,12 +1984,14 @@ fn main(input: [items], output: [total]):
         };
 
         sqlx::query(
-            "INSERT INTO runner_instances (instance_id, entry_node, workflow_version_id, schedule_id, created_at, state, result, error) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+            "INSERT INTO runner_instances (instance_id, entry_node, workflow_version_id, schedule_id, workflow_name, current_status, created_at, state, result, error) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
         )
         .bind(instance_id)
         .bind(entry_node)
         .bind(workflow_version_id)
         .bind(schedule_id)
+        .bind("tests.workflow")
+        .bind(if with_result { "completed" } else { "running" })
         .bind(created_at)
         .bind(state_payload)
         .bind(result_payload)
@@ -2576,7 +2574,7 @@ fn main(input: [items], output: [total]):
         assert_eq!(statuses.len(), 1);
         assert_eq!(statuses[0].pool_id, pool_id);
         assert_eq!(statuses[0].total_completed, 20);
-        assert_eq!(statuses[0].total_instances_completed, 1);
+        assert_eq!(statuses[0].total_instances_completed, 8);
         assert_eq!(statuses[0].total_in_flight, Some(2));
         assert_eq!(statuses[0].dispatch_queue_size, Some(3));
     }
