@@ -4310,6 +4310,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-metrics-util"
+version = "0.1.0"
+dependencies = [
+ "metrics",
+]
+
+[[package]]
 name = "waymark-nonzero-duration"
 version = "0.1.0"
 
