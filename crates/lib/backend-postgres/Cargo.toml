@@ -13,6 +13,7 @@ waymark-dag-builder = { workspace = true }
 waymark-garbage-collector-backend = { workspace = true }
 waymark-ids = { workspace = true }
 waymark-ir-conversions = { workspace = true }
+waymark-metrics-util = { workspace = true }
 waymark-observability = { workspace = true }
 waymark-proto = { workspace = true }
 waymark-runner = { workspace = true }
