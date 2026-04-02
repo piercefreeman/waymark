@@ -2,6 +2,7 @@ name: Chained PR
 
 on:
   pull_request:
+    types: [synchronize, opened, edited, reopened, ready_for_review, auto_merge_enabled]
     branches-ignore: [ main ]
 
 jobs:
