@@ -50,7 +50,7 @@ use waymark_ids::LockId;
 use waymark_nonzero_duration::NonZeroDuration;
 use waymark_proto::ast as ir;
 use waymark_runloop::RunLoopConfig;
-use waymark_scheduler_loop::{DagResolver, WorkflowDag};
+use waymark_scheduler_loop_core::WorkflowDag;
 use waymark_worker_remote::{PythonWorkerConfig, RemoteWorkerPool};
 
 #[tokio::main]
@@ -120,7 +120,9 @@ async fn main() -> Result<()> {
     .await?;
 
     // Start the scheduler loop.
-    let dag_resolver = build_dag_resolver(backend.pool().clone());
+    let dag_resolver = SchedulerDagResolver {
+        pool: backend.pool().clone(),
+    };
     let scheduler_handle = {
         let shutdown = shutdown_token.clone().cancelled_owned();
         let task = waymark_scheduler_loop::SchedulerTask {
@@ -234,38 +236,57 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-fn build_dag_resolver(pool: sqlx::PgPool) -> DagResolver {
-    Arc::new(move |workflow_name| {
-        let pool = pool.clone();
-        let workflow_name = workflow_name.to_string();
-        tokio::task::block_in_place(|| {
-            let handle = tokio::runtime::Handle::current();
-            handle.block_on(async move {
-                let row = sqlx::query(
-                    r#"
+struct SchedulerDagResolver {
+    pub pool: sqlx::PgPool,
+}
+
+#[derive(Debug, thiserror::Error)]
+enum SchedulerDagResolverError {
+    #[error("database: {0}")]
+    Database(sqlx::Error),
+
+    #[error("dag proto decode: {0}")]
+    DagProtoDecode(prost::DecodeError),
+
+    #[error("database: {0}")]
+    DagConversion(waymark_dag_builder::DagConversionError),
+}
+
+impl waymark_scheduler_loop_core::DagResolver for SchedulerDagResolver {
+    type Error = SchedulerDagResolverError;
+
+    async fn resolve_dag<'a>(
+        &'a self,
+        workflow_name: &'a str,
+    ) -> Result<Option<waymark_scheduler_loop_core::WorkflowDag>, Self::Error> {
+        let maybe_row = sqlx::query(
+            r#"
                     SELECT id, program_proto
                     FROM workflow_versions
                     WHERE workflow_name = $1
                     ORDER BY created_at DESC
                     LIMIT 1
                     "#,
-                )
-                .bind(&workflow_name)
-                .fetch_optional(&pool)
-                .await
-                .ok()??;
+        )
+        .bind(workflow_name)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(SchedulerDagResolverError::Database)?;
 
-                let version_id: Uuid = row.get("id");
-                let payload: Vec<u8> = row.get("program_proto");
-                let program = ir::Program::decode(&payload[..]).ok()?;
-                let dag = convert_to_dag(&program).ok()?;
-                Some(WorkflowDag {
-                    version_id,
-                    dag: Arc::new(dag),
-                })
-            })
-        })
-    })
+        let Some(row) = maybe_row else {
+            return Ok(None);
+        };
+
+        let version_id: Uuid = row.get("id");
+        let payload: Vec<u8> = row.get("program_proto");
+        let program =
+            ir::Program::decode(&payload[..]).map_err(SchedulerDagResolverError::DagProtoDecode)?;
+        let dag = convert_to_dag(&program).map_err(SchedulerDagResolverError::DagConversion)?;
+        Ok(Some(WorkflowDag {
+            version_id,
+            dag: Arc::new(dag),
+        }))
+    }
 }
 
 fn spawn_expired_lock_reclaimer(

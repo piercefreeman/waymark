@@ -17,6 +17,7 @@ waymark-prometheus-exporter-bringup = { workspace = true }
 waymark-proto = { workspace = true }
 waymark-runloop = { workspace = true }
 waymark-scheduler-loop = { workspace = true }
+waymark-scheduler-loop-core = { workspace = true }
 waymark-webapp-bringup = { workspace = true }
 waymark-worker-remote = { workspace = true }
 waymark-worker-status-reporter = { workspace = true }
@@ -25,6 +26,7 @@ anyhow = { workspace = true }
 envfury = { workspace = true }
 prost = { workspace = true }
 sqlx = { workspace = true }
+thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal"] }
 tokio-util = { workspace = true }
 tracing = { workspace = true }

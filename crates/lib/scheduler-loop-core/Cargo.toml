@@ -1,0 +1,10 @@
+[package]
+name = "waymark-scheduler-loop-core"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-dag = { workspace = true }
+
+uuid = { workspace = true }
