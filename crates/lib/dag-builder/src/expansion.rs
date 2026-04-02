@@ -4,10 +4,12 @@ use std::collections::{HashMap, HashSet};
 
 use uuid::Uuid;
 
+use crate::DagConversionError;
+
 use super::converter::DAGConverter;
 use waymark_dag::AssignmentNode;
 use waymark_dag::DAGNode;
-use waymark_dag::{DAG, DAGEdge, DagConversionError, EdgeType};
+use waymark_dag::{DAG, DAGEdge, EdgeType};
 
 /// Inline function calls and remap expansion edges.
 impl DAGConverter {

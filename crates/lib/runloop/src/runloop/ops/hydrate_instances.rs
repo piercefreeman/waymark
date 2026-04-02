@@ -22,7 +22,7 @@ pub enum Error {
     IrProgramDecode(#[source] prost::DecodeError),
 
     #[error("invalid workflow DAG: {0}")]
-    ConvertToDag(#[source] waymark_dag::DagConversionError),
+    ConvertToDag(#[source] waymark_dag_builder::DagConversionError),
 
     #[error("workflow version not found: {workflow_version_id}")]
     WorkflowCacheGetNone { workflow_version_id: uuid::Uuid },

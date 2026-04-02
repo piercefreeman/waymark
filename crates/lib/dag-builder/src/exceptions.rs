@@ -2,9 +2,11 @@
 
 use waymark_proto::ast as ir;
 
+use crate::DagConversionError;
+
 use super::converter::DAGConverter;
 use waymark_dag::{AssignmentNode, JoinNode};
-use waymark_dag::{ConvertedSubgraph, DAGEdge, DagConversionError, EXCEPTION_SCOPE_VAR};
+use waymark_dag::{ConvertedSubgraph, DAGEdge, EXCEPTION_SCOPE_VAR};
 
 /// Convert try/except blocks into exception-aware DAG edges.
 impl DAGConverter {

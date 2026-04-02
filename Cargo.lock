@@ -4073,7 +4073,6 @@ version = "0.1.0"
 dependencies = [
  "rustc-hash",
  "serde",
- "thiserror",
  "uuid",
  "waymark-proto",
 ]
@@ -4082,6 +4081,7 @@ dependencies = [
 name = "waymark-dag-builder"
 version = "0.1.0"
 dependencies = [
+ "thiserror",
  "uuid",
  "waymark-dag",
  "waymark-dag-validator",
@@ -4093,6 +4093,7 @@ dependencies = [
 name = "waymark-dag-validator"
 version = "0.1.0"
 dependencies = [
+ "thiserror",
  "waymark-dag",
  "waymark-dag-builder",
  "waymark-ir-parser",
