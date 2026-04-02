@@ -41,6 +41,7 @@ waymark-scheduler-backend = { path = "crates/lib/scheduler-backend" }
 waymark-scheduler-config = { path = "crates/lib/scheduler-config" }
 waymark-scheduler-core = { path = "crates/lib/scheduler-core" }
 waymark-scheduler-loop = { path = "crates/lib/scheduler-loop" }
+waymark-scheduler-loop-core = { path = "crates/lib/scheduler-loop-core" }
 waymark-secret-string = { path = "crates/lib/secret-string" }
 waymark-smoke-sources = { path = "crates/lib/smoke-sources" }
 waymark-support-integration = { path = "crates/lib/support-integration" }

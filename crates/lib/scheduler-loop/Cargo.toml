@@ -6,7 +6,6 @@ publish.workspace = true
 
 [dependencies]
 waymark-core-backend = { workspace = true }
-waymark-dag = { workspace = true }
 waymark-ids = { workspace = true }
 waymark-ir-conversions = { workspace = true }
 waymark-message-conversions = { workspace = true }
@@ -15,6 +14,7 @@ waymark-runner-state = { workspace = true }
 waymark-scheduler-backend = { workspace = true }
 waymark-scheduler-config = { workspace = true }
 waymark-scheduler-core = { workspace = true }
+waymark-scheduler-loop-core = { workspace = true }
 
 prost = { workspace = true }
 serde_json = { workspace = true }

@@ -8,7 +8,6 @@ use std::sync::Arc;
 use prost::Message as _;
 use serde_json::Value;
 use tracing::{debug, error, info};
-use uuid::Uuid;
 use waymark_core_backend::QueuedInstance;
 use waymark_ids::InstanceId;
 use waymark_ir_conversions::literal_from_json_value;
@@ -16,29 +15,20 @@ use waymark_proto::messages as proto;
 use waymark_scheduler_config::SchedulerConfig;
 use waymark_scheduler_core::{ScheduleId, WorkflowSchedule};
 
-use waymark_dag::DAG;
-
-#[derive(Clone)]
-pub struct WorkflowDag {
-    pub version_id: Uuid,
-    pub dag: Arc<DAG>,
-}
-
-pub type DagResolver = Arc<dyn Fn(&str) -> Option<WorkflowDag> + Send + Sync>;
-
 /// Background scheduler task.
-pub struct SchedulerTask<B> {
-    pub backend: B,
+pub struct SchedulerTask<Backend, DagResolver> {
+    pub backend: Backend,
     pub config: SchedulerConfig,
-    /// Function to get the DAG for a workflow.
-    /// This should look up the workflow definition and return its DAG.
     pub dag_resolver: DagResolver,
 }
 
-impl<B> SchedulerTask<B>
+impl<Backend, DagResolver> SchedulerTask<Backend, DagResolver>
 where
-    B: waymark_core_backend::CoreBackend + waymark_scheduler_backend::SchedulerBackend,
-    B: Clone + Send + Sync + 'static,
+    Backend: waymark_core_backend::CoreBackend,
+    Backend: waymark_scheduler_backend::SchedulerBackend,
+    Backend: Clone + Send + Sync + 'static,
+    DagResolver: waymark_scheduler_loop_core::DagResolver,
+    DagResolver::Error: std::error::Error + Send + Sync + 'static,
 {
     /// Run the scheduler loop.
     pub async fn run(self, shutdown: tokio_util::sync::WaitForCancellationFutureOwned) {
@@ -124,7 +114,12 @@ where
         }
 
         // Get the DAG for this workflow
-        let workflow = (self.dag_resolver)(&schedule.workflow_name).ok_or_else(|| {
+        let maybe_workflow = self
+            .dag_resolver
+            .resolve_dag(&schedule.workflow_name)
+            .await?;
+
+        let workflow = maybe_workflow.ok_or_else(|| {
             format!(
                 "no workflow version found for workflow: {}",
                 schedule.workflow_name
@@ -199,12 +194,14 @@ mod tests {
     use chrono::{Duration as ChronoDuration, Utc};
     use prost::Message;
     use serde_json::Value;
+    use uuid::Uuid;
     use waymark_backend_memory::MemoryBackend;
     use waymark_core_backend::{CoreBackend, LockClaim};
     use waymark_ids::LockId;
     use waymark_scheduler_backend::SchedulerBackend;
     use waymark_scheduler_config::SchedulerConfig;
     use waymark_scheduler_core::{CreateScheduleParams, ScheduleType};
+    use waymark_scheduler_loop_core::WorkflowDag;
 
     use super::*;
     use waymark_dag_builder::convert_to_dag;
@@ -243,16 +240,20 @@ fn main(input: [number], output: [result]):
         let workflow_name = "scheduled_math".to_string();
         let resolver_name = workflow_name.clone();
         let resolver_dag = Arc::clone(&dag);
-        let dag_resolver: DagResolver = Arc::new(move |name: &str| {
-            if name == resolver_name {
-                Some(WorkflowDag {
-                    version_id: Uuid::new_v4(),
-                    dag: Arc::clone(&resolver_dag),
-                })
-            } else {
-                None
+        let dag_resolver = move |name: &str| {
+            let matches = name == resolver_name;
+            let resolver_dag = Arc::clone(&resolver_dag);
+            async move {
+                if matches {
+                    Ok::<_, std::convert::Infallible>(Some(WorkflowDag {
+                        version_id: Uuid::new_v4(),
+                        dag: resolver_dag,
+                    }))
+                } else {
+                    Ok::<_, std::convert::Infallible>(None)
+                }
             }
-        });
+        };
 
         let scheduler = SchedulerTask {
             backend: backend.clone(),
