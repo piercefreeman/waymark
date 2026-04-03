@@ -1,8 +1,9 @@
-version: "3.9"
-
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:18
+    command:
+      - -c
+      - shared_preload_libraries=pg_stat_statements,auto_explain
     environment:
       POSTGRES_DB: waymark
       POSTGRES_USER: waymark
@@ -15,7 +16,7 @@ services:
       timeout: 3s
       retries: 5
     volumes:
-      - waymark-postgres-data:/var/lib/postgresql/data
+      - waymark-postgres-data:/var/lib/postgresql
 
 volumes:
   waymark-postgres-data:
