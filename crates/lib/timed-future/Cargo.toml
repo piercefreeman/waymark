@@ -6,3 +6,6 @@ publish.workspace = true
 
 [dependencies]
 metrics = { workspace = true }
+
+[dev-dependencies]
+metrics-util = { workspace = true }
