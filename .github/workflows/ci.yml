@@ -98,7 +98,7 @@ jobs:
     timeout-minutes: 10
     services:
       postgres:
-        image: postgres:15
+        image: postgres:18
         env:
           POSTGRES_USER: mountaineer
           POSTGRES_PASSWORD: mountaineer
@@ -160,7 +160,7 @@ jobs:
     timeout-minutes: 15
     services:
       postgres:
-        image: postgres:15
+        image: postgres:18
         env:
           POSTGRES_USER: mountaineer
           POSTGRES_PASSWORD: mountaineer
@@ -302,7 +302,7 @@ jobs:
     if: github.event_name == 'pull_request' && contains(toJson(github.event.pull_request.labels), 'full-build')
     services:
       postgres:
-        image: postgres:15
+        image: postgres:18
         env:
           POSTGRES_USER: mountaineer
           POSTGRES_PASSWORD: mountaineer
@@ -418,7 +418,7 @@ jobs:
     if: github.ref == 'refs/heads/main' || (github.event_name == 'pull_request' && contains(toJson(github.event.pull_request.labels), 'full-build'))
     services:
       postgres:
-        image: postgres:15
+        image: postgres:18
         env:
           POSTGRES_USER: mountaineer
           POSTGRES_PASSWORD: mountaineer
