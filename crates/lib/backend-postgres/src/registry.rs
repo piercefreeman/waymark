@@ -1,6 +1,7 @@
 use sqlx::Row;
 use uuid::Uuid;
 use waymark_backends_core::{BackendError, BackendResult};
+use waymark_timed_future::TimedFutureExt as _;
 use waymark_workflow_registry_backend::{
     WorkflowRegistration, WorkflowRegistryBackend, WorkflowVersion,
 };
@@ -8,6 +9,7 @@ use waymark_workflow_registry_backend::{
 use super::PostgresBackend;
 
 impl WorkflowRegistryBackend for PostgresBackend {
+    #[function_name::named]
     async fn upsert_workflow_version(
         &self,
         registration: &WorkflowRegistration,
@@ -28,6 +30,7 @@ impl WorkflowRegistryBackend for PostgresBackend {
         .bind(&registration.program_proto)
         .bind(registration.concurrent)
         .fetch_optional(&self.pool)
+        .timed(crate::query_timing_histogram!("insert:workflow_versions"))
         .await?;
 
         if let Some(row) = inserted {
@@ -45,6 +48,9 @@ impl WorkflowRegistryBackend for PostgresBackend {
         .bind(&registration.workflow_name)
         .bind(&registration.workflow_version)
         .fetch_one(&self.pool)
+        .timed(crate::query_timing_histogram!(
+            "select:workflow_versions_by_name_version"
+        ))
         .await?;
 
         let id: Uuid = row.get("id");
@@ -59,6 +65,7 @@ impl WorkflowRegistryBackend for PostgresBackend {
         Ok(id)
     }
 
+    #[function_name::named]
     async fn get_workflow_versions(&self, ids: &[Uuid]) -> BackendResult<Vec<WorkflowVersion>> {
         if ids.is_empty() {
             return Ok(Vec::new());
@@ -72,6 +79,9 @@ impl WorkflowRegistryBackend for PostgresBackend {
         )
         .bind(ids)
         .fetch_all(&self.pool)
+        .timed(crate::query_timing_histogram!(
+            "select:workflow_versions_by_id"
+        ))
         .await?;
 
         let mut versions = Vec::with_capacity(rows.len());

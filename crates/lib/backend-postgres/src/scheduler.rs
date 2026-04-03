@@ -4,11 +4,13 @@ use uuid::Uuid;
 use waymark_backends_core::{BackendError, BackendResult};
 use waymark_ids::InstanceId;
 use waymark_scheduler_backend::SchedulerBackend;
+use waymark_timed_future::TimedFutureExt as _;
 
 use waymark_scheduler_core::compute_next_run;
 use waymark_scheduler_core::{CreateScheduleParams, ScheduleId, ScheduleType, WorkflowSchedule};
 
 impl SchedulerBackend for crate::PostgresBackend {
+    #[function_name::named]
     async fn upsert_schedule(&self, params: &CreateScheduleParams) -> BackendResult<ScheduleId> {
         let next_run_at = compute_next_run(
             params.schedule_type,
@@ -51,12 +53,14 @@ impl SchedulerBackend for crate::PostgresBackend {
         .bind(params.priority)
         .bind(params.allow_duplicate)
         .fetch_one(&self.pool)
+        .timed(crate::query_timing_histogram!("upsert:workflow_schedules"))
         .await?;
 
         let id: Uuid = row.get("id");
         Ok(ScheduleId(id))
     }
 
+    #[function_name::named]
     async fn get_schedule(&self, id: ScheduleId) -> BackendResult<WorkflowSchedule> {
         let schedule = sqlx::query_as::<_, ScheduleRow>(
             r#"
@@ -69,12 +73,14 @@ impl SchedulerBackend for crate::PostgresBackend {
         )
         .bind(id.0)
         .fetch_optional(&self.pool)
+        .timed(crate::query_timing_histogram!("select:workflow_schedules_by_id"))
         .await?
         .ok_or_else(|| BackendError::Message(format!("schedule not found: {}", id)))?;
 
         Ok(schedule.into())
     }
 
+    #[function_name::named]
     async fn get_schedule_by_name(
         &self,
         workflow_name: &str,
@@ -92,11 +98,13 @@ impl SchedulerBackend for crate::PostgresBackend {
         .bind(workflow_name)
         .bind(schedule_name)
         .fetch_optional(&self.pool)
+        .timed(crate::query_timing_histogram!("select:workflow_schedules_by_name"))
         .await?;
 
         Ok(schedule.map(Into::into))
     }
 
+    #[function_name::named]
     async fn list_schedules(
         &self,
         limit: i64,
@@ -116,21 +124,25 @@ impl SchedulerBackend for crate::PostgresBackend {
         .bind(limit)
         .bind(offset)
         .fetch_all(&self.pool)
+        .timed(crate::query_timing_histogram!("select:workflow_schedules_list"))
         .await?;
 
         Ok(rows.into_iter().map(Into::into).collect())
     }
 
+    #[function_name::named]
     async fn count_schedules(&self) -> BackendResult<i64> {
         let count = sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(*) FROM workflow_schedules WHERE status != 'deleted'",
         )
         .fetch_one(&self.pool)
+        .timed(crate::query_timing_histogram!("count:workflow_schedules"))
         .await?;
 
         Ok(count)
     }
 
+    #[function_name::named]
     async fn update_schedule_status(&self, id: ScheduleId, status: &str) -> BackendResult<bool> {
         let result = sqlx::query(
             r#"
@@ -142,6 +154,9 @@ impl SchedulerBackend for crate::PostgresBackend {
         .bind(id.0)
         .bind(status)
         .execute(&self.pool)
+        .timed(crate::query_timing_histogram!(
+            "update:workflow_schedules_status"
+        ))
         .await?;
 
         Ok(result.rows_affected() > 0)
@@ -151,6 +166,7 @@ impl SchedulerBackend for crate::PostgresBackend {
         SchedulerBackend::update_schedule_status(self, id, "deleted").await
     }
 
+    #[function_name::named]
     async fn find_due_schedules(&self, limit: i32) -> BackendResult<Vec<WorkflowSchedule>> {
         let rows = sqlx::query_as::<_, ScheduleRow>(
             r#"
@@ -168,11 +184,13 @@ impl SchedulerBackend for crate::PostgresBackend {
         )
         .bind(limit)
         .fetch_all(&self.pool)
+        .timed(crate::query_timing_histogram!("select:workflow_schedules_due"))
         .await?;
 
         Ok(rows.into_iter().map(Into::into).collect())
     }
 
+    #[function_name::named]
     async fn has_running_instance(&self, schedule_id: ScheduleId) -> BackendResult<bool> {
         let has_running = sqlx::query_scalar::<_, bool>(
             r#"
@@ -186,11 +204,15 @@ impl SchedulerBackend for crate::PostgresBackend {
         )
         .bind(schedule_id.0)
         .fetch_one(&self.pool)
+        .timed(crate::query_timing_histogram!(
+            "select:runner_instances_exists_by_schedule_id"
+        ))
         .await?;
 
         Ok(has_running)
     }
 
+    #[function_name::named]
     async fn mark_schedule_executed(
         &self,
         schedule_id: ScheduleId,
@@ -222,11 +244,15 @@ impl SchedulerBackend for crate::PostgresBackend {
         .bind(instance_id)
         .bind(next_run_at)
         .execute(&self.pool)
+        .timed(crate::query_timing_histogram!(
+            "update:workflow_schedules_mark_executed"
+        ))
         .await?;
 
         Ok(())
     }
 
+    #[function_name::named]
     async fn skip_schedule_run(&self, schedule_id: ScheduleId) -> BackendResult<()> {
         let schedule = SchedulerBackend::get_schedule(self, schedule_id).await?;
         let schedule_type = ScheduleType::parse(&schedule.schedule_type)
@@ -250,6 +276,9 @@ impl SchedulerBackend for crate::PostgresBackend {
         .bind(schedule_id.0)
         .bind(next_run_at)
         .execute(&self.pool)
+        .timed(crate::query_timing_histogram!(
+            "update:workflow_schedules_skip_run"
+        ))
         .await?;
 
         Ok(())
