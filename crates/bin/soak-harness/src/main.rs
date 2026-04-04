@@ -105,9 +105,11 @@ async fn main() -> Result<()> {
         workflow_version_id = %workflow.workflow_version_id,
         "registered soak workflow"
     );
-    let expected_actions_per_minute = args
-        .queue_rate_per_minute
-        .saturating_mul(args.actions_per_workflow);
+    let expected_actions_per_minute = args.queue_rate_per_minute.saturating_mul(
+        args.actions_per_workflow
+            .try_into()
+            .unwrap_or(std::num::NonZeroU128::MAX),
+    );
     info!(
         queue_rate_per_minute = args.queue_rate_per_minute,
         actions_per_workflow = args.actions_per_workflow,

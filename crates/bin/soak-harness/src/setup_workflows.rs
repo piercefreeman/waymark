@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{num::NonZeroUsize, sync::Arc};
 
 use anyhow::{Context, Result, anyhow};
 use prost::Message as _;
@@ -23,7 +23,7 @@ pub struct RegisteredWorkflow {
 pub async fn register_workflow(
     backend: &PostgresBackend,
     timeout_seconds: u32,
-    actions_per_workflow: usize,
+    actions_per_workflow: NonZeroUsize,
     user_module: &str,
 ) -> Result<RegisteredWorkflow> {
     let source = workflow_source(user_module, timeout_seconds, actions_per_workflow);
@@ -56,12 +56,16 @@ pub async fn register_workflow(
     })
 }
 
-fn workflow_source(user_module: &str, timeout_seconds: u32, actions_per_workflow: usize) -> String {
-    let mut input_names = Vec::with_capacity(actions_per_workflow * 3);
-    let mut lines = Vec::with_capacity(actions_per_workflow + 3);
+fn workflow_source(
+    user_module: &str,
+    timeout_seconds: u32,
+    actions_per_workflow: NonZeroUsize,
+) -> String {
+    let mut input_names = Vec::with_capacity(actions_per_workflow.get() * 3);
+    let mut lines = Vec::with_capacity(actions_per_workflow.get() + 3);
     lines.push("fn main(input: [".to_string());
 
-    for step in 0..actions_per_workflow {
+    for step in 0..actions_per_workflow.get() {
         let idx = step + 1;
         input_names.push(format!("delay_ms_{idx}"));
         input_names.push(format!("should_fail_{idx}"));
@@ -71,7 +75,7 @@ fn workflow_source(user_module: &str, timeout_seconds: u32, actions_per_workflow
     lines[0].push_str(&input_names.join(", "));
     lines[0].push_str("], output: [result]):");
 
-    for step in 0..actions_per_workflow {
+    for step in 0..actions_per_workflow.get() {
         let idx = step + 1;
         lines.push(format!(
             "    step_{idx} = @{user_module}.simulated_action(delay_ms=delay_ms_{idx}, should_fail=should_fail_{idx}, payload_bytes=payload_bytes_{idx})[ActionTimeout -> retry: 1, backoff: 1 s][timeout: {timeout_seconds} s]"
