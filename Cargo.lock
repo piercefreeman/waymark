@@ -4544,6 +4544,7 @@ dependencies = [
  "waymark-fn-main-common",
  "waymark-ids",
  "waymark-ir-parser",
+ "waymark-nonzero-duration",
  "waymark-proto",
  "waymark-runner-state",
  "waymark-secret-string",

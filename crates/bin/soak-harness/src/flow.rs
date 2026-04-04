@@ -15,6 +15,7 @@ use tracing::{info, warn};
 use waymark_backend_postgres::PostgresBackend;
 use waymark_core_backend::QueuedInstance;
 use waymark_ids::InstanceId;
+use waymark_nonzero_duration::NonZeroDuration;
 use waymark_proto::ast as ir;
 use waymark_runner_state::RunnerState;
 
@@ -72,11 +73,11 @@ pub async fn run_soak_loop(
     let mut zero_streak = 0usize;
     let start = Instant::now();
     let mut previous_total_completed: Option<i64> = None;
-    let tick_duration = Duration::from_secs(args.tick_seconds);
+    let tick_duration = NonZeroDuration::from_nonzero_secs(args.tick_seconds);
 
     let queue_rate = rate::Rate::per_minute(args.queue_rate_per_minute);
     let mut tick_delta = tick_delta::TickDelta::new(start.into());
-    let mut ticker = tokio::time::interval(tick_duration);
+    let mut ticker = tokio::time::interval(tick_duration.get());
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let _ = ticker.tick().await;
 
@@ -199,7 +200,7 @@ pub async fn run_soak_loop(
             }
         }
 
-        if zero_streak >= args.issue_consecutive_samples {
+        if zero_streak >= args.issue_consecutive_samples.get() {
             let detail = format!(
                 "actions/sec <= {:.4} for {} consecutive samples while ready queue={} (threshold={})",
                 args.issue_actions_per_sec_threshold,
@@ -254,11 +255,10 @@ async fn queue_instances(
     rng: &mut StdRng,
 ) -> Result<usize> {
     let mut queued_total = 0usize;
-    let batch_size = args.queue_batch_size.max(1);
     let mut remaining = count;
 
     while remaining > 0 {
-        let take = remaining.min(batch_size);
+        let take = remaining.min(args.queue_batch_size.get());
         let mut instances = Vec::with_capacity(take);
 
         for _ in 0..take {
