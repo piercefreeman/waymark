@@ -101,7 +101,7 @@ pub async fn run_soak_loop(
         let elapsed = now_tick.duration_since(last_tick);
         last_tick = now_tick;
 
-        queue_tokens += elapsed.as_secs_f64() * (args.queue_rate_per_minute as f64 / 60.0);
+        queue_tokens += elapsed.as_secs_f64() * (args.queue_rate_per_minute as f64) / 60.0;
 
         let queue_snapshot = data::fetch_queue_snapshot(pool).await?;
         let worker_status = data::fetch_latest_worker_status(pool).await?;
