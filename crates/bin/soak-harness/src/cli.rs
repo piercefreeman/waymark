@@ -1,4 +1,7 @@
-use std::path::PathBuf;
+use std::{
+    num::{NonZeroU128, NonZeroUsize},
+    path::PathBuf,
+};
 
 use anyhow::{Result, bail};
 use clap::Parser;
@@ -63,11 +66,11 @@ pub struct SoakArgs {
     #[arg(long, default_value_t = 20)]
     pub timeout_seconds: u32,
 
-    #[arg(long, default_value_t = 10_000)]
-    pub queue_rate_per_minute: usize,
+    #[arg(long, default_value_t = 10_000.try_into().unwrap())]
+    pub queue_rate_per_minute: NonZeroU128,
 
-    #[arg(long, default_value_t = 5)]
-    pub actions_per_workflow: usize,
+    #[arg(long, default_value_t = 5.try_into().unwrap())]
+    pub actions_per_workflow: NonZeroUsize,
 
     #[arg(long, default_value_t = 500)]
     pub queue_batch_size: usize,
@@ -75,11 +78,11 @@ pub struct SoakArgs {
     #[arg(long, default_value_t = 50_000)]
     pub target_ready_queue: i64,
 
-    #[arg(long, default_value_t = 10_000)]
-    pub max_top_up_per_tick: usize,
+    #[arg(long, default_value_t = 10_000.try_into().unwrap())]
+    pub max_top_up_per_tick: NonZeroU128,
 
-    #[arg(long, default_value_t = 10_000)]
-    pub max_queue_per_tick: usize,
+    #[arg(long, default_value_t = 10_000.try_into().unwrap())]
+    pub max_queue_per_tick: NonZeroU128,
 
     #[arg(long, default_value_t = 10)]
     pub tick_seconds: u64,
@@ -134,14 +137,8 @@ pub fn validate_args(args: &SoakArgs) -> Result<()> {
     if args.tick_seconds == 0 {
         bail!("--tick-seconds must be at least 1");
     }
-    if args.max_queue_per_tick == 0 {
-        bail!("--max-queue-per-tick must be at least 1");
-    }
     if args.issue_consecutive_samples == 0 {
         bail!("--issue-consecutive-samples must be at least 1");
-    }
-    if args.actions_per_workflow == 0 {
-        bail!("--actions-per-workflow must be at least 1");
     }
     if args.timeout_percent < 0.0 || args.failure_percent < 0.0 || args.slow_percent < 0.0 {
         bail!("workload percentages cannot be negative");
