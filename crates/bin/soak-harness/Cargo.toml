@@ -13,6 +13,7 @@ waymark-dag-builder = { workspace = true }
 waymark-fn-main-common = { workspace = true }
 waymark-ids = { workspace = true }
 waymark-ir-parser = { workspace = true }
+waymark-nonzero-duration = { workspace = true }
 waymark-proto = { workspace = true }
 waymark-runner-state = { workspace = true }
 waymark-secret-string = { workspace = true }
