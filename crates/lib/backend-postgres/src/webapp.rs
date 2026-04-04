@@ -18,6 +18,7 @@ use waymark_runner::replay_action_kwargs;
 use waymark_runner_state::{
     ActionCallSpec, ExecutionNode, NodeStatus, RunnerState, format_value, value_visitor::ValueExpr,
 };
+use waymark_timed_future::TimedFutureExt as _;
 use waymark_webapp_core::{
     ExecutionEdgeView, ExecutionGraphView, ExecutionNodeView, InstanceDetail, InstanceStatus,
     InstanceSummary, ScheduleDetail, ScheduleInvocationSummary, ScheduleSummary, TimelineEntry,
@@ -269,6 +270,7 @@ fn parse_instance_status(status: &str) -> Option<InstanceStatus> {
 }
 
 impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
+    #[function_name::named]
     async fn count_instances(&self, search: Option<&str>) -> BackendResult<i64> {
         let mut builder: QueryBuilder<Postgres> = QueryBuilder::new(
             r#"
@@ -283,10 +285,17 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
             push_instance_search_expr_sql(&mut builder, &search_expr);
         }
 
-        let count: i64 = builder.build_query_scalar().fetch_one(&self.pool).await?;
+        let count: i64 = builder
+            .build_query_scalar()
+            .fetch_one(&self.pool)
+            .timed(crate::query_timing_histogram!(
+                "webapp:count:runner_instances"
+            ))
+            .await?;
         Ok(count)
     }
 
+    #[function_name::named]
     async fn list_instances(
         &self,
         search: Option<&str>,
@@ -323,7 +332,13 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
         builder.push_bind(limit);
         builder.push(" OFFSET ");
         builder.push_bind(offset);
-        let rows = builder.build().fetch_all(&self.pool).await?;
+        let rows = builder
+            .build()
+            .fetch_all(&self.pool)
+            .timed(crate::query_timing_histogram!(
+                "webapp:select:runner_instances_list"
+            ))
+            .await?;
 
         let mut instances = Vec::new();
         for row in rows {
@@ -355,6 +370,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
         Ok(instances)
     }
 
+    #[function_name::named]
     async fn get_instance(&self, instance_id: InstanceId) -> BackendResult<InstanceDetail> {
         let row = sqlx::query(
             r#"
@@ -381,6 +397,9 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
         )
         .bind(instance_id)
         .fetch_optional(&self.pool)
+        .timed(crate::query_timing_histogram!(
+            "webapp:select:runner_instance_by_id"
+        ))
         .await?
         .ok_or_else(|| BackendError::Message(format!("instance not found: {}", instance_id)))?;
 
@@ -413,6 +432,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
         })
     }
 
+    #[function_name::named]
     async fn get_execution_graph(
         &self,
         instance_id: InstanceId,
@@ -424,6 +444,9 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
         )
         .bind(instance_id)
         .fetch_optional(&self.pool)
+        .timed(crate::query_timing_histogram!(
+            "webapp:select:runner_instance_state_by_id"
+        ))
         .await?;
 
         let Some(row) = row else {
@@ -464,6 +487,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
         Ok(Some(ExecutionGraphView { nodes, edges }))
     }
 
+    #[function_name::named]
     async fn requeue_instance_to_latest_version(
         &self,
         instance_id: InstanceId,
@@ -480,6 +504,9 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
         )
         .bind(instance_id)
         .fetch_optional(&self.pool)
+        .timed(crate::query_timing_histogram!(
+            "webapp:select:runner_instance_for_requeue"
+        ))
         .await?
         .ok_or_else(|| BackendError::Message(format!("instance not found: {instance_id}")))?;
 
@@ -501,6 +528,9 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
         )
         .bind(&workflow_name)
         .fetch_optional(&self.pool)
+        .timed(crate::query_timing_histogram!(
+            "webapp:select:workflow_version_latest_by_workflow_name"
+        ))
         .await?
         .ok_or_else(|| {
             BackendError::Message(format!(
@@ -522,6 +552,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
         Ok(queued_instance_id)
     }
 
+    #[function_name::named]
     async fn get_workflow_graph(
         &self,
         instance_id: InstanceId,
@@ -536,6 +567,9 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
         )
         .bind(instance_id)
         .fetch_optional(&self.pool)
+        .timed(crate::query_timing_histogram!(
+            "webapp:select:workflow_graph_by_instance_id"
+        ))
         .await?;
 
         let Some(row) = row else {
@@ -614,6 +648,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
         Ok(Some(ExecutionGraphView { nodes, edges }))
     }
 
+    #[function_name::named]
     async fn get_action_results(
         &self,
         instance_id: InstanceId,
@@ -627,6 +662,9 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
         )
         .bind(instance_id)
         .fetch_optional(&self.pool)
+        .timed(crate::query_timing_histogram!(
+            "webapp:select:runner_instance_state_for_action_results"
+        ))
         .await?;
 
         let Some(row) = row else {
@@ -665,6 +703,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
         )
         .bind(&execution_ids)
         .fetch_all(&self.pool)
+        .timed(crate::query_timing_histogram!("webapp:select:runner_actions_done_by_execution_id"))
         .await?;
 
         let mut decoded_rows = Vec::with_capacity(rows.len());
@@ -767,6 +806,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
         Ok(entries)
     }
 
+    #[function_name::named]
     async fn get_distinct_workflows(&self) -> BackendResult<Vec<String>> {
         let rows = sqlx::query(
             r#"
@@ -778,6 +818,9 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
             "#,
         )
         .fetch_all(&self.pool)
+        .timed(crate::query_timing_histogram!(
+            "webapp:select:distinct_workflow_names"
+        ))
         .await?;
 
         let mut workflows = Vec::with_capacity(rows.len());
@@ -797,16 +840,21 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
         ])
     }
 
+    #[function_name::named]
     async fn count_schedules(&self) -> BackendResult<i64> {
         let count = sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(*) FROM workflow_schedules WHERE status != 'deleted'",
         )
         .fetch_one(&self.pool)
+        .timed(crate::query_timing_histogram!(
+            "webapp:count:workflow_schedules"
+        ))
         .await?;
 
         Ok(count)
     }
 
+    #[function_name::named]
     async fn list_schedules(&self, limit: i64, offset: i64) -> BackendResult<Vec<ScheduleSummary>> {
         let rows = sqlx::query(
             r#"
@@ -821,6 +869,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
         .bind(limit)
         .bind(offset)
         .fetch_all(&self.pool)
+        .timed(crate::query_timing_histogram!("webapp:select:workflow_schedules_list"))
         .await?;
 
         let mut schedules = Vec::new();
@@ -846,6 +895,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
         Ok(schedules)
     }
 
+    #[function_name::named]
     async fn get_schedule(&self, schedule_id: Uuid) -> BackendResult<ScheduleDetail> {
         let row = sqlx::query(
             r#"
@@ -858,6 +908,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
         )
         .bind(schedule_id)
         .fetch_optional(&self.pool)
+        .timed(crate::query_timing_histogram!("webapp:select:workflow_schedule_by_id"))
         .await?
         .ok_or_else(|| BackendError::Message(format!("schedule not found: {}", schedule_id)))?;
 
@@ -895,6 +946,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
         })
     }
 
+    #[function_name::named]
     async fn count_schedule_invocations(&self, schedule_id: Uuid) -> BackendResult<i64> {
         let count = sqlx::query_scalar::<_, i64>(
             r#"
@@ -905,10 +957,14 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
         )
         .bind(schedule_id)
         .fetch_one(&self.pool)
+        .timed(crate::query_timing_histogram!(
+            "webapp:count:runner_instances_by_schedule_id"
+        ))
         .await?;
         Ok(count)
     }
 
+    #[function_name::named]
     async fn list_schedule_invocations(
         &self,
         schedule_id: Uuid,
@@ -928,6 +984,9 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
         .bind(limit)
         .bind(offset)
         .fetch_all(&self.pool)
+        .timed(crate::query_timing_histogram!(
+            "webapp:select:runner_instances_by_schedule_id"
+        ))
         .await?;
 
         let mut invocations = Vec::with_capacity(rows.len());
@@ -946,6 +1005,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
         Ok(invocations)
     }
 
+    #[function_name::named]
     async fn update_schedule_status(&self, schedule_id: Uuid, status: &str) -> BackendResult<bool> {
         let result = sqlx::query(
             r#"
@@ -957,6 +1017,9 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
         .bind(schedule_id)
         .bind(status)
         .execute(&self.pool)
+        .timed(crate::query_timing_histogram!(
+            "webapp:update:workflow_schedules_status"
+        ))
         .await?;
 
         Ok(result.rows_affected() > 0)
@@ -970,6 +1033,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
         Ok(vec!["cron".to_string(), "interval".to_string()])
     }
 
+    #[function_name::named]
     async fn get_worker_action_stats(
         &self,
         window_minutes: i64,
@@ -994,6 +1058,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
         )
         .bind(window_minutes)
         .fetch_all(&self.pool)
+        .timed(crate::query_timing_histogram!("webapp:select:worker_action_stats"))
         .await?;
 
         let mut stats = Vec::new();
@@ -1020,6 +1085,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
         Ok(stats)
     }
 
+    #[function_name::named]
     async fn get_worker_aggregate_stats(
         &self,
         window_minutes: i64,
@@ -1037,6 +1103,9 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
         )
         .bind(window_minutes)
         .fetch_one(&self.pool)
+        .timed(crate::query_timing_histogram!(
+            "webapp:select:worker_aggregate_stats"
+        ))
         .await?;
 
         Ok(WorkerAggregateStats {
@@ -1047,6 +1116,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
         })
     }
 
+    #[function_name::named]
     async fn worker_status_table_exists(&self) -> bool {
         sqlx::query_scalar::<_, bool>(
             r#"
@@ -1057,10 +1127,14 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
             "#,
         )
         .fetch_one(&self.pool)
+        .timed(crate::query_timing_histogram!(
+            "webapp:select:worker_status_table_exists"
+        ))
         .await
         .unwrap_or(false)
     }
 
+    #[function_name::named]
     async fn schedules_table_exists(&self) -> bool {
         sqlx::query_scalar::<_, bool>(
             r#"
@@ -1071,10 +1145,14 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
             "#,
         )
         .fetch_one(&self.pool)
+        .timed(crate::query_timing_histogram!(
+            "webapp:select:workflow_schedules_table_exists"
+        ))
         .await
         .unwrap_or(false)
     }
 
+    #[function_name::named]
     async fn get_worker_statuses(&self, window_minutes: i64) -> BackendResult<Vec<WorkerStatus>> {
         let rows = sqlx::query(
             r#"
@@ -1114,6 +1192,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
         )
         .bind(window_minutes)
         .fetch_all(&self.pool)
+        .timed(crate::query_timing_histogram!("webapp:select:worker_statuses"))
         .await?;
 
         let mut statuses = Vec::new();

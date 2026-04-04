@@ -912,6 +912,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42703706b716c37f96a77aea830392ad231f44c9e9a67872fa5548707e11b11c"
 
 [[package]]
+name = "function_name"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1ab577a896d09940b5fe12ec5ae71f9d8211fff62c919c03a3750a9901e98a7"
+dependencies = [
+ "function_name-proc-macro",
+]
+
+[[package]]
+name = "function_name-proc-macro"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "673464e1e314dd67a0fd9544abc99e8eb28d0c7e3b69b033bcff9b2d00b87333"
+
+[[package]]
 name = "futures"
 version = "0.3.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3944,6 +3959,8 @@ name = "waymark-backend-postgres"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "function_name",
+ "metrics",
  "nonempty-collections",
  "prost 0.12.6",
  "rmp-serde",
@@ -3972,6 +3989,7 @@ dependencies = [
  "waymark-scheduler-core",
  "waymark-secret-string",
  "waymark-support-test",
+ "waymark-timed-future",
  "waymark-webapp-backend",
  "waymark-webapp-core",
  "waymark-worker-status-backend",

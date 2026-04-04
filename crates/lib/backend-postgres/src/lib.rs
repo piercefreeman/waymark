@@ -2,6 +2,7 @@
 
 mod codec;
 mod core;
+mod macros;
 mod registry;
 mod scheduler;
 #[cfg(test)]
@@ -15,6 +16,7 @@ use sqlx::PgPool;
 use waymark_backends_core::{BackendError, BackendResult};
 use waymark_observability::obs;
 use waymark_secret_string::SecretStr;
+use waymark_timed_future::TimedFutureExt as _;
 
 /// Persist runner state and action results in Postgres.
 #[derive(Clone)]
@@ -48,16 +50,21 @@ impl PostgresBackend {
 
     /// Delete all queued instances from the backing table.
     #[obs]
+    #[function_name::named]
     pub async fn clear_queue(&self) -> BackendResult<()> {
         Self::count_query(&self.query_counts, "delete:queued_instances_all");
         sqlx::query("DELETE FROM queued_instances")
             .execute(&self.pool)
+            .timed(crate::query_timing_histogram!(
+                "delete:queued_instances_all"
+            ))
             .await?;
         Ok(())
     }
 
     /// Delete all persisted runner data for a clean benchmark run.
     #[obs]
+    #[function_name::named]
     pub async fn clear_all(&self) -> BackendResult<()> {
         Self::count_query(&self.query_counts, "truncate:runner_tables");
         sqlx::query(
@@ -69,6 +76,7 @@ impl PostgresBackend {
             "#,
         )
         .execute(&self.pool)
+        .timed(crate::query_timing_histogram!("truncate:runner_tables"))
         .await?;
         Ok(())
     }
@@ -103,6 +111,17 @@ impl PostgresBackend {
         let mut guard = counts.lock().expect("batch size counts poisoned");
         let entry = guard.entry(label.to_string()).or_default();
         *entry.entry(size).or_insert(0) += 1;
+    }
+
+    pub(crate) fn query_timing_histogram(
+        fn_name: &'static str,
+        label: &'static str,
+    ) -> metrics::Histogram {
+        metrics::histogram!(
+            "waymark_postgres_query_seconds",
+            "fn_name" => fn_name,
+            "label" => label
+        )
     }
 
     pub(crate) fn serialize<T: serde::Serialize>(value: &T) -> Result<Vec<u8>, BackendError> {
