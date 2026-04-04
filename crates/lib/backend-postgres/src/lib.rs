@@ -2,6 +2,7 @@
 
 mod codec;
 mod core;
+mod macros;
 mod registry;
 mod scheduler;
 #[cfg(test)]
@@ -13,8 +14,10 @@ use std::sync::{Arc, Mutex};
 
 use sqlx::PgPool;
 use waymark_backends_core::{BackendError, BackendResult};
+use waymark_metrics_util::Val as MetricsVal;
 use waymark_observability::obs;
 use waymark_secret_string::SecretStr;
+use waymark_timed_future::TimedFutureExt as _;
 
 /// Persist runner state and action results in Postgres.
 #[derive(Clone)]
@@ -48,16 +51,21 @@ impl PostgresBackend {
 
     /// Delete all queued instances from the backing table.
     #[obs]
+    #[function_name::named]
     pub async fn clear_queue(&self) -> BackendResult<()> {
         Self::count_query(&self.query_counts, "delete:queued_instances_all");
         sqlx::query("DELETE FROM queued_instances")
             .execute(&self.pool)
+            .timed(crate::query_timing_histogram!(
+                "delete:queued_instances_all"
+            ))
             .await?;
         Ok(())
     }
 
     /// Delete all persisted runner data for a clean benchmark run.
     #[obs]
+    #[function_name::named]
     pub async fn clear_all(&self) -> BackendResult<()> {
         Self::count_query(&self.query_counts, "truncate:runner_tables");
         sqlx::query(
@@ -69,6 +77,7 @@ impl PostgresBackend {
             "#,
         )
         .execute(&self.pool)
+        .timed(crate::query_timing_histogram!("truncate:runner_tables"))
         .await?;
         Ok(())
     }
@@ -87,22 +96,36 @@ impl PostgresBackend {
             .clone()
     }
 
-    pub(crate) fn count_query(counts: &Arc<Mutex<HashMap<String, usize>>>, label: &str) {
+    pub(crate) fn count_query(counts: &Arc<Mutex<HashMap<String, usize>>>, label: &'static str) {
+        metrics::counter!("waymark_postgres_queries_total", "label" => label).increment(1);
         let mut guard = counts.lock().expect("query counts poisoned");
         *guard.entry(label.to_string()).or_insert(0) += 1;
     }
 
     pub(crate) fn count_batch_size(
         counts: &Arc<Mutex<HashMap<String, HashMap<usize, usize>>>>,
-        label: &str,
+        label: &'static str,
         size: usize,
     ) {
         if size == 0 {
             return;
         }
+        metrics::histogram!("waymark_postgres_queries_batch_size", "label" => label)
+            .record(MetricsVal(size));
         let mut guard = counts.lock().expect("batch size counts poisoned");
         let entry = guard.entry(label.to_string()).or_default();
         *entry.entry(size).or_insert(0) += 1;
+    }
+
+    pub(crate) fn query_timing_histogram(
+        fn_name: &'static str,
+        label: &'static str,
+    ) -> metrics::Histogram {
+        metrics::histogram!(
+            "waymark_postgres_query_seconds",
+            "fn_name" => fn_name,
+            "label" => label
+        )
     }
 
     pub(crate) fn serialize<T: serde::Serialize>(value: &T) -> Result<Vec<u8>, BackendError> {

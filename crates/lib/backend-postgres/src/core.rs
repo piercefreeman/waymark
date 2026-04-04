@@ -22,6 +22,7 @@ use waymark_core_backend::{
 };
 use waymark_observability::obs;
 use waymark_runner_state::RunnerState;
+use waymark_timed_future::TimedFutureExt as _;
 
 const INSTANCE_STATUS_QUEUED: &str = "queued";
 const INSTANCE_STATUS_RUNNING: &str = "running";
@@ -128,6 +129,7 @@ where
 impl PostgresBackend {
     /// Insert queued instances for run-loop consumption.
     #[obs]
+    #[function_name::named]
     pub async fn queue_instances(&self, instances: &[QueuedInstance]) -> BackendResult<()> {
         if instances.is_empty() {
             return Ok(());
@@ -140,6 +142,9 @@ impl PostgresBackend {
             sqlx::query("SELECT id, workflow_name FROM workflow_versions WHERE id = ANY($1)")
                 .bind(&workflow_version_ids)
                 .fetch_all(&self.pool)
+                .timed(crate::query_timing_histogram!(
+                    "select:workflow_versions_by_id_for_queue_instances"
+                ))
                 .await?;
         let mut workflow_names_by_version_id: HashMap<Uuid, String> =
             HashMap::with_capacity(workflow_rows.len());
@@ -226,20 +231,29 @@ impl PostgresBackend {
             "insert:queued_instances",
             instances.len(),
         );
-        queued_builder.build().execute(&mut *tx).await?;
+        queued_builder
+            .build()
+            .execute(&mut *tx)
+            .timed(crate::query_timing_histogram!("insert:queued_instances"))
+            .await?;
         Self::count_query(&self.query_counts, "insert:runner_instances");
         Self::count_batch_size(
             &self.batch_size_counts,
             "insert:runner_instances",
             instances.len(),
         );
-        runner_builder.build().execute(&mut *tx).await?;
+        runner_builder
+            .build()
+            .execute(&mut *tx)
+            .timed(crate::query_timing_histogram!("insert:runner_instances"))
+            .await?;
         tx.commit().await?;
         Ok(())
     }
 
     /// Upsert worker status for monitoring and activity graphs.
     #[obs]
+    #[function_name::named]
     pub async fn upsert_worker_status(&self, status: &WorkerStatusUpdate) -> BackendResult<()> {
         Self::count_query(&self.query_counts, "upsert:worker_status");
         sqlx::query(
@@ -302,6 +316,7 @@ impl PostgresBackend {
         .bind(status.instances_per_min)
         .bind(&status.time_series)
         .execute(&self.pool)
+        .timed(crate::query_timing_histogram!("upsert:worker_status"))
         .await?;
 
         Ok(())
@@ -312,6 +327,7 @@ impl PostgresBackend {
     /// This uses the same `FOR UPDATE SKIP LOCKED` claim pattern as dequeue to
     /// avoid blocking under concurrent sweepers.
     #[obs]
+    #[function_name::named]
     pub async fn reclaim_expired_instance_locks(&self, size: usize) -> BackendResult<usize> {
         if size == 0 {
             return Ok(0);
@@ -342,6 +358,9 @@ impl PostgresBackend {
         .bind(now)
         .bind(size as i64)
         .fetch_all(&mut *tx)
+        .timed(crate::query_timing_histogram!(
+            "update:queued_instances_expired_unlock_claim"
+        ))
         .await?;
 
         if !rows.is_empty() {
@@ -352,6 +371,7 @@ impl PostgresBackend {
             .bind(&instance_ids)
             .bind(INSTANCE_STATUS_QUEUED)
             .execute(&mut *tx)
+            .timed(crate::query_timing_histogram!("update:runner_instances_status_after_expired_unlock"))
             .await?;
         }
 
@@ -370,6 +390,7 @@ impl PostgresBackend {
 
     /// Delete old finished instances and their action attempt rows.
     #[obs]
+    #[function_name::named]
     pub async fn collect_done_instances_impl(
         &self,
         older_than: DateTime<Utc>,
@@ -395,6 +416,9 @@ impl PostgresBackend {
         .bind(older_than)
         .bind(limit as i64)
         .fetch_all(&mut *tx)
+        .timed(crate::query_timing_histogram!(
+            "select:runner_instances_gc_candidates"
+        ))
         .await?;
 
         if candidate_rows.is_empty() {
@@ -440,6 +464,9 @@ impl PostgresBackend {
                 sqlx::query("DELETE FROM runner_actions_done WHERE execution_id = ANY($1)")
                     .bind(&action_execution_ids)
                     .execute(&mut *tx)
+                    .timed(crate::query_timing_histogram!(
+                        "delete:runner_actions_done_gc"
+                    ))
                     .await?;
             let rows = result.rows_affected() as usize;
             Self::count_batch_size(
@@ -454,6 +481,7 @@ impl PostgresBackend {
         let _ = sqlx::query("DELETE FROM queued_instances WHERE instance_id = ANY($1)")
             .bind(&instance_ids)
             .execute(&mut *tx)
+            .timed(crate::query_timing_histogram!("delete:queued_instances_gc"))
             .await?;
 
         Self::count_query(&self.query_counts, "delete:runner_instances_gc");
@@ -461,6 +489,7 @@ impl PostgresBackend {
             sqlx::query("DELETE FROM runner_instances WHERE instance_id = ANY($1)")
                 .bind(&instance_ids)
                 .execute(&mut *tx)
+                .timed(crate::query_timing_histogram!("delete:runner_instances_gc"))
                 .await?;
         let deleted_instances = deleted_instances_result.rows_affected() as usize;
         Self::count_batch_size(
@@ -489,6 +518,7 @@ impl PostgresBackend {
         .await
     }
 
+    #[function_name::named]
     async fn save_graphs_once(
         &self,
         claim: LockClaim,
@@ -534,7 +564,13 @@ impl PostgresBackend {
         schedule_builder.push(" AND (qi.lock_expires_at IS NULL OR qi.lock_expires_at > ");
         schedule_builder.push_bind(now);
         schedule_builder.push(")");
-        schedule_builder.build().execute(&self.pool).await?;
+        schedule_builder
+            .build()
+            .execute(&self.pool)
+            .timed(crate::query_timing_histogram!(
+                "update:queued_instances_scheduled_at"
+            ))
+            .await?;
 
         Self::count_query(&self.query_counts, "update:runner_instances_state");
         Self::count_batch_size(
@@ -560,7 +596,13 @@ impl PostgresBackend {
         runner_builder.push(" AND (qi.lock_expires_at IS NULL OR qi.lock_expires_at > ");
         runner_builder.push_bind(now);
         runner_builder.push(")");
-        runner_builder.build().execute(&self.pool).await?;
+        runner_builder
+            .build()
+            .execute(&self.pool)
+            .timed(crate::query_timing_histogram!(
+                "update:runner_instances_state"
+            ))
+            .await?;
 
         let ids: Vec<InstanceId> = graphs.iter().map(|graph| graph.instance_id).collect();
         let lock_rows = sqlx::query(
@@ -568,6 +610,7 @@ impl PostgresBackend {
         )
         .bind(&ids)
         .fetch_all(&self.pool)
+        .timed(crate::query_timing_histogram!("select:queued_instances_lock_status_after_save_graphs"))
         .await?;
 
         let mut lock_map: HashMap<InstanceId, InstanceLockStatus> = HashMap::new();
@@ -600,6 +643,7 @@ impl PostgresBackend {
     }
 
     #[obs]
+    #[function_name::named]
     async fn save_actions_done_impl(&self, actions: &[ActionDone]) -> BackendResult<()> {
         if actions.is_empty() {
             return Ok(());
@@ -637,7 +681,11 @@ impl PostgresBackend {
                     .push_bind(payload.as_slice());
             },
         );
-        builder.build().execute(&self.pool).await?;
+        builder
+            .build()
+            .execute(&self.pool)
+            .timed(crate::query_timing_histogram!("insert:runner_actions_done"))
+            .await?;
         Ok(())
     }
 
@@ -665,6 +713,7 @@ impl PostgresBackend {
         .await
     }
 
+    #[function_name::named]
     async fn poll_queued_instances_once(
         &self,
         size: NonZeroUsize,
@@ -677,11 +726,14 @@ impl PostgresBackend {
             .await
             .map_err(PollQueuedInstancesError::Sqlx)?;
         Self::count_query(&self.query_counts, "select:queued_instances");
+        metrics::counter!("waymark_backend_postgres_query_poll_instances_total").increment(1);
 
         let size: i64 = size
             .get()
             .try_into()
             .map_err(PollQueuedInstancesError::InvalidSize)?;
+
+        let before = std::time::Instant::now();
 
         let rows = sqlx::query(
             r#"
@@ -712,13 +764,22 @@ impl PostgresBackend {
         .bind(claim.lock_uuid)
         .bind(claim.lock_expires_at)
         .fetch_all(&mut *tx)
+        .timed(crate::query_timing_histogram!(
+            "select:queued_instances_claim_batch"
+        ))
         .await
         .map_err(PollQueuedInstancesError::Sqlx)?;
+
+        metrics::histogram!("waymark_backend_postgres_query_poll_instances_seconds")
+            .record(before.elapsed());
 
         let Some(rows) = NEVec::try_from_vec(rows) else {
             tx.commit().await.map_err(PollQueuedInstancesError::Sqlx)?;
             return Err(PollQueuedInstancesError::EmptyRows);
         };
+
+        metrics::counter!("waymark_backend_postgres_query_poll_instances_rows_total")
+            .increment(rows.len().get() as _);
 
         let claimed_instance_ids: Vec<Uuid> =
             rows.iter().map(|row| row.get("instance_id")).collect();
@@ -726,6 +787,9 @@ impl PostgresBackend {
             .bind(&claimed_instance_ids)
             .bind(INSTANCE_STATUS_RUNNING)
             .execute(&mut *tx)
+            .timed(crate::query_timing_histogram!(
+                "update:runner_instances_status_for_claimed_instances"
+            ))
             .await
             .map_err(PollQueuedInstancesError::Sqlx)?;
 
@@ -804,6 +868,9 @@ impl PostgresBackend {
             )
             .bind(&all_action_node_ids)
             .fetch_all(&self.pool)
+            .timed(crate::query_timing_histogram!(
+                "select:runner_actions_done_by_execution_id"
+            ))
             .await
             .map_err(PollQueuedInstancesError::Sqlx)?;
 
@@ -846,6 +913,7 @@ impl PostgresBackend {
         .await
     }
 
+    #[function_name::named]
     async fn save_instances_done_once(&self, instances: &[InstanceDone]) -> BackendResult<()> {
         if instances.is_empty() {
             return Ok(());
@@ -860,6 +928,9 @@ impl PostgresBackend {
         sqlx::query("DELETE FROM queued_instances WHERE instance_id = ANY($1)")
             .bind(&ids)
             .execute(&mut *tx)
+            .timed(crate::query_timing_histogram!(
+                "delete:queued_instances_by_id"
+            ))
             .await?;
 
         Self::count_query(&self.query_counts, "update:runner_instances_result");
@@ -896,7 +967,13 @@ impl PostgresBackend {
         builder.push(
             ") AS v(instance_id, current_status, result, error) WHERE ri.instance_id = v.instance_id",
         );
-        builder.build().execute(&mut *tx).await?;
+        builder
+            .build()
+            .execute(&mut *tx)
+            .timed(crate::query_timing_histogram!(
+                "update:runner_instances_result"
+            ))
+            .await?;
         tx.commit().await?;
         Ok(())
     }
@@ -941,6 +1018,7 @@ impl waymark_core_backend::CoreBackend for PostgresBackend {
         .await
     }
 
+    #[function_name::named]
     async fn release_instance_locks(
         &self,
         lock_uuid: LockId,
@@ -973,6 +1051,9 @@ impl waymark_core_backend::CoreBackend for PostgresBackend {
         .bind(instance_ids)
         .bind(lock_uuid)
         .fetch_all(&self.pool)
+        .timed(crate::query_timing_histogram!(
+            "update:queued_instances_release_claim"
+        ))
         .await?;
 
         if !released_rows.is_empty() {
@@ -986,6 +1067,7 @@ impl waymark_core_backend::CoreBackend for PostgresBackend {
             .bind(&released_instance_ids)
             .bind(INSTANCE_STATUS_QUEUED)
             .execute(&self.pool)
+            .timed(crate::query_timing_histogram!("update:runner_instances_status_after_release"))
             .await?;
         }
 
@@ -1001,6 +1083,7 @@ impl waymark_core_backend::CoreBackend for PostgresBackend {
 }
 
 impl PostgresBackend {
+    #[function_name::named]
     async fn refresh_instance_locks_once(
         &self,
         claim: LockClaim,
@@ -1029,12 +1112,16 @@ impl PostgresBackend {
         .bind(instance_ids)
         .bind(claim.lock_uuid)
         .execute(&self.pool)
+        .timed(crate::query_timing_histogram!(
+            "update:queued_instances_lock"
+        ))
         .await?;
         let rows = sqlx::query(
             "SELECT instance_id, lock_uuid, lock_expires_at FROM queued_instances WHERE instance_id = ANY($1)",
         )
         .bind(instance_ids)
         .fetch_all(&self.pool)
+        .timed(crate::query_timing_histogram!("select:queued_instances_lock_status_after_refresh"))
         .await?;
         let mut locks = Vec::with_capacity(rows.len());
         for row in rows {

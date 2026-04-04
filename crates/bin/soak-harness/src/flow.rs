@@ -1,3 +1,6 @@
+mod rate;
+mod tick_delta;
+
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -12,6 +15,7 @@ use tracing::{info, warn};
 use waymark_backend_postgres::PostgresBackend;
 use waymark_core_backend::QueuedInstance;
 use waymark_ids::InstanceId;
+use waymark_nonzero_duration::NonZeroDuration;
 use waymark_proto::ast as ir;
 use waymark_runner_state::RunnerState;
 
@@ -67,23 +71,23 @@ pub async fn run_soak_loop(
 
     let mut samples: VecDeque<HealthSample> = VecDeque::new();
     let mut zero_streak = 0usize;
-    let mut queue_tokens = 0.0f64;
     let start = Instant::now();
     let mut previous_total_completed: Option<i64> = None;
-    let tick_duration = Duration::from_secs(args.tick_seconds);
-    let mut last_tick = Instant::now();
+    let tick_duration = NonZeroDuration::from_nonzero_secs(args.tick_seconds);
 
-    let mut ticker = tokio::time::interval(tick_duration);
+    let queue_rate = rate::Rate::per_minute(args.queue_rate_per_minute);
+    let mut tick_delta = tick_delta::TickDelta::new(start.into());
+    let mut ticker = tokio::time::interval(tick_duration.get());
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let _ = ticker.tick().await;
 
     loop {
-        tokio::select! {
+        let elapsed = tokio::select! {
             _ = tokio::signal::ctrl_c() => {
                 return Ok((TerminationReason::Interrupted, samples));
             }
-            _ = ticker.tick() => {}
-        }
+            instant = ticker.tick() =>tick_delta.tick(instant),
+        };
 
         if let Some(worker_process) = worker.as_mut()
             && let Some(status) = worker_process
@@ -97,24 +101,19 @@ pub async fn run_soak_loop(
             ));
         }
 
-        let now_tick = Instant::now();
-        let elapsed = now_tick.duration_since(last_tick);
-        last_tick = now_tick;
-
-        queue_tokens += elapsed.as_secs_f64() * (args.queue_rate_per_minute as f64 / 60.0);
-
         let queue_snapshot = data::fetch_queue_snapshot(pool).await?;
         let worker_status = data::fetch_latest_worker_status(pool).await?;
 
-        let mut requested = queue_tokens.floor() as usize;
-        queue_tokens -= requested as f64;
+        let mut requested = queue_rate.for_delta(elapsed);
 
         if queue_snapshot.ready < args.target_ready_queue {
-            let deficit = (args.target_ready_queue - queue_snapshot.ready) as usize;
-            requested = requested.saturating_add(deficit.min(args.max_top_up_per_tick));
+            let deficit = (args.target_ready_queue - queue_snapshot.ready) as u128;
+            requested = requested.saturating_add(deficit.min(args.max_top_up_per_tick.get()));
         }
 
-        requested = requested.min(args.max_queue_per_tick);
+        requested = requested.min(args.max_queue_per_tick.get());
+
+        let requested: usize = requested.try_into().unwrap_or(usize::MAX);
 
         let queued_this_tick = if requested > 0 {
             queue_instances(backend, workflow, args, requested, &mut rng).await?
@@ -201,7 +200,7 @@ pub async fn run_soak_loop(
             }
         }
 
-        if zero_streak >= args.issue_consecutive_samples {
+        if zero_streak >= args.issue_consecutive_samples.get() {
             let detail = format!(
                 "actions/sec <= {:.4} for {} consecutive samples while ready queue={} (threshold={})",
                 args.issue_actions_per_sec_threshold,
@@ -256,11 +255,10 @@ async fn queue_instances(
     rng: &mut StdRng,
 ) -> Result<usize> {
     let mut queued_total = 0usize;
-    let batch_size = args.queue_batch_size.max(1);
     let mut remaining = count;
 
     while remaining > 0 {
-        let take = remaining.min(batch_size);
+        let take = remaining.min(args.queue_batch_size.get());
         let mut instances = Vec::with_capacity(take);
 
         for _ in 0..take {
@@ -289,11 +287,13 @@ struct WorkItem {
 }
 
 fn sample_work_item(args: &crate::cli::SoakArgs, rng: &mut StdRng) -> WorkItem {
-    let mut step_delays_ms = Vec::with_capacity(args.actions_per_workflow);
-    let mut step_should_fail = Vec::with_capacity(args.actions_per_workflow);
-    let mut step_payload_bytes = Vec::with_capacity(args.actions_per_workflow);
+    let len = args.actions_per_workflow.get();
 
-    for _ in 0..args.actions_per_workflow {
+    let mut step_delays_ms = Vec::with_capacity(len);
+    let mut step_should_fail = Vec::with_capacity(len);
+    let mut step_payload_bytes = Vec::with_capacity(len);
+
+    for _ in 0..len {
         let (delay_ms, should_fail) = sample_step_behavior(args, rng);
         step_delays_ms.push(delay_ms);
         step_should_fail.push(should_fail);
