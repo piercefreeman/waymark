@@ -57,6 +57,8 @@ use waymark_worker_remote::{PythonWorkerConfig, RemoteWorkerPool};
 async fn main() -> Result<()> {
     waymark_fn_main_common::init()?;
 
+    let _task_monitor = waymark_tokio_metrics_bringup::bringup(env!("CARGO_BIN_NAME"));
+
     let metrics_addr: std::net::SocketAddr = envfury::or_parse("METRICS_ADDR", "0.0.0.0:9118")?;
     waymark_prometheus_exporter_bringup::spawn_and_install_recorder(metrics_addr)?;
 
