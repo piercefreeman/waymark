@@ -18,6 +18,7 @@ waymark-proto = { workspace = true }
 waymark-runloop = { workspace = true }
 waymark-scheduler-loop = { workspace = true }
 waymark-scheduler-loop-core = { workspace = true }
+waymark-tokio-metrics-bringup = { workspace = true }
 waymark-webapp-bringup = { workspace = true }
 waymark-worker-remote = { workspace = true }
 waymark-worker-status-reporter = { workspace = true }
