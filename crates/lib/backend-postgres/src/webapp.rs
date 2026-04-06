@@ -309,6 +309,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
                 ri.entry_node,
                 ri.created_at,
                 ri.state,
+                qi.payload AS queued_payload,
                 ri.result,
                 ri.error,
                 COALESCE(ri.workflow_name, wv.workflow_name) AS workflow_name,
@@ -321,6 +322,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
                     END
                 ) AS current_status
             FROM runner_instances ri
+            LEFT JOIN queued_instances qi ON qi.instance_id = ri.instance_id
             LEFT JOIN workflow_versions wv ON wv.id = ri.workflow_version_id
             "#,
         );
@@ -346,16 +348,18 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
             let entry_node: Uuid = row.get("entry_node");
             let created_at: DateTime<Utc> = row.get("created_at");
             let state_bytes: Option<Vec<u8>> = row.get("state");
+            let queued_payload: Option<Vec<u8>> = row.get("queued_payload");
             let result_bytes: Option<Vec<u8>> = row.get("result");
             let error_bytes: Option<Vec<u8>> = row.get("error");
             let workflow_name: Option<String> = row.get("workflow_name");
             let current_status: Option<String> = row.get("current_status");
+            let merged_state = merge_runner_state(&queued_payload, &state_bytes)?;
 
             let status = current_status
                 .as_deref()
                 .and_then(parse_instance_status)
                 .unwrap_or_else(|| determine_status(&state_bytes, &result_bytes, &error_bytes));
-            let input_preview = extract_input_preview(&state_bytes);
+            let input_preview = extract_input_preview(merged_state.as_ref());
 
             instances.push(InstanceSummary {
                 id: instance_id,
@@ -379,6 +383,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
                 ri.entry_node,
                 ri.created_at,
                 ri.state,
+                qi.payload AS queued_payload,
                 ri.result,
                 ri.error,
                 COALESCE(ri.workflow_name, wv.workflow_name) AS workflow_name,
@@ -391,6 +396,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
                     END
                 ) AS current_status
             FROM runner_instances ri
+            LEFT JOIN queued_instances qi ON qi.instance_id = ri.instance_id
             LEFT JOIN workflow_versions wv ON wv.id = ri.workflow_version_id
             WHERE ri.instance_id = $1
             "#,
@@ -407,16 +413,18 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
         let entry_node: ExecutionId = row.get("entry_node");
         let created_at: DateTime<Utc> = row.get("created_at");
         let state_bytes: Option<Vec<u8>> = row.get("state");
+        let queued_payload: Option<Vec<u8>> = row.get("queued_payload");
         let result_bytes: Option<Vec<u8>> = row.get("result");
         let error_bytes: Option<Vec<u8>> = row.get("error");
         let workflow_name: Option<String> = row.get("workflow_name");
         let current_status: Option<String> = row.get("current_status");
+        let merged_state = merge_runner_state(&queued_payload, &state_bytes)?;
 
         let status = current_status
             .as_deref()
             .and_then(parse_instance_status)
             .unwrap_or_else(|| determine_status(&state_bytes, &result_bytes, &error_bytes));
-        let input_payload = format_input_payload(&state_bytes);
+        let input_payload = format_input_payload(merged_state.as_ref());
         let result_payload = format_instance_result_payload(status, &result_bytes, &error_bytes);
         let error_payload = format_error(&error_bytes);
 
@@ -439,7 +447,10 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
     ) -> BackendResult<Option<ExecutionGraphView>> {
         let row = sqlx::query(
             r#"
-            SELECT state FROM runner_instances WHERE instance_id = $1
+            SELECT ri.state, qi.payload AS queued_payload
+            FROM runner_instances ri
+            LEFT JOIN queued_instances qi ON qi.instance_id = ri.instance_id
+            WHERE ri.instance_id = $1
             "#,
         )
         .bind(instance_id)
@@ -454,14 +465,12 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
         };
 
         let state_bytes: Option<Vec<u8>> = row.get("state");
-        let Some(state_bytes) = state_bytes else {
+        let queued_payload: Option<Vec<u8>> = row.get("queued_payload");
+        let Some(merged_state) = merge_runner_state(&queued_payload, &state_bytes)? else {
             return Ok(None);
         };
 
-        let graph_update: GraphUpdate = rmp_serde::from_slice(&state_bytes)
-            .map_err(|e| BackendError::Message(format!("failed to decode state: {}", e)))?;
-
-        let nodes: Vec<ExecutionNodeView> = graph_update
+        let nodes: Vec<ExecutionNodeView> = merged_state
             .nodes
             .values()
             .map(|node| ExecutionNodeView {
@@ -474,7 +483,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
             })
             .collect();
 
-        let edges: Vec<ExecutionEdgeView> = graph_update
+        let edges: Vec<ExecutionEdgeView> = merged_state
             .edges
             .iter()
             .map(|edge| ExecutionEdgeView {
@@ -496,8 +505,10 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
             r#"
             SELECT
                 ri.state,
+                qi.payload AS queued_payload,
                 COALESCE(ri.workflow_name, wv.workflow_name) AS workflow_name
             FROM runner_instances ri
+            LEFT JOIN queued_instances qi ON qi.instance_id = ri.instance_id
             LEFT JOIN workflow_versions wv ON wv.id = ri.workflow_version_id
             WHERE ri.instance_id = $1
             "#,
@@ -511,12 +522,14 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
         .ok_or_else(|| BackendError::Message(format!("instance not found: {instance_id}")))?;
 
         let state_bytes: Option<Vec<u8>> = row.get("state");
+        let queued_payload: Option<Vec<u8>> = row.get("queued_payload");
         let workflow_name: Option<String> = row.get("workflow_name");
         let workflow_name = workflow_name.ok_or_else(|| {
             BackendError::Message(format!("instance {instance_id} is missing a workflow name"))
         })?;
 
-        let input_payload = extract_input_payload_map(&state_bytes)?;
+        let merged_state = merge_runner_state(&queued_payload, &state_bytes)?;
+        let input_payload = extract_input_payload_map(merged_state.as_ref());
         let latest_version = sqlx::query(
             r#"
             SELECT id, program_proto
@@ -559,8 +572,9 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
     ) -> BackendResult<Option<ExecutionGraphView>> {
         let row = sqlx::query(
             r#"
-            SELECT ri.state, wv.program_proto
+            SELECT ri.state, qi.payload AS queued_payload, wv.program_proto
             FROM runner_instances ri
+            LEFT JOIN queued_instances qi ON qi.instance_id = ri.instance_id
             JOIN workflow_versions wv ON wv.id = ri.workflow_version_id
             WHERE ri.instance_id = $1
             "#,
@@ -585,11 +599,9 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
 
         let mut template_statuses: HashMap<String, NodeStatus> = HashMap::new();
         let state_bytes: Option<Vec<u8>> = row.get("state");
-        if let Some(state_bytes) = state_bytes {
-            let graph_update: GraphUpdate = rmp_serde::from_slice(&state_bytes)
-                .map_err(|err| BackendError::Message(format!("failed to decode state: {err}")))?;
-
-            for node in graph_update.nodes.values() {
+        let queued_payload: Option<Vec<u8>> = row.get("queued_payload");
+        if let Some(merged_state) = merge_runner_state(&queued_payload, &state_bytes)? {
+            for node in merged_state.nodes.values() {
                 let Some(template_id) = node.template_id.as_ref() else {
                     continue;
                 };
@@ -655,9 +667,10 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
     ) -> BackendResult<Vec<TimelineEntry>> {
         let row = sqlx::query(
             r#"
-            SELECT state
-            FROM runner_instances
-            WHERE instance_id = $1
+            SELECT ri.state, qi.payload AS queued_payload
+            FROM runner_instances ri
+            LEFT JOIN queued_instances qi ON qi.instance_id = ri.instance_id
+            WHERE ri.instance_id = $1
             "#,
         )
         .bind(instance_id)
@@ -671,22 +684,15 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
             return Ok(Vec::new());
         };
         let state_bytes: Option<Vec<u8>> = row.get("state");
-        let Some(state_bytes) = state_bytes else {
+        let queued_payload: Option<Vec<u8>> = row.get("queued_payload");
+        let Some(runner_state) = merge_runner_state(&queued_payload, &state_bytes)? else {
             return Ok(Vec::new());
         };
-        let graph_update: GraphUpdate = rmp_serde::from_slice(&state_bytes)
-            .map_err(|e| BackendError::Message(format!("failed to decode state: {}", e)))?;
-
-        let runner_state = RunnerState::new(
-            None,
-            Some(graph_update.nodes.clone()),
-            Some(graph_update.edges),
-            false,
-        );
-        let action_nodes: HashMap<ExecutionId, ExecutionNode> = graph_update
+        let action_nodes: HashMap<ExecutionId, ExecutionNode> = runner_state
             .nodes
-            .into_iter()
+            .iter()
             .filter(|(_, node)| node.is_action_call())
+            .map(|(node_id, node)| (*node_id, node.clone()))
             .collect();
         if action_nodes.is_empty() {
             return Ok(Vec::new());
@@ -1363,26 +1369,45 @@ fn determine_status(
     InstanceStatus::Queued
 }
 
-fn extract_input_preview(state_bytes: &Option<Vec<u8>>) -> String {
+fn decode_queued_state(payload_bytes: &Option<Vec<u8>>) -> BackendResult<Option<RunnerState>> {
+    let Some(bytes) = payload_bytes else {
+        return Ok(None);
+    };
+
+    let queued: QueuedInstance = rmp_serde::from_slice(bytes)
+        .map_err(|err| BackendError::Message(format!("failed to decode queued payload: {err}")))?;
+    Ok(queued.state)
+}
+
+fn merge_runner_state(
+    queued_payload: &Option<Vec<u8>>,
+    state_bytes: &Option<Vec<u8>>,
+) -> BackendResult<Option<RunnerState>> {
+    let base_state = decode_queued_state(queued_payload)?;
     let Some(bytes) = state_bytes else {
+        return Ok(base_state);
+    };
+
+    let graph: GraphUpdate = rmp_serde::from_slice(bytes)
+        .map_err(|err| BackendError::Message(format!("failed to decode state: {err}")))?;
+    Ok(Some(graph.merge_onto_base_state(base_state.as_ref())))
+}
+
+fn extract_input_preview(state: Option<&RunnerState>) -> String {
+    let Some(state) = state else {
         return "{}".to_string();
     };
 
-    match rmp_serde::from_slice::<GraphUpdate>(bytes) {
-        Ok(graph) => {
-            let count = graph.nodes.len();
-            format!("{{nodes: {count}}}")
-        }
-        Err(_) => "{}".to_string(),
-    }
+    let count = state.nodes.len();
+    format!("{{nodes: {count}}}")
 }
 
-fn format_input_payload(state_bytes: &Option<Vec<u8>>) -> String {
-    match extract_input_payload_map(state_bytes) {
-        Ok(input_map) if !input_map.is_empty() => pretty_json(&Value::Object(input_map)),
-        Err(_) => "{}".to_string(),
-        _ => "{}".to_string(),
+fn format_input_payload(state: Option<&RunnerState>) -> String {
+    let input_map = extract_input_payload_map(state);
+    if input_map.is_empty() {
+        return "{}".to_string();
     }
+    pretty_json(&Value::Object(input_map))
 }
 
 #[cfg(test)]
@@ -1394,15 +1419,10 @@ fn format_extracted_inputs(nodes: &HashMap<ExecutionId, ExecutionNode>) -> Strin
     pretty_json(&Value::Object(input_map))
 }
 
-fn extract_input_payload_map(
-    state_bytes: &Option<Vec<u8>>,
-) -> BackendResult<serde_json::Map<String, Value>> {
-    let Some(bytes) = state_bytes else {
-        return Ok(serde_json::Map::new());
-    };
-    let graph: GraphUpdate = rmp_serde::from_slice(bytes)
-        .map_err(|err| BackendError::Message(format!("failed to decode state: {err}")))?;
-    Ok(extract_input_map(&graph.nodes))
+fn extract_input_payload_map(state: Option<&RunnerState>) -> serde_json::Map<String, Value> {
+    state
+        .map(|runner_state| extract_input_map(&runner_state.nodes))
+        .unwrap_or_default()
 }
 
 fn extract_input_map(

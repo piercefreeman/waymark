@@ -1474,7 +1474,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
             let instance_id = self.instance_id.ok_or_else(|| {
                 RunnerExecutorError("instance_id is required for graph persistence".to_string())
             })?;
-            graph_updates.push(GraphUpdate::from_state(instance_id, &self.state));
+            graph_updates.push(GraphUpdate::from_durable_state(instance_id, &self.state));
         }
         let updates = DurableUpdates {
             actions_done,
