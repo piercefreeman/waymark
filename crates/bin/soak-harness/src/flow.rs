@@ -284,6 +284,7 @@ struct WorkItem {
     pub step_delays_ms: Vec<i64>,
     pub step_should_fail: Vec<bool>,
     pub step_payload_bytes: Vec<i64>,
+    pub step_include_payload: Vec<bool>,
 }
 
 fn sample_work_item(args: &crate::cli::SoakArgs, rng: &mut StdRng) -> WorkItem {
@@ -292,18 +293,21 @@ fn sample_work_item(args: &crate::cli::SoakArgs, rng: &mut StdRng) -> WorkItem {
     let mut step_delays_ms = Vec::with_capacity(len);
     let mut step_should_fail = Vec::with_capacity(len);
     let mut step_payload_bytes = Vec::with_capacity(len);
+    let mut step_include_payload = Vec::with_capacity(len);
 
     for _ in 0..len {
         let (delay_ms, should_fail) = sample_step_behavior(args, rng);
         step_delays_ms.push(delay_ms);
         step_should_fail.push(should_fail);
         step_payload_bytes.push(jitter_payload(args.payload_bytes, rng));
+        step_include_payload.push(args.include_payload_in_result);
     }
 
     WorkItem {
         step_delays_ms,
         step_should_fail,
         step_payload_bytes,
+        step_include_payload,
     }
 }
 
@@ -350,15 +354,17 @@ fn build_instance(
     let mut state = RunnerState::new(Some(Arc::clone(&workflow.dag)), None, None, false);
     if item.step_delays_ms.len() != item.step_should_fail.len()
         || item.step_delays_ms.len() != item.step_payload_bytes.len()
+        || item.step_delays_ms.len() != item.step_include_payload.len()
     {
         bail!("step input vectors are not aligned");
     }
 
-    for (step, ((delay_ms, should_fail), payload_bytes)) in item
+    for (step, (((delay_ms, should_fail), payload_bytes), include_payload)) in item
         .step_delays_ms
         .iter()
         .zip(item.step_should_fail.iter())
         .zip(item.step_payload_bytes.iter())
+        .zip(item.step_include_payload.iter())
         .enumerate()
     {
         let idx = step + 1;
@@ -384,6 +390,14 @@ fn build_instance(
                 &literal_int(*payload_bytes),
                 None,
                 Some(format!("input payload_bytes_{idx} = {payload_bytes}")),
+            )
+            .map_err(|err| anyhow!(err.0))?;
+        state
+            .record_assignment(
+                vec![format!("include_payload_{idx}")],
+                &literal_bool(*include_payload),
+                None,
+                Some(format!("input include_payload_{idx} = {include_payload}")),
             )
             .map_err(|err| anyhow!(err.0))?;
     }

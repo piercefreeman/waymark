@@ -102,6 +102,9 @@ pub struct SoakArgs {
     #[arg(long, default_value_t = 4096)]
     pub payload_bytes: i64,
 
+    #[arg(long, default_value_t = false, action = clap::ArgAction::SetTrue)]
+    pub include_payload_in_result: bool,
+
     #[arg(long, default_value_t = 1000)]
     pub issue_min_ready_queue: i64,
 
