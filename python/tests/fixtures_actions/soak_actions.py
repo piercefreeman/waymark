@@ -13,8 +13,9 @@ async def simulated_action(
     delay_ms: int,
     should_fail: bool,
     payload_bytes: int,
+    include_payload: bool,
 ) -> dict[str, int | str | bool]:
-    """Sleep for `delay_ms`, optionally fail, and return a small checksum payload."""
+    """Sleep for `delay_ms`, optionally fail, and optionally include sized payload in result."""
     bounded_delay_ms = max(0, delay_ms)
     bounded_payload_bytes = max(0, min(payload_bytes, _MAX_PAYLOAD_BYTES))
 
@@ -30,9 +31,13 @@ async def simulated_action(
     payload = "x" * bounded_payload_bytes
     checksum = hashlib.sha1(payload.encode("utf-8")).hexdigest()[:16]
 
-    return {
+    result: dict[str, int | str | bool] = {
         "delay_ms": bounded_delay_ms,
         "payload_bytes": bounded_payload_bytes,
         "checksum": checksum,
         "failed": False,
     }
+    if include_payload:
+        result["payload"] = payload
+
+    return result

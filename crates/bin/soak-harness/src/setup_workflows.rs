@@ -61,7 +61,7 @@ fn workflow_source(
     timeout_seconds: u32,
     actions_per_workflow: NonZeroUsize,
 ) -> String {
-    let mut input_names = Vec::with_capacity(actions_per_workflow.get() * 3);
+    let mut input_names = Vec::with_capacity(actions_per_workflow.get() * 4);
     let mut lines = Vec::with_capacity(actions_per_workflow.get() + 3);
     lines.push("fn main(input: [".to_string());
 
@@ -70,6 +70,7 @@ fn workflow_source(
         input_names.push(format!("delay_ms_{idx}"));
         input_names.push(format!("should_fail_{idx}"));
         input_names.push(format!("payload_bytes_{idx}"));
+        input_names.push(format!("include_payload_{idx}"));
     }
 
     lines[0].push_str(&input_names.join(", "));
@@ -78,7 +79,7 @@ fn workflow_source(
     for step in 0..actions_per_workflow.get() {
         let idx = step + 1;
         lines.push(format!(
-            "    step_{idx} = @{user_module}.simulated_action(delay_ms=delay_ms_{idx}, should_fail=should_fail_{idx}, payload_bytes=payload_bytes_{idx})[ActionTimeout -> retry: 1, backoff: 1 s][timeout: {timeout_seconds} s]"
+            "    step_{idx} = @{user_module}.simulated_action(delay_ms=delay_ms_{idx}, should_fail=should_fail_{idx}, payload_bytes=payload_bytes_{idx}, include_payload=include_payload_{idx})[ActionTimeout -> retry: 1, backoff: 1 s][timeout: {timeout_seconds} s]"
         ));
     }
 
