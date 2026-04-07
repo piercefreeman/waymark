@@ -4,9 +4,6 @@ pub mod executor;
 pub mod expression_evaluator;
 pub mod replay;
 
-/// TODO: make `pub(crate)`
-pub mod synthetic_exceptions;
-
 pub use executor::{
     DurableUpdates, ExecutorStep, RunnerExecutor, RunnerExecutorError, SleepRequest,
 };

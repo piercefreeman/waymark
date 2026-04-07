@@ -13,6 +13,7 @@ waymark-observability = { workspace = true }
 waymark-proto = { workspace = true }
 waymark-runner-retry-policy = { workspace = true }
 waymark-runner-state = { workspace = true }
+waymark-synthetic-exception = { workspace = true }
 
 chrono = { workspace = true, features = ["serde"] }
 rustc-hash = { workspace = true }

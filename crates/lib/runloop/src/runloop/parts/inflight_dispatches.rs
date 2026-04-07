@@ -63,10 +63,12 @@ pub fn handle(params: Params<'_>) {
             execution_id,
             attempt_number: dispatch.attempt_number,
             dispatch_token: dispatch.dispatch_token,
-            result: action_timeout_value(
-                execution_id,
-                dispatch.attempt_number,
-                dispatch.timeout_seconds,
+            result: waymark_synthetic_exception::build_value(
+                &waymark_synthetic_exception::ActionTimeout {
+                    execution_id,
+                    attempt_number: dispatch.attempt_number,
+                    timeout_seconds: dispatch.timeout_seconds,
+                },
             ),
         });
     }
@@ -77,27 +79,4 @@ pub fn handle(params: Params<'_>) {
 
     timeout_completions.append(all_completions);
     *all_completions = timeout_completions;
-}
-
-fn action_timeout_value(
-    execution_id: ExecutionId,
-    attempt_number: u32,
-    timeout_seconds: u32,
-) -> serde_json::Value {
-    waymark_runner::synthetic_exceptions::build_synthetic_exception_value(
-        waymark_runner::synthetic_exceptions::SyntheticExceptionType::ActionTimeout,
-        format!(
-            "action {execution_id} attempt {attempt_number} timed out after {timeout_seconds}s"
-        ),
-        vec![
-            (
-                "timeout_seconds".to_string(),
-                serde_json::Value::Number(serde_json::Number::from(timeout_seconds)),
-            ),
-            (
-                "attempt".to_string(),
-                serde_json::Value::Number(serde_json::Number::from(attempt_number)),
-            ),
-        ],
-    )
 }

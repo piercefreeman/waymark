@@ -47,6 +47,7 @@ waymark-secret-string = { path = "crates/lib/secret-string" }
 waymark-smoke-sources = { path = "crates/lib/smoke-sources" }
 waymark-support-integration = { path = "crates/lib/support-integration" }
 waymark-support-test = { path = "crates/lib/support-test" }
+waymark-synthetic-exception = { path = "crates/lib/synthetic-exception" }
 waymark-tick-loop = { path = "crates/lib/tick-loop" }
 waymark-timed = { path = "crates/lib/timed" }
 waymark-timed-channel = { path = "crates/lib/timed-channel" }
@@ -100,6 +101,7 @@ serde_json = "1"
 serial_test = "2"
 sha2 = "0.10"
 sqlx = { version = "0.8", default-features = false }
+strum = "0.28"
 syn = "2"
 tera = "1"
 thiserror = "2"
