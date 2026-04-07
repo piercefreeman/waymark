@@ -586,6 +586,8 @@ impl PostgresBackend {
         runner_builder.push_values(
             payloads.iter(),
             |mut b, (instance_id, _scheduled_at, _lock_expires_at, payload)| {
+                metrics::histogram!("waymark_postgres_save_graphs_runner_instances_payload_size")
+                    .record(payload.len() as f64);
                 b.push_bind(*instance_id).push_bind(payload.as_slice());
             },
         );
