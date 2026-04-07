@@ -15,6 +15,7 @@ use waymark_ids::{ExecutionId, InstanceId};
 use waymark_ir_conversions::literal_from_json_value;
 use waymark_proto::ast as ir;
 use waymark_runner::replay_action_kwargs;
+use waymark_runner_executor_core::UncheckedExecutionResult;
 use waymark_runner_state::{
     ActionCallSpec, ExecutionNode, NodeStatus, RunnerState, format_value, value_visitor::ValueExpr,
 };
@@ -720,6 +721,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
                 .as_deref()
                 .map(decode_msgpack_json)
                 .transpose()?;
+            let result = result.map(UncheckedExecutionResult);
             decoded_rows.push(DecodedActionResultRow {
                 created_at,
                 execution_id,
@@ -1243,7 +1245,7 @@ struct DecodedActionResultRow {
     started_at: Option<DateTime<Utc>>,
     completed_at: Option<DateTime<Utc>>,
     duration_ms: Option<i64>,
-    result: Option<Value>,
+    result: Option<UncheckedExecutionResult>,
 }
 
 fn decode_msgpack_json(bytes: &[u8]) -> BackendResult<Value> {
@@ -1254,7 +1256,7 @@ fn decode_msgpack_json(bytes: &[u8]) -> BackendResult<Value> {
 fn render_action_request_preview(
     action: Option<&ActionCallSpec>,
     state: &RunnerState,
-    action_results: &HashMap<ExecutionId, Value>,
+    action_results: &HashMap<ExecutionId, UncheckedExecutionResult>,
     node_id: ExecutionId,
 ) -> String {
     let Some(action) = action else {
@@ -1316,9 +1318,9 @@ fn action_timing_from_state(
     (Some(dispatched_at), Some(completed_at), duration_ms)
 }
 
-fn format_action_result(value: &Value) -> (String, Option<String>) {
-    let preview = pretty_json(value);
-    let error = extract_action_error(value);
+fn format_action_result(value: &UncheckedExecutionResult) -> (String, Option<String>) {
+    let preview = pretty_json(&value.0);
+    let error = extract_action_error(&value.0);
     (preview, error)
 }
 

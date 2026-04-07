@@ -6,6 +6,7 @@ use nonempty_collections::NEVec;
 use serde_json::Value;
 use uuid::Uuid;
 use waymark_ids::{ExecutionId, InstanceId};
+use waymark_runner_executor_core::UncheckedExecutionResult;
 
 /// Action execution request routed through the worker pool.
 #[derive(Clone, Debug)]
@@ -27,7 +28,7 @@ pub struct ActionCompletion {
     pub execution_id: ExecutionId,
     pub attempt_number: u32,
     pub dispatch_token: Uuid,
-    pub result: Value,
+    pub result: UncheckedExecutionResult,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -63,7 +64,7 @@ pub trait BaseWorkerPool {
     fn poll_complete(&self) -> impl Future<Output = Option<NEVec<ActionCompletion>>> + Send + '_;
 }
 
-pub fn error_to_value(error: &WorkerPoolError) -> Value {
+pub fn error_to_value(error: &WorkerPoolError) -> serde_json::Value {
     let mut map = serde_json::Map::new();
     map.insert("type".to_string(), Value::String(error.kind.clone()));
     map.insert("message".to_string(), Value::String(error.message.clone()));

@@ -9,6 +9,7 @@ use uuid::Uuid;
 
 use waymark_ids::{ExecutionId, InstanceId};
 use waymark_proto::messages as proto;
+use waymark_runner_executor_core::UncheckedExecutionResult;
 use waymark_worker_core::{ActionCompletion, ActionRequest, BaseWorkerPool, WorkerPoolError};
 
 pub struct StreamWorkerPool {
@@ -144,6 +145,6 @@ pub fn action_result_to_completion(
         execution_id,
         attempt_number: inflight_action.attempt_number,
         dispatch_token: inflight_action.dispatch_token,
-        result: value,
+        result: UncheckedExecutionResult(value),
     })
 }

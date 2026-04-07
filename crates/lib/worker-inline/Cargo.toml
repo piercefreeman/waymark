@@ -6,6 +6,7 @@ publish.workspace = true
 
 [dependencies]
 waymark-observability = { workspace = true }
+waymark-runner-executor-core = { workspace = true }
 waymark-worker-core = { workspace = true }
 
 nonempty-collections = { workspace = true }

@@ -1,6 +1,7 @@
 use waymark_backend_memory::MemoryBackend;
 use waymark_core_backend::InstanceDone;
 use waymark_ids::{ExecutionId, InstanceId};
+use waymark_runner_executor_core::{ExecutionException, ExecutionSuccess};
 
 struct TestHarness {
     pub backend: MemoryBackend,
@@ -42,14 +43,16 @@ async fn non_empty_pending_is_flushed_and_drained() {
     let first = InstanceDone {
         executor_id: InstanceId::new_uuid_v4(),
         entry_node: ExecutionId::new_uuid_v4(),
-        result: Some(serde_json::json!(1)),
+        result: Some(ExecutionSuccess(serde_json::json!(1))),
         error: None,
     };
     let second = InstanceDone {
         executor_id: InstanceId::new_uuid_v4(),
         entry_node: ExecutionId::new_uuid_v4(),
         result: None,
-        error: Some(serde_json::json!({"type": "ExecutionError"})),
+        error: Some(ExecutionException(
+            serde_json::json!({"type": "ExecutionError"}),
+        )),
     };
     harness.pending = vec![first.clone(), second.clone()];
 

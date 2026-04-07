@@ -6,10 +6,11 @@ use std::rc::Rc;
 
 use serde_json::Value;
 use waymark_ids::ExecutionId;
+use waymark_runner_executor_core::UncheckedExecutionResult;
 
 use crate::expression_evaluator::{
-    add_values, compare_values, int_value, is_exception_value, is_truthy, len_of_value, numeric_op,
-    range_from_args, value_in,
+    add_values, compare_values, int_value, is_truthy, len_of_value, numeric_op, range_from_args,
+    value_in,
 };
 use waymark_dag::{EXCEPTION_SCOPE_VAR, EdgeType};
 use waymark_proto::ast as ir;
@@ -31,7 +32,7 @@ pub struct ReplayResult {
 /// Replay variable values from a runner state snapshot.
 pub struct ReplayEngine<'a> {
     state: &'a RunnerState,
-    action_results: &'a HashMap<ExecutionId, Value>,
+    action_results: &'a HashMap<ExecutionId, UncheckedExecutionResult>,
     cache: RefCell<HashMap<(ExecutionId, String), Value>>,
     timeline: Vec<ExecutionId>,
     index: HashMap<ExecutionId, usize>,
@@ -47,7 +48,10 @@ impl<'a> ReplayEngine<'a> {
     /// Example:
     /// - timeline = [node_a, node_b]
     /// - index[node_b] == 1 and incoming data edges are pre-sorted.
-    pub fn new(state: &'a RunnerState, action_results: &'a HashMap<ExecutionId, Value>) -> Self {
+    pub fn new(
+        state: &'a RunnerState,
+        action_results: &'a HashMap<ExecutionId, UncheckedExecutionResult>,
+    ) -> Self {
         let timeline = if state.timeline.is_empty() {
             state.nodes.keys().cloned().collect()
         } else {
@@ -299,6 +303,7 @@ impl<'a> ReplayEngine<'a> {
             .get(&expr.node_id)
             .cloned()
             .ok_or_else(|| ReplayError(format!("missing action result for {}", expr.node_id)))?;
+        let value = value.0;
         if let Some(idx) = expr.result_index {
             if let Value::Array(items) = value {
                 let idx = idx as usize;
@@ -458,10 +463,14 @@ fn evaluate_global_function(
         }
         Some(ir::GlobalFunction::Isexception) => {
             if let Some(first) = args.first() {
-                return Ok(Value::Bool(is_exception_value(first)));
+                return Ok(Value::Bool(
+                    waymark_runner_executor_core::is_exception_value(first),
+                ));
             }
             if let Some(value) = kwargs.get("value") {
-                return Ok(Value::Bool(is_exception_value(value)));
+                return Ok(Value::Bool(
+                    waymark_runner_executor_core::is_exception_value(value),
+                ));
             }
             Err(ReplayError("isexception() missing argument".to_string()))
         }
@@ -504,7 +513,7 @@ fn build_incoming_data_map(
 /// assignment for each variable and returns a fully materialized mapping.
 pub fn replay_variables(
     state: &RunnerState,
-    action_results: &HashMap<ExecutionId, Value>,
+    action_results: &HashMap<ExecutionId, UncheckedExecutionResult>,
 ) -> Result<ReplayResult, ReplayError> {
     ReplayEngine::new(state, action_results).replay_variables()
 }
@@ -512,7 +521,7 @@ pub fn replay_variables(
 /// Replay concrete kwargs for a specific action node from a state snapshot.
 pub fn replay_action_kwargs(
     state: &RunnerState,
-    action_results: &HashMap<ExecutionId, Value>,
+    action_results: &HashMap<ExecutionId, UncheckedExecutionResult>,
     node_id: ExecutionId,
 ) -> Result<HashMap<String, Value>, ReplayError> {
     ReplayEngine::new(state, action_results).replay_action_kwargs(node_id)
@@ -603,8 +612,14 @@ mod tests {
         let replayed = replay_variables(
             &state,
             &HashMap::from([
-                (action0.node_id, Value::Number(1.into())),
-                (action1.node_id, Value::Number(2.into())),
+                (
+                    action0.node_id,
+                    UncheckedExecutionResult(Value::Number(1.into())),
+                ),
+                (
+                    action1.node_id,
+                    UncheckedExecutionResult(Value::Number(2.into())),
+                ),
             ]),
         )
         .expect("replay");
@@ -653,7 +668,10 @@ mod tests {
 
         let kwargs = replay_action_kwargs(
             &state,
-            &HashMap::from([(action.node_id, Value::Number(14.into()))]),
+            &HashMap::from([(
+                action.node_id,
+                UncheckedExecutionResult(Value::Number(14.into())),
+            )]),
             action.node_id,
         )
         .expect("replay kwargs");

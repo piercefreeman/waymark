@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use uuid::Uuid;
 use waymark_ids::{ExecutionId, InstanceId};
+use waymark_runner_executor_core::UncheckedExecutionResult;
 
 use crate::commit_barrier::CommitBarrier;
 use crate::runloop::InflightActionDispatch;
@@ -59,7 +60,7 @@ fn drops_unknown_execution_id() {
         execution_id,
         attempt_number: 1,
         dispatch_token,
-        result: serde_json::json!(null),
+        result: UncheckedExecutionResult(serde_json::json!(null)),
     }]));
 
     assert_eq!(
@@ -96,7 +97,7 @@ fn drops_mismatched_executor_id() {
         execution_id,
         attempt_number: 1,
         dispatch_token,
-        result: serde_json::json!(null),
+        result: UncheckedExecutionResult(serde_json::json!(null)),
     }]));
 
     assert!(
@@ -132,7 +133,7 @@ fn drops_stale_dispatch_token() {
         execution_id,
         attempt_number: 1,
         dispatch_token: stale_token,
-        result: serde_json::json!(null),
+        result: UncheckedExecutionResult(serde_json::json!(null)),
     }]));
 
     assert!(
@@ -168,7 +169,7 @@ fn drops_stale_attempt_number() {
         execution_id,
         attempt_number: 1,
         dispatch_token,
-        result: serde_json::json!(null),
+        result: UncheckedExecutionResult(serde_json::json!(null)),
     }]));
 
     assert!(
@@ -204,7 +205,7 @@ fn valid_decrements_inflight_and_routes_to_shard() {
         execution_id,
         attempt_number: 1,
         dispatch_token,
-        result: serde_json::json!(null),
+        result: UncheckedExecutionResult(serde_json::json!(null)),
     }]));
 
     assert!(
@@ -254,7 +255,7 @@ fn blocked_instance_defers_completion_until_unblock() {
         execution_id,
         attempt_number: 1,
         dispatch_token,
-        result: serde_json::json!(null),
+        result: UncheckedExecutionResult(serde_json::json!(null)),
     }]));
 
     assert!(
@@ -299,7 +300,7 @@ fn accepted_completion_for_unknown_shard_is_dropped_after_accounting() {
         execution_id,
         attempt_number: 1,
         dispatch_token,
-        result: serde_json::json!(null),
+        result: UncheckedExecutionResult(serde_json::json!(null)),
     }]));
 
     assert!(

@@ -135,7 +135,7 @@ fn main(input: [x], output: [y]):
     assert_eq!(instances_done.len(), 1);
     let done = &instances_done[0];
     let output = done.result.clone().expect("instance result");
-    let Value::Object(map) = output else {
+    let Value::Object(map) = output.0 else {
         panic!("expected output object");
     };
     assert_eq!(map.get("y"), Some(&Value::Number(8.into())));
@@ -242,7 +242,7 @@ fn main(input: [x], output: [y]):
         .instances_done()
         .into_iter()
         .map(|done| {
-            let Value::Object(map) = done.result.expect("instance result") else {
+            let Value::Object(map) = done.result.expect("instance result").0 else {
                 panic!("expected output object");
             };
             map.get("y")
@@ -351,7 +351,7 @@ fn main(input: [x], output: [y]):
 
     let instances_done = backend.instances_done();
     assert_eq!(instances_done.len(), 1);
-    let Value::Object(map) = instances_done[0].result.clone().expect("instance result") else {
+    let Value::Object(map) = instances_done[0].result.clone().expect("instance result").0 else {
         panic!("expected output object");
     };
     assert_eq!(map.get("y"), Some(&Value::Number(6.into())));
@@ -474,6 +474,7 @@ fn main(input: [], output: [y]):
         .error
         .clone()
         .expect("instance error payload")
+        .0
     else {
         panic!("expected error payload object");
     };
@@ -561,7 +562,7 @@ fn main(input: [x], output: [y]):
     assert_eq!(done.executor_id, instance_id);
     assert!(done.result.is_none());
     let error = done.error.as_ref().expect("instance error");
-    let Value::Object(error_obj) = error else {
+    let Value::Object(error_obj) = &error.0 else {
         panic!("expected error payload object");
     };
     assert_eq!(
@@ -703,7 +704,7 @@ fn main(input: [limit], output: [result]):
     assert_eq!(instances_done.len(), 1);
     let done = &instances_done[0];
     let output = done.result.clone().expect("instance result");
-    let Value::Object(map) = output else {
+    let Value::Object(map) = output.0 else {
         panic!("expected output object");
     };
     let Value::Object(result_map) = map
@@ -899,6 +900,7 @@ fn main(input: [x], output: [y]):
         .error
         .clone()
         .expect("instance error payload")
+        .0
     else {
         panic!("expected error payload object");
     };
@@ -994,6 +996,7 @@ fn main(input: [], output: [result]):
         .error
         .clone()
         .expect("instance error payload")
+        .0
     else {
         panic!("expected error payload object");
     };
@@ -1077,6 +1080,7 @@ fn main(input: [], output: [result]):
         .error
         .clone()
         .expect("instance error payload")
+        .0
     else {
         panic!("expected error payload object");
     };

@@ -8,6 +8,7 @@ publish.workspace = true
 waymark-ids = { workspace = true }
 waymark-message-conversions = { workspace = true }
 waymark-proto = { workspace = true }
+waymark-runner-executor-core = { workspace = true }
 waymark-worker-core = { workspace = true }
 waymark-worker-metrics = { workspace = true }
 waymark-worker-status-core = { workspace = true }

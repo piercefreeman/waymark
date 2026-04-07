@@ -63,13 +63,14 @@ pub fn handle(params: Params<'_>) {
             execution_id,
             attempt_number: dispatch.attempt_number,
             dispatch_token: dispatch.dispatch_token,
-            result: waymark_synthetic_exception::build_value(
+            result: waymark_synthetic_exception::build(
                 &waymark_synthetic_exception::ActionTimeout {
                     execution_id,
                     attempt_number: dispatch.attempt_number,
                     timeout_seconds: dispatch.timeout_seconds,
                 },
-            ),
+            )
+            .into_unchecked(),
         });
     }
 

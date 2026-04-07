@@ -7,6 +7,7 @@ use uuid::Uuid;
 use waymark_backend_postgres::PostgresBackend;
 use waymark_core_backend::QueuedInstance;
 use waymark_proto::messages as proto;
+use waymark_runner_executor_core::{ExecutionException, ExecutionSuccess};
 use waymark_secret_string::SecretStr;
 use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBackend};
 
@@ -86,11 +87,13 @@ impl WorkflowStore {
                     .map(rmp_serde::from_slice::<serde_json::Value>)
                     .transpose()
                     .map_err(|err| anyhow::anyhow!(err))?;
+                let result_value = result_value.map(ExecutionSuccess);
                 let error_value = error_bytes
                     .as_deref()
                     .map(rmp_serde::from_slice::<serde_json::Value>)
                     .transpose()
                     .map_err(|err| anyhow::anyhow!(err))?;
+                let error_value = error_value.map(ExecutionException);
 
                 return Ok(Some(crate::utils::build_workflow_arguments(
                     result_value,

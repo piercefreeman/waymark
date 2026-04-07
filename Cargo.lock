@@ -4004,6 +4004,7 @@ dependencies = [
  "waymark-observability",
  "waymark-proto",
  "waymark-runner",
+ "waymark-runner-executor-core",
  "waymark-runner-state",
  "waymark-scheduler-backend",
  "waymark-scheduler-core",
@@ -4107,6 +4108,7 @@ dependencies = [
  "waymark-message-conversions",
  "waymark-proto",
  "waymark-runloop",
+ "waymark-runner-executor-core",
  "waymark-runner-state",
  "waymark-scheduler-backend",
  "waymark-scheduler-core",
@@ -4135,11 +4137,11 @@ dependencies = [
  "chrono",
  "nonempty-collections",
  "serde",
- "serde_json",
  "uuid",
  "waymark-backends-core",
  "waymark-dag",
  "waymark-ids",
+ "waymark-runner-executor-core",
  "waymark-runner-state",
 ]
 
@@ -4279,6 +4281,7 @@ dependencies = [
  "waymark-ir-conversions",
  "waymark-proto",
  "waymark-runloop",
+ "waymark-runner-executor-core",
  "waymark-runner-state",
  "waymark-secret-string",
  "waymark-support-integration",
@@ -4413,6 +4416,7 @@ dependencies = [
  "waymark-observability",
  "waymark-proto",
  "waymark-runner",
+ "waymark-runner-executor-core",
  "waymark-runner-state",
  "waymark-synthetic-exception",
  "waymark-tick-loop",
@@ -4439,9 +4443,18 @@ dependencies = [
  "waymark-ir-parser",
  "waymark-observability",
  "waymark-proto",
+ "waymark-runner-executor-core",
  "waymark-runner-retry-policy",
  "waymark-runner-state",
  "waymark-synthetic-exception",
+]
+
+[[package]]
+name = "waymark-runner-executor-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -4657,6 +4670,7 @@ dependencies = [
  "serde_json",
  "strum",
  "waymark-ids",
+ "waymark-runner-executor-core",
 ]
 
 [[package]]
@@ -4784,6 +4798,7 @@ dependencies = [
  "thiserror",
  "uuid",
  "waymark-ids",
+ "waymark-runner-executor-core",
 ]
 
 [[package]]
@@ -4794,6 +4809,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "waymark-observability",
+ "waymark-runner-executor-core",
  "waymark-worker-core",
 ]
 
@@ -4823,6 +4839,7 @@ dependencies = [
  "waymark-ids",
  "waymark-message-conversions",
  "waymark-proto",
+ "waymark-runner-executor-core",
  "waymark-worker-core",
  "waymark-worker-metrics",
  "waymark-worker-status-core",

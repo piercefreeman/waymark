@@ -5,6 +5,7 @@ use uuid::Uuid;
 use waymark_core_backend::InstanceDone;
 use waymark_ids::{ExecutionId, InstanceId};
 use waymark_runner::SleepRequest;
+use waymark_runner_executor_core::ExecutionException;
 
 use crate::commit_barrier::CommitBarrier;
 use crate::instance_lock_heartbeat;
@@ -94,7 +95,9 @@ fn cleans_up_all_state() {
         executor_id,
         entry_node: ExecutionId::new_uuid_v4(),
         result: None,
-        error: Some(serde_json::json!({"type": "ExecutionError", "message": "boom"})),
+        error: Some(ExecutionException(
+            serde_json::json!({"type": "ExecutionError", "message": "boom"}),
+        )),
     }]));
 
     assert!(!harness.executor_shards.contains_key(&executor_id));
