@@ -11,6 +11,7 @@ waymark-ids = { workspace = true }
 waymark-ir-conversions = { workspace = true }
 waymark-observability = { workspace = true }
 waymark-proto = { workspace = true }
+waymark-runner-retry-policy = { workspace = true }
 waymark-runner-state = { workspace = true }
 
 chrono = { workspace = true, features = ["serde"] }

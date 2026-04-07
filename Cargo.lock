@@ -4417,7 +4417,15 @@ dependencies = [
  "waymark-ir-parser",
  "waymark-observability",
  "waymark-proto",
+ "waymark-runner-retry-policy",
  "waymark-runner-state",
+]
+
+[[package]]
+name = "waymark-runner-retry-policy"
+version = "0.1.0"
+dependencies = [
+ "waymark-proto",
 ]
 
 [[package]]

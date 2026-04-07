@@ -3,28 +3,31 @@
 use waymark_proto::ast as ir;
 
 #[derive(Clone, Debug)]
-pub(crate) struct RetryDecision {
-    pub(crate) should_retry: bool,
+pub struct Decision {
+    pub should_retry: bool,
 }
 
-pub(crate) struct RetryPolicyEvaluator<'a> {
-    policies: &'a [ir::PolicyBracket],
-    exception_name: Option<&'a str>,
+pub struct Evaluator<'a> {
+    pub policies: &'a [ir::PolicyBracket],
+    pub exception_name: Option<&'a str>,
 }
 
 fn is_synthetic_runtime_exception(exception_name: Option<&str>) -> bool {
     matches!(exception_name, Some("ExecutorResume" | "ActionTimeout"))
 }
 
-impl<'a> RetryPolicyEvaluator<'a> {
-    pub(crate) fn new(policies: &'a [ir::PolicyBracket], exception_name: Option<&'a str>) -> Self {
+impl<'a> Evaluator<'a> {
+    pub fn new(
+        policies: &'a [ir::PolicyBracket],
+        exception_name: impl Into<Option<&'a str>>,
+    ) -> Self {
         Self {
             policies,
-            exception_name,
+            exception_name: exception_name.into(),
         }
     }
 
-    pub(crate) fn decision(&self, attempt: i32) -> RetryDecision {
+    pub fn decision(&self, attempt: i32) -> Decision {
         let mut max_retries: i32 = 0;
         let mut matched_policy = false;
 
@@ -51,11 +54,11 @@ impl<'a> RetryPolicyEvaluator<'a> {
 
         let should_retry = matched_policy && attempt - 1 < max_retries;
 
-        RetryDecision { should_retry }
+        Decision { should_retry }
     }
 }
 
-pub(crate) fn timeout_seconds_from_policies(policies: &[ir::PolicyBracket]) -> Option<u32> {
+pub fn timeout_seconds_from_policies(policies: &[ir::PolicyBracket]) -> Option<u32> {
     let mut timeout_seconds: Option<u64> = None;
     for policy in policies {
         let Some(ir::policy_bracket::Kind::Timeout(timeout)) = policy.kind.as_ref() else {
@@ -108,24 +111,24 @@ mod tests {
             retry_policy(1, vec!["ValueError"]),
             retry_policy(3, Vec::new()),
         ];
-        let decision = RetryPolicyEvaluator::new(&policies, Some("ValueError")).decision(2);
+        let decision = Evaluator::new(&policies, Some("ValueError")).decision(2);
         assert!(decision.should_retry);
 
-        let exhausted = RetryPolicyEvaluator::new(&policies, Some("ValueError")).decision(4);
+        let exhausted = Evaluator::new(&policies, Some("ValueError")).decision(4);
         assert!(!exhausted.should_retry);
     }
 
     #[test]
     fn retry_policy_evaluator_wildcard_does_not_retry_synthetic_timeout() {
         let policies = vec![retry_policy(3, Vec::new())];
-        let decision = RetryPolicyEvaluator::new(&policies, Some("ActionTimeout")).decision(1);
+        let decision = Evaluator::new(&policies, Some("ActionTimeout")).decision(1);
         assert!(!decision.should_retry);
     }
 
     #[test]
     fn retry_policy_evaluator_explicit_timeout_retry_happy_path() {
         let policies = vec![retry_policy(2, vec!["ActionTimeout"])];
-        let decision = RetryPolicyEvaluator::new(&policies, Some("ActionTimeout")).decision(1);
+        let decision = Evaluator::new(&policies, Some("ActionTimeout")).decision(1);
         assert!(decision.should_retry);
     }
 

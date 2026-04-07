@@ -3,7 +3,6 @@
 pub mod executor;
 pub mod expression_evaluator;
 pub mod replay;
-pub(crate) mod retry;
 
 /// TODO: make `pub(crate)`
 pub mod synthetic_exceptions;
