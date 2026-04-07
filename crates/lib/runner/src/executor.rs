@@ -11,7 +11,6 @@ use serde_json::Value;
 use waymark_ids::{ExecutionId, InstanceId};
 
 use crate::expression_evaluator::is_exception_value;
-use crate::retry::{RetryDecision, RetryPolicyEvaluator, timeout_seconds_from_policies};
 use crate::synthetic_exceptions::{SyntheticExceptionType, build_synthetic_exception_value};
 use waymark_core_backend::{ActionAttemptStatus, ActionDone, GraphUpdate};
 use waymark_dag::{
@@ -255,7 +254,10 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
         let Some(action_template) = self.template_action_for_execution_node(node)? else {
             return Ok(0);
         };
-        Ok(timeout_seconds_from_policies(&action_template.policies).unwrap_or(0))
+        Ok(
+            waymark_runner_retry_policy::timeout_seconds_from_policies(&action_template.policies)
+                .unwrap_or(0),
+        )
     }
 
     /// Fail inflight actions and return any that should be retried.
@@ -716,14 +718,15 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
         &self,
         node: &ExecutionNode,
         exception_value: Option<&Value>,
-    ) -> Result<RetryDecision, RunnerExecutorError> {
+    ) -> Result<waymark_runner_retry_policy::Decision, RunnerExecutorError> {
         let Some(action) = self.template_action_for_execution_node(node)? else {
-            return Ok(RetryDecision {
+            return Ok(waymark_runner_retry_policy::Decision {
                 should_retry: false,
             });
         };
         let exception_name = exception_value.and_then(exception_type);
-        let evaluator = RetryPolicyEvaluator::new(&action.policies, exception_name);
+        let evaluator =
+            waymark_runner_retry_policy::Evaluator::new(&action.policies, exception_name);
         Ok(evaluator.decision(node.action_attempt))
     }
 
