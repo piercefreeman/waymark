@@ -11,7 +11,6 @@ use serde_json::Value;
 use waymark_ids::{ExecutionId, InstanceId};
 
 use crate::expression_evaluator::is_exception_value;
-use crate::synthetic_exceptions::{SyntheticExceptionType, build_synthetic_exception_value};
 use waymark_core_backend::{ActionAttemptStatus, ActionDone, GraphUpdate};
 use waymark_dag::{
     ActionCallNode, AggregatorNode, DAG, DAGEdge, DagEdgeIndex, EXCEPTION_SCOPE_VAR, EdgeType,
@@ -272,12 +271,8 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
                 finished_nodes.push(*node_id);
                 self.action_results.insert(
                     *node_id,
-                    build_synthetic_exception_value(
-                        SyntheticExceptionType::ExecutorResume,
-                        format!(
-                            "action {node_id} was running during resume and is treated as failed"
-                        ),
-                        Vec::new(),
+                    waymark_synthetic_exception::build_value(
+                        &waymark_synthetic_exception::ExecutorResume { node_id: *node_id },
                     ),
                 );
             }
@@ -1472,9 +1467,9 @@ fn exception_type(value: &Value) -> Option<&str> {
 }
 
 fn action_done_status_for_exception(value: &Value) -> ActionAttemptStatus {
-    match SyntheticExceptionType::from_value(value) {
-        Some(SyntheticExceptionType::ExecutorResume)
-        | Some(SyntheticExceptionType::ActionTimeout) => ActionAttemptStatus::TimedOut,
+    match waymark_synthetic_exception::Type::from_value(value) {
+        Some(waymark_synthetic_exception::Type::ExecutorResume)
+        | Some(waymark_synthetic_exception::Type::ActionTimeout) => ActionAttemptStatus::TimedOut,
         None => ActionAttemptStatus::Failed,
     }
 }
