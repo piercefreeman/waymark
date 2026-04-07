@@ -3925,7 +3925,6 @@ dependencies = [
  "nonempty-collections",
  "thiserror",
  "uuid",
- "waymark-backend-memory",
  "waymark-backends-core",
  "waymark-core-backend",
  "waymark-ids",

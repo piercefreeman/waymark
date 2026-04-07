@@ -779,11 +779,17 @@ async fn test_runloop_reproduces_no_progress_with_continued_queue_growth() {
         "expected polling attempts during stall simulation"
     );
     assert!(
-        backend.queue_len() >= 20,
+        backend
+            .as_ref()
+            .instance_queue()
+            .as_ref()
+            .map(|queue| queue.lock().expect("queue poisoned").len())
+            .unwrap_or(0)
+            >= 20,
         "queued work should continue to grow when poller cannot read instances"
     );
     assert_eq!(
-        backend.instances_done_len(),
+        backend.as_ref().instances_done().len(),
         0,
         "no instances should complete while poller is failing"
     );
