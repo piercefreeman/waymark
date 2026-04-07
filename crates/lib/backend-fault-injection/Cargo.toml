@@ -5,7 +5,6 @@ publish.workspace = true
 edition = "2024"
 
 [dependencies]
-waymark-backend-memory = { workspace = true }
 waymark-backends-core = { workspace = true }
 waymark-core-backend = { workspace = true }
 waymark-ids = { workspace = true }

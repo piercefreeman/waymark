@@ -5,7 +5,6 @@ use std::sync::{
 
 use nonempty_collections::NEVec;
 use uuid::Uuid;
-use waymark_backend_memory::MemoryBackend;
 use waymark_backends_core::BackendResult;
 use waymark_core_backend::{
     CoreBackend, GraphUpdate, InstanceDone, InstanceLockStatus, LockClaim, QueuedInstance,
@@ -16,14 +15,14 @@ use waymark_workflow_registry_backend::{
 };
 
 #[derive(Clone)]
-pub struct FaultInjectingBackend {
-    inner: MemoryBackend,
+pub struct FaultInjectingBackend<Inner> {
+    inner: Inner,
     fail_get_queued_instances_with_depth_limit: Arc<AtomicBool>,
     get_queued_instances_calls: Arc<AtomicUsize>,
 }
 
-impl FaultInjectingBackend {
-    pub fn with_depth_limit_poll_failures(inner: MemoryBackend) -> Self {
+impl<Inner> FaultInjectingBackend<Inner> {
+    pub fn with_depth_limit_poll_failures(inner: Inner) -> Self {
         Self {
             inner,
             fail_get_queued_instances_with_depth_limit: Arc::new(AtomicBool::new(true)),
@@ -34,21 +33,18 @@ impl FaultInjectingBackend {
     pub fn get_queued_instances_calls(&self) -> usize {
         self.get_queued_instances_calls.load(AtomicOrdering::SeqCst)
     }
+}
 
-    pub fn queue_len(&self) -> usize {
-        self.inner
-            .instance_queue()
-            .as_ref()
-            .map(|queue| queue.lock().expect("queue poisoned").len())
-            .unwrap_or(0)
-    }
-
-    pub fn instances_done_len(&self) -> usize {
-        self.inner.instances_done().len()
+impl<Inner> AsRef<Inner> for FaultInjectingBackend<Inner> {
+    fn as_ref(&self) -> &Inner {
+        &self.inner
     }
 }
 
-impl CoreBackend for FaultInjectingBackend {
+impl<Inner> CoreBackend for FaultInjectingBackend<Inner>
+where
+    Inner: CoreBackend + Sync,
+{
     async fn save_graphs(
         &self,
         claim: LockClaim,
@@ -68,7 +64,7 @@ impl CoreBackend for FaultInjectingBackend {
         self.inner.save_instances_done(instances).await
     }
 
-    type PollQueuedInstancesError = PollQueuedInstancesError;
+    type PollQueuedInstancesError = PollQueuedInstancesError<Inner::PollQueuedInstancesError>;
 
     async fn poll_queued_instances(
         &self,
@@ -86,7 +82,7 @@ impl CoreBackend for FaultInjectingBackend {
         self.inner
             .poll_queued_instances(size, claim)
             .await
-            .map_err(PollQueuedInstancesError::Memory)
+            .map_err(PollQueuedInstancesError::Inner)
     }
 
     async fn queue_instances(
@@ -115,7 +111,10 @@ impl CoreBackend for FaultInjectingBackend {
     }
 }
 
-impl WorkflowRegistryBackend for FaultInjectingBackend {
+impl<Inner> WorkflowRegistryBackend for FaultInjectingBackend<Inner>
+where
+    Inner: WorkflowRegistryBackend + Sync,
+{
     async fn upsert_workflow_version(
         &self,
         registration: &WorkflowRegistration,
@@ -129,21 +128,25 @@ impl WorkflowRegistryBackend for FaultInjectingBackend {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum PollQueuedInstancesError {
+pub enum PollQueuedInstancesError<InnerError> {
     #[error("depth limit exceeded")]
     DepthLimitExceeded,
 
-    #[error("memory backend: {0}")]
-    Memory(<MemoryBackend as waymark_core_backend::CoreBackend>::PollQueuedInstancesError),
+    #[error("inner backend: {0}")]
+    Inner(InnerError),
 }
 
-impl waymark_core_backend::poll_queued_instances::Error for PollQueuedInstancesError {
+impl<InnerError> waymark_core_backend::poll_queued_instances::Error
+    for PollQueuedInstancesError<InnerError>
+where
+    InnerError: waymark_core_backend::poll_queued_instances::Error,
+{
     fn kind(&self) -> waymark_core_backend::poll_queued_instances::ErrorKind {
         match self {
             PollQueuedInstancesError::DepthLimitExceeded => {
                 waymark_core_backend::poll_queued_instances::ErrorKind::Internal
             }
-            PollQueuedInstancesError::Memory(inner) => inner.kind(),
+            PollQueuedInstancesError::Inner(inner) => inner.kind(),
         }
     }
 }
