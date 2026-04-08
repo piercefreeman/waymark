@@ -29,6 +29,25 @@ static MAX_RUNNER_STATE_NODES: std::sync::LazyLock<usize> = std::sync::LazyLock:
 #[error("{0}")]
 pub struct RunnerStateError(pub String);
 
+impl RunnerStateError {
+    const NODE_LIMIT_EXCEEDED_PREFIX: &str = "runner state node limit exceeded:";
+
+    fn node_limit_exceeded(node_id: ExecutionId, existing_nodes: usize) -> Self {
+        Self(format!(
+            "runner state node limit exceeded: attempted to queue node {} with {} existing nodes (max {})",
+            node_id, existing_nodes, *MAX_RUNNER_STATE_NODES,
+        ))
+    }
+
+    pub fn is_node_limit_exceeded(&self) -> bool {
+        Self::is_node_limit_exceeded_message(&self.0)
+    }
+
+    pub fn is_node_limit_exceeded_message(message: &str) -> bool {
+        message.starts_with(Self::NODE_LIMIT_EXCEEDED_PREFIX)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ActionCallSpec {
     pub action_name: String,
@@ -608,12 +627,10 @@ impl RunnerState {
             )));
         }
         if self.nodes.len() >= *MAX_RUNNER_STATE_NODES {
-            return Err(RunnerStateError(format!(
-                "runner state node limit exceeded: attempted to queue node {} with {} existing nodes (max {})",
+            return Err(RunnerStateError::node_limit_exceeded(
                 node.node_id,
                 self.nodes.len(),
-                *MAX_RUNNER_STATE_NODES,
-            )));
+            ));
         }
         self.nodes.insert(node.node_id, node.clone());
         self.ready_queue.push(node.node_id);
@@ -2235,9 +2252,6 @@ mod tests {
             )
             .expect_err("queueing beyond the node limit should fail");
 
-        assert!(
-            err.0.contains("runner state node limit exceeded"),
-            "unexpected error: {err:?}"
-        );
+        assert!(err.is_node_limit_exceeded(), "unexpected error: {err:?}");
     }
 }

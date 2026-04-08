@@ -3,6 +3,7 @@
 mod action_timeout;
 mod any;
 mod executor_resume;
+mod runner_executor_error;
 mod value;
 
 use waymark_runner_executor_core::ExecutionException;
@@ -10,6 +11,7 @@ use waymark_runner_executor_core::ExecutionException;
 pub use self::action_timeout::*;
 pub use self::any::*;
 pub use self::executor_resume::*;
+pub use self::runner_executor_error::*;
 pub use self::value::*;
 
 pub fn build(exception: impl Into<Value>) -> ExecutionException {
