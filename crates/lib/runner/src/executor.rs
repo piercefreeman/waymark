@@ -28,6 +28,12 @@ use waymark_runner_state::{
 #[error("{0}")]
 pub struct RunnerExecutorError(pub String);
 
+impl RunnerExecutorError {
+    fn should_fail_instance(&self) -> bool {
+        RunnerStateError::is_node_limit_exceeded_message(&self.0)
+    }
+}
+
 #[derive(Clone, Debug)]
 /// Persistence payloads required before dispatching new actions.
 /// These need to be written to the backends in order to ensure that we can mark any
@@ -299,8 +305,12 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
     ) -> Result<ExecutorStep, RunnerExecutorError> {
         self.eval_cache.borrow_mut().clear();
         let mut accum = IncrementAccumulator::default();
-        self.collect_increment_results(finished_nodes, &mut accum)?;
-        self.walk_pending_starts(&mut accum)?;
+        if let Err(err) = self.collect_increment_results(finished_nodes, &mut accum) {
+            return self.handle_increment_error(err, &mut accum);
+        }
+        if let Err(err) = self.walk_pending_starts(&mut accum) {
+            return self.handle_increment_error(err, &mut accum);
+        }
 
         let IncrementAccumulator {
             actions_done,
@@ -317,6 +327,25 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
         Ok(ExecutorStep {
             actions: running_actions,
             sleep_requests,
+            updates,
+        })
+    }
+
+    fn handle_increment_error(
+        &mut self,
+        err: RunnerExecutorError,
+        accum: &mut IncrementAccumulator,
+    ) -> Result<ExecutorStep, RunnerExecutorError> {
+        if !err.should_fail_instance() {
+            return Err(err);
+        }
+        if self.terminal_error.is_none() {
+            self.terminal_error = Some(execution_error_value(&err.0));
+        }
+        let updates = self.collect_updates(std::mem::take(&mut accum.actions_done))?;
+        Ok(ExecutorStep {
+            actions: Vec::new(),
+            sleep_requests: Vec::new(),
             updates,
         })
     }
@@ -1474,6 +1503,13 @@ fn action_done_status_for_exception(value: &Value) -> ActionAttemptStatus {
     }
 }
 
+fn execution_error_value(message: &str) -> Value {
+    serde_json::json!({
+        "type": "ExecutionError",
+        "message": message,
+    })
+}
+
 fn compute_action_duration_ms(
     started_at: Option<DateTime<Utc>>,
     completed_at: DateTime<Utc>,
@@ -1763,6 +1799,64 @@ mod tests {
             RunnerExecutor::new(Arc::clone(dag), state, HashMap::new()),
             entry_exec.node_id,
         )
+    }
+
+    #[test]
+    fn test_increment_soft_fails_runner_state_node_limit() {
+        let dag = dag_from_ir_source(
+            r#"
+fn main(input: [], output: [result]):
+    seed = 1
+    result = seed
+    return result
+"#,
+        );
+
+        let mut state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
+        let entry_template = dag.entry_node.as_ref().expect("dag entry node");
+        let entry_exec = state
+            .queue_template_node(entry_template, None)
+            .expect("queue entry node");
+
+        loop {
+            match state.queue_node(
+                ExecutionNodeType::Assignment.as_str(),
+                "filler",
+                QueueNodeParams::default(),
+            ) {
+                Ok(_) => {}
+                Err(err) => {
+                    assert!(
+                        err.is_node_limit_exceeded(),
+                        "unexpected filler error: {err:?}"
+                    );
+                    break;
+                }
+            }
+        }
+
+        let mut executor = RunnerExecutor::<false>::new(Arc::clone(&dag), state, HashMap::new());
+        let step = executor
+            .increment(&[entry_exec.node_id])
+            .expect("node-limit overflow should fail the instance, not the executor");
+
+        assert!(step.actions.is_empty());
+        assert!(step.sleep_requests.is_empty());
+        assert!(step.updates.is_none());
+
+        let terminal_error = executor.terminal_error().cloned().expect("terminal error");
+        assert_eq!(
+            terminal_error.get("type"),
+            Some(&Value::String("ExecutionError".to_string()))
+        );
+        let message = terminal_error
+            .get("message")
+            .and_then(Value::as_str)
+            .expect("error message");
+        assert!(
+            RunnerStateError::is_node_limit_exceeded_message(message),
+            "unexpected terminal error: {terminal_error}"
+        );
     }
 
     type ActionResultFor = fn(&ExecutionNode) -> Value;
