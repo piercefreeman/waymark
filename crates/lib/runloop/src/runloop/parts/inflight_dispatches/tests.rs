@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use chrono::Utc;
 use uuid::Uuid;
 use waymark_ids::{ExecutionId, InstanceId};
+use waymark_runner_executor_core::UncheckedExecutionResult;
 use waymark_worker_core::ActionCompletion;
 
 use crate::runloop::InflightActionDispatch;
@@ -69,7 +70,7 @@ fn past_deadline_generates_timeout_completion() {
     assert_eq!(completion.attempt_number, 2);
     assert_eq!(completion.dispatch_token, dispatch_token);
     assert_eq!(
-        completion.result["type"],
+        completion.result.0["type"],
         serde_json::json!("ActionTimeout")
     );
 }
@@ -117,7 +118,7 @@ fn timeout_is_prepended_before_existing_completions() {
         execution_id: normal_execution_id,
         attempt_number: 1,
         dispatch_token: Uuid::new_v4(),
-        result: serde_json::json!(42),
+        result: UncheckedExecutionResult(serde_json::json!(42)),
     };
     harness.completions.push(existing);
 
@@ -148,7 +149,7 @@ fn timeout_completion_contains_attempt_and_timeout_seconds_fields() {
     super::handle(harness.params());
 
     assert_eq!(harness.completions.len(), 1);
-    let payload = &harness.completions[0].result;
+    let payload = &harness.completions[0].result.0;
     assert_eq!(payload["type"], serde_json::json!("ActionTimeout"));
     assert_eq!(payload["attempt"], serde_json::json!(3));
     assert_eq!(payload["timeout_seconds"], serde_json::json!(12));

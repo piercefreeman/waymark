@@ -17,6 +17,7 @@ use uuid::Uuid;
 use waymark_backends_core::BackendError;
 use waymark_core_backend::{InstanceDone, QueuedInstance};
 use waymark_nonzero_duration::NonZeroDuration;
+use waymark_runner_executor_core::ExecutionException;
 
 use crate::commit_barrier::CommitBarrier;
 use crate::instance_lock_heartbeat;
@@ -472,7 +473,7 @@ where
                             executor_id,
                             entry_node,
                             result: None,
-                            error: Some(error_value("ExecutionError", &error)),
+                            error: Some(ExecutionException(error_value("ExecutionError", &error))),
                         });
                     }
                 },
@@ -519,7 +520,7 @@ where
                             executor_id,
                             entry_node,
                             result: None,
-                            error: Some(error_value("ExecutionError", &error)),
+                            error: Some(ExecutionException(error_value("ExecutionError", &error))),
                         });
                     }
                 }

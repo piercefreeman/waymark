@@ -8,12 +8,12 @@ edition = "2024"
 waymark-backends-core = { workspace = true }
 waymark-dag = { workspace = true }
 waymark-ids = { workspace = true }
+waymark-runner-executor-core = { workspace = true }
 waymark-runner-state = { workspace = true }
 
 chrono = { workspace = true }
 nonempty-collections = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true }
 uuid = { workspace = true }
 
 [lib]

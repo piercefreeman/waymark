@@ -5,14 +5,16 @@ mod any;
 mod executor_resume;
 mod value;
 
+use waymark_runner_executor_core::ExecutionException;
+
 pub use self::action_timeout::*;
 pub use self::any::*;
 pub use self::executor_resume::*;
 pub use self::value::*;
 
-pub fn build_value(exception: impl Into<Value>) -> serde_json::Value {
+pub fn build(exception: impl Into<Value>) -> ExecutionException {
     let value = exception.into();
-    serde_json::to_value(value).unwrap()
+    ExecutionException(serde_json::to_value(value).unwrap())
 }
 
 #[cfg(test)]
@@ -21,7 +23,7 @@ mod tests {
 
     #[test]
     fn build_value_happy_path() {
-        let value = build_value(Value {
+        let ExecutionException(value) = build(Value {
             r#type: "ExecutorResume".into(),
             message: "resume".into(),
             fields: [(

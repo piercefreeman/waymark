@@ -9,6 +9,7 @@ default = ["either"]
 
 [dependencies]
 waymark-ids = { workspace = true }
+waymark-runner-executor-core = { workspace = true }
 
 either = { workspace = true, optional = true }
 nonempty-collections = { workspace = true }

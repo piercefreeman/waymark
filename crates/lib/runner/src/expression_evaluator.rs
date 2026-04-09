@@ -9,6 +9,7 @@ use waymark_ids::ExecutionId;
 use waymark_ir_conversions::literal_to_json_value;
 use waymark_observability::obs;
 use waymark_proto::ast as ir;
+use waymark_runner_executor_core::ExecutionException;
 use waymark_runner_state::{
     ActionCallSpec, ActionResultValue, BinaryOpValue, DictEntryValue, DictValue, DotValue,
     FunctionCallValue, IndexValue, ListValue, LiteralValue, UnaryOpValue, VariableValue,
@@ -327,6 +328,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
             .ok_or_else(|| {
                 RunnerExecutorError(format!("missing action result for {}", expr.node_id))
             })?;
+        let value = value.0; // TODO: check if this is a sane type erasure
         if let Some(idx) = expr.result_index {
             if let Value::Array(items) = value {
                 let idx = idx as usize;
@@ -403,10 +405,14 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
             }
             Some(ir::GlobalFunction::Isexception) => {
                 if let Some(first) = args.first() {
-                    return Ok(Value::Bool(is_exception_value(first)));
+                    return Ok(Value::Bool(
+                        waymark_runner_executor_core::is_exception_value(first),
+                    ));
                 }
                 if let Some(value) = kwargs.get("value") {
-                    return Ok(Value::Bool(is_exception_value(value)));
+                    return Ok(Value::Bool(
+                        waymark_runner_executor_core::is_exception_value(value),
+                    ));
                 }
                 Err(RunnerExecutorError(
                     "isexception() missing argument".to_string(),
@@ -498,7 +504,11 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
         }
     }
 
-    pub(super) fn exception_matches(&self, edge: &DAGEdge, exception_value: &Value) -> bool {
+    pub(super) fn exception_matches(
+        &self,
+        edge: &DAGEdge,
+        exception_value: &ExecutionException,
+    ) -> bool {
         let exception_types = match &edge.exception_types {
             Some(types) => types,
             None => return false,
@@ -506,7 +516,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
         if exception_types.is_empty() {
             return true;
         }
-        let exc_name = match exception_value {
+        let exc_name = match &exception_value.0 {
             Value::Object(map) => map
                 .get("type")
                 .and_then(|value| value.as_str())
@@ -615,13 +625,6 @@ pub(crate) fn is_truthy(value: &Value) -> bool {
     }
 }
 
-pub(crate) fn is_exception_value(value: &Value) -> bool {
-    if let Value::Object(map) = value {
-        return map.contains_key("type") && map.contains_key("message");
-    }
-    false
-}
-
 pub(crate) fn len_of_value<E>(
     value: &Value,
     error: fn(&'static str) -> E,
@@ -679,6 +682,7 @@ mod tests {
     use waymark_dag::{DAG, DAGEdge};
     use waymark_ir_parser::IRParser;
     use waymark_proto::ast as ir;
+    use waymark_runner_executor_core::UncheckedExecutionResult;
     use waymark_runner_state::{
         ActionCallSpec, ActionResultValue, BinaryOpValue, FunctionCallValue, LiteralValue,
         RunnerState, VariableValue, value_visitor::ValueExpr,
@@ -888,7 +892,10 @@ mod tests {
         let action_id = ExecutionId::new_uuid_v4();
         executor.set_action_result(
             action_id,
-            Value::Array(vec![Value::Number(7.into()), Value::Number(8.into())]),
+            UncheckedExecutionResult(Value::Array(vec![
+                Value::Number(7.into()),
+                Value::Number(8.into()),
+            ])),
         );
         let result = executor
             .resolve_action_result(&ActionResultValue {
@@ -964,10 +971,10 @@ mod tests {
     fn test_exception_matches_happy_path() {
         let executor = empty_executor::<false>();
         let edge = DAGEdge::state_machine_with_exception("a", "b", vec!["ValueError".to_string()]);
-        let exception = serde_json::json!({
+        let exception = ExecutionException(serde_json::json!({
             "type": "ValueError",
             "message": "boom",
-        });
+        }));
         assert!(executor.exception_matches(&edge, &exception));
     }
 
@@ -1028,15 +1035,6 @@ mod tests {
     #[test]
     fn test_is_truthy_happy_path() {
         assert!(is_truthy(&Value::String("non-empty".to_string())));
-    }
-
-    #[test]
-    fn test_is_exception_value_happy_path() {
-        let value = serde_json::json!({
-            "type": "RuntimeError",
-            "message": "bad",
-        });
-        assert!(is_exception_value(&value));
     }
 
     #[test]

@@ -80,7 +80,8 @@ pub async fn run_case(case_index: usize, case: &GeneratedCase) -> Result<()> {
 
     if let Some(error) = done.error {
         bail!(
-            "case {case_index} completed with error: {error}\n--- program ---\n{}",
+            "case {case_index} completed with error: {}\n--- program ---\n{}",
+            error.0,
             case.source
         );
     }

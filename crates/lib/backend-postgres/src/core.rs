@@ -13,6 +13,7 @@ use tracing::warn;
 use uuid::Uuid;
 use waymark_garbage_collector_backend::{GarbageCollectionResult, GarbageCollectorBackend};
 use waymark_ids::{ExecutionId, InstanceId, LockId};
+use waymark_runner_executor_core::{ExecutionSuccess, UncheckedExecutionResult};
 use waymark_scheduler_backend::{BackendError, BackendResult};
 use waymark_worker_status_backend::{WorkerStatusBackend, WorkerStatusUpdate};
 
@@ -34,8 +35,8 @@ const TRANSIENT_RETRY_MAX_ATTEMPTS: usize = 3;
 const TRANSIENT_RETRY_INITIAL_BACKOFF_MS: u64 = 25;
 const TRANSIENT_RETRY_MAX_BACKOFF_MS: u64 = 250;
 
-fn instance_result_is_error_wrapper(result: &serde_json::Value) -> bool {
-    let serde_json::Value::Object(map) = result else {
+fn instance_result_is_error_wrapper(result: &ExecutionSuccess) -> bool {
+    let serde_json::Value::Object(map) = &result.0 else {
         return false;
     };
     map.len() == 1
@@ -865,7 +866,7 @@ impl PostgresBackend {
             .await
             .map_err(PollQueuedInstancesError::Sqlx)?;
 
-            let mut action_results_by_execution_id: HashMap<ExecutionId, serde_json::Value> =
+            let mut action_results_by_execution_id: HashMap<ExecutionId, UncheckedExecutionResult> =
                 HashMap::new();
             for row in rows {
                 let execution_id: ExecutionId = row.get("execution_id");
@@ -876,6 +877,7 @@ impl PostgresBackend {
 
                 let result: serde_json::Value = crate::codec::deserialize(&result_payload)
                     .map_err(PollQueuedInstancesError::ActionResultDecode)?;
+                let result = UncheckedExecutionResult(result);
 
                 action_results_by_execution_id.insert(execution_id, result);
             }
@@ -934,11 +936,11 @@ impl PostgresBackend {
         for instance in instances {
             let current_status = instance_done_status(instance);
             let result = match &instance.result {
-                Some(value) => Some(Self::serialize(value)?),
+                Some(value) => Some(Self::serialize(&value.0)?),
                 None => None,
             };
             let error = match &instance.error {
-                Some(value) => Some(Self::serialize(value)?),
+                Some(value) => Some(Self::serialize(&value.0)?),
                 None => None,
             };
             payloads.push((instance.executor_id, current_status, result, error));
@@ -1155,6 +1157,7 @@ mod tests {
     use uuid::Uuid;
     use waymark_core_backend::{ActionAttemptStatus, CoreBackend};
     use waymark_ids::ExecutionId;
+    use waymark_runner_executor_core::UncheckedExecutionResult;
 
     use super::super::test_helpers::setup_backend;
     use super::*;
@@ -1435,7 +1438,7 @@ mod tests {
                 started_at: None,
                 completed_at: Some(Utc::now()),
                 duration_ms: None,
-                result: serde_json::json!({"ok": true}),
+                result: UncheckedExecutionResult(serde_json::json!({"ok": true})),
             }],
         )
         .await
@@ -1474,7 +1477,7 @@ mod tests {
         assert_eq!(batch.len().get(), 1);
         assert_eq!(
             batch[0].action_results.get(&execution_id),
-            Some(&serde_json::json!({"ok": true}))
+            Some(&UncheckedExecutionResult(serde_json::json!({"ok": true})))
         );
     }
 
@@ -1587,7 +1590,7 @@ mod tests {
                 started_at: None,
                 completed_at: Some(Utc::now()),
                 duration_ms: None,
-                result: serde_json::json!({"ok": true}),
+                result: UncheckedExecutionResult(serde_json::json!({"ok": true})),
             }],
         )
         .await
@@ -1856,7 +1859,7 @@ mod tests {
             &[InstanceDone {
                 executor_id: instance_id,
                 entry_node,
-                result: Some(serde_json::json!({"value": 3})),
+                result: Some(ExecutionSuccess(serde_json::json!({"value": 3}))),
                 error: None,
             }],
         )
@@ -1912,7 +1915,7 @@ mod tests {
             &[InstanceDone {
                 executor_id: instance_id,
                 entry_node,
-                result: Some(serde_json::json!({"value": 11})),
+                result: Some(ExecutionSuccess(serde_json::json!({"value": 11}))),
                 error: None,
             }],
         )

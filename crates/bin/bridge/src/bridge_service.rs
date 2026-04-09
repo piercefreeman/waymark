@@ -19,6 +19,7 @@ use waymark_ids::{InstanceId, LockId};
 use waymark_ir_conversions::literal_from_json_value;
 use waymark_proto::{ast as ir, messages as proto};
 use waymark_runloop::{RunLoop, RunLoopConfig};
+use waymark_runner_executor_core::ExecutionException;
 use waymark_runner_state::RunnerState;
 use waymark_scheduler_backend::SchedulerBackend as _;
 use waymark_scheduler_core::{CreateScheduleParams, ScheduleId, ScheduleStatus, ScheduleType};
@@ -267,7 +268,10 @@ impl proto::workflow_service_server::WorkflowService for BridgeService {
             let Ok(runtime) = runtime else {
                 let payload = crate::utils::build_workflow_arguments(
                     None,
-                    Some(error_value("RunLoopError", "failed to start runtime")),
+                    Some(ExecutionException(error_value(
+                        "RunLoopError",
+                        "failed to start runtime",
+                    ))),
                 );
                 let response = proto::WorkflowStreamResponse {
                     kind: Some(proto::workflow_stream_response::Kind::WorkflowResult(
@@ -311,13 +315,16 @@ impl proto::workflow_service_server::WorkflowService for BridgeService {
                         } else {
                             crate::utils::build_workflow_arguments(
                                 None,
-                                Some(error_value("RunLoopError", "no result")),
+                                Some(ExecutionException(error_value("RunLoopError", "no result"))),
                             )
                         }
                     }
                     Err(err) => crate::utils::build_workflow_arguments(
                         None,
-                        Some(error_value("RunLoopError", &err.to_string())),
+                        Some(ExecutionException(error_value(
+                            "RunLoopError",
+                            &err.to_string(),
+                        ))),
                     ),
                 };
 

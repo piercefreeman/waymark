@@ -68,6 +68,7 @@ use tracing::{error, info, trace, warn};
 use uuid::Uuid;
 
 use waymark_proto::messages as proto;
+use waymark_runner_executor_core::UncheckedExecutionResult;
 use waymark_worker_core::{
     ActionCompletion, ActionRequest, BaseWorkerPool, WorkerPoolError, error_to_value,
 };
@@ -1160,10 +1161,10 @@ async fn execute_remote_request(
             execution_id,
             attempt_number,
             dispatch_token,
-            result: error_to_value(&WorkerPoolError::new(
+            result: UncheckedExecutionResult(error_to_value(&WorkerPoolError::new(
                 "RemoteWorkerPoolError",
                 "missing module name for action request",
-            )),
+            ))),
         };
     };
 
@@ -1197,7 +1198,7 @@ async fn execute_remote_request(
                 execution_id,
                 attempt_number,
                 dispatch_token,
-                result: decode_action_result(&metrics),
+                result: UncheckedExecutionResult(decode_action_result(&metrics)),
             }
         }
         Err(err) => {
@@ -1207,10 +1208,10 @@ async fn execute_remote_request(
                 execution_id,
                 attempt_number,
                 dispatch_token,
-                result: error_to_value(&WorkerPoolError::new(
+                result: UncheckedExecutionResult(error_to_value(&WorkerPoolError::new(
                     "RemoteWorkerPoolError",
                     err.to_string(),
-                )),
+                ))),
             }
         }
     }
@@ -1735,7 +1736,10 @@ mod tests {
         responder.await.expect("responder task");
         assert_eq!(completion.executor_id, request.executor_id);
         assert_eq!(completion.execution_id, request.execution_id);
-        assert_eq!(completion.result, Value::Number(18.into()));
+        assert_eq!(
+            completion.result,
+            UncheckedExecutionResult(Value::Number(18.into()))
+        );
         assert_eq!(pool.total_in_flight(), 0);
 
         if let Ok(pool) = Arc::try_unwrap(pool) {
@@ -1805,7 +1809,10 @@ mod tests {
         let completions = maybe_completions.unwrap();
         assert_eq!(completions.len().get(), 1);
         assert_eq!(completions[0].execution_id, execution_id);
-        assert_eq!(completions[0].result, Value::Number(25.into()));
+        assert_eq!(
+            completions[0].result,
+            UncheckedExecutionResult(Value::Number(25.into()))
+        );
 
         drop(remote);
         tokio::time::sleep(Duration::from_millis(10)).await;

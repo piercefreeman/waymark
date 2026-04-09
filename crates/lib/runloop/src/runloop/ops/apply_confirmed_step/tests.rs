@@ -5,6 +5,7 @@ use uuid::Uuid;
 use waymark_core_backend::InstanceDone;
 use waymark_ids::{ExecutionId, InstanceId};
 use waymark_runner::SleepRequest;
+use waymark_runner_executor_core::ExecutionSuccess;
 use waymark_worker_core::{ActionRequest, WorkerPoolError};
 
 use crate::commit_barrier::CommitBarrier;
@@ -256,7 +257,7 @@ async fn instance_done_removes_executor_state() {
         instance_done: Some(InstanceDone {
             executor_id,
             entry_node: ExecutionId::new_uuid_v4(),
-            result: Some(serde_json::json!("done")),
+            result: Some(ExecutionSuccess(serde_json::json!("done"))),
             error: None,
         }),
     };

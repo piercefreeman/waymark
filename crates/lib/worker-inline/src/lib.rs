@@ -8,6 +8,7 @@ use serde_json::Value;
 use tokio::sync::mpsc;
 
 use waymark_observability::obs;
+use waymark_runner_executor_core::UncheckedExecutionResult;
 use waymark_worker_core::{
     ActionCompletion, ActionRequest, BaseWorkerPool, WorkerPoolError, error_to_value,
 };
@@ -87,6 +88,7 @@ impl BaseWorkerPool for InlineWorkerPool {
                 Ok(value) => value,
                 Err(err) => error_to_value(&err),
             };
+            let result = UncheckedExecutionResult(result);
             let _ = sender
                 .send(ActionCompletion {
                     executor_id,

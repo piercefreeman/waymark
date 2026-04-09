@@ -11,12 +11,15 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use waymark_dag::DAG;
+use waymark_runner_executor_core::{
+    ExecutionException, ExecutionSuccess, UncheckedExecutionResult,
+};
 use waymark_runner_state::{ExecutionEdge, ExecutionNode, NodeStatus, RunnerState};
 
 use waymark_ids::{ExecutionId, InstanceId, LockId};
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
 /// Queued instance payload for the run loop.
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct QueuedInstance {
     pub workflow_version_id: Uuid,
     #[serde(default)]
@@ -29,15 +32,15 @@ pub struct QueuedInstance {
         default = "HashMap::new",
         deserialize_with = "deserialize_action_results"
     )]
-    pub action_results: HashMap<ExecutionId, serde_json::Value>,
+    pub action_results: HashMap<ExecutionId, UncheckedExecutionResult>,
     #[serde(default = "InstanceId::new_uuid_v4")]
     pub instance_id: InstanceId,
     #[serde(default)]
     pub scheduled_at: Option<DateTime<Utc>>,
 }
 
-#[derive(Clone, Debug)]
 /// Lock claim settings for owned instances.
+#[derive(Clone, Debug)]
 pub struct LockClaim {
     pub lock_uuid: LockId,
     pub lock_expires_at: DateTime<Utc>,
@@ -51,13 +54,13 @@ pub struct InstanceLockStatus {
     pub lock_expires_at: Option<DateTime<Utc>>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
 /// Completed instance payload with result or exception.
+#[derive(Clone, Debug)]
 pub struct InstanceDone {
     pub executor_id: InstanceId,
     pub entry_node: ExecutionId,
-    pub result: Option<serde_json::Value>,
-    pub error: Option<serde_json::Value>,
+    pub result: Option<ExecutionSuccess>,
+    pub error: Option<ExecutionException>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -106,7 +109,7 @@ pub struct ActionDone {
     pub started_at: Option<DateTime<Utc>>,
     pub completed_at: Option<DateTime<Utc>>,
     pub duration_ms: Option<i64>,
-    pub result: serde_json::Value,
+    pub result: UncheckedExecutionResult,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -127,12 +130,13 @@ impl std::fmt::Display for ActionAttemptStatus {
     }
 }
 
-fn deserialize_action_results<'de, D>(
+fn deserialize_action_results<'de, D, ExecutionResult>(
     deserializer: D,
-) -> Result<HashMap<ExecutionId, serde_json::Value>, D::Error>
+) -> Result<HashMap<ExecutionId, ExecutionResult>, D::Error>
 where
     D: serde::Deserializer<'de>,
+    ExecutionResult: for<'de1> serde::Deserialize<'de1>,
 {
-    let value = Option::<HashMap<ExecutionId, serde_json::Value>>::deserialize(deserializer)?;
+    let value = Option::<HashMap<ExecutionId, ExecutionResult>>::deserialize(deserializer)?;
     Ok(value.unwrap_or_default())
 }

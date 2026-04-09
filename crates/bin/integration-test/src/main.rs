@@ -18,6 +18,7 @@ use serde_json::Value;
 use sqlx::Row;
 use uuid::Uuid;
 use waymark_ids::{InstanceId, LockId};
+use waymark_runner_executor_core::{ExecutionException, ExecutionSuccess};
 use waymark_secret_string::SecretString;
 
 use waymark_backend_memory::MemoryBackend;
@@ -560,11 +561,13 @@ async fn run_case_postgres(
         .map(rmp_serde::from_slice::<Value>)
         .transpose()
         .context("decode postgres result payload")?;
+    let result = result.map(ExecutionSuccess);
     let error = error_payload
         .as_deref()
         .map(rmp_serde::from_slice::<Value>)
         .transpose()
         .context("decode postgres error payload")?;
+    let error = error.map(ExecutionException);
 
     Ok(canonicalize_outcome(outcome_from_payload(
         &prepared.program,
@@ -642,17 +645,17 @@ fn build_queued_instance(
 
 fn outcome_from_payload(
     program: &ir::Program,
-    result: Option<Value>,
-    error: Option<Value>,
+    result: Option<ExecutionSuccess>,
+    error: Option<ExecutionException>,
 ) -> CaseOutcome {
     if let Some(error) = error {
         return CaseOutcome {
             status: "error".to_string(),
-            value: error,
+            value: error.0,
         };
     }
 
-    let raw_result = result.unwrap_or(Value::Null);
+    let raw_result = result.map(|result| result.0).unwrap_or(Value::Null);
     CaseOutcome {
         status: "ok".to_string(),
         value: normalize_runtime_result(program, raw_result),

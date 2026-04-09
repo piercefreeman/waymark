@@ -1,22 +1,23 @@
 use std::collections::HashMap;
 
 use waymark_proto::messages as proto;
+use waymark_runner_executor_core::{ExecutionException, ExecutionSuccess};
 
 pub fn build_workflow_arguments(
-    result: Option<serde_json::Value>,
-    error: Option<serde_json::Value>,
+    result: Option<ExecutionSuccess>,
+    error: Option<ExecutionException>,
 ) -> proto::WorkflowArguments {
     let mut arguments = Vec::new();
     if let Some(value) = result {
         arguments.push(proto::WorkflowArgument {
             key: "result".to_string(),
-            value: Some(workflow_node_result_value(&value)),
+            value: Some(workflow_node_result_value(&value.0)),
         });
     }
     if let Some(value) = error {
         arguments.push(proto::WorkflowArgument {
             key: "error".to_string(),
-            value: Some(waymark_message_conversions::json_to_workflow_argument_value(&value)),
+            value: Some(waymark_message_conversions::json_to_workflow_argument_value(&value.0)),
         });
     }
     proto::WorkflowArguments { arguments }

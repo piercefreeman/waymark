@@ -5,6 +5,7 @@ use uuid::Uuid;
 use waymark_core_backend::InstanceDone;
 use waymark_ids::{ExecutionId, InstanceId};
 use waymark_runner::{RunnerExecutor, replay_variables};
+use waymark_runner_executor_core::{ExecutionException, ExecutionSuccess};
 use waymark_worker_core::{ActionCompletion, ActionRequest};
 
 use crate::error_value;
@@ -236,7 +237,7 @@ fn build_instance_done<const SHOULD_COLLECT_UPDATES: bool>(
 
 fn compute_instance_payload<const SHOULD_COLLECT_UPDATES: bool>(
     executor: &RunnerExecutor<SHOULD_COLLECT_UPDATES>,
-) -> (Option<serde_json::Value>, Option<serde_json::Value>) {
+) -> (Option<ExecutionSuccess>, Option<ExecutionException>) {
     let outputs = output_vars(executor.dag());
     match replay_variables(executor.state(), executor.action_results()) {
         Ok(replayed) => {
@@ -245,7 +246,7 @@ fn compute_instance_payload<const SHOULD_COLLECT_UPDATES: bool>(
                 for (key, value) in replayed.variables {
                     map.insert(key, value);
                 }
-                return (Some(serde_json::Value::Object(map)), None);
+                return (Some(ExecutionSuccess(serde_json::Value::Object(map))), None);
             }
             let mut map = serde_json::Map::new();
             for name in outputs {
@@ -256,11 +257,11 @@ fn compute_instance_payload<const SHOULD_COLLECT_UPDATES: bool>(
                     .unwrap_or(serde_json::Value::Null);
                 map.insert(name, value);
             }
-            (Some(serde_json::Value::Object(map)), None)
+            (Some(ExecutionSuccess(serde_json::Value::Object(map))), None)
         }
         Err(err) => {
             let error_value = error_value("ReplayError", &err.to_string());
-            (None, Some(error_value))
+            (None, Some(ExecutionException(error_value)))
         }
     }
 }

@@ -17,6 +17,7 @@ waymark-ir-conversions = { workspace = true }
 waymark-message-conversions = { workspace = true }
 waymark-proto = { workspace = true }
 waymark-runloop = { workspace = true }
+waymark-runner-executor-core = { workspace = true }
 waymark-runner-state = { workspace = true }
 waymark-scheduler-backend = { workspace = true }
 waymark-scheduler-core = { workspace = true }

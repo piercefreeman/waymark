@@ -10,18 +10,24 @@ use rustc_hash::FxHashMap;
 use serde_json::Value;
 use waymark_ids::{ExecutionId, InstanceId};
 
-use crate::expression_evaluator::is_exception_value;
 use waymark_core_backend::{ActionAttemptStatus, ActionDone, GraphUpdate};
 use waymark_dag::{
     ActionCallNode, AggregatorNode, DAG, DAGEdge, DagEdgeIndex, EXCEPTION_SCOPE_VAR, EdgeType,
 };
 use waymark_observability::obs;
 use waymark_proto::ast as ir;
+use waymark_runner_executor_core::{
+    ExecutionException, ExecutionSuccess, UncheckedExecutionResult,
+};
 use waymark_runner_state::value_visitor::ValueExpr;
 use waymark_runner_state::{
     ActionCallSpec, ExecutionEdge, ExecutionNode, ExecutionNodeType, IndexValue, ListValue,
     LiteralValue, NodeStatus, QueueNodeParams, RunnerState, RunnerStateError,
 };
+
+use crate::action_done_status;
+use crate::build_action_done::build_action_done;
+use crate::finished_action_metadata::FinishedActionMetadata;
 
 /// Raised when the runner executor cannot advance safely.
 #[derive(Debug, thiserror::Error)]
@@ -53,13 +59,13 @@ pub struct SleepRequest {
 }
 
 /// Action result payloads keyed by execution node id.
-type ExecutionResultMap = HashMap<ExecutionId, Value>;
+type ExecutionResultMap = HashMap<ExecutionId, UncheckedExecutionResult>;
 
 struct FinishedNodeOutcome {
     /// Node to continue graph traversal from.
     start: Option<ExecutionNode>,
     /// Exception payload forwarded to exception edges.
-    exception_value: Option<Value>,
+    exception_value: Option<ExecutionException>,
     /// Durable attempt metadata for this finished action (if applicable).
     action_done: Option<ActionDone>,
     /// Retry action to dispatch immediately after state transition.
@@ -69,7 +75,7 @@ struct FinishedNodeOutcome {
 #[derive(Default)]
 struct IncrementAccumulator {
     actions_done: Vec<ActionDone>,
-    pending_starts: Vec<(ExecutionNode, Option<Value>)>,
+    pending_starts: Vec<(ExecutionNode, Option<ExecutionException>)>,
     actions: Vec<ExecutionNode>,
     sleep_requests: Vec<SleepRequest>,
     seen_actions: HashSet<ExecutionId>,
@@ -106,12 +112,6 @@ impl IncrementAccumulator {
 struct WalkOutcome {
     actions: Vec<ExecutionNode>,
     sleep_requests: Vec<SleepRequest>,
-}
-
-struct FinishedActionMetadata {
-    attempt: i32,
-    started_at: Option<DateTime<Utc>>,
-    result: Value,
 }
 
 enum ActionFailureTransition {
@@ -155,7 +155,7 @@ pub struct RunnerExecutor<const SHOULD_COLLECT_UPDATES: bool> {
     /// Cleared at the start of each increment call.
     eval_cache: RefCell<FxHashMap<(ExecutionId, String), Value>>,
     instance_id: Option<InstanceId>,
-    terminal_error: Option<Value>,
+    terminal_error: Option<ExecutionException>,
 }
 
 impl RunnerExecutor<false> {
@@ -221,7 +221,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
         self.instance_id = Some(instance_id);
     }
 
-    pub fn terminal_error(&self) -> Option<&Value> {
+    pub fn terminal_error(&self) -> Option<&ExecutionException> {
         self.terminal_error.as_ref()
     }
 
@@ -234,7 +234,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
     }
 
     /// Store an action result value for a specific execution node id.
-    pub fn set_action_result(&mut self, node_id: ExecutionId, result: Value) {
+    pub fn set_action_result(&mut self, node_id: ExecutionId, result: UncheckedExecutionResult) {
         self.action_results.insert(node_id, result);
     }
 
@@ -271,9 +271,10 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
                 finished_nodes.push(*node_id);
                 self.action_results.insert(
                     *node_id,
-                    waymark_synthetic_exception::build_value(
+                    waymark_synthetic_exception::build(
                         &waymark_synthetic_exception::ExecutorResume { node_id: *node_id },
-                    ),
+                    )
+                    .into_unchecked(),
                 );
             }
         }
@@ -368,7 +369,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
     fn walk_from(
         &mut self,
         node: ExecutionNode,
-        exception_value: Option<Value>,
+        exception_value: Option<ExecutionException>,
     ) -> Result<WalkOutcome, RunnerExecutorError> {
         let mut pending = vec![(node, exception_value)];
         let mut actions = Vec::new();
@@ -409,7 +410,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
     fn handle_walk_successor(
         &mut self,
         successor: ExecutionNode,
-        pending: &mut Vec<(ExecutionNode, Option<Value>)>,
+        pending: &mut Vec<(ExecutionNode, Option<ExecutionException>)>,
         actions: &mut Vec<ExecutionNode>,
         sleep_requests: &mut Vec<SleepRequest>,
         forwarded_completed: &mut HashSet<ExecutionId>,
@@ -431,7 +432,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
     fn forward_completed_successor(
         &self,
         successor: &ExecutionNode,
-        pending: &mut Vec<(ExecutionNode, Option<Value>)>,
+        pending: &mut Vec<(ExecutionNode, Option<ExecutionException>)>,
         forwarded_completed: &mut HashSet<ExecutionId>,
     ) -> bool {
         if successor.status != NodeStatus::Completed {
@@ -448,7 +449,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
     fn handle_sleep_successor(
         &mut self,
         successor: ExecutionNode,
-        pending: &mut Vec<(ExecutionNode, Option<Value>)>,
+        pending: &mut Vec<(ExecutionNode, Option<ExecutionException>)>,
         sleep_requests: &mut Vec<SleepRequest>,
     ) -> Result<(), RunnerExecutorError> {
         if !self.inline_ready(&successor) {
@@ -467,7 +468,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
     fn handle_inline_successor(
         &mut self,
         successor: ExecutionNode,
-        pending: &mut Vec<(ExecutionNode, Option<Value>)>,
+        pending: &mut Vec<(ExecutionNode, Option<ExecutionException>)>,
     ) -> Result<(), RunnerExecutorError> {
         if !self.inline_ready(&successor) {
             return Ok(());
@@ -503,16 +504,16 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
         node_id: ExecutionId,
     ) -> Result<FinishedNodeOutcome, RunnerExecutorError> {
         let metadata = self.finished_action_metadata(node_id)?;
-        if is_exception_value(&metadata.result) {
-            return self.apply_exception_action_completion(node_id, metadata);
+        match metadata.map_transpose_result(UncheckedExecutionResult::check) {
+            Ok(metadata) => self.apply_successful_action_completion(node_id, metadata),
+            Err(metadata) => self.apply_exception_action_completion(node_id, metadata),
         }
-        self.apply_successful_action_completion(node_id, metadata)
     }
 
     fn finished_action_metadata(
         &self,
         node_id: ExecutionId,
-    ) -> Result<FinishedActionMetadata, RunnerExecutorError> {
+    ) -> Result<FinishedActionMetadata<UncheckedExecutionResult>, RunnerExecutorError> {
         let node = self.execution_node(node_id)?;
         let result =
             self.action_results.get(&node_id).cloned().ok_or_else(|| {
@@ -528,7 +529,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
     fn apply_successful_action_completion(
         &mut self,
         node_id: ExecutionId,
-        metadata: FinishedActionMetadata,
+        metadata: FinishedActionMetadata<ExecutionSuccess>,
     ) -> Result<FinishedNodeOutcome, RunnerExecutorError> {
         self.state
             .mark_completed(node_id)
@@ -547,7 +548,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
             ActionAttemptStatus::Completed,
             metadata.started_at,
             completed_at,
-            metadata.result,
+            Ok(metadata.result),
         );
         Ok(FinishedNodeOutcome {
             start: Some(self.execution_node_clone(node_id)?),
@@ -560,10 +561,10 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
     fn apply_exception_action_completion(
         &mut self,
         node_id: ExecutionId,
-        metadata: FinishedActionMetadata,
+        metadata: FinishedActionMetadata<ExecutionException>,
     ) -> Result<FinishedNodeOutcome, RunnerExecutorError> {
         let exception_value = metadata.result;
-        let status = action_done_status_for_exception(&exception_value);
+        let status = action_done_status::for_exception(&exception_value);
         let finished_at = Utc::now();
 
         match self.apply_action_failure_transition(node_id, Some(&exception_value), finished_at)? {
@@ -575,7 +576,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
                     status,
                     metadata.started_at,
                     finished_at,
-                    exception_value,
+                    Err(exception_value),
                 );
                 Ok(FinishedNodeOutcome {
                     start: None,
@@ -602,7 +603,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
                     status,
                     metadata.started_at,
                     completed_at,
-                    exception_value.clone(),
+                    Err(exception_value.clone()),
                 );
                 Ok(FinishedNodeOutcome {
                     start: Some(self.execution_node_clone(node_id)?),
@@ -617,7 +618,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
     fn apply_action_failure_transition(
         &mut self,
         node_id: ExecutionId,
-        exception_value: Option<&Value>,
+        exception_value: Option<&ExecutionException>,
         finished_at: DateTime<Utc>,
     ) -> Result<ActionFailureTransition, RunnerExecutorError> {
         let should_retry = {
@@ -660,7 +661,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
     fn transition_action_to_failed(
         &mut self,
         node_id: ExecutionId,
-        exception_value: Option<&Value>,
+        exception_value: Option<&ExecutionException>,
         finished_at: DateTime<Utc>,
     ) -> Result<(), RunnerExecutorError> {
         self.state.mark_failed(node_id).map_err(Self::state_error)?;
@@ -674,10 +675,10 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
     fn assign_exception_scope(
         &mut self,
         node_id: ExecutionId,
-        exception_value: Value,
+        exception_value: ExecutionException,
     ) -> Result<(), RunnerExecutorError> {
         let exception_expr = ValueExpr::Literal(LiteralValue {
-            value: exception_value,
+            value: exception_value.0, // TODO: improve the type-safety here
         });
         let mut exception_assignment = HashMap::new();
         exception_assignment.insert(EXCEPTION_SCOPE_VAR.to_string(), exception_expr.clone());
@@ -692,7 +693,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
     fn failure_has_exception_handler(
         &self,
         node_id: ExecutionId,
-        exception_value: &Value,
+        exception_value: &ExecutionException,
     ) -> Result<bool, RunnerExecutorError> {
         let node = self.execution_node(node_id)?;
         let template_id = match &node.template_id {
@@ -712,7 +713,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
     fn retry_decision(
         &self,
         node: &ExecutionNode,
-        exception_value: Option<&Value>,
+        exception_value: Option<&ExecutionException>,
     ) -> Result<waymark_runner_retry_policy::Decision, RunnerExecutorError> {
         let Some(action) = self.template_action_for_execution_node(node)? else {
             return Ok(waymark_runner_retry_policy::Decision {
@@ -730,7 +731,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
         &self,
         edges: &[DAGEdge],
         _node: &ExecutionNode,
-        exception_value: Option<Value>,
+        exception_value: Option<ExecutionException>,
     ) -> Result<Vec<DAGEdge>, RunnerExecutorError> {
         // Fast path: exception handling
         if let Some(exception_value) = exception_value {
@@ -1459,50 +1460,10 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
     }
 }
 
-fn exception_type(value: &Value) -> Option<&str> {
-    match value {
+fn exception_type(value: &ExecutionException) -> Option<&str> {
+    match &value.0 {
         Value::Object(map) => map.get("type").and_then(|value| value.as_str()),
         _ => None,
-    }
-}
-
-fn action_done_status_for_exception(value: &Value) -> ActionAttemptStatus {
-    match waymark_synthetic_exception::Type::from_value(value) {
-        Some(waymark_synthetic_exception::Type::ExecutorResume)
-        | Some(waymark_synthetic_exception::Type::ActionTimeout) => ActionAttemptStatus::TimedOut,
-        None => ActionAttemptStatus::Failed,
-    }
-}
-
-fn compute_action_duration_ms(
-    started_at: Option<DateTime<Utc>>,
-    completed_at: DateTime<Utc>,
-) -> Option<i64> {
-    started_at
-        .map(|started_at| {
-            completed_at
-                .signed_duration_since(started_at)
-                .num_milliseconds()
-        })
-        .filter(|duration| *duration >= 0)
-}
-
-fn build_action_done(
-    execution_id: ExecutionId,
-    attempt: i32,
-    status: ActionAttemptStatus,
-    started_at: Option<DateTime<Utc>>,
-    completed_at: DateTime<Utc>,
-    result: Value,
-) -> ActionDone {
-    ActionDone {
-        execution_id,
-        attempt,
-        status,
-        started_at,
-        completed_at: Some(completed_at),
-        duration_ms: compute_action_duration_ms(started_at, completed_at),
-        result,
     }
 }
 
@@ -1547,78 +1508,6 @@ mod tests {
             }))),
             span: None,
         }
-    }
-
-    #[test]
-    fn test_action_done_status_for_resume_exception_is_timed_out() {
-        let value = serde_json::json!({
-            "type": "ExecutorResume",
-            "message": "resumed action timed out",
-        });
-        assert_eq!(
-            action_done_status_for_exception(&value),
-            ActionAttemptStatus::TimedOut
-        );
-    }
-
-    #[test]
-    fn test_action_done_status_for_action_timeout_exception_is_timed_out() {
-        let value = serde_json::json!({
-            "type": "ActionTimeout",
-            "message": "action timed out",
-            "timeout_seconds": 1,
-            "attempt": 1,
-        });
-        assert_eq!(
-            action_done_status_for_exception(&value),
-            ActionAttemptStatus::TimedOut
-        );
-    }
-
-    #[test]
-    fn test_action_done_status_for_generic_exception_is_failed() {
-        let value = serde_json::json!({
-            "type": "ValueError",
-            "message": "boom",
-        });
-        assert_eq!(
-            action_done_status_for_exception(&value),
-            ActionAttemptStatus::Failed
-        );
-    }
-
-    #[test]
-    fn test_action_done_status_for_non_synthetic_timeout_error_is_failed() {
-        let value = serde_json::json!({
-            "type": "TimeoutError",
-            "message": "user action raised timeout",
-        });
-        assert_eq!(
-            action_done_status_for_exception(&value),
-            ActionAttemptStatus::Failed
-        );
-    }
-
-    #[test]
-    fn test_build_action_done_sets_duration_from_started_and_completed() {
-        let execution_id = ExecutionId::new_uuid_v4();
-        let started_at = Utc::now();
-        let completed_at = started_at + chrono::Duration::milliseconds(275);
-        let done = build_action_done(
-            execution_id,
-            2,
-            ActionAttemptStatus::Completed,
-            Some(started_at),
-            completed_at,
-            serde_json::json!({"ok": true}),
-        );
-
-        assert_eq!(done.execution_id, execution_id);
-        assert_eq!(done.attempt, 2);
-        assert_eq!(done.status, ActionAttemptStatus::Completed);
-        assert_eq!(done.started_at, Some(started_at));
-        assert_eq!(done.completed_at, Some(completed_at));
-        assert_eq!(done.duration_ms, Some(275));
     }
 
     #[derive(Default)]
@@ -1693,11 +1582,11 @@ mod tests {
 
     fn snapshot_state(
         state: &RunnerState,
-        action_results: &HashMap<ExecutionId, Value>,
+        action_results: &ExecutionResultMap,
     ) -> (
         HashMap<ExecutionId, ExecutionNode>,
         HashSet<ExecutionEdge>,
-        HashMap<ExecutionId, Value>,
+        HashMap<ExecutionId, UncheckedExecutionResult>,
     ) {
         (
             state.nodes.clone(),
@@ -1710,7 +1599,7 @@ mod tests {
         dag: &Arc<DAG>,
         nodes: HashMap<ExecutionId, ExecutionNode>,
         edges: HashSet<ExecutionEdge>,
-        action_results: HashMap<ExecutionId, Value>,
+        action_results: HashMap<ExecutionId, UncheckedExecutionResult>,
     ) -> RunnerExecutor<SHOULD_COLLECT_UPDATES> {
         let state = RunnerState::new(Some(Arc::clone(dag)), Some(nodes), Some(edges), false);
         RunnerExecutor::new(Arc::clone(dag), state, action_results)
@@ -1738,12 +1627,12 @@ mod tests {
         assert_eq!(orig_state.edges, rehy_state.edges);
     }
 
-    fn completion_action_result(action: &ExecutionNode) -> Value {
-        Value::String(format!(
+    fn completion_action_result(action: &ExecutionNode) -> UncheckedExecutionResult {
+        UncheckedExecutionResult(Value::String(format!(
             "{}:attempt{}",
             action.template_id.as_deref().unwrap_or("unknown_action"),
             action.action_attempt
-        ))
+        )))
     }
 
     fn dag_from_ir_source(source: &str) -> Arc<DAG> {
@@ -1765,7 +1654,7 @@ mod tests {
         )
     }
 
-    type ActionResultFor = fn(&ExecutionNode) -> Value;
+    type ActionResultFor = fn(&ExecutionNode) -> UncheckedExecutionResult;
 
     struct RehydrateBranchHarness<const SHOULD_COLLECT_UPDATES: bool> {
         dag: Arc<DAG>,
@@ -2052,7 +1941,10 @@ fn main(input: [], output: [z]):
             .expect("advance from entry");
         assert_eq!(first_step.actions.len(), 1);
         let first_exec = first_step.actions[0].clone();
-        executor.set_action_result(first_exec.node_id, Value::Number(10.into()));
+        executor.set_action_result(
+            first_exec.node_id,
+            UncheckedExecutionResult(Value::Number(10.into())),
+        );
 
         let step = executor.increment(&[first_exec.node_id]).expect("advance");
         assert_eq!(step.actions.len(), 1);
@@ -2076,7 +1968,10 @@ fn main(input: [], output: [resumed]):
         let start_step = executor.increment(&[entry_exec_id]).expect("start");
         assert_eq!(start_step.actions.len(), 1);
         let start_exec = start_step.actions[0].clone();
-        executor.set_action_result(start_exec.node_id, Value::String("t0".to_string()));
+        executor.set_action_result(
+            start_exec.node_id,
+            UncheckedExecutionResult(Value::String("t0".to_string())),
+        );
 
         let sleep_step = executor
             .increment(&[start_exec.node_id])
@@ -2104,7 +1999,7 @@ fn main(input: [], output: [done]):
         let initial_exec = first_step.actions[0].clone();
         executor.set_action_result(
             initial_exec.node_id,
-            Value::Array(vec![1.into(), 2.into(), 3.into()]),
+            UncheckedExecutionResult(Value::Array(vec![1.into(), 2.into(), 3.into()])),
         );
 
         let step1 = executor
@@ -2112,7 +2007,10 @@ fn main(input: [], output: [done]):
             .expect("expand spread");
         assert_eq!(step1.actions.len(), 3);
         for (idx, node) in step1.actions.iter().enumerate() {
-            executor.set_action_result(node.node_id, Value::Number(((idx + 1) as i64).into()));
+            executor.set_action_result(
+                node.node_id,
+                UncheckedExecutionResult(Value::Number(((idx + 1) as i64).into())),
+            );
         }
 
         let step2 = executor
@@ -2175,7 +2073,10 @@ fn main(input: [], output: [done]):
             .expect("queue");
 
         let mut action_results = HashMap::new();
-        action_results.insert(start_exec.node_id, Value::Number(10.into()));
+        action_results.insert(
+            start_exec.node_id,
+            UncheckedExecutionResult(Value::Number(10.into())),
+        );
         let mut executor =
             RunnerExecutor::without_updates_collection(dag.clone(), state, action_results);
 
@@ -2259,7 +2160,10 @@ fn main(input: [], output: [done]):
         let exec1 = state.queue_template_node(&action1.id, None).expect("queue");
 
         let mut action_results = HashMap::new();
-        action_results.insert(exec1.node_id, Value::Number(42.into()));
+        action_results.insert(
+            exec1.node_id,
+            UncheckedExecutionResult(Value::Number(42.into())),
+        );
         let mut executor =
             RunnerExecutor::without_updates_collection(dag.clone(), state, action_results);
 
@@ -2327,7 +2231,10 @@ fn main(input: [], output: [done]):
         let rehydrated = create_rehydrated_executor(&dag, nodes_snap, edges_snap, results_snap);
         compare_executor_states(&executor, &rehydrated);
 
-        executor.set_action_result(exec1.node_id, Value::Number(10.into()));
+        executor.set_action_result(
+            exec1.node_id,
+            UncheckedExecutionResult(Value::Number(10.into())),
+        );
         let step1 = executor.increment(&[exec1.node_id]).expect("increment");
         let exec2 = step1.actions[0].clone();
 
@@ -2336,7 +2243,10 @@ fn main(input: [], output: [done]):
         let rehydrated = create_rehydrated_executor(&dag, nodes_snap, edges_snap, results_snap);
         compare_executor_states(&executor, &rehydrated);
 
-        executor.set_action_result(exec2.node_id, Value::Number(20.into()));
+        executor.set_action_result(
+            exec2.node_id,
+            UncheckedExecutionResult(Value::Number(20.into())),
+        );
         let step2 = executor.increment(&[exec2.node_id]).expect("increment");
         let exec3 = step2.actions[0].clone();
 
@@ -2345,7 +2255,10 @@ fn main(input: [], output: [done]):
         let rehydrated = create_rehydrated_executor(&dag, nodes_snap, edges_snap, results_snap);
         compare_executor_states(&executor, &rehydrated);
 
-        executor.set_action_result(exec3.node_id, Value::Number(30.into()));
+        executor.set_action_result(
+            exec3.node_id,
+            UncheckedExecutionResult(Value::Number(30.into())),
+        );
         let step3 = executor.increment(&[exec3.node_id]).expect("increment");
         assert!(step3.actions.is_empty());
 
@@ -2405,7 +2318,10 @@ fn main(input: [], output: [done]):
         let exec1 = state.queue_template_node(&action1.id, None).expect("queue");
 
         let mut action_results = HashMap::new();
-        action_results.insert(exec1.node_id, Value::Number(10.into()));
+        action_results.insert(
+            exec1.node_id,
+            UncheckedExecutionResult(Value::Number(10.into())),
+        );
         let mut executor =
             RunnerExecutor::without_updates_collection(dag.clone(), state, action_results);
 
@@ -2507,7 +2423,10 @@ fn main(input: [], output: [done]):
         let exec1 = state.queue_template_node(&action1.id, None).expect("queue");
 
         let mut action_results = HashMap::new();
-        action_results.insert(exec1.node_id, Value::Number(100.into()));
+        action_results.insert(
+            exec1.node_id,
+            UncheckedExecutionResult(Value::Number(100.into())),
+        );
         let mut executor =
             RunnerExecutor::without_updates_collection(dag.clone(), state, action_results);
 
@@ -2592,7 +2511,7 @@ fn main(input: [], output: [done]):
         executor.set_instance_id(InstanceId::new_uuid_v4());
         executor.set_action_result(
             exec.node_id,
-            serde_json::json!({"type": "ValueError", "message": "boom"}),
+            UncheckedExecutionResult(serde_json::json!({"type": "ValueError", "message": "boom"})),
         );
 
         let step = executor.increment(&[exec.node_id]).expect("increment");
@@ -2603,6 +2522,7 @@ fn main(input: [], output: [done]):
         assert_eq!(
             updates.actions_done[0]
                 .result
+                .0
                 .get("type")
                 .and_then(Value::as_str),
             Some("ValueError")
@@ -2646,7 +2566,9 @@ fn main(input: [], output: [done]):
         executor.set_instance_id(InstanceId::new_uuid_v4());
         executor.set_action_result(
             exec.node_id,
-            serde_json::json!({"type": "ValueError", "message": "retry me"}),
+            UncheckedExecutionResult(
+                serde_json::json!({"type": "ValueError", "message": "retry me"}),
+            ),
         );
 
         let first_step = executor
@@ -2674,7 +2596,10 @@ fn main(input: [], output: [done]):
             Some(2)
         );
 
-        executor.set_action_result(exec.node_id, Value::String("ok".to_string()));
+        executor.set_action_result(
+            exec.node_id,
+            UncheckedExecutionResult(Value::String("ok".to_string())),
+        );
         let second_step = executor
             .increment(&[exec.node_id])
             .expect("second increment");
@@ -2723,7 +2648,10 @@ fn main(input: [], output: [done]):
         let exec1 = state.queue_template_node(&action1.id, None).expect("queue");
 
         let mut action_results = HashMap::new();
-        action_results.insert(exec1.node_id, Value::Number(21.into()));
+        action_results.insert(
+            exec1.node_id,
+            UncheckedExecutionResult(Value::Number(21.into())),
+        );
         let mut executor =
             RunnerExecutor::without_updates_collection(dag.clone(), state, action_results);
         executor.increment(&[exec1.node_id]).expect("increment");
@@ -2806,7 +2734,7 @@ fn main(input: [], output: [done]):
         let mut action_results = HashMap::new();
         action_results.insert(
             initial_exec.node_id,
-            Value::Array(vec![1.into(), 2.into(), 3.into()]),
+            UncheckedExecutionResult(Value::Array(vec![1.into(), 2.into(), 3.into()])),
         );
         let mut executor =
             RunnerExecutor::without_updates_collection(dag.clone(), state, action_results);
@@ -2883,7 +2811,7 @@ fn main(input: [], output: [done]):
         let mut action_results = HashMap::new();
         action_results.insert(
             initial_exec.node_id,
-            Value::Array(vec![10.into(), 20.into()]),
+            UncheckedExecutionResult(Value::Array(vec![10.into(), 20.into()])),
         );
         let mut executor =
             RunnerExecutor::without_updates_collection(dag.clone(), state, action_results.clone());
@@ -2900,7 +2828,10 @@ fn main(input: [], output: [done]):
         compare_executor_states(&executor, &rehydrated);
 
         for (idx, node) in spread_nodes.iter().enumerate() {
-            executor.set_action_result(node.node_id, Value::Number(((idx + 1) * 100).into()));
+            executor.set_action_result(
+                node.node_id,
+                UncheckedExecutionResult(Value::Number(((idx + 1) * 100).into())),
+            );
         }
 
         let _step2 = executor
@@ -2960,7 +2891,9 @@ fn main(input: [], output: [done]):
         for i in 0..3 {
             executor.set_action_result(
                 exec_nodes.last().unwrap().node_id,
-                Value::Number((i * 10).into()),
+                waymark_runner_executor_core::UncheckedExecutionResult(Value::Number(
+                    (i * 10).into(),
+                )),
             );
             let step = executor
                 .increment(&[exec_nodes.last().unwrap().node_id])
@@ -3014,7 +2947,10 @@ fn main(input: [], output: [done]):
         let exec1 = state.queue_template_node(&action1.id, None).expect("queue");
 
         let mut action_results = HashMap::new();
-        action_results.insert(exec1.node_id, Value::Number(50.into()));
+        action_results.insert(
+            exec1.node_id,
+            waymark_runner_executor_core::UncheckedExecutionResult(Value::Number(50.into())),
+        );
         let mut executor =
             RunnerExecutor::without_updates_collection(dag.clone(), state, action_results);
         let step = executor.increment(&[exec1.node_id]).expect("increment");

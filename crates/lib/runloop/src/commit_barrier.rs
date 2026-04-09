@@ -114,6 +114,7 @@ mod tests {
     use serde_json::json;
     use uuid::Uuid;
     use waymark_ids::ExecutionId;
+    use waymark_runner_executor_core::UncheckedExecutionResult;
 
     use super::{CommitBarrier, DeferredInstanceEvent, InstanceId};
     use waymark_worker_core::ActionCompletion;
@@ -124,7 +125,7 @@ mod tests {
             execution_id,
             attempt_number: 1,
             dispatch_token: Uuid::new_v4(),
-            result: json!({"ok": true}),
+            result: UncheckedExecutionResult(json!({"ok": true})),
         }
     }
 
