@@ -129,6 +129,7 @@ async fn run_program_smoke(case: &SmokeCase, worker_pool: RemoteWorkerPool) -> R
             evict_sleep_threshold: Duration::from_secs(10).try_into().unwrap(),
             skip_sleep: false,
             active_instance_gauge: None,
+            instance_metrics: None,
         },
     );
     queue.lock().expect("queue lock").push_back(QueuedInstance {

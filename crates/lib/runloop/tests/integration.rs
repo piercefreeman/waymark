@@ -34,6 +34,7 @@ fn default_test_config(lock_uuid: LockId) -> RunLoopConfig {
         evict_sleep_threshold: NonZeroDuration::from_secs(10).unwrap(),
         skip_sleep: false,
         active_instance_gauge: None,
+        instance_metrics: None,
     }
 }
 
@@ -116,6 +117,7 @@ fn main(input: [x], output: [y]):
             evict_sleep_threshold: Duration::from_secs(10).try_into().unwrap(),
             skip_sleep: false,
             active_instance_gauge: None,
+            instance_metrics: None,
         },
     );
     queue.lock().expect("queue lock").push_back(QueuedInstance {
@@ -197,6 +199,7 @@ fn main(input: [x], output: [y]):
             evict_sleep_threshold: Duration::from_secs(10).try_into().unwrap(),
             skip_sleep: false,
             active_instance_gauge: None,
+            instance_metrics: None,
         },
     );
 
@@ -334,6 +337,7 @@ fn main(input: [x], output: [y]):
             evict_sleep_threshold: Duration::from_secs(10).try_into().unwrap(),
             skip_sleep: true,
             active_instance_gauge: None,
+            instance_metrics: None,
         },
     );
     queue.lock().expect("queue lock").push_back(QueuedInstance {
@@ -423,6 +427,7 @@ fn main(input: [], output: [y]):
             evict_sleep_threshold: Duration::from_secs(10).try_into().unwrap(),
             skip_sleep: false,
             active_instance_gauge: None,
+            instance_metrics: None,
         },
     );
     queue.lock().expect("queue lock").push_back(QueuedInstance {
@@ -536,6 +541,7 @@ fn main(input: [x], output: [y]):
             evict_sleep_threshold: Duration::from_secs(10).try_into().unwrap(),
             skip_sleep: false,
             active_instance_gauge: None,
+            instance_metrics: None,
         },
     );
     let instance_id = InstanceId::new_uuid_v4();
@@ -685,6 +691,7 @@ fn main(input: [limit], output: [result]):
             evict_sleep_threshold: Duration::from_secs(10).try_into().unwrap(),
             skip_sleep: false,
             active_instance_gauge: None,
+            instance_metrics: None,
         },
     );
     queue.lock().expect("queue lock").push_back(QueuedInstance {

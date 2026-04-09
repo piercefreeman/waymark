@@ -14,6 +14,7 @@ pub async fn run<B, P>(
     backend: B,
     worker_pool: P,
     active_instances: Arc<AtomicUsize>,
+    instance_metrics: Arc<waymark_worker_status_core::InstanceMetricsTracker>,
     interval: NonZeroDuration,
     shutdown: tokio_util::sync::WaitForCancellationFutureOwned,
 ) where
@@ -36,6 +37,7 @@ pub async fn run<B, P>(
         tokio::select! {
             _ = ticker.tick() => {
                 let stats = worker_pool.stats_snapshot();
+                let instance_stats = instance_metrics.snapshot();
                 let actions_per_sec = stats.throughput_per_min / 60.0;
                 let active_instances_count = active_instances.load(Ordering::SeqCst);
                 let active_instances_u32 =
@@ -48,7 +50,9 @@ pub async fn run<B, P>(
                     timestamp_secs: now.timestamp(),
                     actions_per_sec: actions_per_sec as f32,
                     active_workers: stats.active_workers,
-                    median_instance_duration_secs: 0.0,
+                    median_instance_duration_secs: instance_stats
+                        .median_instance_duration_secs
+                        .unwrap_or_default() as f32,
                     active_instances: active_instances_u32,
                     queue_depth: stats.dispatch_queue_size as u32,
                     in_flight_actions: stats.total_in_flight as u32,
@@ -65,11 +69,11 @@ pub async fn run<B, P>(
                     total_in_flight: stats.total_in_flight as i64,
                     active_workers: stats.active_workers as i32,
                     actions_per_sec,
-                    median_instance_duration_secs: None,
+                    median_instance_duration_secs: instance_stats.median_instance_duration_secs,
                     active_instance_count: active_instances_i32,
-                    total_instances_completed: 0,
-                    instances_per_sec: 0.0,
-                    instances_per_min: 0.0,
+                    total_instances_completed: instance_stats.total_instances_completed,
+                    instances_per_sec: instance_stats.instances_per_sec,
+                    instances_per_min: instance_stats.instances_per_min,
                     time_series: Some(time_series.encode()),
                 };
 

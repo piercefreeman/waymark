@@ -29,6 +29,8 @@ pub struct Params<'a, CoreBackend: ?Sized> {
     pub lock_uuid: LockId,
     /// Instances to evict from runloop memory, shard state, and backend lock ownership.
     pub instance_ids: &'a [InstanceId],
+    /// Host-local instance metrics tracker for the worker process.
+    pub instance_metrics: Option<&'a waymark_worker_status_core::InstanceMetricsTracker>,
 }
 
 /// Evicts instances from the runloop and releases their backend locks.
@@ -59,6 +61,7 @@ where
         core_backend,
         lock_uuid,
         instance_ids,
+        instance_metrics,
     } = params;
 
     if instance_ids.is_empty() {
@@ -80,6 +83,11 @@ where
         blocked_until_by_instance.remove(instance_id);
     }
     inflight_dispatches.retain(|_, dispatch| !evicted_instance_ids.contains(&dispatch.executor_id));
+    if let Some(instance_metrics) = instance_metrics {
+        for instance_id in &evicted_instance_ids {
+            instance_metrics.forget_instance(*instance_id);
+        }
+    }
     lock_tracker.remove_all(instance_ids.iter().copied());
     for (shard_idx, ids) in by_shard {
         if let Some(sender) = shard_senders.get(shard_idx) {

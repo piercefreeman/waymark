@@ -58,6 +58,8 @@ pub struct Params<'a, CoreBackend: ?Sized, WorkerPool: ?Sized> {
     pub lock_uuid: LockId,
     /// Test/debug knob that forces sleeps to wake immediately.
     pub skip_sleep: bool,
+    /// Host-local instance metrics tracker for the worker process.
+    pub instance_metrics: Option<&'a waymark_worker_status_core::InstanceMetricsTracker>,
     /// Persist acknowledgments collected during the current coordinator tick.
     pub all_persist_acks: Vec<persist::Ack>,
 }
@@ -97,6 +99,7 @@ where
         worker_pool,
         lock_uuid,
         skip_sleep,
+        instance_metrics,
         all_persist_acks,
     } = params;
 
@@ -127,6 +130,7 @@ where
                     worker_pool,
                     lock_uuid,
                     skip_sleep,
+                    instance_metrics,
                     batch,
                     lock_statuses,
                 };
@@ -174,6 +178,8 @@ struct StepsPersistedParams<'a, CoreBackend: ?Sized, WorkerPool: ?Sized> {
     pub lock_uuid: LockId,
     /// Test/debug knob that forces sleeps to wake immediately.
     pub skip_sleep: bool,
+    /// Host-local instance metrics tracker for the worker process.
+    pub instance_metrics: Option<&'a waymark_worker_status_core::InstanceMetricsTracker>,
     /// Persisted batch that just became durable and can now be applied.
     pub batch: crate::commit_barrier::PendingPersistBatch<shard::Step>,
     /// Lock ownership results returned by the persistence task for the persisted batch.
@@ -212,6 +218,7 @@ where
         worker_pool,
         lock_uuid,
         skip_sleep,
+        instance_metrics,
         batch,
         lock_statuses,
     } = params;
@@ -236,6 +243,7 @@ where
             core_backend,
             lock_uuid,
             instance_ids: &evict_ids_vec,
+            instance_metrics,
         };
 
         super::ops::evict_instances::run(params)
@@ -266,6 +274,7 @@ where
             sleep_tx,
             worker_pool,
             skip_sleep,
+            instance_metrics,
             step,
         };
         super::ops::apply_confirmed_step::run(params)

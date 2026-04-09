@@ -76,6 +76,7 @@ impl TestHarness {
             worker_pool: &self.worker_pool,
             lock_uuid: self.lock_uuid,
             skip_sleep: false,
+            instance_metrics: None,
             all_persist_acks,
         }
     }

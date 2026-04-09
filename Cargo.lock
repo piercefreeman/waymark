@@ -4420,6 +4420,7 @@ dependencies = [
  "waymark-utils-tokio-channel",
  "waymark-worker-core",
  "waymark-worker-inline",
+ "waymark-worker-status-core",
  "waymark-workflow-registry-backend",
 ]
 
@@ -4627,6 +4628,7 @@ dependencies = [
  "waymark-scheduler-loop-core",
  "waymark-webapp-bringup",
  "waymark-worker-remote",
+ "waymark-worker-status-core",
  "waymark-worker-status-reporter",
 ]
 
@@ -4842,6 +4844,7 @@ name = "waymark-worker-status-core"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "waymark-ids",
 ]
 
 [[package]]

@@ -594,6 +594,7 @@ where
             evict_sleep_threshold: Duration::from_secs(10).try_into().unwrap(),
             skip_sleep: false,
             active_instance_gauge: None,
+            instance_metrics: None,
         },
     );
 

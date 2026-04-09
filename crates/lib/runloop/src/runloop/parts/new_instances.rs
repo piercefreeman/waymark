@@ -52,6 +52,8 @@ pub struct Params<'a, WorkflowRegistryBackend: ?Sized> {
     pub shard_count: NonZeroUsize,
     /// Newly claimed instances collected during the current coordinator tick.
     pub all_instances: NEVec<QueuedInstance>,
+    /// Host-local instance metrics tracker for the worker process.
+    pub instance_metrics: Option<&'a waymark_worker_status_core::InstanceMetricsTracker>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -96,6 +98,7 @@ where
         next_shard,
         shard_count,
         mut all_instances,
+        instance_metrics,
     } = params;
 
     let params = super::ops::hydrate_instances::Params {
@@ -134,6 +137,9 @@ where
                 shard_idx
             };
         claimed_instance_ids.push(instance.instance_id);
+        if let Some(instance_metrics) = instance_metrics {
+            instance_metrics.record_started(instance.instance_id);
+        }
         by_shard.entry(shard_idx).or_default().push(instance);
     }
 

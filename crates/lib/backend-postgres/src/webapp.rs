@@ -1170,12 +1170,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
                 MAX(total_in_flight) as total_in_flight,
                 MAX(median_instance_duration_secs) as median_instance_duration_secs,
                 MAX(active_instance_count) as active_instance_count,
-                (
-                    SELECT COUNT(*)::BIGINT
-                    FROM runner_instances ri
-                    WHERE ri.result IS NOT NULL
-                      AND ri.error IS NULL
-                ) as total_instances_completed,
+                MAX(total_instances_completed) as total_instances_completed,
                 MAX(instances_per_sec) as instances_per_sec,
                 MAX(instances_per_min) as instances_per_min,
                 (
@@ -2655,7 +2650,7 @@ fn main(input: [items], output: [total]):
         assert_eq!(statuses.len(), 1);
         assert_eq!(statuses[0].pool_id, pool_id);
         assert_eq!(statuses[0].total_completed, 20);
-        assert_eq!(statuses[0].total_instances_completed, 1);
+        assert_eq!(statuses[0].total_instances_completed, 8);
         assert_eq!(statuses[0].total_in_flight, Some(2));
         assert_eq!(statuses[0].dispatch_queue_size, Some(3));
     }

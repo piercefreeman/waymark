@@ -37,6 +37,8 @@ pub struct Params<'a, CoreBackend: ?Sized> {
     pub lock_uuid: LockId,
     /// Maximum tolerated remaining sleep duration before the instance is evicted.
     pub evict_sleep_threshold: NonZeroDuration,
+    /// Host-local instance metrics tracker for the worker process.
+    pub instance_metrics: Option<&'a waymark_worker_status_core::InstanceMetricsTracker>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -72,6 +74,7 @@ where
         core_backend,
         lock_uuid,
         evict_sleep_threshold,
+        instance_metrics,
     } = params;
 
     if blocked_until_by_instance.is_empty() {
@@ -107,6 +110,7 @@ where
             core_backend,
             lock_uuid,
             instance_ids: &evict_ids,
+            instance_metrics,
         };
         super::ops::evict_instances::run(params)
             .await

@@ -163,4 +163,5 @@ This section is used for the scratch updates, driven by our Agents.
 <rule>Centralize worker pool metrics in shared helpers so pools don't duplicate tracking logic. Good: `WorkerPoolMetrics::new(worker_ids, window, samples); metrics.record_completion(idx);` Bad: per-pool `WorkerThroughputTracker`/`LatencyTracker` structs.</rule>
 <rule>Add a minimal happy-path test for formatting/serialization helpers. Good: parse IR then `assert_eq!(format_program(&program), source);` Bad: leaving formatting logic untested.</rule>
 <rule>Centralize external test harness setup (e.g., Postgres via docker compose) in shared test fixtures instead of ad-hoc per-test DSN probing. Good: `let pool = test_support::postgres_setup().await;` Bad: each test loops through env vars and fallback DSNs independently.</rule>
+<rule>Keep workers dashboard instance metrics host-local by reading persisted worker-status snapshots, not fresh global instance queries during page serialization. Good: `MAX(total_instances_completed)` from `worker_status` plus reporter-owned counters. Bad: a workers webapp query that counts `runner_instances` to populate per-pool instance views.</rule>
 </code_feedback>

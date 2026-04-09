@@ -20,6 +20,7 @@ waymark-scheduler-loop = { workspace = true }
 waymark-scheduler-loop-core = { workspace = true }
 waymark-webapp-bringup = { workspace = true }
 waymark-worker-remote = { workspace = true }
+waymark-worker-status-core = { workspace = true }
 waymark-worker-status-reporter = { workspace = true }
 
 anyhow = { workspace = true }

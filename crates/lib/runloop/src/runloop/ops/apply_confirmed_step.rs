@@ -43,6 +43,8 @@ pub struct Params<'a, WorkerPool: ?Sized> {
     pub worker_pool: &'a WorkerPool,
     /// Test/debug knob that forces sleeps to wake immediately.
     pub skip_sleep: bool,
+    /// Host-local instance metrics tracker for the worker process.
+    pub instance_metrics: Option<&'a waymark_worker_status_core::InstanceMetricsTracker>,
     /// Confirmed shard step whose actions, sleeps, and terminal result should be applied.
     pub step: shard::Step,
 }
@@ -80,6 +82,7 @@ where
         sleep_tx,
         worker_pool,
         skip_sleep,
+        instance_metrics,
         step,
     } = params;
 
@@ -161,6 +164,10 @@ where
         }
         blocked_until_by_instance.remove(&instance_done.executor_id);
         commit_barrier.remove_instance(instance_done.executor_id);
+        if let Some(instance_metrics) = instance_metrics {
+            instance_metrics
+                .record_finished(instance_done.executor_id, instance_done.error.is_none());
+        }
         instances_done_pending.push(instance_done);
     }
     Ok(())

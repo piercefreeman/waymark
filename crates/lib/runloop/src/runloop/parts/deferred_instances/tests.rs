@@ -62,6 +62,7 @@ impl TestHarness {
             core_backend: &self.backend,
             lock_uuid: self.lock_uuid,
             evict_sleep_threshold: self.evict_sleep_threshold,
+            instance_metrics: None,
         }
     }
 }

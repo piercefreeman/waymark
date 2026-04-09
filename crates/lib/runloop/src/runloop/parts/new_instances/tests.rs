@@ -72,6 +72,7 @@ impl TestHarness {
             next_shard: &mut self.next_shard,
             shard_count: 2.try_into().unwrap(),
             all_instances,
+            instance_metrics: None,
         }
     }
 }

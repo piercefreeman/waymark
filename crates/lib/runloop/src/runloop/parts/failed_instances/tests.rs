@@ -52,6 +52,7 @@ impl TestHarness {
             commit_barrier: &mut self.barrier,
             all_failed_instances,
             instances_done_pending: &mut self.instances_done_pending,
+            instance_metrics: None,
         }
     }
 }

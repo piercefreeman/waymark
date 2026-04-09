@@ -154,6 +154,7 @@ async fn main() -> Result<()> {
     );
 
     let active_instance_gauge = Arc::new(AtomicUsize::new(0));
+    let instance_metrics = Arc::new(waymark_worker_status_core::InstanceMetricsTracker::default());
 
     // Start status reporting.
     let pool_id = Uuid::new_v4();
@@ -162,6 +163,7 @@ async fn main() -> Result<()> {
         backend.clone(),
         remote_pool.clone(),
         active_instance_gauge.clone(),
+        instance_metrics.clone(),
         config.profile_interval,
         shutdown_token.clone().cancelled_owned(),
     ));
@@ -201,6 +203,7 @@ async fn main() -> Result<()> {
             evict_sleep_threshold: config.evict_sleep_threshold,
             skip_sleep: false,
             active_instance_gauge: Some(active_instance_gauge),
+            instance_metrics: Some(instance_metrics),
         },
         shutdown_token.child_token(),
     );

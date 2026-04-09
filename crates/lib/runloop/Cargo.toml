@@ -19,6 +19,7 @@ waymark-tick-loop = { workspace = true }
 waymark-timed-channel = { workspace = true }
 waymark-utils-tokio-channel = { workspace = true }
 waymark-worker-core = { workspace = true }
+waymark-worker-status-core = { workspace = true }
 waymark-workflow-registry-backend = { workspace = true }
 
 chrono = { workspace = true, default-features = false }

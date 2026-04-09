@@ -123,6 +123,7 @@ where
     skip_sleep: bool,
     shutdown_token: tokio_util::sync::CancellationToken,
     exit_on_idle: bool,
+    instance_metrics: Option<Arc<waymark_worker_status_core::InstanceMetricsTracker>>,
 }
 
 #[derive(Clone, Debug)]
@@ -138,6 +139,7 @@ pub struct RunLoopConfig {
     pub evict_sleep_threshold: NonZeroDuration,
     pub skip_sleep: bool,
     pub active_instance_gauge: Option<Arc<AtomicUsize>>,
+    pub instance_metrics: Option<Arc<waymark_worker_status_core::InstanceMetricsTracker>>,
 }
 
 impl<WorkerPool, Backend> RunLoop<WorkerPool, Backend, Backend>
@@ -216,6 +218,7 @@ where
             skip_sleep: config.skip_sleep,
             shutdown_token,
             exit_on_idle,
+            instance_metrics: config.instance_metrics,
         }
     }
 }
@@ -556,6 +559,7 @@ where
                     worker_pool: self.worker_pool.as_ref(),
                     lock_uuid: self.lock_uuid,
                     skip_sleep: self.skip_sleep,
+                    instance_metrics: self.instance_metrics.as_deref(),
                     all_persist_acks,
                 };
                 let result = parts::step_persist_acks::handle(params).await;
@@ -627,6 +631,7 @@ where
                     next_shard: &mut next_shard,
                     shard_count: self.shard_count,
                     all_instances,
+                    instance_metrics: self.instance_metrics.as_deref(),
                 };
 
                 let result = parts::new_instances::handle(params).await;
@@ -666,6 +671,7 @@ where
                     commit_barrier: &mut commit_barrier,
                     all_failed_instances,
                     instances_done_pending: &mut instances_done_pending,
+                    instance_metrics: self.instance_metrics.as_deref(),
                 };
                 parts::failed_instances::handle(params);
             }
@@ -708,6 +714,7 @@ where
                     core_backend: self.core_backend.as_ref(),
                     lock_uuid: self.lock_uuid,
                     evict_sleep_threshold: self.evict_sleep_threshold,
+                    instance_metrics: self.instance_metrics.as_deref(),
                 };
                 let result = parts::deferred_instances::handle(params).await;
                 if let Err(error) = result {

@@ -34,6 +34,8 @@ pub struct Params<'a> {
     pub all_failed_instances: Vec<InstanceDone>,
     /// Buffer of terminal instance outcomes that still need durable persistence.
     pub instances_done_pending: &'a mut Vec<InstanceDone>,
+    /// Host-local instance metrics tracker for the worker process.
+    pub instance_metrics: Option<&'a waymark_worker_status_core::InstanceMetricsTracker>,
 }
 
 /// Cleans up all state for instances that failed during shard execution.
@@ -61,6 +63,7 @@ pub fn handle(params: Params<'_>) {
         commit_barrier,
         all_failed_instances,
         instances_done_pending,
+        instance_metrics,
     } = params;
 
     if all_failed_instances.is_empty() {
@@ -84,6 +87,9 @@ pub fn handle(params: Params<'_>) {
         }
         blocked_until_by_instance.remove(&instance_done.executor_id);
         commit_barrier.remove_instance(instance_done.executor_id);
+        if let Some(instance_metrics) = instance_metrics {
+            instance_metrics.record_finished(instance_done.executor_id, false);
+        }
         instances_done_pending.push(instance_done);
     }
 }

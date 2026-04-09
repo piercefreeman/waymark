@@ -65,6 +65,7 @@ impl TestHarness {
             sleep_tx: &self.sleep_tx,
             worker_pool: &self.worker_pool,
             skip_sleep: self.skip_sleep,
+            instance_metrics: None,
             step,
         }
     }
