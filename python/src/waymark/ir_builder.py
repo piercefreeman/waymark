@@ -918,6 +918,9 @@ class IRBuilder(ast.NodeVisitor):
         Raises UnsupportedPatternError for unsupported statement types.
         """
         if isinstance(node, ast.Assign):
+            gather_expanded = self._expand_complex_gather_spread_statement(node)
+            if gather_expanded is not None:
+                return gather_expanded
             dict_expanded = self._expand_dict_comprehension_assignment(node)
             if dict_expanded is not None:
                 return dict_expanded
@@ -930,6 +933,9 @@ class IRBuilder(ast.NodeVisitor):
             result = self._visit_ann_assign(node)
             return [result] if result else []
         elif isinstance(node, ast.Expr):
+            gather_expanded = self._expand_complex_gather_spread_statement(node)
+            if gather_expanded is not None:
+                return gather_expanded
             result = self._visit_expr_stmt(node)
             return [result] if result else []
         elif isinstance(node, ast.For):
@@ -1167,6 +1173,251 @@ class IRBuilder(ast.NodeVisitor):
         statements.extend(self._visit_for(loop_ast))
 
         return statements
+
+    def _expand_complex_gather_spread_statement(
+        self, node: ast.stmt
+    ) -> Optional[List[ir.Statement]]:
+        """Expand complex gather spread patterns into setup statements + SpreadExpr.
+
+        This keeps the final parallel fan-out in the existing SpreadExpr runtime
+        path, while lowering filters and destructuring into regular IR first.
+        """
+        gather_call: Optional[ast.Call] = None
+        targets: List[str] = []
+
+        if isinstance(node, ast.Assign):
+            if isinstance(node.value, ast.Await) and isinstance(node.value.value, ast.Call):
+                gather_call = node.value.value
+                targets = self._get_assign_targets(node.targets)
+        elif isinstance(node, ast.Expr):
+            if isinstance(node.value, ast.Await) and isinstance(node.value.value, ast.Call):
+                gather_call = node.value.value
+
+        if gather_call is None or not self._is_asyncio_gather_call(gather_call):
+            return None
+
+        if len(gather_call.args) != 1 or not isinstance(gather_call.args[0], ast.Starred):
+            return None
+
+        starred = gather_call.args[0]
+        if not isinstance(starred.value, ast.ListComp):
+            return None
+
+        listcomp = starred.value
+        if not self._needs_complex_gather_spread_lowering(listcomp):
+            return None
+
+        self._validate_asyncio_gather_return_exceptions(gather_call)
+
+        generator = listcomp.generators[0]
+        prologue: List[ir.Statement] = []
+        collection_node: ast.expr = copy.deepcopy(generator.iter)
+        if generator.ifs:
+            temp_collection_var = self._ctx.next_implicit_fn_name(prefix="spread_items")
+            prologue = self._build_filtered_spread_collection_statements(
+                listcomp, temp_collection_var
+            )
+            collection_node = ast.Name(id=temp_collection_var, ctx=ast.Load())
+            ast.copy_location(collection_node, listcomp)
+            ast.fix_missing_locations(collection_node)
+
+        element_node: ast.expr = copy.deepcopy(listcomp.elt)
+        loop_var: str
+        if isinstance(generator.target, ast.Name):
+            loop_var = generator.target.id
+        else:
+            loop_var = self._ctx.next_implicit_fn_name(prefix="spread_item")
+            replacements = self._build_comprehension_target_access_map(generator.target, loop_var)
+            rewritten_element = self._rewrite_load_name_references(element_node, replacements)
+            if not isinstance(rewritten_element, ast.expr):
+                line = listcomp.lineno if hasattr(listcomp, "lineno") else None
+                col = listcomp.col_offset if hasattr(listcomp, "col_offset") else None
+                raise UnsupportedPatternError(
+                    "Spread pattern rewrite produced an invalid expression",
+                    "Rewrite the comprehension using direct action arguments or a simple loop.",
+                    line=line,
+                    col=col,
+                )
+            element_node = rewritten_element
+
+        spread_expr = self._build_spread_expr_from_parts(collection_node, loop_var, element_node)
+
+        spread_stmt = ir.Statement(span=_make_span(node))
+        spread_stmt.assignment.CopyFrom(
+            ir.Assignment(
+                targets=targets,
+                value=ir.Expr(spread_expr=spread_expr, span=_make_span(node)),
+            )
+        )
+
+        return [*prologue, spread_stmt]
+
+    def _needs_complex_gather_spread_lowering(self, listcomp: ast.ListComp) -> bool:
+        """Return True when gather spread needs statement-level lowering first."""
+        if len(listcomp.generators) != 1:
+            return False
+
+        generator = listcomp.generators[0]
+        if generator.is_async:
+            return False
+
+        return bool(generator.ifs) or not isinstance(generator.target, ast.Name)
+
+    def _build_filtered_spread_collection_statements(
+        self, listcomp: ast.ListComp, temp_collection_var: str
+    ) -> List[ir.Statement]:
+        """Build IR that materializes a filtered spread collection."""
+        generator = listcomp.generators[0]
+
+        init_assign_ast = ast.Assign(
+            targets=[ast.Name(id=temp_collection_var, ctx=ast.Store())],
+            value=ast.List(elts=[], ctx=ast.Load()),
+            type_comment=None,
+        )
+        ast.copy_location(init_assign_ast, listcomp)
+        ast.fix_missing_locations(init_assign_ast)
+
+        append_value = self._build_comprehension_target_value(generator.target)
+        append_assign_ast = ast.Assign(
+            targets=[ast.Name(id=temp_collection_var, ctx=ast.Store())],
+            value=ast.BinOp(
+                left=ast.Name(id=temp_collection_var, ctx=ast.Load()),
+                op=ast.Add(),
+                right=ast.List(elts=[append_value], ctx=ast.Load()),
+            ),
+            type_comment=None,
+        )
+        ast.copy_location(append_assign_ast, listcomp)
+        ast.fix_missing_locations(append_assign_ast)
+
+        loop_body: List[ast.stmt] = [append_assign_ast]
+        if generator.ifs:
+            condition: ast.expr
+            if len(generator.ifs) == 1:
+                condition = copy.deepcopy(generator.ifs[0])
+            else:
+                condition = ast.BoolOp(
+                    op=ast.And(), values=[copy.deepcopy(expr) for expr in generator.ifs]
+                )
+                ast.copy_location(condition, generator.ifs[0])
+            if_stmt = ast.If(test=condition, body=[append_assign_ast], orelse=[])
+            ast.copy_location(if_stmt, generator.ifs[0])
+            ast.fix_missing_locations(if_stmt)
+            loop_body = [if_stmt]
+
+        loop_ast = ast.For(
+            target=copy.deepcopy(generator.target),
+            iter=copy.deepcopy(generator.iter),
+            body=loop_body,
+            orelse=[],
+            type_comment=None,
+        )
+        ast.copy_location(loop_ast, listcomp)
+        ast.fix_missing_locations(loop_ast)
+
+        statements: List[ir.Statement] = []
+        init_stmt = self._visit_assign(init_assign_ast)
+        if init_stmt:
+            statements.append(init_stmt)
+        statements.extend(self._visit_for(loop_ast))
+        return statements
+
+    def _build_comprehension_target_value(self, target: ast.expr) -> ast.expr:
+        """Reconstruct the current comprehension item from bound loop variables."""
+        if isinstance(target, ast.Name):
+            rebuilt = ast.Name(id=target.id, ctx=ast.Load())
+            ast.copy_location(rebuilt, target)
+            ast.fix_missing_locations(rebuilt)
+            return rebuilt
+
+        if isinstance(target, ast.Tuple):
+            rebuilt = ast.Tuple(
+                elts=[self._build_comprehension_target_value(elt) for elt in target.elts],
+                ctx=ast.Load(),
+            )
+            ast.copy_location(rebuilt, target)
+            ast.fix_missing_locations(rebuilt)
+            return rebuilt
+
+        if isinstance(target, ast.List):
+            rebuilt = ast.List(
+                elts=[self._build_comprehension_target_value(elt) for elt in target.elts],
+                ctx=ast.Load(),
+            )
+            ast.copy_location(rebuilt, target)
+            ast.fix_missing_locations(rebuilt)
+            return rebuilt
+
+        line = target.lineno if hasattr(target, "lineno") else None
+        col = target.col_offset if hasattr(target, "col_offset") else None
+        raise UnsupportedPatternError(
+            "Spread pattern supports loop targets that are simple names or tuple/list unpacking",
+            "Use a simple variable like `for item in items` or tuple/list unpacking of names.",
+            line=line,
+            col=col,
+        )
+
+    def _build_comprehension_target_access_map(
+        self, target: ast.expr, loop_var: str
+    ) -> Dict[str, ast.expr]:
+        """Map destructured comprehension variables to accesses on one spread item."""
+        replacements: Dict[str, ast.expr] = {}
+
+        def visit_target(current_target: ast.expr, current_expr: ast.expr) -> None:
+            if isinstance(current_target, ast.Name):
+                replacement = copy.deepcopy(current_expr)
+                ast.copy_location(replacement, current_target)
+                ast.fix_missing_locations(replacement)
+                replacements[current_target.id] = replacement
+                return
+
+            if isinstance(current_target, (ast.Tuple, ast.List)):
+                for index, elt in enumerate(current_target.elts):
+                    next_expr = ast.Subscript(
+                        value=copy.deepcopy(current_expr),
+                        slice=ast.Constant(value=index),
+                        ctx=ast.Load(),
+                    )
+                    ast.copy_location(next_expr, elt)
+                    ast.fix_missing_locations(next_expr)
+                    visit_target(elt, next_expr)
+                return
+
+            line = current_target.lineno if hasattr(current_target, "lineno") else None
+            col = current_target.col_offset if hasattr(current_target, "col_offset") else None
+            raise UnsupportedPatternError(
+                "Spread pattern supports loop targets that are simple names or tuple/list unpacking",
+                "Use a simple variable like `for item in items` or tuple/list unpacking of names.",
+                line=line,
+                col=col,
+            )
+
+        root_expr = ast.Name(id=loop_var, ctx=ast.Load())
+        ast.copy_location(root_expr, target)
+        ast.fix_missing_locations(root_expr)
+        visit_target(target, root_expr)
+        return replacements
+
+    def _rewrite_load_name_references(
+        self, node: ast.AST, replacements: Mapping[str, ast.expr]
+    ) -> ast.AST:
+        """Rewrite load-name references in an AST subtree."""
+
+        class LoadNameRewriter(ast.NodeTransformer):
+            def __init__(self, name_replacements: Mapping[str, ast.expr]):
+                self._name_replacements = name_replacements
+
+            def visit_Name(self, current: ast.Name) -> ast.AST:
+                if isinstance(current.ctx, ast.Load) and current.id in self._name_replacements:
+                    rewritten = copy.deepcopy(self._name_replacements[current.id])
+                    ast.copy_location(rewritten, current)
+                    ast.fix_missing_locations(rewritten)
+                    return rewritten
+                return current
+
+        rewritten = LoadNameRewriter(replacements).visit(copy.deepcopy(node))
+        ast.fix_missing_locations(rewritten)
+        return rewritten
 
     def _expand_dict_comprehension_assignment(
         self, node: ast.Assign
@@ -2840,33 +3091,7 @@ class IRBuilder(ast.NodeVisitor):
         Returns:
             A ParallelExpr, SpreadExpr, or None if conversion fails.
         """
-        return_exceptions_value: Optional[ast.expr] = None
-        for kw in node.keywords:
-            if kw.arg is None:
-                line = node.lineno if hasattr(node, "lineno") else None
-                col = node.col_offset if hasattr(node, "col_offset") else None
-                raise UnsupportedPatternError(
-                    "asyncio.gather() must be called with return_exceptions=True",
-                    RECOMMENDATIONS["gather_return_exceptions"],
-                    line=line,
-                    col=col,
-                )
-            if kw.arg == "return_exceptions":
-                return_exceptions_value = kw.value
-                break
-
-        if not (
-            isinstance(return_exceptions_value, ast.Constant)
-            and return_exceptions_value.value is True
-        ):
-            line = node.lineno if hasattr(node, "lineno") else None
-            col = node.col_offset if hasattr(node, "col_offset") else None
-            raise UnsupportedPatternError(
-                "asyncio.gather() must be called with return_exceptions=True",
-                RECOMMENDATIONS["gather_return_exceptions"],
-                line=line,
-                col=col,
-            )
+        self._validate_asyncio_gather_return_exceptions(node)
 
         # Check for starred expressions - spread pattern
         if len(node.args) == 1 and isinstance(node.args[0], ast.Starred):
@@ -2876,8 +3101,8 @@ class IRBuilder(ast.NodeVisitor):
                 return self._convert_listcomp_to_spread_expr(starred.value)
             else:
                 # Spreading a variable or other expression is not supported
-                line = getattr(node, "lineno", None)
-                col = getattr(node, "col_offset", None)
+                line = node.lineno if hasattr(node, "lineno") else None
+                col = node.col_offset if hasattr(node, "col_offset") else None
                 if isinstance(starred.value, ast.Name):
                     var_name = starred.value.id
                     raise UnsupportedPatternError(
@@ -2908,6 +3133,36 @@ class IRBuilder(ast.NodeVisitor):
             return None
 
         return parallel
+
+    def _validate_asyncio_gather_return_exceptions(self, node: ast.Call) -> None:
+        """Require return_exceptions=True on asyncio.gather() calls."""
+        return_exceptions_value: Optional[ast.expr] = None
+        for kw in node.keywords:
+            if kw.arg is None:
+                line = node.lineno if hasattr(node, "lineno") else None
+                col = node.col_offset if hasattr(node, "col_offset") else None
+                raise UnsupportedPatternError(
+                    "asyncio.gather() must be called with return_exceptions=True",
+                    RECOMMENDATIONS["gather_return_exceptions"],
+                    line=line,
+                    col=col,
+                )
+            if kw.arg == "return_exceptions":
+                return_exceptions_value = kw.value
+                break
+
+        if not (
+            isinstance(return_exceptions_value, ast.Constant)
+            and return_exceptions_value.value is True
+        ):
+            line = node.lineno if hasattr(node, "lineno") else None
+            col = node.col_offset if hasattr(node, "col_offset") else None
+            raise UnsupportedPatternError(
+                "asyncio.gather() must be called with return_exceptions=True",
+                RECOMMENDATIONS["gather_return_exceptions"],
+                line=line,
+                col=col,
+            )
 
     def _convert_listcomp_to_spread_expr(self, listcomp: ast.ListComp) -> Optional[ir.SpreadExpr]:
         """Convert a list comprehension to SpreadExpr IR.
@@ -2961,11 +3216,16 @@ class IRBuilder(ast.NodeVisitor):
             )
         loop_var = gen.target.id
 
-        # Get the collection expression
-        collection_expr = self._expr_to_ir_with_model_coercion(gen.iter)
+        return self._build_spread_expr_from_parts(gen.iter, loop_var, listcomp.elt)
+
+    def _build_spread_expr_from_parts(
+        self, collection_node: ast.expr, loop_var: str, element_node: ast.expr
+    ) -> ir.SpreadExpr:
+        """Build a SpreadExpr from AST collection + action-call element nodes."""
+        collection_expr = self._expr_to_ir_with_model_coercion(collection_node)
         if not collection_expr:
-            line = getattr(listcomp, "lineno", None)
-            col = getattr(listcomp, "col_offset", None)
+            line = collection_node.lineno if hasattr(collection_node, "lineno") else None
+            col = collection_node.col_offset if hasattr(collection_node, "col_offset") else None
             raise UnsupportedPatternError(
                 "Could not convert collection expression in spread pattern",
                 "Ensure the collection is a simple variable or expression",
@@ -2973,10 +3233,19 @@ class IRBuilder(ast.NodeVisitor):
                 col=col,
             )
 
-        # The element must be a call (either action call or run_action wrapper)
-        if not isinstance(listcomp.elt, ast.Call):
-            line = getattr(listcomp, "lineno", None)
-            col = getattr(listcomp, "col_offset", None)
+        action_call = self._extract_spread_action_call(element_node)
+
+        spread = ir.SpreadExpr()
+        spread.collection.CopyFrom(collection_expr)
+        spread.loop_var = loop_var
+        spread.action.CopyFrom(action_call)
+        return spread
+
+    def _extract_spread_action_call(self, element_node: ast.expr) -> ir.ActionCall:
+        """Extract the action call payload from a spread element AST node."""
+        if not isinstance(element_node, ast.Call):
+            line = element_node.lineno if hasattr(element_node, "lineno") else None
+            col = element_node.col_offset if hasattr(element_node, "col_offset") else None
             raise UnsupportedPatternError(
                 "Spread pattern requires an action call in the list comprehension",
                 "Use: [action(x=item) for item in items]",
@@ -2984,38 +3253,28 @@ class IRBuilder(ast.NodeVisitor):
                 col=col,
             )
 
-        # Check for self.run_action(...) wrapper pattern
         action_call: Optional[ir.ActionCall] = None
-        if self._is_run_action_call(listcomp.elt):
-            # Extract the inner action call from run_action's first argument
-            if listcomp.elt.args:
-                inner_call = listcomp.elt.args[0]
+        if self._is_run_action_call(element_node):
+            if element_node.args:
+                inner_call = element_node.args[0]
                 if isinstance(inner_call, ast.Call):
                     action_call = self._extract_action_call_from_call(inner_call)
                     if action_call:
-                        # Extract policies (retry, timeout) from run_action kwargs
-                        self._extract_policies_from_run_action(listcomp.elt, action_call)
+                        self._extract_policies_from_run_action(element_node, action_call)
         else:
-            # Direct action call
-            action_call = self._extract_action_call_from_call(listcomp.elt)
+            action_call = self._extract_action_call_from_call(element_node)
 
-        if not action_call:
-            line = getattr(listcomp, "lineno", None)
-            col = getattr(listcomp, "col_offset", None)
-            raise UnsupportedPatternError(
-                "Spread pattern element must be an @action call",
-                "Ensure the function is decorated with @action, or use self.run_action(action(...), ...)",
-                line=line,
-                col=col,
-            )
+        if action_call is not None:
+            return action_call
 
-        # Build the SpreadExpr
-        spread = ir.SpreadExpr()
-        spread.collection.CopyFrom(collection_expr)
-        spread.loop_var = loop_var
-        spread.action.CopyFrom(action_call)
-
-        return spread
+        line = element_node.lineno if hasattr(element_node, "lineno") else None
+        col = element_node.col_offset if hasattr(element_node, "col_offset") else None
+        raise UnsupportedPatternError(
+            "Spread pattern element must be an @action call",
+            "Ensure the function is decorated with @action, or use self.run_action(action(...), ...)",
+            line=line,
+            col=col,
+        )
 
     def _convert_gather_arg_to_call(self, node: ast.expr) -> Optional[ir.Call]:
         """Convert a gather argument to an IR Call.
