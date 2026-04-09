@@ -17,6 +17,8 @@ use waymark_dag::{
 use waymark_ir_conversions::literal_to_json_value;
 use waymark_proto::ast as ir;
 
+const MAX_RUNNER_STATE_NODES: usize = 10_000;
+
 /// Raised when the runner state cannot be updated safely.
 #[derive(Debug, thiserror::Error)]
 #[error("{0}")]
@@ -598,6 +600,14 @@ impl RunnerState {
             return Err(RunnerStateError(format!(
                 "execution node already queued: {}",
                 node.node_id
+            )));
+        }
+        if self.nodes.len() >= MAX_RUNNER_STATE_NODES {
+            return Err(RunnerStateError(format!(
+                "runner state node limit exceeded: attempted to queue node {} with {} existing nodes (max {})",
+                node.node_id,
+                self.nodes.len(),
+                MAX_RUNNER_STATE_NODES,
             )));
         }
         self.nodes.insert(node.node_id, node.clone());
@@ -2192,5 +2202,37 @@ mod tests {
             "completed_at should be at or after started_at"
         );
         assert!(state.consume_graph_dirty_for_durable_execution());
+    }
+
+    #[test]
+    fn test_runner_state_enforces_node_limit() {
+        let mut state = RunnerState::new(None, None, None, true);
+
+        for index in 0..MAX_RUNNER_STATE_NODES {
+            state
+                .queue_action(
+                    &format!("action_{index}"),
+                    Some(vec![format!("result_{index}")]),
+                    None,
+                    None,
+                    None,
+                )
+                .expect("queue action within node limit");
+        }
+
+        let err = state
+            .queue_action(
+                "action_over_limit",
+                Some(vec!["result_over_limit".to_string()]),
+                None,
+                None,
+                None,
+            )
+            .expect_err("queueing beyond the node limit should fail");
+
+        assert!(
+            err.0.contains("runner state node limit exceeded"),
+            "unexpected error: {err:?}"
+        );
     }
 }
