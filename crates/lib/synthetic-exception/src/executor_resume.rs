@@ -15,12 +15,6 @@ impl core::fmt::Display for ExecutorResume {
 
 impl From<&ExecutorResume> for crate::Value {
     fn from(value: &ExecutorResume) -> Self {
-        let message = value.to_string();
-        let ExecutorResume { node_id: _ } = value;
-        Self {
-            r#type: "ExecutorResume".into(),
-            message,
-            fields: Default::default(),
-        }
+        Self::new("ExecutorResume", value)
     }
 }
