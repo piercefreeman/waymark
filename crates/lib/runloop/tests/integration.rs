@@ -1011,6 +1011,84 @@ fn main(input: [], output: [result]):
 }
 
 #[tokio::test]
+async fn test_runloop_executes_list_merge_reassignment() {
+    let source = r#"
+fn main(input: [], output: [result]):
+    left = [1, 2]
+    right = [3, 4]
+    left = left + right
+    left = left + [5]
+    result = left
+    return result
+"#;
+    let program = parse_program(source.trim()).expect("parse program");
+    let program_proto = program.encode_to_vec();
+    let ir_hash = format!("{:x}", Sha256::digest(&program_proto));
+    let dag = Arc::new(convert_to_dag(&program).expect("convert to dag"));
+
+    let mut state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
+    let entry_node = dag
+        .entry_node
+        .as_ref()
+        .expect("DAG entry node not found")
+        .clone();
+    let entry_exec = state
+        .queue_template_node(&entry_node, None)
+        .expect("queue entry node");
+
+    let queue = Arc::new(Mutex::new(VecDeque::new()));
+    let backend = MemoryBackend::with_queue(queue.clone());
+    let workflow_version_id = backend
+        .upsert_workflow_version(&WorkflowRegistration {
+            workflow_name: "test_list_merge_reassignment".to_string(),
+            workflow_version: ir_hash.clone(),
+            ir_hash,
+            program_proto,
+            concurrent: false,
+        })
+        .await
+        .expect("register workflow version");
+
+    let worker_pool = waymark_worker_inline::InlineWorkerPool::new(HashMap::new());
+    let runloop = RunLoop::new(
+        worker_pool,
+        backend.clone(),
+        default_test_config(LockId::new_uuid_v4()),
+    );
+    let instance_id = InstanceId::new_uuid_v4();
+    queue.lock().expect("queue lock").push_back(QueuedInstance {
+        workflow_version_id,
+        schedule_id: None,
+        dag: None,
+        entry_node: entry_exec.node_id,
+        state: Some(state),
+        action_results: HashMap::new(),
+        instance_id,
+        scheduled_at: None,
+    });
+
+    runloop.run().await.expect("runloop");
+
+    let instances_done = backend.instances_done();
+    assert_eq!(instances_done.len(), 1);
+    assert_eq!(instances_done[0].executor_id, instance_id);
+    let output = instances_done[0].result.clone().expect("instance result");
+    let Value::Object(map) = output.0 else {
+        panic!("expected output object");
+    };
+    assert_eq!(
+        map.get("result"),
+        Some(&Value::Array(vec![
+            Value::Number(1.into()),
+            Value::Number(2.into()),
+            Value::Number(3.into()),
+            Value::Number(4.into()),
+            Value::Number(5.into()),
+        ]))
+    );
+}
+
+#[tokio::test]
 async fn test_runloop_marks_instance_failed_with_attribute_error() {
     let source = r#"
 fn main(input: [], output: [result]):

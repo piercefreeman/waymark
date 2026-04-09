@@ -1868,6 +1868,17 @@ class TestReturnStatements:
 class TestAugmentedAssignment:
     """Test augmented assignment (+=, -=, etc.)."""
 
+    def _find_binary_assignment(self, program: ir.Program, target: str) -> ir.Assignment | None:
+        func = program.functions[0]
+        for stmt in func.body.statements:
+            if (
+                stmt.HasField("assignment")
+                and target in stmt.assignment.targets
+                and stmt.assignment.value.HasField("binary_op")
+            ):
+                return stmt.assignment
+        return None
+
     def test_plus_equals_assignment(self) -> None:
         """Test: x += 1 is converted to x = x + 1."""
         from waymark import action, workflow
@@ -1898,6 +1909,96 @@ class TestAugmentedAssignment:
         assert aug_assign is not None, "Should have augmented assignment"
         assert aug_assign.targets == ["x"], "Target should be 'x'"
         assert aug_assign.value.binary_op.op == ir.BinaryOperator.BINARY_OP_ADD, "Op should be ADD"
+
+    def test_plus_equals_list_merge_assignment(self) -> None:
+        """Test: left += right is converted to left = left + right."""
+        from waymark import workflow
+        from waymark.workflow import Workflow
+
+        @workflow
+        class PlusEqualsListMergeWorkflow(Workflow):
+            async def run(self, left: list[int], right: list[int]) -> list[int]:
+                left += right
+                return left
+
+        program = PlusEqualsListMergeWorkflow.workflow_ir()
+        assignment = self._find_binary_assignment(program, "left")
+
+        assert assignment is not None, "Should have binary assignment for left"
+        binary = assignment.value.binary_op
+        assert binary.op == ir.BinaryOperator.BINARY_OP_ADD
+        assert binary.left.variable.name == "left"
+        assert binary.right.variable.name == "right"
+
+    def test_explicit_list_merge_assignment(self) -> None:
+        """Test: left = left + right remains an add binary op in IR."""
+        from waymark import workflow
+        from waymark.workflow import Workflow
+
+        @workflow
+        class ExplicitListMergeWorkflow(Workflow):
+            async def run(self, left: list[int], right: list[int]) -> list[int]:
+                left = left + right
+                return left
+
+        program = ExplicitListMergeWorkflow.workflow_ir()
+        assignment = self._find_binary_assignment(program, "left")
+
+        assert assignment is not None, "Should have binary assignment for left"
+        binary = assignment.value.binary_op
+        assert binary.op == ir.BinaryOperator.BINARY_OP_ADD
+        assert binary.left.variable.name == "left"
+        assert binary.right.variable.name == "right"
+
+    def test_starred_list_merge_assignment(self) -> None:
+        """Test: [*left, *right] lowers to list concatenation IR."""
+        from waymark import workflow
+        from waymark.workflow import Workflow
+
+        @workflow
+        class StarredListMergeWorkflow(Workflow):
+            async def run(self, left: list[int], right: list[int]) -> list[int]:
+                merged = [*left, *right]
+                return merged
+
+        program = StarredListMergeWorkflow.workflow_ir()
+        assignment = self._find_binary_assignment(program, "merged")
+
+        assert assignment is not None, "Should have binary assignment for merged"
+        binary = assignment.value.binary_op
+        assert binary.op == ir.BinaryOperator.BINARY_OP_ADD
+        assert binary.left.variable.name == "left"
+        assert binary.right.variable.name == "right"
+
+    def test_starred_list_merge_with_literal_segments(self) -> None:
+        """Test: [0, *left, 5, *right] becomes chained list additions."""
+        from waymark import workflow
+        from waymark.workflow import Workflow
+
+        @workflow
+        class MixedStarredListMergeWorkflow(Workflow):
+            async def run(self, left: list[int], right: list[int]) -> list[int]:
+                merged = [0, *left, 5, *right]
+                return merged
+
+        program = MixedStarredListMergeWorkflow.workflow_ir()
+        assignment = self._find_binary_assignment(program, "merged")
+
+        assert assignment is not None, "Should have binary assignment for merged"
+
+        def count_adds(expr: ir.Expr) -> int:
+            if not expr.HasField("binary_op"):
+                return 0
+            return 1 + count_adds(expr.binary_op.left) + count_adds(expr.binary_op.right)
+
+        assert count_adds(assignment.value) == 3
+        outer = assignment.value.binary_op
+        assert outer.right.variable.name == "right"
+        middle = outer.left.binary_op
+        assert middle.right.list.elements[0].literal.int_value == 5
+        inner = middle.left.binary_op
+        assert inner.left.list.elements[0].literal.int_value == 0
+        assert inner.right.variable.name == "left"
 
 
 class TestExpressionTypes:

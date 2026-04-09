@@ -29,6 +29,17 @@ class SleepWorkflow(Workflow):
         return "done"
 
 
+@workflow
+class ListMergeSyntaxWorkflow(Workflow):
+    async def run(self) -> list[int]:
+        left = [1, 2]
+        right = [3, 4]
+        left += right
+        left = left + [5]
+        left = [0, *left, *right]
+        return left
+
+
 def test_pytest_runtime_raises_for_unhandled_action_failure() -> None:
     with pytest.raises(RuntimeError, match="workflow failed") as exc_info:
         asyncio.run(UnhandledFailureWorkflow().run())
@@ -43,3 +54,9 @@ def test_pytest_runtime_skips_sleep_nodes() -> None:
 
     assert result == "done"
     assert elapsed < 5.0
+
+
+def test_pytest_runtime_executes_list_merge_syntax_variants() -> None:
+    result = asyncio.run(ListMergeSyntaxWorkflow().run())
+
+    assert result == [0, 1, 2, 3, 4, 5, 3, 4]
