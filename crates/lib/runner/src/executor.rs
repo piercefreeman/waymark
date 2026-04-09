@@ -1730,16 +1730,18 @@ fn main(input: [], output: [result]):
 
         let terminal_error = executor.terminal_error().cloned().expect("terminal error");
         assert_eq!(
-            terminal_error.get("type"),
-            Some(&Value::String("ExecutionError".to_string()))
+            terminal_error.0.get("type"),
+            Some(&Value::String("RunnerExecutorError".to_string()))
         );
         let message = terminal_error
+            .0
             .get("message")
             .and_then(Value::as_str)
             .expect("error message");
         assert!(
             RunnerStateError::is_node_limit_exceeded_message(message),
-            "unexpected terminal error: {terminal_error}"
+            "unexpected terminal error: {}",
+            terminal_error.0
         );
     }
 

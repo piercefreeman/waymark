@@ -5,7 +5,9 @@ pub fn for_exception(value: &ExecutionException) -> ActionAttemptStatus {
     match waymark_synthetic_exception::Type::from_value(&value.0) {
         Some(waymark_synthetic_exception::Type::ExecutorResume)
         | Some(waymark_synthetic_exception::Type::ActionTimeout) => ActionAttemptStatus::TimedOut,
-        None => ActionAttemptStatus::Failed,
+        Some(waymark_synthetic_exception::Type::RunnerExecutorError) | None => {
+            ActionAttemptStatus::Failed
+        }
     }
 }
 
