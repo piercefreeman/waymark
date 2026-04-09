@@ -17,7 +17,12 @@ use waymark_dag::{
 use waymark_ir_conversions::literal_to_json_value;
 use waymark_proto::ast as ir;
 
-const MAX_RUNNER_STATE_NODES: usize = 10_000;
+static MAX_RUNNER_STATE_NODES: std::sync::LazyLock<usize> = std::sync::LazyLock::new(|| {
+    std::env::var("WAYMARK_UNSTABLE_MAX_RUNNER_STATE_NODES")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(10_000)
+});
 
 /// Raised when the runner state cannot be updated safely.
 #[derive(Debug, thiserror::Error)]
@@ -30,7 +35,7 @@ impl RunnerStateError {
     fn node_limit_exceeded(node_id: ExecutionId, existing_nodes: usize) -> Self {
         Self(format!(
             "runner state node limit exceeded: attempted to queue node {} with {} existing nodes (max {})",
-            node_id, existing_nodes, MAX_RUNNER_STATE_NODES,
+            node_id, existing_nodes, *MAX_RUNNER_STATE_NODES,
         ))
     }
 
@@ -621,7 +626,7 @@ impl RunnerState {
                 node.node_id
             )));
         }
-        if self.nodes.len() >= MAX_RUNNER_STATE_NODES {
+        if self.nodes.len() >= *MAX_RUNNER_STATE_NODES {
             return Err(RunnerStateError::node_limit_exceeded(
                 node.node_id,
                 self.nodes.len(),
@@ -2225,7 +2230,7 @@ mod tests {
     fn test_runner_state_enforces_node_limit() {
         let mut state = RunnerState::new(None, None, None, true);
 
-        for index in 0..MAX_RUNNER_STATE_NODES {
+        for index in 0..*MAX_RUNNER_STATE_NODES {
             state
                 .queue_action(
                     &format!("action_{index}"),
