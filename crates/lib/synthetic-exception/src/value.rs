@@ -8,3 +8,21 @@ pub struct Value {
     #[serde(flatten)]
     pub fields: serde_json::Map<String, serde_json::Value>,
 }
+
+impl Value {
+    pub fn new(r#type: &'static str, message: impl core::fmt::Display) -> Self {
+        Self::with_fields(r#type, message, Default::default())
+    }
+
+    pub fn with_fields(
+        r#type: &'static str,
+        message: impl core::fmt::Display,
+        fields: serde_json::Map<String, serde_json::Value>,
+    ) -> Self {
+        Self {
+            r#type: r#type.into(),
+            message: message.to_string(),
+            fields,
+        }
+    }
+}

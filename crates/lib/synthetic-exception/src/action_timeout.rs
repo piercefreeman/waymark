@@ -21,28 +21,25 @@ impl core::fmt::Display for ActionTimeout {
 
 impl From<&ActionTimeout> for crate::Value {
     fn from(value: &ActionTimeout) -> Self {
-        let message = value.to_string();
         let ActionTimeout {
             attempt_number,
             timeout_seconds,
             execution_id: _,
         } = value;
-        Self {
-            r#type: "ActionTimeout".into(),
-            message,
-            fields: [
-                (
-                    "timeout_seconds",
-                    serde_json::Value::Number(serde_json::Number::from(*timeout_seconds)),
-                ),
-                (
-                    "attempt",
-                    serde_json::Value::Number(serde_json::Number::from(*attempt_number)),
-                ),
-            ]
-            .into_iter()
-            .map(|(k, v)| (k.to_string(), v))
-            .collect(),
-        }
+        let fields = [
+            (
+                "timeout_seconds",
+                serde_json::Value::Number(serde_json::Number::from(*timeout_seconds)),
+            ),
+            (
+                "attempt",
+                serde_json::Value::Number(serde_json::Number::from(*attempt_number)),
+            ),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v))
+        .collect();
+
+        Self::with_fields("ActionTimeout", value, fields)
     }
 }
