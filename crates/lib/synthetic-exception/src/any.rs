@@ -1,4 +1,4 @@
-use crate::{ActionTimeout, ExecutorResume, RunnerExecutorError};
+use crate::{ActionTimeout, ExecutorResume};
 
 #[derive(Debug, strum::EnumDiscriminants)]
 #[strum_discriminants(name(Type))]
@@ -6,7 +6,6 @@ use crate::{ActionTimeout, ExecutorResume, RunnerExecutorError};
 pub enum Any {
     ActionTimeout(ActionTimeout),
     ExecutorResume(ExecutorResume),
-    RunnerExecutorError(RunnerExecutorError),
 }
 
 impl core::fmt::Display for Any {
@@ -14,7 +13,6 @@ impl core::fmt::Display for Any {
         match self {
             Any::ActionTimeout(action_timeout) => action_timeout.fmt(f),
             Any::ExecutorResume(executor_resume) => executor_resume.fmt(f),
-            Any::RunnerExecutorError(runner_executor_error) => runner_executor_error.fmt(f),
         }
     }
 }
@@ -24,7 +22,6 @@ impl From<&Any> for crate::Value {
         match value {
             Any::ActionTimeout(action_timeout) => action_timeout.into(),
             Any::ExecutorResume(executor_resume) => executor_resume.into(),
-            Any::RunnerExecutorError(runner_executor_error) => runner_executor_error.into(),
         }
     }
 }

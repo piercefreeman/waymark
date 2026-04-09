@@ -192,10 +192,7 @@ impl Executor {
             "executor step"
         );
 
-        let should_finish_instance = !self.completed
-            && (self.executor.terminal_error().is_some()
-                || (actions.is_empty() && self.inflight.is_empty()));
-        let instance_done = if should_finish_instance {
+        let instance_done = if !self.completed && actions.is_empty() && self.inflight.is_empty() {
             self.completed = true;
             Some(build_instance_done(
                 self.executor_id,
