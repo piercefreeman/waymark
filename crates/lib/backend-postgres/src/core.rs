@@ -545,6 +545,8 @@ impl PostgresBackend {
             payloads.len(),
         );
         let now = Utc::now();
+        let mut tx = self.pool.begin().await?;
+
         let mut schedule_builder: QueryBuilder<Postgres> = QueryBuilder::new(
             "UPDATE queued_instances AS qi SET scheduled_at = v.scheduled_at, lock_expires_at = CASE WHEN qi.lock_expires_at IS NULL OR qi.lock_expires_at < v.lock_expires_at THEN v.lock_expires_at ELSE qi.lock_expires_at END FROM (",
         );
@@ -567,7 +569,7 @@ impl PostgresBackend {
         schedule_builder.push(")");
         schedule_builder
             .build()
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .timed(crate::query_timing_histogram!(
                 "update:queued_instances_scheduled_at"
             ))
@@ -599,7 +601,7 @@ impl PostgresBackend {
         runner_builder.push(")");
         runner_builder
             .build()
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .timed(crate::query_timing_histogram!(
                 "update:runner_instances_state"
             ))
@@ -610,9 +612,13 @@ impl PostgresBackend {
             "SELECT instance_id, lock_uuid, lock_expires_at FROM queued_instances WHERE instance_id = ANY($1)",
         )
         .bind(&ids)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .timed(crate::query_timing_histogram!("select:queued_instances_lock_status_after_save_graphs"))
         .await?;
+
+        tx.commit()
+            .timed(crate::query_timing_histogram!("commit:save_graphs_once"))
+            .await?;
 
         let mut lock_map: HashMap<InstanceId, InstanceLockStatus> = HashMap::new();
         for row in lock_rows {
