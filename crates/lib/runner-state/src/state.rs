@@ -17,10 +17,36 @@ use waymark_dag::{
 use waymark_ir_conversions::literal_to_json_value;
 use waymark_proto::ast as ir;
 
+static MAX_RUNNER_STATE_NODES: std::sync::LazyLock<usize> = std::sync::LazyLock::new(|| {
+    std::env::var("WAYMARK_UNSTABLE_MAX_RUNNER_STATE_NODES")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(10_000)
+});
+
 /// Raised when the runner state cannot be updated safely.
 #[derive(Debug, thiserror::Error)]
 #[error("{0}")]
 pub struct RunnerStateError(pub String);
+
+impl RunnerStateError {
+    const NODE_LIMIT_EXCEEDED_PREFIX: &str = "runner state node limit exceeded:";
+
+    fn node_limit_exceeded(node_id: ExecutionId, existing_nodes: usize) -> Self {
+        Self(format!(
+            "runner state node limit exceeded: attempted to queue node {} with {} existing nodes (max {})",
+            node_id, existing_nodes, *MAX_RUNNER_STATE_NODES,
+        ))
+    }
+
+    pub fn is_node_limit_exceeded(&self) -> bool {
+        Self::is_node_limit_exceeded_message(&self.0)
+    }
+
+    pub fn is_node_limit_exceeded_message(message: &str) -> bool {
+        message.starts_with(Self::NODE_LIMIT_EXCEEDED_PREFIX)
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ActionCallSpec {
@@ -599,6 +625,12 @@ impl RunnerState {
                 "execution node already queued: {}",
                 node.node_id
             )));
+        }
+        if self.nodes.len() >= *MAX_RUNNER_STATE_NODES {
+            return Err(RunnerStateError::node_limit_exceeded(
+                node.node_id,
+                self.nodes.len(),
+            ));
         }
         self.nodes.insert(node.node_id, node.clone());
         self.ready_queue.push(node.node_id);
@@ -2192,5 +2224,34 @@ mod tests {
             "completed_at should be at or after started_at"
         );
         assert!(state.consume_graph_dirty_for_durable_execution());
+    }
+
+    #[test]
+    fn test_runner_state_enforces_node_limit() {
+        let mut state = RunnerState::new(None, None, None, true);
+
+        for index in 0..*MAX_RUNNER_STATE_NODES {
+            state
+                .queue_action(
+                    &format!("action_{index}"),
+                    Some(vec![format!("result_{index}")]),
+                    None,
+                    None,
+                    None,
+                )
+                .expect("queue action within node limit");
+        }
+
+        let err = state
+            .queue_action(
+                "action_over_limit",
+                Some(vec!["result_over_limit".to_string()]),
+                None,
+                None,
+                None,
+            )
+            .expect_err("queueing beyond the node limit should fail");
+
+        assert!(err.is_node_limit_exceeded(), "unexpected error: {err:?}");
     }
 }
