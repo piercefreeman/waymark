@@ -2913,6 +2913,63 @@ class TestSpreadAction:
             for stmt in iter_block_statements(for_loop.block_body)
         ), "Expected loop body to append filtered items into temp collection"
 
+    def test_generator_argument_converts_to_spread_expr(self) -> None:
+        """Test: asyncio.gather((action(x) for x in items), return_exceptions=True) -> SpreadExpr."""
+        from tests.fixtures_gather.gather_generator import GatherGeneratorWorkflow
+
+        program = GatherGeneratorWorkflow.workflow_ir()
+
+        spread_stmt = next(
+            (
+                stmt
+                for stmt in iter_all_statements(program)
+                if stmt.HasField("assignment") and stmt.assignment.value.HasField("spread_expr")
+            ),
+            None,
+        )
+        assert spread_stmt is not None, "Expected spread expression from generator gather syntax"
+
+        spread_expr = spread_stmt.assignment.value.spread_expr
+        assert list(spread_stmt.assignment.targets) == ["results"]
+        assert spread_expr.loop_var == "item"
+        assert spread_expr.action.action_name == "process_item"
+        assert spread_expr.collection.HasField("variable")
+        assert spread_expr.collection.variable.name == "items"
+
+    def test_generator_argument_with_filters_materializes_collection_first(self) -> None:
+        """Test filtered generator gather syntax lowers through temp collection setup."""
+        from tests.fixtures_gather.gather_generator_filter import GatherGeneratorFilterWorkflow
+
+        program = GatherGeneratorFilterWorkflow.workflow_ir()
+
+        run_fn = next(fn for fn in program.functions if fn.name == "main")
+        spread_stmt = next(
+            (
+                stmt
+                for stmt in run_fn.body.statements
+                if stmt.HasField("assignment") and stmt.assignment.value.HasField("spread_expr")
+            ),
+            None,
+        )
+        assert spread_stmt is not None, "Expected spread expression from filtered generator gather"
+
+        spread_expr = spread_stmt.assignment.value.spread_expr
+        assert spread_expr.loop_var == "user"
+        assert spread_expr.action.action_name == "process_user"
+        assert spread_expr.collection.HasField("variable")
+
+        temp_collection_name = spread_expr.collection.variable.name
+        assert temp_collection_name.startswith("__spread_items_")
+
+        for_loop = next(
+            (stmt.for_loop for stmt in run_fn.body.statements if stmt.HasField("for_loop")),
+            None,
+        )
+        assert for_loop is not None, "Expected for loop that filters generator inputs"
+        assert any(stmt.HasField("conditional") for stmt in for_loop.block_body.statements), (
+            "Expected filter condition lowered into loop body"
+        )
+
     def test_spread_pattern_with_tuple_unpacking_rewrites_loop_vars(self) -> None:
         """Test destructured gather spreads rewrite to one synthetic spread loop var."""
         from tests.fixtures_gather.gather_listcomp_tuple_unpack import (

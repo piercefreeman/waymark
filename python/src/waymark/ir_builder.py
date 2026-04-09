@@ -177,8 +177,8 @@ RECOMMENDATIONS = {
         "Set comprehensions are not supported in workflow code.\nUse an @action to build sets."
     ),
     "generator": (
-        "Generator expressions are not supported in workflow code.\n"
-        "Use a list or an @action instead."
+        "Generator expressions are only supported when used directly in asyncio.gather(...).\n"
+        "For other cases, use a list, a for loop, or an @action instead."
     ),
     "walrus": (
         "The walrus operator (:=) is not supported in workflow code.\n"
@@ -1196,32 +1196,28 @@ class IRBuilder(ast.NodeVisitor):
         if gather_call is None or not self._is_asyncio_gather_call(gather_call):
             return None
 
-        if len(gather_call.args) != 1 or not isinstance(gather_call.args[0], ast.Starred):
+        comprehension = self._extract_gather_spread_comprehension(gather_call)
+        if comprehension is None:
             return None
 
-        starred = gather_call.args[0]
-        if not isinstance(starred.value, ast.ListComp):
-            return None
-
-        listcomp = starred.value
-        if not self._needs_complex_gather_spread_lowering(listcomp):
+        if not self._needs_complex_gather_spread_lowering(comprehension):
             return None
 
         self._validate_asyncio_gather_return_exceptions(gather_call)
 
-        generator = listcomp.generators[0]
+        generator = comprehension.generators[0]
         prologue: List[ir.Statement] = []
         collection_node: ast.expr = copy.deepcopy(generator.iter)
         if generator.ifs:
             temp_collection_var = self._ctx.next_implicit_fn_name(prefix="spread_items")
             prologue = self._build_filtered_spread_collection_statements(
-                listcomp, temp_collection_var
+                comprehension, temp_collection_var
             )
             collection_node = ast.Name(id=temp_collection_var, ctx=ast.Load())
-            ast.copy_location(collection_node, listcomp)
+            ast.copy_location(collection_node, comprehension)
             ast.fix_missing_locations(collection_node)
 
-        element_node: ast.expr = copy.deepcopy(listcomp.elt)
+        element_node: ast.expr = copy.deepcopy(comprehension.elt)
         loop_var: str
         if isinstance(generator.target, ast.Name):
             loop_var = generator.target.id
@@ -1230,8 +1226,8 @@ class IRBuilder(ast.NodeVisitor):
             replacements = self._build_comprehension_target_access_map(generator.target, loop_var)
             rewritten_element = self._rewrite_load_name_references(element_node, replacements)
             if not isinstance(rewritten_element, ast.expr):
-                line = listcomp.lineno if hasattr(listcomp, "lineno") else None
-                col = listcomp.col_offset if hasattr(listcomp, "col_offset") else None
+                line = comprehension.lineno if hasattr(comprehension, "lineno") else None
+                col = comprehension.col_offset if hasattr(comprehension, "col_offset") else None
                 raise UnsupportedPatternError(
                     "Spread pattern rewrite produced an invalid expression",
                     "Rewrite the comprehension using direct action arguments or a simple loop.",
@@ -1252,29 +1248,49 @@ class IRBuilder(ast.NodeVisitor):
 
         return [*prologue, spread_stmt]
 
-    def _needs_complex_gather_spread_lowering(self, listcomp: ast.ListComp) -> bool:
+    def _extract_gather_spread_comprehension(
+        self, gather_call: ast.Call
+    ) -> Optional[Union[ast.ListComp, ast.GeneratorExp]]:
+        """Extract a gather comprehension that should lower through spread IR."""
+        if len(gather_call.args) != 1:
+            return None
+
+        arg = gather_call.args[0]
+        if isinstance(arg, ast.Starred):
+            if isinstance(arg.value, (ast.ListComp, ast.GeneratorExp)):
+                return arg.value
+            return None
+
+        if isinstance(arg, (ast.ListComp, ast.GeneratorExp)):
+            return arg
+
+        return None
+
+    def _needs_complex_gather_spread_lowering(
+        self, comprehension: Union[ast.ListComp, ast.GeneratorExp]
+    ) -> bool:
         """Return True when gather spread needs statement-level lowering first."""
-        if len(listcomp.generators) != 1:
+        if len(comprehension.generators) != 1:
             return False
 
-        generator = listcomp.generators[0]
+        generator = comprehension.generators[0]
         if generator.is_async:
             return False
 
         return bool(generator.ifs) or not isinstance(generator.target, ast.Name)
 
     def _build_filtered_spread_collection_statements(
-        self, listcomp: ast.ListComp, temp_collection_var: str
+        self, comprehension: Union[ast.ListComp, ast.GeneratorExp], temp_collection_var: str
     ) -> List[ir.Statement]:
         """Build IR that materializes a filtered spread collection."""
-        generator = listcomp.generators[0]
+        generator = comprehension.generators[0]
 
         init_assign_ast = ast.Assign(
             targets=[ast.Name(id=temp_collection_var, ctx=ast.Store())],
             value=ast.List(elts=[], ctx=ast.Load()),
             type_comment=None,
         )
-        ast.copy_location(init_assign_ast, listcomp)
+        ast.copy_location(init_assign_ast, comprehension)
         ast.fix_missing_locations(init_assign_ast)
 
         append_value = self._build_comprehension_target_value(generator.target)
@@ -1287,7 +1303,7 @@ class IRBuilder(ast.NodeVisitor):
             ),
             type_comment=None,
         )
-        ast.copy_location(append_assign_ast, listcomp)
+        ast.copy_location(append_assign_ast, comprehension)
         ast.fix_missing_locations(append_assign_ast)
 
         loop_body: List[ast.stmt] = [append_assign_ast]
@@ -1312,7 +1328,7 @@ class IRBuilder(ast.NodeVisitor):
             orelse=[],
             type_comment=None,
         )
-        ast.copy_location(loop_ast, listcomp)
+        ast.copy_location(loop_ast, comprehension)
         ast.fix_missing_locations(loop_ast)
 
         statements: List[ir.Statement] = []
@@ -3093,31 +3109,31 @@ class IRBuilder(ast.NodeVisitor):
         """
         self._validate_asyncio_gather_return_exceptions(node)
 
+        comprehension = self._extract_gather_spread_comprehension(node)
+        if comprehension is not None:
+            return self._convert_comprehension_to_spread_expr(comprehension)
+
         # Check for starred expressions - spread pattern
         if len(node.args) == 1 and isinstance(node.args[0], ast.Starred):
             starred = node.args[0]
-            # Only list comprehensions are supported for spread
-            if isinstance(starred.value, ast.ListComp):
-                return self._convert_listcomp_to_spread_expr(starred.value)
+            # Spreading a variable or other expression is not supported
+            line = node.lineno if hasattr(node, "lineno") else None
+            col = node.col_offset if hasattr(node, "col_offset") else None
+            if isinstance(starred.value, ast.Name):
+                var_name = starred.value.id
+                raise UnsupportedPatternError(
+                    f"Spreading variable '{var_name}' in asyncio.gather() is not supported",
+                    RECOMMENDATIONS["gather_variable_spread"],
+                    line=line,
+                    col=col,
+                )
             else:
-                # Spreading a variable or other expression is not supported
-                line = node.lineno if hasattr(node, "lineno") else None
-                col = node.col_offset if hasattr(node, "col_offset") else None
-                if isinstance(starred.value, ast.Name):
-                    var_name = starred.value.id
-                    raise UnsupportedPatternError(
-                        f"Spreading variable '{var_name}' in asyncio.gather() is not supported",
-                        RECOMMENDATIONS["gather_variable_spread"],
-                        line=line,
-                        col=col,
-                    )
-                else:
-                    raise UnsupportedPatternError(
-                        "Spreading non-list-comprehension expressions in asyncio.gather() is not supported",
-                        RECOMMENDATIONS["gather_variable_spread"],
-                        line=line,
-                        col=col,
-                    )
+                raise UnsupportedPatternError(
+                    "Spreading non-comprehension expressions in asyncio.gather() is not supported",
+                    RECOMMENDATIONS["gather_variable_spread"],
+                    line=line,
+                    col=col,
+                )
 
         # Standard case: gather(a(), b(), c()) -> ParallelExpr
         parallel = ir.ParallelExpr()
@@ -3165,40 +3181,48 @@ class IRBuilder(ast.NodeVisitor):
             )
 
     def _convert_listcomp_to_spread_expr(self, listcomp: ast.ListComp) -> Optional[ir.SpreadExpr]:
-        """Convert a list comprehension to SpreadExpr IR.
+        """Convert a list comprehension to SpreadExpr IR."""
+        return self._convert_comprehension_to_spread_expr(listcomp)
+
+    def _convert_comprehension_to_spread_expr(
+        self, comprehension: Union[ast.ListComp, ast.GeneratorExp]
+    ) -> Optional[ir.SpreadExpr]:
+        """Convert a gather comprehension to SpreadExpr IR.
 
         Handles patterns like:
             [action(x=item) for item in collection]
+            (action(x=item) for item in collection)
             [self.run_action(action(x=item), retry=..., timeout=...) for item in collection]
+            (self.run_action(action(x=item), retry=..., timeout=...) for item in collection)
 
         The comprehension must have exactly one generator with no conditions,
         and the element must be an action call (optionally wrapped in run_action).
 
         Args:
-            listcomp: The ListComp AST node
+            comprehension: The comprehension AST node
 
         Returns:
             A SpreadExpr, or None if conversion fails.
         """
         # Only support simple list comprehensions with one generator
-        if len(listcomp.generators) != 1:
-            line = getattr(listcomp, "lineno", None)
-            col = getattr(listcomp, "col_offset", None)
+        if len(comprehension.generators) != 1:
+            line = getattr(comprehension, "lineno", None)
+            col = getattr(comprehension, "col_offset", None)
             raise UnsupportedPatternError(
                 "Spread pattern only supports a single loop variable",
-                "Use a simple list comprehension: [action(x) for x in items]",
+                "Use a simple comprehension: [action(x) for x in items] or (action(x) for x in items)",
                 line=line,
                 col=col,
             )
 
-        gen = listcomp.generators[0]
+        gen = comprehension.generators[0]
 
         # Check for conditions - not supported
         if gen.ifs:
-            line = getattr(listcomp, "lineno", None)
-            col = getattr(listcomp, "col_offset", None)
+            line = getattr(comprehension, "lineno", None)
+            col = getattr(comprehension, "col_offset", None)
             raise UnsupportedPatternError(
-                "Spread pattern does not support conditions in list comprehension",
+                "Spread pattern does not support conditions in a direct comprehension conversion",
                 "Remove the 'if' clause from the comprehension",
                 line=line,
                 col=col,
@@ -3206,8 +3230,8 @@ class IRBuilder(ast.NodeVisitor):
 
         # Get the loop variable name
         if not isinstance(gen.target, ast.Name):
-            line = getattr(listcomp, "lineno", None)
-            col = getattr(listcomp, "col_offset", None)
+            line = getattr(comprehension, "lineno", None)
+            col = getattr(comprehension, "col_offset", None)
             raise UnsupportedPatternError(
                 "Spread pattern requires a simple loop variable",
                 "Use a simple variable: [action(x) for x in items]",
@@ -3216,7 +3240,7 @@ class IRBuilder(ast.NodeVisitor):
             )
         loop_var = gen.target.id
 
-        return self._build_spread_expr_from_parts(gen.iter, loop_var, listcomp.elt)
+        return self._build_spread_expr_from_parts(gen.iter, loop_var, comprehension.elt)
 
     def _build_spread_expr_from_parts(
         self, collection_node: ast.expr, loop_var: str, element_node: ast.expr
