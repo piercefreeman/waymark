@@ -4760,6 +4760,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-vcr-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "waymark-ids",
+ "waymark-worker-core",
+]
+
+[[package]]
 name = "waymark-webapp-backend"
 version = "0.1.0"
 dependencies = [
