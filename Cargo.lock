@@ -4769,6 +4769,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-vcr-file"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
+ "waymark-ids",
+ "waymark-jsonlines",
+ "waymark-runner-executor-core",
+ "waymark-vcr-core",
+ "waymark-worker-core",
+]
+
+[[package]]
 name = "waymark-webapp-backend"
 version = "0.1.0"
 dependencies = [
