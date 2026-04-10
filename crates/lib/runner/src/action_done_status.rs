@@ -52,4 +52,13 @@ mod tests {
         }));
         assert_eq!(for_exception(&value), ActionAttemptStatus::Failed);
     }
+
+    #[test]
+    fn test_action_done_status_for_runner_executor_error_is_failed() {
+        let value = ExecutionException(serde_json::json!({
+            "type": "RunnerExecutorError",
+            "message": "inline node failed",
+        }));
+        assert_eq!(for_exception(&value), ActionAttemptStatus::Failed);
+    }
 }

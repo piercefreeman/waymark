@@ -3992,6 +3992,56 @@ def _expr_to_ir(
                 return result_expr
 
     if isinstance(expr, ast.List):
+        if any(isinstance(element, ast.Starred) for element in expr.elts):
+            segments: list[ir.Expr] = []
+            buffered_elements: list[ir.Expr] = []
+
+            def flush_buffered_elements() -> None:
+                if not buffered_elements:
+                    return
+                segments.append(ir.Expr(list=ir.ListExpr(elements=list(buffered_elements))))
+                buffered_elements.clear()
+
+            for element in expr.elts:
+                if isinstance(element, ast.Starred):
+                    flush_buffered_elements()
+                    starred_value = _expr_to_ir(
+                        element.value,
+                        model_converter=model_converter,
+                        enum_resolver=enum_resolver,
+                        exception_class_resolver=exception_class_resolver,
+                    )
+                    if not starred_value:
+                        return None
+                    segments.append(starred_value)
+                    continue
+
+                value = _expr_to_ir(
+                    element,
+                    model_converter=model_converter,
+                    enum_resolver=enum_resolver,
+                    exception_class_resolver=exception_class_resolver,
+                )
+                if not value:
+                    return None
+                buffered_elements.append(value)
+
+            flush_buffered_elements()
+            if not segments:
+                result.list.CopyFrom(ir.ListExpr(elements=[]))
+                return result
+
+            combined = segments[0]
+            for segment in segments[1:]:
+                combined = ir.Expr(
+                    binary_op=ir.BinaryOp(
+                        left=combined,
+                        op=ir.BinaryOperator.BINARY_OP_ADD,
+                        right=segment,
+                    )
+                )
+            return combined
+
         elements = [
             _expr_to_ir(
                 e,
