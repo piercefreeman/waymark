@@ -60,6 +60,8 @@ async fn main() -> Result<()> {
     let metrics_addr: std::net::SocketAddr = envfury::or_parse("METRICS_ADDR", "0.0.0.0:9118")?;
     waymark_prometheus_exporter_bringup::spawn_and_install_recorder(metrics_addr)?;
 
+    let _task_monitor = waymark_tokio_metrics_bringup::bringup(env!("CARGO_BIN_NAME"));
+
     // Load configuration and announce startup.
     let config = WorkerConfig::from_env()?;
 
