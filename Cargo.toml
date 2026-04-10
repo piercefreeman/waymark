@@ -57,6 +57,8 @@ waymark-timed-future = { path = "crates/lib/timed-future" }
 waymark-utils-futures = { path = "crates/lib/utils-futures" }
 waymark-utils-tokio-channel = { path = "crates/lib/utils-tokio-channel" }
 waymark-vcr-core = { path = "crates/lib/vcr-core" }
+waymark-vcr-file = { path = "crates/lib/vcr-file" }
+waymark-vcr-recorder = { path = "crates/lib/vcr-recorder" }
 waymark-webapp-backend = { path = "crates/lib/webapp-backend" }
 waymark-webapp-bringup = { path = "crates/lib/webapp-bringup" }
 waymark-webapp-config = { path = "crates/lib/webapp-config" }
@@ -70,6 +72,7 @@ waymark-worker-status-backend = { path = "crates/lib/worker-status-backend" }
 waymark-worker-status-core = { path = "crates/lib/worker-status-core" }
 waymark-worker-status-reporter = { path = "crates/lib/worker-status-reporter" }
 waymark-workflow-registry-backend = { path = "crates/lib/workflow-registry-backend" }
+
 
 anyhow = "1"
 axum = "0.8"
