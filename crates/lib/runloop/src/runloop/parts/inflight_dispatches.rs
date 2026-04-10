@@ -58,6 +58,13 @@ pub fn handle(params: Params<'_>) {
         let Some(dispatch) = inflight_dispatches.get(&execution_id) else {
             continue;
         };
+        tracing::debug!(
+            instance_id = %execution_id,
+            executor_id = %dispatch.executor_id,
+            "action timed out"
+        );
+        metrics::counter!("waymark_runloop_timeout_completions_total").increment(1);
+
         timeout_completions.push(ActionCompletion {
             executor_id: dispatch.executor_id,
             execution_id,

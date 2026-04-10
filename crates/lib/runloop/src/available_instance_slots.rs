@@ -98,6 +98,11 @@ impl Tracker {
             .send(available_slots)
             .map_err(|_| UpdateError::NoReaders)
     }
+
+    /// Peek at the current value of the available slots.
+    pub fn peek_available(&self) -> usize {
+        *self.tx.borrow()
+    }
 }
 
 impl Reader {

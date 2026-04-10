@@ -33,6 +33,7 @@ where
         return Ok(());
     }
     let batch = std::mem::take(pending);
+    metrics::counter!("waymark_runloop_flush_instances_done_total").increment(batch.len() as _);
     core_backend.save_instances_done(&batch).await?;
     Ok(())
 }

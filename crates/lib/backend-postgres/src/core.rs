@@ -586,6 +586,8 @@ impl PostgresBackend {
         runner_builder.push_values(
             payloads.iter(),
             |mut b, (instance_id, _scheduled_at, _lock_expires_at, payload)| {
+                metrics::histogram!("waymark_postgres_save_graphs_runner_instances_payload_size")
+                    .record(payload.len() as f64);
                 b.push_bind(*instance_id).push_bind(payload.as_slice());
             },
         );
@@ -778,6 +780,9 @@ impl PostgresBackend {
             tx.commit().await.map_err(PollQueuedInstancesError::Sqlx)?;
             return Err(PollQueuedInstancesError::EmptyRows);
         };
+
+        metrics::counter!("waymark_backend_postgres_query_poll_instances_rows_total")
+            .increment(rows.len().get() as _);
 
         let claimed_instance_ids: Vec<Uuid> =
             rows.iter().map(|row| row.get("instance_id")).collect();
