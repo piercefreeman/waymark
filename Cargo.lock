@@ -4657,12 +4657,15 @@ dependencies = [
  "waymark-fn-main-common",
  "waymark-garbage-collector-loop",
  "waymark-ids",
+ "waymark-jsonlines",
  "waymark-nonzero-duration",
  "waymark-prometheus-exporter-bringup",
  "waymark-proto",
  "waymark-runloop",
  "waymark-scheduler-loop",
  "waymark-scheduler-loop-core",
+ "waymark-vcr-recorder",
+ "waymark-vcr-recorder-worker-pool-bringup",
  "waymark-webapp-bringup",
  "waymark-worker-remote",
  "waymark-worker-status-reporter",
@@ -4843,6 +4846,15 @@ dependencies = [
  "tracing",
  "waymark-vcr-recorder",
  "waymark-worker-core",
+]
+
+[[package]]
+name = "waymark-vcr-recorder-worker-pool-bringup"
+version = "0.1.0"
+dependencies = [
+ "either",
+ "waymark-vcr-recorder",
+ "waymark-vcr-recorder-worker-pool",
 ]
 
 [[package]]

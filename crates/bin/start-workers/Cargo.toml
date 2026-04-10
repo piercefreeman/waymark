@@ -12,12 +12,15 @@ waymark-dag-builder = { workspace = true }
 waymark-fn-main-common = { workspace = true }
 waymark-garbage-collector-loop = { workspace = true }
 waymark-ids = { workspace = true }
+waymark-jsonlines = { workspace = true }
 waymark-nonzero-duration = { workspace = true }
 waymark-prometheus-exporter-bringup = { workspace = true }
 waymark-proto = { workspace = true }
 waymark-runloop = { workspace = true }
 waymark-scheduler-loop = { workspace = true }
 waymark-scheduler-loop-core = { workspace = true }
+waymark-vcr-recorder = { workspace = true }
+waymark-vcr-recorder-worker-pool-bringup = { workspace = true }
 waymark-webapp-bringup = { workspace = true }
 waymark-worker-remote = { workspace = true }
 waymark-worker-status-reporter = { workspace = true }
@@ -27,7 +30,7 @@ envfury = { workspace = true }
 prost = { workspace = true }
 sqlx = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal", "fs"] }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
