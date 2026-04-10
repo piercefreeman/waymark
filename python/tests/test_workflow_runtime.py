@@ -151,6 +151,18 @@ class PointData:
     y: int
 
 
+@python_dataclass
+class ReadingMetadata:
+    recorded_at: datetime
+    sample_ids: list[UUID]
+
+
+@python_dataclass
+class ReadingRequest:
+    reading_id: UUID
+    metadata: ReadingMetadata
+
+
 @action
 async def greet_person(person: PersonModel) -> str:
     """Action that expects a Pydantic model argument."""
@@ -161,6 +173,20 @@ async def greet_person(person: PersonModel) -> str:
 async def compute_distance(point: PointData) -> int:
     """Action that expects a dataclass argument."""
     return point.x + point.y
+
+
+@action
+async def summarize_reading(reading: ReadingRequest) -> str:
+    """Action that validates nested dataclass coercion."""
+    if not isinstance(reading.reading_id, UUID):
+        raise TypeError("reading_id was not coerced to UUID")
+    if not isinstance(reading.metadata, ReadingMetadata):
+        raise TypeError("metadata was not coerced to ReadingMetadata")
+    if not isinstance(reading.metadata.recorded_at, datetime):
+        raise TypeError("recorded_at was not coerced to datetime")
+    if not all(isinstance(sample_id, UUID) for sample_id in reading.metadata.sample_ids):
+        raise TypeError("sample_ids were not coerced to UUID")
+    return f"{reading.metadata.recorded_at.year}:{len(reading.metadata.sample_ids)}"
 
 
 def _build_action_dispatch_with_dict(
@@ -190,6 +216,11 @@ def _build_action_dispatch_with_dict(
             proto_value.primitive.double_value = value
         elif isinstance(value, bool):
             proto_value.primitive.bool_value = value
+        elif isinstance(value, list):
+            proto_value.list_value.SetInParent()
+            for item in value:
+                item_value = proto_value.list_value.items.add()
+                add_value_to_proto(item_value, item)
         elif isinstance(value, dict):
             proto_value.dict_value.SetInParent()
             for k, v in value.items():
@@ -242,6 +273,39 @@ def test_execute_action_coerces_dict_to_dataclass() -> None:
     assert isinstance(result, ActionExecutionResult)
     assert result.exception is None, f"Unexpected exception: {result.exception}"
     assert result.result == 7  # 3 + 4
+
+
+def test_execute_action_coerces_nested_typed_dataclass() -> None:
+    """Test that nested dataclass fields use their type hints during coercion."""
+    if action_registry.get(__name__, "summarize_reading") is None:
+        action_registry.register(__name__, "summarize_reading", summarize_reading)
+
+    reading_id = UUID("12345678-1234-5678-1234-567812345678")
+    recorded_at = datetime(2024, 1, 15, 10, 30, 45, tzinfo=timezone.utc)
+    sample_ids = [
+        UUID("87654321-4321-8765-4321-876543218765"),
+        UUID("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"),
+    ]
+
+    dispatch = _build_action_dispatch_with_dict(
+        action_name="summarize_reading",
+        module_name=__name__,
+        kwargs={
+            "reading": {
+                "reading_id": str(reading_id),
+                "metadata": {
+                    "recorded_at": recorded_at.isoformat(),
+                    "sample_ids": [str(sample_id) for sample_id in sample_ids],
+                },
+            }
+        },
+    )
+
+    result = asyncio.run(execute_action(dispatch))
+
+    assert isinstance(result, ActionExecutionResult)
+    assert result.exception is None, f"Unexpected exception: {result.exception}"
+    assert result.result == "2024:2"
 
 
 # ---- Tests for primitive type coercion ----

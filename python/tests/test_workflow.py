@@ -313,6 +313,53 @@ def test_workflow_result_coerces_to_dataclass(monkeypatch: pytest.MonkeyPatch) -
     assert result.count == 3
 
 
+def test_workflow_result_coerces_nested_typed_dataclass(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    @dataclass
+    class ResultMetadata:
+        created_at: datetime
+        sample_ids: list[UUID]
+
+    @dataclass
+    class ResultData:
+        result_id: UUID
+        metadata: ResultMetadata
+
+    @action
+    async def build_result() -> ResultData:
+        raise NotImplementedError
+
+    @workflow_decorator
+    class DataWorkflow(Workflow):
+        async def run(self) -> ResultData:
+            return await build_result()
+
+    result_id = uuid4()
+    created_at = datetime(2024, 1, 2, 3, 4, 5)
+    sample_ids = [uuid4(), uuid4()]
+
+    async def fake_execute_workflow(_payload: bytes) -> bytes:
+        response = {
+            "result_id": str(result_id),
+            "metadata": {
+                "created_at": created_at.isoformat(),
+                "sample_ids": [str(sample_id) for sample_id in sample_ids],
+            },
+        }
+        payload = serialize_result_payload(response)
+        return payload.SerializeToString()
+
+    monkeypatch.setattr(bridge, "execute_workflow", fake_execute_workflow)
+
+    result = asyncio.run(DataWorkflow().run())
+    assert isinstance(result, ResultData)
+    assert result.result_id == result_id
+    assert isinstance(result.metadata, ResultMetadata)
+    assert result.metadata.created_at == created_at
+    assert result.metadata.sample_ids == sample_ids
+
+
 def test_workflow_result_optional_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:
     @dataclass
     class OptionalData:
