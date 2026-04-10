@@ -704,6 +704,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "dashmap"
+version = "6.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5041cc499144891f3790297212f32a74fb938e5136a14943f338ef9e0ae276cf"
+dependencies = [
+ "cfg-if",
+ "crossbeam-utils",
+ "hashbrown 0.14.5",
+ "lock_api",
+ "once_cell",
+ "parking_lot_core",
+]
+
+[[package]]
 name = "der"
 version = "0.7.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2847,7 +2861,7 @@ version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0e56dd856803e253c8f298af3f4d7eb0ae5e23a737252cd90bb4f3b435033b2d"
 dependencies = [
- "dashmap",
+ "dashmap 5.5.3",
  "futures",
  "lazy_static",
  "log",
@@ -3449,6 +3463,7 @@ dependencies = [
  "futures-core",
  "futures-sink",
  "pin-project-lite",
+ "slab",
  "tokio",
 ]
 
@@ -4754,6 +4769,40 @@ dependencies = [
  "waymark-jsonlines",
  "waymark-runner-executor-core",
  "waymark-vcr-core",
+ "waymark-worker-core",
+]
+
+[[package]]
+name = "waymark-vcr-playback"
+version = "0.1.0"
+dependencies = [
+ "dashmap 6.1.0",
+ "tokio",
+ "waymark-ids",
+ "waymark-jsonlines",
+ "waymark-runner-executor-core",
+ "waymark-vcr-core",
+ "waymark-vcr-file",
+ "waymark-vcr-playback-worker-pool-core",
+ "waymark-worker-core",
+]
+
+[[package]]
+name = "waymark-vcr-playback-worker-pool"
+version = "0.1.0"
+dependencies = [
+ "futures-util",
+ "nonempty-collections",
+ "tokio",
+ "tokio-util",
+ "waymark-vcr-playback-worker-pool-core",
+ "waymark-worker-core",
+]
+
+[[package]]
+name = "waymark-vcr-playback-worker-pool-core"
+version = "0.1.0"
+dependencies = [
  "waymark-worker-core",
 ]
 

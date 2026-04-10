@@ -58,6 +58,7 @@ waymark-utils-futures = { path = "crates/lib/utils-futures" }
 waymark-utils-tokio-channel = { path = "crates/lib/utils-tokio-channel" }
 waymark-vcr-core = { path = "crates/lib/vcr-core" }
 waymark-vcr-file = { path = "crates/lib/vcr-file" }
+waymark-vcr-playback-worker-pool-core = { path = "crates/lib/vcr-playback-worker-pool-core" }
 waymark-vcr-recorder = { path = "crates/lib/vcr-recorder" }
 waymark-webapp-backend = { path = "crates/lib/webapp-backend" }
 waymark-webapp-bringup = { path = "crates/lib/webapp-bringup" }
@@ -81,6 +82,7 @@ clap = "4.5"
 color-eyre = "0.6"
 console-subscriber = "0.5"
 cron = "0.12"
+dashmap = "6"
 either = "1"
 envfury = "0.2"
 function_name = "0.3"
