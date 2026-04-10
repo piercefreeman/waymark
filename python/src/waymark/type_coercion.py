@@ -12,6 +12,29 @@ from pydantic import BaseModel
 COERCIBLE_TYPES = (UUID, datetime, date, time, timedelta, Decimal, bytes, PurePath)
 
 
+def instantiate_typed_model(target_type: type, value: dict[str, Any]) -> Any:
+    """Instantiate a structured model type from a plain mapping payload.
+
+    Supported target types:
+    - Pydantic ``BaseModel`` subclasses, validated with ``model_validate``.
+    - Dataclass types, coerced via ``_coerce_dict_to_dataclass`` so nested
+      field types are honored, omitted fields can use dataclass defaults, and
+      unexpected keys are rejected.
+    - Plain Python classes that accept keyword arguments matching the payload
+      keys, instantiated directly as ``target_type(**value)``.
+
+    Primitive values and container coercion are handled by ``coerce_value``.
+    This helper is specifically for dict-like payloads that should become a
+    structured object instance.
+    """
+    if is_pydantic_model_type(target_type):
+        model_type = cast(type[BaseModel], target_type)
+        return model_type.model_validate(value)
+    if is_dataclass_type(target_type):
+        return _coerce_dict_to_dataclass(value, target_type)
+    return target_type(**value)
+
+
 def is_pydantic_model_type(target_type: Any) -> bool:
     try:
         return isinstance(target_type, type) and issubclass(target_type, BaseModel)
@@ -21,15 +44,6 @@ def is_pydantic_model_type(target_type: Any) -> bool:
 
 def is_dataclass_type(target_type: Any) -> bool:
     return isinstance(target_type, type) and dataclasses.is_dataclass(target_type)
-
-
-def instantiate_typed_model(target_type: type, value: dict[str, Any]) -> Any:
-    if is_pydantic_model_type(target_type):
-        model_type = cast(type[BaseModel], target_type)
-        return model_type.model_validate(value)
-    if is_dataclass_type(target_type):
-        return _coerce_dict_to_dataclass(value, target_type)
-    return target_type(**value)
 
 
 def coerce_value(value: Any, target_type: type) -> Any:
