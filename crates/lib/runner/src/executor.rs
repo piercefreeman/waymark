@@ -1729,7 +1729,7 @@ fn main(input: [], output: [result]):
         assert!(step.updates.is_none());
 
         let terminal_error = executor.terminal_error().cloned().expect("terminal error");
-        let Value::Object(error_obj) = &terminal_error.0 else {
+        let Value::Object(_) = &terminal_error.0 else {
             panic!("expected error payload object");
         };
         assert_eq!(
