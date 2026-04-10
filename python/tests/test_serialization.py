@@ -24,6 +24,18 @@ class SampleDataclass:
     count: int
 
 
+@dataclass
+class NestedSampleDataclass:
+    identifier: UUID
+    created_at: datetime
+
+
+@dataclass
+class SampleDataclassEnvelope:
+    item: NestedSampleDataclass
+    related_ids: list[UUID]
+
+
 def test_result_round_trip_with_basemodel() -> None:
     payload = serialize_result_payload(SampleModel(payload="hello"))
     decoded = deserialize_result_payload(payload)
@@ -92,6 +104,27 @@ def test_result_round_trip_with_dataclass() -> None:
     assert isinstance(decoded.result, SampleDataclass)
     assert decoded.result.payload == "world"
     assert decoded.result.count == 42
+
+
+def test_result_round_trip_with_nested_typed_dataclass() -> None:
+    created_at = datetime(2024, 1, 15, 10, 30, 45, tzinfo=timezone.utc)
+    identifier = UUID("12345678-1234-5678-1234-567812345678")
+    related_id = UUID("87654321-4321-8765-4321-876543218765")
+
+    payload = serialize_result_payload(
+        SampleDataclassEnvelope(
+            item=NestedSampleDataclass(identifier=identifier, created_at=created_at),
+            related_ids=[identifier, related_id],
+        )
+    )
+    decoded = deserialize_result_payload(payload)
+
+    assert decoded.error is None
+    assert isinstance(decoded.result, SampleDataclassEnvelope)
+    assert isinstance(decoded.result.item, NestedSampleDataclass)
+    assert decoded.result.item.identifier == identifier
+    assert decoded.result.item.created_at == created_at
+    assert decoded.result.related_ids == [identifier, related_id]
 
 
 class ModelWithUUID(BaseModel):

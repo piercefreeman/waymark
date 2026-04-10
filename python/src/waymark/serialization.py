@@ -13,6 +13,7 @@ from google.protobuf import json_format, struct_pb2
 from pydantic import BaseModel
 
 from waymark.proto import messages_pb2 as pb2
+from waymark.type_coercion import instantiate_typed_model
 
 NULL_VALUE = struct_pb2.NULL_VALUE  # type: ignore[attr-defined]
 
@@ -255,9 +256,7 @@ def _primitive_to_python(primitive: pb2.PrimitiveWorkflowArgument) -> Any:
 
 def _instantiate_serialized_model(module: str, name: str, model_data: dict[str, Any]) -> Any:
     cls = _import_symbol(module, name)
-    if hasattr(cls, "model_validate"):
-        return cls.model_validate(model_data)  # type: ignore[attr-defined]
-    return cls(**model_data)
+    return instantiate_typed_model(cls, model_data)
 
 
 def _is_base_model(value: Any) -> bool:
