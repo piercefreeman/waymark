@@ -1,0 +1,18 @@
+[package]
+name = "waymark-vcr-playback"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-core-backend = { workspace = true }
+waymark-ids = { workspace = true }
+waymark-jsonlines = { workspace = true }
+waymark-runner-executor-core = { workspace = true }
+waymark-vcr-core = { workspace = true }
+waymark-vcr-file = { workspace = true }
+waymark-vcr-playback-worker-pool-core = { workspace = true }
+waymark-worker-core = { workspace = true }
+
+dashmap = { workspace = true }
+tokio = { workspace = true, features = ["sync"] }

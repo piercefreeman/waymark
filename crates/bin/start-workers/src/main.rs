@@ -184,10 +184,23 @@ async fn main() -> Result<()> {
         }
     });
 
+    let file = tokio::fs::File::create("actions.jsonl").await?;
+    let writer = waymark_jsonlines::Writer::from(file);
+    let reorder_handle = waymark_vcr_recorder::Handle::new(1024);
+    let reorder_pool_handle = reorder_handle.pool_handle();
+    let recorder_task = tokio::spawn(waymark_vcr_recorder::r#loop(waymark_vcr_recorder::Params {
+        writer,
+        handle: reorder_handle,
+    }));
+
     // Run the runloop.
     let lock_uuid = LockId::new_uuid_v4();
-    let runloop = waymark_runloop::RunLoop::new_with_shutdown(
+    let runloop_remote_pool = waymark_vcr_recorder_worker_pool_bringup::with_vcr_recorder(
         remote_pool.clone(),
+        Some(reorder_pool_handle),
+    );
+    let runloop = waymark_runloop::RunLoop::new_with_shutdown(
+        runloop_remote_pool,
         backend.clone(),
         RunLoopConfig {
             max_concurrent_instances: config.max_concurrent_instances,
@@ -222,6 +235,7 @@ async fn main() -> Result<()> {
     let _ = tokio::time::timeout(Duration::from_secs(5), garbage_collector_handle).await;
     let _ = tokio::time::timeout(Duration::from_secs(2), status_reporter_handle).await;
     let _ = tokio::time::timeout(Duration::from_secs(2), expired_lock_reclaimer_handle).await;
+    let _ = tokio::time::timeout(Duration::from_secs(2), recorder_task).await;
 
     if let Err(err) = remote_pool.shutdown().await {
         warn!(error = %err, "worker pool shutdown failed");
