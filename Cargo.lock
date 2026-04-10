@@ -4778,6 +4778,7 @@ version = "0.1.0"
 dependencies = [
  "dashmap 6.1.0",
  "tokio",
+ "waymark-core-backend",
  "waymark-ids",
  "waymark-jsonlines",
  "waymark-runner-executor-core",
