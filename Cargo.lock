@@ -4784,6 +4784,46 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-vcr-recorder"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+ "tokio",
+ "tracing",
+ "uuid",
+ "waymark-core-backend",
+ "waymark-ids",
+ "waymark-jsonlines",
+ "waymark-vcr-core",
+ "waymark-vcr-file",
+ "waymark-worker-core",
+ "waymark-workflow-registry-backend",
+]
+
+[[package]]
+name = "waymark-vcr-recorder-backend"
+version = "0.1.0"
+dependencies = [
+ "nonempty-collections",
+ "tracing",
+ "waymark-backends-core",
+ "waymark-core-backend",
+ "waymark-ids",
+ "waymark-vcr-recorder",
+ "waymark-workflow-registry-backend",
+]
+
+[[package]]
+name = "waymark-vcr-recorder-worker-pool"
+version = "0.1.0"
+dependencies = [
+ "nonempty-collections",
+ "tracing",
+ "waymark-vcr-recorder",
+ "waymark-worker-core",
+]
+
+[[package]]
 name = "waymark-webapp-backend"
 version = "0.1.0"
 dependencies = [
