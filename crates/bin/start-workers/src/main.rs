@@ -60,10 +60,15 @@ async fn main() -> Result<()> {
     let metrics_addr: std::net::SocketAddr = envfury::or_parse("METRICS_ADDR", "0.0.0.0:9118")?;
     waymark_prometheus_exporter_bringup::spawn_and_install_recorder(metrics_addr)?;
 
+    let _task_monitor = waymark_tokio_metrics_bringup::bringup(env!("CARGO_BIN_NAME"));
+
     // Load configuration and announce startup.
     let config = WorkerConfig::from_env()?;
 
-    tracing::debug!(target: "raw-config", ?config, "raw config");
+    // Prepare a new Lock ID to use in the runloop.
+    let lock_uuid = LockId::new_uuid_v4();
+
+    tracing::debug!(target: "raw-config", ?config, %lock_uuid, "raw config");
 
     info!(
         worker_count = config.worker_count,
@@ -79,8 +84,43 @@ async fn main() -> Result<()> {
         garbage_collector_batch_size = config.garbage_collector.batch_size,
         garbage_collector_retention_secs = config.garbage_collector.retention.as_secs(),
         max_action_lifecycle = ?config.max_action_lifecycle,
+        %lock_uuid,
         "starting worker infrastructure"
     );
+
+    metrics::gauge!(
+        "waymark_start_workers_up",
+
+        "worker_count" => config.worker_count.to_string(),
+        "concurrent_per_worker" => config.concurrent_per_worker.to_string(),
+        "user_modules" => format!("{:?}", config.user_modules),
+
+        "lock_ttl_seconds" => config.lock_ttl.as_secs_f64().to_string(),
+        "lock_heartbeat_seconds" => config.lock_heartbeat.as_secs_f64().to_string(),
+
+        "evict_sleep_threshold_seconds" => config.evict_sleep_threshold.as_secs_f64().to_string(),
+
+        "expired_lock_reclaimer_interval_seconds" => config.expired_lock_reclaimer_interval.as_secs_f64().to_string(),
+        "expired_lock_reclaimer_interval_seconds" => config.expired_lock_reclaimer_interval.as_secs_f64().to_string(),
+        "expired_lock_reclaimer_batch_size" => config.expired_lock_reclaimer_batch_size.to_string(),
+
+        "garbage_collector_interval_seconds" => config.garbage_collector.interval.as_secs_f64().to_string(),
+        "garbage_collector_batch_size" => config.garbage_collector.batch_size.to_string(),
+        "garbage_collector_retention_seconds" => config.garbage_collector.retention.as_secs_f64().to_string(),
+
+        "max_action_lifecycle" => config.max_action_lifecycle.map(|val| val.to_string()).unwrap_or("no".into()),
+
+        "executor_shards" => config.executor_shards.to_string(),
+        "poll_interval_seconds" => config.poll_interval.map(|val| val.as_secs_f64().to_string()).unwrap_or("no".into()),
+        "max_concurrent_instances" => config.max_concurrent_instances.to_string(),
+        "instance_done_batch_size" => config.instance_done_batch_size.map(|val| val.to_string()).unwrap_or("no".into()),
+        "persistence_interval_seconds" => config.persistence_interval.map(|val| val.as_secs_f64().to_string()).unwrap_or("no".into()),
+
+        "profile_interval_seconds" => config.profile_interval.as_secs_f64().to_string(),
+
+        "lock_uuid" => lock_uuid.to_string(),
+    )
+    .set(1);
 
     // Wire shutdown coordination.
     let shutdown_token = tokio_util::sync::CancellationToken::new();
@@ -185,7 +225,6 @@ async fn main() -> Result<()> {
     });
 
     // Run the runloop.
-    let lock_uuid = LockId::new_uuid_v4();
     let runloop = waymark_runloop::RunLoop::new_with_shutdown(
         remote_pool.clone(),
         backend.clone(),

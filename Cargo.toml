@@ -27,6 +27,7 @@ waymark-ir-conversions = { path = "crates/lib/ir-conversions" }
 waymark-ir-format = { path = "crates/lib/ir-format" }
 waymark-ir-parser = { path = "crates/lib/ir-parser" }
 waymark-message-conversions = { path = "crates/lib/message-conversions" }
+waymark-metrics-util = { path = "crates/lib/metrics-util" }
 waymark-nonzero-duration = { path = "crates/lib/nonzero-duration" }
 waymark-observability = { path = "crates/lib/observability" }
 waymark-observability-macros = { path = "crates/lib/observability-macros" }
@@ -53,6 +54,7 @@ waymark-tick-loop = { path = "crates/lib/tick-loop" }
 waymark-timed = { path = "crates/lib/timed" }
 waymark-timed-channel = { path = "crates/lib/timed-channel" }
 waymark-timed-future = { path = "crates/lib/timed-future" }
+waymark-tokio-metrics-bringup = { path = "crates/lib/tokio-metrics-bringup" }
 waymark-utils-futures = { path = "crates/lib/utils-futures" }
 waymark-utils-tokio-channel = { path = "crates/lib/utils-tokio-channel" }
 waymark-webapp-backend = { path = "crates/lib/webapp-backend" }
@@ -107,6 +109,7 @@ syn = "2"
 tera = "1"
 thiserror = "2"
 tokio = "1"
+tokio-metrics = "0.4"
 tokio-stream = "0.1"
 tokio-util = "0.7"
 tonic = "0.11"
