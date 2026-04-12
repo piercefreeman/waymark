@@ -4775,6 +4775,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-vcr-bringup"
+version = "0.1.0"
+dependencies = [
+ "either",
+ "tokio",
+ "waymark-backends-core",
+ "waymark-core-backend",
+ "waymark-jsonlines",
+ "waymark-vcr-file",
+ "waymark-vcr-playback",
+ "waymark-vcr-playback-worker-pool",
+ "waymark-vcr-recorder",
+ "waymark-vcr-recorder-backend",
+ "waymark-vcr-recorder-worker-pool",
+ "waymark-workflow-registry-backend",
+]
+
+[[package]]
 name = "waymark-vcr-core"
 version = "0.1.0"
 dependencies = [

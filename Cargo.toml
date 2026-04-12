@@ -60,8 +60,12 @@ waymark-utils-futures = { path = "crates/lib/utils-futures" }
 waymark-utils-tokio-channel = { path = "crates/lib/utils-tokio-channel" }
 waymark-vcr-core = { path = "crates/lib/vcr-core" }
 waymark-vcr-file = { path = "crates/lib/vcr-file" }
+waymark-vcr-playback = { path = "crates/lib/vcr-playback" }
+waymark-vcr-playback-worker-pool = { path = "crates/lib/vcr-playback-worker-pool" }
 waymark-vcr-playback-worker-pool-core = { path = "crates/lib/vcr-playback-worker-pool-core" }
 waymark-vcr-recorder = { path = "crates/lib/vcr-recorder" }
+waymark-vcr-recorder-backend = { path = "crates/lib/vcr-recorder-backend" }
+waymark-vcr-recorder-worker-pool = { path = "crates/lib/vcr-recorder-worker-pool" }
 waymark-webapp-backend = { path = "crates/lib/webapp-backend" }
 waymark-webapp-bringup = { path = "crates/lib/webapp-bringup" }
 waymark-webapp-config = { path = "crates/lib/webapp-config" }
