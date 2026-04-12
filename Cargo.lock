@@ -4039,7 +4039,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "prost 0.12.6",
- "rand 0.8.5",
+ "rand 0.9.3",
  "serde_json",
  "sha2",
  "sqlx",
@@ -4507,7 +4507,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "cron",
- "rand 0.8.5",
+ "rand 0.9.3",
  "serde",
  "uuid",
  "waymark-ids",
@@ -4599,7 +4599,7 @@ dependencies = [
  "chrono",
  "clap",
  "prost 0.12.6",
- "rand 0.8.5",
+ "rand 0.9.3",
  "serde",
  "serde_json",
  "sha2",

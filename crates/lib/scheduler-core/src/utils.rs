@@ -78,7 +78,7 @@ pub fn apply_jitter(base: DateTime<Utc>, jitter_seconds: i64) -> Result<DateTime
     if jitter_seconds == 0 {
         return Ok(base);
     }
-    let jitter = rand::thread_rng().gen_range(0..=jitter_seconds);
+    let jitter = rand::rng().random_range(0..=jitter_seconds);
     Ok(base + chrono::Duration::seconds(jitter))
 }
 
