@@ -4,9 +4,14 @@ version.workspace = true
 publish.workspace = true
 edition = "2024"
 
+[features]
+default = ["either"]
+
 [dependencies]
 waymark-backends-core = { workspace = true }
 waymark-ids = { workspace = true }
+
+either = { workspace = true, optional = true }
 
 [lib]
 test = false

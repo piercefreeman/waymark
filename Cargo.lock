@@ -4915,6 +4915,7 @@ dependencies = [
 name = "waymark-workflow-registry-backend"
 version = "0.1.0"
 dependencies = [
+ "either",
  "waymark-backends-core",
  "waymark-ids",
 ]
