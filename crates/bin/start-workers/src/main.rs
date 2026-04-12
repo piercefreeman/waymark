@@ -224,10 +224,28 @@ async fn main() -> Result<()> {
         }
     });
 
+    let vcr = waymark_vcr_bringup::setup(waymark_vcr_bringup::Mode::Record {
+        log_file_path: format!("vcr-{lock_uuid}.jsonl").into(),
+        command_buffer_size: 1024.try_into().unwrap(),
+    })
+    .await?;
+
+    let mut vcr_player_task = None;
+    match vcr.more {
+        waymark_vcr_bringup::BringupMore::None => {}
+        waymark_vcr_bringup::BringupMore::Playback { player_params } => {
+            let waymark_vcr_bringup::playback::PlayerBringup { player_task } =
+                waymark_vcr_bringup::playback::player(player_params, backend.clone());
+            vcr_player_task = Some(player_task);
+        }
+    }
+
     // Run the runloop.
+    let runloop_remote_pool = waymark_vcr_bringup::pool(vcr.pool, remote_pool.clone());
+    let runloop_backend = waymark_vcr_bringup::backend(vcr.backend, backend.clone());
     let runloop = waymark_runloop::RunLoop::new_with_shutdown(
-        remote_pool.clone(),
-        backend.clone(),
+        runloop_remote_pool,
+        runloop_backend,
         RunLoopConfig {
             max_concurrent_instances: config.max_concurrent_instances,
             executor_shards: config.executor_shards,
@@ -261,6 +279,20 @@ async fn main() -> Result<()> {
     let _ = tokio::time::timeout(Duration::from_secs(5), garbage_collector_handle).await;
     let _ = tokio::time::timeout(Duration::from_secs(2), status_reporter_handle).await;
     let _ = tokio::time::timeout(Duration::from_secs(2), expired_lock_reclaimer_handle).await;
+
+    match vcr.tasks {
+        waymark_vcr_bringup::BringupTasks::Recorder { recorder } => {
+            let _ = tokio::time::timeout(Duration::from_secs(2), recorder).await;
+        }
+        waymark_vcr_bringup::BringupTasks::Playback { loader } => {
+            let _ = tokio::time::timeout(Duration::from_secs(2), loader).await;
+        }
+        waymark_vcr_bringup::BringupTasks::None => {}
+    }
+
+    if let Some(player_task) = vcr_player_task {
+        let _ = tokio::time::timeout(Duration::from_secs(2), player_task).await;
+    }
 
     if let Err(err) = remote_pool.shutdown().await {
         warn!(error = %err, "worker pool shutdown failed");

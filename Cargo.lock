@@ -4679,6 +4679,7 @@ dependencies = [
  "waymark-scheduler-loop",
  "waymark-scheduler-loop-core",
  "waymark-tokio-metrics-bringup",
+ "waymark-vcr-bringup",
  "waymark-webapp-bringup",
  "waymark-worker-remote",
  "waymark-worker-status-reporter",

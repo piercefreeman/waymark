@@ -58,6 +58,7 @@ waymark-timed-future = { path = "crates/lib/timed-future" }
 waymark-tokio-metrics-bringup = { path = "crates/lib/tokio-metrics-bringup" }
 waymark-utils-futures = { path = "crates/lib/utils-futures" }
 waymark-utils-tokio-channel = { path = "crates/lib/utils-tokio-channel" }
+waymark-vcr-bringup = { path = "crates/lib/vcr-bringup" }
 waymark-vcr-core = { path = "crates/lib/vcr-core" }
 waymark-vcr-file = { path = "crates/lib/vcr-file" }
 waymark-vcr-playback = { path = "crates/lib/vcr-playback" }
