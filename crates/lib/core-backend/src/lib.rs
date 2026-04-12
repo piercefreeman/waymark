@@ -1,6 +1,10 @@
 //! Core backend traits for waymark.
 
+#[cfg(feature = "either")]
+mod either;
+
 mod data;
+
 pub mod poll_queued_instances;
 
 use nonempty_collections::NEVec;

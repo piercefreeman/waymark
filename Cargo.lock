@@ -4147,6 +4147,7 @@ name = "waymark-core-backend"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "either",
  "nonempty-collections",
  "serde",
  "waymark-backends-core",
