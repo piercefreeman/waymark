@@ -2,15 +2,11 @@
 // have specified in our database/Postgres backend, but not 1:1. It's better for
 // us to internally convert within the given backend
 
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use waymark_dag::DAG;
 use waymark_runner_executor_core::{
     ExecutionException, ExecutionSuccess, UncheckedExecutionResult,
 };
@@ -24,8 +20,6 @@ pub struct QueuedInstance {
     pub workflow_version_id: Uuid,
     #[serde(default)]
     pub schedule_id: Option<Uuid>,
-    #[serde(skip, default)]
-    pub dag: Option<Arc<DAG>>,
     pub entry_node: ExecutionId,
     pub state: Option<RunnerState>,
     #[serde(

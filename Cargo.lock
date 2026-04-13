@@ -4153,7 +4153,6 @@ dependencies = [
  "serde",
  "uuid",
  "waymark-backends-core",
- "waymark-dag",
  "waymark-ids",
  "waymark-runner-executor-core",
  "waymark-runner-state",

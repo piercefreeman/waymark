@@ -4,15 +4,12 @@ use tracing::{debug, warn};
 use waymark_ids::{ExecutionId, InstanceId};
 use waymark_worker_core::ActionCompletion;
 
-use crate::shard;
+use crate::{hydrated_instance::HydratedInstance, shard};
 
 #[derive(Debug, thiserror::Error)]
 pub enum AssignInstancesError {
     #[error("queued instance missing runner state")]
     QueuedInstanceMissingRunnerState,
-
-    #[error("queued instance missing workflow DAG")]
-    QueuedInstanceMissingWorkflowDag,
 
     #[error("start: {0}")]
     Start(#[source] super::executor::StartError),
@@ -54,13 +51,15 @@ pub fn run_executor_shard(
 
     while let Ok(command) = receiver.recv() {
         match command {
-            shard::Command::AssignInstances(instances) => {
+            shard::Command::AssignInstances(hydrated_instances) => {
                 debug!(
                     shard_id,
-                    count = instances.len(),
+                    count = hydrated_instances.len(),
                     "assigning instances to shard"
                 );
-                for instance in instances {
+                for hydrated_instance in hydrated_instances {
+                    let HydratedInstance { instance, dag } = hydrated_instance;
+
                     // If the same instance id was reclaimed from the DB, we treat
                     // the prior in-memory executor as stale (e.g. stalled) and
                     // replace it with the freshly claimed state.
@@ -78,18 +77,6 @@ pub fn run_executor_shard(
                             instance.entry_node,
                             Error::AssignInstances(
                                 AssignInstancesError::QueuedInstanceMissingRunnerState,
-                            ),
-                            &sender,
-                        );
-                        continue;
-                    };
-
-                    let Some(dag) = instance.dag else {
-                        send_instance_failed(
-                            instance.instance_id,
-                            instance.entry_node,
-                            Error::AssignInstances(
-                                AssignInstancesError::QueuedInstanceMissingWorkflowDag,
                             ),
                             &sender,
                         );

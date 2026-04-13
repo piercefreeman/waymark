@@ -134,7 +134,6 @@ async fn run_program_smoke(case: &SmokeCase, worker_pool: RemoteWorkerPool) -> R
     queue.lock().expect("queue lock").push_back(QueuedInstance {
         workflow_version_id,
         schedule_id: None,
-        dag: None,
         entry_node: entry_exec.node_id,
         state: Some(state),
         action_results: HashMap::new(),

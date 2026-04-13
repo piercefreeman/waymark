@@ -1,28 +1,23 @@
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
-use uuid::Uuid;
+use nonempty_collections::{IntoNonEmptyIterator as _, NEVec, NonEmptyIterator as _};
 use waymark_core_backend::QueuedInstance;
-use waymark_proto::ast as ir;
+
+use crate::{hydrated_instance::HydratedInstance, runloop::WorkflowDagCache};
 
 pub struct Params<'a, WorkflowRegistryBackend: ?Sized> {
     /// Cache of workflow DAGs keyed by workflow version ID to avoid repeated hydration work.
-    pub workflow_cache: &'a mut HashMap<Uuid, Arc<waymark_dag::DAG>>,
+    pub workflow_cache: &'a mut WorkflowDagCache,
     /// Backend used to fetch workflow definitions that are missing from the local cache.
     pub registry_backend: &'a WorkflowRegistryBackend,
     /// Claimed instances that need DAG references attached before shard execution.
-    pub instances: &'a mut [QueuedInstance],
+    pub instances: NEVec<QueuedInstance>,
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("get workflow versions: {0}")]
-    GetWorkflowVersions(#[source] waymark_backends_core::BackendError),
-
-    #[error("invalid workflow IR: {0}")]
-    IrProgramDecode(#[source] prost::DecodeError),
-
-    #[error("invalid workflow DAG: {0}")]
-    ConvertToDag(#[source] waymark_dag_builder::DagConversionError),
+    #[error("caching missing DAGs: {0}")]
+    WorkflowDagCachePopulate(#[source] crate::runloop::workflow_dag_cache::PopulateError),
 
     #[error("workflow version not found: {workflow_version_id}")]
     WorkflowCacheGetNone { workflow_version_id: uuid::Uuid },
@@ -41,7 +36,7 @@ pub enum Error {
 /// Caching avoids repeated fetches for workflows used by multiple instances.
 pub async fn run<WorkflowRegistryBackend>(
     params: Params<'_, WorkflowRegistryBackend>,
-) -> Result<(), Error>
+) -> Result<NEVec<HydratedInstance>, Error>
 where
     WorkflowRegistryBackend: ?Sized + waymark_workflow_registry_backend::WorkflowRegistryBackend,
 {
@@ -51,36 +46,30 @@ where
         instances,
     } = params;
 
-    let mut missing = Vec::new();
-    for instance in instances.iter() {
-        if !workflow_cache.contains_key(&instance.workflow_version_id) {
-            missing.push(instance.workflow_version_id);
-        }
-    }
-    missing.sort();
-    missing.dedup();
+    workflow_cache
+        .populate(
+            registry_backend,
+            instances
+                .iter()
+                .map(|instance| instance.workflow_version_id),
+        )
+        .await
+        .map_err(Error::WorkflowDagCachePopulate)?;
 
-    if !missing.is_empty() {
-        let versions = registry_backend
-            .get_workflow_versions(&missing)
-            .await
-            .map_err(Error::GetWorkflowVersions)?;
-        for version in versions {
-            let program = <ir::Program as prost::Message>::decode(&version.program_proto[..])
-                .map_err(Error::IrProgramDecode)?;
-            let dag = waymark_dag_builder::convert_to_dag(&program).map_err(Error::ConvertToDag)?;
-            workflow_cache.insert(version.id, Arc::new(dag));
-        }
-    }
-
-    for instance in instances.iter_mut() {
+    let hydrate_instance = |instance: QueuedInstance| -> Result<HydratedInstance, _> {
         let dag = workflow_cache
             .get(&instance.workflow_version_id)
             .ok_or_else(|| Error::WorkflowCacheGetNone {
                 workflow_version_id: instance.workflow_version_id,
             })?;
-        instance.dag = Some(Arc::clone(dag));
-    }
+        let dag = Arc::clone(dag);
+        Ok(HydratedInstance { dag, instance })
+    };
 
-    Ok(())
+    let hydrated_instances = instances
+        .into_nonempty_iter()
+        .map(hydrate_instance)
+        .collect::<Result<NEVec<HydratedInstance>, Error>>()?;
+
+    Ok(hydrated_instances)
 }

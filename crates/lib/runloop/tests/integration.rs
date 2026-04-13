@@ -121,7 +121,6 @@ fn main(input: [x], output: [y]):
     queue.lock().expect("queue lock").push_back(QueuedInstance {
         workflow_version_id,
         schedule_id: None,
-        dag: None,
         entry_node: entry_exec.node_id,
         state: Some(state),
         action_results: HashMap::new(),
@@ -227,7 +226,6 @@ fn main(input: [x], output: [y]):
         queue.lock().expect("queue lock").push_back(QueuedInstance {
             workflow_version_id,
             schedule_id: None,
-            dag: None,
             entry_node: entry_exec.node_id,
             state: Some(state),
             action_results: HashMap::new(),
@@ -339,7 +337,6 @@ fn main(input: [x], output: [y]):
     queue.lock().expect("queue lock").push_back(QueuedInstance {
         workflow_version_id,
         schedule_id: None,
-        dag: None,
         entry_node: entry_exec.node_id,
         state: Some(state),
         action_results: HashMap::new(),
@@ -428,7 +425,6 @@ fn main(input: [], output: [y]):
     queue.lock().expect("queue lock").push_back(QueuedInstance {
         workflow_version_id,
         schedule_id: None,
-        dag: None,
         entry_node: entry_exec.node_id,
         state: Some(state),
         action_results: HashMap::new(),
@@ -543,7 +539,6 @@ fn main(input: [x], output: [y]):
     queue.lock().expect("queue lock").push_back(QueuedInstance {
         workflow_version_id,
         schedule_id: None,
-        dag: None,
         entry_node: entry_exec.node_id,
         state: Some(state),
         action_results: HashMap::new(),
@@ -691,7 +686,6 @@ fn main(input: [limit], output: [result]):
     queue.lock().expect("queue lock").push_back(QueuedInstance {
         workflow_version_id,
         schedule_id: None,
-        dag: None,
         entry_node: entry_exec.node_id,
         state: Some(state),
         action_results: HashMap::new(),
@@ -744,7 +738,6 @@ async fn test_runloop_reproduces_no_progress_with_continued_queue_growth() {
             .queue_instances(&[QueuedInstance {
                 workflow_version_id: Uuid::new_v4(),
                 schedule_id: None,
-                dag: None,
                 entry_node: ExecutionId::new_uuid_v4(),
                 state: None,
                 action_results: HashMap::new(),
@@ -881,7 +874,6 @@ fn main(input: [x], output: [y]):
     queue.lock().expect("queue lock").push_back(QueuedInstance {
         workflow_version_id,
         schedule_id: None,
-        dag: None,
         entry_node: action_exec.node_id,
         state: Some(state),
         action_results: HashMap::new(),
@@ -977,7 +969,6 @@ fn main(input: [], output: [result]):
     queue.lock().expect("queue lock").push_back(QueuedInstance {
         workflow_version_id,
         schedule_id: None,
-        dag: None,
         entry_node: entry_exec.node_id,
         state: Some(state),
         action_results: HashMap::new(),
@@ -1059,7 +1050,6 @@ fn main(input: [], output: [result]):
     queue.lock().expect("queue lock").push_back(QueuedInstance {
         workflow_version_id,
         schedule_id: None,
-        dag: None,
         entry_node: entry_exec.node_id,
         state: Some(state),
         action_results: HashMap::new(),
@@ -1139,7 +1129,6 @@ fn main(input: [], output: [result]):
     queue.lock().expect("queue lock").push_back(QueuedInstance {
         workflow_version_id,
         schedule_id: None,
-        dag: None,
         entry_node: entry_exec.node_id,
         state: Some(state),
         action_results: HashMap::new(),
