@@ -32,4 +32,3 @@ sha2 = { workspace = true }
 sqlx = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tracing = { workspace = true }
-uuid = { workspace = true }

@@ -12,12 +12,12 @@ use waymark_runner_executor_core::{
 };
 use waymark_runner_state::{ExecutionEdge, ExecutionNode, NodeStatus, RunnerState};
 
-use waymark_ids::{ExecutionId, InstanceId, LockId};
+use waymark_ids::{ExecutionId, InstanceId, LockId, WorkflowVersionId};
 
 /// Queued instance payload for the run loop.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct QueuedInstance {
-    pub workflow_version_id: Uuid,
+    pub workflow_version_id: WorkflowVersionId,
     #[serde(default)]
     pub schedule_id: Option<Uuid>,
     pub entry_node: ExecutionId,

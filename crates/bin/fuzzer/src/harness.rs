@@ -8,10 +8,9 @@ use anyhow::{Context, Result, bail};
 use prost::Message;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use uuid::Uuid;
 use waymark_backend_memory::MemoryBackend;
 use waymark_core_backend::QueuedInstance;
-use waymark_ids::{InstanceId, LockId};
+use waymark_ids::{InstanceId, LockId, WorkflowVersionId};
 use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBackend as _};
 
 use super::generator::GeneratedCase;
@@ -103,7 +102,7 @@ async fn register_workflow(
     case_index: usize,
     backend: &MemoryBackend,
     program: &ir::Program,
-) -> Result<Uuid> {
+) -> Result<WorkflowVersionId> {
     let program_proto = program.encode_to_vec();
     let ir_hash = format!("{:x}", Sha256::digest(&program_proto));
     backend
@@ -120,7 +119,7 @@ async fn register_workflow(
 
 fn build_instance(
     instance_id: InstanceId,
-    workflow_version_id: Uuid,
+    workflow_version_id: WorkflowVersionId,
     dag: Arc<waymark_dag::DAG>,
     base: i64,
 ) -> Result<QueuedInstance> {

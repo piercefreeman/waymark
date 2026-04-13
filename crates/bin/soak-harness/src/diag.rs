@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use sqlx::PgPool;
-use uuid::Uuid;
+use waymark_ids::WorkflowVersionId;
 
 use crate::data;
 use crate::flow::HealthSample;
@@ -16,7 +16,7 @@ struct DiagnosticBundle {
     reason: crate::flow::TerminationReason,
     generated_at: DateTime<Utc>,
     workflow_name: String,
-    workflow_version_id: Uuid,
+    workflow_version_id: WorkflowVersionId,
     queue_snapshot: data::QueueSnapshot,
     worker_status: Option<data::WorkerStatusSnapshot>,
     lock_owners: QueryCapture<data::LockOwnerRow>,

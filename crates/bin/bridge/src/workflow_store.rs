@@ -6,6 +6,7 @@ use uuid::Uuid;
 
 use waymark_backend_postgres::PostgresBackend;
 use waymark_core_backend::QueuedInstance;
+use waymark_ids::WorkflowVersionId;
 use waymark_proto::messages as proto;
 use waymark_runner_executor_core::{ExecutionException, ExecutionSuccess};
 use waymark_secret_string::SecretStr;
@@ -31,7 +32,7 @@ impl WorkflowStore {
     pub async fn upsert_workflow_version(
         &self,
         registration: &proto::WorkflowRegistration,
-    ) -> Result<Uuid> {
+    ) -> Result<WorkflowVersionId> {
         let workflow_version = if registration.workflow_version.is_empty() {
             registration.ir_hash.clone()
         } else {

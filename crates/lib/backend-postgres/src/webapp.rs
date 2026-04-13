@@ -11,7 +11,7 @@ use waymark_backends_core::{BackendError, BackendResult};
 use waymark_core_backend::{GraphUpdate, QueuedInstance};
 use waymark_dag::{DAGNode, EdgeType};
 use waymark_dag_builder::convert_to_dag;
-use waymark_ids::{ExecutionId, InstanceId};
+use waymark_ids::{ExecutionId, InstanceId, WorkflowVersionId};
 use waymark_ir_conversions::literal_from_json_value;
 use waymark_proto::ast as ir;
 use waymark_runner::replay_action_kwargs;
@@ -539,7 +539,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
             ))
         })?;
 
-        let workflow_version_id: Uuid = latest_version.get("id");
+        let workflow_version_id: WorkflowVersionId = latest_version.get("id");
         let program_proto: Vec<u8> = latest_version.get("program_proto");
         let program = ir::Program::decode(&program_proto[..])
             .map_err(|err| BackendError::Message(format!("failed to decode workflow IR: {err}")))?;
@@ -1438,7 +1438,7 @@ fn parse_input_assignment_label(label: &str) -> Option<(&str, &str)> {
 }
 
 fn build_queued_instance(
-    workflow_version_id: Uuid,
+    workflow_version_id: WorkflowVersionId,
     dag: Arc<waymark_dag::DAG>,
     input_payload: &serde_json::Map<String, Value>,
 ) -> BackendResult<QueuedInstance> {
@@ -1935,7 +1935,7 @@ mod tests {
     async fn insert_instance_with_input_graph(
         backend: &PostgresBackend,
         workflow_name: &str,
-        workflow_version_id: Uuid,
+        workflow_version_id: WorkflowVersionId,
     ) -> InstanceId {
         let instance_id = InstanceId::new_uuid_v4();
         let entry_node = ExecutionId::new_uuid_v4();
@@ -1993,7 +1993,10 @@ fn main(input: [items], output: [total]):
         program.encode_to_vec()
     }
 
-    async fn insert_workflow_version(backend: &PostgresBackend, workflow_name: &str) -> Uuid {
+    async fn insert_workflow_version(
+        backend: &PostgresBackend,
+        workflow_name: &str,
+    ) -> WorkflowVersionId {
         WorkflowRegistryBackend::upsert_workflow_version(
             backend,
             &WorkflowRegistration {
@@ -2008,7 +2011,10 @@ fn main(input: [items], output: [total]):
         .expect("insert workflow version")
     }
 
-    async fn insert_loop_workflow_version(backend: &PostgresBackend, workflow_name: &str) -> Uuid {
+    async fn insert_loop_workflow_version(
+        backend: &PostgresBackend,
+        workflow_name: &str,
+    ) -> WorkflowVersionId {
         WorkflowRegistryBackend::upsert_workflow_version(
             backend,
             &WorkflowRegistration {

@@ -16,8 +16,7 @@ use clap::Parser;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::Row;
-use uuid::Uuid;
-use waymark_ids::{InstanceId, LockId};
+use waymark_ids::{InstanceId, LockId, WorkflowVersionId};
 use waymark_runner_executor_core::{ExecutionException, ExecutionSuccess};
 use waymark_secret_string::SecretString;
 
@@ -609,7 +608,7 @@ where
 
 fn build_queued_instance(
     instance_id: InstanceId,
-    workflow_version_id: Uuid,
+    workflow_version_id: WorkflowVersionId,
     dag: Arc<DAG>,
     kwargs: &HashMap<String, Value>,
 ) -> Result<QueuedInstance> {

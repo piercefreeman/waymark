@@ -4,12 +4,11 @@ use std::sync::{
 };
 
 use nonempty_collections::NEVec;
-use uuid::Uuid;
 use waymark_backends_core::BackendResult;
 use waymark_core_backend::{
     CoreBackend, GraphUpdate, InstanceDone, InstanceLockStatus, LockClaim, QueuedInstance,
 };
-use waymark_ids::{InstanceId, LockId};
+use waymark_ids::{InstanceId, LockId, WorkflowVersionId};
 use waymark_workflow_registry_backend::{
     WorkflowRegistration, WorkflowRegistryBackend, WorkflowVersion,
 };
@@ -118,11 +117,14 @@ where
     async fn upsert_workflow_version(
         &self,
         registration: &WorkflowRegistration,
-    ) -> BackendResult<Uuid> {
+    ) -> BackendResult<WorkflowVersionId> {
         self.inner.upsert_workflow_version(registration).await
     }
 
-    async fn get_workflow_versions(&self, ids: &[Uuid]) -> BackendResult<Vec<WorkflowVersion>> {
+    async fn get_workflow_versions(
+        &self,
+        ids: &[WorkflowVersionId],
+    ) -> BackendResult<Vec<WorkflowVersion>> {
         self.inner.get_workflow_versions(ids).await
     }
 }

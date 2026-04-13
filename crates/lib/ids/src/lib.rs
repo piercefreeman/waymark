@@ -131,7 +131,13 @@ macro_rules! uuid_types {
     };
 }
 
-uuid_types![InstanceId, LockId, DispatchToken, ExecutionId];
+uuid_types![
+    InstanceId,
+    LockId,
+    DispatchToken,
+    ExecutionId,
+    WorkflowVersionId
+];
 
 #[deprecated = "use InstanceId instead"]
 pub type ExecutorId = InstanceId;

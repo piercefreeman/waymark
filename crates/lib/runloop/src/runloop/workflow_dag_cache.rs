@@ -3,12 +3,12 @@ use std::{
     sync::Arc,
 };
 
-use uuid::Uuid;
+use waymark_ids::WorkflowVersionId;
 use waymark_proto::ast as ir;
 
 #[derive(Debug, Default)]
 pub struct WorkflowDagCache {
-    map: HashMap<Uuid, Arc<waymark_dag::DAG>>,
+    map: HashMap<WorkflowVersionId, Arc<waymark_dag::DAG>>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -29,7 +29,7 @@ impl WorkflowDagCache {
     pub async fn populate<WorkflowRegistryBackend>(
         &mut self,
         registry_backend: &WorkflowRegistryBackend,
-        workflow_version_ids: impl IntoIterator<Item = uuid::Uuid>,
+        workflow_version_ids: impl IntoIterator<Item = WorkflowVersionId>,
     ) -> Result<(), PopulateError>
     where
         WorkflowRegistryBackend:
@@ -64,7 +64,7 @@ impl WorkflowDagCache {
         Ok(())
     }
 
-    pub fn get(&self, workflow_version_id: &uuid::Uuid) -> Option<&Arc<waymark_dag::DAG>> {
+    pub fn get(&self, workflow_version_id: &WorkflowVersionId) -> Option<&Arc<waymark_dag::DAG>> {
         self.map.get(workflow_version_id)
     }
 }
