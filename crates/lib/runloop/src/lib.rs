@@ -7,6 +7,7 @@ mod runloop;
 mod error_value;
 
 mod completions_polling;
+mod hydrated_instance;
 mod instance_lock_heartbeat;
 mod persist;
 mod queued_instances_polling;

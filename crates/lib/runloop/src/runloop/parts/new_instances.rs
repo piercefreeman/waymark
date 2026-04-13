@@ -13,7 +13,8 @@ use waymark_ids::{ExecutionId, InstanceId, LockId};
 use waymark_runner::SleepRequest;
 
 use crate::{
-    commit_barrier::CommitBarrier, instance_lock_heartbeat, runloop::InflightActionDispatch, shard,
+    commit_barrier::CommitBarrier, hydrated_instance::HydratedInstance, instance_lock_heartbeat,
+    runloop::InflightActionDispatch, shard,
 };
 
 #[cfg(test)]
@@ -95,24 +96,29 @@ where
         registry_backend,
         next_shard,
         shard_count,
-        mut all_instances,
+        all_instances,
     } = params;
 
     let params = super::ops::hydrate_instances::Params {
         workflow_cache,
         registry_backend,
-        instances: all_instances.as_mut(),
+        instances: all_instances,
     };
 
-    super::ops::hydrate_instances::run(params)
+    let hydrated_instances = super::ops::hydrate_instances::run(params)
         .await
         .map_err(Error::Hydrate)?;
-    debug!(count = all_instances.len(), "hydrated queued instances");
+    debug!(
+        count = hydrated_instances.len(),
+        "hydrated queued instances"
+    );
 
-    let mut by_shard: HashMap<usize, Vec<QueuedInstance>> = HashMap::new();
-    let mut claimed_instance_ids = Vec::with_capacity(all_instances.len().get());
+    let mut by_shard: HashMap<usize, Vec<HydratedInstance>> = HashMap::new();
+    let mut claimed_instance_ids = Vec::with_capacity(hydrated_instances.len().get());
     let mut replaced_instance_ids = Vec::new();
-    for instance in all_instances {
+    for hydrated_instance in hydrated_instances {
+        let instance = &hydrated_instance.instance;
+
         let shard_idx =
             if let Some(existing_shard_idx) = executor_shards.get(&instance.instance_id).copied() {
                 // If an already-active instance reappears from the queue, treat
@@ -134,7 +140,10 @@ where
                 shard_idx
             };
         claimed_instance_ids.push(instance.instance_id);
-        by_shard.entry(shard_idx).or_default().push(instance);
+        by_shard
+            .entry(shard_idx)
+            .or_default()
+            .push(hydrated_instance);
     }
 
     if !replaced_instance_ids.is_empty() {

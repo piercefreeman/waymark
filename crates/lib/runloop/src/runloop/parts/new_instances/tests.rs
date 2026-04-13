@@ -150,7 +150,6 @@ fn main(input: [x], output: [y]):
     let result = super::handle(harness.params(NEVec::new(QueuedInstance {
         workflow_version_id,
         schedule_id: None,
-        dag: None,
         entry_node: ExecutionId::new_uuid_v4(),
         state: None,
         action_results: HashMap::new(),
@@ -207,5 +206,5 @@ fn main(input: [x], output: [y]):
         panic!("expected AssignInstances command");
     };
     assert_eq!(batch.len(), 1);
-    assert_eq!(batch[0].instance_id, instance_id);
+    assert_eq!(batch[0].instance.instance_id, instance_id);
 }

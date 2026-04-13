@@ -1184,7 +1184,6 @@ mod tests {
         QueuedInstance {
             workflow_version_id: Uuid::new_v4(),
             schedule_id: None,
-            dag: None,
             entry_node,
             state: Some(sample_runner_state()),
             action_results: HashMap::new(),
@@ -1324,7 +1323,6 @@ mod tests {
         let queued = QueuedInstance {
             workflow_version_id,
             schedule_id: None,
-            dag: None,
             entry_node,
             state: Some(sample_runner_state()),
             action_results: HashMap::new(),

@@ -159,7 +159,6 @@ where
         let queued = QueuedInstance {
             workflow_version_id: workflow.version_id,
             schedule_id: Some(schedule.id),
-            dag: None,
             entry_node: entry_exec.node_id,
             state: Some(state),
             action_results: HashMap::new(),

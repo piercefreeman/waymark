@@ -681,11 +681,19 @@ where
                     // put the error into the "dumb" unified error.
                     let parts::new_instances::Error::Hydrate(error) = error;
                     let error = match error {
-                        ops::hydrate_instances::Error::GetWorkflowVersions(backend_error) => {
-                            backend_error.into()
-                        }
-                        err @ ops::hydrate_instances::Error::IrProgramDecode { .. }
-                        | err @ ops::hydrate_instances::Error::ConvertToDag { .. }
+                        ops::hydrate_instances::Error::CacheMissingDags(
+                            ops::hydrate_instances::CacheMissingDagsError::GetWorkflowVersions(
+                                backend_error,
+                            ),
+                        ) => backend_error.into(),
+                        err @ ops::hydrate_instances::Error::CacheMissingDags(
+                            ops::hydrate_instances::CacheMissingDagsError::IrProgramDecode {
+                                ..
+                            },
+                        )
+                        | err @ ops::hydrate_instances::Error::CacheMissingDags(
+                            ops::hydrate_instances::CacheMissingDagsError::ConvertToDag { .. },
+                        )
                         | err @ ops::hydrate_instances::Error::WorkflowCacheGetNone { .. } => {
                             Error::Message(err.to_string())
                         }
