@@ -20,7 +20,7 @@ pub struct QueuedInstance {
     #[serde(default)]
     pub schedule_id: Option<ScheduleId>,
     pub entry_node: ExecutionId,
-    pub state: Option<RunnerState>,
+    pub state: RunnerState,
     #[serde(
         default = "HashMap::new",
         deserialize_with = "deserialize_action_results"

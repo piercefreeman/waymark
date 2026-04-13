@@ -557,11 +557,12 @@ mod tests {
         let schedule_id = insert_schedule(&backend, "running-instance").await;
         let instance_id = InstanceId::new_uuid_v4();
         sqlx::query(
-            "INSERT INTO runner_instances (instance_id, entry_node, schedule_id) VALUES ($1, $2, $3)",
+            "INSERT INTO runner_instances (instance_id, entry_node, schedule_id, state) VALUES ($1, $2, $3, $4)",
         )
         .bind(instance_id)
         .bind(Uuid::new_v4())
         .bind(schedule_id)
+        .bind(Vec::<u8>::new())
         .execute(backend.pool())
         .await
         .expect("insert runner instance");

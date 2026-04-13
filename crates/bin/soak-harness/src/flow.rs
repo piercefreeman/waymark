@@ -410,7 +410,7 @@ fn build_instance(
         workflow_version_id: workflow.workflow_version_id,
         schedule_id: None,
         entry_node: entry_node.node_id,
-        state: Some(state),
+        state,
         action_results: HashMap::new(),
         instance_id: InstanceId::new_uuid_v4(),
         scheduled_at: None,
