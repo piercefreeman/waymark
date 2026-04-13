@@ -4530,6 +4530,7 @@ dependencies = [
  "waymark-ids",
  "waymark-ir-conversions",
  "waymark-proto",
+ "waymark-runner-expr",
 ]
 
 [[package]]

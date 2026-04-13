@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use waymark_ids::ExecutionId;
 
 use crate::util::is_truthy;
-use crate::value_visitor::{ValueExpr, collect_value_sources, resolve_value_tree};
+use crate::value_visitor::{collect_value_sources, resolve_value_tree};
 use waymark_dag::{
     ActionCallNode, AggregatorNode, AssignmentNode, DAG, DAGNode, EdgeType, FnCallNode, JoinNode,
     ReturnNode, SleepNode,
@@ -23,6 +23,20 @@ static MAX_RUNNER_STATE_NODES: std::sync::LazyLock<usize> = std::sync::LazyLock:
         .and_then(|s| s.parse().ok())
         .unwrap_or(10_000)
 });
+
+pub type ValueExpr = waymark_runner_expr::ValueExpr<ActionResultValue>;
+pub type LiteralValue = waymark_runner_expr::LiteralValue;
+pub type VariableValue = waymark_runner_expr::VariableValue;
+pub type BinaryOpValue = waymark_runner_expr::BinaryOpValue<ActionResultValue>;
+pub type UnaryOpValue = waymark_runner_expr::UnaryOpValue<ActionResultValue>;
+pub type ListValue = waymark_runner_expr::ListValue<ActionResultValue>;
+pub type DictValue = waymark_runner_expr::DictValue<ActionResultValue>;
+pub type DictEntryValue = waymark_runner_expr::DictEntryValue<ActionResultValue>;
+pub type IndexValue = waymark_runner_expr::IndexValue<ActionResultValue>;
+pub type DotValue = waymark_runner_expr::DotValue<ActionResultValue>;
+pub type FunctionCallValue = waymark_runner_expr::FunctionCallValue<ActionResultValue>;
+pub type SpreadValue = waymark_runner_expr::SpreadValue<ActionResultValue>;
+pub type ActionCallSpec = waymark_runner_expr::ActionCallSpec<ActionResultValue>;
 
 /// Raised when the runner state cannot be updated safely.
 #[derive(Debug, thiserror::Error)]
@@ -49,23 +63,6 @@ impl RunnerStateError {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ActionCallSpec {
-    pub action_name: String,
-    pub module_name: Option<String>,
-    pub kwargs: HashMap<String, ValueExpr>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct LiteralValue {
-    pub value: serde_json::Value,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct VariableValue {
-    pub name: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ActionResultValue {
     pub node_id: ExecutionId,
     pub action_name: String,
@@ -84,62 +81,6 @@ impl ActionResultValue {
         }
         label
     }
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct BinaryOpValue {
-    pub left: Box<ValueExpr>,
-    pub op: i32,
-    pub right: Box<ValueExpr>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct UnaryOpValue {
-    pub op: i32,
-    pub operand: Box<ValueExpr>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ListValue {
-    pub elements: Vec<ValueExpr>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct DictEntryValue {
-    pub key: ValueExpr,
-    pub value: ValueExpr,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct DictValue {
-    pub entries: Vec<DictEntryValue>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct IndexValue {
-    pub object: Box<ValueExpr>,
-    pub index: Box<ValueExpr>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct DotValue {
-    pub object: Box<ValueExpr>,
-    pub attribute: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct FunctionCallValue {
-    pub name: String,
-    pub args: Vec<ValueExpr>,
-    pub kwargs: HashMap<String, ValueExpr>,
-    pub global_function: Option<i32>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct SpreadValue {
-    pub collection: Box<ValueExpr>,
-    pub loop_var: String,
-    pub action: ActionCallSpec,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -542,6 +483,38 @@ impl RunnerState {
         )?;
         if let Some(node_mut) = self.nodes.get_mut(&node.node_id) {
             node_mut.value_expr = Some(ValueExpr::ActionResult(result.clone()));
+        }
+        Ok(result)
+    }
+
+    /// Queue an action spec.
+    pub fn queue_action_spec(
+        &mut self,
+        spec: ActionCallSpec,
+        targets: Option<Vec<String>>,
+        iteration_index: Option<i32>,
+    ) -> Result<ActionResultValue, RunnerStateError> {
+        let node = self.queue_node(
+            ExecutionNodeType::ActionCall.as_str(),
+            &format!("@{}()", spec.action_name),
+            QueueNodeParams {
+                targets: targets.clone(),
+                action: Some(spec.clone()),
+                ..QueueNodeParams::default()
+            },
+        )?;
+        for value in spec.kwargs.values() {
+            self.record_data_flow_from_value(node.node_id, value);
+        }
+        let result = self.assign_action_results(
+            &node,
+            &spec.action_name,
+            targets.as_deref(),
+            iteration_index,
+            true,
+        )?;
+        if let Some(node) = self.nodes.get_mut(&node.node_id) {
+            node.value_expr = Some(ValueExpr::ActionResult(result.clone()));
         }
         Ok(result)
     }
@@ -1116,8 +1089,12 @@ impl RunnerState {
         let resolved = resolve_value_tree(&value, &|name, seen| {
             self.resolve_variable_value(name, seen)
         });
-        if let ValueExpr::BinaryOp(BinaryOpValue { left, op, right }) = &resolved
-            && ir::BinaryOperator::try_from(*op).ok() == Some(ir::BinaryOperator::BinaryOpAdd)
+        if let ValueExpr::BinaryOp(BinaryOpValue {
+            ref left,
+            op,
+            ref right,
+        }) = resolved
+            && ir::BinaryOperator::try_from(op).ok() == Some(ir::BinaryOperator::BinaryOpAdd)
             && let (ValueExpr::List(left_list), ValueExpr::List(right_list)) = (&**left, &**right)
         {
             let mut elements = left_list.elements.clone();
