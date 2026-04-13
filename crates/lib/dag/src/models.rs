@@ -5,7 +5,6 @@ use std::collections::{HashMap, HashSet};
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 
-use waymark_ids::NodeUuid;
 use waymark_proto::ast as ir;
 
 use super::nodes::{
@@ -178,7 +177,6 @@ pub enum DAGNode {
 trait DagNodeView {
     fn id(&self) -> &str;
     fn function_name(&self) -> Option<&str>;
-    fn node_uuid(&self) -> &waymark_ids::NodeUuid;
     fn label(&self) -> String;
 }
 
@@ -210,10 +208,6 @@ macro_rules! impl_dag_node_view {
 
             fn function_name(&self) -> Option<&str> {
                 self.function_name.as_deref()
-            }
-
-            fn node_uuid(&self) -> &waymark_ids::NodeUuid {
-                &self.node_uuid
             }
 
             fn label(&self) -> String {
@@ -263,10 +257,6 @@ impl DAGNode {
 
     pub fn function_name(&self) -> Option<&str> {
         self.view().function_name()
-    }
-
-    pub fn node_uuid(&self) -> &NodeUuid {
-        self.view().node_uuid()
     }
 
     pub fn node_type(&self) -> &'static str {

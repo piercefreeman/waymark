@@ -2,8 +2,6 @@
 
 use std::collections::{HashMap, HashSet};
 
-use waymark_ids::NodeUuid;
-
 use crate::DagConversionError;
 
 use super::converter::DAGConverter;
@@ -288,7 +286,6 @@ impl DAGConverter {
 
             let mut cloned = node.clone();
             self.update_node_id(&mut cloned, &new_id);
-            self.update_node_uuid(&mut cloned);
             if let Some(prefix) = &id_prefix {
                 if let DAGNode::ActionCall(action_node) = &mut cloned
                     && let Some(aggregates_to) = &action_node.aggregates_to
@@ -435,25 +432,6 @@ impl DAGConverter {
             DAGNode::Continue(node) => node.id = new_id.to_string(),
             DAGNode::Sleep(node) => node.id = new_id.to_string(),
             DAGNode::Expression(node) => node.id = new_id.to_string(),
-        }
-    }
-
-    fn update_node_uuid(&self, node: &mut DAGNode) {
-        match node {
-            DAGNode::Input(node) => node.node_uuid = NodeUuid::new_uuid_v4(),
-            DAGNode::Output(node) => node.node_uuid = NodeUuid::new_uuid_v4(),
-            DAGNode::Assignment(node) => node.node_uuid = NodeUuid::new_uuid_v4(),
-            DAGNode::ActionCall(node) => node.node_uuid = NodeUuid::new_uuid_v4(),
-            DAGNode::FnCall(node) => node.node_uuid = NodeUuid::new_uuid_v4(),
-            DAGNode::Parallel(node) => node.node_uuid = NodeUuid::new_uuid_v4(),
-            DAGNode::Aggregator(node) => node.node_uuid = NodeUuid::new_uuid_v4(),
-            DAGNode::Branch(node) => node.node_uuid = NodeUuid::new_uuid_v4(),
-            DAGNode::Join(node) => node.node_uuid = NodeUuid::new_uuid_v4(),
-            DAGNode::Return(node) => node.node_uuid = NodeUuid::new_uuid_v4(),
-            DAGNode::Break(node) => node.node_uuid = NodeUuid::new_uuid_v4(),
-            DAGNode::Continue(node) => node.node_uuid = NodeUuid::new_uuid_v4(),
-            DAGNode::Sleep(node) => node.node_uuid = NodeUuid::new_uuid_v4(),
-            DAGNode::Expression(node) => node.node_uuid = NodeUuid::new_uuid_v4(),
         }
     }
 }

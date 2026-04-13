@@ -4,7 +4,6 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use waymark_ids::NodeUuid;
 use waymark_proto::ast as ir;
 
 /// Function entry node that declares input variables.
@@ -13,7 +12,6 @@ use waymark_proto::ast as ir;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct InputNode {
     pub id: String,
-    pub node_uuid: NodeUuid,
     pub function_name: Option<String>,
     pub io_vars: Vec<String>,
 }
@@ -22,7 +20,6 @@ impl InputNode {
     pub fn new(id: impl Into<String>, io_vars: Vec<String>, function_name: Option<String>) -> Self {
         Self {
             id: id.into(),
-            node_uuid: NodeUuid::new_uuid_v4(),
             function_name,
             io_vars,
         }
@@ -43,7 +40,6 @@ impl InputNode {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct OutputNode {
     pub id: String,
-    pub node_uuid: NodeUuid,
     pub function_name: Option<String>,
     pub io_vars: Vec<String>,
 }
@@ -52,7 +48,6 @@ impl OutputNode {
     pub fn new(id: impl Into<String>, io_vars: Vec<String>, function_name: Option<String>) -> Self {
         Self {
             id: id.into(),
-            node_uuid: NodeUuid::new_uuid_v4(),
             function_name,
             io_vars,
         }
@@ -69,7 +64,6 @@ impl OutputNode {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AssignmentNode {
     pub id: String,
-    pub node_uuid: NodeUuid,
     pub function_name: Option<String>,
     pub targets: Vec<String>,
     pub target: Option<String>,
@@ -89,7 +83,6 @@ impl AssignmentNode {
         let fallback = targets.first().cloned();
         Self {
             id: id.into(),
-            node_uuid: NodeUuid::new_uuid_v4(),
             function_name,
             targets,
             target: target.or(fallback),
@@ -123,7 +116,6 @@ impl AssignmentNode {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ActionCallNode {
     pub id: String,
-    pub node_uuid: NodeUuid,
     pub function_name: Option<String>,
     pub action_name: String,
     pub module_name: Option<String>,
@@ -175,7 +167,6 @@ impl ActionCallNode {
         let fallback = targets.as_ref().and_then(|items| items.first().cloned());
         Self {
             id: id.into(),
-            node_uuid: NodeUuid::new_uuid_v4(),
             function_name,
             action_name: action_name.into(),
             module_name,
@@ -227,7 +218,6 @@ impl ActionCallNode {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct FnCallNode {
     pub id: String,
-    pub node_uuid: NodeUuid,
     pub function_name: Option<String>,
     pub called_function: String,
     pub kwargs: HashMap<String, String>,
@@ -270,7 +260,6 @@ impl FnCallNode {
         let fallback = targets.as_ref().and_then(|items| items.first().cloned());
         Self {
             id: id.into(),
-            node_uuid: NodeUuid::new_uuid_v4(),
             function_name,
             called_function: called_function.into(),
             kwargs,
@@ -309,7 +298,6 @@ impl FnCallNode {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ParallelNode {
     pub id: String,
-    pub node_uuid: NodeUuid,
     pub function_name: Option<String>,
 }
 
@@ -317,7 +305,6 @@ impl ParallelNode {
     pub fn new(id: impl Into<String>, function_name: Option<String>) -> Self {
         Self {
             id: id.into(),
-            node_uuid: NodeUuid::new_uuid_v4(),
             function_name,
         }
     }
@@ -335,7 +322,6 @@ impl ParallelNode {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AggregatorNode {
     pub id: String,
-    pub node_uuid: NodeUuid,
     pub function_name: Option<String>,
     pub aggregates_from: String,
     pub targets: Option<Vec<String>>,
@@ -355,7 +341,6 @@ impl AggregatorNode {
         let fallback = targets.as_ref().and_then(|items| items.first().cloned());
         Self {
             id: id.into(),
-            node_uuid: NodeUuid::new_uuid_v4(),
             function_name,
             aggregates_from: aggregates_from.into(),
             targets,
@@ -391,7 +376,6 @@ impl AggregatorNode {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BranchNode {
     pub id: String,
-    pub node_uuid: NodeUuid,
     pub function_name: Option<String>,
     pub description: String,
 }
@@ -404,7 +388,6 @@ impl BranchNode {
     ) -> Self {
         Self {
             id: id.into(),
-            node_uuid: NodeUuid::new_uuid_v4(),
             function_name,
             description: description.into(),
         }
@@ -421,7 +404,6 @@ impl BranchNode {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct JoinNode {
     pub id: String,
-    pub node_uuid: NodeUuid,
     pub function_name: Option<String>,
     pub description: String,
     pub targets: Option<Vec<String>>,
@@ -439,7 +421,6 @@ impl JoinNode {
         let fallback = targets.as_ref().and_then(|items| items.first().cloned());
         Self {
             id: id.into(),
-            node_uuid: NodeUuid::new_uuid_v4(),
             function_name,
             description: description.into(),
             targets,
@@ -458,7 +439,6 @@ impl JoinNode {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ReturnNode {
     pub id: String,
-    pub node_uuid: NodeUuid,
     pub function_name: Option<String>,
     pub assign_expr: Option<ir::Expr>,
     pub targets: Option<Vec<String>>,
@@ -476,7 +456,6 @@ impl ReturnNode {
         let fallback = targets.as_ref().and_then(|items| items.first().cloned());
         Self {
             id: id.into(),
-            node_uuid: NodeUuid::new_uuid_v4(),
             function_name,
             assign_expr,
             targets,
@@ -493,7 +472,6 @@ impl ReturnNode {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct BreakNode {
     pub id: String,
-    pub node_uuid: NodeUuid,
     pub function_name: Option<String>,
 }
 
@@ -501,7 +479,6 @@ impl BreakNode {
     pub fn new(id: impl Into<String>, function_name: Option<String>) -> Self {
         Self {
             id: id.into(),
-            node_uuid: NodeUuid::new_uuid_v4(),
             function_name,
         }
     }
@@ -515,7 +492,6 @@ impl BreakNode {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ContinueNode {
     pub id: String,
-    pub node_uuid: NodeUuid,
     pub function_name: Option<String>,
 }
 
@@ -523,7 +499,6 @@ impl ContinueNode {
     pub fn new(id: impl Into<String>, function_name: Option<String>) -> Self {
         Self {
             id: id.into(),
-            node_uuid: NodeUuid::new_uuid_v4(),
             function_name,
         }
     }
@@ -537,7 +512,6 @@ impl ContinueNode {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SleepNode {
     pub id: String,
-    pub node_uuid: NodeUuid,
     pub function_name: Option<String>,
     pub duration_expr: Option<ir::Expr>,
     pub label_hint: Option<String>,
@@ -552,7 +526,6 @@ impl SleepNode {
     ) -> Self {
         Self {
             id: id.into(),
-            node_uuid: NodeUuid::new_uuid_v4(),
             function_name,
             duration_expr,
             label_hint,
@@ -570,7 +543,6 @@ impl SleepNode {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ExpressionNode {
     pub id: String,
-    pub node_uuid: NodeUuid,
     pub function_name: Option<String>,
 }
 
@@ -578,7 +550,6 @@ impl ExpressionNode {
     pub fn new(id: impl Into<String>, function_name: Option<String>) -> Self {
         Self {
             id: id.into(),
-            node_uuid: NodeUuid::new_uuid_v4(),
             function_name,
         }
     }
