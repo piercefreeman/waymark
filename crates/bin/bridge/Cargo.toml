@@ -38,4 +38,3 @@ tokio-stream = { workspace = true }
 tonic = { workspace = true }
 tonic-health = { workspace = true }
 tracing = { workspace = true }
-uuid = { workspace = true }

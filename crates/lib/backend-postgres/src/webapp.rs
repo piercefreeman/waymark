@@ -5,8 +5,6 @@ use prost::Message;
 use serde_json::Value;
 use sqlx::{Postgres, QueryBuilder, Row};
 
-use uuid::Uuid;
-
 use waymark_backends_core::{BackendError, BackendResult};
 use waymark_core_backend::{GraphUpdate, QueuedInstance};
 use waymark_dag::{DAGNode, EdgeType};
@@ -938,7 +936,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
                 .get::<Option<DateTime<Utc>>, _>("last_run_at")
                 .map(|dt| dt.to_rfc3339()),
             last_instance_id: row
-                .get::<Option<Uuid>, _>("last_instance_id")
+                .get::<Option<InstanceId>, _>("last_instance_id")
                 .map(|id| id.to_string()),
             created_at: row.get::<DateTime<Utc>, _>("created_at").to_rfc3339(),
             updated_at: row.get::<DateTime<Utc>, _>("updated_at").to_rfc3339(),

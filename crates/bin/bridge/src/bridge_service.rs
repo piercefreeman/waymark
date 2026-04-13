@@ -175,7 +175,9 @@ impl proto::workflow_service_server::WorkflowService for BridgeService {
             .as_ref()
             .ok_or_else(|| Status::failed_precondition("bridge running in memory mode"))?;
         let request = request.into_inner();
-        let instance_id = Uuid::parse_str(&request.instance_id)
+        let instance_id: InstanceId = request
+            .instance_id
+            .parse()
             .map_err(|_| Status::invalid_argument("invalid instance_id"))?;
         let poll_interval = Duration::from_secs_f64(request.poll_interval_secs.max(0.1));
 

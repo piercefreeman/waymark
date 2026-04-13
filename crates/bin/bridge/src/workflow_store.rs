@@ -2,11 +2,10 @@ use std::time::Duration;
 
 use anyhow::Result;
 use sqlx::{PgPool, Row};
-use uuid::Uuid;
 
 use waymark_backend_postgres::PostgresBackend;
 use waymark_core_backend::QueuedInstance;
-use waymark_ids::WorkflowVersionId;
+use waymark_ids::{InstanceId, WorkflowVersionId};
 use waymark_proto::messages as proto;
 use waymark_runner_executor_core::{ExecutionException, ExecutionSuccess};
 use waymark_secret_string::SecretStr;
@@ -60,7 +59,7 @@ impl WorkflowStore {
 
     pub async fn wait_for_instance(
         &self,
-        instance_id: Uuid,
+        instance_id: InstanceId,
         poll_interval: Duration,
     ) -> Result<Option<proto::WorkflowArguments>> {
         loop {

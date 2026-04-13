@@ -40,7 +40,6 @@ sqlx = { workspace = true, features = ["postgres", "uuid", "chrono", "runtime-to
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros"] }
 tracing = { workspace = true }
-uuid = { workspace = true }
 
 [dev-dependencies]
 waymark-ir-parser = { workspace = true }

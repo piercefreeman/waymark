@@ -47,6 +47,12 @@ wrappers = [
   "tracing-error",
 ]
 
+[[bans.deny]]
+name = "uuid"
+use-instead = "waymark-ids"
+reason = "you should use waymark-ids for the IDs; if this is not what you need it for - add your crate to wrappers below"
+wrappers = ["waymark-ids", "sqlx-core", "sqlx-postgres", "waymark-dag"]
+
 [sources]
 unknown-registry = "warn"
 unknown-git = "warn"
