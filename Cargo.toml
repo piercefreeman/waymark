@@ -38,6 +38,7 @@ waymark-proto = { path = "crates/lib/proto" }
 waymark-runloop = { path = "crates/lib/runloop" }
 waymark-runner = { path = "crates/lib/runner" }
 waymark-runner-eval-core = { path = "crates/lib/runner-eval-core" }
+waymark-runner-eval-dag = { path = "crates/lib/runner-eval-dag" }
 waymark-runner-executor-core = { path = "crates/lib/runner-executor-core" }
 waymark-runner-expr = { path = "crates/lib/runner-expr" }
 waymark-runner-expr-fmt = { path = "crates/lib/runner-expr-fmt" }

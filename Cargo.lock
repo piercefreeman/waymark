@@ -4488,6 +4488,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-runner-eval-dag"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "waymark-dag",
+ "waymark-ids",
+ "waymark-ir-conversions",
+ "waymark-proto",
+ "waymark-runner-eval-core",
+ "waymark-runner-state",
+]
+
+[[package]]
 name = "waymark-runner-executor-core"
 version = "0.1.0"
 dependencies = [
