@@ -1,9 +1,9 @@
 use chrono::Utc;
 use waymark_backends_core::{BackendError, BackendResult};
-use waymark_ids::InstanceId;
+use waymark_ids::{InstanceId, ScheduleId};
 use waymark_scheduler_backend::SchedulerBackend;
 use waymark_scheduler_core::{
-    CreateScheduleParams, ScheduleId, ScheduleType, WorkflowSchedule, compute_next_run,
+    CreateScheduleParams, ScheduleType, WorkflowSchedule, compute_next_run,
 };
 
 impl SchedulerBackend for crate::MemoryBackend {
@@ -21,7 +21,7 @@ impl SchedulerBackend for crate::MemoryBackend {
         let schedule_id = existing_schedule
             .as_ref()
             .map(|(id, _)| *id)
-            .unwrap_or_else(ScheduleId::new);
+            .unwrap_or_else(ScheduleId::new_uuid_v4);
         let now = Utc::now();
         let next_run_at = match existing_schedule
             .as_ref()
@@ -40,7 +40,7 @@ impl SchedulerBackend for crate::MemoryBackend {
             ),
         };
         let schedule = WorkflowSchedule {
-            id: schedule_id.0,
+            id: schedule_id,
             workflow_name: params.workflow_name.clone(),
             schedule_name: params.schedule_name.clone(),
             schedule_type: params.schedule_type.as_str().to_string(),

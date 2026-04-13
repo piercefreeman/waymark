@@ -1,6 +1,6 @@
 pub use waymark_backends_core::{BackendError, BackendResult};
-use waymark_ids::InstanceId;
-use waymark_scheduler_core::{CreateScheduleParams, ScheduleId, WorkflowSchedule};
+use waymark_ids::{InstanceId, ScheduleId};
+use waymark_scheduler_core::{CreateScheduleParams, WorkflowSchedule};
 
 /// Backend capability for workflow schedule persistence.
 pub trait SchedulerBackend {

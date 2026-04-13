@@ -13,7 +13,7 @@ use waymark_ids::InstanceId;
 use waymark_ir_conversions::literal_from_json_value;
 use waymark_proto::messages as proto;
 use waymark_scheduler_config::SchedulerConfig;
-use waymark_scheduler_core::{ScheduleId, WorkflowSchedule};
+use waymark_scheduler_core::WorkflowSchedule;
 
 /// Background scheduler task.
 pub struct SchedulerTask<Backend, DagResolver> {
@@ -77,11 +77,7 @@ where
                     "failed to fire schedule"
                 );
                 // Skip to next run time to avoid retrying immediately
-                if let Err(skip_err) = self
-                    .backend
-                    .skip_schedule_run(ScheduleId(schedule.id))
-                    .await
-                {
+                if let Err(skip_err) = self.backend.skip_schedule_run(schedule.id).await {
                     error!(error = ?skip_err, "failed to skip schedule run");
                 }
             }
@@ -96,19 +92,14 @@ where
         schedule: &WorkflowSchedule,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Check for duplicates if not allowed
-        if !schedule.allow_duplicate
-            && self
-                .backend
-                .has_running_instance(ScheduleId(schedule.id))
-                .await?
-        {
+        if !schedule.allow_duplicate && self.backend.has_running_instance(schedule.id).await? {
             debug!(
                 schedule_id = %schedule.id,
                 "skipping schedule due to running instance"
             );
             return self
                 .backend
-                .skip_schedule_run(ScheduleId(schedule.id))
+                .skip_schedule_run(schedule.id)
                 .await
                 .map_err(|e| e.into());
         }
@@ -171,7 +162,7 @@ where
 
         // Mark the schedule as executed
         self.backend
-            .mark_schedule_executed(ScheduleId(schedule.id), instance_id)
+            .mark_schedule_executed(schedule.id, instance_id)
             .await?;
 
         info!(

@@ -4149,7 +4149,6 @@ dependencies = [
  "chrono",
  "nonempty-collections",
  "serde",
- "uuid",
  "waymark-backends-core",
  "waymark-ids",
  "waymark-runner-executor-core",
@@ -4527,7 +4526,6 @@ dependencies = [
  "cron",
  "rand 0.9.3",
  "serde",
- "uuid",
  "waymark-ids",
 ]
 
@@ -4766,7 +4764,6 @@ dependencies = [
 name = "waymark-webapp-backend"
 version = "0.1.0"
 dependencies = [
- "uuid",
  "waymark-backends-core",
  "waymark-ids",
  "waymark-webapp-core",

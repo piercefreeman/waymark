@@ -13,7 +13,6 @@ waymark-runner-state = { workspace = true }
 chrono = { workspace = true }
 nonempty-collections = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
-uuid = { workspace = true }
 
 [lib]
 test = false

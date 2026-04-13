@@ -24,8 +24,8 @@ use std::sync::{Arc, Mutex};
 use chrono::{DateTime, Utc};
 
 use waymark_core_backend::{ActionDone, GraphUpdate, InstanceDone, QueuedInstance};
-use waymark_ids::{InstanceId, LockId, WorkflowVersionId};
-use waymark_scheduler_core::{ScheduleId, WorkflowSchedule};
+use waymark_ids::{InstanceId, LockId, ScheduleId, WorkflowVersionId};
+use waymark_scheduler_core::WorkflowSchedule;
 use waymark_worker_status_backend::WorkerStatusUpdate;
 use waymark_workflow_registry_backend::WorkflowRegistration;
 
