@@ -137,7 +137,8 @@ uuid_types![
     DispatchToken,
     ExecutionId,
     WorkflowVersionId,
-    ScheduleId
+    ScheduleId,
+    NodeUuid
 ];
 
 #[deprecated = "use InstanceId instead"]

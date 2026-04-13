@@ -2,7 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use uuid::Uuid;
+use waymark_ids::NodeUuid;
 
 use crate::DagConversionError;
 
@@ -440,20 +440,20 @@ impl DAGConverter {
 
     fn update_node_uuid(&self, node: &mut DAGNode) {
         match node {
-            DAGNode::Input(node) => node.node_uuid = Uuid::new_v4(),
-            DAGNode::Output(node) => node.node_uuid = Uuid::new_v4(),
-            DAGNode::Assignment(node) => node.node_uuid = Uuid::new_v4(),
-            DAGNode::ActionCall(node) => node.node_uuid = Uuid::new_v4(),
-            DAGNode::FnCall(node) => node.node_uuid = Uuid::new_v4(),
-            DAGNode::Parallel(node) => node.node_uuid = Uuid::new_v4(),
-            DAGNode::Aggregator(node) => node.node_uuid = Uuid::new_v4(),
-            DAGNode::Branch(node) => node.node_uuid = Uuid::new_v4(),
-            DAGNode::Join(node) => node.node_uuid = Uuid::new_v4(),
-            DAGNode::Return(node) => node.node_uuid = Uuid::new_v4(),
-            DAGNode::Break(node) => node.node_uuid = Uuid::new_v4(),
-            DAGNode::Continue(node) => node.node_uuid = Uuid::new_v4(),
-            DAGNode::Sleep(node) => node.node_uuid = Uuid::new_v4(),
-            DAGNode::Expression(node) => node.node_uuid = Uuid::new_v4(),
+            DAGNode::Input(node) => node.node_uuid = NodeUuid::new_uuid_v4(),
+            DAGNode::Output(node) => node.node_uuid = NodeUuid::new_uuid_v4(),
+            DAGNode::Assignment(node) => node.node_uuid = NodeUuid::new_uuid_v4(),
+            DAGNode::ActionCall(node) => node.node_uuid = NodeUuid::new_uuid_v4(),
+            DAGNode::FnCall(node) => node.node_uuid = NodeUuid::new_uuid_v4(),
+            DAGNode::Parallel(node) => node.node_uuid = NodeUuid::new_uuid_v4(),
+            DAGNode::Aggregator(node) => node.node_uuid = NodeUuid::new_uuid_v4(),
+            DAGNode::Branch(node) => node.node_uuid = NodeUuid::new_uuid_v4(),
+            DAGNode::Join(node) => node.node_uuid = NodeUuid::new_uuid_v4(),
+            DAGNode::Return(node) => node.node_uuid = NodeUuid::new_uuid_v4(),
+            DAGNode::Break(node) => node.node_uuid = NodeUuid::new_uuid_v4(),
+            DAGNode::Continue(node) => node.node_uuid = NodeUuid::new_uuid_v4(),
+            DAGNode::Sleep(node) => node.node_uuid = NodeUuid::new_uuid_v4(),
+            DAGNode::Expression(node) => node.node_uuid = NodeUuid::new_uuid_v4(),
         }
     }
 }
