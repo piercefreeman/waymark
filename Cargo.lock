@@ -4567,6 +4567,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-runner-eval-core"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "thiserror",
+ "waymark-ir-conversions",
+ "waymark-proto",
+ "waymark-runner-expr",
+]
+
+[[package]]
 name = "waymark-runner-execution-core"
 version = "0.1.0"
 dependencies = [
