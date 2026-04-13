@@ -4579,6 +4579,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-runner-eval-dag"
+version = "0.1.0"
+dependencies = [
+ "waymark-dag",
+ "waymark-runner-eval-core",
+]
+
+[[package]]
 name = "waymark-runner-execution-core"
 version = "0.1.0"
 dependencies = [
