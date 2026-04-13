@@ -193,10 +193,9 @@ mod tests {
     use chrono::{Duration as ChronoDuration, Utc};
     use prost::Message;
     use serde_json::Value;
-    use uuid::Uuid;
     use waymark_backend_memory::MemoryBackend;
     use waymark_core_backend::{CoreBackend, LockClaim};
-    use waymark_ids::LockId;
+    use waymark_ids::{LockId, WorkflowVersionId};
     use waymark_scheduler_backend::SchedulerBackend;
     use waymark_scheduler_config::SchedulerConfig;
     use waymark_scheduler_core::{CreateScheduleParams, ScheduleType};
@@ -245,7 +244,7 @@ fn main(input: [number], output: [result]):
             async move {
                 if matches {
                     Ok::<_, std::convert::Infallible>(Some(WorkflowDag {
-                        version_id: Uuid::new_v4(),
+                        version_id: WorkflowVersionId::new_uuid_v4(),
                         dag: resolver_dag,
                     }))
                 } else {

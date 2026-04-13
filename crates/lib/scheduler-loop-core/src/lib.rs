@@ -1,12 +1,12 @@
 use std::future::Future;
 use std::sync::Arc;
 
-use uuid::Uuid;
 use waymark_dag::DAG;
+use waymark_ids::WorkflowVersionId;
 
 #[derive(Clone)]
 pub struct WorkflowDag {
-    pub version_id: Uuid,
+    pub version_id: WorkflowVersionId,
     pub dag: Arc<DAG>,
 }
 

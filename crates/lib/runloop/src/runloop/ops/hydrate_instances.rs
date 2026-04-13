@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use nonempty_collections::{IntoNonEmptyIterator as _, NEVec, NonEmptyIterator as _};
 use waymark_core_backend::QueuedInstance;
+use waymark_ids::WorkflowVersionId;
 
 use crate::{hydrated_instance::HydratedInstance, runloop::WorkflowDagCache};
 
@@ -20,7 +21,9 @@ pub enum Error {
     WorkflowDagCachePopulate(#[source] crate::runloop::workflow_dag_cache::PopulateError),
 
     #[error("workflow version not found: {workflow_version_id}")]
-    WorkflowCacheGetNone { workflow_version_id: uuid::Uuid },
+    WorkflowCacheGetNone {
+        workflow_version_id: WorkflowVersionId,
+    },
 }
 
 /// Loads and caches workflow DAG definitions for instances.
