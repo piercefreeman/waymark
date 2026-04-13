@@ -16,9 +16,7 @@ use waymark_ir_conversions::literal_from_json_value;
 use waymark_proto::ast as ir;
 use waymark_runner::replay_action_kwargs;
 use waymark_runner_executor_core::UncheckedExecutionResult;
-use waymark_runner_state::{
-    ActionCallSpec, ExecutionNode, NodeStatus, RunnerState, ValueExpr, format_value,
-};
+use waymark_runner_state::{ActionCallSpec, ExecutionNode, NodeStatus, RunnerState, ValueExpr};
 use waymark_timed_future::TimedFutureExt as _;
 use waymark_webapp_core::{
     ExecutionEdgeView, ExecutionGraphView, ExecutionNodeView, InstanceDetail, InstanceStatus,
@@ -1278,7 +1276,12 @@ fn format_symbolic_kwargs(action: &ActionCallSpec) -> String {
     let rendered_map: serde_json::Map<String, Value> = action
         .kwargs
         .iter()
-        .map(|(name, expr)| (name.clone(), Value::String(format_value(expr))))
+        .map(|(name, expr)| {
+            (
+                name.clone(),
+                Value::String(waymark_runner_expr_fmt::format_value(expr)),
+            )
+        })
         .collect();
     pretty_json(&Value::Object(rendered_map))
 }
@@ -1490,7 +1493,7 @@ fn value_expr_to_json(value_expr: &ValueExpr) -> Value {
             }
             Value::Object(map)
         }
-        _ => Value::String(format_value(value_expr)),
+        _ => Value::String(waymark_runner_expr_fmt::format_value(value_expr)),
     }
 }
 
