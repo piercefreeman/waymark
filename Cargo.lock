@@ -4492,6 +4492,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-runner-expr-fmt"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "waymark-proto",
+ "waymark-runner-expr",
+]
+
+[[package]]
 name = "waymark-runner-retry-policy"
 version = "0.1.0"
 dependencies = [
