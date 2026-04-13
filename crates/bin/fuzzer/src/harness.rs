@@ -123,7 +123,7 @@ fn build_instance(
     dag: Arc<waymark_dag::DAG>,
     base: i64,
 ) -> Result<QueuedInstance> {
-    let mut state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
+    let mut state = RunnerState::from_dag(Arc::clone(&dag));
     state
         .record_assignment(
             vec!["base".to_string()],

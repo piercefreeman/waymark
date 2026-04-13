@@ -124,8 +124,7 @@ where
             .as_ref()
             .ok_or_else(|| "DAG has no entry node".to_string())?;
 
-        let mut state =
-            waymark_runner_state::RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
+        let mut state = waymark_runner_state::RunnerState::from_dag(Arc::clone(&dag));
         if let Some(input_payload) = schedule.input_payload.as_deref() {
             let input_payload = proto::WorkflowArguments::decode(input_payload)
                 .map_err(|_| "failed to decode schedule input payload".to_string())?;

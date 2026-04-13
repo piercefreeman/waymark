@@ -831,8 +831,7 @@ impl PostgresBackend {
                     action_node_ids_by_instance.insert(instance_id, action_node_ids);
                 }
 
-                instance.state =
-                    RunnerState::new(None, Some(graph.nodes), Some(graph.edges), false);
+                instance.state = RunnerState::from_parts(graph.nodes, graph.edges);
 
                 Ok(instance)
             })

@@ -612,7 +612,7 @@ fn build_queued_instance(
     dag: Arc<DAG>,
     kwargs: &HashMap<String, Value>,
 ) -> Result<QueuedInstance> {
-    let mut state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
+    let mut state = RunnerState::from_dag(Arc::clone(&dag));
 
     for (name, value) in kwargs {
         let expr = literal_from_json_value(value);

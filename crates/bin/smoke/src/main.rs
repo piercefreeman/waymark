@@ -85,7 +85,7 @@ async fn run_program_smoke(case: &SmokeCase, worker_pool: RemoteWorkerPool) -> R
         output_path.display()
     );
 
-    let mut state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
+    let mut state = RunnerState::from_dag(Arc::clone(&dag));
     let queue = Arc::new(Mutex::new(VecDeque::new()));
     let backend = MemoryBackend::with_queue(queue.clone());
     let workflow_version_id = backend
