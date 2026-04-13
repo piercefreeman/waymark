@@ -12,8 +12,8 @@ use waymark_proto::ast as ir;
 use waymark_runner_executor_core::ExecutionException;
 use waymark_runner_state::{
     ActionCallSpec, ActionResultValue, BinaryOpValue, DictEntryValue, DictValue, DotValue,
-    FunctionCallValue, IndexValue, ListValue, LiteralValue, UnaryOpValue, VariableValue,
-    value_visitor::{ValueExpr, ValueExprEvaluator},
+    FunctionCallValue, IndexValue, ListValue, LiteralValue, UnaryOpValue, ValueExpr, VariableValue,
+    value_visitor::ValueExprEvaluator,
 };
 
 use super::{RunnerExecutor, RunnerExecutorError};
@@ -685,7 +685,7 @@ mod tests {
     use waymark_runner_executor_core::UncheckedExecutionResult;
     use waymark_runner_state::{
         ActionCallSpec, ActionResultValue, BinaryOpValue, FunctionCallValue, LiteralValue,
-        RunnerState, VariableValue, value_visitor::ValueExpr,
+        RunnerState, ValueExpr, VariableValue,
     };
 
     fn parse_expr(source: &str) -> ir::Expr {

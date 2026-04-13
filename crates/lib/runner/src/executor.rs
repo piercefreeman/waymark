@@ -19,10 +19,9 @@ use waymark_proto::ast as ir;
 use waymark_runner_executor_core::{
     ExecutionException, ExecutionSuccess, UncheckedExecutionResult,
 };
-use waymark_runner_state::value_visitor::ValueExpr;
 use waymark_runner_state::{
     ActionCallSpec, ExecutionEdge, ExecutionNode, ExecutionNodeType, IndexValue, ListValue,
-    LiteralValue, NodeStatus, QueueNodeParams, RunnerState, RunnerStateError,
+    LiteralValue, NodeStatus, QueueNodeParams, RunnerState, RunnerStateError, ValueExpr,
 };
 
 use crate::action_done_status;
