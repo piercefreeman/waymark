@@ -14,7 +14,7 @@ use serde::Serialize;
 use tera::{Context as TeraContext, Tera};
 use tracing::error;
 use uuid::Uuid;
-use waymark_ids::InstanceId;
+use waymark_ids::{InstanceId, ScheduleId};
 use waymark_webapp_core::WorkerStatus;
 use waymark_webapp_core::{
     ActionLogsResponse, FilterValuesResponse, HealthResponse, InstanceExportInfo, TimelineEntry,
@@ -546,7 +546,7 @@ where
 
 async fn schedule_detail<WebappBackend>(
     State(state): State<WebappState<WebappBackend>>,
-    Path(schedule_id): Path<Uuid>,
+    Path(schedule_id): Path<ScheduleId>,
     axum::extract::Query(query): axum::extract::Query<ScheduleDetailQuery>,
 ) -> impl IntoResponse
 where
@@ -615,7 +615,7 @@ struct ScheduleDetailQuery {
 
 async fn pause_schedule<WebappBackend>(
     State(state): State<WebappState<WebappBackend>>,
-    Path(schedule_id): Path<Uuid>,
+    Path(schedule_id): Path<ScheduleId>,
 ) -> impl IntoResponse
 where
     WebappBackend: ?Sized,
@@ -636,7 +636,7 @@ where
 
 async fn resume_schedule<WebappBackend>(
     State(state): State<WebappState<WebappBackend>>,
-    Path(schedule_id): Path<Uuid>,
+    Path(schedule_id): Path<ScheduleId>,
 ) -> impl IntoResponse
 where
     WebappBackend: ?Sized,
@@ -657,7 +657,7 @@ where
 
 async fn delete_schedule<WebappBackend>(
     State(state): State<WebappState<WebappBackend>>,
-    Path(schedule_id): Path<Uuid>,
+    Path(schedule_id): Path<ScheduleId>,
 ) -> impl IntoResponse
 where
     WebappBackend: ?Sized,
@@ -1066,7 +1066,7 @@ struct SchedulesPageContext {
 
 #[derive(Serialize)]
 struct ScheduleRow {
-    id: String,
+    id: ScheduleId,
     workflow_name: String,
     schedule_name: String,
     schedule_type: String,
@@ -1092,7 +1092,7 @@ fn render_schedules_page(
                 format!("every {} seconds", s.interval_seconds.unwrap_or(0))
             };
             ScheduleRow {
-                id: s.id.clone(),
+                id: s.id,
                 workflow_name: s.workflow_name.clone(),
                 schedule_name: s.schedule_name.clone(),
                 schedule_type: s.schedule_type.clone(),
@@ -1131,7 +1131,7 @@ struct ScheduleDetailPageContext {
 
 #[derive(Serialize)]
 struct ScheduleDetailView {
-    id: String,
+    id: ScheduleId,
     workflow_name: String,
     schedule_name: String,
     schedule_type: String,
@@ -1183,7 +1183,7 @@ fn render_schedule_detail_page(
         title: format!("Schedule: {}", schedule.schedule_name),
         active_tab: "scheduled".to_string(),
         schedule: ScheduleDetailView {
-            id: schedule.id.clone(),
+            id: schedule.id,
             workflow_name: schedule.workflow_name.clone(),
             schedule_name: schedule.schedule_name.clone(),
             schedule_type: schedule.schedule_type.clone(),

@@ -1,13 +1,12 @@
 use chrono::{DateTime, Utc};
 use sqlx::Row;
-use uuid::Uuid;
 use waymark_backends_core::{BackendError, BackendResult};
-use waymark_ids::InstanceId;
+use waymark_ids::{InstanceId, ScheduleId};
 use waymark_scheduler_backend::SchedulerBackend;
 use waymark_timed_future::TimedFutureExt as _;
 
 use waymark_scheduler_core::compute_next_run;
-use waymark_scheduler_core::{CreateScheduleParams, ScheduleId, ScheduleType, WorkflowSchedule};
+use waymark_scheduler_core::{CreateScheduleParams, ScheduleType, WorkflowSchedule};
 
 impl SchedulerBackend for crate::PostgresBackend {
     #[function_name::named]
@@ -56,8 +55,8 @@ impl SchedulerBackend for crate::PostgresBackend {
         .timed(crate::query_timing_histogram!("upsert:workflow_schedules"))
         .await?;
 
-        let id: Uuid = row.get("id");
-        Ok(ScheduleId(id))
+        let id: ScheduleId = row.get("id");
+        Ok(id)
     }
 
     #[function_name::named]
@@ -71,7 +70,7 @@ impl SchedulerBackend for crate::PostgresBackend {
             WHERE id = $1
             "#,
         )
-        .bind(id.0)
+        .bind(id)
         .fetch_optional(&self.pool)
         .timed(crate::query_timing_histogram!("select:workflow_schedules_by_id"))
         .await?
@@ -151,7 +150,7 @@ impl SchedulerBackend for crate::PostgresBackend {
             WHERE id = $1
             "#,
         )
-        .bind(id.0)
+        .bind(id)
         .bind(status)
         .execute(&self.pool)
         .timed(crate::query_timing_histogram!(
@@ -202,7 +201,7 @@ impl SchedulerBackend for crate::PostgresBackend {
             )
             "#,
         )
-        .bind(schedule_id.0)
+        .bind(schedule_id)
         .fetch_one(&self.pool)
         .timed(crate::query_timing_histogram!(
             "select:runner_instances_exists_by_schedule_id"
@@ -240,7 +239,7 @@ impl SchedulerBackend for crate::PostgresBackend {
             WHERE id = $1
             "#,
         )
-        .bind(schedule_id.0)
+        .bind(schedule_id)
         .bind(instance_id)
         .bind(next_run_at)
         .execute(&self.pool)
@@ -273,7 +272,7 @@ impl SchedulerBackend for crate::PostgresBackend {
             WHERE id = $1
             "#,
         )
-        .bind(schedule_id.0)
+        .bind(schedule_id)
         .bind(next_run_at)
         .execute(&self.pool)
         .timed(crate::query_timing_histogram!(
@@ -287,7 +286,7 @@ impl SchedulerBackend for crate::PostgresBackend {
 
 #[derive(sqlx::FromRow)]
 struct ScheduleRow {
-    id: Uuid,
+    id: ScheduleId,
     workflow_name: String,
     schedule_name: String,
     schedule_type: String,
@@ -370,12 +369,12 @@ mod tests {
 
         let id = insert_schedule(&backend, "upsert").await;
         let row = sqlx::query("SELECT id FROM workflow_schedules WHERE id = $1")
-            .bind(id.0)
+            .bind(id)
             .fetch_one(backend.pool())
             .await
             .expect("select schedule");
 
-        assert_eq!(row.get::<Uuid, _>("id"), id.0);
+        assert_eq!(row.get::<ScheduleId, _>("id"), id);
     }
 
     #[serial(postgres)]
@@ -387,14 +386,14 @@ mod tests {
         sqlx::query(
             "UPDATE workflow_schedules SET next_run_at = NOW() + INTERVAL '2 days' WHERE id = $1",
         )
-        .bind(id.0)
+        .bind(id)
         .execute(backend.pool())
         .await
         .expect("force next_run_at");
 
         let before: Option<chrono::DateTime<Utc>> =
             sqlx::query_scalar("SELECT next_run_at FROM workflow_schedules WHERE id = $1")
-                .bind(id.0)
+                .bind(id)
                 .fetch_one(backend.pool())
                 .await
                 .expect("select next_run_at before");
@@ -403,11 +402,11 @@ mod tests {
             SchedulerBackend::upsert_schedule(&backend, &sample_params("preserve-next-run"))
                 .await
                 .expect("upsert existing schedule");
-        assert_eq!(upserted_id.0, id.0);
+        assert_eq!(upserted_id, id);
 
         let after: Option<chrono::DateTime<Utc>> =
             sqlx::query_scalar("SELECT next_run_at FROM workflow_schedules WHERE id = $1")
-                .bind(id.0)
+                .bind(id)
                 .fetch_one(backend.pool())
                 .await
                 .expect("select next_run_at after");
@@ -425,7 +424,7 @@ mod tests {
             .await
             .expect("get schedule");
 
-        assert_eq!(schedule.id, id.0);
+        assert_eq!(schedule.id, id);
         assert_eq!(schedule.schedule_name, "get");
         assert_eq!(schedule.workflow_name, "tests.workflow");
     }
@@ -442,7 +441,7 @@ mod tests {
                 .expect("get schedule by name")
                 .expect("expected schedule");
 
-        assert_eq!(schedule.id, id.0);
+        assert_eq!(schedule.id, id);
         assert_eq!(schedule.schedule_name, "by-name");
     }
 
@@ -490,7 +489,7 @@ mod tests {
 
         let status: String =
             sqlx::query_scalar("SELECT status FROM workflow_schedules WHERE id = $1")
-                .bind(id.0)
+                .bind(id)
                 .fetch_one(backend.pool())
                 .await
                 .expect("select status");
@@ -510,7 +509,7 @@ mod tests {
 
         let status: String =
             sqlx::query_scalar("SELECT status FROM workflow_schedules WHERE id = $1")
-                .bind(id.0)
+                .bind(id)
                 .fetch_one(backend.pool())
                 .await
                 .expect("select status");
@@ -526,7 +525,7 @@ mod tests {
         sqlx::query(
             "UPDATE workflow_schedules SET next_run_at = NOW() - INTERVAL '1 minute' WHERE id = $1",
         )
-        .bind(id.0)
+        .bind(id)
         .execute(backend.pool())
         .await
         .expect("force schedule due");
@@ -535,7 +534,7 @@ mod tests {
             .await
             .expect("find due schedules");
         assert_eq!(due.len(), 1);
-        assert_eq!(due[0].id, id.0);
+        assert_eq!(due[0].id, id);
     }
 
     #[serial(postgres)]
@@ -543,9 +542,10 @@ mod tests {
     async fn scheduler_has_running_instance_happy_path() {
         let backend = setup_backend().await;
 
-        let has_running = SchedulerBackend::has_running_instance(&backend, ScheduleId::new())
-            .await
-            .expect("has running instance");
+        let has_running =
+            SchedulerBackend::has_running_instance(&backend, ScheduleId::new_uuid_v4())
+                .await
+                .expect("has running instance");
         assert!(!has_running);
     }
 
@@ -561,7 +561,7 @@ mod tests {
         )
         .bind(instance_id)
         .bind(Uuid::new_v4())
-        .bind(schedule_id.0)
+        .bind(schedule_id)
         .execute(backend.pool())
         .await
         .expect("insert runner instance");
@@ -592,7 +592,7 @@ mod tests {
         let row = sqlx::query(
             "SELECT last_instance_id, last_run_at, next_run_at FROM workflow_schedules WHERE id = $1",
         )
-        .bind(id.0)
+        .bind(id)
         .fetch_one(backend.pool())
         .await
         .expect("select schedule");
@@ -615,7 +615,7 @@ mod tests {
         sqlx::query(
             "UPDATE workflow_schedules SET next_run_at = NOW() - INTERVAL '1 minute' WHERE id = $1",
         )
-        .bind(id.0)
+        .bind(id)
         .execute(backend.pool())
         .await
         .expect("force schedule due");
@@ -626,7 +626,7 @@ mod tests {
 
         let next_run_at: Option<chrono::DateTime<Utc>> =
             sqlx::query_scalar("SELECT next_run_at FROM workflow_schedules WHERE id = $1")
-                .bind(id.0)
+                .bind(id)
                 .fetch_one(backend.pool())
                 .await
                 .expect("select next_run_at");

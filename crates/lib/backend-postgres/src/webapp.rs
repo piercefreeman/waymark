@@ -11,7 +11,7 @@ use waymark_backends_core::{BackendError, BackendResult};
 use waymark_core_backend::{GraphUpdate, QueuedInstance};
 use waymark_dag::{DAGNode, EdgeType};
 use waymark_dag_builder::convert_to_dag;
-use waymark_ids::{ExecutionId, InstanceId, WorkflowVersionId};
+use waymark_ids::{ExecutionId, InstanceId, ScheduleId, WorkflowVersionId};
 use waymark_ir_conversions::literal_from_json_value;
 use waymark_proto::ast as ir;
 use waymark_runner::replay_action_kwargs;
@@ -877,7 +877,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
         let mut schedules = Vec::new();
         for row in rows {
             schedules.push(ScheduleSummary {
-                id: row.get::<Uuid, _>("id").to_string(),
+                id: row.get::<ScheduleId, _>("id"),
                 workflow_name: row.get("workflow_name"),
                 schedule_name: row.get("schedule_name"),
                 schedule_type: row.get("schedule_type"),
@@ -898,7 +898,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
     }
 
     #[function_name::named]
-    async fn get_schedule(&self, schedule_id: Uuid) -> BackendResult<ScheduleDetail> {
+    async fn get_schedule(&self, schedule_id: ScheduleId) -> BackendResult<ScheduleDetail> {
         let row = sqlx::query(
             r#"
             SELECT id, workflow_name, schedule_name, schedule_type, cron_expression, interval_seconds,
@@ -923,7 +923,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
             });
 
         Ok(ScheduleDetail {
-            id: row.get::<Uuid, _>("id").to_string(),
+            id: row.get::<ScheduleId, _>("id"),
             workflow_name: row.get("workflow_name"),
             schedule_name: row.get("schedule_name"),
             schedule_type: row.get("schedule_type"),
@@ -949,7 +949,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
     }
 
     #[function_name::named]
-    async fn count_schedule_invocations(&self, schedule_id: Uuid) -> BackendResult<i64> {
+    async fn count_schedule_invocations(&self, schedule_id: ScheduleId) -> BackendResult<i64> {
         let count = sqlx::query_scalar::<_, i64>(
             r#"
             SELECT COUNT(*)
@@ -969,7 +969,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
     #[function_name::named]
     async fn list_schedule_invocations(
         &self,
-        schedule_id: Uuid,
+        schedule_id: ScheduleId,
         limit: i64,
         offset: i64,
     ) -> BackendResult<Vec<ScheduleInvocationSummary>> {
@@ -1008,7 +1008,11 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
     }
 
     #[function_name::named]
-    async fn update_schedule_status(&self, schedule_id: Uuid, status: &str) -> BackendResult<bool> {
+    async fn update_schedule_status(
+        &self,
+        schedule_id: ScheduleId,
+        status: &str,
+    ) -> BackendResult<bool> {
         let result = sqlx::query(
             r#"
             UPDATE workflow_schedules
@@ -2029,7 +2033,7 @@ fn main(input: [items], output: [total]):
         .expect("insert loop workflow version")
     }
 
-    async fn insert_schedule(backend: &PostgresBackend, schedule_name: &str) -> Uuid {
+    async fn insert_schedule(backend: &PostgresBackend, schedule_name: &str) -> ScheduleId {
         SchedulerBackend::upsert_schedule(
             backend,
             &CreateScheduleParams {
@@ -2049,12 +2053,11 @@ fn main(input: [items], output: [total]):
         )
         .await
         .expect("upsert schedule")
-        .0
     }
 
     async fn insert_scheduled_instance(
         backend: &PostgresBackend,
-        schedule_id: Uuid,
+        schedule_id: ScheduleId,
         created_at: DateTime<Utc>,
         with_result: bool,
     ) -> InstanceId {
@@ -2487,7 +2490,7 @@ fn main(input: [items], output: [total]):
             .await
             .expect("list schedules");
         assert_eq!(schedules.len(), 1);
-        assert_eq!(schedules[0].id, schedule_id.to_string());
+        assert_eq!(schedules[0].id, schedule_id);
         assert_eq!(schedules[0].schedule_name, "list");
     }
 
@@ -2500,7 +2503,7 @@ fn main(input: [items], output: [total]):
         let schedule = WebappBackend::get_schedule(&backend, schedule_id)
             .await
             .expect("get schedule");
-        assert_eq!(schedule.id, schedule_id.to_string());
+        assert_eq!(schedule.id, schedule_id);
         assert_eq!(schedule.schedule_name, "detail");
     }
 

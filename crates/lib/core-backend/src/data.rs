@@ -6,20 +6,19 @@ use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 use waymark_runner_executor_core::{
     ExecutionException, ExecutionSuccess, UncheckedExecutionResult,
 };
 use waymark_runner_state::{ExecutionEdge, ExecutionNode, NodeStatus, RunnerState};
 
-use waymark_ids::{ExecutionId, InstanceId, LockId, WorkflowVersionId};
+use waymark_ids::{ExecutionId, InstanceId, LockId, ScheduleId, WorkflowVersionId};
 
 /// Queued instance payload for the run loop.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct QueuedInstance {
     pub workflow_version_id: WorkflowVersionId,
     #[serde(default)]
-    pub schedule_id: Option<Uuid>,
+    pub schedule_id: Option<ScheduleId>,
     pub entry_node: ExecutionId,
     pub state: Option<RunnerState>,
     #[serde(
