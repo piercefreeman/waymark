@@ -205,7 +205,7 @@ async fn queue_benchmark_instances(
             case_names.push(name.clone());
         }
     }
-    case_names.shuffle(&mut rand::thread_rng());
+    case_names.shuffle(&mut rand::rng());
 
     let mut queued = 0;
     let mut batch = Vec::new();

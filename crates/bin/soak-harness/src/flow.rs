@@ -316,25 +316,25 @@ fn sample_step_behavior(args: &crate::cli::SoakArgs, rng: &mut StdRng) -> (i64, 
     let failure_threshold = timeout_threshold + args.failure_percent;
     let slow_threshold = failure_threshold + args.slow_percent;
 
-    let class = rng.gen_range(0.0..100.0);
+    let class = rng.random_range(0.0..100.0);
     let timeout_base_ms = i64::from(args.timeout_seconds) * 1000;
 
     if class < timeout_threshold {
-        let delay_ms = rng.gen_range(
+        let delay_ms = rng.random_range(
             (timeout_base_ms + 1500)..=(timeout_base_ms * 3).max(timeout_base_ms + 1500),
         );
         return (delay_ms, false);
     }
 
     if class < failure_threshold {
-        return (rng.gen_range(50..=400), true);
+        return (rng.random_range(50..=400), true);
     }
 
     if class < slow_threshold {
-        return (rng.gen_range(1_000..=8_000), false);
+        return (rng.random_range(1_000..=8_000), false);
     }
 
-    (rng.gen_range(25..=400), false)
+    (rng.random_range(25..=400), false)
 }
 
 fn jitter_payload(base_payload: i64, rng: &mut StdRng) -> i64 {
@@ -344,7 +344,7 @@ fn jitter_payload(base_payload: i64, rng: &mut StdRng) -> i64 {
 
     let lower = (base_payload / 2).max(1);
     let upper = (base_payload * 3 / 2).max(lower);
-    rng.gen_range(lower..=upper)
+    rng.random_range(lower..=upper)
 }
 
 fn build_instance(
