@@ -112,7 +112,6 @@ mod tests {
     use std::collections::HashSet;
 
     use serde_json::json;
-    use uuid::Uuid;
     use waymark_ids::ExecutionId;
     use waymark_runner_executor_core::UncheckedExecutionResult;
 
@@ -124,7 +123,7 @@ mod tests {
             executor_id,
             execution_id,
             attempt_number: 1,
-            dispatch_token: Uuid::new_v4(),
+            dispatch_token: uuid::Uuid::new_v4(),
             result: UncheckedExecutionResult(json!({"ok": true})),
         }
     }

@@ -342,7 +342,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
         let mut instances = Vec::new();
         for row in rows {
             let instance_id: InstanceId = row.get("instance_id");
-            let entry_node: Uuid = row.get("entry_node");
+            let entry_node: uuid::Uuid = row.get("entry_node");
             let created_at: DateTime<Utc> = row.get("created_at");
             let state_bytes: Option<Vec<u8>> = row.get("state");
             let result_bytes: Option<Vec<u8>> = row.get("result");
@@ -464,7 +464,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
             .nodes
             .values()
             .map(|node| ExecutionNodeView {
-                id: node.node_id.to_string(),
+                id: node.node_id,
                 node_type: node.node_type.clone(),
                 label: node.label.clone(),
                 status: format_node_status(&node.status),
@@ -789,7 +789,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
             };
 
             entries.push(TimelineEntry {
-                action_id: row.execution_id.to_string(),
+                action_id: row.execution_id,
                 action_name,
                 module_name,
                 status,
@@ -935,9 +935,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
             last_run_at: row
                 .get::<Option<DateTime<Utc>>, _>("last_run_at")
                 .map(|dt| dt.to_rfc3339()),
-            last_instance_id: row
-                .get::<Option<InstanceId>, _>("last_instance_id")
-                .map(|id| id.to_string()),
+            last_instance_id: row.get::<Option<InstanceId>, _>("last_instance_id"),
             created_at: row.get::<DateTime<Utc>, _>("created_at").to_rfc3339(),
             updated_at: row.get::<DateTime<Utc>, _>("updated_at").to_rfc3339(),
             priority: row.get("priority"),
@@ -1068,7 +1066,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
         let mut stats = Vec::new();
         for row in rows {
             stats.push(WorkerActionRow {
-                pool_id: row.get::<Uuid, _>("pool_id").to_string(),
+                pool_id: row.get::<uuid::Uuid, _>("pool_id"),
                 active_workers: row.get::<i64, _>("active_workers"),
                 actions_per_sec: format!("{:.1}", row.get::<f64, _>("actions_per_sec")),
                 throughput_per_min: row.get::<f64, _>("throughput_per_min") as i64,
@@ -1202,7 +1200,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
         let mut statuses = Vec::new();
         for row in rows {
             statuses.push(WorkerStatus {
-                pool_id: row.get::<Uuid, _>("pool_id"),
+                pool_id: row.get::<uuid::Uuid, _>("pool_id"),
                 active_workers: row.get::<Option<i32>, _>("active_workers").unwrap_or(0),
                 throughput_per_min: row.get::<f64, _>("throughput_per_min"),
                 actions_per_sec: row.get::<f64, _>("actions_per_sec"),
@@ -1606,7 +1604,6 @@ mod tests {
     use chrono::{Duration as ChronoDuration, Utc};
     use prost::Message;
     use serial_test::serial;
-    use uuid::Uuid;
     use waymark_ids::ExecutionId;
     use waymark_scheduler_backend::SchedulerBackend;
     use waymark_webapp_backend::WebappBackend;
@@ -2092,7 +2089,7 @@ fn main(input: [items], output: [total]):
         instance_id
     }
 
-    async fn insert_worker_status(backend: &PostgresBackend, pool_id: Uuid) {
+    async fn insert_worker_status(backend: &PostgresBackend, pool_id: uuid::Uuid) {
         WorkerStatusBackend::upsert_worker_status(
             backend,
             &WorkerStatusUpdate {
@@ -2430,7 +2427,7 @@ fn main(input: [items], output: [total]):
             .expect("get action results");
 
         assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].action_id, execution_id.to_string());
+        assert_eq!(entries[0].action_id, execution_id);
         assert_eq!(entries[0].action_name, "tests.action");
         assert_eq!(entries[0].status, "completed");
         assert!(entries[0].request_preview.contains("\"value\": 7"));
@@ -2587,14 +2584,14 @@ fn main(input: [items], output: [total]):
     #[tokio::test]
     async fn webapp_get_worker_action_stats_happy_path() {
         let backend = setup_backend().await;
-        let pool_id = Uuid::new_v4();
+        let pool_id = uuid::Uuid::new_v4();
         insert_worker_status(&backend, pool_id).await;
 
         let rows = WebappBackend::get_worker_action_stats(&backend, 60)
             .await
             .expect("get worker action stats");
         assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].pool_id, pool_id.to_string());
+        assert_eq!(rows[0].pool_id, pool_id);
         assert_eq!(rows[0].total_completed, 20);
     }
 
@@ -2602,7 +2599,7 @@ fn main(input: [items], output: [total]):
     #[tokio::test]
     async fn webapp_get_worker_aggregate_stats_happy_path() {
         let backend = setup_backend().await;
-        insert_worker_status(&backend, Uuid::new_v4()).await;
+        insert_worker_status(&backend, uuid::Uuid::new_v4()).await;
 
         let aggregate = WebappBackend::get_worker_aggregate_stats(&backend, 60)
             .await
@@ -2632,7 +2629,7 @@ fn main(input: [items], output: [total]):
     #[tokio::test]
     async fn webapp_get_worker_statuses_happy_path() {
         let backend = setup_backend().await;
-        let pool_id = Uuid::new_v4();
+        let pool_id = uuid::Uuid::new_v4();
         insert_worker_status(&backend, pool_id).await;
         let (completed_instance_id, _, _) = insert_instance_with_graph(&backend).await;
         let completed_payload =

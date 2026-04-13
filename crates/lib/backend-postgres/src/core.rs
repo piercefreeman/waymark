@@ -10,7 +10,6 @@ use chrono::{DateTime, Utc};
 use nonempty_collections::{IntoNonEmptyIterator as _, NEVec, NonEmptyIterator as _};
 use sqlx::{Postgres, QueryBuilder, Row};
 use tracing::warn;
-use uuid::Uuid;
 use waymark_garbage_collector_backend::{GarbageCollectionResult, GarbageCollectorBackend};
 use waymark_ids::{ExecutionId, InstanceId, LockId, WorkflowVersionId};
 use waymark_runner_executor_core::{ExecutionSuccess, UncheckedExecutionResult};
@@ -365,7 +364,8 @@ impl PostgresBackend {
         .await?;
 
         if !rows.is_empty() {
-            let instance_ids: Vec<Uuid> = rows.iter().map(|row| row.get("instance_id")).collect();
+            let instance_ids: Vec<InstanceId> =
+                rows.iter().map(|row| row.get("instance_id")).collect();
             sqlx::query(
                 "UPDATE runner_instances SET current_status = $2 WHERE instance_id = ANY($1) AND result IS NULL AND error IS NULL",
             )
@@ -430,7 +430,7 @@ impl PostgresBackend {
         let mut instance_ids = Vec::with_capacity(candidate_rows.len());
         let mut action_execution_ids = Vec::new();
         for row in candidate_rows {
-            let instance_id: Uuid = row.get("instance_id");
+            let instance_id: InstanceId = row.get("instance_id");
             let state_payload: Option<Vec<u8>> = row.get("state");
             instance_ids.push(instance_id);
 
@@ -784,7 +784,7 @@ impl PostgresBackend {
         metrics::counter!("waymark_backend_postgres_query_poll_instances_rows_total")
             .increment(rows.len().get() as _);
 
-        let claimed_instance_ids: Vec<Uuid> =
+        let claimed_instance_ids: Vec<InstanceId> =
             rows.iter().map(|row| row.get("instance_id")).collect();
         sqlx::query("UPDATE runner_instances SET current_status = $2 WHERE instance_id = ANY($1)")
             .bind(&claimed_instance_ids)
@@ -1061,7 +1061,7 @@ impl waymark_core_backend::CoreBackend for PostgresBackend {
         .await?;
 
         if !released_rows.is_empty() {
-            let released_instance_ids: Vec<Uuid> = released_rows
+            let released_instance_ids: Vec<InstanceId> = released_rows
                 .iter()
                 .map(|row| row.get("instance_id"))
                 .collect();
@@ -1165,7 +1165,6 @@ mod tests {
     use chrono::{DateTime, Duration, Utc};
     use serial_test::serial;
     use sqlx::Row;
-    use uuid::Uuid;
     use waymark_core_backend::{ActionAttemptStatus, CoreBackend};
     use waymark_ids::ExecutionId;
     use waymark_runner_executor_core::UncheckedExecutionResult;
@@ -1727,7 +1726,7 @@ mod tests {
         .fetch_one(backend.pool())
         .await
         .expect("lock row");
-        let lock_uuid: Option<Uuid> = row.get("lock_uuid");
+        let lock_uuid: Option<LockId> = row.get("lock_uuid");
         let lock_expires_at: Option<chrono::DateTime<Utc>> = row.get("lock_expires_at");
         assert!(lock_uuid.is_none());
         assert!(lock_expires_at.is_none());
@@ -2000,7 +1999,7 @@ mod tests {
         let instance_id = InstanceId::new_uuid_v4();
         let execution_id = ExecutionId::new_uuid_v4();
         let entry_node = ExecutionId::new_uuid_v4();
-        let workflow_version_id = Uuid::new_v4();
+        let workflow_version_id = WorkflowVersionId::new_uuid_v4();
 
         let state = GraphUpdate {
             instance_id,
@@ -2071,7 +2070,7 @@ mod tests {
         let backend = setup_backend().await;
         let instance_id = InstanceId::new_uuid_v4();
         let entry_node = ExecutionId::new_uuid_v4();
-        let workflow_version_id = Uuid::new_v4();
+        let workflow_version_id = WorkflowVersionId::new_uuid_v4();
         let state_payload = PostgresBackend::serialize(&GraphUpdate {
             instance_id,
             nodes: HashMap::new(),
@@ -2118,7 +2117,7 @@ mod tests {
     #[tokio::test]
     async fn worker_status_backend_upsert_worker_status_happy_path() {
         let backend = setup_backend().await;
-        let pool_id = Uuid::new_v4();
+        let pool_id = uuid::Uuid::new_v4();
 
         WorkerStatusBackend::upsert_worker_status(
             &backend,

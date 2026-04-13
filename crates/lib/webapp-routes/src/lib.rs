@@ -13,8 +13,7 @@ use chrono::Utc;
 use serde::Serialize;
 use tera::{Context as TeraContext, Tera};
 use tracing::error;
-use uuid::Uuid;
-use waymark_ids::{InstanceId, ScheduleId};
+use waymark_ids::{ExecutionId, InstanceId, ScheduleId};
 use waymark_webapp_core::WorkerStatus;
 use waymark_webapp_core::{
     ActionLogsResponse, FilterValuesResponse, HealthResponse, InstanceExportInfo, TimelineEntry,
@@ -287,7 +286,7 @@ where
 
 async fn get_action_logs<WebappBackend>(
     State(state): State<WebappState<WebappBackend>>,
-    Path((instance_id, action_id)): Path<(InstanceId, Uuid)>,
+    Path((instance_id, action_id)): Path<(InstanceId, ExecutionId)>,
 ) -> Result<Json<ActionLogsResponse>, HttpError>
 where
     WebappBackend: ?Sized,
@@ -311,10 +310,9 @@ where
         .await
         .unwrap_or_default();
 
-    let action_id_str = action_id.to_string();
     let logs: Vec<_> = timeline
         .into_iter()
-        .filter(|e| e.action_id == action_id_str)
+        .filter(|e| e.action_id == action_id)
         .map(|e| waymark_webapp_core::ActionLogEntry {
             action_id: e.action_id,
             action_name: e.action_name,
@@ -372,7 +370,7 @@ where
         export_version: "1.0",
         exported_at: Utc::now().to_rfc3339(),
         instance: InstanceExportInfo {
-            id: instance.id.to_string(),
+            id: instance.id,
             status: instance.status.to_string(),
             created_at: instance.created_at.to_rfc3339(),
             input_payload: instance.input_payload,
@@ -750,7 +748,7 @@ struct InvocationsPageContext {
 
 #[derive(Serialize)]
 struct InvocationRow {
-    id: String,
+    id: InstanceId,
     workflow_name: String,
     created_at: String,
     status: String,
@@ -768,7 +766,7 @@ fn render_invocations_page(
     let invocations: Vec<InvocationRow> = instances
         .iter()
         .map(|i| InvocationRow {
-            id: i.id.to_string(),
+            id: i.id,
             workflow_name: i
                 .workflow_name
                 .clone()
@@ -804,13 +802,13 @@ struct InstanceDetailPageContext {
 
 #[derive(Serialize)]
 struct WorkflowInfo {
-    id: String,
+    id: InstanceId,
     name: String,
 }
 
 #[derive(Serialize)]
 struct InstanceInfo {
-    id: String,
+    id: InstanceId,
     created_at: String,
     status: String,
     input_payload: String,
@@ -847,14 +845,14 @@ fn render_instance_detail_page(
         title: format!("Instance {}", instance.id),
         active_tab: "invocations".to_string(),
         workflow: WorkflowInfo {
-            id: instance.id.to_string(),
+            id: instance.id,
             name: instance
                 .workflow_name
                 .clone()
                 .unwrap_or_else(|| "workflow".to_string()),
         },
         instance: InstanceInfo {
-            id: instance.id.to_string(),
+            id: instance.id,
             created_at: instance.created_at.to_rfc3339(),
             status: instance.status.to_string(),
             input_payload: instance.input_payload.clone(),
@@ -1142,7 +1140,7 @@ struct ScheduleDetailView {
     status: String,
     next_run_at: Option<String>,
     last_run_at: Option<String>,
-    last_instance_id: Option<String>,
+    last_instance_id: Option<InstanceId>,
     created_at: String,
     updated_at: String,
     priority: i32,
@@ -1152,7 +1150,7 @@ struct ScheduleDetailView {
 
 #[derive(Serialize)]
 struct ScheduleInvocationRow {
-    id: String,
+    id: InstanceId,
     created_at: String,
     status: String,
 }
@@ -1173,7 +1171,7 @@ fn render_schedule_detail_page(
     let invocation_rows = invocations
         .iter()
         .map(|invocation| ScheduleInvocationRow {
-            id: invocation.id.to_string(),
+            id: invocation.id,
             created_at: invocation.created_at.to_rfc3339(),
             status: invocation.status.to_string(),
         })
@@ -1194,7 +1192,7 @@ fn render_schedule_detail_page(
             status: schedule.status.clone(),
             next_run_at: schedule.next_run_at.clone(),
             last_run_at: schedule.last_run_at.clone(),
-            last_instance_id: schedule.last_instance_id.clone(),
+            last_instance_id: schedule.last_instance_id,
             created_at: schedule.created_at.clone(),
             updated_at: schedule.updated_at.clone(),
             priority: schedule.priority,
@@ -1234,7 +1232,7 @@ struct WorkersPageContext {
 
 #[derive(Serialize)]
 struct WorkerActionRowView {
-    pool_id: String,
+    pool_id: uuid::Uuid,
     active_workers: i64,
     actions_per_sec: String,
     throughput_per_min: i64,
@@ -1247,7 +1245,7 @@ struct WorkerActionRowView {
 
 #[derive(Serialize)]
 struct WorkerInstanceRowView {
-    pool_id: String,
+    pool_id: uuid::Uuid,
     active_instances: i64,
     instances_per_sec: String,
     instances_per_min: i64,
@@ -1264,7 +1262,7 @@ fn render_workers_page(templates: &Tera, statuses: &[WorkerStatus], window_minut
     let action_rows: Vec<WorkerActionRowView> = statuses
         .iter()
         .map(|s| WorkerActionRowView {
-            pool_id: s.pool_id.to_string(),
+            pool_id: s.pool_id,
             active_workers: s.active_workers as i64,
             actions_per_sec: format!("{:.2}", s.actions_per_sec),
             throughput_per_min: s.throughput_per_min as i64,
@@ -1285,7 +1283,7 @@ fn render_workers_page(templates: &Tera, statuses: &[WorkerStatus], window_minut
                 None => "\u{2014}".to_string(),
             };
             WorkerInstanceRowView {
-                pool_id: s.pool_id.to_string(),
+                pool_id: s.pool_id,
                 active_instances: s.active_instance_count as i64,
                 instances_per_sec: format!("{:.2}", s.instances_per_sec),
                 instances_per_min: s.instances_per_min as i64,

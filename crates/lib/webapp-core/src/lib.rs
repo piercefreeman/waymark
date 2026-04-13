@@ -2,7 +2,6 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 use waymark_ids::{ExecutionId, InstanceId, ScheduleId};
 
 /// Instance status.
@@ -30,7 +29,7 @@ impl std::fmt::Display for InstanceStatus {
 #[derive(Debug, Clone, Serialize)]
 pub struct InstanceSummary {
     pub id: InstanceId,
-    pub entry_node: Uuid,
+    pub entry_node: uuid::Uuid,
     pub created_at: DateTime<Utc>,
     pub status: InstanceStatus,
     pub workflow_name: Option<String>,
@@ -53,7 +52,7 @@ pub struct InstanceDetail {
 /// Node in the execution graph for display.
 #[derive(Debug, Clone, Serialize)]
 pub struct ExecutionNodeView {
-    pub id: String,
+    pub id: uuid::Uuid,
     pub node_type: String,
     pub label: String,
     pub status: String,
@@ -79,7 +78,7 @@ pub struct ExecutionGraphView {
 /// Timeline entry for an action execution.
 #[derive(Debug, Clone, Serialize)]
 pub struct TimelineEntry {
-    pub action_id: String,
+    pub action_id: ExecutionId,
     pub action_name: String,
     pub module_name: Option<String>,
     pub status: String,
@@ -95,7 +94,7 @@ pub struct TimelineEntry {
 /// Action log entry with full details.
 #[derive(Debug, Clone, Serialize)]
 pub struct ActionLogEntry {
-    pub action_id: String,
+    pub action_id: ExecutionId,
     pub action_name: String,
     pub module_name: Option<String>,
     pub status: String,
@@ -151,7 +150,7 @@ pub struct WorkflowInstanceExport {
 /// Full worker status for webapp display.
 #[derive(Debug, Clone)]
 pub struct WorkerStatus {
-    pub pool_id: Uuid,
+    pub pool_id: uuid::Uuid,
     pub active_workers: i32,
     pub throughput_per_min: f64,
     pub actions_per_sec: f64,
@@ -173,7 +172,7 @@ pub struct WorkerStatus {
 /// Worker action stats row for display.
 #[derive(Debug, Clone)]
 pub struct WorkerActionRow {
-    pub pool_id: String,
+    pub pool_id: uuid::Uuid,
     pub active_workers: i64,
     pub actions_per_sec: String,
     pub throughput_per_min: i64,
@@ -196,7 +195,7 @@ pub struct WorkerAggregateStats {
 /// Instance info for export.
 #[derive(Debug, Serialize)]
 pub struct InstanceExportInfo {
-    pub id: String,
+    pub id: InstanceId,
     pub status: String,
     pub created_at: String,
     pub input_payload: String,
@@ -231,7 +230,7 @@ pub struct ScheduleDetail {
     pub status: String,
     pub next_run_at: Option<String>,
     pub last_run_at: Option<String>,
-    pub last_instance_id: Option<String>,
+    pub last_instance_id: Option<InstanceId>,
     pub created_at: String,
     pub updated_at: String,
     pub priority: i32,

@@ -332,7 +332,6 @@ mod tests {
     use chrono::Utc;
     use serial_test::serial;
     use sqlx::Row;
-    use uuid::Uuid;
     use waymark_ids::InstanceId;
 
     use crate::PostgresBackend;
@@ -560,7 +559,7 @@ mod tests {
             "INSERT INTO runner_instances (instance_id, entry_node, schedule_id) VALUES ($1, $2, $3)",
         )
         .bind(instance_id)
-        .bind(Uuid::new_v4())
+        .bind(uuid::Uuid::new_v4())
         .bind(schedule_id)
         .execute(backend.pool())
         .await

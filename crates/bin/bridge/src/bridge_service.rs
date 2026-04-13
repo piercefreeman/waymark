@@ -10,7 +10,6 @@ use tokio::sync::mpsc;
 use tokio_stream::{StreamExt, wrappers::ReceiverStream};
 use tonic::{Request, Response, Status};
 use tracing::debug;
-use uuid::Uuid;
 
 use waymark_backend_memory::MemoryBackend;
 use waymark_core_backend::{InstanceDone, QueuedInstance};

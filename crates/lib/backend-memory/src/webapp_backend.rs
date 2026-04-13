@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 use chrono::Utc;
-use uuid::Uuid;
 use waymark_backends_core::{BackendError, BackendResult};
 use waymark_ids::{InstanceId, ScheduleId};
 use waymark_webapp_backend::WebappBackend;
@@ -140,7 +139,7 @@ impl WebappBackend for crate::MemoryBackend {
             status: schedule.status,
             next_run_at: schedule.next_run_at.map(|dt| dt.to_rfc3339()),
             last_run_at: schedule.last_run_at.map(|dt| dt.to_rfc3339()),
-            last_instance_id: schedule.last_instance_id.map(|id| id.to_string()),
+            last_instance_id: schedule.last_instance_id,
             created_at: schedule.created_at.to_rfc3339(),
             updated_at: schedule.updated_at.to_rfc3339(),
             priority: schedule.priority,
@@ -201,7 +200,7 @@ impl WebappBackend for crate::MemoryBackend {
         Ok(statuses
             .into_iter()
             .map(|status| WorkerActionRow {
-                pool_id: status.pool_id.to_string(),
+                pool_id: status.pool_id,
                 active_workers: status.active_workers as i64,
                 actions_per_sec: format!("{:.1}", status.actions_per_sec),
                 throughput_per_min: status.throughput_per_min as i64,
@@ -277,7 +276,7 @@ impl WebappBackend for crate::MemoryBackend {
 }
 
 fn latest_worker_statuses(updates: &[WorkerStatusUpdate]) -> Vec<WorkerStatus> {
-    let mut by_pool: HashMap<Uuid, WorkerStatusUpdate> = HashMap::new();
+    let mut by_pool: HashMap<uuid::Uuid, WorkerStatusUpdate> = HashMap::new();
     for update in updates {
         by_pool.insert(update.pool_id, update.clone());
     }

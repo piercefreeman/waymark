@@ -5,7 +5,6 @@ use anyhow::Result;
 use nonempty_collections::NEVec;
 use prost::Message as _;
 use tokio::sync::{Mutex as AsyncMutex, mpsc};
-use uuid::Uuid;
 
 use waymark_ids::{ExecutionId, InstanceId};
 use waymark_proto::messages as proto;
@@ -22,7 +21,7 @@ pub struct StreamWorkerPool {
 pub struct StreamInflightAction {
     executor_id: InstanceId,
     attempt_number: u32,
-    dispatch_token: Uuid,
+    dispatch_token: uuid::Uuid,
 }
 
 impl StreamWorkerPool {
