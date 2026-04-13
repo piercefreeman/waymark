@@ -7,7 +7,6 @@ publish.workspace = true
 [dependencies]
 waymark-dag = { workspace = true }
 waymark-dag-validator = { workspace = true }
-waymark-ids = { workspace = true }
 waymark-proto = { workspace = true, features = ["serde"] }
 
 thiserror = { workspace = true }
