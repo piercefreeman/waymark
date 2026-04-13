@@ -5,11 +5,11 @@ publish.workspace = true
 edition = "2024"
 
 [dependencies]
+waymark-ids = { workspace = true }
 waymark-proto = { workspace = true }
 
 rustc-hash = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
-uuid = { workspace = true, features = ["serde", "v4"] }
 
 [lib]
 test = false
