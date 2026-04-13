@@ -4014,6 +4014,7 @@ dependencies = [
  "waymark-ids",
  "waymark-ir-conversions",
  "waymark-ir-parser",
+ "waymark-metrics-util",
  "waymark-observability",
  "waymark-proto",
  "waymark-runner",
@@ -4356,6 +4357,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-metrics-util"
+version = "0.1.0"
+dependencies = [
+ "metrics",
+]
+
+[[package]]
 name = "waymark-nonzero-duration"
 version = "0.1.0"
 
@@ -4417,6 +4425,7 @@ name = "waymark-runloop"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "metrics",
  "mockall",
  "nonempty-collections",
  "prost 0.12.6",
@@ -4435,6 +4444,7 @@ dependencies = [
  "waymark-dag-builder",
  "waymark-ids",
  "waymark-ir-parser",
+ "waymark-metrics-util",
  "waymark-nonzero-duration",
  "waymark-observability",
  "waymark-proto",
@@ -4641,6 +4651,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "envfury",
+ "metrics",
  "prost 0.12.6",
  "sqlx",
  "thiserror",
@@ -4860,6 +4871,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "futures-core",
+ "metrics",
  "nonempty-collections",
  "prost 0.12.6",
  "serde_json",
@@ -4899,6 +4911,7 @@ name = "waymark-worker-status-reporter"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "metrics",
  "tokio",
  "tokio-util",
  "tracing",

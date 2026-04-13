@@ -23,6 +23,7 @@ use crate::commit_barrier::CommitBarrier;
 use crate::instance_lock_heartbeat;
 use crate::{error_value, persist, queued_instances_polling, shard};
 use waymark_ids::{ExecutionId, InstanceId, LockId};
+use waymark_metrics_util::Val as MetricsVal;
 
 use waymark_dag::DAG;
 use waymark_observability::obs;
@@ -438,6 +439,17 @@ where
                 },
             };
 
+            metrics::histogram!("waymark_runloop_channel_len", "channel" => "completion_rx")
+                .record(MetricsVal(completion_rx.len()));
+            metrics::histogram!("waymark_runloop_channel_len", "channel" => "instance_rx")
+                .record(MetricsVal(instance_rx.len()));
+            metrics::histogram!("waymark_runloop_channel_len", "channel" => "sleep_rx")
+                .record(MetricsVal(sleep_rx.len()));
+            metrics::histogram!("waymark_runloop_channel_len", "channel" => "event_rx")
+                .record(MetricsVal(event_rx.len()));
+            metrics::histogram!("waymark_runloop_channel_len", "channel" => "persist_ack_rx")
+                .record(MetricsVal(persist_ack_rx.len()));
+
             let mut all_completions: Vec<ActionCompletion> = Vec::new();
             let mut all_instances: Vec<QueuedInstance> = Vec::new();
             let mut all_steps: Vec<shard::Step> = Vec::new();
@@ -448,14 +460,23 @@ where
 
             match first_event {
                 CoordinatorEvent::Completions(completions) => {
+                    metrics::counter!("waymark_runloop_ticks_by_cause_total", "cause" => "completions").increment(1);
+                    metrics::counter!("waymark_runloop_polled_completions_total", "where" => "first")
+                        .increment(completions.len() as _);
                     all_completions.extend(completions);
                 }
                 CoordinatorEvent::Instance(queued_instances_polling::Message::Batch {
                     instances,
                 }) => {
+                    metrics::counter!("waymark_runloop_ticks_by_cause_total", "cause" => "instances").increment(1);
+                    metrics::counter!("waymark_runloop_polled_instances_total", "where" => "first")
+                        .increment(instances.len().get() as _);
                     all_instances.extend(instances);
                 }
                 CoordinatorEvent::Instance(queued_instances_polling::Message::Pending) => {
+                    metrics::counter!("waymark_runloop_ticks_by_cause_total", "cause" => "instances_pending").increment(1);
+                    metrics::counter!("waymark_runloop_polled_instance_pending_total", "where" => "first")
+                        .increment(1);
                     queued_instances_poller_is_pending = true;
                 }
                 CoordinatorEvent::Instance(queued_instances_polling::Message::Error(err)) => {
@@ -463,12 +484,20 @@ where
                     break 'runloop Err(Error::CoreBackendPoll(err));
                 }
                 CoordinatorEvent::Shard(event) => match event {
-                    shard::Event::Step(step) => all_steps.push(step),
+                    shard::Event::Step(step) => {
+                        metrics::counter!("waymark_runloop_ticks_by_cause_total", "cause" => "shard_step").increment(1);
+                        metrics::counter!("waymark_runloop_shard_steps_total", "where" => "first")
+                            .increment(1);
+                        all_steps.push(step)
+                    }
                     shard::Event::InstanceFailed {
                         executor_id,
                         entry_node,
                         error,
                     } => {
+                        metrics::counter!("waymark_runloop_ticks_by_cause_total", "cause" => "shard_instance_failed").increment(1);
+                        metrics::counter!("waymark_runloop_shard_instance_failed_total", "where" => "first")
+                            .increment(1);
                         all_failed_instances.push(InstanceDone {
                             executor_id,
                             entry_node,
@@ -478,25 +507,33 @@ where
                     }
                 },
                 CoordinatorEvent::SleepWake(wake) => {
+                    metrics::counter!("waymark_runloop_ticks_by_cause_total", "cause" => "sleep_wake").increment(1);
                     all_wakes.push(wake);
                 }
                 CoordinatorEvent::PersistAck(ack) => {
+                    metrics::counter!("waymark_runloop_ticks_by_cause_total", "cause" => "persist_ack").increment(1);
                     all_persist_acks.push(ack);
                 }
-                CoordinatorEvent::ActionTimeoutTick => {}
+                CoordinatorEvent::ActionTimeoutTick => {
+                    metrics::counter!("waymark_runloop_ticks_by_cause_total", "cause" => "action_timeout_tick").increment(1);
+                }
             }
 
             while let Ok(completions) = completion_rx.try_recv() {
                 let completions =
                     completions.into_inner_measured_multi(&["completions_try", "completions_both"]);
+                metrics::counter!("waymark_runloop_polled_completions_total", "where" => "batch")
+                    .increment(completions.len() as _);
                 all_completions.extend(completions);
             }
             while let Ok(message) = instance_rx.try_recv() {
                 match message {
                     queued_instances_polling::Message::Batch { instances } => {
+                        metrics::counter!("waymark_runloop_polled_instances_total", "where" => "batch").increment(instances.len().get() as _);
                         all_instances.extend(instances);
                     }
                     queued_instances_polling::Message::Pending => {
+                        metrics::counter!("waymark_runloop_polled_instance_pending_total", "where" => "batch").increment(1);
                         queued_instances_poller_is_pending = true;
                     }
                     queued_instances_polling::Message::Error(err) => {
@@ -510,12 +547,18 @@ where
                 let event =
                     event.into_inner_measured_multi(&["shard_event_try", "shard_event_both"]);
                 match event {
-                    shard::Event::Step(step) => all_steps.push(step),
+                    shard::Event::Step(step) => {
+                        metrics::counter!("waymark_runloop_shard_steps_total", "where" => "batch")
+                            .increment(1);
+                        all_steps.push(step);
+                    }
                     shard::Event::InstanceFailed {
                         executor_id,
                         entry_node,
                         error,
                     } => {
+                        metrics::counter!("waymark_runloop_shard_instance_failed_total", "where" => "batch")
+                            .increment(1);
                         all_failed_instances.push(InstanceDone {
                             executor_id,
                             entry_node,
@@ -738,6 +781,67 @@ where
             {
                 break 'runloop Err(err.into());
             }
+
+            metrics::counter!("waymark_runloop_ticks_total").increment(1);
+
+            metrics::histogram!("waymark_runloop_ticks_stats_executor_shards_len")
+                .record(MetricsVal(executor_shards.len()));
+            metrics::histogram!("waymark_runloop_ticks_stats_inflight_actions_len")
+                .record(MetricsVal(inflight_actions.len()));
+            metrics::histogram!("waymark_runloop_ticks_stats_inflight_dispatches_len")
+                .record(MetricsVal(inflight_dispatches.len()));
+            metrics::histogram!("waymark_runloop_ticks_stats_sleeping_nodes_len")
+                .record(MetricsVal(sleeping_nodes.len()));
+            metrics::histogram!("waymark_runloop_ticks_stats_sleeping_by_instance_len")
+                .record(MetricsVal(sleeping_by_instance.len()));
+            metrics::histogram!("waymark_runloop_ticks_stats_blocked_until_by_instance_len")
+                .record(MetricsVal(blocked_until_by_instance.len()));
+            metrics::histogram!("waymark_runloop_ticks_stats_instances_done_pending_len")
+                .record(MetricsVal(instances_done_pending.len()));
+
+            let total_in_flight_actions: usize = inflight_actions.values().sum();
+            metrics::histogram!("waymark_runloop_ticks_stats_inflight_actions_total")
+                .record(MetricsVal(total_in_flight_actions));
+
+            let commit_barrier_pending_batch_count = commit_barrier.pending_batch_count();
+            metrics::histogram!("waymark_runloop_ticks_stats_commit_barrier_pending_batch_len")
+                .record(MetricsVal(commit_barrier_pending_batch_count));
+
+            let blocked_idle_instances_count = blocked_until_by_instance
+                .keys()
+                .filter(|instance_id| inflight_actions.get(instance_id).copied().unwrap_or(0) == 0)
+                .count();
+            metrics::histogram!("waymark_runloop_ticks_stats_blocked_idle_instances_len")
+                .record(MetricsVal(blocked_idle_instances_count));
+
+            metrics::histogram!("waymark_runloop_ticks_stats_available_instance_slots_peek")
+                .record(MetricsVal(
+                    self.available_instances_updater
+                        .available_instance_slots_tracker
+                        .peek_available(),
+                ));
+
+            tracing::trace!(
+                target: "runloop-ticks",
+
+                instances_idle,
+                next_shard,
+
+                shard_senders_len = shard_senders.len(),
+
+                executor_shards_len = executor_shards.len(),
+                inflight_actions_len = inflight_actions.len(),
+                inflight_dispatches_len = inflight_dispatches.len(),
+                sleeping_nodes_len = sleeping_nodes.len(),
+                sleeping_by_instance_len = sleeping_by_instance.len(),
+                blocked_until_by_instance_len = blocked_until_by_instance.len(),
+                instances_done_pending_len = instances_done_pending.len(),
+                total_in_flight_actions,
+                commit_barrier_pending_batch_count,
+                blocked_idle_instances_count,
+
+                "runloop tick"
+            );
         };
 
         info!(
