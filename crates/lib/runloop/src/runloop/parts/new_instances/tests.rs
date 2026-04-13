@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 
 use nonempty_collections::NEVec;
 use prost::Message;
@@ -12,7 +11,7 @@ use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBa
 
 use crate::commit_barrier::CommitBarrier;
 use crate::instance_lock_heartbeat;
-use crate::runloop::InflightActionDispatch;
+use crate::runloop::{InflightActionDispatch, WorkflowDagCache};
 use crate::shard;
 
 struct TestHarness {
@@ -27,7 +26,7 @@ struct TestHarness {
     pub sleeping_by_instance: HashMap<InstanceId, HashSet<ExecutionId>>,
     pub blocked_until_by_instance: HashMap<InstanceId, chrono::DateTime<chrono::Utc>>,
     pub commit_barrier: CommitBarrier<shard::Step>,
-    pub workflow_cache: HashMap<Uuid, Arc<waymark_dag::DAG>>,
+    pub workflow_cache: WorkflowDagCache,
     pub next_shard: usize,
 }
 
@@ -45,7 +44,7 @@ impl Default for TestHarness {
             sleeping_by_instance: HashMap::new(),
             blocked_until_by_instance: HashMap::new(),
             commit_barrier: CommitBarrier::new(),
-            workflow_cache: HashMap::new(),
+            workflow_cache: WorkflowDagCache::default(),
             next_shard: 0,
         }
     }

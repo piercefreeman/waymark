@@ -25,7 +25,6 @@ use crate::{error_value, persist, queued_instances_polling, shard};
 use waymark_ids::{ExecutionId, InstanceId, LockId};
 use waymark_metrics_util::Val as MetricsVal;
 
-use waymark_dag::DAG;
 use waymark_observability::obs;
 use waymark_runner::{RunnerExecutorError, SleepRequest};
 use waymark_worker_core::{ActionCompletion, WorkerPoolError};
@@ -54,6 +53,9 @@ mod ops {
 }
 
 mod lock_utils;
+pub mod workflow_dag_cache;
+
+use self::workflow_dag_cache::WorkflowDagCache;
 
 /// Raised when the run loop cannot coordinate execution.
 #[derive(Debug, thiserror::Error)]
@@ -111,7 +113,7 @@ where
     worker_pool: Arc<WorkerPool>,
     core_backend: Arc<CoreBackend>,
     registry_backend: Arc<RegistryBackend>,
-    workflow_cache: HashMap<Uuid, Arc<DAG>>,
+    workflow_cache: WorkflowDagCache,
     available_instances_updater: AvailableInstancesUpdater,
     available_instance_slots_reader: crate::available_instance_slots::Reader,
     instance_done_batch_size: NonZeroUsize,
@@ -204,7 +206,7 @@ where
             worker_pool,
             core_backend,
             registry_backend,
-            workflow_cache: HashMap::new(),
+            workflow_cache: WorkflowDagCache::default(),
             available_instances_updater,
             available_instance_slots_reader,
             instance_done_batch_size,
@@ -681,18 +683,14 @@ where
                     // put the error into the "dumb" unified error.
                     let parts::new_instances::Error::Hydrate(error) = error;
                     let error = match error {
-                        ops::hydrate_instances::Error::CacheMissingDags(
-                            ops::hydrate_instances::CacheMissingDagsError::GetWorkflowVersions(
-                                backend_error,
-                            ),
+                        ops::hydrate_instances::Error::WorkflowDagCachePopulate(
+                            workflow_dag_cache::PopulateError::GetWorkflowVersions(backend_error),
                         ) => backend_error.into(),
-                        err @ ops::hydrate_instances::Error::CacheMissingDags(
-                            ops::hydrate_instances::CacheMissingDagsError::IrProgramDecode {
-                                ..
-                            },
+                        err @ ops::hydrate_instances::Error::WorkflowDagCachePopulate(
+                            workflow_dag_cache::PopulateError::IrProgramDecode { .. },
                         )
-                        | err @ ops::hydrate_instances::Error::CacheMissingDags(
-                            ops::hydrate_instances::CacheMissingDagsError::ConvertToDag { .. },
+                        | err @ ops::hydrate_instances::Error::WorkflowDagCachePopulate(
+                            workflow_dag_cache::PopulateError::ConvertToDag { .. },
                         )
                         | err @ ops::hydrate_instances::Error::WorkflowCacheGetNone { .. } => {
                             Error::Message(err.to_string())

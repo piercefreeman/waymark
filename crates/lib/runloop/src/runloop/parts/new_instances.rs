@@ -1,20 +1,21 @@
 use std::{
     collections::{HashMap, HashSet},
     num::NonZeroUsize,
-    sync::Arc,
 };
 
 use chrono::{DateTime, Utc};
 use nonempty_collections::NEVec;
 use tracing::{debug, warn};
-use uuid::Uuid;
 use waymark_core_backend::QueuedInstance;
 use waymark_ids::{ExecutionId, InstanceId, LockId};
 use waymark_runner::SleepRequest;
 
 use crate::{
-    commit_barrier::CommitBarrier, hydrated_instance::HydratedInstance, instance_lock_heartbeat,
-    runloop::InflightActionDispatch, shard,
+    commit_barrier::CommitBarrier,
+    hydrated_instance::HydratedInstance,
+    instance_lock_heartbeat,
+    runloop::{InflightActionDispatch, WorkflowDagCache},
+    shard,
 };
 
 #[cfg(test)]
@@ -43,7 +44,7 @@ pub struct Params<'a, WorkflowRegistryBackend: ?Sized> {
     pub commit_barrier: &'a mut CommitBarrier<shard::Step>,
 
     /// Cache of workflow DAGs keyed by workflow version ID to avoid repeated hydration work.
-    pub workflow_cache: &'a mut HashMap<Uuid, Arc<waymark_dag::DAG>>,
+    pub workflow_cache: &'a mut WorkflowDagCache,
     /// Backend used to fetch workflow definitions that are missing from the local cache.
     pub registry_backend: &'a WorkflowRegistryBackend,
 
