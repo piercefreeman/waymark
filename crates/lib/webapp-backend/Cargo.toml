@@ -9,8 +9,6 @@ waymark-backends-core = { workspace = true }
 waymark-ids = { workspace = true }
 waymark-webapp-core = { workspace = true }
 
-uuid = { workspace = true }
-
 [lib]
 test = false
 doctest = false

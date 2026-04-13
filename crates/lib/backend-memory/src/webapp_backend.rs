@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use chrono::Utc;
 use uuid::Uuid;
 use waymark_backends_core::{BackendError, BackendResult};
-use waymark_ids::InstanceId;
+use waymark_ids::{InstanceId, ScheduleId};
 use waymark_webapp_backend::WebappBackend;
 use waymark_webapp_core::{
     ExecutionGraphView, InstanceDetail, InstanceStatus, InstanceSummary, ScheduleDetail,
@@ -101,7 +101,7 @@ impl WebappBackend for crate::MemoryBackend {
             .skip(start)
             .take(page_limit)
             .map(|schedule| ScheduleSummary {
-                id: schedule.id.to_string(),
+                id: schedule.id,
                 workflow_name: schedule.workflow_name,
                 schedule_name: schedule.schedule_name,
                 schedule_type: schedule.schedule_type,
@@ -115,7 +115,7 @@ impl WebappBackend for crate::MemoryBackend {
             .collect())
     }
 
-    async fn get_schedule(&self, schedule_id: Uuid) -> BackendResult<ScheduleDetail> {
+    async fn get_schedule(&self, schedule_id: ScheduleId) -> BackendResult<ScheduleDetail> {
         let guard = self.schedules.lock().expect("schedules poisoned");
         let schedule = guard
             .values()
@@ -130,7 +130,7 @@ impl WebappBackend for crate::MemoryBackend {
         });
 
         Ok(ScheduleDetail {
-            id: schedule.id.to_string(),
+            id: schedule.id,
             workflow_name: schedule.workflow_name,
             schedule_name: schedule.schedule_name,
             schedule_type: schedule.schedule_type,
@@ -149,20 +149,24 @@ impl WebappBackend for crate::MemoryBackend {
         })
     }
 
-    async fn count_schedule_invocations(&self, _schedule_id: Uuid) -> BackendResult<i64> {
+    async fn count_schedule_invocations(&self, _schedule_id: ScheduleId) -> BackendResult<i64> {
         Ok(0)
     }
 
     async fn list_schedule_invocations(
         &self,
-        _schedule_id: Uuid,
+        _schedule_id: ScheduleId,
         _limit: i64,
         _offset: i64,
     ) -> BackendResult<Vec<ScheduleInvocationSummary>> {
         Ok(Vec::new())
     }
 
-    async fn update_schedule_status(&self, schedule_id: Uuid, status: &str) -> BackendResult<bool> {
+    async fn update_schedule_status(
+        &self,
+        schedule_id: ScheduleId,
+        status: &str,
+    ) -> BackendResult<bool> {
         let mut guard = self.schedules.lock().expect("schedules poisoned");
         let Some(schedule) = guard
             .values_mut()

@@ -1,8 +1,7 @@
 use std::future::Future;
 
-use uuid::Uuid;
 use waymark_backends_core::BackendResult;
-use waymark_ids::InstanceId;
+use waymark_ids::{InstanceId, ScheduleId};
 use waymark_webapp_core::{
     ExecutionGraphView, InstanceDetail, InstanceSummary, ScheduleDetail, ScheduleInvocationSummary,
     ScheduleSummary, TimelineEntry, WorkerActionRow, WorkerAggregateStats, WorkerStatus,
@@ -64,24 +63,24 @@ pub trait WebappBackend {
 
     fn get_schedule(
         &self,
-        schedule_id: Uuid,
+        schedule_id: ScheduleId,
     ) -> impl Future<Output = BackendResult<ScheduleDetail>> + Send + '_;
 
     fn count_schedule_invocations(
         &self,
-        schedule_id: Uuid,
+        schedule_id: ScheduleId,
     ) -> impl Future<Output = BackendResult<i64>> + Send + '_;
 
     fn list_schedule_invocations(
         &self,
-        schedule_id: Uuid,
+        schedule_id: ScheduleId,
         limit: i64,
         offset: i64,
     ) -> impl Future<Output = BackendResult<Vec<ScheduleInvocationSummary>>> + Send + '_;
 
     fn update_schedule_status<'a>(
         &'a self,
-        schedule_id: Uuid,
+        schedule_id: ScheduleId,
         status: &'a str,
     ) -> impl Future<Output = BackendResult<bool>> + Send + 'a;
 

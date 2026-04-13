@@ -2,30 +2,7 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
-use waymark_ids::InstanceId;
-
-/// Unique identifier for a schedule.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct ScheduleId(pub Uuid);
-
-impl ScheduleId {
-    pub fn new() -> Self {
-        Self(Uuid::new_v4())
-    }
-}
-
-impl Default for ScheduleId {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl std::fmt::Display for ScheduleId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
+use waymark_ids::{InstanceId, ScheduleId};
 
 /// Type of schedule.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -95,7 +72,7 @@ impl std::fmt::Display for ScheduleStatus {
 /// A workflow schedule (recurring execution).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkflowSchedule {
-    pub id: Uuid,
+    pub id: ScheduleId,
     pub workflow_name: String,
     pub schedule_name: String,
     pub schedule_type: String,

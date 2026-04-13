@@ -22,7 +22,7 @@ use waymark_runloop::{RunLoop, RunLoopConfig};
 use waymark_runner_executor_core::ExecutionException;
 use waymark_runner_state::RunnerState;
 use waymark_scheduler_backend::SchedulerBackend as _;
-use waymark_scheduler_core::{CreateScheduleParams, ScheduleId, ScheduleStatus, ScheduleType};
+use waymark_scheduler_core::{CreateScheduleParams, ScheduleStatus, ScheduleType};
 use waymark_worker_core::ActionCompletion;
 use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBackend as _};
 
@@ -472,7 +472,7 @@ impl proto::workflow_service_server::WorkflowService for BridgeService {
 
         let updated = store
             .backend
-            .update_schedule_status(ScheduleId(schedule.id), status.as_str())
+            .update_schedule_status(schedule.id, status.as_str())
             .await
             .map_err(|err| Status::internal(format!("schedule update failed: {err}")))?;
 
@@ -505,7 +505,7 @@ impl proto::workflow_service_server::WorkflowService for BridgeService {
 
         let deleted = store
             .backend
-            .delete_schedule(ScheduleId(schedule.id))
+            .delete_schedule(schedule.id)
             .await
             .map_err(|err| Status::internal(format!("schedule delete failed: {err}")))?;
 

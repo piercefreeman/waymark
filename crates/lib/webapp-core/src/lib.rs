@@ -3,7 +3,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use waymark_ids::{ExecutionId, InstanceId};
+use waymark_ids::{ExecutionId, InstanceId, ScheduleId};
 
 /// Instance status.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -206,7 +206,7 @@ pub struct InstanceExportInfo {
 /// Schedule summary for listing.
 #[derive(Debug, Clone, Serialize)]
 pub struct ScheduleSummary {
-    pub id: String,
+    pub id: ScheduleId,
     pub workflow_name: String,
     pub schedule_name: String,
     pub schedule_type: String,
@@ -221,7 +221,7 @@ pub struct ScheduleSummary {
 /// Full schedule details.
 #[derive(Debug, Clone, Serialize)]
 pub struct ScheduleDetail {
-    pub id: String,
+    pub id: ScheduleId,
     pub workflow_name: String,
     pub schedule_name: String,
     pub schedule_type: String,
