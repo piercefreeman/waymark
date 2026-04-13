@@ -4652,9 +4652,9 @@ dependencies = [
  "thiserror",
  "waymark-dag",
  "waymark-ids",
- "waymark-ir-conversions",
  "waymark-metrics-util",
  "waymark-proto",
+ "waymark-runner-eval-core",
  "waymark-runner-execution-core",
  "waymark-runner-expr",
 ]
