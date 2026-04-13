@@ -22,16 +22,15 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Utc};
-use uuid::Uuid;
 
 use waymark_core_backend::{ActionDone, GraphUpdate, InstanceDone, QueuedInstance};
-use waymark_ids::{InstanceId, LockId};
+use waymark_ids::{InstanceId, LockId, WorkflowVersionId};
 use waymark_scheduler_core::{ScheduleId, WorkflowSchedule};
 use waymark_worker_status_backend::WorkerStatusUpdate;
 use waymark_workflow_registry_backend::WorkflowRegistration;
 
 type WorkflowVersionKey = (String, String);
-type WorkflowVersionValue = (Uuid, WorkflowRegistration);
+type WorkflowVersionValue = (WorkflowVersionId, WorkflowRegistration);
 type WorkflowVersionStore = HashMap<WorkflowVersionKey, WorkflowVersionValue>;
 type InstanceLockStore = HashMap<InstanceId, (Option<LockId>, Option<DateTime<Utc>>)>;
 

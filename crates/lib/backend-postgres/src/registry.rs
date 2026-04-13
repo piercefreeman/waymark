@@ -1,6 +1,6 @@
 use sqlx::Row;
-use uuid::Uuid;
 use waymark_backends_core::{BackendError, BackendResult};
+use waymark_ids::WorkflowVersionId;
 use waymark_timed_future::TimedFutureExt as _;
 use waymark_workflow_registry_backend::{
     WorkflowRegistration, WorkflowRegistryBackend, WorkflowVersion,
@@ -13,7 +13,7 @@ impl WorkflowRegistryBackend for PostgresBackend {
     async fn upsert_workflow_version(
         &self,
         registration: &WorkflowRegistration,
-    ) -> BackendResult<Uuid> {
+    ) -> BackendResult<WorkflowVersionId> {
         let inserted = sqlx::query(
             r#"
             INSERT INTO workflow_versions
@@ -34,7 +34,7 @@ impl WorkflowRegistryBackend for PostgresBackend {
         .await?;
 
         if let Some(row) = inserted {
-            let id: Uuid = row.get("id");
+            let id: WorkflowVersionId = row.get("id");
             return Ok(id);
         }
 
@@ -53,7 +53,7 @@ impl WorkflowRegistryBackend for PostgresBackend {
         ))
         .await?;
 
-        let id: Uuid = row.get("id");
+        let id: WorkflowVersionId = row.get("id");
         let existing_hash: String = row.get("ir_hash");
         if existing_hash != registration.ir_hash {
             return Err(BackendError::Message(format!(
@@ -66,7 +66,10 @@ impl WorkflowRegistryBackend for PostgresBackend {
     }
 
     #[function_name::named]
-    async fn get_workflow_versions(&self, ids: &[Uuid]) -> BackendResult<Vec<WorkflowVersion>> {
+    async fn get_workflow_versions(
+        &self,
+        ids: &[WorkflowVersionId],
+    ) -> BackendResult<Vec<WorkflowVersion>> {
         if ids.is_empty() {
             return Ok(Vec::new());
         }

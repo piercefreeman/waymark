@@ -46,7 +46,7 @@ use uuid::Uuid;
 use waymark_backend_postgres::PostgresBackend;
 use waymark_config::WorkerConfig;
 use waymark_dag_builder::convert_to_dag;
-use waymark_ids::LockId;
+use waymark_ids::{LockId, WorkflowVersionId};
 use waymark_nonzero_duration::NonZeroDuration;
 use waymark_proto::ast as ir;
 use waymark_runloop::RunLoopConfig;
@@ -316,7 +316,7 @@ impl waymark_scheduler_loop_core::DagResolver for SchedulerDagResolver {
             return Ok(None);
         };
 
-        let version_id: Uuid = row.get("id");
+        let version_id: WorkflowVersionId = row.get("id");
         let payload: Vec<u8> = row.get("program_proto");
         let program =
             ir::Program::decode(&payload[..]).map_err(SchedulerDagResolverError::DagProtoDecode)?;

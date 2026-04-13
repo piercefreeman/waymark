@@ -15,7 +15,7 @@ use uuid::Uuid;
 use waymark_backend_memory::MemoryBackend;
 use waymark_core_backend::{InstanceDone, QueuedInstance};
 use waymark_dag_builder::convert_to_dag;
-use waymark_ids::{InstanceId, LockId};
+use waymark_ids::{InstanceId, LockId, WorkflowVersionId};
 use waymark_ir_conversions::literal_from_json_value;
 use waymark_proto::{ast as ir, messages as proto};
 use waymark_runloop::{RunLoop, RunLoopConfig};
@@ -600,7 +600,7 @@ fn find_latest_instance_done(
 
 fn build_queued_instance(
     instance_id: InstanceId,
-    workflow_version_id: Uuid,
+    workflow_version_id: WorkflowVersionId,
     dag: Arc<waymark_dag::DAG>,
     initial_context: Option<proto::WorkflowArguments>,
 ) -> Result<QueuedInstance, String> {

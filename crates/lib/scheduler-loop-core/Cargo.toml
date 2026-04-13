@@ -6,5 +6,4 @@ publish.workspace = true
 
 [dependencies]
 waymark-dag = { workspace = true }
-
-uuid = { workspace = true }
+waymark-ids = { workspace = true }

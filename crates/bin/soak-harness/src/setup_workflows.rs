@@ -3,10 +3,10 @@ use std::{num::NonZeroUsize, sync::Arc};
 use anyhow::{Context, Result, anyhow};
 use prost::Message as _;
 use sha2::{Digest as _, Sha256};
-use uuid::Uuid;
 use waymark_backend_postgres::PostgresBackend;
 use waymark_dag::DAG;
 use waymark_dag_builder::convert_to_dag;
+use waymark_ids::WorkflowVersionId;
 use waymark_ir_parser::parse_program;
 use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBackend as _};
 
@@ -15,7 +15,7 @@ const DEFAULT_WORKFLOW_NAME: &str = "waymark_soak_timeout_mix_v1";
 #[derive(Debug, Clone)]
 pub struct RegisteredWorkflow {
     pub workflow_name: String,
-    pub workflow_version_id: Uuid,
+    pub workflow_version_id: WorkflowVersionId,
     pub dag: Arc<DAG>,
     pub entry_template_id: String,
 }

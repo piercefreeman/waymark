@@ -5,13 +5,12 @@ use std::time::Duration;
 use prost::Message;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use uuid::Uuid;
 
 use waymark_backend_fault_injection::FaultInjectingBackend;
 use waymark_backend_memory::MemoryBackend;
 use waymark_core_backend::{ActionAttemptStatus, CoreBackend, QueuedInstance};
 use waymark_dag_builder::convert_to_dag;
-use waymark_ids::{ExecutionId, InstanceId, LockId};
+use waymark_ids::{ExecutionId, InstanceId, LockId, WorkflowVersionId};
 use waymark_ir_parser::parse_program;
 use waymark_nonzero_duration::NonZeroDuration;
 use waymark_proto::ast as ir;
@@ -736,7 +735,7 @@ async fn test_runloop_reproduces_no_progress_with_continued_queue_growth() {
     for _ in 0..20 {
         backend
             .queue_instances(&[QueuedInstance {
-                workflow_version_id: Uuid::new_v4(),
+                workflow_version_id: WorkflowVersionId::new_uuid_v4(),
                 schedule_id: None,
                 entry_node: ExecutionId::new_uuid_v4(),
                 state: None,

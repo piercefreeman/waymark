@@ -1,4 +1,4 @@
-use uuid::Uuid;
+use waymark_ids::WorkflowVersionId;
 use waymark_workflow_registry_backend::{
     BackendError, BackendResult, WorkflowRegistration, WorkflowRegistryBackend, WorkflowVersion,
 };
@@ -7,7 +7,7 @@ impl WorkflowRegistryBackend for crate::MemoryBackend {
     async fn upsert_workflow_version(
         &self,
         registration: &WorkflowRegistration,
-    ) -> BackendResult<Uuid> {
+    ) -> BackendResult<WorkflowVersionId> {
         let mut guard = self
             .workflow_versions
             .lock()
@@ -26,12 +26,15 @@ impl WorkflowRegistryBackend for crate::MemoryBackend {
             return Ok(*id);
         }
 
-        let id = Uuid::new_v4();
+        let id = WorkflowVersionId::new_uuid_v4();
         guard.insert(key, (id, registration.clone()));
         Ok(id)
     }
 
-    async fn get_workflow_versions(&self, ids: &[Uuid]) -> BackendResult<Vec<WorkflowVersion>> {
+    async fn get_workflow_versions(
+        &self,
+        ids: &[WorkflowVersionId],
+    ) -> BackendResult<Vec<WorkflowVersion>> {
         if ids.is_empty() {
             return Ok(Vec::new());
         }

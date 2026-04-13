@@ -3958,7 +3958,6 @@ version = "0.1.0"
 dependencies = [
  "nonempty-collections",
  "thiserror",
- "uuid",
  "waymark-backends-core",
  "waymark-core-backend",
  "waymark-ids",
@@ -4059,7 +4058,6 @@ dependencies = [
  "sqlx",
  "tokio",
  "tracing",
- "uuid",
  "waymark-backend-postgres",
  "waymark-backend-postgres-migrations",
  "waymark-core-backend",
@@ -4219,7 +4217,6 @@ dependencies = [
  "serde_json",
  "sha2",
  "tokio",
- "uuid",
  "waymark-backend-memory",
  "waymark-core-backend",
  "waymark-dag",
@@ -4282,7 +4279,6 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tokio",
- "uuid",
  "waymark-backend-memory",
  "waymark-backend-postgres",
  "waymark-backend-postgres-migrations",
@@ -4545,7 +4541,6 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
- "uuid",
  "waymark-backend-memory",
  "waymark-core-backend",
  "waymark-dag-builder",
@@ -4566,8 +4561,8 @@ dependencies = [
 name = "waymark-scheduler-loop-core"
 version = "0.1.0"
 dependencies = [
- "uuid",
  "waymark-dag",
+ "waymark-ids",
 ]
 
 [[package]]
@@ -4925,8 +4920,8 @@ dependencies = [
 name = "waymark-workflow-registry-backend"
 version = "0.1.0"
 dependencies = [
- "uuid",
  "waymark-backends-core",
+ "waymark-ids",
 ]
 
 [[package]]

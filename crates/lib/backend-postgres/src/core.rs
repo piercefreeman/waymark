@@ -12,7 +12,7 @@ use sqlx::{Postgres, QueryBuilder, Row};
 use tracing::warn;
 use uuid::Uuid;
 use waymark_garbage_collector_backend::{GarbageCollectionResult, GarbageCollectorBackend};
-use waymark_ids::{ExecutionId, InstanceId, LockId};
+use waymark_ids::{ExecutionId, InstanceId, LockId, WorkflowVersionId};
 use waymark_runner_executor_core::{ExecutionSuccess, UncheckedExecutionResult};
 use waymark_scheduler_backend::{BackendError, BackendResult};
 use waymark_worker_status_backend::{WorkerStatusBackend, WorkerStatusUpdate};
@@ -135,7 +135,7 @@ impl PostgresBackend {
         if instances.is_empty() {
             return Ok(());
         }
-        let workflow_version_ids: Vec<Uuid> = instances
+        let workflow_version_ids: Vec<WorkflowVersionId> = instances
             .iter()
             .map(|instance| instance.workflow_version_id)
             .collect();
@@ -147,7 +147,7 @@ impl PostgresBackend {
                     "select:workflow_versions_by_id_for_queue_instances"
                 ))
                 .await?;
-        let mut workflow_names_by_version_id: HashMap<Uuid, String> =
+        let mut workflow_names_by_version_id: HashMap<WorkflowVersionId, String> =
             HashMap::with_capacity(workflow_rows.len());
         for row in workflow_rows {
             workflow_names_by_version_id.insert(row.get("id"), row.get("workflow_name"));
@@ -1182,7 +1182,7 @@ mod tests {
 
     fn sample_queued_instance(instance_id: InstanceId, entry_node: ExecutionId) -> QueuedInstance {
         QueuedInstance {
-            workflow_version_id: Uuid::new_v4(),
+            workflow_version_id: WorkflowVersionId::new_uuid_v4(),
             schedule_id: None,
             entry_node,
             state: Some(sample_runner_state()),
@@ -1223,7 +1223,7 @@ mod tests {
 
     async fn insert_workflow_version_row(
         backend: &PostgresBackend,
-        workflow_version_id: Uuid,
+        workflow_version_id: WorkflowVersionId,
         workflow_name: &str,
     ) {
         sqlx::query(
@@ -1283,7 +1283,7 @@ mod tests {
                 .expect("runner count");
         assert_eq!(runner_count, 1);
 
-        let workflow_version_id: Option<Uuid> = sqlx::query_scalar(
+        let workflow_version_id: Option<WorkflowVersionId> = sqlx::query_scalar(
             "SELECT workflow_version_id FROM runner_instances WHERE instance_id = $1",
         )
         .bind(instance_id)
@@ -1317,7 +1317,7 @@ mod tests {
         let backend = setup_backend().await;
         let instance_id = InstanceId::new_uuid_v4();
         let entry_node = ExecutionId::new_uuid_v4();
-        let workflow_version_id = Uuid::new_v4();
+        let workflow_version_id = WorkflowVersionId::new_uuid_v4();
         insert_workflow_version_row(&backend, workflow_version_id, "tests.searchable").await;
 
         let queued = QueuedInstance {

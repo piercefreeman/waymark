@@ -12,10 +12,9 @@ use rand::seq::SliceRandom;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
-use uuid::Uuid;
 use waymark_backend_postgres::PostgresBackend;
 use waymark_core_backend::QueuedInstance;
-use waymark_ids::{InstanceId, LockId};
+use waymark_ids::{InstanceId, LockId, WorkflowVersionId};
 use waymark_secret_string::{SecretStr, SecretString};
 use waymark_support_integration::{LOCAL_POSTGRES_DSN, ensure_local_postgres};
 use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBackend as _};
@@ -148,7 +147,7 @@ fn build_cases(base: i64) -> HashMap<String, BenchmarkCase> {
     cases
 }
 
-fn build_instance(case: &BenchmarkCase, workflow_version_id: Uuid) -> QueuedInstance {
+fn build_instance(case: &BenchmarkCase, workflow_version_id: WorkflowVersionId) -> QueuedInstance {
     let mut state = RunnerState::new(Some(Arc::clone(&case.dag)), None, None, false);
     for (name, value) in &case.inputs {
         let expr = literal_from_json_value(value);
