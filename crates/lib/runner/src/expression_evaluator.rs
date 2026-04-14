@@ -703,7 +703,7 @@ mod tests {
     fn empty_executor<const SHOULD_COLLECT_UPDATES: bool>() -> RunnerExecutor<SHOULD_COLLECT_UPDATES>
     {
         let dag = Arc::new(DAG::default());
-        let state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
+        let state = RunnerState::from_dag(Arc::clone(&dag));
         RunnerExecutor::new(dag, state, HashMap::new())
     }
 
@@ -712,7 +712,7 @@ mod tests {
         value: ValueExpr,
     ) -> RunnerExecutor<SHOULD_COLLECT_UPDATES> {
         let dag = Arc::new(DAG::default());
-        let mut state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
+        let mut state = RunnerState::from_dag(Arc::clone(&dag));
         state
             .record_assignment_value(
                 vec![name.to_string()],
@@ -770,7 +770,7 @@ mod tests {
     #[test]
     fn test_resolve_action_kwargs_uses_data_flow_for_self_referential_targets() {
         let dag = Arc::new(DAG::default());
-        let mut state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
+        let mut state = RunnerState::from_dag(Arc::clone(&dag));
         state
             .record_assignment_value(
                 vec!["current".to_string()],
@@ -850,7 +850,7 @@ mod tests {
     #[test]
     fn test_evaluate_assignment_uses_data_flow_for_self_referential_updates() {
         let dag = Arc::new(DAG::default());
-        let mut state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
+        let mut state = RunnerState::from_dag(Arc::clone(&dag));
         state
             .record_assignment_value(
                 vec!["count".to_string()],

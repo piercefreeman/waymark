@@ -678,12 +678,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
         let graph_update: GraphUpdate = rmp_serde::from_slice(&state_bytes)
             .map_err(|e| BackendError::Message(format!("failed to decode state: {}", e)))?;
 
-        let runner_state = RunnerState::new(
-            None,
-            Some(graph_update.nodes.clone()),
-            Some(graph_update.edges),
-            false,
-        );
+        let runner_state = RunnerState::from_parts(graph_update.nodes.clone(), graph_update.edges);
         let action_nodes: HashMap<ExecutionId, ExecutionNode> = graph_update
             .nodes
             .into_iter()
@@ -1446,7 +1441,7 @@ fn build_queued_instance(
     dag: Arc<waymark_dag::DAG>,
     input_payload: &serde_json::Map<String, Value>,
 ) -> BackendResult<QueuedInstance> {
-    let mut state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
+    let mut state = RunnerState::from_dag(Arc::clone(&dag));
     // TODO: Centralize initial input seeding and the `input {name} = {value}` label
     // convention. This duplicates the bridge path in
     // `crates/bin/bridge/src/bridge_service.rs::build_queued_instance`, and

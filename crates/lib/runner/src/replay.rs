@@ -556,7 +556,7 @@ mod tests {
 
     #[test]
     fn test_replay_variables_resolves_action_results() {
-        let mut state = RunnerState::new(None, None, None, true);
+        let mut state = RunnerState::with_link_queued_nodes();
 
         let action0 = state
             .queue_action(
@@ -632,7 +632,7 @@ mod tests {
 
     #[test]
     fn test_replay_action_kwargs_resolves_variable_inputs() {
-        let mut state = RunnerState::new(None, None, None, true);
+        let mut state = RunnerState::with_link_queued_nodes();
 
         let number_expr = ir::Expr {
             kind: Some(ir::expr::Kind::Literal(ir::Literal {

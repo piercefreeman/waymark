@@ -351,7 +351,7 @@ fn build_instance(
     workflow: &crate::setup_workflows::RegisteredWorkflow,
     item: WorkItem,
 ) -> Result<QueuedInstance> {
-    let mut state = RunnerState::new(Some(Arc::clone(&workflow.dag)), None, None, false);
+    let mut state = RunnerState::from_dag(Arc::clone(&workflow.dag));
     if item.step_delays_ms.len() != item.step_should_fail.len()
         || item.step_delays_ms.len() != item.step_payload_bytes.len()
         || item.step_delays_ms.len() != item.step_include_payload.len()

@@ -48,7 +48,7 @@ fn main(input: [x], output: [y]):
     let ir_hash = format!("{:x}", Sha256::digest(&program_proto));
     let dag = Arc::new(convert_to_dag(&program).expect("convert to dag"));
 
-    let mut state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
+    let mut state = RunnerState::from_dag(Arc::clone(&dag));
     let _ = state
         .record_assignment(
             vec!["x".to_string()],
@@ -199,7 +199,7 @@ fn main(input: [x], output: [y]):
     );
 
     for input in [2_i64, 7_i64] {
-        let mut state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
+        let mut state = RunnerState::from_dag(Arc::clone(&dag));
         let _ = state
             .record_assignment(
                 vec!["x".to_string()],
@@ -264,7 +264,7 @@ fn main(input: [x], output: [y]):
     let ir_hash = format!("{:x}", Sha256::digest(&program_proto));
     let dag = Arc::new(convert_to_dag(&program).expect("convert to dag"));
 
-    let mut state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
+    let mut state = RunnerState::from_dag(Arc::clone(&dag));
     let _ = state
         .record_assignment(
             vec!["x".to_string()],
@@ -368,7 +368,7 @@ fn main(input: [], output: [y]):
     let ir_hash = format!("{:x}", Sha256::digest(&program_proto));
     let dag = Arc::new(convert_to_dag(&program).expect("convert to dag"));
 
-    let mut state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
+    let mut state = RunnerState::from_dag(Arc::clone(&dag));
     let entry_node = dag
         .entry_node
         .as_ref()
@@ -492,7 +492,7 @@ fn main(input: [x], output: [y]):
     let dag = Arc::new(convert_to_dag(&program).expect("convert to dag"));
 
     // Intentionally omit input assignment so action kwarg resolution fails at runtime.
-    let mut state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
+    let mut state = RunnerState::from_dag(Arc::clone(&dag));
     let entry_node = dag
         .entry_node
         .as_ref()
@@ -587,7 +587,7 @@ fn main(input: [limit], output: [result]):
     let ir_hash = format!("{:x}", Sha256::digest(&program_proto));
     let dag = Arc::new(convert_to_dag(&program).expect("convert to dag"));
 
-    let mut state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
+    let mut state = RunnerState::from_dag(Arc::clone(&dag));
     let _ = state
         .record_assignment(
             vec!["limit".to_string()],
@@ -800,7 +800,7 @@ fn main(input: [x], output: [y]):
     let ir_hash = format!("{:x}", Sha256::digest(&program_proto));
     let dag = Arc::new(convert_to_dag(&program).expect("convert to dag"));
 
-    let mut state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
+    let mut state = RunnerState::from_dag(Arc::clone(&dag));
     let _ = state
         .record_assignment(
             vec!["x".to_string()],
@@ -922,7 +922,7 @@ fn main(input: [], output: [result]):
     let ir_hash = format!("{:x}", Sha256::digest(&program_proto));
     let dag = Arc::new(convert_to_dag(&program).expect("convert to dag"));
 
-    let mut state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
+    let mut state = RunnerState::from_dag(Arc::clone(&dag));
     let entry_node = dag
         .entry_node
         .as_ref()
@@ -1016,7 +1016,7 @@ fn main(input: [], output: [result]):
     let ir_hash = format!("{:x}", Sha256::digest(&program_proto));
     let dag = Arc::new(convert_to_dag(&program).expect("convert to dag"));
 
-    let mut state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
+    let mut state = RunnerState::from_dag(Arc::clone(&dag));
     let entry_node = dag
         .entry_node
         .as_ref()
@@ -1090,7 +1090,7 @@ fn main(input: [], output: [result]):
     let ir_hash = format!("{:x}", Sha256::digest(&program_proto));
     let dag = Arc::new(convert_to_dag(&program).expect("convert to dag"));
 
-    let mut state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
+    let mut state = RunnerState::from_dag(Arc::clone(&dag));
     let entry_node = dag
         .entry_node
         .as_ref()

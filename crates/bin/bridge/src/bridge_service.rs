@@ -604,7 +604,7 @@ fn build_queued_instance(
     dag: Arc<waymark_dag::DAG>,
     initial_context: Option<proto::WorkflowArguments>,
 ) -> Result<QueuedInstance, String> {
-    let mut state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
+    let mut state = RunnerState::from_dag(Arc::clone(&dag));
 
     if let Some(context) = initial_context {
         let inputs = workflow_arguments_to_json_map(&context);

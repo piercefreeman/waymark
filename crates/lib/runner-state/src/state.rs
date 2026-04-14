@@ -338,10 +338,39 @@ pub struct RunnerState {
 }
 
 impl RunnerState {
+    #[allow(deprecated)]
     pub fn dummy() -> Self {
         Self::new(None, None, None, false)
     }
 
+    #[allow(deprecated)]
+    pub fn from_dag(dag: Arc<DAG>) -> Self {
+        Self::new(Some(dag), None, None, false)
+    }
+
+    #[allow(deprecated)]
+    pub fn from_parts(
+        nodes: HashMap<ExecutionId, ExecutionNode>,
+        edges: HashSet<ExecutionEdge>,
+    ) -> Self {
+        Self::new(None, Some(nodes), Some(edges), false)
+    }
+
+    #[allow(deprecated)]
+    pub fn with_link_queued_nodes() -> Self {
+        Self::new(None, None, None, true)
+    }
+
+    #[allow(deprecated)]
+    pub fn full(
+        dag: Arc<DAG>,
+        nodes: HashMap<ExecutionId, ExecutionNode>,
+        edges: HashSet<ExecutionEdge>,
+    ) -> Self {
+        Self::new(Some(dag), Some(nodes), Some(edges), false)
+    }
+
+    #[deprecated]
     pub fn new(
         dag: Option<Arc<DAG>>,
         nodes: Option<HashMap<ExecutionId, ExecutionNode>>,
@@ -1949,7 +1978,7 @@ mod tests {
 
     #[test]
     fn test_runner_state_unrolls_loop_assignments() {
-        let mut state = RunnerState::new(None, None, None, true);
+        let mut state = RunnerState::with_link_queued_nodes();
 
         state
             .queue_action(
@@ -2046,7 +2075,7 @@ mod tests {
 
     #[test]
     fn test_runner_state_single_target_assignments_stay_symbolic() {
-        let mut state = RunnerState::new(None, None, None, true);
+        let mut state = RunnerState::with_link_queued_nodes();
 
         let initial = ValueExpr::Dict(DictValue {
             entries: vec![DictEntryValue {
@@ -2098,7 +2127,7 @@ mod tests {
 
     #[test]
     fn test_materialize_value_keeps_self_referential_variable_symbolic() {
-        let mut state = RunnerState::new(None, None, None, true);
+        let mut state = RunnerState::with_link_queued_nodes();
         state
             .record_assignment_value(
                 vec!["count".to_string()],
@@ -2137,7 +2166,7 @@ mod tests {
 
     #[test]
     fn test_runner_state_graph_dirty_for_action_updates() {
-        let mut state = RunnerState::new(None, None, None, true);
+        let mut state = RunnerState::with_link_queued_nodes();
         assert!(!state.consume_graph_dirty_for_durable_execution());
 
         let action_result = state
@@ -2160,7 +2189,7 @@ mod tests {
 
     #[test]
     fn test_runner_state_graph_dirty_not_set_for_assignments() {
-        let mut state = RunnerState::new(None, None, None, true);
+        let mut state = RunnerState::with_link_queued_nodes();
         let value_expr = ValueExpr::Literal(LiteralValue {
             value: Value::Number(1.into()),
         });
@@ -2173,7 +2202,7 @@ mod tests {
 
     #[test]
     fn test_runner_state_records_action_start_stop_timestamps() {
-        let mut state = RunnerState::new(None, None, None, true);
+        let mut state = RunnerState::with_link_queued_nodes();
         let action_result = state
             .queue_action(
                 "action",
@@ -2232,7 +2261,7 @@ mod tests {
 
     #[test]
     fn test_runner_state_enforces_node_limit() {
-        let mut state = RunnerState::new(None, None, None, true);
+        let mut state = RunnerState::with_link_queued_nodes();
 
         for index in 0..*MAX_RUNNER_STATE_NODES {
             state

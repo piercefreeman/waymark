@@ -27,7 +27,7 @@ fn build_completed_state(chain_len: usize) -> RunnerState {
     let program = parse_program(source.trim()).expect("parse program");
     let dag = Arc::new(convert_to_dag(&program).expect("convert to dag"));
 
-    let mut state = RunnerState::new(Some(Arc::clone(&dag)), None, None, false);
+    let mut state = RunnerState::from_dag(Arc::clone(&dag));
     state
         .record_assignment(
             vec!["x".to_string()],
