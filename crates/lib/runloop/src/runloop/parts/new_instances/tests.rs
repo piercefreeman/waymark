@@ -7,6 +7,7 @@ use uuid::Uuid;
 use waymark_backend_memory::MemoryBackend;
 use waymark_core_backend::QueuedInstance;
 use waymark_ids::{ExecutionId, InstanceId, LockId};
+use waymark_runner_state::RunnerState;
 use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBackend};
 
 use crate::commit_barrier::CommitBarrier;
@@ -150,7 +151,7 @@ fn main(input: [x], output: [y]):
         workflow_version_id,
         schedule_id: None,
         entry_node: ExecutionId::new_uuid_v4(),
-        state: None,
+        state: RunnerState::dummy(),
         action_results: HashMap::new(),
         instance_id,
         scheduled_at: None,

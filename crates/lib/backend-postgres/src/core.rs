@@ -156,9 +156,6 @@ impl PostgresBackend {
         let mut queued_payloads = Vec::new();
         let mut runner_payloads = Vec::new();
         for instance in instances {
-            let state = instance.state.as_ref().ok_or_else(|| {
-                BackendError::Message("queued instance missing runner state".to_string())
-            })?;
             let scheduled_at = instance.scheduled_at.unwrap_or_else(Utc::now);
             let workflow_name = workflow_names_by_version_id
                 .get(&instance.workflow_version_id)
@@ -172,7 +169,7 @@ impl PostgresBackend {
                 INSTANCE_STATUS_QUEUED,
                 Self::serialize(&payload_instance)?,
             ));
-            let graph = GraphUpdate::from_state(instance.instance_id, state);
+            let graph = GraphUpdate::from_state(instance.instance_id, &instance.state);
             runner_payloads.push((
                 instance.instance_id,
                 instance.entry_node,
@@ -811,18 +808,12 @@ impl PostgresBackend {
             .map(|row| {
                 let instance_id: InstanceId = row.get(0);
                 let payload: Vec<u8> = row.get(1);
-                let state_payload: Option<Vec<u8>> = row.get(2);
+                let state_payload: Vec<u8> = row.get(2);
 
                 let mut instance: QueuedInstance = crate::codec::deserialize(&payload)
                     .map_err(PollQueuedInstancesError::QueuedInstanceDecode)?;
 
                 instance.instance_id = instance_id;
-
-                let Some(state_payload) = state_payload else {
-                    // If we don't have the state payload - then that's
-                    // the whole instance.
-                    return Ok(instance);
-                };
 
                 // If we do - parse the graph and assign state.
 
@@ -840,12 +831,8 @@ impl PostgresBackend {
                     action_node_ids_by_instance.insert(instance_id, action_node_ids);
                 }
 
-                instance.state = Some(RunnerState::new(
-                    None,
-                    Some(graph.nodes),
-                    Some(graph.edges),
-                    false,
-                ));
+                instance.state =
+                    RunnerState::new(None, Some(graph.nodes), Some(graph.edges), false);
 
                 Ok(instance)
             })
@@ -1176,16 +1163,12 @@ mod tests {
     use waymark_dag::EdgeType;
     use waymark_runner_state::{ActionCallSpec, ExecutionNode, NodeStatus};
 
-    fn sample_runner_state() -> RunnerState {
-        RunnerState::new(None, None, None, false)
-    }
-
     fn sample_queued_instance(instance_id: InstanceId, entry_node: ExecutionId) -> QueuedInstance {
         QueuedInstance {
             workflow_version_id: WorkflowVersionId::new_uuid_v4(),
             schedule_id: None,
             entry_node,
-            state: Some(sample_runner_state()),
+            state: RunnerState::dummy(),
             action_results: HashMap::new(),
             instance_id,
             scheduled_at: Some(Utc::now() - Duration::seconds(1)),
@@ -1324,7 +1307,7 @@ mod tests {
             workflow_version_id,
             schedule_id: None,
             entry_node,
-            state: Some(sample_runner_state()),
+            state: RunnerState::dummy(),
             action_results: HashMap::new(),
             instance_id,
             scheduled_at: Some(Utc::now()),

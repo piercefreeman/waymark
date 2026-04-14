@@ -8,9 +8,6 @@ use crate::{hydrated_instance::HydratedInstance, shard};
 
 #[derive(Debug, thiserror::Error)]
 pub enum AssignInstancesError {
-    #[error("queued instance missing runner state")]
-    QueuedInstanceMissingRunnerState,
-
     #[error("start: {0}")]
     Start(#[source] super::executor::StartError),
 }
@@ -71,20 +68,11 @@ pub fn run_executor_shard(
                         );
                     }
 
-                    let Some(state) = instance.state else {
-                        send_instance_failed(
-                            instance.instance_id,
-                            instance.entry_node,
-                            Error::AssignInstances(
-                                AssignInstancesError::QueuedInstanceMissingRunnerState,
-                            ),
-                            &sender,
-                        );
-                        continue;
-                    };
-
-                    let mut executor =
-                        waymark_runner::RunnerExecutor::new(dag, state, instance.action_results);
+                    let mut executor = waymark_runner::RunnerExecutor::new(
+                        dag,
+                        instance.state,
+                        instance.action_results,
+                    );
                     executor.set_instance_id(instance.instance_id);
 
                     let mut owner =

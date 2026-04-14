@@ -338,6 +338,10 @@ pub struct RunnerState {
 }
 
 impl RunnerState {
+    pub fn dummy() -> Self {
+        Self::new(None, None, None, false)
+    }
+
     pub fn new(
         dag: Option<Arc<DAG>>,
         nodes: Option<HashMap<ExecutionId, ExecutionNode>>,
