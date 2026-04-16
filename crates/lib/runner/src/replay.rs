@@ -15,7 +15,7 @@ use crate::expression_evaluator::{
 use waymark_dag::{EXCEPTION_SCOPE_VAR, EdgeType};
 use waymark_proto::ast as ir;
 use waymark_runner_state::{
-    ActionResultValue, FunctionCallValue, RunnerState, ValueExpr, value_visitor::ValueExprEvaluator,
+    ActionResultValue, FunctionCallValue, RunnerState, ValueExpr, ValueExprEvaluator,
 };
 
 /// Raised when replay cannot reconstruct variable values.

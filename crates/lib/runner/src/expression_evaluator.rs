@@ -12,8 +12,8 @@ use waymark_proto::ast as ir;
 use waymark_runner_executor_core::ExecutionException;
 use waymark_runner_state::{
     ActionCallSpec, ActionResultValue, BinaryOpValue, DictEntryValue, DictValue, DotValue,
-    FunctionCallValue, IndexValue, ListValue, LiteralValue, UnaryOpValue, ValueExpr, VariableValue,
-    value_visitor::ValueExprEvaluator,
+    FunctionCallValue, IndexValue, ListValue, LiteralValue, UnaryOpValue, ValueExpr,
+    ValueExprEvaluator, VariableValue,
 };
 
 use super::{RunnerExecutor, RunnerExecutorError};
