@@ -1,10 +1,6 @@
-//! Shared ValueExpr visitors for traversal, resolution, and evaluation.
-
 use std::collections::HashMap;
 
-use crate::ValueExpr;
-
-use crate::state::{ActionResultValue, FunctionCallValue};
+use waymark_runner_state::{ActionResultValue, FunctionCallValue, ValueExpr};
 
 /// Evaluate ValueExpr nodes into concrete Python values.
 ///

@@ -7,6 +7,7 @@ use std::rc::Rc;
 use serde_json::Value;
 use waymark_ids::ExecutionId;
 use waymark_runner_executor_core::UncheckedExecutionResult;
+use waymark_runner_expr_eval::ValueExprEvaluator;
 
 use crate::expression_evaluator::{
     add_values, compare_values, int_value, is_truthy, len_of_value, numeric_op, range_from_args,
@@ -14,9 +15,7 @@ use crate::expression_evaluator::{
 };
 use waymark_dag::{EXCEPTION_SCOPE_VAR, EdgeType};
 use waymark_proto::ast as ir;
-use waymark_runner_state::{
-    ActionResultValue, FunctionCallValue, RunnerState, ValueExpr, ValueExprEvaluator,
-};
+use waymark_runner_state::{ActionResultValue, FunctionCallValue, RunnerState, ValueExpr};
 
 /// Raised when replay cannot reconstruct variable values.
 #[derive(Debug, thiserror::Error)]

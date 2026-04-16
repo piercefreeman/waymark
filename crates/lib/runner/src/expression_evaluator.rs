@@ -10,10 +10,10 @@ use waymark_ir_conversions::literal_to_json_value;
 use waymark_observability::obs;
 use waymark_proto::ast as ir;
 use waymark_runner_executor_core::ExecutionException;
+use waymark_runner_expr_eval::ValueExprEvaluator;
 use waymark_runner_state::{
     ActionCallSpec, ActionResultValue, BinaryOpValue, DictEntryValue, DictValue, DotValue,
-    FunctionCallValue, IndexValue, ListValue, LiteralValue, UnaryOpValue, ValueExpr,
-    ValueExprEvaluator, VariableValue,
+    FunctionCallValue, IndexValue, ListValue, LiteralValue, UnaryOpValue, ValueExpr, VariableValue,
 };
 
 use super::{RunnerExecutor, RunnerExecutorError};
