@@ -1510,7 +1510,10 @@ mod tests {
     use waymark_dag_builder::convert_to_dag;
     use waymark_ir_parser::parse_program;
     use waymark_proto::ast as ir;
-    use waymark_runner_state::{ExecutionEdge, ExecutionNode, NodeStatus, RunnerState};
+    use waymark_runner_state::value_visitor::ValueExpr;
+    use waymark_runner_state::{
+        ExecutionEdge, ExecutionNode, LiteralValue, NodeStatus, RunnerState,
+    };
 
     fn variable(name: &str) -> ir::Expr {
         ir::Expr {
@@ -2946,6 +2949,95 @@ fn main(input: [], output: [done]):
         assert_eq!(agg_nodes.len(), 1);
         assert_eq!(agg_nodes[0].status, NodeStatus::Completed);
         assert!(agg_nodes[0].assignments.contains_key("results"));
+    }
+
+    #[test]
+    fn test_increment_resolves_parallel_nested_function_kwargs() {
+        let dag = dag_from_ir_source(
+            r#"
+fn main(input: [payload], output: [result]):
+    @tests.fixtures.ticket.start()
+    alpha_result, beta_result = parallel:
+        run_alpha(payload.alpha)
+        run_beta(payload.beta)
+    result = [alpha_result, beta_result]
+    return result
+
+fn run_alpha(input: [payload], output: [alpha_plan]):
+    alpha_plan = @tests.fixtures.ticket.alpha_prepare(items=payload.items)
+    return alpha_plan
+
+fn run_beta(input: [payload], output: [beta_plan]):
+    beta_plan = @tests.fixtures.ticket.beta_prepare(count=payload.config.count, flag=payload.config.flag)
+    return beta_plan
+"#,
+        );
+
+        let mut state = RunnerState::from_dag(Arc::clone(&dag));
+        state
+            .record_assignment_value(
+                vec!["payload".to_string()],
+                ValueExpr::Literal(LiteralValue {
+                    value: serde_json::json!({
+                        "label": "demo",
+                        "alpha": {"items": ["a", "b"]},
+                        "beta": {"config": {"count": 2, "flag": true}},
+                    }),
+                }),
+                None,
+                Some("input payload".to_string()),
+            )
+            .expect("record payload assignment");
+        let entry_template = dag.entry_node.as_ref().expect("dag entry node");
+        let entry_exec = state
+            .queue_template_node(entry_template, None)
+            .expect("queue entry node");
+
+        let mut executor =
+            RunnerExecutor::without_updates_collection(Arc::clone(&dag), state, HashMap::new());
+
+        let step1 = executor
+            .increment(&[entry_exec.node_id])
+            .expect("increment initial action");
+        assert_eq!(step1.actions.len(), 1);
+
+        executor.set_action_result(
+            step1.actions[0].node_id,
+            UncheckedExecutionResult(Value::Bool(true)),
+        );
+
+        let step2 = executor
+            .increment(&[step1.actions[0].node_id])
+            .expect("increment parallel function calls");
+        assert_eq!(step2.actions.len(), 2);
+
+        let mut kwargs_by_action = HashMap::new();
+        for action in &step2.actions {
+            let spec = action.action.as_ref().expect("action spec");
+            let kwargs = executor
+                .resolve_action_kwargs(action.node_id, spec)
+                .expect("resolve scoped action kwargs");
+            kwargs_by_action.insert(spec.action_name.clone(), kwargs);
+        }
+
+        assert_eq!(
+            kwargs_by_action
+                .get("alpha_prepare")
+                .and_then(|kwargs| kwargs.get("items")),
+            Some(&serde_json::json!(["a", "b"])),
+        );
+        assert_eq!(
+            kwargs_by_action
+                .get("beta_prepare")
+                .and_then(|kwargs| kwargs.get("count")),
+            Some(&Value::Number(2.into())),
+        );
+        assert_eq!(
+            kwargs_by_action
+                .get("beta_prepare")
+                .and_then(|kwargs| kwargs.get("flag")),
+            Some(&Value::Bool(true)),
+        );
     }
 
     #[test]
