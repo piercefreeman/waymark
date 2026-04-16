@@ -12,10 +12,16 @@ from waymark.actions import (
     serialize_error_payload,
     serialize_result_payload,
 )
+from waymark.proto import messages_pb2 as pb2
+from waymark.serialization import build_arguments_from_kwargs
 
 
 class SampleModel(BaseModel):
     payload: str
+
+
+class DeepPayload(BaseModel):
+    payload: dict[str, object]
 
 
 @dataclass
@@ -134,6 +140,16 @@ class ModelWithUUID(BaseModel):
 
 class ModelWithUUIDList(BaseModel):
     ids: list[UUID]
+
+
+def build_nested_payload(depth: int) -> dict[str, object]:
+    value: object = {"leaf": "ok"}
+    for index in range(depth):
+        if index % 2 == 0:
+            value = {"node": value}
+        else:
+            value = {"items": [value]}
+    return {"root": value}
 
 
 def test_uuid_serialization() -> None:
@@ -270,3 +286,41 @@ def test_set_serialization() -> None:
     # Sets become lists, order may vary
     assert set(decoded.result["set"]) == s
     assert set(decoded.result["frozenset"]) == fs
+
+
+def test_deep_workflow_arguments_round_trip_survives_proto_parse() -> None:
+    expected = DeepPayload(payload=build_nested_payload(30))
+    arguments = build_arguments_from_kwargs({"context": expected})
+
+    serialized = arguments.SerializeToString()
+    parsed = pb2.WorkflowArguments()
+    parsed.ParseFromString(serialized)
+
+    assert len(parsed.arguments) == 1
+    assert parsed.arguments[0].key == "context"
+    wrapped = _wrap_result_value(parsed.arguments[0].value)
+    decoded = deserialize_result_payload(wrapped)
+    assert decoded.error is None
+    assert decoded.result == expected
+
+
+def test_deep_action_result_round_trip_survives_proto_parse() -> None:
+    expected = DeepPayload(payload=build_nested_payload(30))
+    response = pb2.ActionResult(action_id="action-1", success=True)
+    response.payload.CopyFrom(serialize_result_payload(expected))
+
+    serialized = response.SerializeToString()
+    parsed = pb2.ActionResult()
+    parsed.ParseFromString(serialized)
+
+    decoded = deserialize_result_payload(parsed.payload)
+    assert decoded.error is None
+    assert decoded.result == expected
+
+
+def _wrap_result_value(value: pb2.WorkflowArgumentValue) -> pb2.WorkflowArguments:
+    payload = pb2.WorkflowArguments()
+    entry = payload.arguments.add()
+    entry.key = "result"
+    entry.value.CopyFrom(value)
+    return payload

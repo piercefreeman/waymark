@@ -434,6 +434,7 @@ class WorkflowArgumentValue(google.protobuf.message.Message):
     LIST_VALUE_FIELD_NUMBER: builtins.int
     TUPLE_VALUE_FIELD_NUMBER: builtins.int
     DICT_VALUE_FIELD_NUMBER: builtins.int
+    FLAT_VALUE_FIELD_NUMBER: builtins.int
     @property
     def primitive(self) -> Global___PrimitiveWorkflowArgument: ...
     @property
@@ -446,6 +447,8 @@ class WorkflowArgumentValue(google.protobuf.message.Message):
     def tuple_value(self) -> Global___WorkflowTupleArgument: ...
     @property
     def dict_value(self) -> Global___WorkflowDictArgument: ...
+    @property
+    def flat_value(self) -> Global___FlatWorkflowArgument: ...
     def __init__(
         self,
         *,
@@ -455,6 +458,7 @@ class WorkflowArgumentValue(google.protobuf.message.Message):
         list_value: Global___WorkflowListArgument | None = ...,
         tuple_value: Global___WorkflowTupleArgument | None = ...,
         dict_value: Global___WorkflowDictArgument | None = ...,
+        flat_value: Global___FlatWorkflowArgument | None = ...,
     ) -> None: ...
     def HasField(
         self,
@@ -465,6 +469,8 @@ class WorkflowArgumentValue(google.protobuf.message.Message):
             b"dict_value",
             "exception",
             b"exception",
+            "flat_value",
+            b"flat_value",
             "kind",
             b"kind",
             "list_value",
@@ -484,6 +490,8 @@ class WorkflowArgumentValue(google.protobuf.message.Message):
             b"dict_value",
             "exception",
             b"exception",
+            "flat_value",
+            b"flat_value",
             "kind",
             b"kind",
             "list_value",
@@ -498,7 +506,13 @@ class WorkflowArgumentValue(google.protobuf.message.Message):
         self, oneof_group: typing.Literal["kind", b"kind"]
     ) -> (
         typing.Literal[
-            "primitive", "basemodel", "exception", "list_value", "tuple_value", "dict_value"
+            "primitive",
+            "basemodel",
+            "exception",
+            "list_value",
+            "tuple_value",
+            "dict_value",
+            "flat_value",
         ]
         | None
     ): ...
@@ -755,6 +769,280 @@ class WorkflowDictArgument(google.protobuf.message.Message):
     def ClearField(self, field_name: typing.Literal["entries", b"entries"]) -> None: ...
 
 Global___WorkflowDictArgument: typing_extensions.TypeAlias = WorkflowDictArgument
+
+@typing.final
+class FlatWorkflowArgument(google.protobuf.message.Message):
+    """Flat structured encoding that avoids deeply recursive protobuf trees."""
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    ROOT_NODE_ID_FIELD_NUMBER: builtins.int
+    NODES_FIELD_NUMBER: builtins.int
+    root_node_id: builtins.int
+    @property
+    def nodes(
+        self,
+    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
+        Global___FlatWorkflowNode
+    ]: ...
+    def __init__(
+        self,
+        *,
+        root_node_id: builtins.int = ...,
+        nodes: collections.abc.Iterable[Global___FlatWorkflowNode] | None = ...,
+    ) -> None: ...
+    def ClearField(
+        self, field_name: typing.Literal["nodes", b"nodes", "root_node_id", b"root_node_id"]
+    ) -> None: ...
+
+Global___FlatWorkflowArgument: typing_extensions.TypeAlias = FlatWorkflowArgument
+
+@typing.final
+class FlatWorkflowNode(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    NODE_ID_FIELD_NUMBER: builtins.int
+    PRIMITIVE_FIELD_NUMBER: builtins.int
+    LIST_VALUE_FIELD_NUMBER: builtins.int
+    TUPLE_VALUE_FIELD_NUMBER: builtins.int
+    DICT_VALUE_FIELD_NUMBER: builtins.int
+    BASEMODEL_FIELD_NUMBER: builtins.int
+    EXCEPTION_FIELD_NUMBER: builtins.int
+    node_id: builtins.int
+    @property
+    def primitive(self) -> Global___PrimitiveWorkflowArgument: ...
+    @property
+    def list_value(self) -> Global___FlatWorkflowListNode: ...
+    @property
+    def tuple_value(self) -> Global___FlatWorkflowTupleNode: ...
+    @property
+    def dict_value(self) -> Global___FlatWorkflowDictNode: ...
+    @property
+    def basemodel(self) -> Global___FlatBaseModelWorkflowNode: ...
+    @property
+    def exception(self) -> Global___FlatWorkflowErrorNode: ...
+    def __init__(
+        self,
+        *,
+        node_id: builtins.int = ...,
+        primitive: Global___PrimitiveWorkflowArgument | None = ...,
+        list_value: Global___FlatWorkflowListNode | None = ...,
+        tuple_value: Global___FlatWorkflowTupleNode | None = ...,
+        dict_value: Global___FlatWorkflowDictNode | None = ...,
+        basemodel: Global___FlatBaseModelWorkflowNode | None = ...,
+        exception: Global___FlatWorkflowErrorNode | None = ...,
+    ) -> None: ...
+    def HasField(
+        self,
+        field_name: typing.Literal[
+            "basemodel",
+            b"basemodel",
+            "dict_value",
+            b"dict_value",
+            "exception",
+            b"exception",
+            "kind",
+            b"kind",
+            "list_value",
+            b"list_value",
+            "primitive",
+            b"primitive",
+            "tuple_value",
+            b"tuple_value",
+        ],
+    ) -> builtins.bool: ...
+    def ClearField(
+        self,
+        field_name: typing.Literal[
+            "basemodel",
+            b"basemodel",
+            "dict_value",
+            b"dict_value",
+            "exception",
+            b"exception",
+            "kind",
+            b"kind",
+            "list_value",
+            b"list_value",
+            "node_id",
+            b"node_id",
+            "primitive",
+            b"primitive",
+            "tuple_value",
+            b"tuple_value",
+        ],
+    ) -> None: ...
+    def WhichOneof(
+        self, oneof_group: typing.Literal["kind", b"kind"]
+    ) -> (
+        typing.Literal[
+            "primitive", "list_value", "tuple_value", "dict_value", "basemodel", "exception"
+        ]
+        | None
+    ): ...
+
+Global___FlatWorkflowNode: typing_extensions.TypeAlias = FlatWorkflowNode
+
+@typing.final
+class FlatWorkflowEntry(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    KEY_FIELD_NUMBER: builtins.int
+    VALUE_NODE_ID_FIELD_NUMBER: builtins.int
+    key: builtins.str
+    value_node_id: builtins.int
+    def __init__(
+        self,
+        *,
+        key: builtins.str = ...,
+        value_node_id: builtins.int = ...,
+    ) -> None: ...
+    def ClearField(
+        self, field_name: typing.Literal["key", b"key", "value_node_id", b"value_node_id"]
+    ) -> None: ...
+
+Global___FlatWorkflowEntry: typing_extensions.TypeAlias = FlatWorkflowEntry
+
+@typing.final
+class FlatWorkflowListNode(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    ITEM_NODE_IDS_FIELD_NUMBER: builtins.int
+    @property
+    def item_node_ids(
+        self,
+    ) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[builtins.int]: ...
+    def __init__(
+        self,
+        *,
+        item_node_ids: collections.abc.Iterable[builtins.int] | None = ...,
+    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["item_node_ids", b"item_node_ids"]) -> None: ...
+
+Global___FlatWorkflowListNode: typing_extensions.TypeAlias = FlatWorkflowListNode
+
+@typing.final
+class FlatWorkflowTupleNode(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    ITEM_NODE_IDS_FIELD_NUMBER: builtins.int
+    @property
+    def item_node_ids(
+        self,
+    ) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[builtins.int]: ...
+    def __init__(
+        self,
+        *,
+        item_node_ids: collections.abc.Iterable[builtins.int] | None = ...,
+    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["item_node_ids", b"item_node_ids"]) -> None: ...
+
+Global___FlatWorkflowTupleNode: typing_extensions.TypeAlias = FlatWorkflowTupleNode
+
+@typing.final
+class FlatWorkflowDictNode(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    ENTRIES_FIELD_NUMBER: builtins.int
+    @property
+    def entries(
+        self,
+    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
+        Global___FlatWorkflowEntry
+    ]: ...
+    def __init__(
+        self,
+        *,
+        entries: collections.abc.Iterable[Global___FlatWorkflowEntry] | None = ...,
+    ) -> None: ...
+    def ClearField(self, field_name: typing.Literal["entries", b"entries"]) -> None: ...
+
+Global___FlatWorkflowDictNode: typing_extensions.TypeAlias = FlatWorkflowDictNode
+
+@typing.final
+class FlatBaseModelWorkflowNode(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    MODULE_FIELD_NUMBER: builtins.int
+    NAME_FIELD_NUMBER: builtins.int
+    DATA_ENTRIES_FIELD_NUMBER: builtins.int
+    module: builtins.str
+    name: builtins.str
+    @property
+    def data_entries(
+        self,
+    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
+        Global___FlatWorkflowEntry
+    ]: ...
+    def __init__(
+        self,
+        *,
+        module: builtins.str = ...,
+        name: builtins.str = ...,
+        data_entries: collections.abc.Iterable[Global___FlatWorkflowEntry] | None = ...,
+    ) -> None: ...
+    def ClearField(
+        self,
+        field_name: typing.Literal[
+            "data_entries", b"data_entries", "module", b"module", "name", b"name"
+        ],
+    ) -> None: ...
+
+Global___FlatBaseModelWorkflowNode: typing_extensions.TypeAlias = FlatBaseModelWorkflowNode
+
+@typing.final
+class FlatWorkflowErrorNode(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    TYPE_FIELD_NUMBER: builtins.int
+    MODULE_FIELD_NUMBER: builtins.int
+    MESSAGE_FIELD_NUMBER: builtins.int
+    TRACEBACK_FIELD_NUMBER: builtins.int
+    VALUE_ENTRIES_FIELD_NUMBER: builtins.int
+    TYPE_HIERARCHY_FIELD_NUMBER: builtins.int
+    type: builtins.str
+    module: builtins.str
+    message: builtins.str
+    traceback: builtins.str
+    @property
+    def value_entries(
+        self,
+    ) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[
+        Global___FlatWorkflowEntry
+    ]: ...
+    @property
+    def type_hierarchy(
+        self,
+    ) -> google.protobuf.internal.containers.RepeatedScalarFieldContainer[builtins.str]: ...
+    def __init__(
+        self,
+        *,
+        type: builtins.str = ...,
+        module: builtins.str = ...,
+        message: builtins.str = ...,
+        traceback: builtins.str = ...,
+        value_entries: collections.abc.Iterable[Global___FlatWorkflowEntry] | None = ...,
+        type_hierarchy: collections.abc.Iterable[builtins.str] | None = ...,
+    ) -> None: ...
+    def ClearField(
+        self,
+        field_name: typing.Literal[
+            "message",
+            b"message",
+            "module",
+            b"module",
+            "traceback",
+            b"traceback",
+            "type",
+            b"type",
+            "type_hierarchy",
+            b"type_hierarchy",
+            "value_entries",
+            b"value_entries",
+        ],
+    ) -> None: ...
+
+Global___FlatWorkflowErrorNode: typing_extensions.TypeAlias = FlatWorkflowErrorNode
 
 @typing.final
 class WorkflowRegistration(google.protobuf.message.Message):

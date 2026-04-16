@@ -82,6 +82,7 @@ message WorkflowArgumentValue {
     WorkflowListArgument list_value = 4;
     WorkflowTupleArgument tuple_value = 5;
     WorkflowDictArgument dict_value = 6;
+    FlatWorkflowArgument flat_value = 7;
   }
 }
 
@@ -134,6 +135,56 @@ message WorkflowTupleArgument {
 
 message WorkflowDictArgument {
   repeated WorkflowArgument entries = 1;
+}
+
+// Flat structured encoding that avoids deeply recursive protobuf trees.
+message FlatWorkflowArgument {
+  uint32 root_node_id = 1;
+  repeated FlatWorkflowNode nodes = 2;
+}
+
+message FlatWorkflowNode {
+  uint32 node_id = 1;
+  oneof kind {
+    PrimitiveWorkflowArgument primitive = 2;
+    FlatWorkflowListNode list_value = 3;
+    FlatWorkflowTupleNode tuple_value = 4;
+    FlatWorkflowDictNode dict_value = 5;
+    FlatBaseModelWorkflowNode basemodel = 6;
+    FlatWorkflowErrorNode exception = 7;
+  }
+}
+
+message FlatWorkflowEntry {
+  string key = 1;
+  uint32 value_node_id = 2;
+}
+
+message FlatWorkflowListNode {
+  repeated uint32 item_node_ids = 1;
+}
+
+message FlatWorkflowTupleNode {
+  repeated uint32 item_node_ids = 1;
+}
+
+message FlatWorkflowDictNode {
+  repeated FlatWorkflowEntry entries = 1;
+}
+
+message FlatBaseModelWorkflowNode {
+  string module = 1;
+  string name = 2;
+  repeated FlatWorkflowEntry data_entries = 3;
+}
+
+message FlatWorkflowErrorNode {
+  string type = 1;
+  string module = 2;
+  string message = 3;
+  string traceback = 4;
+  repeated FlatWorkflowEntry value_entries = 5;
+  repeated string type_hierarchy = 6;
 }
 
 // =============================================================================

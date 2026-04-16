@@ -4344,6 +4344,7 @@ dependencies = [
 name = "waymark-message-conversions"
 version = "0.1.0"
 dependencies = [
+ "prost 0.12.6",
  "serde_json",
  "waymark-proto",
 ]

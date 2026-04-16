@@ -155,6 +155,12 @@ const CASES: &[FixtureCase] = &[
         workflow_class: "TimeoutWorkflow",
         kwargs_json: r#"{}"#,
     },
+    FixtureCase {
+        id: "deep-structured-payload",
+        module_name: "integration_deep_structured_payload",
+        workflow_class: "DeepStructuredPayloadWorkflow",
+        kwargs_json: r#"{"depth":30}"#,
+    },
 ];
 
 #[derive(Clone, Debug, Deserialize)]
