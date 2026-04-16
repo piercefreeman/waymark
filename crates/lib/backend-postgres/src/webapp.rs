@@ -16,9 +16,8 @@ use waymark_ir_conversions::literal_from_json_value;
 use waymark_proto::ast as ir;
 use waymark_runner::replay_action_kwargs;
 use waymark_runner_executor_core::UncheckedExecutionResult;
-use waymark_runner_state::{
-    ActionCallSpec, ExecutionNode, NodeStatus, RunnerState, ValueExpr, format_value,
-};
+use waymark_runner_expr_fmt::format_value;
+use waymark_runner_state::{ActionCallSpec, ExecutionNode, NodeStatus, RunnerState, ValueExpr};
 use waymark_timed_future::TimedFutureExt as _;
 use waymark_webapp_core::{
     ExecutionEdgeView, ExecutionGraphView, ExecutionNodeView, InstanceDetail, InstanceStatus,

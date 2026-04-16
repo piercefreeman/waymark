@@ -4018,6 +4018,7 @@ dependencies = [
  "waymark-proto",
  "waymark-runner",
  "waymark-runner-executor-core",
+ "waymark-runner-expr-fmt",
  "waymark-runner-state",
  "waymark-scheduler-backend",
  "waymark-scheduler-core",
