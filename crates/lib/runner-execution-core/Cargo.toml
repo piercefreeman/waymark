@@ -1,20 +1,16 @@
 [package]
-name = "waymark-runner-state"
+name = "waymark-runner-execution-core"
+edition = "2024"
 version.workspace = true
 publish.workspace = true
-edition = "2024"
 
 [dependencies]
 waymark-dag = { workspace = true }
 waymark-ids = { workspace = true }
-waymark-ir-conversions = { workspace = true }
-waymark-proto = { workspace = true }
-waymark-runner-execution-core = { workspace = true }
 waymark-runner-expr = { workspace = true }
 
 chrono = { workspace = true, features = ["serde", "clock"] }
 serde = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true }
 thiserror = { workspace = true }
 
 [lib]

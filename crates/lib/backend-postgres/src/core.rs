@@ -1154,13 +1154,14 @@ mod tests {
     use uuid::Uuid;
     use waymark_core_backend::{ActionAttemptStatus, CoreBackend};
     use waymark_ids::ExecutionId;
+    use waymark_runner_execution_core::{ExecutionNode, NodeStatus};
     use waymark_runner_executor_core::UncheckedExecutionResult;
 
     use super::super::test_helpers::setup_backend;
     use super::*;
 
     use waymark_dag::EdgeType;
-    use waymark_runner_state::{ActionCallSpec, ExecutionNode, NodeStatus};
+    use waymark_runner_state::ActionCallSpec;
 
     fn sample_queued_instance(instance_id: InstanceId, entry_node: ExecutionId) -> QueuedInstance {
         QueuedInstance {
@@ -1489,11 +1490,13 @@ mod tests {
         let graph = GraphUpdate {
             instance_id,
             nodes,
-            edges: std::collections::HashSet::from([waymark_runner_state::ExecutionEdge {
-                source: execution_id,
-                target: execution_id,
-                edge_type: EdgeType::StateMachine,
-            }]),
+            edges: std::collections::HashSet::from([
+                waymark_runner_execution_core::ExecutionEdge {
+                    source: execution_id,
+                    target: execution_id,
+                    edge_type: EdgeType::StateMachine,
+                },
+            ]),
         };
         let extended_claim = LockClaim {
             lock_uuid: claim.lock_uuid,

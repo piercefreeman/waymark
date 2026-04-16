@@ -6,8 +6,8 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use waymark_ids::ExecutionId;
+use waymark_runner_execution_core::{ExecutionEdge, ExecutionNode, ExecutionNodeType, NodeStatus};
 
-use crate::execution::{ExecutionEdge, ExecutionNode, ExecutionNodeType, NodeStatus};
 use crate::max_nodes::MAX_RUNNER_STATE_NODES;
 use crate::util::is_truthy;
 use crate::value::*;
@@ -229,7 +229,8 @@ impl RunnerState {
         label: &str,
         params: QueueNodeParams,
     ) -> Result<ExecutionNode, RunnerStateError> {
-        let node_type_enum = ExecutionNodeType::try_from(node_type)?;
+        let node_type_enum = ExecutionNodeType::try_from(node_type)
+            .map_err(|err| RunnerStateError(err.to_string()))?;
         let QueueNodeParams {
             node_id,
             template_id,

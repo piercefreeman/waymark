@@ -6,10 +6,11 @@ use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use waymark_runner_execution_core::{ExecutionEdge, ExecutionNode, NodeStatus};
 use waymark_runner_executor_core::{
     ExecutionException, ExecutionSuccess, UncheckedExecutionResult,
 };
-use waymark_runner_state::{ExecutionEdge, ExecutionNode, NodeStatus, RunnerState};
+use waymark_runner_state::RunnerState;
 
 use waymark_ids::{ExecutionId, InstanceId, LockId, ScheduleId, WorkflowVersionId};
 

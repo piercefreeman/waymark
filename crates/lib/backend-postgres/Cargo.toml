@@ -17,6 +17,7 @@ waymark-metrics-util = { workspace = true }
 waymark-observability = { workspace = true }
 waymark-proto = { workspace = true }
 waymark-runner = { workspace = true }
+waymark-runner-execution-core = { workspace = true }
 waymark-runner-executor-core = { workspace = true }
 waymark-runner-expr-fmt = { workspace = true }
 waymark-runner-state = { workspace = true }
