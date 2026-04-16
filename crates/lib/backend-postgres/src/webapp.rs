@@ -463,6 +463,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
             .map_err(|e| BackendError::Message(format!("failed to decode state: {}", e)))?;
 
         let nodes: Vec<ExecutionNodeView> = graph_update
+            .graph
             .nodes
             .values()
             .map(|node| ExecutionNodeView {
@@ -476,6 +477,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
             .collect();
 
         let edges: Vec<ExecutionEdgeView> = graph_update
+            .graph
             .edges
             .iter()
             .map(|edge| ExecutionEdgeView {
@@ -590,7 +592,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
             let graph_update: GraphUpdate = rmp_serde::from_slice(&state_bytes)
                 .map_err(|err| BackendError::Message(format!("failed to decode state: {err}")))?;
 
-            for node in graph_update.nodes.values() {
+            for node in graph_update.graph.nodes.values() {
                 let Some(template_id) = node.template_id.as_ref() else {
                     continue;
                 };
@@ -678,8 +680,9 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
         let graph_update: GraphUpdate = rmp_serde::from_slice(&state_bytes)
             .map_err(|e| BackendError::Message(format!("failed to decode state: {}", e)))?;
 
-        let runner_state = RunnerState::from_parts(graph_update.nodes.clone(), graph_update.edges);
+        let runner_state = RunnerState::from_graph(graph_update.graph.clone());
         let action_nodes: HashMap<ExecutionId, ExecutionNode> = graph_update
+            .graph
             .nodes
             .into_iter()
             .filter(|(_, node)| node.is_action_call())
@@ -1370,8 +1373,8 @@ fn extract_input_preview(state_bytes: &Option<Vec<u8>>) -> String {
     };
 
     match rmp_serde::from_slice::<GraphUpdate>(bytes) {
-        Ok(graph) => {
-            let count = graph.nodes.len();
+        Ok(graph_update) => {
+            let count = graph_update.graph.nodes.len();
             format!("{{nodes: {count}}}")
         }
         Err(_) => "{}".to_string(),
@@ -1401,9 +1404,9 @@ fn extract_input_payload_map(
     let Some(bytes) = state_bytes else {
         return Ok(serde_json::Map::new());
     };
-    let graph: GraphUpdate = rmp_serde::from_slice(bytes)
+    let graph_update: GraphUpdate = rmp_serde::from_slice(bytes)
         .map_err(|err| BackendError::Message(format!("failed to decode state: {err}")))?;
-    Ok(extract_input_map(&graph.nodes))
+    Ok(extract_input_map(&graph_update.graph.nodes))
 }
 
 fn extract_input_map(
@@ -1605,7 +1608,7 @@ mod tests {
     use serial_test::serial;
     use uuid::Uuid;
     use waymark_ids::ExecutionId;
-    use waymark_runner_execution_core::ExecutionEdge;
+    use waymark_runner_execution_core::{ExecutionEdge, ExecutionGraph};
     use waymark_scheduler_backend::SchedulerBackend;
     use waymark_webapp_backend::WebappBackend;
     use waymark_worker_status_backend::{WorkerStatusBackend, WorkerStatusUpdate};
@@ -1851,12 +1854,14 @@ mod tests {
 
         GraphUpdate {
             instance_id,
-            nodes,
-            edges: HashSet::from([ExecutionEdge {
-                source: execution_id,
-                target: execution_id,
-                edge_type: EdgeType::StateMachine,
-            }]),
+            graph: ExecutionGraph {
+                nodes,
+                edges: HashSet::from([ExecutionEdge {
+                    source: execution_id,
+                    target: execution_id,
+                    edge_type: EdgeType::StateMachine,
+                }]),
+            },
         }
     }
 
@@ -1890,11 +1895,13 @@ mod tests {
         let input_label = sample_input_node("label", serde_json::json!("latest"));
         GraphUpdate {
             instance_id,
-            nodes: HashMap::from([
-                (input_number.node_id, input_number),
-                (input_label.node_id, input_label),
-            ]),
-            edges: HashSet::new(),
+            graph: ExecutionGraph {
+                nodes: HashMap::from([
+                    (input_number.node_id, input_number),
+                    (input_label.node_id, input_label),
+                ]),
+                edges: HashSet::new(),
+            },
         }
     }
 
@@ -2278,7 +2285,7 @@ fn main(input: [items], output: [total]):
         let queued: QueuedInstance =
             rmp_serde::from_slice(&queued_payload).expect("decode queued payload");
         assert_eq!(queued.workflow_version_id, latest_version_id);
-        let rendered_inputs = format_extracted_inputs(&queued.state.nodes);
+        let rendered_inputs = format_extracted_inputs(&queued.state.graph.nodes);
         let rendered_value: Value =
             serde_json::from_str(&rendered_inputs).expect("decode queued input payload");
         assert_eq!(

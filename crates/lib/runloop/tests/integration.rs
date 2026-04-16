@@ -447,7 +447,7 @@ fn main(input: [], output: [y]):
     let mut saw_running_snapshot = false;
     let mut saw_failed_snapshot = false;
     for update in graph_updates {
-        let Some(node) = update.nodes.get(&execution_id) else {
+        let Some(node) = update.graph.nodes.get(&execution_id) else {
             continue;
         };
         if node.status == NodeStatus::Running && node.started_at.is_some() {
@@ -844,6 +844,7 @@ fn main(input: [x], output: [y]):
     assert!(
         bootstrap_executor
             .state()
+            .graph
             .nodes
             .get(&action_exec.node_id)
             .is_some_and(|node| node.is_action_call() && node.status == NodeStatus::Completed),

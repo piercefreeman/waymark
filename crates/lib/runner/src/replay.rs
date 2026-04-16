@@ -51,7 +51,7 @@ impl<'a> ReplayEngine<'a> {
         action_results: &'a HashMap<ExecutionId, UncheckedExecutionResult>,
     ) -> Self {
         let timeline = if state.timeline.is_empty() {
-            state.nodes.keys().cloned().collect()
+            state.graph.nodes.keys().cloned().collect()
         } else {
             state.timeline.clone()
         };
@@ -84,7 +84,7 @@ impl<'a> ReplayEngine<'a> {
     pub fn replay_variables(&self) -> Result<ReplayResult, ReplayError> {
         let mut variables: HashMap<String, Value> = HashMap::new();
         for node_id in self.timeline.iter().rev() {
-            let node = match self.state.nodes.get(node_id) {
+            let node = match self.state.graph.nodes.get(node_id) {
                 Some(node) => node,
                 None => continue,
             };
@@ -116,6 +116,7 @@ impl<'a> ReplayEngine<'a> {
     ) -> Result<HashMap<String, Value>, ReplayError> {
         let node = self
             .state
+            .graph
             .nodes
             .get(&node_id)
             .ok_or_else(|| ReplayError(format!("action node not found: {node_id}")))?;
@@ -157,7 +158,7 @@ impl<'a> ReplayEngine<'a> {
         }
 
         let node =
-            self.state.nodes.get(&node_id).ok_or_else(|| {
+            self.state.graph.nodes.get(&node_id).ok_or_else(|| {
                 ReplayError(format!("missing assignment for {target} in {node_id}"))
             })?;
         let expr = node
@@ -280,7 +281,7 @@ impl<'a> ReplayEngine<'a> {
             if self.index.get(source_id).copied().unwrap_or(0) > current_idx {
                 continue;
             }
-            if let Some(node) = self.state.nodes.get(source_id)
+            if let Some(node) = self.state.graph.nodes.get(source_id)
                 && node.assignments.contains_key(name)
             {
                 return Some(*source_id);
@@ -487,7 +488,7 @@ fn build_incoming_data_map(
     index: &HashMap<ExecutionId, usize>,
 ) -> HashMap<ExecutionId, Vec<ExecutionId>> {
     let mut incoming: HashMap<ExecutionId, Vec<ExecutionId>> = HashMap::new();
-    for edge in &state.edges {
+    for edge in &state.graph.edges {
         if edge.edge_type != EdgeType::DataFlow {
             continue;
         }

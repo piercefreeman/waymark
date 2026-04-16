@@ -104,7 +104,7 @@ impl Executor {
     ) -> Result<Option<super::Step>, HandleWakeError> {
         let mut finished_nodes = Vec::new();
         for node_id in node_ids {
-            if self.executor.state().nodes.contains_key(&node_id) {
+            if self.executor.state().graph.nodes.contains_key(&node_id) {
                 self.inflight.remove(&node_id);
                 finished_nodes.push(node_id);
             }
