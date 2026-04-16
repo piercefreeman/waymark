@@ -16,9 +16,8 @@ use waymark_ir_conversions::literal_from_json_value;
 use waymark_proto::ast as ir;
 use waymark_runner::replay_action_kwargs;
 use waymark_runner_executor_core::UncheckedExecutionResult;
-use waymark_runner_state::{
-    ActionCallSpec, ExecutionNode, NodeStatus, RunnerState, format_value, value_visitor::ValueExpr,
-};
+use waymark_runner_expr_fmt::format_value;
+use waymark_runner_state::{ActionCallSpec, ExecutionNode, NodeStatus, RunnerState, ValueExpr};
 use waymark_timed_future::TimedFutureExt as _;
 use waymark_webapp_core::{
     ExecutionEdgeView, ExecutionGraphView, ExecutionNodeView, InstanceDetail, InstanceStatus,
@@ -1618,8 +1617,7 @@ mod tests {
     use waymark_dag::EdgeType;
     use waymark_ir_parser::parse_program;
     use waymark_runner_state::{
-        ActionCallSpec, ExecutionEdge, ExecutionNode, LiteralValue, NodeStatus,
-        value_visitor::ValueExpr,
+        ActionCallSpec, ExecutionEdge, ExecutionNode, LiteralValue, NodeStatus, ValueExpr,
     };
     use waymark_scheduler_core::{CreateScheduleParams, ScheduleType};
 

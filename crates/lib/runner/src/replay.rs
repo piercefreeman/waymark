@@ -15,8 +15,7 @@ use crate::expression_evaluator::{
 use waymark_dag::{EXCEPTION_SCOPE_VAR, EdgeType};
 use waymark_proto::ast as ir;
 use waymark_runner_state::{
-    ActionResultValue, FunctionCallValue, RunnerState,
-    value_visitor::{ValueExpr, ValueExprEvaluator},
+    ActionResultValue, FunctionCallValue, RunnerState, ValueExpr, value_visitor::ValueExprEvaluator,
 };
 
 /// Raised when replay cannot reconstruct variable values.
@@ -531,7 +530,7 @@ pub fn replay_action_kwargs(
 mod tests {
     use super::*;
     use waymark_proto::ast as ir;
-    use waymark_runner_state::{RunnerState, VariableValue, value_visitor::ValueExpr};
+    use waymark_runner_state::{RunnerState, ValueExpr, VariableValue};
 
     fn action_plus_two_expr() -> ir::Expr {
         ir::Expr {

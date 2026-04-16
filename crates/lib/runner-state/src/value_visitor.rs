@@ -2,30 +2,14 @@
 
 use std::collections::{HashMap, HashSet};
 
-use serde::{Deserialize, Serialize};
 use waymark_ids::ExecutionId;
+
+use crate::ValueExpr;
 
 use super::state::{
     ActionCallSpec, ActionResultValue, BinaryOpValue, DictEntryValue, DictValue, DotValue,
-    FunctionCallValue, IndexValue, ListValue, LiteralValue, SpreadValue, UnaryOpValue,
-    VariableValue,
+    FunctionCallValue, IndexValue, ListValue, SpreadValue, UnaryOpValue,
 };
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type", content = "data")]
-pub enum ValueExpr {
-    Literal(LiteralValue),
-    Variable(VariableValue),
-    ActionResult(ActionResultValue),
-    BinaryOp(BinaryOpValue),
-    UnaryOp(UnaryOpValue),
-    List(ListValue),
-    Dict(DictValue),
-    Index(IndexValue),
-    Dot(DotValue),
-    FunctionCall(FunctionCallValue),
-    Spread(SpreadValue),
-}
 
 /// Resolve variables inside a ValueExpr tree without executing actions.
 ///
@@ -359,6 +343,9 @@ mod tests {
     use std::collections::{HashMap, HashSet};
 
     use serde_json::Value;
+    use waymark_runner_expr::{LiteralValue, VariableValue};
+
+    use crate::ValueExpr;
 
     use super::*;
     use waymark_proto::ast as ir;

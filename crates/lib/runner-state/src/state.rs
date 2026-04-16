@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use waymark_ids::ExecutionId;
 
 use crate::util::is_truthy;
-use crate::value_visitor::{ValueExpr, collect_value_sources, resolve_value_tree};
+use crate::value_visitor::{collect_value_sources, resolve_value_tree};
 use waymark_dag::{
     ActionCallNode, AggregatorNode, AssignmentNode, DAG, DAGNode, EdgeType, FnCallNode, JoinNode,
     ReturnNode, SleepNode,
@@ -23,6 +23,21 @@ static MAX_RUNNER_STATE_NODES: std::sync::LazyLock<usize> = std::sync::LazyLock:
         .and_then(|s| s.parse().ok())
         .unwrap_or(10_000)
 });
+
+pub type ValueExpr = waymark_runner_expr::ValueExpr<ExecutionId>;
+pub type LiteralValue = waymark_runner_expr::LiteralValue;
+pub type VariableValue = waymark_runner_expr::VariableValue;
+pub type BinaryOpValue = waymark_runner_expr::BinaryOpValue<ExecutionId>;
+pub type UnaryOpValue = waymark_runner_expr::UnaryOpValue<ExecutionId>;
+pub type ListValue = waymark_runner_expr::ListValue<ExecutionId>;
+pub type DictValue = waymark_runner_expr::DictValue<ExecutionId>;
+pub type DictEntryValue = waymark_runner_expr::DictEntryValue<ExecutionId>;
+pub type IndexValue = waymark_runner_expr::IndexValue<ExecutionId>;
+pub type DotValue = waymark_runner_expr::DotValue<ExecutionId>;
+pub type FunctionCallValue = waymark_runner_expr::FunctionCallValue<ExecutionId>;
+pub type SpreadValue = waymark_runner_expr::SpreadValue<ExecutionId>;
+pub type ActionCallSpec = waymark_runner_expr::ActionCallSpec<ExecutionId>;
+pub type ActionResultValue = waymark_runner_expr::ActionResultValue<ExecutionId>;
 
 /// Raised when the runner state cannot be updated safely.
 #[derive(Debug, thiserror::Error)]
@@ -46,100 +61,6 @@ impl RunnerStateError {
     pub fn is_node_limit_exceeded_message(message: &str) -> bool {
         message.starts_with(Self::NODE_LIMIT_EXCEEDED_PREFIX)
     }
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ActionCallSpec {
-    pub action_name: String,
-    pub module_name: Option<String>,
-    pub kwargs: HashMap<String, ValueExpr>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct LiteralValue {
-    pub value: serde_json::Value,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct VariableValue {
-    pub name: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ActionResultValue {
-    pub node_id: ExecutionId,
-    pub action_name: String,
-    pub iteration_index: Option<i32>,
-    pub result_index: Option<i32>,
-}
-
-impl ActionResultValue {
-    pub fn label(&self) -> String {
-        let mut label = self.action_name.clone();
-        if let Some(idx) = self.iteration_index {
-            label = format!("{label}[{idx}]");
-        }
-        if let Some(idx) = self.result_index {
-            label = format!("{label}[{idx}]");
-        }
-        label
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct BinaryOpValue {
-    pub left: Box<ValueExpr>,
-    pub op: i32,
-    pub right: Box<ValueExpr>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct UnaryOpValue {
-    pub op: i32,
-    pub operand: Box<ValueExpr>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ListValue {
-    pub elements: Vec<ValueExpr>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct DictEntryValue {
-    pub key: ValueExpr,
-    pub value: ValueExpr,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct DictValue {
-    pub entries: Vec<DictEntryValue>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct IndexValue {
-    pub object: Box<ValueExpr>,
-    pub index: Box<ValueExpr>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct DotValue {
-    pub object: Box<ValueExpr>,
-    pub attribute: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct FunctionCallValue {
-    pub name: String,
-    pub args: Vec<ValueExpr>,
-    pub kwargs: HashMap<String, ValueExpr>,
-    pub global_function: Option<i32>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct SpreadValue {
-    pub collection: Box<ValueExpr>,
-    pub loop_var: String,
-    pub action: ActionCallSpec,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -542,6 +463,38 @@ impl RunnerState {
         )?;
         if let Some(node_mut) = self.nodes.get_mut(&node.node_id) {
             node_mut.value_expr = Some(ValueExpr::ActionResult(result.clone()));
+        }
+        Ok(result)
+    }
+
+    /// Queue an action spec.
+    pub fn queue_action_spec(
+        &mut self,
+        spec: ActionCallSpec,
+        targets: Option<Vec<String>>,
+        iteration_index: Option<i32>,
+    ) -> Result<ActionResultValue, RunnerStateError> {
+        let node = self.queue_node(
+            ExecutionNodeType::ActionCall.as_str(),
+            &format!("@{}()", spec.action_name),
+            QueueNodeParams {
+                targets: targets.clone(),
+                action: Some(spec.clone()),
+                ..QueueNodeParams::default()
+            },
+        )?;
+        for value in spec.kwargs.values() {
+            self.record_data_flow_from_value(node.node_id, value);
+        }
+        let result = self.assign_action_results(
+            &node,
+            &spec.action_name,
+            targets.as_deref(),
+            iteration_index,
+            true,
+        )?;
+        if let Some(node) = self.nodes.get_mut(&node.node_id) {
+            node.value_expr = Some(ValueExpr::ActionResult(result.clone()));
         }
         Ok(result)
     }
@@ -1116,8 +1069,12 @@ impl RunnerState {
         let resolved = resolve_value_tree(&value, &|name, seen| {
             self.resolve_variable_value(name, seen)
         });
-        if let ValueExpr::BinaryOp(BinaryOpValue { left, op, right }) = &resolved
-            && ir::BinaryOperator::try_from(*op).ok() == Some(ir::BinaryOperator::BinaryOpAdd)
+        if let ValueExpr::BinaryOp(BinaryOpValue {
+            ref left,
+            op,
+            ref right,
+        }) = resolved
+            && ir::BinaryOperator::try_from(op).ok() == Some(ir::BinaryOperator::BinaryOpAdd)
             && let (ValueExpr::List(left_list), ValueExpr::List(right_list)) = (&**left, &**right)
         {
             let mut elements = left_list.elements.clone();
@@ -1658,110 +1615,6 @@ impl RunnerState {
     }
 }
 
-/// Render a ValueExpr to a python-like string for debugging/visualization.
-///
-/// Example:
-/// - BinaryOpValue(VariableValue("a"), +, LiteralValue(1)) -> "a + 1"
-pub fn format_value(expr: &ValueExpr) -> String {
-    format_value_inner(expr, 0)
-}
-
-/// Recursive ValueExpr formatter with operator precedence handling.
-///
-/// Example:
-/// - (a + b) * c renders with parentheses when needed.
-fn format_value_inner(expr: &ValueExpr, parent_prec: i32) -> String {
-    match expr {
-        ValueExpr::Literal(lit) => format_literal(&lit.value),
-        ValueExpr::Variable(var) => var.name.clone(),
-        ValueExpr::ActionResult(value) => value.label(),
-        ValueExpr::BinaryOp(value) => {
-            let (op_str, prec) = binary_operator(value.op);
-            let left = format_value_inner(&value.left, prec);
-            let right = format_value_inner(&value.right, prec + 1);
-            let rendered = format!("{left} {op_str} {right}");
-            if prec < parent_prec {
-                format!("({rendered})")
-            } else {
-                rendered
-            }
-        }
-        ValueExpr::UnaryOp(value) => {
-            let (op_str, prec) = unary_operator(value.op);
-            let operand = format_value_inner(&value.operand, prec);
-            let rendered = format!("{op_str}{operand}");
-            if prec < parent_prec {
-                format!("({rendered})")
-            } else {
-                rendered
-            }
-        }
-        ValueExpr::List(value) => {
-            let items: Vec<String> = value
-                .elements
-                .iter()
-                .map(|item| format_value_inner(item, 0))
-                .collect();
-            format!("[{}]", items.join(", "))
-        }
-        ValueExpr::Dict(value) => {
-            let entries: Vec<String> = value
-                .entries
-                .iter()
-                .map(|entry| {
-                    format!(
-                        "{}: {}",
-                        format_value_inner(&entry.key, 0),
-                        format_value_inner(&entry.value, 0)
-                    )
-                })
-                .collect();
-            format!("{{{}}}", entries.join(", "))
-        }
-        ValueExpr::Index(value) => {
-            let prec = precedence("index");
-            let obj = format_value_inner(&value.object, prec);
-            let idx = format_value_inner(&value.index, 0);
-            let rendered = format!("{obj}[{idx}]");
-            if prec < parent_prec {
-                format!("({rendered})")
-            } else {
-                rendered
-            }
-        }
-        ValueExpr::Dot(value) => {
-            let prec = precedence("dot");
-            let obj = format_value_inner(&value.object, prec);
-            let rendered = format!("{obj}.{}", value.attribute);
-            if prec < parent_prec {
-                format!("({rendered})")
-            } else {
-                rendered
-            }
-        }
-        ValueExpr::FunctionCall(value) => {
-            let mut args: Vec<String> = value
-                .args
-                .iter()
-                .map(|arg| format_value_inner(arg, 0))
-                .collect();
-            for (name, val) in &value.kwargs {
-                args.push(format!("{name}={}", format_value_inner(val, 0)));
-            }
-            format!("{}({})", value.name, args.join(", "))
-        }
-        ValueExpr::Spread(value) => {
-            let collection = format_value_inner(&value.collection, 0);
-            let mut args: Vec<String> = Vec::new();
-            for (name, val) in &value.action.kwargs {
-                args.push(format!("{name}={}", format_value_inner(val, 0)));
-            }
-            let call = format!("@{}({})", value.action.action_name, args.join(", "));
-            format!("spread {collection}:{} -> {call}", value.loop_var)
-        }
-    }
-}
-
 fn value_expr_contains_variable(expr: &ValueExpr, name: &str) -> bool {
     match expr {
         ValueExpr::Variable(var) => var.name == name,
@@ -1802,64 +1655,6 @@ fn value_expr_contains_variable(expr: &ValueExpr, name: &str) -> bool {
                     .any(|kwarg| value_expr_contains_variable(kwarg, name))
         }
         ValueExpr::Literal(_) | ValueExpr::ActionResult(_) => false,
-    }
-}
-
-/// Map binary operator enums to (symbol, precedence) for formatting.
-fn binary_operator(op: i32) -> (&'static str, i32) {
-    match ir::BinaryOperator::try_from(op).ok() {
-        Some(ir::BinaryOperator::BinaryOpOr) => ("or", 10),
-        Some(ir::BinaryOperator::BinaryOpAnd) => ("and", 20),
-        Some(ir::BinaryOperator::BinaryOpEq) => ("==", 30),
-        Some(ir::BinaryOperator::BinaryOpNe) => ("!=", 30),
-        Some(ir::BinaryOperator::BinaryOpLt) => ("<", 30),
-        Some(ir::BinaryOperator::BinaryOpLe) => ("<=", 30),
-        Some(ir::BinaryOperator::BinaryOpGt) => (">", 30),
-        Some(ir::BinaryOperator::BinaryOpGe) => (">=", 30),
-        Some(ir::BinaryOperator::BinaryOpIn) => ("in", 30),
-        Some(ir::BinaryOperator::BinaryOpNotIn) => ("not in", 30),
-        Some(ir::BinaryOperator::BinaryOpAdd) => ("+", 40),
-        Some(ir::BinaryOperator::BinaryOpSub) => ("-", 40),
-        Some(ir::BinaryOperator::BinaryOpMul) => ("*", 50),
-        Some(ir::BinaryOperator::BinaryOpDiv) => ("/", 50),
-        Some(ir::BinaryOperator::BinaryOpFloorDiv) => ("//", 50),
-        Some(ir::BinaryOperator::BinaryOpMod) => ("%", 50),
-        _ => ("?", 0),
-    }
-}
-
-/// Map unary operator enums to (symbol, precedence) for formatting.
-fn unary_operator(op: i32) -> (&'static str, i32) {
-    match ir::UnaryOperator::try_from(op).ok() {
-        Some(ir::UnaryOperator::UnaryOpNeg) => ("-", 60),
-        Some(ir::UnaryOperator::UnaryOpNot) => ("not ", 60),
-        _ => ("?", 0),
-    }
-}
-
-/// Return precedence for non-operator constructs like index/dot.
-fn precedence(kind: &str) -> i32 {
-    match kind {
-        "index" | "dot" => 80,
-        _ => 0,
-    }
-}
-
-/// Format Python literals as source-like text.
-fn format_literal(value: &serde_json::Value) -> String {
-    match value {
-        serde_json::Value::Null => "None".to_string(),
-        serde_json::Value::Bool(value) => {
-            if *value {
-                "True".to_string()
-            } else {
-                "False".to_string()
-            }
-        }
-        serde_json::Value::String(value) => {
-            serde_json::to_string(value).unwrap_or_else(|_| format!("\"{value}\""))
-        }
-        _ => value.to_string(),
     }
 }
 

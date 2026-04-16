@@ -4018,6 +4018,7 @@ dependencies = [
  "waymark-proto",
  "waymark-runner",
  "waymark-runner-executor-core",
+ "waymark-runner-expr-fmt",
  "waymark-runner-state",
  "waymark-scheduler-backend",
  "waymark-scheduler-core",
@@ -4484,6 +4485,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-runner-expr"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "waymark-runner-expr-fmt"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "waymark-proto",
+ "waymark-runner-expr",
+]
+
+[[package]]
 name = "waymark-runner-retry-policy"
 version = "0.1.0"
 dependencies = [
@@ -4502,6 +4520,7 @@ dependencies = [
  "waymark-ids",
  "waymark-ir-conversions",
  "waymark-proto",
+ "waymark-runner-expr",
 ]
 
 [[package]]
