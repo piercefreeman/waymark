@@ -578,6 +578,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
 
 [[package]]
+name = "const-sub-array"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e798d55ecd6c99d12d04e12831bbced2a44e2a8197493dd741818999698dcc0d"
+
+[[package]]
 name = "core-foundation"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2878,6 +2884,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "sha1_smol"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbfa15b3dddfee50a0fff136974b3e1bde555604ba463834a7eb7deb6417705d"
+
+[[package]]
 name = "sha2"
 version = "0.10.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4490,6 +4502,17 @@ dependencies = [
  "waymark-dag",
  "waymark-ids",
  "waymark-runner-expr",
+]
+
+[[package]]
+name = "waymark-runner-execution-id"
+version = "0.1.0"
+dependencies = [
+ "const-sub-array",
+ "serde",
+ "sha1_smol",
+ "uuid",
+ "waymark-ids",
 ]
 
 [[package]]
