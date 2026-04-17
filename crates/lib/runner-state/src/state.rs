@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+
 use waymark_ids::ExecutionId;
 use waymark_runner_execution_core::{
     ExecutionEdge, ExecutionGraph, ExecutionNode, ExecutionNodeType, NodeStatus,
@@ -85,9 +85,8 @@ pub struct QueueNodeParams {
 /// action and the results update. Subsequent iterations repeat the same
 /// sequence, producing a chain of assignments where replay can reconstruct the
 /// incremental `results` value by following data-flow edges.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub struct RunnerState {
-    #[serde(skip, default)]
     pub dag: Option<Arc<DAG>>,
     pub graph: ExecutionGraph,
     pub ready_queue: Vec<ExecutionId>,
