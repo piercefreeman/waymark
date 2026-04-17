@@ -68,11 +68,10 @@ pub fn run_executor_shard(
                         );
                     }
 
-                    let mut executor = waymark_runner::RunnerExecutor::new(
-                        dag,
-                        instance.state,
-                        instance.action_results,
-                    );
+                    let state = waymark_runner_state::RunnerState::from_graph(instance.graph);
+
+                    let mut executor =
+                        waymark_runner::RunnerExecutor::new(dag, state, instance.action_results);
                     executor.set_instance_id(instance.instance_id);
 
                     let mut owner =

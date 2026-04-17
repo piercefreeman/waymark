@@ -12,7 +12,6 @@ waymark-backends-core = { workspace = true }
 waymark-ids = { workspace = true }
 waymark-runner-execution-core = { workspace = true }
 waymark-runner-executor-core = { workspace = true }
-waymark-runner-state = { workspace = true }
 
 chrono = { workspace = true }
 either = { workspace = true, optional = true }

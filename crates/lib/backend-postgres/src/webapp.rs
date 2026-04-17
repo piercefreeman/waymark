@@ -1469,7 +1469,7 @@ fn build_queued_instance(
         workflow_version_id,
         schedule_id: None,
         entry_node: entry_exec.node_id,
-        state,
+        graph: state.graph,
         action_results: HashMap::new(),
         instance_id: InstanceId::new_uuid_v4(),
         scheduled_at: None,
@@ -2285,7 +2285,7 @@ fn main(input: [items], output: [total]):
         let queued: QueuedInstance =
             rmp_serde::from_slice(&queued_payload).expect("decode queued payload");
         assert_eq!(queued.workflow_version_id, latest_version_id);
-        let rendered_inputs = format_extracted_inputs(&queued.state.graph.nodes);
+        let rendered_inputs = format_extracted_inputs(&queued.graph.nodes);
         let rendered_value: Value =
             serde_json::from_str(&rendered_inputs).expect("decode queued input payload");
         assert_eq!(

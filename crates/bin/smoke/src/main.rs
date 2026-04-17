@@ -135,7 +135,7 @@ async fn run_program_smoke(case: &SmokeCase, worker_pool: RemoteWorkerPool) -> R
         workflow_version_id,
         schedule_id: None,
         entry_node: entry_exec.node_id,
-        state,
+        graph: state.graph,
         action_results: HashMap::new(),
         instance_id: InstanceId::new_uuid_v4(),
         scheduled_at: None,

@@ -22,7 +22,6 @@ use waymark_core_backend::{
     ActionDone, GraphUpdate, InstanceDone, InstanceLockStatus, LockClaim, QueuedInstance,
 };
 use waymark_observability::obs;
-use waymark_runner_state::RunnerState;
 use waymark_timed_future::TimedFutureExt as _;
 
 const INSTANCE_STATUS_QUEUED: &str = "queued";
@@ -169,7 +168,10 @@ impl PostgresBackend {
                 INSTANCE_STATUS_QUEUED,
                 Self::serialize(&payload_instance)?,
             ));
-            let graph = GraphUpdate::from_state(instance.instance_id, &instance.state);
+            let graph = GraphUpdate {
+                instance_id: instance.instance_id,
+                graph: instance.graph.clone(),
+            };
             runner_payloads.push((
                 instance.instance_id,
                 instance.entry_node,
@@ -832,7 +834,7 @@ impl PostgresBackend {
                     action_node_ids_by_instance.insert(instance_id, action_node_ids);
                 }
 
-                instance.state = RunnerState::from_graph(graph_update.graph);
+                instance.graph = graph_update.graph;
 
                 Ok(instance)
             })
@@ -1162,14 +1164,14 @@ mod tests {
     use super::*;
 
     use waymark_dag::EdgeType;
-    use waymark_runner_state::ActionCallSpec;
+    use waymark_runner_state::{ActionCallSpec, RunnerState};
 
     fn sample_queued_instance(instance_id: InstanceId, entry_node: ExecutionId) -> QueuedInstance {
         QueuedInstance {
             workflow_version_id: WorkflowVersionId::new_uuid_v4(),
             schedule_id: None,
             entry_node,
-            state: RunnerState::dummy(),
+            graph: RunnerState::dummy().graph,
             action_results: HashMap::new(),
             instance_id,
             scheduled_at: Some(Utc::now() - Duration::seconds(1)),
@@ -1308,7 +1310,7 @@ mod tests {
             workflow_version_id,
             schedule_id: None,
             entry_node,
-            state: RunnerState::dummy(),
+            graph: RunnerState::dummy().graph,
             action_results: HashMap::new(),
             instance_id,
             scheduled_at: Some(Utc::now()),

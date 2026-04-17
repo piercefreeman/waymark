@@ -151,7 +151,7 @@ fn main(input: [x], output: [y]):
         workflow_version_id,
         schedule_id: None,
         entry_node: ExecutionId::new_uuid_v4(),
-        state: RunnerState::dummy(),
+        graph: RunnerState::dummy().graph,
         action_results: HashMap::new(),
         instance_id,
         scheduled_at: None,
