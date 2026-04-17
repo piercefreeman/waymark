@@ -34,8 +34,8 @@ pub struct QueuedInstance {
 
 /// Lock claim settings for owned instances.
 #[derive(Clone, Debug)]
-pub struct LockClaim {
-    pub lock_uuid: LockId,
+pub struct LockClaim<Id = LockId> {
+    pub lock_uuid: Id,
     pub lock_expires_at: DateTime<Utc>,
 }
 
