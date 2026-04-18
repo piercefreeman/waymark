@@ -4471,6 +4471,7 @@ dependencies = [
  "waymark-observability",
  "waymark-proto",
  "waymark-runner-executor-core",
+ "waymark-runner-expr-eval",
  "waymark-runner-retry-policy",
  "waymark-runner-state",
  "waymark-synthetic-exception",
@@ -4490,6 +4491,16 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "waymark-runner-expr-eval"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "waymark-proto",
+ "waymark-runner-expr",
+ "waymark-runner-state",
 ]
 
 [[package]]

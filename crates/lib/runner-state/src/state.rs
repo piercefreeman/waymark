@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use waymark_ids::ExecutionId;
 
 use crate::util::is_truthy;
-use crate::value_visitor::{collect_value_sources, resolve_value_tree};
+use crate::{collect_value_sources, resolve_value_tree};
 use waymark_dag::{
     ActionCallNode, AggregatorNode, AssignmentNode, DAG, DAGNode, EdgeType, FnCallNode, JoinNode,
     ReturnNode, SleepNode,

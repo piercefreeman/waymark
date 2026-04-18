@@ -39,6 +39,7 @@ waymark-runloop = { path = "crates/lib/runloop" }
 waymark-runner = { path = "crates/lib/runner" }
 waymark-runner-executor-core = { path = "crates/lib/runner-executor-core" }
 waymark-runner-expr = { path = "crates/lib/runner-expr" }
+waymark-runner-expr-eval = { path = "crates/lib/runner-expr-eval" }
 waymark-runner-expr-fmt = { path = "crates/lib/runner-expr-fmt" }
 waymark-runner-retry-policy = { path = "crates/lib/runner-retry-policy" }
 waymark-runner-state = { path = "crates/lib/runner-state" }

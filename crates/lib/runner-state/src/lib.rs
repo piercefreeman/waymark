@@ -1,5 +1,11 @@
 mod state;
 mod util;
-pub mod value_visitor;
+mod value {
+    pub mod resolver;
+    pub mod source_collector;
+}
 
 pub use self::state::*;
+
+use self::value::resolver::resolve_value_tree;
+use self::value::source_collector::collect_value_sources;
