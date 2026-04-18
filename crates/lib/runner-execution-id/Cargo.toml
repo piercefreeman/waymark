@@ -1,0 +1,13 @@
+[package]
+name = "waymark-runner-execution-id"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-ids = { workspace = true }
+
+const-sub-array = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+sha1_smol = { workspace = true }
+uuid = { workspace = true }
