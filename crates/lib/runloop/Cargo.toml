@@ -16,6 +16,7 @@ waymark-observability = { workspace = true }
 waymark-proto = { workspace = true }
 waymark-runner = { workspace = true }
 waymark-runner-executor-core = { workspace = true }
+waymark-runner-state = { workspace = true }
 waymark-synthetic-exception = { workspace = true }
 waymark-tick-loop = { workspace = true }
 waymark-timed-channel = { workspace = true }
