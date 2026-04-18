@@ -92,9 +92,7 @@ pub fn collect_value_sources(
 mod tests {
     use std::collections::HashMap;
 
-    use waymark_runner_expr::{BinaryOpValue, FunctionCallValue, VariableValue};
-
-    use crate::{ActionResultValue, ValueExpr};
+    use crate::{ActionResultValue, BinaryOpValue, FunctionCallValue, VariableValue};
 
     use super::*;
     use waymark_proto::ast as ir;

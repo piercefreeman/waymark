@@ -44,6 +44,7 @@ waymark-worker-inline = { workspace = true }
 mockall = { workspace = true }
 nonempty-collections = { workspace = true }
 sha2 = { workspace = true }
+waymark-runner-execution-core = { workspace = true }
 
 [lib]
 doctest = false

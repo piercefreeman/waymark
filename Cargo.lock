@@ -4017,6 +4017,7 @@ dependencies = [
  "waymark-observability",
  "waymark-proto",
  "waymark-runner",
+ "waymark-runner-execution-core",
  "waymark-runner-executor-core",
  "waymark-runner-expr-fmt",
  "waymark-runner-state",
@@ -4153,6 +4154,7 @@ dependencies = [
  "serde",
  "waymark-backends-core",
  "waymark-ids",
+ "waymark-runner-execution-core",
  "waymark-runner-executor-core",
  "waymark-runner-state",
 ]
@@ -4443,6 +4445,7 @@ dependencies = [
  "waymark-observability",
  "waymark-proto",
  "waymark-runner",
+ "waymark-runner-execution-core",
  "waymark-runner-executor-core",
  "waymark-runner-state",
  "waymark-synthetic-exception",
@@ -4470,11 +4473,24 @@ dependencies = [
  "waymark-ir-parser",
  "waymark-observability",
  "waymark-proto",
+ "waymark-runner-execution-core",
  "waymark-runner-executor-core",
  "waymark-runner-expr-eval",
  "waymark-runner-retry-policy",
  "waymark-runner-state",
  "waymark-synthetic-exception",
+]
+
+[[package]]
+name = "waymark-runner-execution-core"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "thiserror",
+ "waymark-dag",
+ "waymark-ids",
+ "waymark-runner-expr",
 ]
 
 [[package]]
@@ -4531,6 +4547,7 @@ dependencies = [
  "waymark-ids",
  "waymark-ir-conversions",
  "waymark-proto",
+ "waymark-runner-execution-core",
  "waymark-runner-expr",
 ]
 

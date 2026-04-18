@@ -16,7 +16,8 @@ use waymark_nonzero_duration::NonZeroDuration;
 use waymark_proto::ast as ir;
 use waymark_runloop::{RunLoop, RunLoopConfig, RunLoopError};
 use waymark_runner::RunnerExecutor;
-use waymark_runner_state::{NodeStatus, RunnerState};
+use waymark_runner_execution_core::NodeStatus;
+use waymark_runner_state::RunnerState;
 use waymark_worker_inline::ActionCallable;
 use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBackend};
 

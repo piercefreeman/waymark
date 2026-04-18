@@ -16,12 +16,13 @@ use waymark_dag::{
 };
 use waymark_observability::obs;
 use waymark_proto::ast as ir;
+use waymark_runner_execution_core::{ExecutionEdge, ExecutionNode, ExecutionNodeType, NodeStatus};
 use waymark_runner_executor_core::{
     ExecutionException, ExecutionSuccess, UncheckedExecutionResult,
 };
 use waymark_runner_state::{
-    ActionCallSpec, ExecutionEdge, ExecutionNode, ExecutionNodeType, IndexValue, ListValue,
-    LiteralValue, NodeStatus, QueueNodeParams, RunnerState, RunnerStateError, ValueExpr,
+    ActionCallSpec, IndexValue, ListValue, LiteralValue, QueueNodeParams, RunnerState,
+    RunnerStateError, ValueExpr,
 };
 
 use crate::action_done_status;
@@ -1509,7 +1510,8 @@ mod tests {
     use waymark_dag_builder::convert_to_dag;
     use waymark_ir_parser::parse_program;
     use waymark_proto::ast as ir;
-    use waymark_runner_state::{ExecutionEdge, ExecutionNode, NodeStatus, RunnerState};
+    use waymark_runner_execution_core::{ExecutionEdge, ExecutionNode, NodeStatus};
+    use waymark_runner_state::RunnerState;
 
     fn variable(name: &str) -> ir::Expr {
         ir::Expr {
@@ -2621,11 +2623,7 @@ fn main(input: [], output: [done]):
             Some("ValueError")
         );
         assert_eq!(
-            executor
-                .state()
-                .nodes
-                .get(&exec.node_id)
-                .map(|n| n.status.clone()),
+            executor.state().nodes.get(&exec.node_id).map(|n| n.status),
             Some(NodeStatus::Failed)
         );
     }
@@ -2673,11 +2671,7 @@ fn main(input: [], output: [done]):
         assert_eq!(first_updates.actions_done.len(), 1);
         assert_eq!(first_updates.actions_done[0].attempt, 1);
         assert_eq!(
-            executor
-                .state()
-                .nodes
-                .get(&exec.node_id)
-                .map(|n| n.status.clone()),
+            executor.state().nodes.get(&exec.node_id).map(|n| n.status),
             Some(NodeStatus::Running)
         );
         assert_eq!(
@@ -2700,11 +2694,7 @@ fn main(input: [], output: [done]):
         assert_eq!(second_updates.actions_done.len(), 1);
         assert_eq!(second_updates.actions_done[0].attempt, 2);
         assert_eq!(
-            executor
-                .state()
-                .nodes
-                .get(&exec.node_id)
-                .map(|n| n.status.clone()),
+            executor.state().nodes.get(&exec.node_id).map(|n| n.status),
             Some(NodeStatus::Completed)
         );
     }

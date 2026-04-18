@@ -15,9 +15,10 @@ use waymark_ids::{ExecutionId, InstanceId, ScheduleId, WorkflowVersionId};
 use waymark_ir_conversions::literal_from_json_value;
 use waymark_proto::ast as ir;
 use waymark_runner::replay_action_kwargs;
+use waymark_runner_execution_core::{ExecutionNode, NodeStatus};
 use waymark_runner_executor_core::UncheckedExecutionResult;
 use waymark_runner_expr_fmt::format_value;
-use waymark_runner_state::{ActionCallSpec, ExecutionNode, NodeStatus, RunnerState, ValueExpr};
+use waymark_runner_state::{ActionCallSpec, RunnerState, ValueExpr};
 use waymark_timed_future::TimedFutureExt as _;
 use waymark_webapp_core::{
     ExecutionEdgeView, ExecutionGraphView, ExecutionNodeView, InstanceDetail, InstanceStatus,
@@ -598,7 +599,7 @@ impl waymark_webapp_backend::WebappBackend for crate::PostgresBackend {
                     .and_modify(|existing| {
                         *existing = merge_template_status(existing, &node.status);
                     })
-                    .or_insert_with(|| node.status.clone());
+                    .or_insert_with(|| node.status);
             }
         }
 
@@ -1580,9 +1581,9 @@ fn format_node_status(status: &NodeStatus) -> String {
 
 fn merge_template_status(existing: &NodeStatus, new_status: &NodeStatus) -> NodeStatus {
     if node_status_rank(new_status) > node_status_rank(existing) {
-        new_status.clone()
+        *new_status
     } else {
-        existing.clone()
+        *existing
     }
 }
 
@@ -1604,6 +1605,7 @@ mod tests {
     use serial_test::serial;
     use uuid::Uuid;
     use waymark_ids::ExecutionId;
+    use waymark_runner_execution_core::ExecutionEdge;
     use waymark_scheduler_backend::SchedulerBackend;
     use waymark_webapp_backend::WebappBackend;
     use waymark_worker_status_backend::{WorkerStatusBackend, WorkerStatusUpdate};
@@ -1616,9 +1618,7 @@ mod tests {
 
     use waymark_dag::EdgeType;
     use waymark_ir_parser::parse_program;
-    use waymark_runner_state::{
-        ActionCallSpec, ExecutionEdge, ExecutionNode, LiteralValue, NodeStatus, ValueExpr,
-    };
+    use waymark_runner_state::{ActionCallSpec, LiteralValue, ValueExpr};
     use waymark_scheduler_core::{CreateScheduleParams, ScheduleType};
 
     #[test]
