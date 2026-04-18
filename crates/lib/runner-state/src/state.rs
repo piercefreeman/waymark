@@ -1,181 +1,26 @@
 //! Execution-time DAG state with unrolled nodes and symbolic values.
 
 use std::collections::{HashMap, HashSet};
-use std::fmt;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use waymark_ids::ExecutionId;
 
+use crate::execution::{ExecutionEdge, ExecutionNode, ExecutionNodeType, NodeStatus};
+use crate::max_nodes::MAX_RUNNER_STATE_NODES;
 use crate::util::is_truthy;
-use crate::{collect_value_sources, resolve_value_tree};
+use crate::value::*;
+use crate::{
+    ActionCallSpec, ActionResultValue, RunnerStateError, ValueExpr, collect_value_sources,
+    resolve_value_tree,
+};
 use waymark_dag::{
     ActionCallNode, AggregatorNode, AssignmentNode, DAG, DAGNode, EdgeType, FnCallNode, JoinNode,
     ReturnNode, SleepNode,
 };
 use waymark_ir_conversions::literal_to_json_value;
 use waymark_proto::ast as ir;
-
-static MAX_RUNNER_STATE_NODES: std::sync::LazyLock<usize> = std::sync::LazyLock::new(|| {
-    std::env::var("WAYMARK_UNSTABLE_MAX_RUNNER_STATE_NODES")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(10_000)
-});
-
-pub type ValueExpr = waymark_runner_expr::ValueExpr<ExecutionId>;
-pub type LiteralValue = waymark_runner_expr::LiteralValue;
-pub type VariableValue = waymark_runner_expr::VariableValue;
-pub type BinaryOpValue = waymark_runner_expr::BinaryOpValue<ExecutionId>;
-pub type UnaryOpValue = waymark_runner_expr::UnaryOpValue<ExecutionId>;
-pub type ListValue = waymark_runner_expr::ListValue<ExecutionId>;
-pub type DictValue = waymark_runner_expr::DictValue<ExecutionId>;
-pub type DictEntryValue = waymark_runner_expr::DictEntryValue<ExecutionId>;
-pub type IndexValue = waymark_runner_expr::IndexValue<ExecutionId>;
-pub type DotValue = waymark_runner_expr::DotValue<ExecutionId>;
-pub type FunctionCallValue = waymark_runner_expr::FunctionCallValue<ExecutionId>;
-pub type SpreadValue = waymark_runner_expr::SpreadValue<ExecutionId>;
-pub type ActionCallSpec = waymark_runner_expr::ActionCallSpec<ExecutionId>;
-pub type ActionResultValue = waymark_runner_expr::ActionResultValue<ExecutionId>;
-
-/// Raised when the runner state cannot be updated safely.
-#[derive(Debug, thiserror::Error)]
-#[error("{0}")]
-pub struct RunnerStateError(pub String);
-
-impl RunnerStateError {
-    const NODE_LIMIT_EXCEEDED_PREFIX: &str = "runner state node limit exceeded:";
-
-    fn node_limit_exceeded(node_id: ExecutionId, existing_nodes: usize) -> Self {
-        Self(format!(
-            "runner state node limit exceeded: attempted to queue node {} with {} existing nodes (max {})",
-            node_id, existing_nodes, *MAX_RUNNER_STATE_NODES,
-        ))
-    }
-
-    pub fn is_node_limit_exceeded(&self) -> bool {
-        Self::is_node_limit_exceeded_message(&self.0)
-    }
-
-    pub fn is_node_limit_exceeded_message(message: &str) -> bool {
-        message.starts_with(Self::NODE_LIMIT_EXCEEDED_PREFIX)
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "type", content = "data")]
-pub enum NodeStatus {
-    Queued,
-    Running,
-    Completed,
-    Failed,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ExecutionNodeType {
-    Input,
-    Output,
-    Assignment,
-    ActionCall,
-    FnCall,
-    Parallel,
-    Aggregator,
-    Branch,
-    Join,
-    Return,
-    Break,
-    Continue,
-    Sleep,
-    Expression,
-}
-
-impl ExecutionNodeType {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            ExecutionNodeType::Input => "input",
-            ExecutionNodeType::Output => "output",
-            ExecutionNodeType::Assignment => "assignment",
-            ExecutionNodeType::ActionCall => "action_call",
-            ExecutionNodeType::FnCall => "fn_call",
-            ExecutionNodeType::Parallel => "parallel",
-            ExecutionNodeType::Aggregator => "aggregator",
-            ExecutionNodeType::Branch => "branch",
-            ExecutionNodeType::Join => "join",
-            ExecutionNodeType::Return => "return",
-            ExecutionNodeType::Break => "break",
-            ExecutionNodeType::Continue => "continue",
-            ExecutionNodeType::Sleep => "sleep",
-            ExecutionNodeType::Expression => "expression",
-        }
-    }
-}
-
-impl TryFrom<&str> for ExecutionNodeType {
-    type Error = RunnerStateError;
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match value {
-            "input" => Ok(ExecutionNodeType::Input),
-            "output" => Ok(ExecutionNodeType::Output),
-            "assignment" => Ok(ExecutionNodeType::Assignment),
-            "action_call" => Ok(ExecutionNodeType::ActionCall),
-            "fn_call" => Ok(ExecutionNodeType::FnCall),
-            "parallel" => Ok(ExecutionNodeType::Parallel),
-            "aggregator" => Ok(ExecutionNodeType::Aggregator),
-            "branch" => Ok(ExecutionNodeType::Branch),
-            "join" => Ok(ExecutionNodeType::Join),
-            "return" => Ok(ExecutionNodeType::Return),
-            "break" => Ok(ExecutionNodeType::Break),
-            "continue" => Ok(ExecutionNodeType::Continue),
-            "sleep" => Ok(ExecutionNodeType::Sleep),
-            "expression" => Ok(ExecutionNodeType::Expression),
-            _ => Err(RunnerStateError(format!(
-                "unknown execution node type: {value}"
-            ))),
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ExecutionNode {
-    pub node_id: ExecutionId,
-    pub node_type: String,
-    pub label: String,
-    pub status: NodeStatus,
-    pub template_id: Option<String>,
-    pub targets: Vec<String>,
-    pub action: Option<ActionCallSpec>,
-    pub value_expr: Option<ValueExpr>,
-    pub assignments: HashMap<String, ValueExpr>,
-    pub action_attempt: i32,
-    #[serde(default)]
-    pub started_at: Option<DateTime<Utc>>,
-    #[serde(default)]
-    pub completed_at: Option<DateTime<Utc>>,
-    #[serde(default)]
-    pub scheduled_at: Option<DateTime<Utc>>,
-}
-
-impl ExecutionNode {
-    pub fn node_type_enum(&self) -> Result<ExecutionNodeType, RunnerStateError> {
-        ExecutionNodeType::try_from(self.node_type.as_str())
-    }
-
-    pub fn is_action_call(&self) -> bool {
-        matches!(
-            ExecutionNodeType::try_from(self.node_type.as_str()),
-            Ok(ExecutionNodeType::ActionCall)
-        )
-    }
-
-    pub fn is_sleep(&self) -> bool {
-        matches!(
-            ExecutionNodeType::try_from(self.node_type.as_str()),
-            Ok(ExecutionNodeType::Sleep)
-        )
-    }
-}
 
 #[derive(Clone, Debug, Default)]
 pub struct QueueNodeParams {
@@ -185,13 +30,6 @@ pub struct QueueNodeParams {
     pub action: Option<ActionCallSpec>,
     pub value_expr: Option<ValueExpr>,
     pub scheduled_at: Option<DateTime<Utc>>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct ExecutionEdge {
-    pub source: ExecutionId,
-    pub target: ExecutionId,
-    pub edge_type: EdgeType,
 }
 
 /// Track queued/executed DAG nodes with an unrolled, symbolic state.
@@ -1729,18 +1567,6 @@ fn fold_literal_unary(op: i32, operand: &serde_json::Value) -> Option<serde_json
             .and_then(|value| serde_json::Number::from_f64(-value).map(serde_json::Value::Number)),
         Some(ir::UnaryOperator::UnaryOpNot) => Some(serde_json::Value::Bool(!is_truthy(operand))),
         _ => None,
-    }
-}
-
-impl fmt::Display for NodeStatus {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let value = match self {
-            NodeStatus::Queued => "queued",
-            NodeStatus::Running => "running",
-            NodeStatus::Completed => "completed",
-            NodeStatus::Failed => "failed",
-        };
-        write!(f, "{value}")
     }
 }
 
