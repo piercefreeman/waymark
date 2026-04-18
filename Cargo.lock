@@ -4171,6 +4171,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-core-backend2"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "either",
+ "nonempty-collections",
+ "serde",
+ "waymark-backends-core",
+ "waymark-ids",
+ "waymark-runner-execution-core",
+ "waymark-runner-executor-core",
+]
+
+[[package]]
 name = "waymark-dag"
 version = "0.1.0"
 dependencies = [

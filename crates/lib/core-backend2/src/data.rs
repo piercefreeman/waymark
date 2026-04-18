@@ -1,0 +1,159 @@
+// The models that we use for our backends are similar to the ones that we
+// have specified in our database/Postgres backend, but not 1:1. It's better for
+// us to internally convert within the given backend
+
+use std::collections::HashMap;
+
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use waymark_runner_execution_core::{ExecutionGraph, NodeStatus};
+use waymark_runner_executor_core::{
+    ExecutionException, ExecutionSuccess, UncheckedExecutionResult,
+};
+
+use waymark_ids::{ExecutionId, InstanceId, LockId, ScheduleId, WorkflowVersionId};
+
+/// Queued instance payload for the run loop.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct QueuedInstance {
+    pub workflow_version_id: WorkflowVersionId,
+    #[serde(default)]
+    pub schedule_id: Option<ScheduleId>,
+    pub entry_node: ExecutionId,
+    pub graph: ExecutionGraph,
+    #[serde(
+        default = "HashMap::new",
+        deserialize_with = "deserialize_action_results"
+    )]
+    pub action_results: HashMap<ExecutionId, UncheckedExecutionResult>,
+    #[serde(default = "InstanceId::new_uuid_v4")]
+    pub instance_id: InstanceId,
+    #[serde(default)]
+    pub scheduled_at: Option<DateTime<Utc>>,
+}
+
+pub mod instance_metadata {
+    use waymark_ids::ScheduleId;
+
+    #[derive(Debug)]
+    pub struct OwningSchedulerRef {
+        /// The ID of the schedule that enqueued this instance.
+        ///
+        /// Used mostly for the metadata accounting purposes, so see todo below.
+        /// TODO: move this field into a separate metadata type injected via
+        /// generic.
+        pub schedule_id: ScheduleId,
+    }
+}
+
+#[derive(Debug)]
+pub struct InstanceForEnqueue<Metadata> {
+    /// The ID of the workflow version to use.
+    ///
+    /// The workflow version with this ID must exist when the is enqueued.
+    pub workflow_version_id: WorkflowVersionId,
+
+    /// Instance ID to enqueue the work with.
+    /// Prepared externally and must be unique.
+    pub instance_id: InstanceId,
+
+    /// The time at which this instance should be picked up for execution.
+    pub not_before: DateTime<Utc>,
+
+    /// The instance metadata type.
+    pub metadata: Metadata,
+}
+
+/// Lock claim settings for owned instances.
+#[derive(Clone, Debug)]
+pub struct LockClaim<Id = LockId> {
+    pub lock_uuid: Id,
+    pub lock_expires_at: DateTime<Utc>,
+}
+
+#[derive(Clone, Debug)]
+/// Current lock status for an instance.
+pub struct InstanceLockStatus {
+    pub instance_id: InstanceId,
+    pub lock_uuid: Option<LockId>,
+    pub lock_expires_at: Option<DateTime<Utc>>,
+}
+
+/// Completed instance payload with result or exception.
+#[derive(Clone, Debug)]
+pub struct InstanceDone {
+    pub executor_id: InstanceId,
+    pub entry_node: ExecutionId,
+    pub result: Option<ExecutionSuccess>,
+    pub error: Option<ExecutionException>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+/// Batch payload representing an updated execution graph snapshot.
+///
+/// This intentionally stores only runtime nodes and edges (no DAG template or
+/// derived caches) so persistence stays lightweight.
+pub struct GraphUpdate {
+    pub instance_id: InstanceId,
+    #[serde(flatten)]
+    pub graph: ExecutionGraph,
+}
+
+impl GraphUpdate {
+    pub fn next_scheduled_at(&self) -> DateTime<Utc> {
+        let mut next: Option<DateTime<Utc>> = None;
+        for node in self.graph.nodes.values() {
+            if matches!(node.status, NodeStatus::Completed | NodeStatus::Failed) {
+                continue;
+            }
+            if let Some(scheduled_at) = node.scheduled_at {
+                next = Some(match next {
+                    Some(existing) => existing.min(scheduled_at),
+                    None => scheduled_at,
+                });
+            }
+        }
+        next.unwrap_or_else(Utc::now)
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+/// Batch payload representing a finished action attempt (success or failure).
+pub struct ActionDone {
+    pub execution_id: ExecutionId,
+    pub attempt: i32,
+    pub status: ActionAttemptStatus,
+    pub started_at: Option<DateTime<Utc>>,
+    pub completed_at: Option<DateTime<Utc>>,
+    pub duration_ms: Option<i64>,
+    pub result: UncheckedExecutionResult,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ActionAttemptStatus {
+    Completed,
+    Failed,
+    TimedOut,
+}
+
+impl std::fmt::Display for ActionAttemptStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Completed => write!(f, "completed"),
+            Self::Failed => write!(f, "failed"),
+            Self::TimedOut => write!(f, "timed_out"),
+        }
+    }
+}
+
+fn deserialize_action_results<'de, D, ExecutionResult>(
+    deserializer: D,
+) -> Result<HashMap<ExecutionId, ExecutionResult>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    ExecutionResult: for<'de1> serde::Deserialize<'de1>,
+{
+    let value = Option::<HashMap<ExecutionId, ExecutionResult>>::deserialize(deserializer)?;
+    Ok(value.unwrap_or_default())
+}
