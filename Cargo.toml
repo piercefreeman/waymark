@@ -26,6 +26,7 @@ waymark-ids = { path = "crates/lib/ids" }
 waymark-ir-conversions = { path = "crates/lib/ir-conversions" }
 waymark-ir-format = { path = "crates/lib/ir-format" }
 waymark-ir-parser = { path = "crates/lib/ir-parser" }
+waymark-jsonlines = { path = "crates/lib/jsonlines" }
 waymark-message-conversions = { path = "crates/lib/message-conversions" }
 waymark-metrics-util = { path = "crates/lib/metrics-util" }
 waymark-nonzero-duration = { path = "crates/lib/nonzero-duration" }
@@ -61,6 +62,15 @@ waymark-timed-future = { path = "crates/lib/timed-future" }
 waymark-tokio-metrics-bringup = { path = "crates/lib/tokio-metrics-bringup" }
 waymark-utils-futures = { path = "crates/lib/utils-futures" }
 waymark-utils-tokio-channel = { path = "crates/lib/utils-tokio-channel" }
+waymark-vcr-bringup = { path = "crates/lib/vcr-bringup" }
+waymark-vcr-core = { path = "crates/lib/vcr-core" }
+waymark-vcr-file = { path = "crates/lib/vcr-file" }
+waymark-vcr-playback = { path = "crates/lib/vcr-playback" }
+waymark-vcr-playback-worker-pool = { path = "crates/lib/vcr-playback-worker-pool" }
+waymark-vcr-playback-worker-pool-core = { path = "crates/lib/vcr-playback-worker-pool-core" }
+waymark-vcr-recorder = { path = "crates/lib/vcr-recorder" }
+waymark-vcr-recorder-backend = { path = "crates/lib/vcr-recorder-backend" }
+waymark-vcr-recorder-worker-pool = { path = "crates/lib/vcr-recorder-worker-pool" }
 waymark-webapp-backend = { path = "crates/lib/webapp-backend" }
 waymark-webapp-bringup = { path = "crates/lib/webapp-bringup" }
 waymark-webapp-config = { path = "crates/lib/webapp-config" }
@@ -75,6 +85,7 @@ waymark-worker-status-core = { path = "crates/lib/worker-status-core" }
 waymark-worker-status-reporter = { path = "crates/lib/worker-status-reporter" }
 waymark-workflow-registry-backend = { path = "crates/lib/workflow-registry-backend" }
 
+
 anyhow = "1"
 axum = "0.8"
 chrono = { version = "0.4", default-features = false }
@@ -83,6 +94,7 @@ color-eyre = "0.6"
 console-subscriber = "0.5"
 const-sub-array = "0.1"
 cron = "0.12"
+dashmap = "6"
 either = "1"
 envfury = "0.2"
 function_name = "0.3"

@@ -1,0 +1,15 @@
+[package]
+name = "waymark-vcr-recorder-backend"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-backends-core = { workspace = true }
+waymark-core-backend = { workspace = true }
+waymark-ids = { workspace = true }
+waymark-vcr-recorder = { workspace = true }
+waymark-workflow-registry-backend = { workspace = true }
+
+nonempty-collections = { workspace = true }
+tracing = { workspace = true }

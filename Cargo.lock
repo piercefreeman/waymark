@@ -710,6 +710,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "dashmap"
+version = "6.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5041cc499144891f3790297212f32a74fb938e5136a14943f338ef9e0ae276cf"
+dependencies = [
+ "cfg-if",
+ "crossbeam-utils",
+ "hashbrown 0.14.5",
+ "lock_api",
+ "once_cell",
+ "parking_lot_core",
+]
+
+[[package]]
 name = "der"
 version = "0.7.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2853,7 +2867,7 @@ version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0e56dd856803e253c8f298af3f4d7eb0ae5e23a737252cd90bb4f3b435033b2d"
 dependencies = [
- "dashmap",
+ "dashmap 5.5.3",
  "futures",
  "lazy_static",
  "log",
@@ -3474,6 +3488,7 @@ dependencies = [
  "futures-core",
  "futures-sink",
  "pin-project-lite",
+ "slab",
  "tokio",
 ]
 
@@ -4732,6 +4747,7 @@ dependencies = [
  "waymark-scheduler-loop",
  "waymark-scheduler-loop-core",
  "waymark-tokio-metrics-bringup",
+ "waymark-vcr-bringup",
  "waymark-webapp-bringup",
  "waymark-worker-remote",
  "waymark-worker-status-reporter",
@@ -4825,6 +4841,128 @@ dependencies = [
  "tokio-util",
  "tracing",
  "waymark-utils-futures",
+]
+
+[[package]]
+name = "waymark-vcr-bringup"
+version = "0.1.0"
+dependencies = [
+ "either",
+ "tokio",
+ "waymark-backends-core",
+ "waymark-core-backend",
+ "waymark-jsonlines",
+ "waymark-vcr-file",
+ "waymark-vcr-playback",
+ "waymark-vcr-playback-worker-pool",
+ "waymark-vcr-recorder",
+ "waymark-vcr-recorder-backend",
+ "waymark-vcr-recorder-worker-pool",
+ "waymark-workflow-registry-backend",
+]
+
+[[package]]
+name = "waymark-vcr-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "waymark-ids",
+ "waymark-worker-core",
+]
+
+[[package]]
+name = "waymark-vcr-file"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
+ "waymark-ids",
+ "waymark-jsonlines",
+ "waymark-runner-executor-core",
+ "waymark-vcr-core",
+ "waymark-worker-core",
+]
+
+[[package]]
+name = "waymark-vcr-playback"
+version = "0.1.0"
+dependencies = [
+ "dashmap 6.1.0",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "waymark-backends-core",
+ "waymark-core-backend",
+ "waymark-ids",
+ "waymark-jsonlines",
+ "waymark-runner-executor-core",
+ "waymark-runner-state",
+ "waymark-vcr-core",
+ "waymark-vcr-file",
+ "waymark-vcr-playback-worker-pool-core",
+ "waymark-worker-core",
+ "waymark-workflow-registry-backend",
+]
+
+[[package]]
+name = "waymark-vcr-playback-worker-pool"
+version = "0.1.0"
+dependencies = [
+ "futures-util",
+ "nonempty-collections",
+ "tokio",
+ "tokio-util",
+ "waymark-vcr-playback-worker-pool-core",
+ "waymark-worker-core",
+]
+
+[[package]]
+name = "waymark-vcr-playback-worker-pool-core"
+version = "0.1.0"
+dependencies = [
+ "waymark-worker-core",
+]
+
+[[package]]
+name = "waymark-vcr-recorder"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+ "tokio",
+ "tracing",
+ "uuid",
+ "waymark-core-backend",
+ "waymark-ids",
+ "waymark-jsonlines",
+ "waymark-vcr-core",
+ "waymark-vcr-file",
+ "waymark-worker-core",
+ "waymark-workflow-registry-backend",
+]
+
+[[package]]
+name = "waymark-vcr-recorder-backend"
+version = "0.1.0"
+dependencies = [
+ "nonempty-collections",
+ "tracing",
+ "waymark-backends-core",
+ "waymark-core-backend",
+ "waymark-ids",
+ "waymark-vcr-recorder",
+ "waymark-workflow-registry-backend",
+]
+
+[[package]]
+name = "waymark-vcr-recorder-worker-pool"
+version = "0.1.0"
+dependencies = [
+ "nonempty-collections",
+ "tracing",
+ "waymark-vcr-recorder",
+ "waymark-worker-core",
 ]
 
 [[package]]

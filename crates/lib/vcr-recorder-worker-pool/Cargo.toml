@@ -1,0 +1,12 @@
+[package]
+name = "waymark-vcr-recorder-worker-pool"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-vcr-recorder = { workspace = true }
+waymark-worker-core = { workspace = true }
+
+nonempty-collections = { workspace = true }
+tracing = { workspace = true }
