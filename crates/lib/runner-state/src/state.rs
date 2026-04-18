@@ -6,7 +6,9 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use waymark_ids::ExecutionId;
-use waymark_runner_execution_core::{ExecutionEdge, ExecutionNode, ExecutionNodeType, NodeStatus};
+use waymark_runner_execution_core::{
+    ExecutionEdge, ExecutionGraph, ExecutionNode, ExecutionNodeType, NodeStatus,
+};
 
 use crate::max_nodes::MAX_RUNNER_STATE_NODES;
 use crate::util::is_truthy;
@@ -87,8 +89,7 @@ pub struct QueueNodeParams {
 pub struct RunnerState {
     #[serde(skip, default)]
     pub dag: Option<Arc<DAG>>,
-    pub nodes: HashMap<ExecutionId, ExecutionNode>,
-    pub edges: HashSet<ExecutionEdge>,
+    pub graph: ExecutionGraph,
     pub ready_queue: Vec<ExecutionId>,
     pub timeline: Vec<ExecutionId>,
     link_queued_nodes: bool,
@@ -99,54 +100,48 @@ pub struct RunnerState {
 impl RunnerState {
     #[allow(deprecated)]
     pub fn dummy() -> Self {
-        Self::new(None, None, None, false)
+        Self::new(None, None, false)
     }
 
     #[allow(deprecated)]
     pub fn from_dag(dag: Arc<DAG>) -> Self {
-        Self::new(Some(dag), None, None, false)
+        Self::new(Some(dag), None, false)
     }
 
     #[allow(deprecated)]
-    pub fn from_parts(
-        nodes: HashMap<ExecutionId, ExecutionNode>,
-        edges: HashSet<ExecutionEdge>,
-    ) -> Self {
-        Self::new(None, Some(nodes), Some(edges), false)
+    pub fn from_graph(graph: ExecutionGraph) -> Self {
+        Self::new(None, Some(graph), false)
     }
 
     #[allow(deprecated)]
     pub fn with_link_queued_nodes() -> Self {
-        Self::new(None, None, None, true)
+        Self::new(None, None, true)
     }
 
     #[allow(deprecated)]
-    pub fn full(
-        dag: Arc<DAG>,
-        nodes: HashMap<ExecutionId, ExecutionNode>,
-        edges: HashSet<ExecutionEdge>,
-    ) -> Self {
-        Self::new(Some(dag), Some(nodes), Some(edges), false)
+    pub fn full(dag: Arc<DAG>, graph: ExecutionGraph) -> Self {
+        Self::new(Some(dag), Some(graph), false)
     }
 
     #[deprecated]
     pub fn new(
         dag: Option<Arc<DAG>>,
-        nodes: Option<HashMap<ExecutionId, ExecutionNode>>,
-        edges: Option<HashSet<ExecutionEdge>>,
+        graph: Option<ExecutionGraph>,
         link_queued_nodes: bool,
     ) -> Self {
         let mut state = Self {
             dag,
-            nodes: nodes.unwrap_or_default(),
-            edges: edges.unwrap_or_default(),
+            graph: graph.unwrap_or_else(|| ExecutionGraph {
+                nodes: Default::default(),
+                edges: Default::default(),
+            }),
             ready_queue: Vec::new(),
             timeline: Vec::new(),
             link_queued_nodes,
             latest_assignments: HashMap::new(),
             graph_dirty: false,
         };
-        if !state.nodes.is_empty() || !state.edges.is_empty() {
+        if !state.graph.nodes.is_empty() || !state.graph.edges.is_empty() {
             state.rehydrate_state();
         }
         state
@@ -300,7 +295,7 @@ impl RunnerState {
             iteration_index,
             true,
         )?;
-        if let Some(node_mut) = self.nodes.get_mut(&node.node_id) {
+        if let Some(node_mut) = self.graph.nodes.get_mut(&node.node_id) {
             node_mut.value_expr = Some(ValueExpr::ActionResult(result.clone()));
         }
         Ok(result)
@@ -332,7 +327,7 @@ impl RunnerState {
             iteration_index,
             true,
         )?;
-        if let Some(node) = self.nodes.get_mut(&node.node_id) {
+        if let Some(node) = self.graph.nodes.get_mut(&node.node_id) {
             node.value_expr = Some(ValueExpr::ActionResult(result.clone()));
         }
         Ok(result)
@@ -445,19 +440,19 @@ impl RunnerState {
     /// - queue node A then node B with link_queued_nodes=True
     ///   This creates a state-machine edge A -> B automatically.
     fn register_node(&mut self, node: ExecutionNode) -> Result<(), RunnerStateError> {
-        if self.nodes.contains_key(&node.node_id) {
+        if self.graph.nodes.contains_key(&node.node_id) {
             return Err(RunnerStateError(format!(
                 "execution node already queued: {}",
                 node.node_id
             )));
         }
-        if self.nodes.len() >= *MAX_RUNNER_STATE_NODES {
+        if self.graph.nodes.len() >= *MAX_RUNNER_STATE_NODES {
             return Err(RunnerStateError::node_limit_exceeded(
                 node.node_id,
-                self.nodes.len(),
+                self.graph.nodes.len(),
             ));
         }
-        self.nodes.insert(node.node_id, node.clone());
+        self.graph.nodes.insert(node.node_id, node.clone());
         self.ready_queue.push(node.node_id);
         if node.is_action_call() {
             self.mark_graph_dirty();
@@ -476,7 +471,7 @@ impl RunnerState {
     }
 
     fn register_edge(&mut self, edge: ExecutionEdge) {
-        self.edges.insert(edge);
+        self.graph.edges.insert(edge);
     }
 
     fn mark_graph_dirty(&mut self) {
@@ -495,7 +490,7 @@ impl RunnerState {
         self.timeline = self.build_timeline();
         self.latest_assignments.clear();
         for node_id in &self.timeline {
-            if let Some(node) = self.nodes.get(node_id) {
+            if let Some(node) = self.graph.nodes.get(node_id) {
                 for target in node.assignments.keys() {
                     self.latest_assignments.insert(target.clone(), *node_id);
                 }
@@ -506,7 +501,8 @@ impl RunnerState {
                 .timeline
                 .iter()
                 .filter(|node_id| {
-                    self.nodes
+                    self.graph
+                        .nodes
                         .get(node_id)
                         .map(|node| node.status == NodeStatus::Queued)
                         .unwrap_or(false)
@@ -517,17 +513,22 @@ impl RunnerState {
     }
 
     fn build_timeline(&self) -> Vec<ExecutionId> {
-        if self.edges.is_empty() {
-            return self.nodes.keys().cloned().collect();
+        if self.graph.edges.is_empty() {
+            return self.graph.nodes.keys().cloned().collect();
         }
         let mut adjacency: HashMap<ExecutionId, Vec<ExecutionId>> = self
+            .graph
             .nodes
             .keys()
             .map(|node_id| (*node_id, Vec::new()))
             .collect();
-        let mut in_degree: HashMap<ExecutionId, usize> =
-            self.nodes.keys().map(|node_id| (*node_id, 0)).collect();
-        let mut edges: Vec<&ExecutionEdge> = self.edges.iter().collect();
+        let mut in_degree: HashMap<ExecutionId, usize> = self
+            .graph
+            .nodes
+            .keys()
+            .map(|node_id| (*node_id, 0))
+            .collect();
+        let mut edges: Vec<&ExecutionEdge> = self.graph.edges.iter().collect();
         edges.sort_by_key(|edge| (edge.source, edge.target));
         for edge in edges {
             if edge.edge_type != EdgeType::StateMachine {
@@ -563,6 +564,7 @@ impl RunnerState {
             }
         }
         let mut remaining: Vec<ExecutionId> = self
+            .graph
             .nodes
             .keys()
             .filter(|node_id| !order.contains(node_id))
@@ -577,7 +579,8 @@ impl RunnerState {
         &mut self,
         node_id: ExecutionId,
     ) -> Result<&mut ExecutionNode, RunnerStateError> {
-        self.nodes
+        self.graph
+            .nodes
             .get_mut(&node_id)
             .ok_or_else(|| RunnerStateError(format!("execution node not found: {node_id}")))
     }
@@ -667,13 +670,13 @@ impl RunnerState {
                 ..
             }) => {
                 let value_expr = self.expr_to_value(expr, None)?;
-                if let Some(node_mut) = self.nodes.get_mut(&exec_node.node_id) {
+                if let Some(node_mut) = self.graph.nodes.get_mut(&exec_node.node_id) {
                     node_mut.value_expr = Some(value_expr.clone());
                 }
                 self.record_data_flow_from_value(exec_node.node_id, &value_expr);
                 let assignments =
                     self.build_assignments(&self.node_targets(template), &value_expr)?;
-                if let Some(node) = self.nodes.get_mut(&exec_node.node_id) {
+                if let Some(node) = self.graph.nodes.get_mut(&exec_node.node_id) {
                     node.assignments.extend(assignments.clone());
                 }
                 self.mark_latest_assignments(exec_node.node_id, &assignments);
@@ -686,6 +689,7 @@ impl RunnerState {
                 ..
             }) => {
                 let kwarg_values = self
+                    .graph
                     .nodes
                     .get(&exec_node.node_id)
                     .and_then(|node| node.action.as_ref())
@@ -704,7 +708,7 @@ impl RunnerState {
                     iteration_index,
                     true,
                 )?;
-                if let Some(node_mut) = self.nodes.get_mut(&exec_node.node_id) {
+                if let Some(node_mut) = self.graph.nodes.get_mut(&exec_node.node_id) {
                     node_mut.value_expr = Some(ValueExpr::ActionResult(result));
                 }
                 return Ok(());
@@ -714,7 +718,7 @@ impl RunnerState {
                 ..
             }) => {
                 let value_expr = self.expr_to_value(expr, None)?;
-                if let Some(node_mut) = self.nodes.get_mut(&exec_node.node_id) {
+                if let Some(node_mut) = self.graph.nodes.get_mut(&exec_node.node_id) {
                     node_mut.value_expr = Some(value_expr.clone());
                 }
                 self.record_data_flow_from_value(exec_node.node_id, &value_expr);
@@ -725,13 +729,13 @@ impl RunnerState {
                 ..
             }) => {
                 let value_expr = self.expr_to_value(expr, None)?;
-                if let Some(node_mut) = self.nodes.get_mut(&exec_node.node_id) {
+                if let Some(node_mut) = self.graph.nodes.get_mut(&exec_node.node_id) {
                     node_mut.value_expr = Some(value_expr.clone());
                 }
                 self.record_data_flow_from_value(exec_node.node_id, &value_expr);
                 let assignments =
                     self.build_assignments(&self.node_targets(template), &value_expr)?;
-                if let Some(node) = self.nodes.get_mut(&exec_node.node_id) {
+                if let Some(node) = self.graph.nodes.get_mut(&exec_node.node_id) {
                     node.assignments.extend(assignments.clone());
                 }
                 self.mark_latest_assignments(exec_node.node_id, &assignments);
@@ -743,13 +747,13 @@ impl RunnerState {
                 ..
             }) => {
                 let value_expr = self.expr_to_value(expr, None)?;
-                if let Some(node_mut) = self.nodes.get_mut(&exec_node.node_id) {
+                if let Some(node_mut) = self.graph.nodes.get_mut(&exec_node.node_id) {
                     node_mut.value_expr = Some(value_expr.clone());
                 }
                 self.record_data_flow_from_value(exec_node.node_id, &value_expr);
                 let target = target.clone().unwrap_or_else(|| "result".to_string());
                 let assignments = self.build_assignments(&[target], &value_expr)?;
-                if let Some(node) = self.nodes.get_mut(&exec_node.node_id) {
+                if let Some(node) = self.graph.nodes.get_mut(&exec_node.node_id) {
                     node.assignments.extend(assignments.clone());
                 }
                 self.mark_latest_assignments(exec_node.node_id, &assignments);
@@ -799,7 +803,7 @@ impl RunnerState {
         let assignments =
             self.build_assignments(targets, &ValueExpr::ActionResult(result_ref.clone()))?;
         if !assignments.is_empty() {
-            if let Some(node) = self.nodes.get_mut(&node.node_id) {
+            if let Some(node) = self.graph.nodes.get_mut(&node.node_id) {
                 node.assignments.extend(assignments.clone());
             }
             if update_latest {
@@ -949,7 +953,7 @@ impl RunnerState {
                 });
             }
         };
-        let node = match self.nodes.get(&node_id) {
+        let node = match self.graph.nodes.get(&node_id) {
             Some(node) => node,
             None => {
                 return ValueExpr::Variable(VariableValue {
@@ -1394,7 +1398,7 @@ impl RunnerState {
             iteration_index,
             true,
         )?;
-        if let Some(node) = self.nodes.get_mut(&node.node_id) {
+        if let Some(node) = self.graph.nodes.get_mut(&node.node_id) {
             node.value_expr = Some(ValueExpr::ActionResult(result.clone()));
         }
         Ok(result)
@@ -1446,7 +1450,7 @@ impl RunnerState {
         )?;
         self.record_data_flow_from_value(exec_node_id, &value_expr);
         let assignments = self.build_assignments(&targets, &value_expr)?;
-        if let Some(node_mut) = self.nodes.get_mut(&node.node_id) {
+        if let Some(node_mut) = self.graph.nodes.get_mut(&node.node_id) {
             node_mut.assignments.extend(assignments.clone());
         }
         self.mark_latest_assignments(node.node_id, &assignments);
@@ -1655,7 +1659,7 @@ mod tests {
 
         let mut results: Option<ValueExpr> = None;
         for node_id in state.timeline.iter().rev() {
-            let node = state.nodes.get(node_id).unwrap();
+            let node = state.graph.nodes.get(node_id).unwrap();
             if let Some(value) = node.assignments.get("results") {
                 results = Some(value.clone());
                 break;
@@ -1729,7 +1733,7 @@ mod tests {
 
         let mut latest: Option<ValueExpr> = None;
         for node_id in state.timeline.iter().rev() {
-            let node = state.nodes.get(node_id).expect("node");
+            let node = state.graph.nodes.get(node_id).expect("node");
             if let Some(value) = node.assignments.get("result") {
                 latest = Some(value.clone());
                 break;
@@ -1842,6 +1846,7 @@ mod tests {
             .mark_running(action_result.node_id)
             .expect("mark running");
         let started_at = state
+            .graph
             .nodes
             .get(&action_result.node_id)
             .and_then(|node| node.started_at);
@@ -1851,6 +1856,7 @@ mod tests {
         );
         assert!(
             state
+                .graph
                 .nodes
                 .get(&action_result.node_id)
                 .and_then(|node| node.completed_at)
@@ -1867,6 +1873,7 @@ mod tests {
             .mark_completed(action_result.node_id)
             .expect("mark completed");
         let completed_at = state
+            .graph
             .nodes
             .get(&action_result.node_id)
             .and_then(|node| node.completed_at);

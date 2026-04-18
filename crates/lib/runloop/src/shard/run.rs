@@ -143,7 +143,7 @@ pub fn run_executor_shard(
                 let mut grouped: HashMap<InstanceId, Vec<ExecutionId>> = HashMap::new();
                 for node_id in node_ids {
                     for (executor_id, owner) in &executors {
-                        if owner.executor.state().nodes.contains_key(&node_id) {
+                        if owner.executor.state().graph.nodes.contains_key(&node_id) {
                             grouped.entry(*executor_id).or_default().push(node_id);
                             break;
                         }

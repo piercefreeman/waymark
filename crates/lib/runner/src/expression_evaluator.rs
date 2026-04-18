@@ -229,12 +229,14 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
             .collect();
 
         self.state()
+            .graph
             .edges
             .iter()
             .filter(|edge| edge.edge_type == EdgeType::DataFlow && edge.target == current_node_id)
             .map(|edge| edge.source)
             .filter(|source| {
                 self.state()
+                    .graph
                     .nodes
                     .get(source)
                     .map(|node| node.assignments.contains_key(name))
@@ -274,6 +276,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
 
         let node = self
             .state()
+            .graph
             .nodes
             .get(&node_id)
             .ok_or_else(|| RunnerExecutorError(format!("missing assignment for {target}")))?;
@@ -794,6 +797,7 @@ mod tests {
             )
             .expect("queue increment");
         let action_node = state
+            .graph
             .nodes
             .get(&action_result.node_id)
             .expect("action node")
