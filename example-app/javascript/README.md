@@ -7,15 +7,18 @@ It shows:
 - `// use action` markers on exported async functions
 - `class ... extends Workflow` authoring
 - `withWaymark(...)` wiring in `next.config.js`
+- generated `.waymark/actions-bootstrap.mjs` registration
 - a route handler that invokes `await workflow.run(...)`
 
 ## Current status
 
-This example demonstrates the compiler and client-side bridge integration, but it is not yet end-to-end runnable against the existing worker runtime.
+This example is runnable through the live bridge path. The Next.js plugin rewrites `run()` into IR submission, and the example executes those compiled action dispatches through the in-memory bridge stream.
 
-Today, Waymark still executes actions in Python workers. The JavaScript compiler can lower workflows into IR and queue them to the bridge, but JavaScript action execution has not been implemented yet.
+The important constraint still holds: action call sites inside the workflow are not executed as normal JavaScript. They are compiled into IR-owned stubs, and the runtime only executes registered action handlers when the bridge dispatches them.
 
-Use this app as the source-of-truth example for the JavaScript authoring surface while the worker/runtime side catches up.
+The example route imports the generated `.waymark/actions-bootstrap.mjs` file so the server process registers all action modules before the workflow runs.
+
+Treat this app as the source-of-truth example for the current JavaScript authoring surface and bridge integration.
 
 ## Files to look at
 

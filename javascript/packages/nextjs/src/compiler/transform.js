@@ -37,46 +37,54 @@ function transformSource(source, options = {}) {
   ]);
 
   const workflowImportNames = collectWorkflowImportNames(ast);
-  if (workflowImportNames.size === 0) {
+  const hasLocalActions = localActions.size > 0;
+  const hasWorkflows = workflowImportNames.size > 0;
+
+  if (!hasLocalActions && !hasWorkflows) {
     return {
       code: source,
       dependencies: importedActionInfo.dependencies,
       transformed: false
     };
+  }
+
+  if (hasLocalActions) {
+    injectActionRegistrations(ast, localActions);
   }
 
   const compiledClasses = [];
 
-  traverse(ast, {
-    ClassDeclaration(classPath) {
-      if (!isWorkflowClass(classPath.node, workflowImportNames)) {
-        return;
+  if (hasWorkflows) {
+    traverse(ast, {
+      ClassDeclaration(classPath) {
+        if (!isWorkflowClass(classPath.node, workflowImportNames)) {
+          return;
+        }
+
+        const runMethod = findRunMethod(classPath.node);
+        if (!runMethod) {
+          throw buildCodeFrameError(resourcePath, classPath.node, 'Workflow class must define async run(...)');
+        }
+
+        const compiled = compileWorkflowClass(classPath.node, runMethod, actionBindings, {
+          projectRoot,
+          resourcePath
+        });
+
+        rewriteWorkflowClass(classPath.node, runMethod, compiled);
+        compiledClasses.push(compiled);
       }
-
-      const runMethod = findRunMethod(classPath.node);
-      if (!runMethod) {
-        throw buildCodeFrameError(resourcePath, classPath.node, 'Workflow class must define async run(...)');
-      }
-
-      const compiled = compileWorkflowClass(classPath.node, runMethod, actionBindings, {
-        projectRoot,
-        resourcePath
-      });
-
-      rewriteWorkflowClass(classPath.node, runMethod, compiled);
-      compiledClasses.push(compiled);
-    }
-  });
-
-  if (compiledClasses.length === 0) {
-    return {
-      code: source,
-      dependencies: importedActionInfo.dependencies,
-      transformed: false
-    };
+    });
   }
 
-  ensureWaymarkHelperImport(ast);
+  const helperNames = [];
+  if (compiledClasses.length > 0) {
+    helperNames.push('__waymarkRunCompiled');
+  }
+  if (hasLocalActions) {
+    helperNames.push('__waymarkRegisterAction');
+  }
+  ensureWaymarkImports(ast, helperNames);
 
   return {
     code: generate(ast, { comments: true }).code,
@@ -165,7 +173,7 @@ function collectImportedActionBindings(ast, resourcePath, projectRoot) {
 
       bindings.set(specifier.local.name, {
         actionName: exportedAction.actionName,
-        moduleName: node.source.value,
+        moduleName: exportedAction.moduleName,
         paramNames: exportedAction.paramNames
       });
     }
@@ -265,7 +273,10 @@ function compileWorkflowClass(classNode, runMethod, actionBindings, options) {
     compileBlock(runMethod.body.body, {
       actionBindings,
       loopVariables: new Set(),
-      resourcePath: options.resourcePath
+      resourcePath: options.resourcePath,
+      tempState: {
+        nextSyntheticNameIndex: 0
+      }
     })
   );
 
@@ -302,13 +313,14 @@ function compileStatement(node, context) {
   }
 
   if (t.isReturnStatement(node)) {
-    const statement = new ir.Statement();
-    const returnStmt = new ir.ReturnStmt();
     if (node.argument) {
-      returnStmt.setValue(compileExpression(node.argument, context));
+      const normalizedReturn = maybeNormalizeReturnExpression(node.argument, context);
+      if (normalizedReturn) {
+        return normalizedReturn;
+      }
     }
-    statement.setReturnStmt(returnStmt);
-    return [statement];
+
+    return [buildReturnStatement(node.argument ? compileExpression(node.argument, context) : null)];
   }
 
   if (t.isExpressionStatement(node)) {
@@ -538,6 +550,25 @@ function compileExpression(node, context) {
   throw buildCodeFrameError(context.resourcePath, target, `Unsupported expression: ${target.type}`);
 }
 
+function maybeNormalizeReturnExpression(node, context) {
+  const expr = compileExpression(node, context);
+
+  switch (expr.getKindCase()) {
+    case ir.Expr.KindCase.ACTION_CALL:
+    case ir.Expr.KindCase.FUNCTION_CALL:
+    case ir.Expr.KindCase.PARALLEL_EXPR:
+    case ir.Expr.KindCase.SPREAD_EXPR: {
+      const tempVarName = nextSyntheticName(context, 'returnTmp');
+      return [
+        buildAssignmentStatement(tempVarName, expr),
+        buildReturnStatement(variableExpr(tempVarName))
+      ];
+    }
+    default:
+      return null;
+  }
+}
+
 function maybeCompileActionCall(node, context) {
   if (!t.isCallExpression(node)) {
     return null;
@@ -693,6 +724,26 @@ function buildKwargsFromArguments(args, actionMetadata, context) {
     kwarg.setValue(compileExpression(arg, context));
     return kwarg;
   });
+}
+
+function buildAssignmentStatement(targetName, expr) {
+  const assignment = new ir.Assignment();
+  assignment.setTargetsList([targetName]);
+  assignment.setValue(expr);
+
+  const statement = new ir.Statement();
+  statement.setAssignment(assignment);
+  return statement;
+}
+
+function buildReturnStatement(expr) {
+  const statement = new ir.Statement();
+  const returnStmt = new ir.ReturnStmt();
+  if (expr) {
+    returnStmt.setValue(expr);
+  }
+  statement.setReturnStmt(returnStmt);
+  return statement;
 }
 
 function parsePolicies(node, context) {
@@ -881,23 +932,30 @@ function rewriteWorkflowClass(classNode, runMethod, compiled) {
   ];
 }
 
-function ensureWaymarkHelperImport(ast) {
+function ensureWaymarkImports(ast, helperNames) {
+  if (helperNames.length === 0) {
+    return;
+  }
+
   for (const node of ast.program.body) {
     if (!t.isImportDeclaration(node) || node.source.value !== '@waymark/nextjs') {
       continue;
     }
 
-    const hasHelper = node.specifiers.some(
-      (specifier) =>
-        t.isImportSpecifier(specifier) &&
-        t.isIdentifier(specifier.imported) &&
-        specifier.imported.name === '__waymarkRunCompiled'
-    );
-    if (!hasHelper) {
+    for (const helperName of helperNames) {
+      const hasHelper = node.specifiers.some(
+        (specifier) =>
+          t.isImportSpecifier(specifier) &&
+          t.isIdentifier(specifier.imported) &&
+          specifier.imported.name === helperName
+      );
+      if (hasHelper) {
+        continue;
+      }
       node.specifiers.push(
         t.importSpecifier(
-          t.identifier('__waymarkRunCompiled'),
-          t.identifier('__waymarkRunCompiled')
+          t.identifier(helperName),
+          t.identifier(helperName)
         )
       );
     }
@@ -906,12 +964,26 @@ function ensureWaymarkHelperImport(ast) {
 
   ast.program.body.unshift(
     t.importDeclaration(
-      [
-        t.importSpecifier(t.identifier('__waymarkRunCompiled'), t.identifier('__waymarkRunCompiled'))
-      ],
+      helperNames.map((helperName) =>
+        t.importSpecifier(t.identifier(helperName), t.identifier(helperName))
+      ),
       t.stringLiteral('@waymark/nextjs')
     )
   );
+}
+
+function injectActionRegistrations(ast, localActions) {
+  for (const actionMetadata of localActions.values()) {
+    ast.program.body.push(
+      t.expressionStatement(
+        t.callExpression(t.identifier('__waymarkRegisterAction'), [
+          t.stringLiteral(actionMetadata.moduleName),
+          t.stringLiteral(actionMetadata.actionName),
+          t.identifier(actionMetadata.actionName)
+        ])
+      )
+    );
+  }
 }
 
 function extractParamNames(params, resourcePath, node) {
@@ -979,6 +1051,12 @@ function hasUseActionComment(exportNode, declarationNode) {
 
 function moduleNameForCurrentFile(resourcePath, projectRoot) {
   return path.relative(projectRoot, resourcePath).split(path.sep).join('/');
+}
+
+function nextSyntheticName(context, prefix) {
+  const index = context.tempState.nextSyntheticNameIndex;
+  context.tempState.nextSyntheticNameIndex += 1;
+  return `__waymark_${prefix}_${index}`;
 }
 
 function isThisRunActionCall(node) {

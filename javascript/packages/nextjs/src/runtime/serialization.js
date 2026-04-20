@@ -13,6 +13,23 @@ function serializeWorkflowArguments(values) {
   return args;
 }
 
+function serializeErrorPayload(error) {
+  return serializeWorkflowArguments({
+    error: {
+      message: error instanceof Error ? error.message : String(error),
+      module: 'javascript',
+      traceback: error instanceof Error && error.stack ? error.stack : '',
+      type: error instanceof Error && error.name ? error.name : 'Error'
+    }
+  });
+}
+
+function serializeResultPayload(value) {
+  return serializeWorkflowArguments({
+    result: value
+  });
+}
+
 function serializeWorkflowArgumentValue(value) {
   const argument = new messages.WorkflowArgumentValue();
 
@@ -93,6 +110,14 @@ function deserializeWorkflowResultPayload(bytes) {
   return entries.result;
 }
 
+function deserializeWorkflowArguments(message) {
+  const result = {};
+  for (const entry of message.getArgumentsList()) {
+    result[entry.getKey()] = deserializeWorkflowArgumentValue(entry.getValue());
+  }
+  return result;
+}
+
 function deserializeWorkflowArgumentValue(argument) {
   const kind = argument.getKindCase();
 
@@ -165,7 +190,12 @@ function isPlainObject(value) {
 }
 
 module.exports = {
+  deserializeWorkflowArguments,
   deserializeWorkflowResultPayload,
+  deserializeWorkflowArgumentValue,
+  deserializePrimitive,
+  serializeErrorPayload,
   serializeWorkflowArguments,
+  serializeResultPayload,
   serializeWorkflowArgumentValue
 };

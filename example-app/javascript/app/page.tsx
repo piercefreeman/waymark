@@ -1,3 +1,5 @@
+import { RunDemo } from './run-demo';
+
 export default function HomePage() {
   return (
     <main
@@ -71,11 +73,11 @@ export default function HomePage() {
             padding: '1.25rem'
           }}
         >
-          <h2 style={{ marginTop: 0 }}>Important limitation</h2>
+          <h2 style={{ marginTop: 0 }}>Runtime path</h2>
           <p style={{ marginBottom: 0, lineHeight: 1.6, color: '#475569' }}>
-            The compiler and bridge submission path exist, but JavaScript worker execution does not
-            yet. Treat this app as an authoring and integration example, not a production-ready
-            end-to-end demo.
+            In this example, <code>run()</code> is rewritten into IR submission and executed
+            through the live Waymark bridge. Action call sites inside the workflow do not execute
+            as normal JavaScript.
           </p>
         </section>
 
@@ -103,6 +105,8 @@ export default function HomePage() {
   -d '{"number": 5}'`}
           </pre>
         </section>
+
+        <RunDemo />
       </div>
     </main>
   );

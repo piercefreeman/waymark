@@ -1,6 +1,11 @@
 'use strict';
 
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
 const messages = require('../src/generated/messages_pb.js');
+const { bootstrapPathForProject } = require('../src/compiler/bootstrap.js');
 const {
   buildWorkflowRegistration,
   bridgeTarget,
@@ -8,6 +13,10 @@ const {
 } = require('../src/runtime/bridge.js');
 const { deserializeWorkflowResultPayload } = require('../src/runtime/serialization.js');
 const { withWaymark } = require('../src/with-waymark.js');
+
+function makeTempProject() {
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'waymark-nextjs-bridge-'));
+}
 
 describe('bridge runtime helpers', () => {
   test('buildWorkflowRegistration serializes IR and initial context', () => {
@@ -81,7 +90,14 @@ describe('bridge runtime helpers', () => {
 });
 
 describe('withWaymark', () => {
-  test('adds the server-side loader rule and preserves user webpack hooks', () => {
+  test('adds the server-side loader rule, pre-generates the bootstrap, and preserves user webpack hooks', () => {
+    const projectRoot = makeTempProject();
+    fs.mkdirSync(path.join(projectRoot, 'lib', 'actions'), { recursive: true });
+    fs.writeFileSync(
+      path.join(projectRoot, 'lib', 'actions', 'math.ts'),
+      ['// use action', 'export async function double(value) {', '  return value * 2;', '}', ''].join('\n')
+    );
+
     const wrapped = withWaymark(
       {
         webpack(config) {
@@ -91,7 +107,7 @@ describe('withWaymark', () => {
         }
       },
       {
-        projectRoot: '/tmp/project'
+        projectRoot
       }
     );
 
@@ -99,15 +115,18 @@ describe('withWaymark', () => {
       {
         module: {
           rules: []
-        }
+        },
+        plugins: []
       },
       {
         isServer: true
       }
     );
 
+    expect(fs.existsSync(bootstrapPathForProject(projectRoot))).toBe(true);
     expect(config.module.rules).toHaveLength(1);
-    expect(config.module.rules[0].use[0].options.projectRoot).toBe('/tmp/project');
+    expect(config.module.rules[0].use[0].options.projectRoot).toBe(projectRoot);
+    expect(config.plugins.some((plugin) => plugin.constructor.name === 'WaymarkBootstrapPlugin')).toBe(true);
     expect(config.resolve.alias).toEqual({ demo: true });
   });
 });

@@ -4,6 +4,7 @@
   "private": true,
   "description": "Next.js compiler/runtime integration for Waymark workflows",
   "main": "src/index.js",
+  "types": "src/index.d.ts",
   "exports": {
     ".": "./src/index.js",
     "./loader": "./src/loader/waymark-loader.js",

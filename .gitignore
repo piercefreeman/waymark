@@ -218,6 +218,7 @@ __marimo__/
 # Added by cargo
 
 /target
+**/.waymark/
 
 # Build artifacts
 .merge-tmp/

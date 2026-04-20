@@ -145,6 +145,41 @@ export async function POST(request: Request): Promise<Response> {
 
 The authored call site stays `await workflow.run(...)`.
 
+### What `withWaymark(...)` does
+
+`withWaymark(...)` is the build-time integration point for Next.js.
+
+Conceptually, the app opts in like this:
+
+```js
+// next.config.js
+const { withWaymark } = require("@waymark/nextjs");
+
+module.exports = withWaymark({
+  reactStrictMode: true,
+});
+```
+
+For the first implementation, `withWaymark(...)` should be responsible for:
+
+1. Registering a server-side loader/plugin for application `.ts` / `.tsx` / `.js` modules.
+2. Parsing raw source AST before Next.js strips the comments we need.
+3. Discovering action modules by looking for `// use action` on exported async functions.
+4. Discovering workflow modules by looking for `class ... extends Workflow`.
+5. Rewriting action modules so they self-register with `__waymarkRegisterAction(...)` when imported.
+6. Rewriting workflow modules so `run()` no longer executes the authored control flow directly and instead calls the generated bridge helper with embedded IR.
+7. Writing and updating the generated bootstrap file for action registration, proposed as `.waymark/actions-bootstrap.mjs`.
+8. Making sure rebuilds invalidate correctly when imported action modules change.
+
+`withWaymark(...)` should not be responsible for:
+
+- starting the bridge
+- starting workers
+- executing actions itself
+- changing client-side bundles
+
+Its job is compilation and generated-artifact ownership. Runtime execution still happens through the bridge helpers and, later, through real workers.
+
 The important implementation detail is that the user-authored `run()` body is not what executes at runtime. The plugin should consume that body at build time, compile it to Waymark IR, embed the serialized IR into the emitted module, and replace `run()` with generated bridge submission code.
 
 Conceptually, authored source:
@@ -245,4 +280,4 @@ These do not need to block the first authoring surface:
 - Whether the MVP ships plain `await actionFn(...)` immediately or temporarily requires `this.runAction(...)` everywhere until JavaScript-to-IR lowering is stable.
 - Whether the action marker comment grows extra syntax like `// use action name=...`.
 - Whether we later support additional JavaScript front-ends outside Next.js.
-- How JavaScript worker bootstrapping is packaged once action execution moves beyond Python-only workers.
+- How JavaScript worker bootstrapping is packaged once action execution moves beyond Python-only workers. See [JavaScript-Action-Execution.md](/Users/piercefreeman/projects/waymark/docs/JavaScript-Action-Execution.md).

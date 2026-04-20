@@ -7,7 +7,7 @@ class Workflow {
     throw new Error('Workflow.run() must be implemented by the Waymark compiler');
   }
 
-  async runAction(awaitable) {
+  async runAction(awaitable, _options) {
     return await awaitable;
   }
 }

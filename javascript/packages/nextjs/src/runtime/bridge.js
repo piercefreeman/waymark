@@ -6,6 +6,7 @@ const grpc = require('@grpc/grpc-js');
 
 const messages = require('../generated/messages_pb.js');
 const services = require('../generated/messages_grpc_pb.js');
+const { executeActionDispatch } = require('./actions.js');
 const { deserializeWorkflowResultPayload, serializeWorkflowArguments } = require('./serialization.js');
 
 let cachedClient = null;
@@ -15,17 +16,28 @@ async function runCompiledWorkflow(workflowCtor, args) {
   const metadata = getWorkflowMetadata(workflowCtor);
   const registration = buildWorkflowRegistration(metadata, args);
   const client = getWorkflowClient();
-  const instance = await registerWorkflow(client, registration);
-
-  if (skipWaitForInstance()) {
-    return null;
+  if (preferInMemoryExecution()) {
+    return await executeWorkflow(client, registration);
   }
 
-  const payload = await waitForInstance(client, instance.workflowInstanceId);
-  if (!payload) {
-    throw new Error(`workflow instance ${instance.workflowInstanceId} did not complete`);
+  try {
+    const instance = await registerWorkflow(client, registration);
+
+    if (skipWaitForInstance()) {
+      return null;
+    }
+
+    const payload = await waitForInstance(client, instance.workflowInstanceId);
+    if (!payload) {
+      throw new Error(`workflow instance ${instance.workflowInstanceId} did not complete`);
+    }
+    return deserializeWorkflowResultPayload(payload);
+  } catch (error) {
+    if (isInMemoryBridgeError(error)) {
+      return await executeWorkflow(client, registration);
+    }
+    throw error;
   }
-  return deserializeWorkflowResultPayload(payload);
 }
 
 function buildWorkflowRegistration(metadata, args) {
@@ -63,6 +75,74 @@ function registerWorkflow(client, registration) {
         workflowVersionId: response.getWorkflowVersionId()
       });
     });
+  });
+}
+
+function executeWorkflow(client, registration) {
+  return new Promise((resolve, reject) => {
+    const stream = client.executeWorkflow();
+    let settled = false;
+    let chain = Promise.resolve();
+
+    const finish = (callback) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      callback();
+    };
+
+    stream.on('data', (response) => {
+      chain = chain
+        .then(async () => {
+          const kind = response.getKindCase();
+          if (kind === messages.WorkflowStreamResponse.KindCase.ACTION_DISPATCH) {
+            const dispatch = response.getActionDispatch();
+            const execution = await executeActionDispatch(dispatch);
+
+            const actionResult = new messages.ActionResult();
+            actionResult.setActionId(dispatch.getActionId());
+            actionResult.setSuccess(execution.success);
+            actionResult.setPayload(execution.payload);
+            actionResult.setWorkerStartNs(0);
+            actionResult.setWorkerEndNs(0);
+            if (dispatch.hasDispatchToken()) {
+              actionResult.setDispatchToken(dispatch.getDispatchToken());
+            }
+            if (execution.errorType) {
+              actionResult.setErrorType(execution.errorType);
+            }
+            if (execution.errorMessage) {
+              actionResult.setErrorMessage(execution.errorMessage);
+            }
+
+            const request = new messages.WorkflowStreamRequest();
+            request.setActionResult(actionResult);
+            stream.write(request);
+            return;
+          }
+
+          if (kind === messages.WorkflowStreamResponse.KindCase.WORKFLOW_RESULT) {
+            const workflowResult = response.getWorkflowResult();
+            finish(() => resolve(deserializeWorkflowResultPayload(Buffer.from(workflowResult.getPayload_asU8()))));
+            stream.end();
+          }
+        })
+        .catch((error) => finish(() => reject(error)));
+    });
+
+    stream.on('error', (error) => {
+      finish(() => reject(new Error(`executeWorkflow failed: ${error.message}`)));
+    });
+
+    stream.on('end', () => {
+      chain.catch((error) => finish(() => reject(error)));
+    });
+
+    const request = new messages.WorkflowStreamRequest();
+    request.setRegistration(registration);
+    request.setSkipSleep(true);
+    stream.write(request);
   });
 }
 
@@ -125,6 +205,19 @@ function skipWaitForInstance() {
   return !['0', 'false', 'no'].includes(value.trim().toLowerCase());
 }
 
+function preferInMemoryExecution() {
+  const value = process.env.WAYMARK_BRIDGE_IN_MEMORY;
+  if (!value) {
+    return false;
+  }
+
+  return !['0', 'false', 'no'].includes(value.trim().toLowerCase());
+}
+
+function isInMemoryBridgeError(error) {
+  return error instanceof Error && error.message.includes('bridge running in memory mode');
+}
+
 function hashProgramBytes(programBytes) {
   return crypto.createHash('sha256').update(programBytes).digest('hex');
 }
@@ -138,8 +231,11 @@ module.exports = {
   bridgeTarget,
   buildInitialContext,
   buildWorkflowRegistration,
+  executeWorkflow,
   getWorkflowClient,
   hashProgramBytes,
+  isInMemoryBridgeError,
+  preferInMemoryExecution,
   registerWorkflow,
   resetClientCache,
   runCompiledWorkflow,
