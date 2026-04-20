@@ -272,7 +272,7 @@ wheels = [
 [[package]]
 name = "example-app"
 version = "0.1.0"
-source = { editable = "example_app" }
+source = { editable = "example-app/python" }
 dependencies = [
     { name = "asyncpg" },
     { name = "fastapi" },

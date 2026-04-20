@@ -2,7 +2,7 @@
 
 ![Webapp Demo](https://raw.githubusercontent.com/piercefreeman/waymark/main/media/webapp_demo.png)
 
-`example_app` contains a minimal FastAPI webapp that dispatches a
+`example-app/python` contains a minimal FastAPI webapp that dispatches a
 waymark workflow. This is intended to show in miniature what it would take to actually deploy a background task cluster to production:
 
 `docker-compose.yml` starts Postgres, a `daemons` container (running
@@ -16,7 +16,7 @@ Our Dockerfile is a bit more complicated than you would need, because we actuall
 We're effectively just wrapping the docker-compose within our make file, but it makes it a bit easier to apply tests that should execute within the container.
 
 ```bash
-cd example_app
+cd example-app/python
 make up             # docker compose up --build -d
 make docker-test    # run uv run pytest -vvv inside the built image
 make down           # stop and clean up

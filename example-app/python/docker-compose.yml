@@ -1,6 +1,6 @@
 x-app-build: &app-build
-  context: ..
-  dockerfile: example_app/Dockerfile
+  context: ../..
+  dockerfile: example-app/python/Dockerfile
 
 services:
   postgres:

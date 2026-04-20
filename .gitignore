@@ -225,6 +225,7 @@ target/wheels/
 *.whl
 node_modules/
 javascript/**/node_modules/
+.next/
 
 autospec
 

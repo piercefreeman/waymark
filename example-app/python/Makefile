@@ -9,7 +9,7 @@ DOCKER_CLEANUP_TIMEOUT ?= 45
 
 build:
 	@echo "Building $(IMAGE_NAME) image"
-	docker build -f Dockerfile -t $(IMAGE_NAME) ..
+	docker build -f Dockerfile -t $(IMAGE_NAME) ../..
 
 up:
 	$(COMPOSE_CMD) up --build -d
