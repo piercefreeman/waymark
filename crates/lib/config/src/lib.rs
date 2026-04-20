@@ -2,8 +2,11 @@
 
 mod parse;
 
+use std::fmt;
 use std::net::SocketAddr;
 use std::num::{NonZeroU64, NonZeroUsize};
+use std::path::PathBuf;
+use std::str::FromStr;
 use std::time::Duration;
 
 use waymark_garbage_collector_config::GarbageCollectorConfig;
@@ -11,13 +14,78 @@ use waymark_nonzero_duration::NonZeroDuration;
 use waymark_scheduler_config::SchedulerConfig;
 use waymark_secret_string::SecretString;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkerLanguage {
+    Python,
+    JavaScript,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkerLanguageParseError(String);
+
+impl fmt::Display for WorkerLanguageParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "unsupported WAYMARK_WORKER_LANGUAGE value: {}", self.0)
+    }
+}
+
+impl std::error::Error for WorkerLanguageParseError {}
+
+impl WorkerLanguage {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Python => "python",
+            Self::JavaScript => "javascript",
+        }
+    }
+}
+
+impl FromStr for WorkerLanguage {
+    type Err = WorkerLanguageParseError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "python" => Ok(Self::Python),
+            "javascript" | "js" => Ok(Self::JavaScript),
+            other => Err(WorkerLanguageParseError(other.to_string())),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PythonWorkerRuntimeConfig {
+    pub user_modules: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct JavaScriptWorkerRuntimeConfig {
+    pub bootstrap_path: Option<PathBuf>,
+    pub executable_path: Option<PathBuf>,
+    pub working_dir: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone)]
+pub enum WorkerRuntimeConfig {
+    Python(PythonWorkerRuntimeConfig),
+    JavaScript(JavaScriptWorkerRuntimeConfig),
+}
+
+impl WorkerRuntimeConfig {
+    pub fn language(&self) -> WorkerLanguage {
+        match self {
+            Self::Python(_) => WorkerLanguage::Python,
+            Self::JavaScript(_) => WorkerLanguage::JavaScript,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct WorkerConfig {
     pub database_url: SecretString,
     pub worker_grpc_addr: SocketAddr,
     pub worker_count: NonZeroUsize,
     pub concurrent_per_worker: NonZeroUsize,
-    pub user_modules: Vec<String>,
+    pub worker_runtime: WorkerRuntimeConfig,
     pub max_action_lifecycle: Option<NonZeroU64>,
     pub poll_interval: Option<NonZeroDuration>,
     pub max_concurrent_instances: NonZeroUsize,
@@ -47,7 +115,28 @@ impl WorkerConfig {
 
         let concurrent_per_worker = envfury::or_parse("WAYMARK_CONCURRENT_PER_WORKER", "10")?;
 
-        let CommaSeparated(user_modules) = envfury::or_parse("WAYMARK_USER_MODULE", "")?;
+        let worker_runtime =
+            match envfury::or_parse("WAYMARK_WORKER_LANGUAGE", WorkerLanguage::Python.as_str())? {
+                WorkerLanguage::Python => {
+                    let CommaSeparated(user_modules) =
+                        envfury::or_parse("WAYMARK_USER_MODULE", "")?;
+                    WorkerRuntimeConfig::Python(PythonWorkerRuntimeConfig { user_modules })
+                }
+                WorkerLanguage::JavaScript => {
+                    let bootstrap_path =
+                        envfury::maybe::<String>("WAYMARK_JS_BOOTSTRAP")?.map(PathBuf::from);
+                    let executable_path =
+                        envfury::maybe::<String>("WAYMARK_JS_EXECUTABLE")?.map(PathBuf::from);
+                    let working_dir =
+                        envfury::maybe::<String>("WAYMARK_JS_WORKING_DIR")?.map(PathBuf::from);
+
+                    WorkerRuntimeConfig::JavaScript(JavaScriptWorkerRuntimeConfig {
+                        bootstrap_path,
+                        executable_path,
+                        working_dir,
+                    })
+                }
+            };
 
         let max_action_lifecycle = envfury::maybe("WAYMARK_MAX_ACTION_LIFECYCLE")?;
 
@@ -119,7 +208,7 @@ impl WorkerConfig {
             worker_grpc_addr,
             worker_count,
             concurrent_per_worker,
-            user_modules,
+            worker_runtime,
             max_action_lifecycle,
             poll_interval,
             max_concurrent_instances,

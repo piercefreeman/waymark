@@ -1,12 +1,12 @@
-//! gRPC server for Python worker connections.
+//! gRPC server for worker process connections.
 //!
 //! The [`WorkerBridgeServer`] provides a bidirectional streaming gRPC service
-//! that Python workers connect to. The protocol works as follows:
+//! that worker processes connect to. The protocol works as follows:
 //!
 //! 1. Rust spawns a worker process and reserves a worker ID
-//! 2. Python worker connects to the bridge and sends a `WorkerHello` with its ID
+//! 2. The worker connects to the bridge and sends a `WorkerHello` with its ID
 //! 3. The bridge matches the connection to the reservation and establishes channels
-//! 4. Bidirectional streaming begins: Rust sends actions, Python returns results
+//! 4. Bidirectional streaming begins: Rust sends actions, the worker returns results
 
 use std::{
     collections::HashMap,
@@ -185,7 +185,7 @@ impl proto::worker_bridge_server::WorkerBridge for WorkerBridgeService {
             reader_state.cancel_worker(worker_id).await;
         });
 
-        // Return a stream that sends from to_worker_rx to the Python client
+        // Return a stream that sends from to_worker_rx to the worker client
         let outbound = ReceiverStream::new(to_worker_rx).map(Ok::<proto::Envelope, Status>);
         Ok(Response::new(Box::pin(outbound) as Self::AttachStream))
     }

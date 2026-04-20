@@ -5,9 +5,14 @@
   "description": "Next.js compiler/runtime integration for Waymark workflows",
   "main": "src/index.js",
   "types": "src/index.d.ts",
+  "bin": {
+    "waymark-worker-node": "./src/bin/waymark-worker-node.js"
+  },
   "exports": {
     ".": "./src/index.js",
+    "./bootstrap": "./src/runtime/bootstrap.js",
     "./loader": "./src/loader/waymark-loader.js",
+    "./worker": "./src/runtime/worker.js",
     "./with-waymark": "./src/with-waymark.js"
   },
   "scripts": {

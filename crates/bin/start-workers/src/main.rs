@@ -1,16 +1,20 @@
-//! Start Workers - Runs the core runloop with Python worker pool.
+//! Start Workers - Runs the core runloop with a remote worker pool.
 //!
 //! This binary starts the worker infrastructure:
 //! - Connects to the database
 //! - Starts the WorkerBridge gRPC server for worker connections
-//! - Spawns a pool of Python workers
+//! - Spawns a pool of language-specific workers
 //! - Runs the core runloop to process queued workflow instances
 //! - Optionally starts the scheduler and web dashboard
 //!
 //! Configuration is via environment variables:
 //! - WAYMARK_DATABASE_URL: PostgreSQL connection string (required)
 //! - WAYMARK_WORKER_GRPC_ADDR: gRPC server for worker connections (default: 127.0.0.1:24118)
-//! - WAYMARK_USER_MODULE: Python module(s) to preload (comma-separated)
+//! - WAYMARK_WORKER_LANGUAGE: worker runtime (`python` or `javascript`, default: `python`)
+//! - WAYMARK_USER_MODULE: Python module(s) to preload (comma-separated, Python only)
+//! - WAYMARK_JS_BOOTSTRAP: explicit JavaScript bootstrap path (JavaScript only)
+//! - WAYMARK_JS_EXECUTABLE: explicit JavaScript worker executable (JavaScript only)
+//! - WAYMARK_JS_WORKING_DIR: working directory for JavaScript workers (JavaScript only)
 //! - WAYMARK_WORKER_COUNT: Number of workers (default: num_cpus)
 //! - WAYMARK_CONCURRENT_PER_WORKER: Max concurrent actions per worker (default: 10)
 //! - WAYMARK_POLL_INTERVAL_MS: Poll interval for queued instances (default: 100)
@@ -44,14 +48,14 @@ use tracing::{error, info, warn};
 
 use uuid::Uuid;
 use waymark_backend_postgres::PostgresBackend;
-use waymark_config::WorkerConfig;
+use waymark_config::{WorkerConfig, WorkerRuntimeConfig};
 use waymark_dag_builder::convert_to_dag;
 use waymark_ids::{LockId, WorkflowVersionId};
 use waymark_nonzero_duration::NonZeroDuration;
 use waymark_proto::ast as ir;
 use waymark_runloop::RunLoopConfig;
 use waymark_scheduler_loop_core::WorkflowDag;
-use waymark_worker_remote::{PythonWorkerConfig, RemoteWorkerPool};
+use waymark_worker_remote::{JavaScriptWorkerConfig, PythonWorkerConfig, RemoteWorkerPool};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -70,10 +74,26 @@ async fn main() -> Result<()> {
 
     tracing::debug!(target: "raw-config", ?config, %lock_uuid, "raw config");
 
+    let worker_language = config.worker_runtime.language().as_str();
+    let python_user_modules = match &config.worker_runtime {
+        WorkerRuntimeConfig::Python(runtime) => runtime.user_modules.join(","),
+        WorkerRuntimeConfig::JavaScript(_) => String::new(),
+    };
+    let javascript_bootstrap = match &config.worker_runtime {
+        WorkerRuntimeConfig::JavaScript(runtime) => runtime
+            .bootstrap_path
+            .as_ref()
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "auto".to_string()),
+        WorkerRuntimeConfig::Python(_) => String::new(),
+    };
+
     info!(
         worker_count = config.worker_count,
         concurrent_per_worker = config.concurrent_per_worker,
-        user_modules = ?config.user_modules,
+        worker_language,
+        python_user_modules = %python_user_modules,
+        javascript_bootstrap = %javascript_bootstrap,
         executor_shards = config.executor_shards,
         lock_ttl_ms = config.lock_ttl.as_millis(),
         lock_heartbeat_ms = config.lock_heartbeat.as_millis(),
@@ -93,7 +113,9 @@ async fn main() -> Result<()> {
 
         "worker_count" => config.worker_count.to_string(),
         "concurrent_per_worker" => config.concurrent_per_worker.to_string(),
-        "user_modules" => format!("{:?}", config.user_modules),
+        "worker_language" => worker_language.to_string(),
+        "python_user_modules" => python_user_modules.clone(),
+        "javascript_bootstrap" => javascript_bootstrap.clone(),
 
         "lock_ttl_seconds" => config.lock_ttl.as_secs_f64().to_string(),
         "lock_heartbeat_seconds" => config.lock_heartbeat.as_secs_f64().to_string(),
@@ -130,24 +152,50 @@ async fn main() -> Result<()> {
     waymark_backend_postgres_migrations::run(&pool).await?;
     let backend = PostgresBackend::new(pool);
 
-    // Start the worker pool (bridge + python workers).
-    let mut worker_config = PythonWorkerConfig::new();
-    if !config.user_modules.is_empty() {
-        worker_config = worker_config.with_user_modules(config.user_modules.clone());
-    }
+    // Start the worker pool (bridge + worker processes).
+    let remote_pool = match &config.worker_runtime {
+        WorkerRuntimeConfig::Python(runtime) => {
+            let mut worker_config = PythonWorkerConfig::new();
+            if !runtime.user_modules.is_empty() {
+                worker_config = worker_config.with_user_modules(runtime.user_modules.clone());
+            }
 
-    let remote_pool = RemoteWorkerPool::new_with_config(
-        worker_config,
-        config.worker_count.get(),
-        Some(config.worker_grpc_addr),
-        config.max_action_lifecycle.map(|val| val.get()),
-        config.concurrent_per_worker.get(),
-    )
-    .await?;
+            RemoteWorkerPool::new_with_runner(
+                worker_config,
+                config.worker_count.get(),
+                Some(config.worker_grpc_addr),
+                config.max_action_lifecycle.map(|val| val.get()),
+                config.concurrent_per_worker.get(),
+            )
+            .await?
+        }
+        WorkerRuntimeConfig::JavaScript(runtime) => {
+            let mut worker_config = JavaScriptWorkerConfig::new();
+            if let Some(path) = runtime.executable_path.clone() {
+                worker_config = worker_config.with_executable_path(path);
+            }
+            if let Some(path) = runtime.bootstrap_path.clone() {
+                worker_config = worker_config.with_bootstrap_path(path);
+            }
+            if let Some(path) = runtime.working_dir.clone() {
+                worker_config = worker_config.with_working_dir(path);
+            }
+
+            RemoteWorkerPool::new_with_runner(
+                worker_config,
+                config.worker_count.get(),
+                Some(config.worker_grpc_addr),
+                config.max_action_lifecycle.map(|val| val.get()),
+                config.concurrent_per_worker.get(),
+            )
+            .await?
+        }
+    };
     info!(
         count = config.worker_count,
         bridge_addr = %remote_pool.bridge_addr(),
-        "python worker pool started"
+        worker_language,
+        "remote worker pool started"
     );
 
     // Start the webapp server.
