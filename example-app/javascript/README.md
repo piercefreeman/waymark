@@ -1,6 +1,6 @@
 # Waymark JavaScript Example
 
-This app is the first Next.js example for the JavaScript workflow compiler.
+This app is the Next.js example for JavaScript workflows.
 
 It shows:
 
@@ -11,19 +11,41 @@ It shows:
 - generated `.waymark/actions/*.mjs` wrappers for standalone workers
 - a route handler that invokes `await workflow.run(...)`
 
-## Current status
+## Full-stack mode
 
-This example is runnable through the live bridge path. The Next.js plugin rewrites `run()` into IR submission, and the example executes those compiled action dispatches through the in-memory bridge stream.
+Like [example-app/python](/Users/piercefreeman/projects/waymark/example-app/python/README.md), this example now runs as a full Waymark deployment:
 
-The important constraint still holds: action call sites inside the workflow are not executed as normal JavaScript. They are compiled into IR-owned stubs, and the runtime only executes registered action handlers when the bridge dispatches them.
+- Postgres for persistence
+- `waymark-start-workers` for the scheduler, worker bridge, remote JavaScript workers, and the dashboard
+- the dashboard on `http://localhost:24119/`
+- the Next.js example app on `http://localhost:3000/`
 
-The example route imports the generated `.waymark/actions-bootstrap.mjs` file so the server process registers all action modules before the workflow runs. The same bootstrap now works for the standalone `waymark-worker-node` runtime because it imports generated wrapper modules under `.waymark/actions/` instead of depending on Next's loader to rewrite the original action source at worker startup.
+The `daemons` container runs JavaScript workers by pointing `WAYMARK_JS_BOOTSTRAP` at the generated `.waymark/actions-bootstrap.mjs` file and `WAYMARK_JS_EXECUTABLE` at `waymark-worker-node`. Those workers execute the registered action handlers outside the Next.js server process, which is the same deployment shape we use for the Python example.
 
-Treat this app as the source-of-truth example for the current JavaScript authoring surface and bridge integration.
+## Running locally
+
+```bash
+cd example-app/javascript
+make up
+make docker-test
+make down
+```
+
+Visits to `http://localhost:3000/` render the example UI. Each submission invokes `ExampleMathWorkflow`, which calls three JavaScript actions and returns the combined result. The workflow state and execution history are visible in the dashboard at `http://localhost:24119/`.
+
+Environment notes:
+
+- `webapp` relies on the default Waymark behavior of booting a singleton `waymark-bridge` inside the container on first workflow execution. Because `WAYMARK_DATABASE_URL` is set, that bridge uses the database-backed path instead of the in-memory bridge stream.
+- `daemons` runs `waymark-start-workers` with `WAYMARK_WORKER_LANGUAGE=javascript`, plus explicit bootstrap, executable, and working-directory paths for `waymark-worker-node`.
+
+## Zero-config dev mode
+
+If you run `npm run dev` or `npm start` outside Docker and do not set `WAYMARK_DATABASE_URL` or any `WAYMARK_BRIDGE_*` variables, the route falls back to `WAYMARK_BRIDGE_IN_MEMORY=1`. That mode is useful for local iteration, but it does not start the dashboard on `24119` and it does not use the remote worker deployment path.
 
 ## Files to look at
 
-- [next.config.js](/Users/piercefreeman/projects/waymark/example-app/javascript/next.config.js)
+- [docker-compose.yml](/Users/piercefreeman/projects/waymark/example-app/javascript/docker-compose.yml)
 - [app/api/run/route.ts](/Users/piercefreeman/projects/waymark/example-app/javascript/app/api/run/route.ts)
 - [lib/actions/math.ts](/Users/piercefreeman/projects/waymark/example-app/javascript/lib/actions/math.ts)
 - [lib/workflows/example-math-workflow.ts](/Users/piercefreeman/projects/waymark/example-app/javascript/lib/workflows/example-math-workflow.ts)
+- [tests/integration.mjs](/Users/piercefreeman/projects/waymark/example-app/javascript/tests/integration.mjs)

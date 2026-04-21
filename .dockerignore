@@ -14,6 +14,18 @@
 !README.md
 
 !example_app
+!example-app
+!example-app/javascript
+!example-app/javascript/**
+!javascript
+!javascript/packages
+!javascript/packages/nextjs
+!javascript/packages/nextjs/**
+
+example-app/javascript/.next
+example-app/javascript/.waymark
+example-app/javascript/node_modules
+javascript/**/node_modules
 
 **/__pycache__
 *.pyc

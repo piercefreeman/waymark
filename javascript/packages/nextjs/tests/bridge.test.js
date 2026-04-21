@@ -9,6 +9,7 @@ const { bootstrapPathForProject } = require('../src/compiler/bootstrap.js');
 const {
   buildWorkflowRegistration,
   bridgeTarget,
+  isBridgeConnectionError,
   skipWaitForInstance
 } = require('../src/runtime/bridge.js');
 const { deserializeWorkflowResultPayload } = require('../src/runtime/serialization.js');
@@ -86,6 +87,16 @@ describe('bridge runtime helpers', () => {
     } else {
       process.env.WAYMARK_SKIP_WAIT_FOR_INSTANCE = originalSkipWait;
     }
+  });
+
+  test('detects retryable bridge connection errors', () => {
+    expect(
+      isBridgeConnectionError(
+        new Error('executeWorkflow failed: 14 UNAVAILABLE: No connection established.')
+      )
+    ).toBe(true);
+    expect(isBridgeConnectionError(new Error('connect ECONNREFUSED 127.0.0.1:24117'))).toBe(true);
+    expect(isBridgeConnectionError(new Error('bridge running in memory mode'))).toBe(false);
   });
 });
 

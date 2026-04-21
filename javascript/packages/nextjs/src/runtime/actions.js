@@ -4,8 +4,11 @@ const { deserializeWorkflowArguments, serializeErrorPayload, serializeResultPayl
 
 const actionRegistry = new Map();
 
-function __waymarkRegisterAction(moduleName, actionName, fn) {
-  actionRegistry.set(actionKey(moduleName, actionName), fn);
+function __waymarkRegisterAction(moduleName, actionName, fn, paramNames = null) {
+  actionRegistry.set(actionKey(moduleName, actionName), {
+    fn,
+    paramNames
+  });
 }
 
 async function executeActionDispatch(dispatch) {
@@ -13,9 +16,11 @@ async function executeActionDispatch(dispatch) {
   const actionName = dispatch.getActionName();
 
   try {
-    const action = await resolveAction(moduleName, actionName);
+    const registration = await resolveAction(moduleName, actionName);
     const kwargs = dispatch.hasKwargs() ? deserializeWorkflowArguments(dispatch.getKwargs()) : {};
-    const result = await action(...mapKwargsToArgs(action, kwargs));
+    const result = await registration.fn(
+      ...mapKwargsToArgs(registration.fn, kwargs, registration.paramNames)
+    );
     return {
       errorMessage: '',
       errorType: '',
@@ -44,7 +49,15 @@ async function resolveAction(moduleName, actionName) {
   );
 }
 
-function mapKwargsToArgs(action, kwargs) {
+function mapKwargsToArgs(action, kwargs, paramNames) {
+  const names = Array.isArray(paramNames) && paramNames.length > 0
+    ? paramNames
+    : inferParamNames(action);
+
+  return names.map((name) => kwargs[name]);
+}
+
+function inferParamNames(action) {
   const source = action.toString();
   const groupedParameterSource = source.match(/^[^(]*\(([^)]*)\)/);
   const singleParameterSource = source.match(/^(?:async\s*)?([A-Za-z_$][\w$]*)\s*=>/);
@@ -53,15 +66,13 @@ function mapKwargsToArgs(action, kwargs) {
     return [];
   }
 
-  const names = groupedParameterSource
+  return groupedParameterSource
     ? groupedParameterSource[1]
       .split(',')
       .map((entry) => entry.trim())
       .filter(Boolean)
       .map((entry) => entry.replace(/=.*$/, '').trim())
     : [singleParameterSource[1]];
-
-  return names.map((name) => kwargs[name]);
 }
 
 function actionKey(moduleName, actionName) {

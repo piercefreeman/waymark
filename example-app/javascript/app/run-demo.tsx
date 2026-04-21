@@ -52,7 +52,9 @@ export function RunDemo() {
       <div>
         <h2 style={{ marginTop: 0, marginBottom: '0.5rem' }}>Run it from the page</h2>
         <p style={{ margin: 0, color: '#475569', lineHeight: 1.6 }}>
-          This calls <code>/api/run</code> and renders the workflow result directly in the page.
+          This calls <code>/api/run</code> and renders the workflow result directly in the page. In
+          the Docker stack, the run is also visible in the Waymark dashboard on{' '}
+          <code>http://localhost:24119/</code>.
         </p>
       </div>
 

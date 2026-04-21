@@ -8,6 +8,7 @@ const messages = require('../generated/messages_pb.js');
 const services = require('../generated/messages_grpc_pb.js');
 const { executeActionDispatch } = require('./actions.js');
 const { deserializeWorkflowResultPayload, serializeWorkflowArguments } = require('./serialization.js');
+const { ensureSingleton, resetSingletonState } = require('./singleton.js');
 
 let cachedClient = null;
 let cachedTarget = null;
@@ -15,28 +16,32 @@ let cachedTarget = null;
 async function runCompiledWorkflow(workflowCtor, args) {
   const metadata = getWorkflowMetadata(workflowCtor);
   const registration = buildWorkflowRegistration(metadata, args);
-  const client = getWorkflowClient();
-  if (preferInMemoryExecution()) {
-    return await executeWorkflow(client, registration);
-  }
+  let attemptedReconnect = false;
 
-  try {
-    const instance = await registerWorkflow(client, registration);
+  while (true) {
+    await ensureSingleton();
+    const client = getWorkflowClient();
 
-    if (skipWaitForInstance()) {
-      return null;
-    }
+    try {
+      if (preferInMemoryExecution()) {
+        return await executeWorkflow(client, registration);
+      }
 
-    const payload = await waitForInstance(client, instance.workflowInstanceId);
-    if (!payload) {
-      throw new Error(`workflow instance ${instance.workflowInstanceId} did not complete`);
+      return await runRegisteredWorkflow(client, registration);
+    } catch (error) {
+      if (isInMemoryBridgeError(error)) {
+        return await executeWorkflow(client, registration);
+      }
+
+      if (!attemptedReconnect && isBridgeConnectionError(error)) {
+        attemptedReconnect = true;
+        resetClientCache();
+        resetSingletonState();
+        continue;
+      }
+
+      throw error;
     }
-    return deserializeWorkflowResultPayload(payload);
-  } catch (error) {
-    if (isInMemoryBridgeError(error)) {
-      return await executeWorkflow(client, registration);
-    }
-    throw error;
   }
 }
 
@@ -124,7 +129,10 @@ function executeWorkflow(client, registration) {
 
           if (kind === messages.WorkflowStreamResponse.KindCase.WORKFLOW_RESULT) {
             const workflowResult = response.getWorkflowResult();
-            finish(() => resolve(deserializeWorkflowResultPayload(Buffer.from(workflowResult.getPayload_asU8()))));
+            const parsedResult = deserializeWorkflowResultPayload(
+              Buffer.from(workflowResult.getPayload_asU8())
+            );
+            finish(() => resolve(parsedResult));
             stream.end();
           }
         })
@@ -161,6 +169,20 @@ function waitForInstance(client, instanceId) {
       resolve(Buffer.from(response.getPayload_asU8()));
     });
   });
+}
+
+async function runRegisteredWorkflow(client, registration) {
+  const instance = await registerWorkflow(client, registration);
+
+  if (skipWaitForInstance()) {
+    return null;
+  }
+
+  const payload = await waitForInstance(client, instance.workflowInstanceId);
+  if (!payload) {
+    throw new Error(`workflow instance ${instance.workflowInstanceId} did not complete`);
+  }
+  return deserializeWorkflowResultPayload(payload);
 }
 
 function getWorkflowClient() {
@@ -218,6 +240,18 @@ function isInMemoryBridgeError(error) {
   return error instanceof Error && error.message.includes('bridge running in memory mode');
 }
 
+function isBridgeConnectionError(error) {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  return (
+    error.message.includes('ECONNREFUSED') ||
+    error.message.includes('14 UNAVAILABLE') ||
+    error.message.includes('No connection established')
+  );
+}
+
 function hashProgramBytes(programBytes) {
   return crypto.createHash('sha256').update(programBytes).digest('hex');
 }
@@ -234,10 +268,12 @@ module.exports = {
   executeWorkflow,
   getWorkflowClient,
   hashProgramBytes,
+  isBridgeConnectionError,
   isInMemoryBridgeError,
   preferInMemoryExecution,
   registerWorkflow,
   resetClientCache,
+  runRegisteredWorkflow,
   runCompiledWorkflow,
   skipWaitForInstance,
   waitForInstance

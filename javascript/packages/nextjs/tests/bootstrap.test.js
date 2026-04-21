@@ -62,7 +62,7 @@ describe('action bootstrap generation', () => {
         'import { __waymarkRegisterAction } from "@waymark/nextjs";',
         'import * as __waymarkModule from "../../../../lib/actions/math.ts";',
         '',
-        '__waymarkRegisterAction("lib/actions/math.ts", "double", __waymarkModule.double);',
+        '__waymarkRegisterAction("lib/actions/math.ts", "double", __waymarkModule.double, ["value"]);',
         ''
       ].join('\n')
     );

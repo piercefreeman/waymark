@@ -35,7 +35,8 @@ export declare function __waymarkRunCompiled(
 export declare function __waymarkRegisterAction(
   moduleName: string,
   actionName: string,
-  fn: (...args: unknown[]) => unknown
+  fn: (...args: unknown[]) => unknown,
+  paramNames?: string[] | null
 ): void;
 
 export declare function withWaymark<T extends Record<string, unknown>>(

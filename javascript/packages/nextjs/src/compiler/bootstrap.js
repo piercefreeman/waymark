@@ -94,7 +94,8 @@ function walkDirectory(projectRoot, currentDirectory, actionCache, actionModules
     const actions = Array.from(actionExports.values());
     actionModules.push({
       actions: actions.map((action) => ({
-        actionName: action.actionName
+        actionName: action.actionName,
+        paramNames: action.paramNames
       })),
       moduleName: actions[0].moduleName,
       resourcePath: entryPath,
@@ -178,7 +179,7 @@ function renderActionWrapper(projectRoot, actionModule) {
 
   for (const action of actionModule.actions) {
     lines.push(
-      `__waymarkRegisterAction(${JSON.stringify(actionModule.moduleName)}, ${JSON.stringify(action.actionName)}, __waymarkModule.${action.actionName});`
+      `__waymarkRegisterAction(${JSON.stringify(actionModule.moduleName)}, ${JSON.stringify(action.actionName)}, __waymarkModule.${action.actionName}, ${JSON.stringify(action.paramNames)});`
     );
   }
 

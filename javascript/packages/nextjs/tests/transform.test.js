@@ -34,7 +34,9 @@ describe('transformSource', () => {
 
     expect(result.transformed).toBe(true);
     expect(result.code).toContain("import { __waymarkRegisterAction } from \"@waymark/nextjs\";");
-    expect(result.code).toContain('__waymarkRegisterAction("actions.ts", "fetchUser", fetchUser);');
+    expect(result.code).toContain(
+      '__waymarkRegisterAction("actions.ts", "fetchUser", fetchUser, ["userId"]);'
+    );
   });
 
   test('compiles a workflow that imports an action from another module', () => {

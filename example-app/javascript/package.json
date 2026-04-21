@@ -4,7 +4,9 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "start:docker": "next start --hostname 0.0.0.0 --port 3000",
+    "test:integration": "node tests/integration.mjs"
   },
   "dependencies": {
     "@waymark/nextjs": "file:../../javascript/packages/nextjs",

@@ -979,7 +979,10 @@ function injectActionRegistrations(ast, localActions) {
         t.callExpression(t.identifier('__waymarkRegisterAction'), [
           t.stringLiteral(actionMetadata.moduleName),
           t.stringLiteral(actionMetadata.actionName),
-          t.identifier(actionMetadata.actionName)
+          t.identifier(actionMetadata.actionName),
+          t.arrayExpression(
+            actionMetadata.paramNames.map((paramName) => t.stringLiteral(paramName))
+          )
         ])
       )
     );
