@@ -4946,6 +4946,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-worker-process"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "waymark-managed-process",
+ "waymark-worker-message-protocol",
+ "waymark-worker-reservation",
+]
+
+[[package]]
 name = "waymark-worker-remote"
 version = "0.1.0"
 dependencies = [
