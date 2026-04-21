@@ -243,10 +243,8 @@ impl DAGConverter {
 
                     let fn_call_targets = if let Some(targets) = &fn_node.targets {
                         Some(targets.clone())
-                    } else if let Some(target) = &fn_node.target {
-                        Some(vec![target.clone()])
                     } else {
-                        None
+                        fn_node.target.clone().map(|target| vec![target])
                     };
 
                     if let Some(targets) = fn_call_targets {

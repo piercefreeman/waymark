@@ -844,7 +844,7 @@ impl RunnerState {
                     return Err(RunnerStateError("tuple unpacking mismatch".to_string()));
                 }
                 let mut map = HashMap::new();
-                for (target, item) in targets.iter().zip(elements.into_iter()) {
+                for (target, item) in targets.iter().zip(elements) {
                     map.insert(target.clone(), item);
                 }
                 Ok(map)
