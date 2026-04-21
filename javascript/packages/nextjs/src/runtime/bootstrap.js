@@ -87,18 +87,12 @@ function registerProjectModuleHooks(projectRoot) {
     resolve(specifier, context, nextResolve) {
       const aliasedPath = resolveAliasedProjectPath(specifier, normalizedProjectRoot, pathAliases);
       if (aliasedPath) {
-        return {
-          shortCircuit: true,
-          url: pathToFileURL(aliasedPath).href
-        };
+        return resolveProjectModule(aliasedPath);
       }
 
       const projectRelativePath = resolveProjectRelativePath(specifier, context.parentURL, normalizedProjectRoot);
       if (projectRelativePath) {
-        return {
-          shortCircuit: true,
-          url: pathToFileURL(projectRelativePath).href
-        };
+        return resolveProjectModule(projectRelativePath);
       }
 
       return nextResolve(specifier, context);
@@ -195,6 +189,30 @@ function resolveCandidatePath(candidateBase) {
   return null;
 }
 
+function resolveProjectModule(resolvedPath) {
+  const resolution = {
+    shortCircuit: true,
+    url: pathToFileURL(resolvedPath).href
+  };
+
+  const format = moduleFormatForResolvedPath(resolvedPath);
+  if (format) {
+    resolution.format = format;
+  }
+
+  return resolution;
+}
+
+function moduleFormatForResolvedPath(resolvedPath) {
+  switch (path.extname(resolvedPath)) {
+    case '.ts':
+    case '.tsx':
+      return 'module-typescript';
+    default:
+      return null;
+  }
+}
+
 function matchPattern(specifier, pattern) {
   if (!pattern.includes('*')) {
     return specifier === pattern ? '' : null;
@@ -231,6 +249,7 @@ module.exports = {
   BOOTSTRAP_RELATIVE_PATH,
   findBootstrapPath,
   loadBootstrap,
+  moduleFormatForResolvedPath,
   projectRootForBootstrap,
   registerProjectModuleHooks,
   resolveBootstrapPath

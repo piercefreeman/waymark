@@ -117,9 +117,19 @@ function buildDispatchEnvelope() {
 
 function waitForChildExit(child) {
   return new Promise((resolve, reject) => {
+    let stderr = '';
+    let stdout = '';
+
+    child.stdout?.on('data', (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr?.on('data', (chunk) => {
+      stderr += chunk.toString();
+    });
+
     child.on('error', reject);
     child.on('exit', (code, signal) => {
-      resolve({ code, signal });
+      resolve({ code, signal, stderr, stdout });
     });
   });
 }
@@ -212,7 +222,10 @@ describe('standalone worker runtime', () => {
     try {
       const exit = await waitForChildExit(child);
 
-      expect(exit).toEqual({ code: 0, signal: null });
+      expect(exit.code).toBe(0);
+      expect(exit.signal).toBeNull();
+      expect(exit.stderr).not.toMatch(/MODULE_TYPELESS_PACKAGE_JSON/);
+      expect(exit.stderr).not.toMatch(/Reparsing as ES module/);
       expect(bridge.received.helloWorkerId).toBe(7);
       expect(bridge.received.ackedDeliveryId).toBe(42);
       expect(bridge.received.unexpectedKind).toBeUndefined();
