@@ -1,0 +1,56 @@
+x-app-build: &app-build
+  context: ../..
+  dockerfile: example-app/javascript/Dockerfile
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: waymark_example_javascript
+      POSTGRES_USER: waymark
+      POSTGRES_PASSWORD: waymark
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U waymark"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  daemons:
+    build: *app-build
+    image: waymark-example-app-javascript
+    command: ["waymark-start-workers"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      WAYMARK_DATABASE_URL: postgresql://waymark:waymark@postgres:5432/waymark_example_javascript
+      WAYMARK_WORKER_LANGUAGE: javascript
+      WAYMARK_JS_BOOTSTRAP: /app/example-app/javascript/.waymark/actions-bootstrap.mjs
+      WAYMARK_JS_EXECUTABLE: /app/javascript/packages/nextjs/src/bin/waymark-worker-node.js
+      WAYMARK_JS_WORKING_DIR: /app/example-app/javascript
+      WAYMARK_CONCURRENT_PER_WORKER: 500
+      WAYMARK_MAX_CONCURRENT_INSTANCES: 5000
+      RUST_LOG: waymark::waymark_core::runloop=debug,waymark::waymark_core::lock=debug,waymark::workers::remote=trace,waymark::server_worker=debug,waymark::backends::postgres=debug,waymark=info,start_workers=info
+      WAYMARK_LOG_LEVEL: DEBUG
+      WAYMARK_WEBAPP_ENABLED: "true"
+      WAYMARK_WEBAPP_ADDR: "0.0.0.0:24119"
+      WAYMARK_RUNNER_PROFILE_INTERVAL_MS: "5000"
+    ports:
+      - "24119:24119"
+
+  webapp:
+    build: *app-build
+    image: waymark-example-app-javascript
+    depends_on:
+      daemons:
+        condition: service_started
+    environment:
+      WAYMARK_DATABASE_URL: postgresql://waymark:waymark@postgres:5432/waymark_example_javascript
+      WAYMARK_LOG_LEVEL: debug
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres-data: {}

@@ -1,4 +1,4 @@
-IMAGE_NAME ?= waymark-example-app
+IMAGE_NAME ?= waymark-example-app-javascript
 COMPOSE_CMD ?= docker compose -f docker-compose.yml
 DOCKER_TEST_TIMEOUT ?= 300
 DOCKER_LOG_TAIL ?= 200
@@ -9,7 +9,7 @@ DOCKER_CLEANUP_TIMEOUT ?= 45
 
 build:
 	@echo "Building $(IMAGE_NAME) image"
-	docker build -f Dockerfile -t $(IMAGE_NAME) ..
+	docker build -f Dockerfile -t $(IMAGE_NAME) ../..
 
 up:
 	$(COMPOSE_CMD) up --build -d
@@ -41,7 +41,7 @@ docker-test:
 			docker pull postgres:16-alpine >/dev/null; \
 		fi; \
 	fi
-	$(COMPOSE_CMD) up -d postgres daemons
+	$(COMPOSE_CMD) up --build -d postgres daemons webapp
 	@echo "Waiting for postgres to be healthy..."
 	@timeout 60 sh -c 'until cid="$$($(COMPOSE_CMD) ps -q postgres 2>/dev/null)" && [ -n "$$cid" ] && [ "$$(docker inspect -f "{{.State.Health.Status}}" "$$cid" 2>/dev/null)" = "healthy" ]; do sleep 1; done' || (echo "Postgres failed to become healthy" && $(COMPOSE_CMD) logs postgres || true; exit 1)
 	@echo "Waiting for workers to be ready..."
@@ -51,7 +51,7 @@ docker-test:
 	@timeout 120 sh -c 'until $(COMPOSE_CMD) logs --no-color daemons 2>&1 | grep -q "worker pool ready"; do sleep 1; done' || (echo "Daemons never reported worker pool ready" && $(COMPOSE_CMD) logs daemons || true; $(COMPOSE_CMD) down -v; exit 1)
 	@set -e; \
 	TEST_EXIT_CODE=0; \
-	timeout $(DOCKER_TEST_TIMEOUT) $(COMPOSE_CMD) run --no-deps --interactive=false -T --rm -e WAYMARK_DATABASE_URL=postgresql://waymark:waymark@postgres:5432/waymark_example webapp pytest -vvv || TEST_EXIT_CODE=$$?; \
+	timeout $(DOCKER_TEST_TIMEOUT) $(COMPOSE_CMD) run --no-deps --interactive=false -T --rm webapp npm run test:integration || TEST_EXIT_CODE=$$?; \
 	if [ "$$TEST_EXIT_CODE" -eq 124 ]; then \
 		echo "Docker test run timed out after $(DOCKER_TEST_TIMEOUT)s"; \
 	fi; \

@@ -1,6 +1,6 @@
-"""Chain workflow fixture - tests sequential action chaining like example_app.
+"""Chain workflow fixture - tests sequential action chaining like the Python example app.
 
-This matches the SequentialChainWorkflow pattern from example_app:
+This matches the SequentialChainWorkflow pattern from example-app/python:
 1. Each action depends on the output of the previous one
 2. Final action takes all intermediate results and produces combined output
 """

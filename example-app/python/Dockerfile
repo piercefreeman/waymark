@@ -65,7 +65,7 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/root/.local/bin:${PATH}"
 
 WORKDIR /app
-COPY example_app /app
+COPY example-app/python /app
 
 RUN uv venv /opt/venv
 ENV VIRTUAL_ENV=/opt/venv

@@ -1,16 +1,16 @@
 //! Remote worker process management.
 //!
 //! This module provides the core infrastructure for spawning and managing
-//! Python worker processes that execute workflow actions.
+//! worker processes that execute workflow actions.
 //!
 //! ## Architecture
 //!
 //! ```text
-//! ┌─────────────────────────────────────────────────────────────────────────┐
-//! │                           PythonWorkerPool                               │
-//! │  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐                        │
-//! │  │PythonWorker │ │PythonWorker │ │PythonWorker │  ... (N workers)       │
-//! │  │  (process)  │ │  (process)  │ │  (process)  │                        │
+//! ┌────────────────────────────────────────────────────────────────────────┐
+//! │                         Worker Process Pool                            │
+//! │  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐                       │
+//! │  │   Worker    │ │   Worker    │ │   Worker    │  ... (N workers)     │
+//! │  │  (process)  │ │  (process)  │ │  (process)  │                       │
 //! │  └──────┬──────┘ └──────┬──────┘ └──────┬──────┘                        │
 //! │         │               │               │                                │
 //! │         └───────────────┼───────────────┘                                │
@@ -93,6 +93,15 @@ pub enum MessageError {
     ChannelClosed,
 }
 
+/// Language-specific runner responsible for launching a worker process.
+pub trait WorkerRunner: std::fmt::Debug + Send + Sync {
+    /// Human-readable runtime label used in logs.
+    fn kind(&self) -> &'static str;
+
+    /// Build a process command that will connect to the provided bridge.
+    fn build_command(&self, bridge_addr: SocketAddr, worker_id: u64) -> AnyResult<Command>;
+}
+
 /// Configuration for spawning Python workers.
 #[derive(Clone, Debug)]
 pub struct PythonWorkerConfig {
@@ -108,7 +117,7 @@ pub struct PythonWorkerConfig {
 
 impl Default for PythonWorkerConfig {
     fn default() -> Self {
-        let (script_path, script_args) = default_runner();
+        let (script_path, script_args) = default_python_runner();
         Self {
             script_path,
             script_args,
@@ -143,9 +152,153 @@ impl PythonWorkerConfig {
     }
 }
 
+impl WorkerRunner for PythonWorkerConfig {
+    fn kind(&self) -> &'static str {
+        "python"
+    }
+
+    fn build_command(&self, bridge_addr: SocketAddr, worker_id: u64) -> AnyResult<Command> {
+        let package_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../python");
+        let working_dir = if package_root.is_dir() {
+            Some(package_root.clone())
+        } else {
+            None
+        };
+
+        let mut module_paths = Vec::new();
+        if let Some(root) = working_dir.as_ref() {
+            module_paths.push(root.clone());
+            let src_dir = root.join("src");
+            if src_dir.exists() {
+                module_paths.push(src_dir);
+            }
+            let proto_dir = root.join("proto");
+            if proto_dir.exists() {
+                module_paths.push(proto_dir);
+            }
+        }
+        module_paths.extend(self.extra_python_paths.clone());
+
+        let joined_python_path = module_paths
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect::<Vec<_>>()
+            .join(":");
+
+        let python_path = match env::var("PYTHONPATH") {
+            Ok(existing) if !existing.is_empty() => format!("{existing}:{joined_python_path}"),
+            _ => joined_python_path,
+        };
+
+        let mut command = Command::new(&self.script_path);
+        command.args(&self.script_args);
+        command
+            .arg("--bridge")
+            .arg(bridge_addr.to_string())
+            .arg("--worker-id")
+            .arg(worker_id.to_string());
+
+        for module in &self.user_modules {
+            command.arg("--user-module").arg(module);
+        }
+
+        command
+            .stderr(Stdio::inherit())
+            .env("PYTHONPATH", python_path);
+
+        if let Some(dir) = working_dir {
+            command.current_dir(dir);
+        } else {
+            command.current_dir(env::current_dir().context("failed to resolve current directory")?);
+        }
+
+        Ok(command)
+    }
+}
+
+/// Configuration for spawning JavaScript workers.
+#[derive(Clone, Debug)]
+pub struct JavaScriptWorkerConfig {
+    /// Executable used to launch the worker (`waymark-worker-node` or `node`)
+    pub script_path: PathBuf,
+    /// Arguments to pass before the worker-specific args
+    pub script_args: Vec<String>,
+    /// Optional explicit bootstrap path
+    pub bootstrap_path: Option<PathBuf>,
+    /// Optional explicit working directory
+    pub working_dir: Option<PathBuf>,
+}
+
+impl Default for JavaScriptWorkerConfig {
+    fn default() -> Self {
+        let (script_path, script_args) = default_javascript_runner();
+        Self {
+            script_path,
+            script_args,
+            bootstrap_path: None,
+            working_dir: None,
+        }
+    }
+}
+
+impl JavaScriptWorkerConfig {
+    /// Create a new config with default runner detection.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Override the worker executable.
+    pub fn with_executable_path(mut self, path: PathBuf) -> Self {
+        self.script_args = javascript_runner_args_for_executable(&path);
+        self.script_path = path;
+        self
+    }
+
+    /// Set an explicit bootstrap path.
+    pub fn with_bootstrap_path(mut self, bootstrap_path: PathBuf) -> Self {
+        self.bootstrap_path = Some(bootstrap_path);
+        self
+    }
+
+    /// Set an explicit working directory.
+    pub fn with_working_dir(mut self, working_dir: PathBuf) -> Self {
+        self.working_dir = Some(working_dir);
+        self
+    }
+}
+
+impl WorkerRunner for JavaScriptWorkerConfig {
+    fn kind(&self) -> &'static str {
+        "javascript"
+    }
+
+    fn build_command(&self, bridge_addr: SocketAddr, worker_id: u64) -> AnyResult<Command> {
+        let mut command = Command::new(&self.script_path);
+        command.args(&self.script_args);
+        command
+            .arg("--bridge")
+            .arg(bridge_addr.to_string())
+            .arg("--worker-id")
+            .arg(worker_id.to_string())
+            .stderr(Stdio::inherit());
+
+        if let Some(bootstrap_path) = &self.bootstrap_path {
+            command.arg("--bootstrap").arg(bootstrap_path);
+        }
+
+        if let Some(working_dir) = &self.working_dir {
+            command.current_dir(working_dir);
+        } else {
+            command.current_dir(env::current_dir().context("failed to resolve current directory")?);
+        }
+
+        Ok(command)
+    }
+}
+
 /// Find the default Python runner.
 /// Prefers `waymark-worker` if in PATH, otherwise uses `uv run`.
-fn default_runner() -> (PathBuf, Vec<String>) {
+fn default_python_runner() -> (PathBuf, Vec<String>) {
     if let Some(path) = find_executable("waymark-worker") {
         return (path, Vec::new());
     }
@@ -158,6 +311,45 @@ fn default_runner() -> (PathBuf, Vec<String>) {
             "waymark.worker".to_string(),
         ],
     )
+}
+
+/// Find the default JavaScript runner.
+///
+/// Prefers a packaged `waymark-worker-node` binary. During repo-local
+/// development, falls back to `node <repo>/javascript/packages/nextjs/src/bin/waymark-worker-node.js`.
+fn default_javascript_runner() -> (PathBuf, Vec<String>) {
+    if let Some(path) = find_executable("waymark-worker-node") {
+        return (path, Vec::new());
+    }
+
+    if let Some(entrypoint) = repo_local_javascript_worker_entry() {
+        let node = find_executable("node").unwrap_or_else(|| PathBuf::from("node"));
+        return (node, vec![entrypoint.display().to_string()]);
+    }
+
+    (PathBuf::from("waymark-worker-node"), Vec::new())
+}
+
+fn javascript_runner_args_for_executable(script_path: &std::path::Path) -> Vec<String> {
+    let executable_name = script_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default();
+
+    if (executable_name == "node" || executable_name == "node.exe")
+        && let Some(entrypoint) = repo_local_javascript_worker_entry()
+    {
+        return vec![entrypoint.display().to_string()];
+    }
+
+    Vec::new()
+}
+
+fn repo_local_javascript_worker_entry() -> Option<PathBuf> {
+    let candidate = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../javascript/packages/nextjs/src/bin/waymark-worker-node.js");
+    candidate.is_file().then_some(candidate)
 }
 
 /// Search PATH for an executable.
@@ -221,9 +413,9 @@ impl SharedState {
     }
 }
 
-/// A single Python worker process.
+/// A single remote worker process.
 ///
-/// Manages the lifecycle of a Python subprocess that executes actions.
+/// Manages the lifecycle of a worker subprocess that executes actions.
 /// Communication happens via gRPC streaming through the WorkerBridge.
 ///
 /// Workers are not meant to be used directly - use [`PythonWorkerPool`] instead.
@@ -243,7 +435,7 @@ pub struct PythonWorker {
 }
 
 impl PythonWorker {
-    /// Spawn a new Python worker process.
+    /// Spawn a new worker process.
     ///
     /// This will:
     /// 1. Reserve a worker ID on the bridge
@@ -258,79 +450,27 @@ impl PythonWorker {
     /// - The worker doesn't connect within 15 seconds
     /// - The bridge connection is dropped
     pub async fn spawn(
-        config: PythonWorkerConfig,
+        config: Arc<dyn WorkerRunner>,
         bridge: Arc<WorkerBridgeServer>,
     ) -> AnyResult<Self> {
         let (worker_id, connection_rx) = bridge.reserve_worker().await;
-
-        // Determine working directory and module paths
-        let package_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("python");
-        let working_dir = if package_root.is_dir() {
-            Some(package_root.clone())
-        } else {
-            None
-        };
-
-        // Build PYTHONPATH with all necessary directories
-        let mut module_paths = Vec::new();
-        if let Some(root) = working_dir.as_ref() {
-            module_paths.push(root.clone());
-            let src_dir = root.join("src");
-            if src_dir.exists() {
-                module_paths.push(src_dir);
+        let worker_kind = config.kind();
+        let mut command = match config
+            .build_command(bridge.addr(), worker_id)
+            .with_context(|| format!("failed to prepare {worker_kind} worker launch command"))
+        {
+            Ok(command) => command,
+            Err(err) => {
+                bridge.cancel_worker(worker_id).await;
+                return Err(err);
             }
-            let proto_dir = root.join("proto");
-            if proto_dir.exists() {
-                module_paths.push(proto_dir);
-            }
-        }
-        module_paths.extend(config.extra_python_paths.clone());
-
-        let joined_python_path = module_paths
-            .iter()
-            .map(|path| path.display().to_string())
-            .collect::<Vec<_>>()
-            .join(":");
-
-        let python_path = match env::var("PYTHONPATH") {
-            Ok(existing) if !existing.is_empty() => format!("{existing}:{joined_python_path}"),
-            _ => joined_python_path,
         };
-
-        info!(python_path = %python_path, worker_id, "configured python path for worker");
-
-        // Build the command
-        let mut command = Command::new(&config.script_path);
-        command.args(&config.script_args);
-        command
-            .arg("--bridge")
-            .arg(bridge.addr().to_string())
-            .arg("--worker-id")
-            .arg(worker_id.to_string());
-
-        // Add user modules
-        for module in &config.user_modules {
-            command.arg("--user-module").arg(module);
-        }
-
-        command
-            .stderr(Stdio::inherit())
-            .env("PYTHONPATH", python_path);
-
-        if let Some(dir) = working_dir {
-            info!(?dir, worker_id, "using package root for worker process");
-            command.current_dir(dir);
-        } else {
-            let cwd = env::current_dir().context("failed to resolve current directory")?;
-            info!(
-                ?cwd,
-                worker_id, "package root missing, using current directory for worker process"
-            );
-            command.current_dir(cwd);
-        }
 
         // Spawn the process
-        let mut child = match command.spawn().context("failed to launch python worker") {
+        let mut child = match command
+            .spawn()
+            .with_context(|| format!("failed to launch {worker_kind} worker"))
+        {
             Ok(child) => child,
             Err(err) => {
                 bridge.cancel_worker(worker_id).await;
@@ -340,9 +480,10 @@ impl PythonWorker {
 
         info!(
             pid = child.id(),
-            script = %config.script_path.display(),
+            script = ?command.as_std().get_program(),
+            worker_kind,
             worker_id,
-            "spawned python worker"
+            "spawned worker"
         );
 
         // Wait for the worker to connect (with timeout)
@@ -374,12 +515,14 @@ impl PythonWorker {
         let shared = Arc::new(Mutex::new(SharedState::new()));
         let reader_shared = Arc::clone(&shared);
         let reader_worker_id = worker_id;
+        let reader_worker_kind = worker_kind;
         let reader_handle = tokio::spawn(async move {
             if let Err(err) = Self::reader_loop(&mut from_worker, reader_shared).await {
                 error!(
                     ?err,
                     worker_id = reader_worker_id,
-                    "python worker stream exited"
+                    worker_kind = reader_worker_kind,
+                    "worker stream exited"
                 );
             }
         });
@@ -597,16 +740,18 @@ impl Drop for PythonWorker {
             warn!(
                 ?err,
                 worker_id = self.worker_id,
-                "failed to kill python worker during drop"
+                "failed to kill worker during drop"
             );
         }
     }
 }
 
-/// Pool of Python workers for action execution.
+/// Pool of remote workers for action execution.
 ///
 /// Provides round-robin load balancing across multiple worker processes.
 /// Workers are spawned eagerly on pool creation.
+/// Despite the legacy type name, the pool can launch any [`WorkerRunner`]
+/// implementation, including Python and JavaScript workers.
 ///
 /// # Example
 ///
@@ -634,8 +779,8 @@ pub struct PythonWorkerPool {
     max_action_lifecycle: Option<u64>,
     /// Bridge server for spawning replacement workers
     bridge: Arc<WorkerBridgeServer>,
-    /// Worker configuration for spawning replacements
-    config: PythonWorkerConfig,
+    /// Worker runner used for spawning replacements
+    config: Arc<dyn WorkerRunner>,
 }
 
 impl PythonWorkerPool {
@@ -672,17 +817,57 @@ impl PythonWorkerPool {
         max_action_lifecycle: Option<u64>,
         max_concurrent_per_worker: usize,
     ) -> AnyResult<Self> {
+        Self::new_with_runner(
+            config,
+            count,
+            bridge,
+            max_action_lifecycle,
+            max_concurrent_per_worker,
+        )
+        .await
+    }
+
+    /// Create a new worker pool with an arbitrary language-specific runner.
+    pub async fn new_with_runner<R>(
+        config: R,
+        count: usize,
+        bridge: Arc<WorkerBridgeServer>,
+        max_action_lifecycle: Option<u64>,
+        max_concurrent_per_worker: usize,
+    ) -> AnyResult<Self>
+    where
+        R: WorkerRunner + 'static,
+    {
+        Self::new_with_runner_arc(
+            Arc::new(config),
+            count,
+            bridge,
+            max_action_lifecycle,
+            max_concurrent_per_worker,
+        )
+        .await
+    }
+
+    async fn new_with_runner_arc(
+        config: Arc<dyn WorkerRunner>,
+        count: usize,
+        bridge: Arc<WorkerBridgeServer>,
+        max_action_lifecycle: Option<u64>,
+        max_concurrent_per_worker: usize,
+    ) -> AnyResult<Self> {
         let worker_count = count.max(1);
+        let worker_kind = config.kind();
         info!(
             count = worker_count,
             max_action_lifecycle = ?max_action_lifecycle,
-            "spawning python worker pool"
+            worker_kind,
+            "spawning worker pool"
         );
 
         // Spawn all workers in parallel to reduce boot time.
         let spawn_handles: Vec<_> = (0..worker_count)
             .map(|_| {
-                let cfg = config.clone();
+                let cfg = Arc::clone(&config);
                 let br = Arc::clone(&bridge);
                 tokio::spawn(async move { PythonWorker::spawn(cfg, br).await })
             })
@@ -715,7 +900,7 @@ impl PythonWorkerPool {
             }
         }
 
-        info!(count = workers.len(), "worker pool ready");
+        info!(count = workers.len(), worker_kind, "worker pool ready");
 
         let worker_ids = workers.iter().map(|worker| worker.worker_id()).collect();
         let action_counts = (0..worker_count).map(|_| AtomicU64::new(0)).collect();
@@ -745,8 +930,29 @@ impl PythonWorkerPool {
         max_action_lifecycle: Option<u64>,
         max_concurrent_per_worker: usize,
     ) -> AnyResult<Self> {
+        Self::new_with_runner_and_bridge_addr(
+            config,
+            count,
+            bind_addr,
+            max_action_lifecycle,
+            max_concurrent_per_worker,
+        )
+        .await
+    }
+
+    /// Create a new worker pool with an arbitrary runner and spawn its own bridge server.
+    pub async fn new_with_runner_and_bridge_addr<R>(
+        config: R,
+        count: usize,
+        bind_addr: Option<SocketAddr>,
+        max_action_lifecycle: Option<u64>,
+        max_concurrent_per_worker: usize,
+    ) -> AnyResult<Self>
+    where
+        R: WorkerRunner + 'static,
+    {
         let bridge = WorkerBridgeServer::start(bind_addr).await?;
-        match Self::new_with_concurrency(
+        match Self::new_with_runner(
             config,
             count,
             Arc::clone(&bridge),
@@ -1233,7 +1439,7 @@ struct RemoteWorkerPoolInner {
     launched: AtomicBool,
 }
 
-/// BaseWorkerPool implementation backed by a Python worker cluster.
+/// BaseWorkerPool implementation backed by a remote worker cluster.
 #[derive(Clone)]
 pub struct RemoteWorkerPool {
     inner: Arc<RemoteWorkerPoolInner>,
@@ -1276,13 +1482,33 @@ impl RemoteWorkerPool {
         max_action_lifecycle: Option<u64>,
         max_concurrent_per_worker: usize,
     ) -> AnyResult<Self> {
+        Self::new_with_runner(
+            config,
+            count,
+            bind_addr,
+            max_action_lifecycle,
+            max_concurrent_per_worker,
+        )
+        .await
+    }
+
+    pub async fn new_with_runner<R>(
+        config: R,
+        count: usize,
+        bind_addr: Option<SocketAddr>,
+        max_action_lifecycle: Option<u64>,
+        max_concurrent_per_worker: usize,
+    ) -> AnyResult<Self>
+    where
+        R: WorkerRunner + 'static,
+    {
         let worker_count = count.max(1);
         let per_worker = max_concurrent_per_worker.max(1);
         let queue_capacity = worker_count
             .saturating_mul(per_worker)
             .saturating_mul(2)
             .max(Self::DEFAULT_QUEUE_CAPACITY);
-        let pool = PythonWorkerPool::new_with_bridge_addr(
+        let pool = PythonWorkerPool::new_with_runner_and_bridge_addr(
             config,
             count,
             bind_addr,
@@ -1449,9 +1675,9 @@ mod tests {
     }
 
     #[test]
-    fn test_default_runner_detection() {
+    fn test_default_python_runner_detection() {
         // Should return uv as fallback if waymark-worker not in PATH
-        let (path, args) = default_runner();
+        let (path, args) = default_python_runner();
         // Either waymark-worker was found, or we get uv with args
         if args.is_empty() {
             assert!(path.to_string_lossy().contains("waymark-worker"));
@@ -1459,6 +1685,42 @@ mod tests {
             assert_eq!(path, PathBuf::from("uv"));
             assert_eq!(args, vec!["run", "python", "-m", "waymark.worker"]);
         }
+    }
+
+    #[test]
+    fn test_javascript_config_builder() {
+        let config = JavaScriptWorkerConfig::new()
+            .with_bootstrap_path(PathBuf::from("/tmp/app/.waymark/actions-bootstrap.mjs"))
+            .with_working_dir(PathBuf::from("/tmp/app"));
+
+        assert_eq!(
+            config.bootstrap_path,
+            Some(PathBuf::from("/tmp/app/.waymark/actions-bootstrap.mjs"))
+        );
+        assert_eq!(config.working_dir, Some(PathBuf::from("/tmp/app")));
+    }
+
+    #[test]
+    fn test_javascript_runner_uses_node_entrypoint_when_explicit_node_path_is_set() {
+        let config = JavaScriptWorkerConfig::new().with_executable_path(PathBuf::from("node"));
+        let command = config
+            .build_command("127.0.0.1:24118".parse().expect("bridge addr"), 9)
+            .expect("build command");
+        let std_command = command.as_std();
+        let args = std_command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().to_string())
+            .collect::<Vec<_>>();
+
+        assert_eq!(std_command.get_program(), "node");
+        assert!(
+            args.iter()
+                .any(|arg| arg.contains("waymark-worker-node.js"))
+        );
+        assert_eq!(args[args.len() - 4], "--bridge");
+        assert_eq!(args[args.len() - 3], "127.0.0.1:24118");
+        assert_eq!(args[args.len() - 2], "--worker-id");
+        assert_eq!(args[args.len() - 1], "9");
     }
 
     fn make_string_kwarg(key: &str, value: &str) -> proto::WorkflowArgument {
@@ -1571,7 +1833,7 @@ mod tests {
             max_concurrent_per_worker: 2,
             max_action_lifecycle: None,
             bridge,
-            config: PythonWorkerConfig::new(),
+            config: Arc::new(PythonWorkerConfig::new()),
         };
         Some((Arc::new(pool), outgoing, incoming))
     }
