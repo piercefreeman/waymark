@@ -721,6 +721,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "derive-where"
+version = "1.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d08b3a0bcc0d079199cd476b2cae8435016ec11d1c0986c6901c5ac223041534"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "deunicode"
 version = "1.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3738,6 +3749,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "562d481066bde0658276a35467c4af00bdc6ee726305698a55b86e61d7ad82bb"
 
 [[package]]
+name = "typle"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ad39ef9a1dca242cfd2ff54175b03fbccc389423bc66a360c651a8ed00afe69c"
+dependencies = [
+ "either",
+ "proc-macro2",
+ "quote",
+ "syn",
+ "zip_clone",
+]
+
+[[package]]
 name = "ucd-trie"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4186,6 +4210,29 @@ dependencies = [
  "nonempty-collections",
  "serde",
  "waymark-backends-core",
+ "waymark-ids",
+ "waymark-runner-execution-core",
+ "waymark-runner-executor-core",
+]
+
+[[package]]
+name = "waymark-core-backend-metadata"
+version = "0.1.0"
+dependencies = [
+ "derive-where",
+ "typle",
+]
+
+[[package]]
+name = "waymark-core-backend2"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "derive-where",
+ "either",
+ "nonempty-collections",
+ "serde",
+ "waymark-core-backend-metadata",
  "waymark-ids",
  "waymark-runner-execution-core",
  "waymark-runner-executor-core",
@@ -5591,6 +5638,12 @@ dependencies = [
  "quote",
  "syn",
 ]
+
+[[package]]
+name = "zip_clone"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8a3369cd8e772810a22f0f20bee39772ade077ee8aabc6d914911e53c181e458"
 
 [[package]]
 name = "zmij"
