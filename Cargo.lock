@@ -4359,6 +4359,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tokio",
+ "tokio-util",
  "waymark-backend-memory",
  "waymark-backend-postgres",
  "waymark-backend-postgres-migrations",
@@ -4374,7 +4375,12 @@ dependencies = [
  "waymark-runner-state",
  "waymark-secret-string",
  "waymark-support-integration",
- "waymark-worker-remote",
+ "waymark-worker-core",
+ "waymark-worker-process-pool",
+ "waymark-worker-process-spec",
+ "waymark-worker-python",
+ "waymark-worker-remote-bringup",
+ "waymark-worker-remote-pool",
  "waymark-workflow-registry-backend",
 ]
 
@@ -4729,7 +4735,10 @@ dependencies = [
  "waymark-runloop",
  "waymark-runner-state",
  "waymark-smoke-sources",
- "waymark-worker-remote",
+ "waymark-worker-process-spec",
+ "waymark-worker-python",
+ "waymark-worker-remote-bringup",
+ "waymark-worker-remote-pool",
  "waymark-workflow-registry-backend",
 ]
 
@@ -4801,7 +4810,9 @@ dependencies = [
  "waymark-scheduler-loop-core",
  "waymark-tokio-metrics-bringup",
  "waymark-webapp-bringup",
- "waymark-worker-remote",
+ "waymark-worker-python",
+ "waymark-worker-remote-bringup",
+ "waymark-worker-remote-pool",
  "waymark-worker-status-reporter",
 ]
 
@@ -5054,28 +5065,18 @@ dependencies = [
 ]
 
 [[package]]
-name = "waymark-worker-remote"
+name = "waymark-worker-remote-bridge-bringup"
 version = "0.1.0"
 dependencies = [
- "anyhow",
- "futures-core",
- "metrics",
- "nonempty-collections",
- "prost 0.12.6",
- "serde_json",
- "thiserror",
  "tokio",
  "tokio-stream",
+ "tokio-util",
  "tonic 0.11.0",
  "tracing",
- "uuid",
- "waymark-ids",
- "waymark-message-conversions",
  "waymark-proto",
- "waymark-runner-executor-core",
- "waymark-worker-core",
- "waymark-worker-metrics",
- "waymark-worker-status-core",
+ "waymark-worker-message-protocol",
+ "waymark-worker-remote-bridge-service",
+ "waymark-worker-reservation",
 ]
 
 [[package]]
@@ -5094,6 +5095,19 @@ dependencies = [
  "waymark-proto",
  "waymark-worker-message-protocol",
  "waymark-worker-reservation",
+]
+
+[[package]]
+name = "waymark-worker-remote-bringup"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "waymark-worker-process-pool",
+ "waymark-worker-process-spec",
+ "waymark-worker-remote-bridge-bringup",
 ]
 
 [[package]]
