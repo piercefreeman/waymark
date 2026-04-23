@@ -4636,11 +4636,13 @@ name = "waymark-runner-state"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "metrics",
  "serde_json",
  "thiserror",
  "waymark-dag",
  "waymark-ids",
  "waymark-ir-conversions",
+ "waymark-metrics-util",
  "waymark-proto",
  "waymark-runner-execution-core",
  "waymark-runner-expr",
