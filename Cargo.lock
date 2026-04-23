@@ -4636,6 +4636,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-runner-pure-expr-eval"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+ "waymark-proto",
+ "waymark-runner-eval-core",
+ "waymark-runner-expr",
+]
+
+[[package]]
 name = "waymark-runner-retry-policy"
 version = "0.1.0"
 dependencies = [
