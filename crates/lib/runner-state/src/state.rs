@@ -11,7 +11,6 @@ use waymark_runner_execution_core::{
 };
 
 use crate::max_nodes::MAX_RUNNER_STATE_NODES;
-use crate::util::is_truthy;
 use crate::value::*;
 use crate::{
     ActionCallSpec, ActionResultValue, RunnerStateError, ValueExpr, collect_value_sources,
@@ -21,7 +20,7 @@ use waymark_dag::{
     ActionCallNode, AggregatorNode, AssignmentNode, DAG, DAGNode, EdgeType, FnCallNode, JoinNode,
     ReturnNode, SleepNode,
 };
-use waymark_ir_conversions::literal_to_json_value;
+
 use waymark_proto::ast as ir;
 
 #[derive(Clone, Debug, Default)]
@@ -189,7 +188,7 @@ impl RunnerState {
             template_id: Some(template_id.to_string()),
             targets: self.node_targets(&template),
             action: if let DAGNode::ActionCall(action_node) = &template {
-                Some(self.action_spec_from_node(action_node))
+                Some(self.action_spec_from_node(action_node)?)
             } else {
                 None
             },
@@ -274,7 +273,9 @@ impl RunnerState {
         iteration_index: Option<i32>,
         local_scope: Option<&HashMap<String, ValueExpr>>,
     ) -> Result<ActionResultValue, RunnerStateError> {
-        let spec = self.action_spec_from_ir(action, local_scope);
+        let spec = self
+            .as_core_eval()
+            .action_spec_from_ir(action, local_scope)?;
         let node = self.queue_node(
             ExecutionNodeType::ActionCall.as_str(),
             &format!("@{}()", spec.action_name),
@@ -451,6 +452,9 @@ impl RunnerState {
                 self.graph.nodes.len(),
             ));
         }
+        metrics::histogram!("waymark_runner_register_node_graph_nodes_len")
+            .record(waymark_metrics_util::Val(self.graph.nodes.len()));
+
         self.graph.nodes.insert(node.node_id, node.clone());
         self.ready_queue.push(node.node_id);
         if node.is_action_call() {
@@ -668,7 +672,7 @@ impl RunnerState {
                 assign_expr: Some(expr),
                 ..
             }) => {
-                let value_expr = self.expr_to_value(expr, None)?;
+                let value_expr = self.as_core_eval().expr_to_value(expr, None)?;
                 if let Some(node_mut) = self.graph.nodes.get_mut(&exec_node.node_id) {
                     node_mut.value_expr = Some(value_expr.clone());
                 }
@@ -716,7 +720,7 @@ impl RunnerState {
                 duration_expr: Some(expr),
                 ..
             }) => {
-                let value_expr = self.expr_to_value(expr, None)?;
+                let value_expr = self.as_core_eval().expr_to_value(expr, None)?;
                 if let Some(node_mut) = self.graph.nodes.get_mut(&exec_node.node_id) {
                     node_mut.value_expr = Some(value_expr.clone());
                 }
@@ -727,7 +731,7 @@ impl RunnerState {
                 assign_expr: Some(expr),
                 ..
             }) => {
-                let value_expr = self.expr_to_value(expr, None)?;
+                let value_expr = self.as_core_eval().expr_to_value(expr, None)?;
                 if let Some(node_mut) = self.graph.nodes.get_mut(&exec_node.node_id) {
                     node_mut.value_expr = Some(value_expr.clone());
                 }
@@ -745,7 +749,7 @@ impl RunnerState {
                 target,
                 ..
             }) => {
-                let value_expr = self.expr_to_value(expr, None)?;
+                let value_expr = self.as_core_eval().expr_to_value(expr, None)?;
                 if let Some(node_mut) = self.graph.nodes.get_mut(&exec_node.node_id) {
                     node_mut.value_expr = Some(value_expr.clone());
                 }
@@ -1028,292 +1032,6 @@ impl RunnerState {
         }
     }
 
-    /// Convert an IR expression into a symbolic ValueExpr tree.
-    ///
-    /// Use this when interpreting IR statements or DAG templates into the
-    /// runtime state; it queues actions and spreads as needed.
-    ///
-    /// Example IR:
-    /// - total = base + 1
-    ///   Produces BinaryOpValue(VariableValue("base"), LiteralValue(1)).
-    pub fn expr_to_value(
-        &mut self,
-        expr: &ir::Expr,
-        local_scope: Option<&HashMap<String, ValueExpr>>,
-    ) -> Result<ValueExpr, RunnerStateError> {
-        match expr.kind.as_ref() {
-            Some(ir::expr::Kind::Literal(lit)) => Ok(ValueExpr::Literal(LiteralValue {
-                value: literal_to_json_value(lit),
-            })),
-            Some(ir::expr::Kind::Variable(var)) => {
-                if let Some(scope) = local_scope
-                    && let Some(value) = scope.get(&var.name)
-                {
-                    return Ok(value.clone());
-                }
-                Ok(ValueExpr::Variable(VariableValue {
-                    name: var.name.clone(),
-                }))
-            }
-            Some(ir::expr::Kind::BinaryOp(op)) => {
-                let left = op
-                    .left
-                    .as_ref()
-                    .ok_or_else(|| RunnerStateError("binary op missing left".to_string()))?;
-                let right = op
-                    .right
-                    .as_ref()
-                    .ok_or_else(|| RunnerStateError("binary op missing right".to_string()))?;
-                let left_value = self.expr_to_value(left, local_scope)?;
-                let right_value = self.expr_to_value(right, local_scope)?;
-                Ok(self.binary_op_value(op.op, left_value, right_value))
-            }
-            Some(ir::expr::Kind::UnaryOp(op)) => {
-                let operand = op
-                    .operand
-                    .as_ref()
-                    .ok_or_else(|| RunnerStateError("unary op missing operand".to_string()))?;
-                let operand_value = self.expr_to_value(operand, local_scope)?;
-                Ok(self.unary_op_value(op.op, operand_value))
-            }
-            Some(ir::expr::Kind::List(list)) => {
-                let elements = list
-                    .elements
-                    .iter()
-                    .map(|item| self.expr_to_value(item, local_scope))
-                    .collect::<Result<Vec<ValueExpr>, RunnerStateError>>()?;
-                Ok(ValueExpr::List(ListValue { elements }))
-            }
-            Some(ir::expr::Kind::Dict(dict_expr)) => {
-                let mut entries = Vec::new();
-                for entry in &dict_expr.entries {
-                    let key_expr = entry
-                        .key
-                        .as_ref()
-                        .ok_or_else(|| RunnerStateError("dict entry missing key".to_string()))?;
-                    let value_expr = entry
-                        .value
-                        .as_ref()
-                        .ok_or_else(|| RunnerStateError("dict entry missing value".to_string()))?;
-                    entries.push(DictEntryValue {
-                        key: self.expr_to_value(key_expr, local_scope)?,
-                        value: self.expr_to_value(value_expr, local_scope)?,
-                    });
-                }
-                Ok(ValueExpr::Dict(DictValue { entries }))
-            }
-            Some(ir::expr::Kind::Index(index)) => {
-                let object = index
-                    .object
-                    .as_ref()
-                    .ok_or_else(|| RunnerStateError("index access missing object".to_string()))?;
-                let index_expr = index
-                    .index
-                    .as_ref()
-                    .ok_or_else(|| RunnerStateError("index access missing index".to_string()))?;
-                let object_value = self.expr_to_value(object, local_scope)?;
-                let index_value = self.expr_to_value(index_expr, local_scope)?;
-                Ok(self.index_value(object_value, index_value))
-            }
-            Some(ir::expr::Kind::Dot(dot)) => {
-                let object = dot
-                    .object
-                    .as_ref()
-                    .ok_or_else(|| RunnerStateError("dot access missing object".to_string()))?;
-                Ok(ValueExpr::Dot(DotValue {
-                    object: Box::new(self.expr_to_value(object, local_scope)?),
-                    attribute: dot.attribute.clone(),
-                }))
-            }
-            Some(ir::expr::Kind::FunctionCall(call)) => {
-                let args = call
-                    .args
-                    .iter()
-                    .map(|arg| self.expr_to_value(arg, local_scope))
-                    .collect::<Result<Vec<ValueExpr>, RunnerStateError>>()?;
-                let mut kwargs = HashMap::new();
-                for kw in &call.kwargs {
-                    if let Some(value) = &kw.value {
-                        kwargs.insert(kw.name.clone(), self.expr_to_value(value, local_scope)?);
-                    }
-                }
-                let global_fn = if call.global_function != 0 {
-                    Some(call.global_function)
-                } else {
-                    None
-                };
-                Ok(ValueExpr::FunctionCall(FunctionCallValue {
-                    name: call.name.clone(),
-                    args,
-                    kwargs,
-                    global_function: global_fn,
-                }))
-            }
-            Some(ir::expr::Kind::ActionCall(action)) => {
-                let result = self.queue_action_call(action, None, None, local_scope)?;
-                Ok(ValueExpr::ActionResult(result))
-            }
-            Some(ir::expr::Kind::ParallelExpr(parallel)) => {
-                let mut calls = Vec::new();
-                for call in &parallel.calls {
-                    calls.push(self.call_to_value(call, local_scope)?);
-                }
-                Ok(ValueExpr::List(ListValue { elements: calls }))
-            }
-            Some(ir::expr::Kind::SpreadExpr(spread)) => self.spread_expr_value(spread, local_scope),
-            None => Ok(ValueExpr::Literal(LiteralValue {
-                value: serde_json::Value::Null,
-            })),
-        }
-    }
-
-    /// Convert an IR call (action/function) into a ValueExpr.
-    ///
-    /// Use this for parallel expressions that contain mixed call types.
-    ///
-    /// Example IR:
-    /// - parallel { @double(x), helper(x) }
-    ///   Action calls become ActionResultValue nodes; function calls become
-    ///   FunctionCallValue expressions.
-    fn call_to_value(
-        &mut self,
-        call: &ir::Call,
-        local_scope: Option<&HashMap<String, ValueExpr>>,
-    ) -> Result<ValueExpr, RunnerStateError> {
-        match call.kind.as_ref() {
-            Some(ir::call::Kind::Action(action)) => Ok(ValueExpr::ActionResult(
-                self.queue_action_call(action, None, None, local_scope)?,
-            )),
-            Some(ir::call::Kind::Function(function)) => self.expr_to_value(
-                &ir::Expr {
-                    kind: Some(ir::expr::Kind::FunctionCall(function.clone())),
-                    span: None,
-                },
-                local_scope,
-            ),
-            None => Ok(ValueExpr::Literal(LiteralValue {
-                value: serde_json::Value::Null,
-            })),
-        }
-    }
-
-    /// Materialize a spread expression into concrete calls or a symbolic spread.
-    ///
-    /// Use this when converting IR spreads so known list collections unroll to
-    /// explicit action calls, while unknown collections stay symbolic.
-    ///
-    /// Example IR:
-    /// - spread [1, 2]:item -> @double(value=item)
-    ///   Produces a ListValue of ActionResultValue entries for each item.
-    fn spread_expr_value(
-        &mut self,
-        spread: &ir::SpreadExpr,
-        local_scope: Option<&HashMap<String, ValueExpr>>,
-    ) -> Result<ValueExpr, RunnerStateError> {
-        let collection = self.expr_to_value(
-            spread
-                .collection
-                .as_ref()
-                .ok_or_else(|| RunnerStateError("spread collection missing".to_string()))?,
-            local_scope,
-        )?;
-        if let ValueExpr::List(list) = &collection {
-            let mut results = Vec::new();
-            for (idx, item) in list.elements.iter().enumerate() {
-                let mut scope = HashMap::new();
-                scope.insert(spread.loop_var.clone(), item.clone());
-                let result = self.queue_action_call(
-                    spread
-                        .action
-                        .as_ref()
-                        .ok_or_else(|| RunnerStateError("spread action missing".to_string()))?,
-                    None,
-                    Some(idx as i32),
-                    Some(&scope),
-                )?;
-                results.push(ValueExpr::ActionResult(result));
-            }
-            return Ok(ValueExpr::List(ListValue { elements: results }));
-        }
-
-        let action_spec = self.action_spec_from_ir(
-            spread
-                .action
-                .as_ref()
-                .ok_or_else(|| RunnerStateError("spread action missing".to_string()))?,
-            None,
-        );
-        Ok(ValueExpr::Spread(SpreadValue {
-            collection: Box::new(collection),
-            loop_var: spread.loop_var.clone(),
-            action: action_spec,
-        }))
-    }
-
-    /// Build a binary-op value with simple constant folding.
-    ///
-    /// Use this when converting IR so literals and list concatenations are
-    /// simplified early.
-    ///
-    /// Example IR:
-    /// - total = 1 + 2
-    ///   Produces LiteralValue(3) instead of a BinaryOpValue.
-    fn binary_op_value(&self, op: i32, left: ValueExpr, right: ValueExpr) -> ValueExpr {
-        if ir::BinaryOperator::try_from(op).ok() == Some(ir::BinaryOperator::BinaryOpAdd)
-            && let (ValueExpr::List(left_list), ValueExpr::List(right_list)) = (&left, &right)
-        {
-            let mut elements = left_list.elements.clone();
-            elements.extend(right_list.elements.clone());
-            return ValueExpr::List(ListValue { elements });
-        }
-        if let (ValueExpr::Literal(left_val), ValueExpr::Literal(right_val)) = (&left, &right)
-            && let Some(folded) = fold_literal_binary(op, &left_val.value, &right_val.value)
-        {
-            return ValueExpr::Literal(LiteralValue { value: folded });
-        }
-        ValueExpr::BinaryOp(BinaryOpValue {
-            left: Box::new(left),
-            op,
-            right: Box::new(right),
-        })
-    }
-
-    /// Build a unary-op value with constant folding for literals.
-    ///
-    /// Example IR:
-    /// - neg = -1
-    ///   Produces LiteralValue(-1) instead of UnaryOpValue.
-    fn unary_op_value(&self, op: i32, operand: ValueExpr) -> ValueExpr {
-        if let ValueExpr::Literal(lit) = &operand
-            && let Some(folded) = fold_literal_unary(op, &lit.value)
-        {
-            return ValueExpr::Literal(LiteralValue { value: folded });
-        }
-        ValueExpr::UnaryOp(UnaryOpValue {
-            op,
-            operand: Box::new(operand),
-        })
-    }
-
-    /// Build an index value, folding list literals when possible.
-    ///
-    /// Example IR:
-    /// - first = [10, 20][0]
-    ///   Produces LiteralValue(10) when the list is fully literal.
-    fn index_value(&self, object: ValueExpr, index: ValueExpr) -> ValueExpr {
-        if let (ValueExpr::List(list), ValueExpr::Literal(idx)) = (&object, &index)
-            && let Some(idx) = idx.value.as_i64()
-            && idx >= 0
-            && (idx as usize) < list.elements.len()
-        {
-            return list.elements[idx as usize].clone();
-        }
-        ValueExpr::Index(IndexValue {
-            object: Box::new(object),
-            index: Box::new(index),
-        })
-    }
-
     /// Extract an action call spec from a DAG node.
     ///
     /// Use this when queueing nodes from the DAG template.
@@ -1321,40 +1039,19 @@ impl RunnerState {
     /// Example:
     /// - ActionCallNode(action_name="double", kwargs={"value": "$x"})
     ///   Produces ActionCallSpec(action_name="double", kwargs={"value": VariableValue("x")}).
-    fn action_spec_from_node(&mut self, node: &ActionCallNode) -> ActionCallSpec {
+    fn action_spec_from_node(
+        &mut self,
+        node: &ActionCallNode,
+    ) -> Result<ActionCallSpec, waymark_runner_eval_core::ExprToValueError<RunnerStateError>> {
         let kwargs = node
             .kwarg_exprs
             .iter()
-            .map(|(name, expr)| (name.clone(), self.expr_to_value(expr, None).unwrap()))
-            .collect();
-        ActionCallSpec {
+            .map(|(name, expr)| (name.clone(), expr));
+        Ok(ActionCallSpec {
             action_name: node.action_name.clone(),
             module_name: node.module_name.clone(),
-            kwargs,
-        }
-    }
-
-    /// Extract an action call spec from IR, applying local scope bindings.
-    ///
-    /// Example IR:
-    /// - @double(value=item) with local_scope["item"]=LiteralValue(2)
-    ///   Produces kwargs {"value": LiteralValue(2)}.
-    fn action_spec_from_ir(
-        &mut self,
-        action: &ir::ActionCall,
-        local_scope: Option<&HashMap<String, ValueExpr>>,
-    ) -> ActionCallSpec {
-        let kwargs = action
-            .kwargs
-            .iter()
-            .filter_map(|kw| kw.value.as_ref().map(|value| (kw.name.clone(), value)))
-            .map(|(name, value)| (name, self.expr_to_value(value, local_scope).unwrap()))
-            .collect();
-        ActionCallSpec {
-            action_name: action.action_name.clone(),
-            module_name: action.module_name.clone(),
-            kwargs,
-        }
+            kwargs: self.as_core_eval().resolve_kwargs(kwargs, None)?,
+        })
     }
 
     /// Queue an action call from raw parameters and return a symbolic result.
@@ -1417,7 +1114,7 @@ impl RunnerState {
         node_id: Option<ExecutionId>,
         label: Option<String>,
     ) -> Result<ExecutionNode, RunnerStateError> {
-        let value_expr = self.expr_to_value(expr, None)?;
+        let value_expr = self.as_core_eval().expr_to_value(expr, None)?;
         self.record_assignment_value(targets, value_expr, node_id, label)
     }
 
@@ -1497,80 +1194,6 @@ fn value_expr_contains_variable(expr: &ValueExpr, name: &str) -> bool {
                     .any(|kwarg| value_expr_contains_variable(kwarg, name))
         }
         ValueExpr::Literal(_) | ValueExpr::ActionResult(_) => false,
-    }
-}
-
-/// Try to fold a literal binary operation to a concrete value.
-///
-/// Example:
-/// - (1, 2, BINARY_OP_ADD) -> 3
-fn fold_literal_binary(
-    op: i32,
-    left: &serde_json::Value,
-    right: &serde_json::Value,
-) -> Option<serde_json::Value> {
-    match ir::BinaryOperator::try_from(op).ok() {
-        Some(ir::BinaryOperator::BinaryOpAdd) => {
-            if let (Some(left), Some(right)) = (left.as_i64(), right.as_i64()) {
-                return Some(serde_json::Value::Number((left + right).into()));
-            }
-            if let (Some(left), Some(right)) = (left.as_f64(), right.as_f64()) {
-                return serde_json::Number::from_f64(left + right).map(serde_json::Value::Number);
-            }
-            if let (Some(left), Some(right)) = (left.as_str(), right.as_str()) {
-                return Some(serde_json::Value::String(format!("{left}{right}")));
-            }
-            None
-        }
-        Some(ir::BinaryOperator::BinaryOpSub) => {
-            if let (Some(left), Some(right)) = (left.as_f64(), right.as_f64()) {
-                return serde_json::Number::from_f64(left - right).map(serde_json::Value::Number);
-            }
-            None
-        }
-        Some(ir::BinaryOperator::BinaryOpMul) => {
-            if let (Some(left), Some(right)) = (left.as_f64(), right.as_f64()) {
-                return serde_json::Number::from_f64(left * right).map(serde_json::Value::Number);
-            }
-            None
-        }
-        Some(ir::BinaryOperator::BinaryOpDiv) => {
-            if let (Some(left), Some(right)) = (left.as_f64(), right.as_f64()) {
-                return serde_json::Number::from_f64(left / right).map(serde_json::Value::Number);
-            }
-            None
-        }
-        Some(ir::BinaryOperator::BinaryOpFloorDiv) => {
-            if let (Some(left), Some(right)) = (left.as_f64(), right.as_f64()) {
-                if right == 0.0 {
-                    return None;
-                }
-                let value = (left / right).floor();
-                return serde_json::Number::from_f64(value).map(serde_json::Value::Number);
-            }
-            None
-        }
-        Some(ir::BinaryOperator::BinaryOpMod) => {
-            if let (Some(left), Some(right)) = (left.as_f64(), right.as_f64()) {
-                return serde_json::Number::from_f64(left % right).map(serde_json::Value::Number);
-            }
-            None
-        }
-        _ => None,
-    }
-}
-
-/// Try to fold a literal unary operation to a concrete value.
-///
-/// Example:
-/// - (UNARY_OP_NEG, 4) -> -4
-fn fold_literal_unary(op: i32, operand: &serde_json::Value) -> Option<serde_json::Value> {
-    match ir::UnaryOperator::try_from(op).ok() {
-        Some(ir::UnaryOperator::UnaryOpNeg) => operand
-            .as_f64()
-            .and_then(|value| serde_json::Number::from_f64(-value).map(serde_json::Value::Number)),
-        Some(ir::UnaryOperator::UnaryOpNot) => Some(serde_json::Value::Bool(!is_truthy(operand))),
-        _ => None,
     }
 }
 

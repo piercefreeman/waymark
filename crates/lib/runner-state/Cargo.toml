@@ -7,12 +7,14 @@ edition = "2024"
 [dependencies]
 waymark-dag = { workspace = true }
 waymark-ids = { workspace = true }
-waymark-ir-conversions = { workspace = true }
+waymark-metrics-util = { workspace = true }
 waymark-proto = { workspace = true }
+waymark-runner-eval-core = { workspace = true }
 waymark-runner-execution-core = { workspace = true }
 waymark-runner-expr = { workspace = true }
 
 chrono = { workspace = true, features = ["serde", "clock"] }
+metrics = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 

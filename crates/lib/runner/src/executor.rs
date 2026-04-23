@@ -918,17 +918,17 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
         local_scope: Option<HashMap<String, ValueExpr>>,
         iteration_index: Option<i32>,
     ) -> Result<ExecutionNode, RunnerExecutorError> {
-        let kwargs = template
-            .kwarg_exprs
-            .iter()
-            .map(|(name, expr)| {
-                let value = self
-                    .state
-                    .expr_to_value(expr, local_scope.as_ref())
-                    .map_err(|err| RunnerExecutorError(err.0))?;
-                Ok((name.clone(), value))
-            })
-            .collect::<Result<HashMap<_, _>, RunnerExecutorError>>()?;
+        let kwargs = self
+            .state
+            .as_core_eval()
+            .resolve_kwargs(
+                template
+                    .kwarg_exprs
+                    .iter()
+                    .map(|(name, expr)| (name.clone(), expr)),
+                local_scope.as_ref(),
+            )
+            .map_err(|err| RunnerExecutorError(err.to_string()))?;
 
         let spec = ActionCallSpec {
             action_name: template.action_name.clone(),

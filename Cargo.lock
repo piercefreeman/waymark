@@ -4561,9 +4561,29 @@ dependencies = [
  "waymark-runner-execution-core",
  "waymark-runner-executor-core",
  "waymark-runner-expr-eval",
+ "waymark-runner-pure-expr-eval",
  "waymark-runner-retry-policy",
  "waymark-runner-state",
  "waymark-synthetic-exception",
+]
+
+[[package]]
+name = "waymark-runner-eval-core"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "thiserror",
+ "waymark-ir-conversions",
+ "waymark-proto",
+ "waymark-runner-expr",
+]
+
+[[package]]
+name = "waymark-runner-eval-dag"
+version = "0.1.0"
+dependencies = [
+ "waymark-dag",
+ "waymark-runner-eval-core",
 ]
 
 [[package]]
@@ -4625,6 +4645,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-runner-pure-expr-eval"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+ "waymark-proto",
+ "waymark-runner-eval-core",
+ "waymark-runner-expr",
+]
+
+[[package]]
 name = "waymark-runner-retry-policy"
 version = "0.1.0"
 dependencies = [
@@ -4636,12 +4666,14 @@ name = "waymark-runner-state"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "metrics",
  "serde_json",
  "thiserror",
  "waymark-dag",
  "waymark-ids",
- "waymark-ir-conversions",
+ "waymark-metrics-util",
  "waymark-proto",
+ "waymark-runner-eval-core",
  "waymark-runner-execution-core",
  "waymark-runner-expr",
 ]
