@@ -451,6 +451,9 @@ impl RunnerState {
                 self.graph.nodes.len(),
             ));
         }
+        metrics::histogram!("waymark_runner_register_node_graph_nodes_len")
+            .record(waymark_metrics_util::Val(self.graph.nodes.len()));
+
         self.graph.nodes.insert(node.node_id, node.clone());
         self.ready_queue.push(node.node_id);
         if node.is_action_call() {
