@@ -68,11 +68,10 @@ pub fn run_executor_shard(
                         );
                     }
 
-                    let mut executor = waymark_runner::RunnerExecutor::new(
-                        dag,
-                        instance.state,
-                        instance.action_results,
-                    );
+                    let state = waymark_runner_state::RunnerState::from_graph(instance.graph);
+
+                    let mut executor =
+                        waymark_runner::RunnerExecutor::new(dag, state, instance.action_results);
                     executor.set_instance_id(instance.instance_id);
 
                     let mut owner =
@@ -143,7 +142,7 @@ pub fn run_executor_shard(
                 let mut grouped: HashMap<InstanceId, Vec<ExecutionId>> = HashMap::new();
                 for node_id in node_ids {
                     for (executor_id, owner) in &executors {
-                        if owner.executor.state().nodes.contains_key(&node_id) {
+                        if owner.executor.state().graph.nodes.contains_key(&node_id) {
                             grouped.entry(*executor_id).or_default().push(node_id);
                             break;
                         }

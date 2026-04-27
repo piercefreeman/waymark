@@ -10,10 +10,10 @@ use waymark_ir_conversions::literal_to_json_value;
 use waymark_observability::obs;
 use waymark_proto::ast as ir;
 use waymark_runner_executor_core::ExecutionException;
+use waymark_runner_expr_eval::ValueExprEvaluator;
 use waymark_runner_state::{
     ActionCallSpec, ActionResultValue, BinaryOpValue, DictEntryValue, DictValue, DotValue,
-    FunctionCallValue, IndexValue, ListValue, LiteralValue, UnaryOpValue, VariableValue,
-    value_visitor::{ValueExpr, ValueExprEvaluator},
+    FunctionCallValue, IndexValue, ListValue, LiteralValue, UnaryOpValue, ValueExpr, VariableValue,
 };
 
 use super::{RunnerExecutor, RunnerExecutorError};
@@ -229,12 +229,14 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
             .collect();
 
         self.state()
+            .graph
             .edges
             .iter()
             .filter(|edge| edge.edge_type == EdgeType::DataFlow && edge.target == current_node_id)
             .map(|edge| edge.source)
             .filter(|source| {
                 self.state()
+                    .graph
                     .nodes
                     .get(source)
                     .map(|node| node.assignments.contains_key(name))
@@ -274,6 +276,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
 
         let node = self
             .state()
+            .graph
             .nodes
             .get(&node_id)
             .ok_or_else(|| RunnerExecutorError(format!("missing assignment for {target}")))?;
@@ -685,7 +688,7 @@ mod tests {
     use waymark_runner_executor_core::UncheckedExecutionResult;
     use waymark_runner_state::{
         ActionCallSpec, ActionResultValue, BinaryOpValue, FunctionCallValue, LiteralValue,
-        RunnerState, VariableValue, value_visitor::ValueExpr,
+        RunnerState, ValueExpr, VariableValue,
     };
 
     fn parse_expr(source: &str) -> ir::Expr {
@@ -794,6 +797,7 @@ mod tests {
             )
             .expect("queue increment");
         let action_node = state
+            .graph
             .nodes
             .get(&action_result.node_id)
             .expect("action node")

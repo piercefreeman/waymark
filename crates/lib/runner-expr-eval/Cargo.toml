@@ -1,0 +1,14 @@
+[package]
+name = "waymark-runner-expr-eval"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-runner-state = { workspace = true }
+
+serde_json = { workspace = true }
+
+[dev-dependencies]
+waymark-proto = { workspace = true }
+waymark-runner-expr = { workspace = true }

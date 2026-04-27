@@ -150,7 +150,7 @@ where
             workflow_version_id: workflow.version_id,
             schedule_id: Some(schedule.id),
             entry_node: entry_exec.node_id,
-            state,
+            graph: state.graph,
             action_results: HashMap::new(),
             instance_id,
             scheduled_at: None,
@@ -289,9 +289,11 @@ fn main(input: [number], output: [result]):
 
         let queued = &instances[0];
         assert_eq!(queued.schedule_id, Some(schedule.id));
+
+        let state = waymark_runner_state::RunnerState::from_graph(queued.graph.clone());
         let mut executor = RunnerExecutor::without_updates_collection(
             Arc::clone(&dag),
-            queued.state.clone(),
+            state,
             queued.action_results.clone(),
         );
         let replay = waymark_runner::replay_variables(executor.state(), executor.action_results())

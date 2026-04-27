@@ -1,5 +1,7 @@
 [default.extend-words]
 # Project-specific terms that are not typos
+typle = "typle"
+
 
 [files]
 extend-exclude = [

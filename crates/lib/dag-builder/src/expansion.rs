@@ -270,15 +270,15 @@ impl DAGConverter {
                                 })
                                 .collect(),
                         )
-                    } else if let Some(target) = &fn_node.target {
-                        Some(vec![
-                            scope_var_map
-                                .get(target)
-                                .cloned()
-                                .unwrap_or_else(|| target.clone()),
-                        ])
                     } else {
-                        None
+                        fn_node.target.as_ref().map(|target| {
+                            vec![
+                                scope_var_map
+                                    .get(target)
+                                    .cloned()
+                                    .unwrap_or_else(|| target.clone()),
+                            ]
+                        })
                     };
 
                     if let Some(targets) = fn_call_targets {

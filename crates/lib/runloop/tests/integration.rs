@@ -16,7 +16,8 @@ use waymark_nonzero_duration::NonZeroDuration;
 use waymark_proto::ast as ir;
 use waymark_runloop::{RunLoop, RunLoopConfig, RunLoopError};
 use waymark_runner::RunnerExecutor;
-use waymark_runner_state::{NodeStatus, RunnerState};
+use waymark_runner_execution_core::NodeStatus;
+use waymark_runner_state::RunnerState;
 use waymark_worker_inline::ActionCallable;
 use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBackend};
 
@@ -121,7 +122,7 @@ fn main(input: [x], output: [y]):
         workflow_version_id,
         schedule_id: None,
         entry_node: entry_exec.node_id,
-        state,
+        graph: state.graph,
         action_results: HashMap::new(),
         instance_id: InstanceId::new_uuid_v4(),
         scheduled_at: None,
@@ -226,7 +227,7 @@ fn main(input: [x], output: [y]):
             workflow_version_id,
             schedule_id: None,
             entry_node: entry_exec.node_id,
-            state,
+            graph: state.graph,
             action_results: HashMap::new(),
             instance_id: InstanceId::new_uuid_v4(),
             scheduled_at: None,
@@ -337,7 +338,7 @@ fn main(input: [x], output: [y]):
         workflow_version_id,
         schedule_id: None,
         entry_node: entry_exec.node_id,
-        state,
+        graph: state.graph,
         action_results: HashMap::new(),
         instance_id: InstanceId::new_uuid_v4(),
         scheduled_at: None,
@@ -425,7 +426,7 @@ fn main(input: [], output: [y]):
         workflow_version_id,
         schedule_id: None,
         entry_node: entry_exec.node_id,
-        state,
+        graph: state.graph,
         action_results: HashMap::new(),
         instance_id: InstanceId::new_uuid_v4(),
         scheduled_at: None,
@@ -446,7 +447,7 @@ fn main(input: [], output: [y]):
     let mut saw_running_snapshot = false;
     let mut saw_failed_snapshot = false;
     for update in graph_updates {
-        let Some(node) = update.nodes.get(&execution_id) else {
+        let Some(node) = update.graph.nodes.get(&execution_id) else {
             continue;
         };
         if node.status == NodeStatus::Running && node.started_at.is_some() {
@@ -539,7 +540,7 @@ fn main(input: [x], output: [y]):
         workflow_version_id,
         schedule_id: None,
         entry_node: entry_exec.node_id,
-        state,
+        graph: state.graph,
         action_results: HashMap::new(),
         instance_id,
         scheduled_at: None,
@@ -686,7 +687,7 @@ fn main(input: [limit], output: [result]):
         workflow_version_id,
         schedule_id: None,
         entry_node: entry_exec.node_id,
-        state,
+        graph: state.graph,
         action_results: HashMap::new(),
         instance_id: InstanceId::new_uuid_v4(),
         scheduled_at: None,
@@ -738,7 +739,7 @@ async fn test_runloop_reproduces_no_progress_with_continued_queue_growth() {
                 workflow_version_id: WorkflowVersionId::new_uuid_v4(),
                 schedule_id: None,
                 entry_node: ExecutionId::new_uuid_v4(),
-                state: RunnerState::dummy(),
+                graph: RunnerState::dummy().graph,
                 action_results: HashMap::new(),
                 instance_id: InstanceId::new_uuid_v4(),
                 scheduled_at: None,
@@ -843,6 +844,7 @@ fn main(input: [x], output: [y]):
     assert!(
         bootstrap_executor
             .state()
+            .graph
             .nodes
             .get(&action_exec.node_id)
             .is_some_and(|node| node.is_action_call() && node.status == NodeStatus::Completed),
@@ -874,7 +876,7 @@ fn main(input: [x], output: [y]):
         workflow_version_id,
         schedule_id: None,
         entry_node: action_exec.node_id,
-        state,
+        graph: state.graph,
         action_results: HashMap::new(),
         instance_id,
         scheduled_at: None,
@@ -969,7 +971,7 @@ fn main(input: [], output: [result]):
         workflow_version_id,
         schedule_id: None,
         entry_node: entry_exec.node_id,
-        state,
+        graph: state.graph,
         action_results: HashMap::new(),
         instance_id,
         scheduled_at: None,
@@ -1050,7 +1052,7 @@ fn main(input: [], output: [result]):
         workflow_version_id,
         schedule_id: None,
         entry_node: entry_exec.node_id,
-        state,
+        graph: state.graph,
         action_results: HashMap::new(),
         instance_id,
         scheduled_at: None,
@@ -1129,7 +1131,7 @@ fn main(input: [], output: [result]):
         workflow_version_id,
         schedule_id: None,
         entry_node: entry_exec.node_id,
-        state,
+        graph: state.graph,
         action_results: HashMap::new(),
         instance_id,
         scheduled_at: None,

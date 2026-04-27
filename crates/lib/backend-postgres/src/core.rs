@@ -22,7 +22,6 @@ use waymark_core_backend::{
     ActionDone, GraphUpdate, InstanceDone, InstanceLockStatus, LockClaim, QueuedInstance,
 };
 use waymark_observability::obs;
-use waymark_runner_state::RunnerState;
 use waymark_timed_future::TimedFutureExt as _;
 
 const INSTANCE_STATUS_QUEUED: &str = "queued";
@@ -169,7 +168,10 @@ impl PostgresBackend {
                 INSTANCE_STATUS_QUEUED,
                 Self::serialize(&payload_instance)?,
             ));
-            let graph = GraphUpdate::from_state(instance.instance_id, &instance.state);
+            let graph = GraphUpdate {
+                instance_id: instance.instance_id,
+                graph: instance.graph.clone(),
+            };
             runner_payloads.push((
                 instance.instance_id,
                 instance.entry_node,
@@ -435,8 +437,8 @@ impl PostgresBackend {
                 continue;
             };
             match Self::deserialize::<GraphUpdate>(&state_payload) {
-                Ok(graph) => {
-                    for (execution_id, node) in graph.nodes {
+                Ok(graph_update) => {
+                    for (execution_id, node) in graph_update.graph.nodes {
                         if node.is_action_call() {
                             action_execution_ids.push(execution_id);
                         }
@@ -817,10 +819,11 @@ impl PostgresBackend {
 
                 // If we do - parse the graph and assign state.
 
-                let graph: GraphUpdate = crate::codec::deserialize(&state_payload)
+                let graph_update: GraphUpdate = crate::codec::deserialize(&state_payload)
                     .map_err(PollQueuedInstancesError::GraphUpdateDecode)?;
 
-                let action_node_ids: Vec<ExecutionId> = graph
+                let action_node_ids: Vec<ExecutionId> = graph_update
+                    .graph
                     .nodes
                     .iter()
                     .filter_map(|(node_id, node)| node.is_action_call().then_some(*node_id))
@@ -831,7 +834,7 @@ impl PostgresBackend {
                     action_node_ids_by_instance.insert(instance_id, action_node_ids);
                 }
 
-                instance.state = RunnerState::from_parts(graph.nodes, graph.edges);
+                instance.graph = graph_update.graph;
 
                 Ok(instance)
             })
@@ -1154,20 +1157,21 @@ mod tests {
     use uuid::Uuid;
     use waymark_core_backend::{ActionAttemptStatus, CoreBackend};
     use waymark_ids::ExecutionId;
+    use waymark_runner_execution_core::{ExecutionGraph, ExecutionNode, NodeStatus};
     use waymark_runner_executor_core::UncheckedExecutionResult;
 
     use super::super::test_helpers::setup_backend;
     use super::*;
 
     use waymark_dag::EdgeType;
-    use waymark_runner_state::{ActionCallSpec, ExecutionNode, NodeStatus};
+    use waymark_runner_state::{ActionCallSpec, RunnerState};
 
     fn sample_queued_instance(instance_id: InstanceId, entry_node: ExecutionId) -> QueuedInstance {
         QueuedInstance {
             workflow_version_id: WorkflowVersionId::new_uuid_v4(),
             schedule_id: None,
             entry_node,
-            state: RunnerState::dummy(),
+            graph: RunnerState::dummy().graph,
             action_results: HashMap::new(),
             instance_id,
             scheduled_at: Some(Utc::now() - Duration::seconds(1)),
@@ -1306,7 +1310,7 @@ mod tests {
             workflow_version_id,
             schedule_id: None,
             entry_node,
-            state: RunnerState::dummy(),
+            graph: RunnerState::dummy().graph,
             action_results: HashMap::new(),
             instance_id,
             scheduled_at: Some(Utc::now()),
@@ -1407,15 +1411,16 @@ mod tests {
         completed_action_node.status = NodeStatus::Completed;
         completed_action_node.scheduled_at = None;
 
-        let graph = GraphUpdate {
-            instance_id,
+        let graph = ExecutionGraph {
             nodes: HashMap::from([(execution_id, completed_action_node)]),
             edges: std::collections::HashSet::new(),
         };
+
+        let graph_update = GraphUpdate { instance_id, graph };
         CoreBackend::save_graphs(
             &backend,
             initial_claim.clone(),
-            std::slice::from_ref(&graph),
+            std::slice::from_ref(&graph_update),
         )
         .await
         .expect("persist graph");
@@ -1488,12 +1493,16 @@ mod tests {
         nodes.insert(execution_id, sample_execution_node(execution_id));
         let graph = GraphUpdate {
             instance_id,
-            nodes,
-            edges: std::collections::HashSet::from([waymark_runner_state::ExecutionEdge {
-                source: execution_id,
-                target: execution_id,
-                edge_type: EdgeType::StateMachine,
-            }]),
+            graph: ExecutionGraph {
+                nodes,
+                edges: std::collections::HashSet::from([
+                    waymark_runner_execution_core::ExecutionEdge {
+                        source: execution_id,
+                        target: execution_id,
+                        edge_type: EdgeType::StateMachine,
+                    },
+                ]),
+            },
         };
         let extended_claim = LockClaim {
             lock_uuid: claim.lock_uuid,
@@ -1525,8 +1534,8 @@ mod tests {
                 .expect("runner state payload");
         let decoded: GraphUpdate = rmp_serde::from_slice(&state_payload.expect("state payload"))
             .expect("decode graph update");
-        assert_eq!(decoded.nodes.len(), 1);
-        assert_eq!(decoded.edges.len(), 1);
+        assert_eq!(decoded.graph.nodes.len(), 1);
+        assert_eq!(decoded.graph.edges.len(), 1);
     }
 
     #[serial(postgres)]
@@ -1544,13 +1553,17 @@ mod tests {
         let second_node_id = ExecutionId::new_uuid_v4();
         let first_graph = GraphUpdate {
             instance_id,
-            nodes: HashMap::from([(first_node_id, sample_execution_node(first_node_id))]),
-            edges: HashSet::new(),
+            graph: ExecutionGraph {
+                nodes: HashMap::from([(first_node_id, sample_execution_node(first_node_id))]),
+                edges: HashSet::new(),
+            },
         };
         let second_graph = GraphUpdate {
             instance_id,
-            nodes: HashMap::from([(second_node_id, sample_execution_node(second_node_id))]),
-            edges: HashSet::new(),
+            graph: ExecutionGraph {
+                nodes: HashMap::from([(second_node_id, sample_execution_node(second_node_id))]),
+                edges: HashSet::new(),
+            },
         };
 
         let locks = CoreBackend::save_graphs(
@@ -1986,8 +1999,10 @@ mod tests {
 
         let state = GraphUpdate {
             instance_id,
-            nodes: HashMap::from([(execution_id, sample_execution_node(execution_id))]),
-            edges: HashSet::new(),
+            graph: ExecutionGraph {
+                nodes: HashMap::from([(execution_id, sample_execution_node(execution_id))]),
+                edges: HashSet::new(),
+            },
         };
         let state_payload = PostgresBackend::serialize(&state).expect("serialize state");
         let result_payload =
@@ -2056,8 +2071,10 @@ mod tests {
         let workflow_version_id = Uuid::new_v4();
         let state_payload = PostgresBackend::serialize(&GraphUpdate {
             instance_id,
-            nodes: HashMap::new(),
-            edges: HashSet::new(),
+            graph: ExecutionGraph {
+                nodes: HashMap::new(),
+                edges: HashSet::new(),
+            },
         })
         .expect("serialize state");
         let result_payload =

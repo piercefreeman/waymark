@@ -145,7 +145,7 @@ fn build_instance(
         workflow_version_id,
         schedule_id: None,
         entry_node: entry_exec.node_id,
-        state,
+        graph: state.graph,
         action_results: HashMap::new(),
         instance_id,
         scheduled_at: None,

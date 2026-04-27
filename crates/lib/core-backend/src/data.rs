@@ -2,14 +2,14 @@
 // have specified in our database/Postgres backend, but not 1:1. It's better for
 // us to internally convert within the given backend
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use waymark_runner_execution_core::{ExecutionGraph, NodeStatus};
 use waymark_runner_executor_core::{
     ExecutionException, ExecutionSuccess, UncheckedExecutionResult,
 };
-use waymark_runner_state::{ExecutionEdge, ExecutionNode, NodeStatus, RunnerState};
 
 use waymark_ids::{ExecutionId, InstanceId, LockId, ScheduleId, WorkflowVersionId};
 
@@ -20,7 +20,7 @@ pub struct QueuedInstance {
     #[serde(default)]
     pub schedule_id: Option<ScheduleId>,
     pub entry_node: ExecutionId,
-    pub state: RunnerState,
+    pub graph: ExecutionGraph,
     #[serde(
         default = "HashMap::new",
         deserialize_with = "deserialize_action_results"
@@ -63,22 +63,14 @@ pub struct InstanceDone {
 /// derived caches) so persistence stays lightweight.
 pub struct GraphUpdate {
     pub instance_id: InstanceId,
-    pub nodes: HashMap<ExecutionId, ExecutionNode>,
-    pub edges: HashSet<ExecutionEdge>,
+    #[serde(flatten)]
+    pub graph: ExecutionGraph,
 }
 
 impl GraphUpdate {
-    pub fn from_state(instance_id: InstanceId, state: &RunnerState) -> Self {
-        Self {
-            instance_id,
-            nodes: state.nodes.clone(),
-            edges: state.edges.clone(),
-        }
-    }
-
     pub fn next_scheduled_at(&self) -> DateTime<Utc> {
         let mut next: Option<DateTime<Utc>> = None;
-        for node in self.nodes.values() {
+        for node in self.graph.nodes.values() {
             if matches!(node.status, NodeStatus::Completed | NodeStatus::Failed) {
                 continue;
             }

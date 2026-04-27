@@ -20,7 +20,12 @@ waymark-runner-executor-core = { workspace = true }
 waymark-runner-state = { workspace = true }
 waymark-secret-string = { workspace = true }
 waymark-support-integration = { workspace = true }
-waymark-worker-remote = { workspace = true }
+waymark-worker-core = { workspace = true }
+waymark-worker-process-pool = { workspace = true }
+waymark-worker-process-spec = { workspace = true }
+waymark-worker-python = { workspace = true }
+waymark-worker-remote-bringup = { workspace = true }
+waymark-worker-remote-pool = { workspace = true }
 waymark-workflow-registry-backend = { workspace = true }
 
 anyhow = { workspace = true }
@@ -31,3 +36,4 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 sqlx = { workspace = true, features = ["runtime-tokio"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tokio-util = { workspace = true }

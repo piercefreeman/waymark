@@ -1,260 +1,28 @@
 //! Execution-time DAG state with unrolled nodes and symbolic values.
 
 use std::collections::{HashMap, HashSet};
-use std::fmt;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
-use waymark_ids::ExecutionId;
 
+use waymark_ids::ExecutionId;
+use waymark_runner_execution_core::{
+    ExecutionEdge, ExecutionGraph, ExecutionNode, ExecutionNodeType, NodeStatus,
+};
+
+use crate::max_nodes::MAX_RUNNER_STATE_NODES;
 use crate::util::is_truthy;
-use crate::value_visitor::{ValueExpr, collect_value_sources, resolve_value_tree};
+use crate::value::*;
+use crate::{
+    ActionCallSpec, ActionResultValue, RunnerStateError, ValueExpr, collect_value_sources,
+    resolve_value_tree,
+};
 use waymark_dag::{
     ActionCallNode, AggregatorNode, AssignmentNode, DAG, DAGNode, EdgeType, FnCallNode, JoinNode,
     ReturnNode, SleepNode,
 };
 use waymark_ir_conversions::literal_to_json_value;
 use waymark_proto::ast as ir;
-
-static MAX_RUNNER_STATE_NODES: std::sync::LazyLock<usize> = std::sync::LazyLock::new(|| {
-    std::env::var("WAYMARK_UNSTABLE_MAX_RUNNER_STATE_NODES")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(10_000)
-});
-
-/// Raised when the runner state cannot be updated safely.
-#[derive(Debug, thiserror::Error)]
-#[error("{0}")]
-pub struct RunnerStateError(pub String);
-
-impl RunnerStateError {
-    const NODE_LIMIT_EXCEEDED_PREFIX: &str = "runner state node limit exceeded:";
-
-    fn node_limit_exceeded(node_id: ExecutionId, existing_nodes: usize) -> Self {
-        Self(format!(
-            "runner state node limit exceeded: attempted to queue node {} with {} existing nodes (max {})",
-            node_id, existing_nodes, *MAX_RUNNER_STATE_NODES,
-        ))
-    }
-
-    pub fn is_node_limit_exceeded(&self) -> bool {
-        Self::is_node_limit_exceeded_message(&self.0)
-    }
-
-    pub fn is_node_limit_exceeded_message(message: &str) -> bool {
-        message.starts_with(Self::NODE_LIMIT_EXCEEDED_PREFIX)
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ActionCallSpec {
-    pub action_name: String,
-    pub module_name: Option<String>,
-    pub kwargs: HashMap<String, ValueExpr>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct LiteralValue {
-    pub value: serde_json::Value,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct VariableValue {
-    pub name: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ActionResultValue {
-    pub node_id: ExecutionId,
-    pub action_name: String,
-    pub iteration_index: Option<i32>,
-    pub result_index: Option<i32>,
-}
-
-impl ActionResultValue {
-    pub fn label(&self) -> String {
-        let mut label = self.action_name.clone();
-        if let Some(idx) = self.iteration_index {
-            label = format!("{label}[{idx}]");
-        }
-        if let Some(idx) = self.result_index {
-            label = format!("{label}[{idx}]");
-        }
-        label
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct BinaryOpValue {
-    pub left: Box<ValueExpr>,
-    pub op: i32,
-    pub right: Box<ValueExpr>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct UnaryOpValue {
-    pub op: i32,
-    pub operand: Box<ValueExpr>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ListValue {
-    pub elements: Vec<ValueExpr>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct DictEntryValue {
-    pub key: ValueExpr,
-    pub value: ValueExpr,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct DictValue {
-    pub entries: Vec<DictEntryValue>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct IndexValue {
-    pub object: Box<ValueExpr>,
-    pub index: Box<ValueExpr>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct DotValue {
-    pub object: Box<ValueExpr>,
-    pub attribute: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct FunctionCallValue {
-    pub name: String,
-    pub args: Vec<ValueExpr>,
-    pub kwargs: HashMap<String, ValueExpr>,
-    pub global_function: Option<i32>,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct SpreadValue {
-    pub collection: Box<ValueExpr>,
-    pub loop_var: String,
-    pub action: ActionCallSpec,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "type", content = "data")]
-pub enum NodeStatus {
-    Queued,
-    Running,
-    Completed,
-    Failed,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ExecutionNodeType {
-    Input,
-    Output,
-    Assignment,
-    ActionCall,
-    FnCall,
-    Parallel,
-    Aggregator,
-    Branch,
-    Join,
-    Return,
-    Break,
-    Continue,
-    Sleep,
-    Expression,
-}
-
-impl ExecutionNodeType {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            ExecutionNodeType::Input => "input",
-            ExecutionNodeType::Output => "output",
-            ExecutionNodeType::Assignment => "assignment",
-            ExecutionNodeType::ActionCall => "action_call",
-            ExecutionNodeType::FnCall => "fn_call",
-            ExecutionNodeType::Parallel => "parallel",
-            ExecutionNodeType::Aggregator => "aggregator",
-            ExecutionNodeType::Branch => "branch",
-            ExecutionNodeType::Join => "join",
-            ExecutionNodeType::Return => "return",
-            ExecutionNodeType::Break => "break",
-            ExecutionNodeType::Continue => "continue",
-            ExecutionNodeType::Sleep => "sleep",
-            ExecutionNodeType::Expression => "expression",
-        }
-    }
-}
-
-impl TryFrom<&str> for ExecutionNodeType {
-    type Error = RunnerStateError;
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match value {
-            "input" => Ok(ExecutionNodeType::Input),
-            "output" => Ok(ExecutionNodeType::Output),
-            "assignment" => Ok(ExecutionNodeType::Assignment),
-            "action_call" => Ok(ExecutionNodeType::ActionCall),
-            "fn_call" => Ok(ExecutionNodeType::FnCall),
-            "parallel" => Ok(ExecutionNodeType::Parallel),
-            "aggregator" => Ok(ExecutionNodeType::Aggregator),
-            "branch" => Ok(ExecutionNodeType::Branch),
-            "join" => Ok(ExecutionNodeType::Join),
-            "return" => Ok(ExecutionNodeType::Return),
-            "break" => Ok(ExecutionNodeType::Break),
-            "continue" => Ok(ExecutionNodeType::Continue),
-            "sleep" => Ok(ExecutionNodeType::Sleep),
-            "expression" => Ok(ExecutionNodeType::Expression),
-            _ => Err(RunnerStateError(format!(
-                "unknown execution node type: {value}"
-            ))),
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ExecutionNode {
-    pub node_id: ExecutionId,
-    pub node_type: String,
-    pub label: String,
-    pub status: NodeStatus,
-    pub template_id: Option<String>,
-    pub targets: Vec<String>,
-    pub action: Option<ActionCallSpec>,
-    pub value_expr: Option<ValueExpr>,
-    pub assignments: HashMap<String, ValueExpr>,
-    pub action_attempt: i32,
-    #[serde(default)]
-    pub started_at: Option<DateTime<Utc>>,
-    #[serde(default)]
-    pub completed_at: Option<DateTime<Utc>>,
-    #[serde(default)]
-    pub scheduled_at: Option<DateTime<Utc>>,
-}
-
-impl ExecutionNode {
-    pub fn node_type_enum(&self) -> Result<ExecutionNodeType, RunnerStateError> {
-        ExecutionNodeType::try_from(self.node_type.as_str())
-    }
-
-    pub fn is_action_call(&self) -> bool {
-        matches!(
-            ExecutionNodeType::try_from(self.node_type.as_str()),
-            Ok(ExecutionNodeType::ActionCall)
-        )
-    }
-
-    pub fn is_sleep(&self) -> bool {
-        matches!(
-            ExecutionNodeType::try_from(self.node_type.as_str()),
-            Ok(ExecutionNodeType::Sleep)
-        )
-    }
-}
 
 #[derive(Clone, Debug, Default)]
 pub struct QueueNodeParams {
@@ -264,13 +32,6 @@ pub struct QueueNodeParams {
     pub action: Option<ActionCallSpec>,
     pub value_expr: Option<ValueExpr>,
     pub scheduled_at: Option<DateTime<Utc>>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct ExecutionEdge {
-    pub source: ExecutionId,
-    pub target: ExecutionId,
-    pub edge_type: EdgeType,
 }
 
 /// Track queued/executed DAG nodes with an unrolled, symbolic state.
@@ -324,12 +85,10 @@ pub struct ExecutionEdge {
 /// action and the results update. Subsequent iterations repeat the same
 /// sequence, producing a chain of assignments where replay can reconstruct the
 /// incremental `results` value by following data-flow edges.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub struct RunnerState {
-    #[serde(skip, default)]
     pub dag: Option<Arc<DAG>>,
-    pub nodes: HashMap<ExecutionId, ExecutionNode>,
-    pub edges: HashSet<ExecutionEdge>,
+    pub graph: ExecutionGraph,
     pub ready_queue: Vec<ExecutionId>,
     pub timeline: Vec<ExecutionId>,
     link_queued_nodes: bool,
@@ -340,54 +99,48 @@ pub struct RunnerState {
 impl RunnerState {
     #[allow(deprecated)]
     pub fn dummy() -> Self {
-        Self::new(None, None, None, false)
+        Self::new(None, None, false)
     }
 
     #[allow(deprecated)]
     pub fn from_dag(dag: Arc<DAG>) -> Self {
-        Self::new(Some(dag), None, None, false)
+        Self::new(Some(dag), None, false)
     }
 
     #[allow(deprecated)]
-    pub fn from_parts(
-        nodes: HashMap<ExecutionId, ExecutionNode>,
-        edges: HashSet<ExecutionEdge>,
-    ) -> Self {
-        Self::new(None, Some(nodes), Some(edges), false)
+    pub fn from_graph(graph: ExecutionGraph) -> Self {
+        Self::new(None, Some(graph), false)
     }
 
     #[allow(deprecated)]
     pub fn with_link_queued_nodes() -> Self {
-        Self::new(None, None, None, true)
+        Self::new(None, None, true)
     }
 
     #[allow(deprecated)]
-    pub fn full(
-        dag: Arc<DAG>,
-        nodes: HashMap<ExecutionId, ExecutionNode>,
-        edges: HashSet<ExecutionEdge>,
-    ) -> Self {
-        Self::new(Some(dag), Some(nodes), Some(edges), false)
+    pub fn full(dag: Arc<DAG>, graph: ExecutionGraph) -> Self {
+        Self::new(Some(dag), Some(graph), false)
     }
 
     #[deprecated]
     pub fn new(
         dag: Option<Arc<DAG>>,
-        nodes: Option<HashMap<ExecutionId, ExecutionNode>>,
-        edges: Option<HashSet<ExecutionEdge>>,
+        graph: Option<ExecutionGraph>,
         link_queued_nodes: bool,
     ) -> Self {
         let mut state = Self {
             dag,
-            nodes: nodes.unwrap_or_default(),
-            edges: edges.unwrap_or_default(),
+            graph: graph.unwrap_or_else(|| ExecutionGraph {
+                nodes: Default::default(),
+                edges: Default::default(),
+            }),
             ready_queue: Vec::new(),
             timeline: Vec::new(),
             link_queued_nodes,
             latest_assignments: HashMap::new(),
             graph_dirty: false,
         };
-        if !state.nodes.is_empty() || !state.edges.is_empty() {
+        if !state.graph.nodes.is_empty() || !state.graph.edges.is_empty() {
             state.rehydrate_state();
         }
         state
@@ -470,7 +223,8 @@ impl RunnerState {
         label: &str,
         params: QueueNodeParams,
     ) -> Result<ExecutionNode, RunnerStateError> {
-        let node_type_enum = ExecutionNodeType::try_from(node_type)?;
+        let node_type_enum = ExecutionNodeType::try_from(node_type)
+            .map_err(|err| RunnerStateError(err.to_string()))?;
         let QueueNodeParams {
             node_id,
             template_id,
@@ -540,8 +294,40 @@ impl RunnerState {
             iteration_index,
             true,
         )?;
-        if let Some(node_mut) = self.nodes.get_mut(&node.node_id) {
+        if let Some(node_mut) = self.graph.nodes.get_mut(&node.node_id) {
             node_mut.value_expr = Some(ValueExpr::ActionResult(result.clone()));
+        }
+        Ok(result)
+    }
+
+    /// Queue an action spec.
+    pub fn queue_action_spec(
+        &mut self,
+        spec: ActionCallSpec,
+        targets: Option<Vec<String>>,
+        iteration_index: Option<i32>,
+    ) -> Result<ActionResultValue, RunnerStateError> {
+        let node = self.queue_node(
+            ExecutionNodeType::ActionCall.as_str(),
+            &format!("@{}()", spec.action_name),
+            QueueNodeParams {
+                targets: targets.clone(),
+                action: Some(spec.clone()),
+                ..QueueNodeParams::default()
+            },
+        )?;
+        for value in spec.kwargs.values() {
+            self.record_data_flow_from_value(node.node_id, value);
+        }
+        let result = self.assign_action_results(
+            &node,
+            &spec.action_name,
+            targets.as_deref(),
+            iteration_index,
+            true,
+        )?;
+        if let Some(node) = self.graph.nodes.get_mut(&node.node_id) {
+            node.value_expr = Some(ValueExpr::ActionResult(result.clone()));
         }
         Ok(result)
     }
@@ -653,19 +439,22 @@ impl RunnerState {
     /// - queue node A then node B with link_queued_nodes=True
     ///   This creates a state-machine edge A -> B automatically.
     fn register_node(&mut self, node: ExecutionNode) -> Result<(), RunnerStateError> {
-        if self.nodes.contains_key(&node.node_id) {
+        if self.graph.nodes.contains_key(&node.node_id) {
             return Err(RunnerStateError(format!(
                 "execution node already queued: {}",
                 node.node_id
             )));
         }
-        if self.nodes.len() >= *MAX_RUNNER_STATE_NODES {
+        if self.graph.nodes.len() >= *MAX_RUNNER_STATE_NODES {
             return Err(RunnerStateError::node_limit_exceeded(
                 node.node_id,
-                self.nodes.len(),
+                self.graph.nodes.len(),
             ));
         }
-        self.nodes.insert(node.node_id, node.clone());
+        metrics::histogram!("waymark_runner_register_node_graph_nodes_len")
+            .record(waymark_metrics_util::Val(self.graph.nodes.len()));
+
+        self.graph.nodes.insert(node.node_id, node.clone());
         self.ready_queue.push(node.node_id);
         if node.is_action_call() {
             self.mark_graph_dirty();
@@ -684,7 +473,7 @@ impl RunnerState {
     }
 
     fn register_edge(&mut self, edge: ExecutionEdge) {
-        self.edges.insert(edge);
+        self.graph.edges.insert(edge);
     }
 
     fn mark_graph_dirty(&mut self) {
@@ -703,7 +492,7 @@ impl RunnerState {
         self.timeline = self.build_timeline();
         self.latest_assignments.clear();
         for node_id in &self.timeline {
-            if let Some(node) = self.nodes.get(node_id) {
+            if let Some(node) = self.graph.nodes.get(node_id) {
                 for target in node.assignments.keys() {
                     self.latest_assignments.insert(target.clone(), *node_id);
                 }
@@ -714,7 +503,8 @@ impl RunnerState {
                 .timeline
                 .iter()
                 .filter(|node_id| {
-                    self.nodes
+                    self.graph
+                        .nodes
                         .get(node_id)
                         .map(|node| node.status == NodeStatus::Queued)
                         .unwrap_or(false)
@@ -725,17 +515,22 @@ impl RunnerState {
     }
 
     fn build_timeline(&self) -> Vec<ExecutionId> {
-        if self.edges.is_empty() {
-            return self.nodes.keys().cloned().collect();
+        if self.graph.edges.is_empty() {
+            return self.graph.nodes.keys().cloned().collect();
         }
         let mut adjacency: HashMap<ExecutionId, Vec<ExecutionId>> = self
+            .graph
             .nodes
             .keys()
             .map(|node_id| (*node_id, Vec::new()))
             .collect();
-        let mut in_degree: HashMap<ExecutionId, usize> =
-            self.nodes.keys().map(|node_id| (*node_id, 0)).collect();
-        let mut edges: Vec<&ExecutionEdge> = self.edges.iter().collect();
+        let mut in_degree: HashMap<ExecutionId, usize> = self
+            .graph
+            .nodes
+            .keys()
+            .map(|node_id| (*node_id, 0))
+            .collect();
+        let mut edges: Vec<&ExecutionEdge> = self.graph.edges.iter().collect();
         edges.sort_by_key(|edge| (edge.source, edge.target));
         for edge in edges {
             if edge.edge_type != EdgeType::StateMachine {
@@ -771,6 +566,7 @@ impl RunnerState {
             }
         }
         let mut remaining: Vec<ExecutionId> = self
+            .graph
             .nodes
             .keys()
             .filter(|node_id| !order.contains(node_id))
@@ -785,7 +581,8 @@ impl RunnerState {
         &mut self,
         node_id: ExecutionId,
     ) -> Result<&mut ExecutionNode, RunnerStateError> {
-        self.nodes
+        self.graph
+            .nodes
             .get_mut(&node_id)
             .ok_or_else(|| RunnerStateError(format!("execution node not found: {node_id}")))
     }
@@ -875,13 +672,13 @@ impl RunnerState {
                 ..
             }) => {
                 let value_expr = self.expr_to_value(expr, None)?;
-                if let Some(node_mut) = self.nodes.get_mut(&exec_node.node_id) {
+                if let Some(node_mut) = self.graph.nodes.get_mut(&exec_node.node_id) {
                     node_mut.value_expr = Some(value_expr.clone());
                 }
                 self.record_data_flow_from_value(exec_node.node_id, &value_expr);
                 let assignments =
                     self.build_assignments(&self.node_targets(template), &value_expr)?;
-                if let Some(node) = self.nodes.get_mut(&exec_node.node_id) {
+                if let Some(node) = self.graph.nodes.get_mut(&exec_node.node_id) {
                     node.assignments.extend(assignments.clone());
                 }
                 self.mark_latest_assignments(exec_node.node_id, &assignments);
@@ -894,6 +691,7 @@ impl RunnerState {
                 ..
             }) => {
                 let kwarg_values = self
+                    .graph
                     .nodes
                     .get(&exec_node.node_id)
                     .and_then(|node| node.action.as_ref())
@@ -912,7 +710,7 @@ impl RunnerState {
                     iteration_index,
                     true,
                 )?;
-                if let Some(node_mut) = self.nodes.get_mut(&exec_node.node_id) {
+                if let Some(node_mut) = self.graph.nodes.get_mut(&exec_node.node_id) {
                     node_mut.value_expr = Some(ValueExpr::ActionResult(result));
                 }
                 return Ok(());
@@ -922,7 +720,7 @@ impl RunnerState {
                 ..
             }) => {
                 let value_expr = self.expr_to_value(expr, None)?;
-                if let Some(node_mut) = self.nodes.get_mut(&exec_node.node_id) {
+                if let Some(node_mut) = self.graph.nodes.get_mut(&exec_node.node_id) {
                     node_mut.value_expr = Some(value_expr.clone());
                 }
                 self.record_data_flow_from_value(exec_node.node_id, &value_expr);
@@ -933,13 +731,13 @@ impl RunnerState {
                 ..
             }) => {
                 let value_expr = self.expr_to_value(expr, None)?;
-                if let Some(node_mut) = self.nodes.get_mut(&exec_node.node_id) {
+                if let Some(node_mut) = self.graph.nodes.get_mut(&exec_node.node_id) {
                     node_mut.value_expr = Some(value_expr.clone());
                 }
                 self.record_data_flow_from_value(exec_node.node_id, &value_expr);
                 let assignments =
                     self.build_assignments(&self.node_targets(template), &value_expr)?;
-                if let Some(node) = self.nodes.get_mut(&exec_node.node_id) {
+                if let Some(node) = self.graph.nodes.get_mut(&exec_node.node_id) {
                     node.assignments.extend(assignments.clone());
                 }
                 self.mark_latest_assignments(exec_node.node_id, &assignments);
@@ -951,13 +749,13 @@ impl RunnerState {
                 ..
             }) => {
                 let value_expr = self.expr_to_value(expr, None)?;
-                if let Some(node_mut) = self.nodes.get_mut(&exec_node.node_id) {
+                if let Some(node_mut) = self.graph.nodes.get_mut(&exec_node.node_id) {
                     node_mut.value_expr = Some(value_expr.clone());
                 }
                 self.record_data_flow_from_value(exec_node.node_id, &value_expr);
                 let target = target.clone().unwrap_or_else(|| "result".to_string());
                 let assignments = self.build_assignments(&[target], &value_expr)?;
-                if let Some(node) = self.nodes.get_mut(&exec_node.node_id) {
+                if let Some(node) = self.graph.nodes.get_mut(&exec_node.node_id) {
                     node.assignments.extend(assignments.clone());
                 }
                 self.mark_latest_assignments(exec_node.node_id, &assignments);
@@ -1007,7 +805,7 @@ impl RunnerState {
         let assignments =
             self.build_assignments(targets, &ValueExpr::ActionResult(result_ref.clone()))?;
         if !assignments.is_empty() {
-            if let Some(node) = self.nodes.get_mut(&node.node_id) {
+            if let Some(node) = self.graph.nodes.get_mut(&node.node_id) {
                 node.assignments.extend(assignments.clone());
             }
             if update_latest {
@@ -1049,7 +847,7 @@ impl RunnerState {
                     return Err(RunnerStateError("tuple unpacking mismatch".to_string()));
                 }
                 let mut map = HashMap::new();
-                for (target, item) in targets.iter().zip(elements.into_iter()) {
+                for (target, item) in targets.iter().zip(elements) {
                     map.insert(target.clone(), item);
                 }
                 Ok(map)
@@ -1116,8 +914,12 @@ impl RunnerState {
         let resolved = resolve_value_tree(&value, &|name, seen| {
             self.resolve_variable_value(name, seen)
         });
-        if let ValueExpr::BinaryOp(BinaryOpValue { left, op, right }) = &resolved
-            && ir::BinaryOperator::try_from(*op).ok() == Some(ir::BinaryOperator::BinaryOpAdd)
+        if let ValueExpr::BinaryOp(BinaryOpValue {
+            ref left,
+            op,
+            ref right,
+        }) = resolved
+            && ir::BinaryOperator::try_from(op).ok() == Some(ir::BinaryOperator::BinaryOpAdd)
             && let (ValueExpr::List(left_list), ValueExpr::List(right_list)) = (&**left, &**right)
         {
             let mut elements = left_list.elements.clone();
@@ -1153,7 +955,7 @@ impl RunnerState {
                 });
             }
         };
-        let node = match self.nodes.get(&node_id) {
+        let node = match self.graph.nodes.get(&node_id) {
             Some(node) => node,
             None => {
                 return ValueExpr::Variable(VariableValue {
@@ -1598,7 +1400,7 @@ impl RunnerState {
             iteration_index,
             true,
         )?;
-        if let Some(node) = self.nodes.get_mut(&node.node_id) {
+        if let Some(node) = self.graph.nodes.get_mut(&node.node_id) {
             node.value_expr = Some(ValueExpr::ActionResult(result.clone()));
         }
         Ok(result)
@@ -1650,115 +1452,11 @@ impl RunnerState {
         )?;
         self.record_data_flow_from_value(exec_node_id, &value_expr);
         let assignments = self.build_assignments(&targets, &value_expr)?;
-        if let Some(node_mut) = self.nodes.get_mut(&node.node_id) {
+        if let Some(node_mut) = self.graph.nodes.get_mut(&node.node_id) {
             node_mut.assignments.extend(assignments.clone());
         }
         self.mark_latest_assignments(node.node_id, &assignments);
         Ok(node)
-    }
-}
-
-/// Render a ValueExpr to a python-like string for debugging/visualization.
-///
-/// Example:
-/// - BinaryOpValue(VariableValue("a"), +, LiteralValue(1)) -> "a + 1"
-pub fn format_value(expr: &ValueExpr) -> String {
-    format_value_inner(expr, 0)
-}
-
-/// Recursive ValueExpr formatter with operator precedence handling.
-///
-/// Example:
-/// - (a + b) * c renders with parentheses when needed.
-fn format_value_inner(expr: &ValueExpr, parent_prec: i32) -> String {
-    match expr {
-        ValueExpr::Literal(lit) => format_literal(&lit.value),
-        ValueExpr::Variable(var) => var.name.clone(),
-        ValueExpr::ActionResult(value) => value.label(),
-        ValueExpr::BinaryOp(value) => {
-            let (op_str, prec) = binary_operator(value.op);
-            let left = format_value_inner(&value.left, prec);
-            let right = format_value_inner(&value.right, prec + 1);
-            let rendered = format!("{left} {op_str} {right}");
-            if prec < parent_prec {
-                format!("({rendered})")
-            } else {
-                rendered
-            }
-        }
-        ValueExpr::UnaryOp(value) => {
-            let (op_str, prec) = unary_operator(value.op);
-            let operand = format_value_inner(&value.operand, prec);
-            let rendered = format!("{op_str}{operand}");
-            if prec < parent_prec {
-                format!("({rendered})")
-            } else {
-                rendered
-            }
-        }
-        ValueExpr::List(value) => {
-            let items: Vec<String> = value
-                .elements
-                .iter()
-                .map(|item| format_value_inner(item, 0))
-                .collect();
-            format!("[{}]", items.join(", "))
-        }
-        ValueExpr::Dict(value) => {
-            let entries: Vec<String> = value
-                .entries
-                .iter()
-                .map(|entry| {
-                    format!(
-                        "{}: {}",
-                        format_value_inner(&entry.key, 0),
-                        format_value_inner(&entry.value, 0)
-                    )
-                })
-                .collect();
-            format!("{{{}}}", entries.join(", "))
-        }
-        ValueExpr::Index(value) => {
-            let prec = precedence("index");
-            let obj = format_value_inner(&value.object, prec);
-            let idx = format_value_inner(&value.index, 0);
-            let rendered = format!("{obj}[{idx}]");
-            if prec < parent_prec {
-                format!("({rendered})")
-            } else {
-                rendered
-            }
-        }
-        ValueExpr::Dot(value) => {
-            let prec = precedence("dot");
-            let obj = format_value_inner(&value.object, prec);
-            let rendered = format!("{obj}.{}", value.attribute);
-            if prec < parent_prec {
-                format!("({rendered})")
-            } else {
-                rendered
-            }
-        }
-        ValueExpr::FunctionCall(value) => {
-            let mut args: Vec<String> = value
-                .args
-                .iter()
-                .map(|arg| format_value_inner(arg, 0))
-                .collect();
-            for (name, val) in &value.kwargs {
-                args.push(format!("{name}={}", format_value_inner(val, 0)));
-            }
-            format!("{}({})", value.name, args.join(", "))
-        }
-        ValueExpr::Spread(value) => {
-            let collection = format_value_inner(&value.collection, 0);
-            let mut args: Vec<String> = Vec::new();
-            for (name, val) in &value.action.kwargs {
-                args.push(format!("{name}={}", format_value_inner(val, 0)));
-            }
-            let call = format!("@{}({})", value.action.action_name, args.join(", "));
-            format!("spread {collection}:{} -> {call}", value.loop_var)
-        }
     }
 }
 
@@ -1802,64 +1500,6 @@ fn value_expr_contains_variable(expr: &ValueExpr, name: &str) -> bool {
                     .any(|kwarg| value_expr_contains_variable(kwarg, name))
         }
         ValueExpr::Literal(_) | ValueExpr::ActionResult(_) => false,
-    }
-}
-
-/// Map binary operator enums to (symbol, precedence) for formatting.
-fn binary_operator(op: i32) -> (&'static str, i32) {
-    match ir::BinaryOperator::try_from(op).ok() {
-        Some(ir::BinaryOperator::BinaryOpOr) => ("or", 10),
-        Some(ir::BinaryOperator::BinaryOpAnd) => ("and", 20),
-        Some(ir::BinaryOperator::BinaryOpEq) => ("==", 30),
-        Some(ir::BinaryOperator::BinaryOpNe) => ("!=", 30),
-        Some(ir::BinaryOperator::BinaryOpLt) => ("<", 30),
-        Some(ir::BinaryOperator::BinaryOpLe) => ("<=", 30),
-        Some(ir::BinaryOperator::BinaryOpGt) => (">", 30),
-        Some(ir::BinaryOperator::BinaryOpGe) => (">=", 30),
-        Some(ir::BinaryOperator::BinaryOpIn) => ("in", 30),
-        Some(ir::BinaryOperator::BinaryOpNotIn) => ("not in", 30),
-        Some(ir::BinaryOperator::BinaryOpAdd) => ("+", 40),
-        Some(ir::BinaryOperator::BinaryOpSub) => ("-", 40),
-        Some(ir::BinaryOperator::BinaryOpMul) => ("*", 50),
-        Some(ir::BinaryOperator::BinaryOpDiv) => ("/", 50),
-        Some(ir::BinaryOperator::BinaryOpFloorDiv) => ("//", 50),
-        Some(ir::BinaryOperator::BinaryOpMod) => ("%", 50),
-        _ => ("?", 0),
-    }
-}
-
-/// Map unary operator enums to (symbol, precedence) for formatting.
-fn unary_operator(op: i32) -> (&'static str, i32) {
-    match ir::UnaryOperator::try_from(op).ok() {
-        Some(ir::UnaryOperator::UnaryOpNeg) => ("-", 60),
-        Some(ir::UnaryOperator::UnaryOpNot) => ("not ", 60),
-        _ => ("?", 0),
-    }
-}
-
-/// Return precedence for non-operator constructs like index/dot.
-fn precedence(kind: &str) -> i32 {
-    match kind {
-        "index" | "dot" => 80,
-        _ => 0,
-    }
-}
-
-/// Format Python literals as source-like text.
-fn format_literal(value: &serde_json::Value) -> String {
-    match value {
-        serde_json::Value::Null => "None".to_string(),
-        serde_json::Value::Bool(value) => {
-            if *value {
-                "True".to_string()
-            } else {
-                "False".to_string()
-            }
-        }
-        serde_json::Value::String(value) => {
-            serde_json::to_string(value).unwrap_or_else(|_| format!("\"{value}\""))
-        }
-        _ => value.to_string(),
     }
 }
 
@@ -1934,18 +1574,6 @@ fn fold_literal_unary(op: i32, operand: &serde_json::Value) -> Option<serde_json
             .and_then(|value| serde_json::Number::from_f64(-value).map(serde_json::Value::Number)),
         Some(ir::UnaryOperator::UnaryOpNot) => Some(serde_json::Value::Bool(!is_truthy(operand))),
         _ => None,
-    }
-}
-
-impl fmt::Display for NodeStatus {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let value = match self {
-            NodeStatus::Queued => "queued",
-            NodeStatus::Running => "running",
-            NodeStatus::Completed => "completed",
-            NodeStatus::Failed => "failed",
-        };
-        write!(f, "{value}")
     }
 }
 
@@ -2033,7 +1661,7 @@ mod tests {
 
         let mut results: Option<ValueExpr> = None;
         for node_id in state.timeline.iter().rev() {
-            let node = state.nodes.get(node_id).unwrap();
+            let node = state.graph.nodes.get(node_id).unwrap();
             if let Some(value) = node.assignments.get("results") {
                 results = Some(value.clone());
                 break;
@@ -2107,7 +1735,7 @@ mod tests {
 
         let mut latest: Option<ValueExpr> = None;
         for node_id in state.timeline.iter().rev() {
-            let node = state.nodes.get(node_id).expect("node");
+            let node = state.graph.nodes.get(node_id).expect("node");
             if let Some(value) = node.assignments.get("result") {
                 latest = Some(value.clone());
                 break;
@@ -2220,6 +1848,7 @@ mod tests {
             .mark_running(action_result.node_id)
             .expect("mark running");
         let started_at = state
+            .graph
             .nodes
             .get(&action_result.node_id)
             .and_then(|node| node.started_at);
@@ -2229,6 +1858,7 @@ mod tests {
         );
         assert!(
             state
+                .graph
                 .nodes
                 .get(&action_result.node_id)
                 .and_then(|node| node.completed_at)
@@ -2245,6 +1875,7 @@ mod tests {
             .mark_completed(action_result.node_id)
             .expect("mark completed");
         let completed_at = state
+            .graph
             .nodes
             .get(&action_result.node_id)
             .and_then(|node| node.completed_at);

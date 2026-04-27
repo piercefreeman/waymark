@@ -1,0 +1,15 @@
+[package]
+name = "waymark-worker-remote-bringup"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-worker-process-pool = { workspace = true }
+waymark-worker-process-spec = { workspace = true }
+waymark-worker-remote-bridge-bringup = { workspace = true }
+
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["rt", "net"] }
+tokio-util = { workspace = true }
+tracing = { workspace = true }

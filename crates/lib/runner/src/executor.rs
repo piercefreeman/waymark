@@ -16,13 +16,13 @@ use waymark_dag::{
 };
 use waymark_observability::obs;
 use waymark_proto::ast as ir;
+use waymark_runner_execution_core::{ExecutionEdge, ExecutionNode, ExecutionNodeType, NodeStatus};
 use waymark_runner_executor_core::{
     ExecutionException, ExecutionSuccess, UncheckedExecutionResult,
 };
-use waymark_runner_state::value_visitor::ValueExpr;
 use waymark_runner_state::{
-    ActionCallSpec, ExecutionEdge, ExecutionNode, ExecutionNodeType, IndexValue, ListValue,
-    LiteralValue, NodeStatus, QueueNodeParams, RunnerState, RunnerStateError,
+    ActionCallSpec, IndexValue, ListValue, LiteralValue, QueueNodeParams, RunnerState,
+    RunnerStateError, ValueExpr,
 };
 
 use crate::action_done_status;
@@ -272,7 +272,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
     /// and retryable nodes are re-queued for execution.
     pub fn resume(&mut self) -> Result<ExecutorStep, RunnerExecutorError> {
         let mut finished_nodes = Vec::new();
-        for (node_id, node) in &self.state.nodes {
+        for (node_id, node) in &self.state.graph.nodes {
             if node.is_action_call() && node.status == NodeStatus::Running {
                 finished_nodes.push(*node_id);
                 self.action_results.insert(
@@ -966,7 +966,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
                 false,
             )
             .map_err(|err| RunnerExecutorError(err.0))?;
-        if let Some(node_mut) = self.state.nodes.get_mut(&node.node_id) {
+        if let Some(node_mut) = self.state.graph.nodes.get_mut(&node.node_id) {
             node_mut.value_expr = Some(ValueExpr::ActionResult(result));
         }
         Ok(node)
@@ -1002,6 +1002,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
         let now = Utc::now();
         let scheduled_at = self
             .state
+            .graph
             .nodes
             .get(&node.node_id)
             .and_then(|node| node.scheduled_at);
@@ -1017,6 +1018,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
 
         let value_expr = self
             .state
+            .graph
             .nodes
             .get(&node.node_id)
             .and_then(|node| node.value_expr.clone())
@@ -1088,7 +1090,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
                 }
             }
             for edge in incoming {
-                if let Some(source) = self.state.nodes.get(&edge.source) {
+                if let Some(source) = self.state.graph.nodes.get(&edge.source) {
                     if !matches!(source.status, NodeStatus::Completed | NodeStatus::Failed) {
                         return false;
                     }
@@ -1100,7 +1102,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
         }
 
         for edge in incoming {
-            if let Some(source) = self.state.nodes.get(&edge.source) {
+            if let Some(source) = self.state.graph.nodes.get(&edge.source) {
                 if !matches!(source.status, NodeStatus::Completed | NodeStatus::Failed) {
                     return false;
                 }
@@ -1138,7 +1140,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
             .unwrap_or_default()
             .into_iter()
             .filter(|edge| edge.edge_type == EdgeType::StateMachine)
-            .filter_map(|edge| self.state.nodes.get(&edge.source).cloned())
+            .filter_map(|edge| self.state.graph.nodes.get(&edge.source).cloned())
             .collect();
 
         let mut values = Vec::new();
@@ -1152,7 +1154,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
         let ordered = self.order_aggregated_values(&incoming_nodes, &values)?;
         let list_value = ValueExpr::List(ListValue { elements: ordered });
         let assignment = HashMap::from([(targets[0].clone(), list_value.clone())]);
-        if let Some(node_mut) = self.state.nodes.get_mut(&node.node_id) {
+        if let Some(node_mut) = self.state.graph.nodes.get_mut(&node.node_id) {
             node_mut.assignments.extend(assignment.clone());
         }
         self.state
@@ -1266,7 +1268,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
         state: &RunnerState,
     ) -> FxHashMap<ExecutionId, Vec<ExecutionEdge>> {
         let mut incoming: FxHashMap<ExecutionId, Vec<ExecutionEdge>> = FxHashMap::default();
-        for edge in &state.edges {
+        for edge in &state.graph.edges {
             if edge.edge_type != EdgeType::StateMachine {
                 continue;
             }
@@ -1277,7 +1279,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
 
     fn build_template_to_exec_nodes(state: &RunnerState) -> FxHashMap<String, Vec<ExecutionId>> {
         let mut index: FxHashMap<String, Vec<ExecutionId>> = FxHashMap::default();
-        for (node_id, node) in &state.nodes {
+        for (node_id, node) in &state.graph.nodes {
             if let Some(template_id) = &node.template_id {
                 index.entry(template_id.clone()).or_default().push(*node_id);
             }
@@ -1299,10 +1301,10 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
             target,
             edge_type: EdgeType::StateMachine,
         };
-        if self.state.edges.contains(&edge) {
+        if self.state.graph.edges.contains(&edge) {
             return;
         }
-        self.state.edges.insert(edge.clone());
+        self.state.graph.edges.insert(edge.clone());
         self.incoming_exec_edges
             .entry(target)
             .or_default()
@@ -1317,7 +1319,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
             .cloned()
             .unwrap_or_default()
         {
-            if let Some(source) = self.state.nodes.get(&edge.source)
+            if let Some(source) = self.state.graph.nodes.get(&edge.source)
                 && let Some(template_id) = &source.template_id
             {
                 connected.insert(template_id.clone());
@@ -1331,11 +1333,11 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
         source_id: ExecutionId,
         template_id: &str,
     ) -> Option<ExecutionNode> {
-        for edge in &self.state.edges {
+        for edge in &self.state.graph.edges {
             if edge.edge_type != EdgeType::StateMachine || edge.source != source_id {
                 continue;
             }
-            let target = self.state.nodes.get(&edge.target)?;
+            let target = self.state.graph.nodes.get(&edge.target)?;
             if target.template_id.as_deref() == Some(template_id) {
                 return Some(target.clone());
             }
@@ -1349,6 +1351,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
     ) -> Result<ExecutionNode, RunnerExecutorError> {
         let mut candidates: Vec<ExecutionNode> = self
             .state
+            .graph
             .nodes
             .values()
             .filter(|node| {
@@ -1386,7 +1389,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
             let mut best_timeline_pos: Option<usize> = None;
 
             for &node_id in node_ids {
-                if let Some(node) = self.state.nodes.get(&node_id)
+                if let Some(node) = self.state.graph.nodes.get(&node_id)
                     && !matches!(node.status, NodeStatus::Completed | NodeStatus::Failed)
                 {
                     let timeline_pos = self.state.timeline.iter().position(|&id| id == node_id);
@@ -1404,6 +1407,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
             if let Some(node_id) = best_node_id {
                 return self
                     .state
+                    .graph
                     .nodes
                     .get(&node_id)
                     .cloned()
@@ -1422,6 +1426,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
 
     fn execution_node(&self, node_id: ExecutionId) -> Result<&ExecutionNode, RunnerExecutorError> {
         self.state
+            .graph
             .nodes
             .get(&node_id)
             .ok_or_else(|| RunnerExecutorError(format!("execution node not found: {node_id}")))
@@ -1432,6 +1437,7 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
         node_id: ExecutionId,
     ) -> Result<&mut ExecutionNode, RunnerExecutorError> {
         self.state
+            .graph
             .nodes
             .get_mut(&node_id)
             .ok_or_else(|| RunnerExecutorError(format!("execution node not found: {node_id}")))
@@ -1477,7 +1483,10 @@ impl<const SHOULD_COLLECT_UPDATES: bool> RunnerExecutor<SHOULD_COLLECT_UPDATES> 
             let instance_id = self.instance_id.ok_or_else(|| {
                 RunnerExecutorError("instance_id is required for graph persistence".to_string())
             })?;
-            graph_updates.push(GraphUpdate::from_state(instance_id, &self.state));
+            graph_updates.push(GraphUpdate {
+                instance_id,
+                graph: self.state.graph.clone(),
+            });
         }
         let updates = DurableUpdates {
             actions_done,
@@ -1510,10 +1519,8 @@ mod tests {
     use waymark_dag_builder::convert_to_dag;
     use waymark_ir_parser::parse_program;
     use waymark_proto::ast as ir;
-    use waymark_runner_state::value_visitor::ValueExpr;
-    use waymark_runner_state::{
-        ExecutionEdge, ExecutionNode, LiteralValue, NodeStatus, RunnerState,
-    };
+    use waymark_runner_execution_core::{ExecutionGraph, ExecutionNode, NodeStatus};
+    use waymark_runner_state::RunnerState;
 
     fn variable(name: &str) -> ir::Expr {
         ir::Expr {
@@ -1618,24 +1625,18 @@ mod tests {
         state: &RunnerState,
         action_results: &ExecutionResultMap,
     ) -> (
-        HashMap<ExecutionId, ExecutionNode>,
-        HashSet<ExecutionEdge>,
+        ExecutionGraph,
         HashMap<ExecutionId, UncheckedExecutionResult>,
     ) {
-        (
-            state.nodes.clone(),
-            state.edges.clone(),
-            action_results.clone(),
-        )
+        (state.graph.clone(), action_results.clone())
     }
 
     fn create_rehydrated_executor<const SHOULD_COLLECT_UPDATES: bool>(
         dag: &Arc<DAG>,
-        nodes: HashMap<ExecutionId, ExecutionNode>,
-        edges: HashSet<ExecutionEdge>,
+        graph: ExecutionGraph,
         action_results: HashMap<ExecutionId, UncheckedExecutionResult>,
     ) -> RunnerExecutor<SHOULD_COLLECT_UPDATES> {
-        let state = RunnerState::full(Arc::clone(dag), nodes, edges);
+        let state = RunnerState::full(Arc::clone(dag), graph);
         RunnerExecutor::new(Arc::clone(dag), state, action_results)
     }
 
@@ -1646,19 +1647,19 @@ mod tests {
         let orig_state = original.state();
         let rehy_state = rehydrated.state();
         assert_eq!(
-            orig_state.nodes.keys().collect::<HashSet<_>>(),
-            rehy_state.nodes.keys().collect::<HashSet<_>>(),
+            orig_state.graph.nodes.keys().collect::<HashSet<_>>(),
+            rehy_state.graph.nodes.keys().collect::<HashSet<_>>(),
         );
-        for node_id in orig_state.nodes.keys() {
-            let orig_node = orig_state.nodes.get(node_id).unwrap();
-            let rehy_node = rehy_state.nodes.get(node_id).unwrap();
+        for node_id in orig_state.graph.nodes.keys() {
+            let orig_node = orig_state.graph.nodes.get(node_id).unwrap();
+            let rehy_node = rehy_state.graph.nodes.get(node_id).unwrap();
             assert_eq!(orig_node.node_type, rehy_node.node_type);
             assert_eq!(orig_node.status, rehy_node.status);
             assert_eq!(orig_node.template_id, rehy_node.template_id);
             assert_eq!(orig_node.targets, rehy_node.targets);
             assert_eq!(orig_node.action_attempt, rehy_node.action_attempt);
         }
-        assert_eq!(orig_state.edges, rehy_state.edges);
+        assert_eq!(orig_state.graph.edges, rehy_state.graph.edges);
     }
 
     fn completion_action_result(action: &ExecutionNode) -> UncheckedExecutionResult {
@@ -1788,12 +1789,11 @@ fn main(input: [], output: [result]):
         }
 
         fn fork_from_canonical(&mut self) {
-            let (nodes_snap, edges_snap, results_snap) =
+            let (graph_snap, results_snap) =
                 snapshot_state(self.canonical.state(), self.canonical.action_results());
             self.branches.push(create_rehydrated_executor(
                 &self.dag,
-                nodes_snap,
-                edges_snap,
+                graph_snap,
                 results_snap,
             ));
         }
@@ -1825,6 +1825,7 @@ fn main(input: [], output: [result]):
         ) -> Result<bool, RunnerExecutorError> {
             let active_actions: Vec<ExecutionNode> = executor
                 .state()
+                .graph
                 .nodes
                 .values()
                 .filter(|node| {
@@ -1844,6 +1845,7 @@ fn main(input: [], output: [result]):
             finished_nodes.extend(
                 executor
                     .state()
+                    .graph
                     .nodes
                     .values()
                     .filter(|node| {
@@ -1902,7 +1904,7 @@ fn main(input: [], output: [result]):
         fn node_shape_counts(
             executor: &RunnerExecutor<SHOULD_COLLECT_UPDATES>,
         ) -> HashMap<String, usize> {
-            Self::count_keyed(executor.state().nodes.values().map(|node| {
+            Self::count_keyed(executor.state().graph.nodes.values().map(|node| {
                 let mut targets = node.targets.clone();
                 targets.sort();
                 let mut assignment_keys: Vec<String> = node.assignments.keys().cloned().collect();
@@ -1931,9 +1933,10 @@ fn main(input: [], output: [result]):
         fn edge_shape_counts(
             executor: &RunnerExecutor<SHOULD_COLLECT_UPDATES>,
         ) -> HashMap<String, usize> {
-            Self::count_keyed(executor.state().edges.iter().map(|edge| {
+            Self::count_keyed(executor.state().graph.edges.iter().map(|edge| {
                 let source = executor
                     .state()
+                    .graph
                     .nodes
                     .get(&edge.source)
                     .expect("source node")
@@ -1942,6 +1945,7 @@ fn main(input: [], output: [result]):
                     .unwrap_or_else(|| "__unknown_source".to_string());
                 let target = executor
                     .state()
+                    .graph
                     .nodes
                     .get(&edge.target)
                     .expect("target node")
@@ -1958,6 +1962,7 @@ fn main(input: [], output: [result]):
             Self::count_keyed(executor.action_results().iter().map(|(node_id, value)| {
                 let template_id = executor
                     .state()
+                    .graph
                     .nodes
                     .get(node_id)
                     .and_then(|node| node.template_id.clone())
@@ -2001,7 +2006,7 @@ fn main(input: [], output: [result]):
                     .expect("replay rehydrated");
 
             let mut assignment_counts: HashMap<String, usize> = HashMap::new();
-            for node in canonical.state().nodes.values() {
+            for node in canonical.state().graph.nodes.values() {
                 for target in node.assignments.keys() {
                     *assignment_counts.entry(target.clone()).or_insert(0) += 1;
                 }
@@ -2218,12 +2223,17 @@ fn main(input: [], output: [done]):
         let executor =
             RunnerExecutor::without_updates_collection(dag.clone(), state, HashMap::new());
 
-        let (nodes_snap, edges_snap, results_snap) =
+        let (graph_snap, results_snap) =
             snapshot_state(executor.state(), executor.action_results());
-        let rehydrated = create_rehydrated_executor(&dag, nodes_snap, edges_snap, results_snap);
+        let rehydrated = create_rehydrated_executor(&dag, graph_snap, results_snap);
 
         compare_executor_states(&executor, &rehydrated);
-        let node = rehydrated.state().nodes.get(&exec1.node_id).expect("node");
+        let node = rehydrated
+            .state()
+            .graph
+            .nodes
+            .get(&exec1.node_id)
+            .expect("node");
         assert_eq!(node.status, NodeStatus::Queued);
     }
 
@@ -2269,14 +2279,14 @@ fn main(input: [], output: [done]):
         let exec2 = &step.actions[0];
         assert_eq!(exec2.template_id.as_deref(), Some(action2.id.as_str()));
 
-        let (nodes_snap, edges_snap, results_snap) =
+        let (graph_snap, results_snap) =
             snapshot_state(executor.state(), executor.action_results());
-        let rehydrated = create_rehydrated_executor(&dag, nodes_snap, edges_snap, results_snap);
+        let rehydrated = create_rehydrated_executor(&dag, graph_snap, results_snap);
         compare_executor_states(&executor, &rehydrated);
 
-        let node1 = rehydrated.state().nodes.get(&exec1.node_id).unwrap();
+        let node1 = rehydrated.state().graph.nodes.get(&exec1.node_id).unwrap();
         assert_eq!(node1.status, NodeStatus::Completed);
-        let node2 = rehydrated.state().nodes.get(&exec2.node_id).unwrap();
+        let node2 = rehydrated.state().graph.nodes.get(&exec2.node_id).unwrap();
         assert_eq!(node2.status, NodeStatus::Running);
     }
 
@@ -2323,9 +2333,9 @@ fn main(input: [], output: [done]):
         let mut executor =
             RunnerExecutor::without_updates_collection(dag.clone(), state, HashMap::new());
 
-        let (nodes_snap, edges_snap, results_snap) =
+        let (graph_snap, results_snap) =
             snapshot_state(executor.state(), executor.action_results());
-        let rehydrated = create_rehydrated_executor(&dag, nodes_snap, edges_snap, results_snap);
+        let rehydrated = create_rehydrated_executor(&dag, graph_snap, results_snap);
         compare_executor_states(&executor, &rehydrated);
 
         executor.set_action_result(
@@ -2335,9 +2345,9 @@ fn main(input: [], output: [done]):
         let step1 = executor.increment(&[exec1.node_id]).expect("increment");
         let exec2 = step1.actions[0].clone();
 
-        let (nodes_snap, edges_snap, results_snap) =
+        let (graph_snap, results_snap) =
             snapshot_state(executor.state(), executor.action_results());
-        let rehydrated = create_rehydrated_executor(&dag, nodes_snap, edges_snap, results_snap);
+        let rehydrated = create_rehydrated_executor(&dag, graph_snap, results_snap);
         compare_executor_states(&executor, &rehydrated);
 
         executor.set_action_result(
@@ -2347,9 +2357,9 @@ fn main(input: [], output: [done]):
         let step2 = executor.increment(&[exec2.node_id]).expect("increment");
         let exec3 = step2.actions[0].clone();
 
-        let (nodes_snap, edges_snap, results_snap) =
+        let (graph_snap, results_snap) =
             snapshot_state(executor.state(), executor.action_results());
-        let rehydrated = create_rehydrated_executor(&dag, nodes_snap, edges_snap, results_snap);
+        let rehydrated = create_rehydrated_executor(&dag, graph_snap, results_snap);
         compare_executor_states(&executor, &rehydrated);
 
         executor.set_action_result(
@@ -2359,12 +2369,12 @@ fn main(input: [], output: [done]):
         let step3 = executor.increment(&[exec3.node_id]).expect("increment");
         assert!(step3.actions.is_empty());
 
-        let (nodes_snap, edges_snap, results_snap) =
+        let (graph_snap, results_snap) =
             snapshot_state(executor.state(), executor.action_results());
-        let rehydrated = create_rehydrated_executor(&dag, nodes_snap, edges_snap, results_snap);
+        let rehydrated = create_rehydrated_executor(&dag, graph_snap, results_snap);
         compare_executor_states(&executor, &rehydrated);
 
-        for node in rehydrated.state().nodes.values() {
+        for node in rehydrated.state().graph.nodes.values() {
             if node.is_action_call() {
                 assert_eq!(node.status, NodeStatus::Completed);
             }
@@ -2429,13 +2439,14 @@ fn main(input: [], output: [done]):
             Some(action2.id.as_str())
         );
 
-        let (nodes_snap, edges_snap, results_snap) =
+        let (graph_snap, results_snap) =
             snapshot_state(executor.state(), executor.action_results());
-        let rehydrated = create_rehydrated_executor(&dag, nodes_snap, edges_snap, results_snap);
+        let rehydrated = create_rehydrated_executor(&dag, graph_snap, results_snap);
         compare_executor_states(&executor, &rehydrated);
 
         let assign_nodes: Vec<_> = rehydrated
             .state()
+            .graph
             .nodes
             .values()
             .filter(|node| node.template_id.as_deref() == Some(&assign.id))
@@ -2474,13 +2485,12 @@ fn main(input: [], output: [done]):
         let executor =
             RunnerExecutor::without_updates_collection(dag.clone(), state, HashMap::new());
 
-        let (nodes_snap, edges_snap, results_snap) =
+        let (graph_snap, results_snap) =
             snapshot_state(executor.state(), executor.action_results());
-        let rehydrated =
-            create_rehydrated_executor::<false>(&dag, nodes_snap, edges_snap, results_snap);
+        let rehydrated = create_rehydrated_executor::<false>(&dag, graph_snap, results_snap);
 
-        let orig_node = executor.state().nodes.get(&exec1.node_id).unwrap();
-        let rehy_node = rehydrated.state().nodes.get(&exec1.node_id).unwrap();
+        let orig_node = executor.state().graph.nodes.get(&exec1.node_id).unwrap();
+        let rehy_node = rehydrated.state().graph.nodes.get(&exec1.node_id).unwrap();
         assert!(orig_node.action.is_some());
         assert!(rehy_node.action.is_some());
         let orig_action = orig_node.action.as_ref().unwrap();
@@ -2527,10 +2537,9 @@ fn main(input: [], output: [done]):
         let mut executor =
             RunnerExecutor::without_updates_collection(dag.clone(), state, action_results);
 
-        let (nodes_snap, edges_snap, results_snap) =
+        let (graph_snap, results_snap) =
             snapshot_state(executor.state(), executor.action_results());
-        let mut rehydrated =
-            create_rehydrated_executor::<false>(&dag, nodes_snap, edges_snap, results_snap);
+        let mut rehydrated = create_rehydrated_executor::<false>(&dag, graph_snap, results_snap);
 
         let orig_step = executor.increment(&[exec1.node_id]).expect("increment");
         let rehy_step = rehydrated.increment(&[exec1.node_id]).expect("increment");
@@ -2569,20 +2578,25 @@ fn main(input: [], output: [done]):
 
         let executor =
             RunnerExecutor::without_updates_collection(dag.clone(), state, HashMap::new());
-        let (nodes_snap, edges_snap, results_snap) =
+        let (graph_snap, results_snap) =
             snapshot_state(executor.state(), executor.action_results());
-        let mut rehydrated =
-            create_rehydrated_executor::<false>(&dag, nodes_snap, edges_snap, results_snap);
+        let mut rehydrated = create_rehydrated_executor::<false>(&dag, graph_snap, results_snap);
 
         assert_eq!(
-            rehydrated.state().nodes.get(&exec1.node_id).unwrap().status,
+            rehydrated
+                .state()
+                .graph
+                .nodes
+                .get(&exec1.node_id)
+                .unwrap()
+                .status,
             NodeStatus::Running
         );
 
         let step = rehydrated.resume().expect("resume");
         assert_eq!(step.actions.len(), 1);
         assert_eq!(step.actions[0].node_id, exec1.node_id);
-        let node = rehydrated.state().nodes.get(&exec1.node_id).unwrap();
+        let node = rehydrated.state().graph.nodes.get(&exec1.node_id).unwrap();
         assert_eq!(node.status, NodeStatus::Running);
         assert_eq!(node.action_attempt, 2);
         assert!(node.started_at.is_some());
@@ -2627,9 +2641,10 @@ fn main(input: [], output: [done]):
         assert_eq!(
             executor
                 .state()
+                .graph
                 .nodes
                 .get(&exec.node_id)
-                .map(|n| n.status.clone()),
+                .map(|n| n.status),
             Some(NodeStatus::Failed)
         );
     }
@@ -2679,14 +2694,16 @@ fn main(input: [], output: [done]):
         assert_eq!(
             executor
                 .state()
+                .graph
                 .nodes
                 .get(&exec.node_id)
-                .map(|n| n.status.clone()),
+                .map(|n| n.status),
             Some(NodeStatus::Running)
         );
         assert_eq!(
             executor
                 .state()
+                .graph
                 .nodes
                 .get(&exec.node_id)
                 .map(|n| n.action_attempt),
@@ -2706,9 +2723,10 @@ fn main(input: [], output: [done]):
         assert_eq!(
             executor
                 .state()
+                .graph
                 .nodes
                 .get(&exec.node_id)
-                .map(|n| n.status.clone()),
+                .map(|n| n.status),
             Some(NodeStatus::Completed)
         );
     }
@@ -2756,10 +2774,9 @@ fn main(input: [], output: [done]):
         let orig_replay =
             crate::replay_variables(executor.state(), executor.action_results()).expect("replay");
 
-        let (nodes_snap, edges_snap, results_snap) =
+        let (graph_snap, results_snap) =
             snapshot_state(executor.state(), executor.action_results());
-        let rehydrated =
-            create_rehydrated_executor::<false>(&dag, nodes_snap, edges_snap, results_snap);
+        let rehydrated = create_rehydrated_executor::<false>(&dag, graph_snap, results_snap);
 
         let rehy_replay = crate::replay_variables(rehydrated.state(), rehydrated.action_results())
             .expect("replay");
@@ -2841,13 +2858,14 @@ fn main(input: [], output: [done]):
             .expect("increment");
         assert_eq!(step1.actions.len(), 3);
 
-        let (nodes_snap, edges_snap, results_snap) =
+        let (graph_snap, results_snap) =
             snapshot_state(executor.state(), executor.action_results());
-        let rehydrated = create_rehydrated_executor(&dag, nodes_snap, edges_snap, results_snap);
+        let rehydrated = create_rehydrated_executor(&dag, graph_snap, results_snap);
 
         compare_executor_states(&executor, &rehydrated);
         let action_nodes: Vec<_> = executor
             .state()
+            .graph
             .nodes
             .values()
             .filter(|node| {
@@ -2856,7 +2874,12 @@ fn main(input: [], output: [done]):
             .collect();
         assert_eq!(action_nodes.len(), 3);
         for action_node in action_nodes {
-            let rehy_node = rehydrated.state().nodes.get(&action_node.node_id).unwrap();
+            let rehy_node = rehydrated
+                .state()
+                .graph
+                .nodes
+                .get(&action_node.node_id)
+                .unwrap();
             assert_eq!(rehy_node.node_type, action_node.node_type);
             assert_eq!(rehy_node.status, action_node.status);
         }
@@ -2919,9 +2942,9 @@ fn main(input: [], output: [done]):
         let spread_nodes = step1.actions;
         assert_eq!(spread_nodes.len(), 2);
 
-        let (nodes_snap, edges_snap, results_snap) =
+        let (graph_snap, results_snap) =
             snapshot_state(executor.state(), executor.action_results());
-        let rehydrated = create_rehydrated_executor(&dag, nodes_snap, edges_snap, results_snap);
+        let rehydrated = create_rehydrated_executor(&dag, graph_snap, results_snap);
         compare_executor_states(&executor, &rehydrated);
 
         for (idx, node) in spread_nodes.iter().enumerate() {
@@ -2935,13 +2958,14 @@ fn main(input: [], output: [done]):
             .increment(&spread_nodes.iter().map(|n| n.node_id).collect::<Vec<_>>())
             .expect("increment");
 
-        let (nodes_snap, edges_snap, results_snap) =
+        let (graph_snap, results_snap) =
             snapshot_state(executor.state(), executor.action_results());
-        let rehydrated = create_rehydrated_executor(&dag, nodes_snap, edges_snap, results_snap);
+        let rehydrated = create_rehydrated_executor(&dag, graph_snap, results_snap);
         compare_executor_states(&executor, &rehydrated);
 
         let agg_nodes: Vec<_> = rehydrated
             .state()
+            .graph
             .nodes
             .values()
             .filter(|node| node.template_id.as_deref() == Some(&aggregator.id))
@@ -3089,10 +3113,9 @@ fn run_beta(input: [payload], output: [beta_plan]):
             }
         }
 
-        let (nodes_snap, edges_snap, results_snap) =
+        let (graph_snap, results_snap) =
             snapshot_state(executor.state(), executor.action_results());
-        let rehydrated =
-            create_rehydrated_executor::<false>(&dag, nodes_snap, edges_snap, results_snap);
+        let rehydrated = create_rehydrated_executor::<false>(&dag, graph_snap, results_snap);
 
         let orig_timeline = executor.state().timeline.clone();
         let rehy_timeline = rehydrated.state().timeline.clone();
@@ -3142,13 +3165,13 @@ fn run_beta(input: [payload], output: [beta_plan]):
         let step = executor.increment(&[exec1.node_id]).expect("increment");
         let exec2 = step.actions[0].clone();
 
-        let (nodes_snap, edges_snap, results_snap) =
+        let (graph_snap, results_snap) =
             snapshot_state(executor.state(), executor.action_results());
-        let rehydrated =
-            create_rehydrated_executor::<false>(&dag, nodes_snap, edges_snap, results_snap);
+        let rehydrated = create_rehydrated_executor::<false>(&dag, graph_snap, results_snap);
 
         let queued_nodes: Vec<_> = rehydrated
             .state()
+            .graph
             .nodes
             .values()
             .filter(|node| node.status == NodeStatus::Queued)
@@ -3156,6 +3179,7 @@ fn run_beta(input: [payload], output: [beta_plan]):
         assert!(queued_nodes.is_empty());
         let running_nodes: Vec<_> = rehydrated
             .state()
+            .graph
             .nodes
             .values()
             .filter(|node| node.status == NodeStatus::Running)
