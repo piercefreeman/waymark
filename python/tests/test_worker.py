@@ -1,6 +1,8 @@
+import argparse
 import asyncio
 
 from waymark import worker
+from waymark.grpc_config import GRPC_CHANNEL_OPTIONS
 from waymark.proto import messages_pb2 as pb2
 
 
@@ -36,3 +38,38 @@ def test_send_ack_helper() -> None:
         assert ack.acked_delivery_id == 7
 
     asyncio.run(scenario())
+
+
+def test_run_worker_configures_grpc_message_limit(monkeypatch) -> None:
+    created_channels: list[tuple[str, object]] = []
+
+    class FakeChannel:
+        async def __aenter__(self) -> "FakeChannel":
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+    def fake_insecure_channel(target: str, *, options: object) -> FakeChannel:
+        created_channels.append((target, options))
+        return FakeChannel()
+
+    class FakeStub:
+        def __init__(self, channel: FakeChannel) -> None:
+            self.channel = channel
+
+    async def fake_handle_incoming_stream(
+        _stub: FakeStub,
+        _worker_id: int,
+        _outgoing: "asyncio.Queue[pb2.Envelope]",
+    ) -> None:
+        return None
+
+    monkeypatch.setattr(worker.aio, "insecure_channel", fake_insecure_channel)
+    monkeypatch.setattr(worker.pb2_grpc, "WorkerBridgeStub", FakeStub)
+    monkeypatch.setattr(worker, "_handle_incoming_stream", fake_handle_incoming_stream)
+
+    args = argparse.Namespace(bridge="127.0.0.1:24118", worker_id=7, user_module=[])
+    asyncio.run(worker._run_worker(args))
+
+    assert created_channels == [("127.0.0.1:24118", GRPC_CHANNEL_OPTIONS)]
