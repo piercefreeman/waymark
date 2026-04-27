@@ -24,31 +24,12 @@ pub struct Channels {
 /// Internal state shared between worker sender and reader tasks.
 #[derive(Debug, Default)]
 struct SharedState {
-    /// Whether the worker receive side has closed.
-    pub closed: bool,
-
     /// Pending ACK receivers, keyed by delivery_id
     pub pending_acks: HashMap<u64, tokio::sync::oneshot::Sender<std::time::Instant>>,
 
     /// Pending result receivers, keyed by delivery_id
     pub pending_responses:
         HashMap<u64, tokio::sync::oneshot::Sender<(proto::ActionResult, std::time::Instant)>>,
-}
-
-impl SharedState {
-    fn remove_delivery(&mut self, delivery_id: u64) {
-        self.pending_acks.remove(&delivery_id);
-        self.pending_responses.remove(&delivery_id);
-    }
-
-    fn close(&mut self) -> (usize, usize) {
-        self.closed = true;
-        let pending_acks = self.pending_acks.len();
-        let pending_responses = self.pending_responses.len();
-        self.pending_acks.clear();
-        self.pending_responses.clear();
-        (pending_acks, pending_responses)
-    }
 }
 
 /// Protocol sender for action dispatch requests.
@@ -58,7 +39,7 @@ impl SharedState {
 pub struct Sender {
     to_worker: tokio::sync::mpsc::Sender<proto::Envelope>,
     next_delivery: AtomicU64,
-    shared: Arc<tokio::sync::Mutex<SharedState>>,
+    shared: Arc<tokio::sync::Mutex<Option<SharedState>>>,
 }
 
 /// Builds protocol state from raw worker channels.
@@ -76,12 +57,17 @@ pub fn setup(channels: Channels) -> (Sender, impl Future<Output = ()>) {
     } = channels;
 
     // Set up shared state and spawn reader task
-    let shared = Arc::new(tokio::sync::Mutex::new(SharedState::default()));
+    let shared = Arc::new(tokio::sync::Mutex::new(Some(SharedState::default())));
     let loop_fut = {
         let shared = Arc::clone(&shared);
         async move {
             let result = r#loop(from_worker, Arc::clone(&shared)).await;
-            let (pending_acks, pending_responses) = shared.lock().await.close();
+            let (pending_acks, pending_responses) = if let Some(shared) = shared.lock().await.take()
+            {
+                (shared.pending_acks.len(), shared.pending_responses.len())
+            } else {
+                (0, 0)
+            };
 
             if pending_acks > 0 || pending_responses > 0 {
                 tracing::warn!(
@@ -141,7 +127,7 @@ pub enum SendActionError {
 /// Background task that reads messages from the worker.
 async fn r#loop(
     mut from_worker: tokio::sync::mpsc::Receiver<proto::Envelope>,
-    shared: Arc<tokio::sync::Mutex<SharedState>>,
+    shared: Arc<tokio::sync::Mutex<Option<SharedState>>>,
 ) -> Result<(), MessageError> {
     while let Some(envelope) = from_worker.recv().await {
         let kind =
@@ -151,7 +137,14 @@ async fn r#loop(
             proto::MessageKind::Ack => {
                 let ack = proto::Ack::decode(envelope.payload.as_slice())?;
                 let mut guard = shared.lock().await;
-                if let Some(sender) = guard.pending_acks.remove(&ack.acked_delivery_id) {
+                let Some(shared) = guard.as_mut() else {
+                    tracing::warn!(
+                        delivery = ack.acked_delivery_id,
+                        "ACK after protocol closed"
+                    );
+                    continue;
+                };
+                if let Some(sender) = shared.pending_acks.remove(&ack.acked_delivery_id) {
                     let _ = sender.send(std::time::Instant::now());
                 } else {
                     tracing::warn!(delivery = ack.acked_delivery_id, "unexpected ACK");
@@ -160,7 +153,14 @@ async fn r#loop(
             proto::MessageKind::ActionResult => {
                 let response = proto::ActionResult::decode(envelope.payload.as_slice())?;
                 let mut guard = shared.lock().await;
-                if let Some(sender) = guard.pending_responses.remove(&envelope.delivery_id) {
+                let Some(shared) = guard.as_mut() else {
+                    tracing::warn!(
+                        delivery = envelope.delivery_id,
+                        "response after protocol closed"
+                    );
+                    continue;
+                };
+                if let Some(sender) = shared.pending_responses.remove(&envelope.delivery_id) {
                     let _ = sender.send((response, std::time::Instant::now()));
                 } else {
                     tracing::warn!(delivery = envelope.delivery_id, "orphan response");
@@ -253,10 +253,10 @@ impl Sender {
 
         // Register pending requests
         {
-            let mut shared = self.shared.lock().await;
-            if shared.closed {
+            let mut guard = self.shared.lock().await;
+            let Some(shared) = guard.as_mut() else {
                 return Err(SendActionError::SharedStateClosed);
-            }
+            };
             shared.pending_acks.insert(delivery_id, ack_tx);
             shared.pending_responses.insert(delivery_id, response_tx);
         }
@@ -283,7 +283,10 @@ impl Sender {
         };
 
         if self.send_envelope(envelope).await.is_err() {
-            self.shared.lock().await.remove_delivery(delivery_id);
+            if let Some(shared) = self.shared.lock().await.as_mut() {
+                shared.pending_acks.remove(&delivery_id);
+                shared.pending_responses.remove(&delivery_id);
+            }
             return Err(SendActionError::ChannelClosed);
         }
 
