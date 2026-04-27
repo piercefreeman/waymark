@@ -36,10 +36,6 @@ struct SharedState {
 }
 
 impl SharedState {
-    fn is_closed(&self) -> bool {
-        self.closed
-    }
-
     fn remove_delivery(&mut self, delivery_id: u64) {
         self.pending_acks.remove(&delivery_id);
         self.pending_responses.remove(&delivery_id);
@@ -136,6 +132,10 @@ pub enum SendActionError {
     /// Worker transport channel closed before ACK or result was received.
     #[error("channel closed")]
     ChannelClosed,
+
+    /// Worker protocol state was already closed before the action could be registered.
+    #[error("shared state closed")]
+    SharedStateClosed,
 }
 
 /// Background task that reads messages from the worker.
@@ -227,7 +227,7 @@ impl Sender {
     ///
     /// Returns an error if:
     /// - The worker channel is closed (worker crashed)
-    /// - Response decoding fails
+    /// - The worker protocol state already closed before dispatch registration
     pub async fn send_action(
         &self,
         dispatch: ActionDispatchPayload,
@@ -254,8 +254,8 @@ impl Sender {
         // Register pending requests
         {
             let mut shared = self.shared.lock().await;
-            if shared.is_closed() {
-                return Err(SendActionError::ChannelClosed);
+            if shared.closed {
+                return Err(SendActionError::SharedStateClosed);
             }
             shared.pending_acks.insert(delivery_id, ack_tx);
             shared.pending_responses.insert(delivery_id, response_tx);
@@ -551,6 +551,6 @@ mod tests {
         .expect("send_action should not wait after worker channel closes")
         .expect_err("send_action should fail after worker channel closes");
 
-        assert!(matches!(err, SendActionError::ChannelClosed));
+        assert!(matches!(err, SendActionError::SharedStateClosed));
     }
 }

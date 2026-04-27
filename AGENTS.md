@@ -163,4 +163,6 @@ This section is used for the scratch updates, driven by our Agents.
 <rule>Centralize worker pool metrics in shared helpers so pools don't duplicate tracking logic. Good: `WorkerPoolMetrics::new(worker_ids, window, samples); metrics.record_completion(idx);` Bad: per-pool `WorkerThroughputTracker`/`LatencyTracker` structs.</rule>
 <rule>Add a minimal happy-path test for formatting/serialization helpers. Good: parse IR then `assert_eq!(format_program(&program), source);` Bad: leaving formatting logic untested.</rule>
 <rule>Centralize external test harness setup (e.g., Postgres via docker compose) in shared test fixtures instead of ad-hoc per-test DSN probing. Good: `let pool = test_support::postgres_setup().await;` Bad: each test loops through env vars and fallback DSNs independently.</rule>
+<rule>Avoid redundant private accessors for private fields when direct field access communicates intent clearly. Good: `if shared.closed { ... }` Bad: `if shared.is_closed() { ... }` on a private `SharedState`.</rule>
+<rule>Use distinct error variants for distinct failure states instead of reusing a nearby transport error. Good: `return Err(SendActionError::SharedStateClosed);` Bad: `return Err(SendActionError::ChannelClosed);` when protocol state was already closed before enqueue.</rule>
 </code_feedback>
