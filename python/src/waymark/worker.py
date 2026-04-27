@@ -16,6 +16,7 @@ from waymark.proto import messages_pb2 as pb2
 from waymark.proto import messages_pb2_grpc as pb2_grpc
 
 from . import workflow_runtime
+from .grpc_config import GRPC_CHANNEL_OPTIONS
 from .logger import configure as configure_logger
 
 LOGGER = configure_logger("waymark.worker")
@@ -198,7 +199,7 @@ async def _run_worker(args: argparse.Namespace) -> None:
         LOGGER.info("Preloading user module %s", module_name)
         importlib.import_module(module_name)
 
-    async with aio.insecure_channel(args.bridge) as channel:
+    async with aio.insecure_channel(args.bridge, options=GRPC_CHANNEL_OPTIONS) as channel:
         stub = pb2_grpc.WorkerBridgeStub(channel)
         LOGGER.info("Worker %s connected to %s", args.worker_id, args.bridge)
         try:

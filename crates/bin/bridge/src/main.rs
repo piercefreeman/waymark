@@ -64,11 +64,13 @@ async fn main() -> Result<()> {
 
     info!(%grpc_addr, in_memory, "waymark bridge starting");
 
+    let workflow_service = proto::workflow_service_server::WorkflowServiceServer::new(service)
+        .max_decoding_message_size(waymark_proto::GRPC_MAX_MESSAGE_SIZE_BYTES)
+        .max_encoding_message_size(waymark_proto::GRPC_MAX_MESSAGE_SIZE_BYTES);
+
     tonic::transport::Server::builder()
         .add_service(health_service)
-        .add_service(proto::workflow_service_server::WorkflowServiceServer::new(
-            service,
-        ))
+        .add_service(workflow_service)
         .serve(grpc_addr)
         .await
         .context("bridge server exited")?;
