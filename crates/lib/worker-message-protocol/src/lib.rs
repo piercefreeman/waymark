@@ -62,11 +62,12 @@ pub fn setup(channels: Channels) -> (Sender, impl Future<Output = ()>) {
         let shared = Arc::clone(&shared);
         async move {
             let result = r#loop(from_worker, Arc::clone(&shared)).await;
-            let (pending_acks, pending_responses) = if let Some(shared) = shared.lock().await.take()
-            {
-                (shared.pending_acks.len(), shared.pending_responses.len())
-            } else {
-                (0, 0)
+            let (pending_acks, pending_responses) = {
+                let mut guard = shared.lock().await;
+                match guard.take() {
+                    Some(shared) => (shared.pending_acks.len(), shared.pending_responses.len()),
+                    None => (0, 0),
+                }
             };
 
             if pending_acks > 0 || pending_responses > 0 {
