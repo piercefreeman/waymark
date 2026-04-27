@@ -19,6 +19,7 @@ from waymark.proto import messages_pb2 as pb2
 from waymark.proto import messages_pb2_grpc as pb2_grpc
 
 from .actions import serialize_error_payload, serialize_result_payload
+from .grpc_config import GRPC_CHANNEL_OPTIONS
 from .workflow_runtime import execute_action
 
 DEFAULT_HOST = "127.0.0.1"
@@ -250,7 +251,7 @@ async def _workflow_stub() -> pb2_grpc.WorkflowServiceStub:
             and not loop.is_closed()
         ):
             return _GRPC_STUB
-        channel = aio.insecure_channel(target)
+        channel = aio.insecure_channel(target, options=GRPC_CHANNEL_OPTIONS)
         stub = pb2_grpc.WorkflowServiceStub(channel)
         _GRPC_CHANNEL = channel
         _GRPC_STUB = stub

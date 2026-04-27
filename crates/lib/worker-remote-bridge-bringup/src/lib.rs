@@ -35,10 +35,12 @@ pub async fn start(
     let task = tokio::spawn(async move {
         let incoming = tokio_stream::wrappers::TcpListenerStream::new(listener);
 
+        let worker_bridge_service = proto::worker_bridge_server::WorkerBridgeServer::new(service)
+            .max_decoding_message_size(waymark_proto::GRPC_MAX_MESSAGE_SIZE_BYTES)
+            .max_encoding_message_size(waymark_proto::GRPC_MAX_MESSAGE_SIZE_BYTES);
+
         let result = Server::builder()
-            .add_service(proto::worker_bridge_server::WorkerBridgeServer::new(
-                service,
-            ))
+            .add_service(worker_bridge_service)
             .serve_with_incoming_shutdown(incoming, shutdown_token.cancelled())
             .await;
         if let Err(err) = result {
