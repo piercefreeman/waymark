@@ -24,12 +24,35 @@ pub struct Channels {
 /// Internal state shared between worker sender and reader tasks.
 #[derive(Debug, Default)]
 struct SharedState {
+    /// Whether the worker receive side has closed.
+    pub closed: bool,
+
     /// Pending ACK receivers, keyed by delivery_id
     pub pending_acks: HashMap<u64, tokio::sync::oneshot::Sender<std::time::Instant>>,
 
     /// Pending result receivers, keyed by delivery_id
     pub pending_responses:
         HashMap<u64, tokio::sync::oneshot::Sender<(proto::ActionResult, std::time::Instant)>>,
+}
+
+impl SharedState {
+    fn is_closed(&self) -> bool {
+        self.closed
+    }
+
+    fn remove_delivery(&mut self, delivery_id: u64) {
+        self.pending_acks.remove(&delivery_id);
+        self.pending_responses.remove(&delivery_id);
+    }
+
+    fn close(&mut self) -> (usize, usize) {
+        self.closed = true;
+        let pending_acks = self.pending_acks.len();
+        let pending_responses = self.pending_responses.len();
+        self.pending_acks.clear();
+        self.pending_responses.clear();
+        (pending_acks, pending_responses)
+    }
 }
 
 /// Protocol sender for action dispatch requests.
@@ -61,7 +84,18 @@ pub fn setup(channels: Channels) -> (Sender, impl Future<Output = ()>) {
     let loop_fut = {
         let shared = Arc::clone(&shared);
         async move {
-            if let Err(err) = r#loop(from_worker, shared).await {
+            let result = r#loop(from_worker, Arc::clone(&shared)).await;
+            let (pending_acks, pending_responses) = shared.lock().await.close();
+
+            if pending_acks > 0 || pending_responses > 0 {
+                tracing::warn!(
+                    pending_acks,
+                    pending_responses,
+                    "worker message protocol loop exited with pending requests"
+                );
+            }
+
+            if let Err(err) = result {
                 tracing::error!(?err, "worker message protocol loop exited");
             }
         }
@@ -220,6 +254,9 @@ impl Sender {
         // Register pending requests
         {
             let mut shared = self.shared.lock().await;
+            if shared.is_closed() {
+                return Err(SendActionError::ChannelClosed);
+            }
             shared.pending_acks.insert(delivery_id, ack_tx);
             shared.pending_responses.insert(delivery_id, response_tx);
         }
@@ -245,9 +282,10 @@ impl Sender {
             payload: command.encode_to_vec(),
         };
 
-        self.send_envelope(envelope)
-            .await
-            .map_err(|_| SendActionError::ChannelClosed)?;
+        if self.send_envelope(envelope).await.is_err() {
+            self.shared.lock().await.remove_delivery(delivery_id);
+            return Err(SendActionError::ChannelClosed);
+        }
 
         // Wait for ACK (should be immediate)
         let ack_instant = ack_rx.await.map_err(|_| SendActionError::ChannelClosed)?;
@@ -439,5 +477,80 @@ mod tests {
         protocol_loop_handle
             .await
             .expect("protocol loop task should finish");
+    }
+
+    #[tokio::test]
+    async fn send_action_fails_when_worker_result_channel_closes_after_ack() {
+        let (to_worker_tx, mut to_worker_rx) = tokio::sync::mpsc::channel(4);
+        let (from_worker_tx, from_worker_rx) = tokio::sync::mpsc::channel(4);
+
+        let (sender, protocol_loop) = setup(Channels {
+            to_worker: to_worker_tx,
+            from_worker: from_worker_rx,
+        });
+        let protocol_loop_handle = tokio::spawn(protocol_loop);
+
+        let worker_handle = tokio::spawn(async move {
+            let envelope = to_worker_rx
+                .recv()
+                .await
+                .expect("receive action dispatch envelope");
+
+            let ack = proto::Ack {
+                acked_delivery_id: envelope.delivery_id,
+            };
+            from_worker_tx
+                .send(proto::Envelope {
+                    delivery_id: envelope.delivery_id,
+                    partition_id: 0,
+                    kind: proto::MessageKind::Ack as i32,
+                    payload: ack.encode_to_vec(),
+                })
+                .await
+                .expect("send ack envelope");
+        });
+
+        let err = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            sender.send_action(sample_dispatch(fixed_dispatch_token())),
+        )
+        .await
+        .expect("send_action should not wait for dispatch timeout")
+        .expect_err("send_action should fail when worker result channel closes");
+
+        assert!(matches!(err, SendActionError::ChannelClosed));
+
+        worker_handle.await.expect("worker task should finish");
+        drop(sender);
+        protocol_loop_handle
+            .await
+            .expect("protocol loop task should finish");
+    }
+
+    #[tokio::test]
+    async fn send_action_fails_after_worker_result_channel_closed() {
+        let (to_worker_tx, _to_worker_rx) = tokio::sync::mpsc::channel(4);
+        let (from_worker_tx, from_worker_rx) = tokio::sync::mpsc::channel(4);
+
+        let (sender, protocol_loop) = setup(Channels {
+            to_worker: to_worker_tx,
+            from_worker: from_worker_rx,
+        });
+        let protocol_loop_handle = tokio::spawn(protocol_loop);
+
+        drop(from_worker_tx);
+        protocol_loop_handle
+            .await
+            .expect("protocol loop task should finish");
+
+        let err = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            sender.send_action(sample_dispatch(fixed_dispatch_token())),
+        )
+        .await
+        .expect("send_action should not wait after worker channel closes")
+        .expect_err("send_action should fail after worker channel closes");
+
+        assert!(matches!(err, SendActionError::ChannelClosed));
     }
 }
