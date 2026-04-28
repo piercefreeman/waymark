@@ -1,0 +1,9 @@
+[package]
+name = "waymark-vm-instructions-fullset"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-vm-instructions-coreset = { workspace = true }
+waymark-vm-instructions-pureset = { workspace = true }

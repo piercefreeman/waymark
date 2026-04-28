@@ -64,6 +64,16 @@ waymark-tokio-metrics-bringup = { path = "crates/lib/tokio-metrics-bringup" }
 waymark-utils-futures = { path = "crates/lib/utils-futures" }
 waymark-utils-tokio-channel = { path = "crates/lib/utils-tokio-channel" }
 waymark-vm-ast = { path = "crates/lib/vm-ast" }
+waymark-vm-bytecode = { path = "crates/lib/vm-bytecode" }
+waymark-vm-instructions-coreset = { path = "crates/lib/vm-instructions-coreset" }
+waymark-vm-instructions-fullset = { path = "crates/lib/vm-instructions-fullset" }
+waymark-vm-instructions-pureset = { path = "crates/lib/vm-instructions-pureset" }
+waymark-vm-interpreter = { path = "crates/lib/vm-interpreter" }
+waymark-vm-interpreter-coreset = { path = "crates/lib/vm-interpreter-coreset" }
+waymark-vm-interpreter-fullset = { path = "crates/lib/vm-interpreter-fullset" }
+waymark-vm-interpreter-pureset = { path = "crates/lib/vm-interpreter-pureset" }
+waymark-vm-runtime = { path = "crates/lib/vm-runtime" }
+waymark-vm-runtime-core = { path = "crates/lib/vm-runtime-core" }
 waymark-webapp-backend = { path = "crates/lib/webapp-backend" }
 waymark-webapp-bringup = { path = "crates/lib/webapp-bringup" }
 waymark-webapp-config = { path = "crates/lib/webapp-config" }
