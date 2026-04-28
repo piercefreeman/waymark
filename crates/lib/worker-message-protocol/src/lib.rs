@@ -4,7 +4,7 @@
 
 use std::{
     collections::HashMap,
-    sync::{Arc, atomic::AtomicU64},
+    sync::{Arc, Mutex, MutexGuard, atomic::AtomicU64},
 };
 
 use prost::Message as _;
@@ -32,6 +32,46 @@ struct SharedState {
         HashMap<u64, tokio::sync::oneshot::Sender<(proto::ActionResult, std::time::Instant)>>,
 }
 
+type SharedStateHandle = Arc<Mutex<Option<SharedState>>>;
+
+struct SharedStateDropGuard {
+    shared: SharedStateHandle,
+}
+
+impl SharedStateDropGuard {
+    fn new(shared: SharedStateHandle) -> Self {
+        Self { shared }
+    }
+}
+
+impl Drop for SharedStateDropGuard {
+    fn drop(&mut self) {
+        let Some(shared) = lock_shared(&self.shared).take() else {
+            return;
+        };
+
+        let pending_acks = shared.pending_acks.len();
+        let pending_responses = shared.pending_responses.len();
+        if pending_acks > 0 || pending_responses > 0 {
+            tracing::warn!(
+                pending_acks,
+                pending_responses,
+                "worker message protocol loop exited with pending requests"
+            );
+        }
+    }
+}
+
+fn lock_shared(shared: &SharedStateHandle) -> MutexGuard<'_, Option<SharedState>> {
+    match shared.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            tracing::warn!("worker message protocol shared state lock poisoned");
+            poisoned.into_inner()
+        }
+    }
+}
+
 /// Protocol sender for action dispatch requests.
 ///
 /// A `Sender` is cheap to hold and can be reused for many dispatches over the
@@ -39,7 +79,7 @@ struct SharedState {
 pub struct Sender {
     to_worker: tokio::sync::mpsc::Sender<proto::Envelope>,
     next_delivery: AtomicU64,
-    shared: Arc<tokio::sync::Mutex<Option<SharedState>>>,
+    shared: SharedStateHandle,
 }
 
 /// Builds protocol state from raw worker channels.
@@ -57,26 +97,12 @@ pub fn setup(channels: Channels) -> (Sender, impl Future<Output = ()>) {
     } = channels;
 
     // Set up shared state and spawn reader task
-    let shared = Arc::new(tokio::sync::Mutex::new(Some(SharedState::default())));
+    let shared = Arc::new(Mutex::new(Some(SharedState::default())));
     let loop_fut = {
         let shared = Arc::clone(&shared);
         async move {
+            let _shared_state_drop_guard = SharedStateDropGuard::new(Arc::clone(&shared));
             let result = r#loop(from_worker, Arc::clone(&shared)).await;
-            let (pending_acks, pending_responses) = {
-                let mut guard = shared.lock().await;
-                match guard.take() {
-                    Some(shared) => (shared.pending_acks.len(), shared.pending_responses.len()),
-                    None => (0, 0),
-                }
-            };
-
-            if pending_acks > 0 || pending_responses > 0 {
-                tracing::warn!(
-                    pending_acks,
-                    pending_responses,
-                    "worker message protocol loop exited with pending requests"
-                );
-            }
 
             if let Err(err) = result {
                 tracing::error!(?err, "worker message protocol loop exited");
@@ -128,7 +154,7 @@ pub enum SendActionError {
 /// Background task that reads messages from the worker.
 async fn r#loop(
     mut from_worker: tokio::sync::mpsc::Receiver<proto::Envelope>,
-    shared: Arc<tokio::sync::Mutex<Option<SharedState>>>,
+    shared: SharedStateHandle,
 ) -> Result<(), MessageError> {
     while let Some(envelope) = from_worker.recv().await {
         let kind =
@@ -137,7 +163,7 @@ async fn r#loop(
         match kind {
             proto::MessageKind::Ack => {
                 let ack = proto::Ack::decode(envelope.payload.as_slice())?;
-                let mut guard = shared.lock().await;
+                let mut guard = lock_shared(&shared);
                 let Some(shared) = guard.as_mut() else {
                     tracing::warn!(
                         delivery = ack.acked_delivery_id,
@@ -153,7 +179,7 @@ async fn r#loop(
             }
             proto::MessageKind::ActionResult => {
                 let response = proto::ActionResult::decode(envelope.payload.as_slice())?;
-                let mut guard = shared.lock().await;
+                let mut guard = lock_shared(&shared);
                 let Some(shared) = guard.as_mut() else {
                     tracing::warn!(
                         delivery = envelope.delivery_id,
@@ -254,7 +280,7 @@ impl Sender {
 
         // Register pending requests
         {
-            let mut guard = self.shared.lock().await;
+            let mut guard = lock_shared(&self.shared);
             let Some(shared) = guard.as_mut() else {
                 return Err(SendActionError::SharedStateClosed);
             };
@@ -284,7 +310,7 @@ impl Sender {
         };
 
         if self.send_envelope(envelope).await.is_err() {
-            if let Some(shared) = self.shared.lock().await.as_mut() {
+            if let Some(shared) = lock_shared(&self.shared).as_mut() {
                 shared.pending_acks.remove(&delivery_id);
                 shared.pending_responses.remove(&delivery_id);
             }
@@ -556,5 +582,33 @@ mod tests {
         .expect_err("send_action should fail after worker channel closes");
 
         assert!(matches!(err, SendActionError::SharedStateClosed));
+    }
+
+    #[tokio::test]
+    async fn shared_state_drop_guard_closes_state_on_panic() {
+        let shared = Arc::new(Mutex::new(Some(SharedState::default())));
+        {
+            let mut guard = lock_shared(&shared);
+            let Some(shared) = guard.as_mut() else {
+                panic!("shared state must be open before panic");
+            };
+
+            let (ack_tx, _ack_rx) = tokio::sync::oneshot::channel();
+            let (response_tx, _response_rx) = tokio::sync::oneshot::channel();
+            shared.pending_acks.insert(1, ack_tx);
+            shared.pending_responses.insert(1, response_tx);
+        }
+
+        let handle = tokio::spawn({
+            let shared = Arc::clone(&shared);
+            async move {
+                let _shared_state_drop_guard = SharedStateDropGuard::new(shared);
+                panic!("trigger shared state drop");
+            }
+        });
+
+        let err = handle.await.expect_err("task should panic");
+        assert!(err.is_panic());
+        assert!(lock_shared(&shared).is_none());
     }
 }
