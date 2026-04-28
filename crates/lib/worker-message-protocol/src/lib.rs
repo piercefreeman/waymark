@@ -147,8 +147,8 @@ pub enum SendActionError {
     ChannelClosed,
 
     /// Worker protocol state was already closed before the action could be registered.
-    #[error("shared state closed")]
-    SharedStateClosed,
+    #[error("worker protocol closed")]
+    WorkerProtocolClosed,
 }
 
 /// Background task that reads messages from the worker.
@@ -282,7 +282,7 @@ impl Sender {
         {
             let mut guard = lock_shared(&self.shared);
             let Some(shared) = guard.as_mut() else {
-                return Err(SendActionError::SharedStateClosed);
+                return Err(SendActionError::WorkerProtocolClosed);
             };
             shared.pending_acks.insert(delivery_id, ack_tx);
             shared.pending_responses.insert(delivery_id, response_tx);
@@ -581,7 +581,7 @@ mod tests {
         .expect("send_action should not wait after worker channel closes")
         .expect_err("send_action should fail after worker channel closes");
 
-        assert!(matches!(err, SendActionError::SharedStateClosed));
+        assert!(matches!(err, SendActionError::WorkerProtocolClosed));
     }
 
     #[tokio::test]
