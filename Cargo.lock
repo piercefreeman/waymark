@@ -697,6 +697,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "darling"
+version = "0.23.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "25ae13da2f202d56bd7f91c25fba009e7717a1e4a1cc98a76d844b65ae912e9d"
+dependencies = [
+ "darling_core",
+ "darling_macro",
+]
+
+[[package]]
+name = "darling_core"
+version = "0.23.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9865a50f7c335f53564bb694ef660825eb8610e0a53d3e11bf1b0d3df31e03b0"
+dependencies = [
+ "ident_case",
+ "proc-macro2",
+ "quote",
+ "strsim",
+ "syn",
+]
+
+[[package]]
+name = "darling_macro"
+version = "0.23.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac3984ec7bd6cfa798e62b4a642426a5be0e68f9401cfc2a01e3fa9ea2fcdb8d"
+dependencies = [
+ "darling_core",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "dashmap"
 version = "5.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1552,6 +1586,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d3067d79b975e8844ca9eb072e16b31c3c1c36928edf9c6789548c524d0d954"
 
 [[package]]
+name = "ident_case"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b9e0384b61958566e926dc50660321d12159025e767c18e043daf26b70104c39"
+
+[[package]]
 name = "idna"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1593,6 +1633,28 @@ name = "indenter"
 version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "964de6e86d545b246d84badc0fef527924ace5134f30641c203ef52ba83f58d5"
+
+[[package]]
+name = "index_type"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bb2d25dd34f71fcc6797f066181e0bdac9f8955e3ec817806b144c1f408b91d3"
+dependencies = [
+ "index_type_macros",
+]
+
+[[package]]
+name = "index_type_macros"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6ff612acf0b3a9e096bd56635dbb0d2b7aa04c99ef8aa4afad42dce8e76b078a"
+dependencies = [
+ "darling",
+ "heck",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
 
 [[package]]
 name = "indexmap"
@@ -2434,9 +2496,9 @@ checksum = "a1d01941d82fa2ab50be1e79e6714289dd7cde78eba4c074bc5a4374f650dfe0"
 
 [[package]]
 name = "quote"
-version = "1.0.44"
+version = "1.0.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "21b2ebcf727b7760c461f091f9f0f539b77b8e87f2fd88131e7f1b433b3cece4"
+checksum = "41f2619966050689382d2b44f664f4bc593e129785a36d6ee376ddf37259b924"
 dependencies = [
  "proc-macro2",
 ]
@@ -4929,6 +4991,164 @@ dependencies = [
  "thiserror",
  "waymark-proto",
  "waymark-vm-ast-old",
+]
+
+[[package]]
+name = "waymark-vm-bytecode"
+version = "0.1.0"
+dependencies = [
+ "index_type",
+ "waymark-vm-bytecode-core",
+ "waymark-vm-executable",
+]
+
+[[package]]
+name = "waymark-vm-bytecode-core"
+version = "0.1.0"
+dependencies = [
+ "index_type",
+]
+
+[[package]]
+name = "waymark-vm-cli"
+version = "0.1.0"
+dependencies = [
+ "index_type",
+ "tokio",
+ "tracing",
+ "waymark-fn-main-common",
+ "waymark-vm-bytecode",
+ "waymark-vm-bytecode-core",
+ "waymark-vm-driver",
+ "waymark-vm-instructions-coreset",
+ "waymark-vm-instructions-fullset",
+ "waymark-vm-instructions-pureset",
+ "waymark-vm-interpreter-coreset",
+ "waymark-vm-interpreter-fullset",
+ "waymark-vm-interpreter-pureset",
+ "waymark-vm-runtime",
+ "waymark-vm-runtime-core",
+]
+
+[[package]]
+name = "waymark-vm-driver"
+version = "0.1.0"
+dependencies = [
+ "tokio",
+ "tracing",
+ "waymark-vm-executable",
+ "waymark-vm-interpreter",
+ "waymark-vm-runtime",
+ "waymark-vm-runtime-core",
+ "waymark-vm-runtime-test",
+]
+
+[[package]]
+name = "waymark-vm-executable"
+version = "0.1.0"
+
+[[package]]
+name = "waymark-vm-instructions-coreset"
+version = "0.1.0"
+dependencies = [
+ "derive-where",
+]
+
+[[package]]
+name = "waymark-vm-instructions-fullset"
+version = "0.1.0"
+dependencies = [
+ "derive-where",
+ "waymark-vm-instructions-coreset",
+ "waymark-vm-instructions-pureset",
+]
+
+[[package]]
+name = "waymark-vm-instructions-pureset"
+version = "0.1.0"
+dependencies = [
+ "derive-where",
+]
+
+[[package]]
+name = "waymark-vm-interpreter"
+version = "0.1.0"
+
+[[package]]
+name = "waymark-vm-interpreter-coreset"
+version = "0.1.0"
+dependencies = [
+ "derive-where",
+ "thiserror",
+ "waymark-vm-executable",
+ "waymark-vm-instructions-coreset",
+ "waymark-vm-interpreter",
+ "waymark-vm-runtime",
+ "waymark-vm-runtime-core",
+ "waymark-vm-runtime-test",
+]
+
+[[package]]
+name = "waymark-vm-interpreter-fullset"
+version = "0.1.0"
+dependencies = [
+ "derive-where",
+ "thiserror",
+ "waymark-vm-executable",
+ "waymark-vm-instructions-coreset",
+ "waymark-vm-instructions-fullset",
+ "waymark-vm-instructions-pureset",
+ "waymark-vm-interpreter",
+ "waymark-vm-interpreter-coreset",
+ "waymark-vm-interpreter-pureset",
+ "waymark-vm-runtime",
+ "waymark-vm-runtime-core",
+ "waymark-vm-runtime-test",
+]
+
+[[package]]
+name = "waymark-vm-interpreter-pureset"
+version = "0.1.0"
+dependencies = [
+ "derive-where",
+ "thiserror",
+ "waymark-vm-instructions-pureset",
+ "waymark-vm-interpreter",
+ "waymark-vm-runtime",
+ "waymark-vm-runtime-core",
+ "waymark-vm-runtime-test",
+]
+
+[[package]]
+name = "waymark-vm-runtime"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+ "tracing",
+ "waymark-vm-executable",
+ "waymark-vm-interpreter",
+ "waymark-vm-runtime-core",
+ "waymark-vm-runtime-test",
+]
+
+[[package]]
+name = "waymark-vm-runtime-core"
+version = "0.1.0"
+dependencies = [
+ "index_type",
+ "thiserror",
+]
+
+[[package]]
+name = "waymark-vm-runtime-test"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+ "waymark-vm-bytecode",
+ "waymark-vm-bytecode-core",
+ "waymark-vm-interpreter",
+ "waymark-vm-runtime",
+ "waymark-vm-runtime-core",
 ]
 
 [[package]]

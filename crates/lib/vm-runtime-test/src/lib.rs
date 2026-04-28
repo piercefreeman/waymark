@@ -1,0 +1,157 @@
+use waymark_vm_interpreter::{ExecutionOutcome, Interpreter};
+use waymark_vm_runtime::{CallSpec, FunctionNotFoundError, Runtime};
+use waymark_vm_runtime_core::{
+    CaptureRuntimeView, Continuation, Frame, FrameKind, FullRuntimeView, Promise, PromiseState,
+    RegisterId, Registers,
+};
+
+pub use waymark_vm_bytecode_core::{FunctionId, StateId};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TestInstruction {
+    Emit(&'static str),
+    Exit,
+    Suspend {
+        dst: RegisterId,
+        resume: StateId,
+    },
+    EmitRegister(RegisterId),
+    EnqueueFrameAndExit {
+        func: FunctionId,
+        state: StateId,
+        num_regs: usize,
+    },
+    Fail(&'static str),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TestEffect {
+    Message(&'static str),
+    Value(i32),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{0}")]
+pub struct TestExecutionError(pub &'static str);
+
+pub struct TestInterpreter;
+
+pub type TestExecutable = waymark_vm_bytecode::Executable<TestInstruction>;
+
+pub type TestFunction = waymark_vm_bytecode::Function<TestInstruction>;
+
+pub fn function<Instruction>(
+    num_regs: usize,
+    states: Vec<Vec<Instruction>>,
+) -> waymark_vm_bytecode::Function<Instruction> {
+    waymark_vm_bytecode::Function {
+        states: states
+            .into_iter()
+            .map(|instructions| waymark_vm_bytecode::State {
+                instructions: instructions.into_iter().collect(),
+            })
+            .collect(),
+        num_regs,
+    }
+}
+
+pub fn executable<Instruction>(
+    functions: Vec<waymark_vm_bytecode::Function<Instruction>>,
+) -> waymark_vm_bytecode::Executable<Instruction> {
+    waymark_vm_bytecode::Executable {
+        functions: functions.into_iter().collect(),
+    }
+}
+
+impl CaptureRuntimeView<TestExecutable, FunctionId, StateId, i32> for TestInterpreter {
+    type RuntimeView<'r> = FullRuntimeView<'r, TestExecutable, FunctionId, StateId, i32>;
+
+    fn capture_runtime_view<'r>(
+        view: FullRuntimeView<'r, TestExecutable, FunctionId, StateId, i32>,
+    ) -> Self::RuntimeView<'r> {
+        view
+    }
+}
+
+impl Interpreter for TestInterpreter {
+    type RuntimeView<'r> = FullRuntimeView<'r, TestExecutable, FunctionId, StateId, i32>;
+    type Frame = Frame<FunctionId, StateId, Promise<i32>>;
+    type Instruction = TestInstruction;
+    type Error = TestExecutionError;
+    type Effect = TestEffect;
+
+    fn execute<'r>(
+        &self,
+        runtime: Self::RuntimeView<'r>,
+        frame: Self::Frame,
+        instruction: &Self::Instruction,
+    ) -> Result<ExecutionOutcome<Self::Frame, Self::Effect>, Self::Error> {
+        match *instruction {
+            TestInstruction::Emit(message) => Ok(ExecutionOutcome::ExitFrameWithEffect(
+                TestEffect::Message(message),
+            )),
+            TestInstruction::Exit => Ok(ExecutionOutcome::ExitFrame),
+            TestInstruction::Suspend { dst, resume } => {
+                let FullRuntimeView { state, .. } = runtime;
+                let promise_state_id = state.promise_states.prepare();
+                let promise_state = state
+                    .promise_states
+                    .get_mut(promise_state_id)
+                    .expect("prepared promise state should exist");
+                *promise_state =
+                    PromiseState::Waiting(vec![Continuation::capture(frame, resume, dst)]);
+                Ok(ExecutionOutcome::ExitFrame)
+            }
+            TestInstruction::EmitRegister(register) => {
+                let Some(Promise::Resolved(value)) = frame.regs.get(register) else {
+                    panic!("register should hold a resolved value before emitting it");
+                };
+                Ok(ExecutionOutcome::ExitFrameWithEffect(TestEffect::Value(
+                    *value,
+                )))
+            }
+            TestInstruction::EnqueueFrameAndExit {
+                func,
+                state: next_state,
+                num_regs,
+            } => {
+                let FullRuntimeView { state, .. } = runtime;
+                state.ready.push_back(Frame {
+                    func,
+                    state: next_state,
+                    regs: Registers::new(num_regs),
+                    kind: FrameKind::TopLevel,
+                });
+                Ok(ExecutionOutcome::ExitFrame)
+            }
+            TestInstruction::Fail(message) => Err(TestExecutionError(message)),
+        }
+    }
+}
+
+pub type TestRuntime = Runtime<TestExecutable, TestInterpreter, i32>;
+
+pub fn try_runtime(
+    executable: TestExecutable,
+) -> Result<TestRuntime, FunctionNotFoundError<FunctionId>> {
+    Runtime::with_conventional_entrypoint(TestInterpreter, executable)
+}
+
+pub fn runtime(executable: TestExecutable) -> TestRuntime {
+    try_runtime(executable).expect("entrypoint should exist")
+}
+
+pub fn try_runtime_with_entrypoint(
+    executable: TestExecutable,
+    call: CallSpec<FunctionId, i32>,
+) -> Result<TestRuntime, FunctionNotFoundError<FunctionId>> {
+    Runtime::with_custom_entrypoint(TestInterpreter, executable, call)
+}
+
+pub fn runtime_with_entrypoint(
+    executable: TestExecutable,
+    call: CallSpec<FunctionId, i32>,
+) -> TestRuntime {
+    try_runtime_with_entrypoint(executable, call)
+        .expect("test executable should define the entrypoint")
+}
