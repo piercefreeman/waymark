@@ -16,6 +16,7 @@ from waymark.bridge import (
     run_instances_batch,
     wait_for_instance,
 )
+from waymark.grpc_config import GRPC_CHANNEL_OPTIONS
 from waymark.proto import messages_pb2 as pb2
 
 
@@ -34,7 +35,8 @@ class TestWorkflowStub:
             async def channel_ready(self) -> None:
                 return None
 
-        def fake_insecure_channel(_target: str) -> FakeChannel:
+        def fake_insecure_channel(_target: str, *, options: object) -> FakeChannel:
+            assert options == GRPC_CHANNEL_OPTIONS
             channel = FakeChannel()
             created_channels.append(channel)
             return channel
