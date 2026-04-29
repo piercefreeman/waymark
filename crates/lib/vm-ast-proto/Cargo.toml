@@ -1,0 +1,11 @@
+[package]
+name = "waymark-vm-ast-proto"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-proto = { workspace = true }
+waymark-vm-ast = { workspace = true }
+
+thiserror = { workspace = true }

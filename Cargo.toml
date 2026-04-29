@@ -63,6 +63,7 @@ waymark-timed-future = { path = "crates/lib/timed-future" }
 waymark-tokio-metrics-bringup = { path = "crates/lib/tokio-metrics-bringup" }
 waymark-utils-futures = { path = "crates/lib/utils-futures" }
 waymark-utils-tokio-channel = { path = "crates/lib/utils-tokio-channel" }
+waymark-vm-ast = { path = "crates/lib/vm-ast" }
 waymark-webapp-backend = { path = "crates/lib/webapp-backend" }
 waymark-webapp-bringup = { path = "crates/lib/webapp-bringup" }
 waymark-webapp-config = { path = "crates/lib/webapp-config" }
@@ -102,6 +103,7 @@ function_name = "0.3"
 futures-core = "0.3"
 futures-util = "0.3"
 http-body-util = "0.1"
+index_type = "0.4"
 metrics = "0.24"
 metrics-exporter-prometheus = "0.18"
 metrics-util = "0.20"
