@@ -17,9 +17,3 @@ pub mod ast {
     // IR AST types
     tonic::include_proto!("waymark.ast");
 }
-
-/// Execution graph types from execution.proto
-pub mod execution {
-    // Execution state types
-    tonic::include_proto!("waymark.execution");
-}

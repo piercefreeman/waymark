@@ -18,7 +18,7 @@ fn if_feature_enabled(
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let files = ["messages.proto", "ast.proto", "execution.proto"];
+    let files = ["messages.proto", "ast.proto"];
 
     let proto_dir = std::path::Path::new(PROTO_DIR);
 
