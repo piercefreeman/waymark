@@ -65,6 +65,7 @@ waymark-utils-futures = { path = "crates/lib/utils-futures" }
 waymark-utils-tokio-channel = { path = "crates/lib/utils-tokio-channel" }
 waymark-vm-ast = { path = "crates/lib/vm-ast" }
 waymark-vm-bytecode = { path = "crates/lib/vm-bytecode" }
+waymark-vm-core = { path = "crates/lib/vm-core" }
 waymark-vm-instructions-coreset = { path = "crates/lib/vm-instructions-coreset" }
 waymark-vm-instructions-fullset = { path = "crates/lib/vm-instructions-fullset" }
 waymark-vm-instructions-pureset = { path = "crates/lib/vm-instructions-pureset" }

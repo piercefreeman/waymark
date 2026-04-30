@@ -5007,6 +5007,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-vm-compiler"
+version = "0.1.0"
+
+[[package]]
+name = "waymark-vm-core"
+version = "0.1.0"
+dependencies = [
+ "index_type",
+]
+
+[[package]]
 name = "waymark-vm-instructions-coreset"
 version = "0.1.0"
 
