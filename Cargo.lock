@@ -4910,6 +4910,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-support-test-python"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+ "tokio",
+ "waymark-python-workflow-ir-reader",
+ "waymark-vm-ast-old",
+ "waymark-vm-ast-old-proto",
+]
+
+[[package]]
 name = "waymark-synthetic-exception"
 version = "0.1.0"
 dependencies = [
