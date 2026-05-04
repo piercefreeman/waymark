@@ -37,6 +37,7 @@ waymark-observability-setup = { path = "crates/lib/observability-setup" }
 waymark-pool-status = { path = "crates/lib/pool-status" }
 waymark-prometheus-exporter-bringup = { path = "crates/lib/prometheus-exporter-bringup" }
 waymark-proto = { path = "crates/lib/proto" }
+waymark-python-workflow-ir-reader = { path = "crates/lib/python-workflow-ir-reader" }
 waymark-runloop = { path = "crates/lib/runloop" }
 waymark-runner = { path = "crates/lib/runner" }
 waymark-runner-execution-core = { path = "crates/lib/runner-execution-core" }
@@ -64,6 +65,7 @@ waymark-tokio-metrics-bringup = { path = "crates/lib/tokio-metrics-bringup" }
 waymark-utils-futures = { path = "crates/lib/utils-futures" }
 waymark-utils-tokio-channel = { path = "crates/lib/utils-tokio-channel" }
 waymark-vm-ast-old = { path = "crates/lib/vm-ast-old" }
+waymark-vm-ast-old-proto = { path = "crates/lib/vm-ast-old-proto" }
 waymark-vm-bytecode = { path = "crates/lib/vm-bytecode" }
 waymark-vm-bytecode-core = { path = "crates/lib/vm-bytecode-core" }
 waymark-vm-driver = { path = "crates/lib/vm-driver" }

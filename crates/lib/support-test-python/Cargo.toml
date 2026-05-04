@@ -1,0 +1,15 @@
+[package]
+name = "waymark-support-test-python"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-python-workflow-ir-reader = { workspace = true }
+waymark-vm-ast-old = { workspace = true }
+waymark-vm-ast-old-proto = { workspace = true }
+
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
