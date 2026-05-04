@@ -1,0 +1,36 @@
+use crate::{PromiseStateId, Registers};
+
+/// A frame shape used in runtime.
+pub struct Frame<FunctionId, StateId, Value> {
+    /// A function this frame is executing.
+    pub func: FunctionId,
+
+    /// A function sub-state this frame is executing.
+    pub state: StateId,
+
+    /// Registers that hold values for this frame.
+    pub regs: Registers<Value>,
+
+    /// The kind of the frame.
+    pub kind: FrameKind,
+}
+
+/// The kind of a frame.
+#[derive(Debug)]
+pub enum FrameKind {
+    /// Top level frame.
+    ///
+    /// Represents a function that the execution of the runtime
+    /// began with.
+    /// A return from the top-level frame completes the whole runtime execution.
+    TopLevel,
+
+    /// A function call frame.
+    ///
+    /// Represents an function that was invoked from somewhere and that has
+    /// as associated promise to fulful upon the function return.
+    FnCall {
+        /// The promise to resolve when this frame returns.
+        ret: PromiseStateId,
+    },
+}

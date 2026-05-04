@@ -1,0 +1,222 @@
+//! The VM runtime.
+//!
+//! Responsible for the execution loop driving an instruction set intereter
+//! and the surface API for executing instructions of the VM bytecode programs.
+
+#![warn(missing_docs)]
+
+pub mod step;
+
+use std::collections::VecDeque;
+
+use waymark_vm_runtime_core::{
+    Frame, FrameKind, Promise, PromiseStateId, PromiseStates, Registers, ResolvePromiseError,
+    ResolvingAlreadyResolvedPromiseError, RuntimeState,
+};
+
+/// VM runtime.
+///
+/// Holds an abstract instruction set interpreter, an abstract executable
+/// capable of providing instructions from the said instruction set,
+/// and the state of the runtime required to drive the execution of
+/// the instructions forward.
+pub struct Runtime<Executable, Interpreter, Value>
+where
+    Executable: waymark_vm_executable::FunctionStates,
+{
+    interpreter: Interpreter,
+    executable: Executable,
+    state: RuntimeState<Executable::FunctionId, Executable::StateId, Value>,
+}
+
+/// A specification of a VM function call.
+pub struct CallSpec<FunctionId, Value> {
+    /// A function to call.
+    pub func: FunctionId,
+
+    /// A list of arguments to pass to the function.
+    pub args: Vec<Value>,
+}
+
+/// An error returned when to such function id is defined in the executable.
+#[derive(Debug, thiserror::Error)]
+#[error("function {function_id:?} is not found in the functions table")]
+pub struct FunctionNotFoundError<FunctionId> {
+    function_id: FunctionId,
+}
+
+impl<Executable, Interpreter, Value> Runtime<Executable, Interpreter, Value>
+where
+    Interpreter: waymark_vm_interpreter::Interpreter,
+    Executable: waymark_vm_executable::FunctionStates,
+    Executable: waymark_vm_executable::FunctionInfo,
+    Executable::FunctionId: Copy + Default,
+    Executable::StateId: Default,
+{
+    /// Create a new runtime with a conventional entrypoint.
+    ///
+    /// Conventional entrypoint is a call to a function with a default
+    /// function ID (think function 0) with empty arguments.
+    pub fn with_conventional_entrypoint(
+        interpreter: Interpreter,
+        executable: Executable,
+    ) -> Result<Self, FunctionNotFoundError<Executable::FunctionId>> {
+        Self::with_custom_entrypoint(
+            interpreter,
+            executable,
+            CallSpec {
+                func: Executable::FunctionId::default(),
+                args: Vec::new(),
+            },
+        )
+    }
+}
+
+impl<Executable, Interpreter, Value> Runtime<Executable, Interpreter, Value>
+where
+    Interpreter: waymark_vm_interpreter::Interpreter,
+    Executable: waymark_vm_executable::FunctionStates,
+    Executable: waymark_vm_executable::FunctionInfo,
+    Executable::FunctionId: Copy + Default,
+    Executable::StateId: Default,
+{
+    /// Create a new runtime with a custom entrypoint.
+    ///
+    /// Initialized the top-level frame with a call to the `func` specified
+    /// in the `call` and the list of arguments as specified by the `args`
+    /// in the `call`.
+    pub fn with_custom_entrypoint(
+        interpreter: Interpreter,
+        executable: Executable,
+        call: CallSpec<Executable::FunctionId, Value>,
+    ) -> Result<Self, FunctionNotFoundError<Executable::FunctionId>> {
+        let mut ready = VecDeque::new();
+
+        let CallSpec { func, args } = call;
+
+        let num_regs = executable
+            .function_num_regs(func)
+            .ok_or(FunctionNotFoundError { function_id: func })?;
+
+        let regs = Registers::new_for_fn_call(num_regs, args.into_iter().map(Promise::Resolved));
+
+        ready.push_back(Frame {
+            func,
+            state: Executable::StateId::default(),
+            regs,
+            kind: FrameKind::TopLevel,
+        });
+
+        let state = RuntimeState {
+            ready,
+            promise_states: PromiseStates::new(),
+        };
+
+        Ok(Self {
+            interpreter,
+            executable,
+            state,
+        })
+    }
+}
+
+/// An error of the [`Runtime::run`] function.
+#[derive(Debug, thiserror::Error)]
+pub enum RunError<InterpreterError> {
+    /// No ready frames to execute.
+    ///
+    /// Typically either when the program has completed, or when all the frames
+    /// are suspended in continuations.
+    #[error("no ready frames to execute")]
+    NoReadyFrame,
+
+    /// Step execution failed.
+    #[error("step: {0}")]
+    Step(step::Error<InterpreterError>),
+}
+
+/// A type alias shorthand for specifying runtime frames from and executable
+/// and an promise-value.
+pub type FrameFor<Executable, Value> = Frame<
+    <Executable as waymark_vm_executable::Functions>::FunctionId,
+    <Executable as waymark_vm_executable::FunctionStates>::StateId,
+    Promise<Value>,
+>;
+
+impl<Executable, Interpreter, Value> Runtime<Executable, Interpreter, Value>
+where
+    Executable: waymark_vm_executable::InstructionsProvider,
+    Executable::FunctionId: Copy,
+    Executable::StateId: Copy + PartialEq,
+    Executable: 'static,
+    Interpreter: waymark_vm_interpreter::Interpreter<
+            Frame = FrameFor<Executable, Value>,
+            Instruction = Executable::Instruction,
+        >,
+    Interpreter: for<'r> waymark_vm_runtime_core::CaptureRuntimeView<
+            Executable,
+            Executable::FunctionId,
+            Executable::StateId,
+            Value,
+            RuntimeView<'r> = <Interpreter as waymark_vm_interpreter::Interpreter>::RuntimeView<'r>,
+        >,
+    Value: 'static,
+    // Debug
+    Interpreter::Instruction: core::fmt::Debug,
+    Value: core::fmt::Debug,
+{
+    /// Run the VM steps until the next event is encountered.
+    pub fn run(&mut self) -> Result<Interpreter::Effect, RunError<Interpreter::Error>> {
+        loop {
+            let Some(frame) = self.state.ready.pop_front() else {
+                // No frames but also no valid exit either,
+                // shouldn't be possible in the valid executing flow.
+                return Err(RunError::NoReadyFrame);
+            };
+
+            let result = self.step(frame).map_err(RunError::Step)?;
+            let effect = match result {
+                step::StepOutcome::Effect(effect) => effect,
+                step::StepOutcome::Yield => continue,
+            };
+
+            return Ok(effect);
+        }
+    }
+}
+
+impl<Executable, Interpreter, Value> Runtime<Executable, Interpreter, Value>
+where
+    Executable: waymark_vm_executable::FunctionStates,
+    Value: Clone,
+{
+    /// Provide an async computation value for a given promise.
+    ///
+    /// Notifies all continuations that wait on it.
+    pub fn resolve_promise(
+        &mut self,
+        promise_state_id: PromiseStateId,
+        val: Value,
+    ) -> Result<(), ResolvePromiseError<Value>> {
+        self.state
+            .resolve_promise(promise_state_id, Promise::Resolved(val))
+            .map_err(|error| match error {
+                ResolvePromiseError::PromiseStateNotFound(error) => {
+                    ResolvePromiseError::PromiseStateNotFound(error)
+                }
+                ResolvePromiseError::AlreadyResolved(error) => {
+                    let ResolvingAlreadyResolvedPromiseError { new_value } = error;
+                    let new_value = match new_value {
+                        // We've wrapped this value with `Promise::Resolved`
+                        // ourselves just a couple lines above.
+                        // It is guaranteed to be `Promise::Resolved` here.
+                        Promise::Pending(_) => unreachable!(),
+                        Promise::Resolved(val) => val,
+                    };
+                    ResolvePromiseError::AlreadyResolved(ResolvingAlreadyResolvedPromiseError {
+                        new_value,
+                    })
+                }
+            })
+    }
+}
