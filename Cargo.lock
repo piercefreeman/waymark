@@ -4996,6 +4996,13 @@ name = "waymark-vm-ast-old"
 version = "0.1.0"
 
 [[package]]
+name = "waymark-vm-ast-old-helpers"
+version = "0.1.0"
+dependencies = [
+ "waymark-vm-ast-old",
+]
+
+[[package]]
 name = "waymark-vm-ast-old-proto"
 version = "0.1.0"
 dependencies = [
