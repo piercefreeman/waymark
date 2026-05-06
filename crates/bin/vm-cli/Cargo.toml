@@ -18,6 +18,7 @@ waymark-vm-interpreter-pureset = { workspace = true }
 waymark-vm-runtime = { workspace = true }
 waymark-vm-runtime-core = { workspace = true }
 
+clap = { workspace = true, features = ["derive"] }
 index_type = { workspace = true }
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal", "time"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 tracing = { workspace = true }

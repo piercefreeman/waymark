@@ -5024,6 +5024,7 @@ dependencies = [
 name = "waymark-vm-cli"
 version = "0.1.0"
 dependencies = [
+ "clap",
  "index_type",
  "tokio",
  "tracing",
