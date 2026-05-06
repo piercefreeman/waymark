@@ -3,8 +3,8 @@
 //!
 //! The current compiler intentionally implements only the subset that can be
 //! represented by the existing VM instruction set:
-//! literals, variables, addition, simple assignments, returns, user function
-//! calls, and action calls.
+//! literals, variables, addition, simple assignments, conditionals, while
+//! loops, `break`/`continue`, returns, user function calls, and action calls.
 //!
 //! Unsupported statements and expressions are rejected with [`CompileError`]
 //! instead of being lowered to incorrect bytecode.

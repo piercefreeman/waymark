@@ -68,6 +68,13 @@ pub enum Error<LiteralLoweringError, ActionLoweringError> {
         name: String,
     },
 
+    /// A loop-only control statement appeared outside of any loop body.
+    #[error("{kind} statement outside of a loop")]
+    LoopControlOutsideLoop {
+        /// The control statement kind.
+        kind: &'static str,
+    },
+
     /// A user-defined function call referred to an unknown function name.
     #[error("unknown function `{name}`")]
     UnknownFunction {

@@ -6,10 +6,11 @@ use crate::InstructionFor;
 
 pub use self::error::*;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use waymark_vm_ast_old::{
-    ActionCall, BinaryOperator, Block, Expr, FunctionCall, FunctionDef, Literal, Spanned, Statement,
+    ActionCall, BinaryOperator, Block, ElifBranch, ElseBranch, Expr, FunctionCall, FunctionDef,
+    IfBranch, Literal, Spanned, Statement,
 };
 use waymark_vm_bytecode_core::{FunctionId, StateId};
 use waymark_vm_runtime_core::RegisterId;
@@ -21,6 +22,12 @@ type ErrorFor<Spec, Lowering> = Error<
     <Lowering as crate::lowering::CoreSet<Spec>>::ActionError,
 >;
 
+#[derive(Clone, Copy)]
+struct LoopContext {
+    break_state: StateId,
+    continue_state: StateId,
+}
+
 pub(crate) struct FunctionCompiler<'a, Spec, Lowering>
 where
     Spec: waymark_vm_compiler_core::SpecRequirements,
@@ -29,6 +36,8 @@ where
     function_table: &'a FunctionTable,
     function_states: FunctionStates<InstructionFor<Spec>>,
     variables: HashMap<String, RegisterId>,
+    initialized_variables: HashSet<String>,
+    loop_stack: Vec<LoopContext>,
     next_register_index: usize,
 }
 
@@ -42,6 +51,7 @@ where
         function: &'a Spanned<FunctionDef>,
     ) -> Result<Self, ErrorFor<Spec, Lowering>> {
         let mut variables = HashMap::new();
+        let mut initialized_variables = HashSet::new();
         let mut next_register_index = 0;
 
         for input in &function.value.io.value.inputs {
@@ -54,6 +64,8 @@ where
                     name: input.clone(),
                 });
             }
+
+            initialized_variables.insert(input.clone());
         }
 
         Ok(Self {
@@ -61,6 +73,8 @@ where
             function_table,
             function_states: FunctionStates::new(),
             variables,
+            initialized_variables,
+            loop_stack: Vec::new(),
             next_register_index,
         })
     }
@@ -107,7 +121,7 @@ where
                 }
 
                 let target = &targets[0];
-                let target_register = self.ensure_variable(target);
+                let target_register = self.ensure_variable_register(target);
                 let value_register = self.compile_expr(value, Some(target_register))?;
 
                 if value_register != target_register {
@@ -116,6 +130,8 @@ where
                     }
                     .into());
                 }
+
+                self.initialized_variables.insert(target.clone());
             }
             Statement::ActionCall { call } => {
                 let _ = self.compile_action_call(call, None)?;
@@ -145,23 +161,24 @@ where
             Statement::ForLoop { .. } => {
                 return Err(Unsupported::Statement { kind: "ForLoop" }.into());
             }
-            Statement::WhileLoop { .. } => {
-                return Err(Unsupported::Statement { kind: "WhileLoop" }.into());
+            Statement::WhileLoop { condition, body } => {
+                self.compile_while_loop(condition, body)?;
             }
-            Statement::Conditional { .. } => {
-                return Err(Unsupported::Statement {
-                    kind: "Conditional",
-                }
-                .into());
+            Statement::Conditional {
+                if_branch,
+                elif_branches,
+                else_branch,
+            } => {
+                self.compile_conditional(if_branch, elif_branches, else_branch.as_ref())?;
             }
             Statement::TryExcept { .. } => {
                 return Err(Unsupported::Statement { kind: "TryExcept" }.into());
             }
             Statement::Break => {
-                return Err(Unsupported::Statement { kind: "Break" }.into());
+                self.compile_break()?;
             }
             Statement::Continue => {
-                return Err(Unsupported::Statement { kind: "Continue" }.into());
+                self.compile_continue()?;
             }
             Statement::Sleep { .. } => {
                 return Err(Unsupported::Statement { kind: "Sleep" }.into());
@@ -171,6 +188,167 @@ where
         Ok(())
     }
 
+    fn compile_conditional(
+        &mut self,
+        if_branch: &Spanned<IfBranch>,
+        elif_branches: &[Spanned<ElifBranch>],
+        else_branch: Option<&Spanned<ElseBranch>>,
+    ) -> Result<(), ErrorFor<Spec, Lowering>> {
+        let incoming_initialized = self.initialized_variables.clone();
+        let join_state = self.new_state();
+        let if_body_state = self.new_state();
+        let elif_body_states = elif_branches
+            .iter()
+            .map(|_| self.new_state())
+            .collect::<Vec<_>>();
+
+        let condition_register = self.compile_expr(&if_branch.value.condition, None)?;
+        self.emit_jump_if(if_body_state, condition_register);
+
+        for (branch, body_state) in elif_branches.iter().zip(elif_body_states.iter().copied()) {
+            let condition_register = self.compile_expr(&branch.value.condition, None)?;
+            self.emit_jump_if(body_state, condition_register);
+        }
+
+        self.initialized_variables = incoming_initialized.clone();
+        let mut continuation_envs = Vec::new();
+
+        match else_branch {
+            Some(else_branch) => {
+                self.compile_block(&else_branch.value.body)?;
+                if self.function_states.is_active() {
+                    continuation_envs.push(self.initialized_variables.clone());
+                    self.emit_jump(join_state);
+                }
+            }
+            None => {
+                continuation_envs.push(incoming_initialized.clone());
+                self.emit_jump(join_state);
+            }
+        }
+
+        if let Some(continuation) = self.compile_branch_body(
+            if_body_state,
+            &if_branch.value.body,
+            &incoming_initialized,
+            join_state,
+        )? {
+            continuation_envs.push(continuation);
+        }
+
+        for (branch, body_state) in elif_branches.iter().zip(elif_body_states) {
+            if let Some(continuation) = self.compile_branch_body(
+                body_state,
+                &branch.value.body,
+                &incoming_initialized,
+                join_state,
+            )? {
+                continuation_envs.push(continuation);
+            }
+        }
+
+        if let Some(merged_initialized) = Self::merge_initialized_variables(continuation_envs) {
+            self.switch_to_state(join_state);
+            self.initialized_variables = merged_initialized;
+        }
+
+        Ok(())
+    }
+
+    fn compile_branch_body(
+        &mut self,
+        state_id: StateId,
+        body: &Spanned<Block>,
+        incoming_initialized: &HashSet<String>,
+        join_state: StateId,
+    ) -> Result<Option<HashSet<String>>, ErrorFor<Spec, Lowering>> {
+        self.switch_to_state(state_id);
+        self.initialized_variables = incoming_initialized.clone();
+        self.compile_block(body)?;
+
+        if !self.function_states.is_active() {
+            return Ok(None);
+        }
+
+        let continuation = self.initialized_variables.clone();
+        self.emit_jump(join_state);
+        Ok(Some(continuation))
+    }
+
+    fn compile_while_loop(
+        &mut self,
+        condition: &Spanned<Expr>,
+        body: &Spanned<Block>,
+    ) -> Result<(), ErrorFor<Spec, Lowering>> {
+        let incoming_initialized = self.initialized_variables.clone();
+        let condition_state = self.new_state();
+        let body_state = self.new_state();
+        let exit_state = self.new_state();
+
+        self.emit_jump(condition_state);
+
+        self.switch_to_state(condition_state);
+        self.initialized_variables = incoming_initialized.clone();
+        let condition_register = self.compile_expr(condition, None)?;
+        self.emit_jump_if(body_state, condition_register);
+        self.emit_jump(exit_state);
+
+        self.loop_stack.push(LoopContext {
+            break_state: exit_state,
+            continue_state: condition_state,
+        });
+
+        self.switch_to_state(body_state);
+        self.initialized_variables = incoming_initialized.clone();
+        self.compile_block(body)?;
+
+        let loop_context = self
+            .loop_stack
+            .pop()
+            .expect("loop context should exist while compiling a loop body");
+        debug_assert_eq!(loop_context.break_state, exit_state);
+        debug_assert_eq!(loop_context.continue_state, condition_state);
+
+        if self.function_states.is_active() {
+            self.emit_jump(condition_state);
+        }
+
+        self.switch_to_state(exit_state);
+        self.initialized_variables = incoming_initialized;
+
+        Ok(())
+    }
+
+    fn compile_break(&mut self) -> Result<(), ErrorFor<Spec, Lowering>> {
+        let Some(loop_context) = self.loop_stack.last().copied() else {
+            return Err(Error::LoopControlOutsideLoop { kind: "break" });
+        };
+
+        self.emit_jump(loop_context.break_state);
+        Ok(())
+    }
+
+    fn compile_continue(&mut self) -> Result<(), ErrorFor<Spec, Lowering>> {
+        let Some(loop_context) = self.loop_stack.last().copied() else {
+            return Err(Error::LoopControlOutsideLoop { kind: "continue" });
+        };
+
+        self.emit_jump(loop_context.continue_state);
+        Ok(())
+    }
+
+    fn merge_initialized_variables(
+        mut continuation_envs: Vec<HashSet<String>>,
+    ) -> Option<HashSet<String>> {
+        let mut merged = continuation_envs.pop()?;
+
+        for env in continuation_envs {
+            merged.retain(|name| env.contains(name));
+        }
+
+        Some(merged)
+    }
+
     fn compile_expr(
         &mut self,
         expr: &Spanned<Expr>,
@@ -178,11 +356,16 @@ where
     ) -> Result<RegisterId, ErrorFor<Spec, Lowering>> {
         match &expr.value {
             Expr::Literal { value } => self.compile_literal(value, preferred_dst),
-            Expr::Variable { name } => self
-                .variables
-                .get(name)
-                .copied()
-                .ok_or_else(|| Error::UnknownVariable { name: name.clone() }),
+            Expr::Variable { name } => {
+                if !self.initialized_variables.contains(name) {
+                    return Err(Error::UnknownVariable { name: name.clone() });
+                }
+
+                self.variables
+                    .get(name)
+                    .copied()
+                    .ok_or_else(|| Error::UnknownVariable { name: name.clone() })
+            }
             Expr::BinaryOp { left, op, right } => {
                 if !matches!(op, BinaryOperator::Add) {
                     return Err(Unsupported::BinaryOperator { op: op.clone() }.into());
@@ -347,6 +530,15 @@ where
         self.emit(waymark_vm_instructions_coreset::CoreSet::Await { dst, src, resume }.into());
     }
 
+    fn emit_jump_if(&mut self, target_state: StateId, cond: RegisterId) {
+        self.emit(waymark_vm_instructions_coreset::CoreSet::JumpIf { target_state, cond }.into());
+    }
+
+    fn emit_jump(&mut self, target_state: StateId) {
+        self.emit(waymark_vm_instructions_coreset::CoreSet::Jump { target_state }.into());
+        self.function_states.terminate();
+    }
+
     fn emit_return(&mut self, src: RegisterId) {
         self.emit(waymark_vm_instructions_coreset::CoreSet::Return { src }.into());
         self.function_states.terminate();
@@ -376,7 +568,7 @@ where
         register
     }
 
-    fn ensure_variable(&mut self, name: &str) -> RegisterId {
+    fn ensure_variable_register(&mut self, name: &str) -> RegisterId {
         if let Some(register) = self.variables.get(name) {
             return *register;
         }

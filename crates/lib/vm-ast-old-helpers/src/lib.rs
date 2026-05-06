@@ -1,6 +1,6 @@
 use waymark_vm_ast_old::{
-    ActionCall, BinaryOperator, Block, Expr, FunctionCall, FunctionDef, IoDecl, Kwarg, Literal,
-    Program, Span, Spanned, Statement,
+    ActionCall, BinaryOperator, Block, ElifBranch, ElseBranch, Expr, FunctionCall, FunctionDef,
+    IfBranch, IoDecl, Kwarg, Literal, Program, Span, Spanned, Statement,
 };
 
 pub fn span() -> Span {
@@ -21,6 +21,10 @@ pub fn spanned<T>(value: T) -> Spanned<T> {
 
 pub fn program(functions: Vec<Spanned<FunctionDef>>) -> Program {
     Program { functions }
+}
+
+pub fn block(statements: Vec<Spanned<Statement>>) -> Spanned<Block> {
+    spanned(Block { statements })
 }
 
 pub fn int(value: i64) -> Spanned<Expr> {
@@ -63,12 +67,61 @@ pub fn action_stmt(name: &str) -> Spanned<Statement> {
     })
 }
 
-pub fn while_stmt() -> Spanned<Statement> {
-    spanned(Statement::WhileLoop {
-        condition: int(1),
-        body: spanned(Block {
-            statements: Vec::new(),
+pub fn conditional_stmt(
+    if_condition: Spanned<Expr>,
+    if_body: Vec<Spanned<Statement>>,
+    elif_branches: Vec<(Spanned<Expr>, Vec<Spanned<Statement>>)>,
+    else_body: Option<Vec<Spanned<Statement>>>,
+) -> Spanned<Statement> {
+    spanned(Statement::Conditional {
+        if_branch: spanned(IfBranch {
+            condition: if_condition,
+            body: block(if_body),
         }),
+        elif_branches: elif_branches
+            .into_iter()
+            .map(|(condition, statements)| {
+                spanned(ElifBranch {
+                    condition,
+                    body: block(statements),
+                })
+            })
+            .collect(),
+        else_branch: else_body.map(|statements| {
+            spanned(ElseBranch {
+                body: block(statements),
+            })
+        }),
+    })
+}
+
+pub fn while_stmt(condition: Spanned<Expr>, body: Vec<Spanned<Statement>>) -> Spanned<Statement> {
+    spanned(Statement::WhileLoop {
+        condition,
+        body: block(body),
+    })
+}
+
+pub fn break_stmt() -> Spanned<Statement> {
+    spanned(Statement::Break)
+}
+
+pub fn continue_stmt() -> Spanned<Statement> {
+    spanned(Statement::Continue)
+}
+
+pub fn for_stmt(
+    loop_vars: &[&str],
+    iterable: Spanned<Expr>,
+    body: Vec<Spanned<Statement>>,
+) -> Spanned<Statement> {
+    spanned(Statement::ForLoop {
+        loop_vars: loop_vars
+            .iter()
+            .map(|loop_var| (*loop_var).to_owned())
+            .collect(),
+        iterable,
+        body: block(body),
     })
 }
 

@@ -40,7 +40,9 @@ impl<Instruction> FunctionStates<Instruction> {
     }
 
     pub fn switch_to(&mut self, state_id: StateId) {
-        self.persist_current_state();
+        if self.current_state_id.is_some() {
+            self.persist_current_state();
+        }
         self.current_state = std::mem::replace(&mut self.states[state_id], Self::empty_state());
         self.current_state_id = Some(state_id);
     }

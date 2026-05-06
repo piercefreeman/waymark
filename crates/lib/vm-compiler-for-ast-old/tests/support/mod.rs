@@ -120,3 +120,15 @@ pub fn runtime(executable: TestExecutable) -> TestRuntime {
     )
     .expect("compiled main function should exist")
 }
+
+pub fn runtime_with_args(executable: TestExecutable, args: Vec<TestValue>) -> TestRuntime {
+    waymark_vm_runtime::Runtime::with_custom_entrypoint(
+        TestInterpreter::default(),
+        executable,
+        waymark_vm_runtime::CallSpec {
+            func: waymark_vm_bytecode_core::FunctionId::default(),
+            args,
+        },
+    )
+    .expect("compiled main function should exist")
+}

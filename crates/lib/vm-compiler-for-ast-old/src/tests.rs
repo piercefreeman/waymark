@@ -1,6 +1,7 @@
 use waymark_vm_ast_old::{ActionCall, Literal};
 use waymark_vm_ast_old_helpers::{
-    action_stmt, assignment, float, function, int, program, return_stmt, variable, while_stmt,
+    action_stmt, assignment, break_stmt, conditional_stmt, continue_stmt, float, for_stmt,
+    function, int, program, return_stmt, variable,
 };
 
 use crate::{
@@ -159,6 +160,26 @@ fn rejects_unknown_variables() {
 }
 
 #[test]
+fn rejects_self_referential_assignments_to_new_variables() {
+    let program = program(vec![function(
+        "main",
+        &[],
+        vec![assignment("value", variable("value"))],
+    )]);
+
+    let error = match compile::<TestSpec, TestLowering>(&program) {
+        Ok(_) => panic!("self-referential assignment should fail"),
+        Err(error) => error,
+    };
+
+    assert!(matches!(
+        error,
+        CompileError::FunctionCompiler(compiler::Error::UnknownVariable { name })
+            if name == "value"
+    ));
+}
+
+#[test]
 fn preserves_literal_lowering_errors() {
     let program = program(vec![function(
         "main",
@@ -223,11 +244,75 @@ fn rejects_copy_assignments_without_a_move_instruction() {
 }
 
 #[test]
-fn rejects_unsupported_control_flow() {
-    let program = program(vec![function("main", &[], vec![while_stmt()])]);
+fn rejects_break_outside_loops() {
+    let program = program(vec![function("main", &[], vec![break_stmt()])]);
 
     let error = match compile::<TestSpec, TestLowering>(&program) {
-        Ok(_) => panic!("while loops should stay unsupported"),
+        Ok(_) => panic!("break outside a loop should fail"),
+        Err(error) => error,
+    };
+
+    assert!(matches!(
+        error,
+        CompileError::FunctionCompiler(compiler::Error::LoopControlOutsideLoop { kind })
+            if kind == "break"
+    ));
+}
+
+#[test]
+fn rejects_continue_outside_loops() {
+    let program = program(vec![function("main", &[], vec![continue_stmt()])]);
+
+    let error = match compile::<TestSpec, TestLowering>(&program) {
+        Ok(_) => panic!("continue outside a loop should fail"),
+        Err(error) => error,
+    };
+
+    assert!(matches!(
+        error,
+        CompileError::FunctionCompiler(compiler::Error::LoopControlOutsideLoop { kind })
+            if kind == "continue"
+    ));
+}
+
+#[test]
+fn rejects_variables_missing_on_some_conditional_paths() {
+    let program = program(vec![function(
+        "main",
+        &["flag"],
+        vec![
+            conditional_stmt(
+                variable("flag"),
+                vec![assignment("x", int(1))],
+                Vec::new(),
+                None,
+            ),
+            return_stmt(Some(variable("x"))),
+        ],
+    )]);
+
+    let error = match compile::<TestSpec, TestLowering>(&program) {
+        Ok(_) => panic!("partially initialized conditionals should fail"),
+        Err(error) => error,
+    };
+
+    assert!(matches!(
+        error,
+        CompileError::FunctionCompiler(compiler::Error::UnknownVariable { name })
+            if name == "x"
+    ));
+}
+
+#[test]
+fn rejects_unsupported_for_loops() {
+    let program = program(vec![function(
+        "main",
+        &[],
+        vec![for_stmt(&["item"], int(1), vec![])],
+    )]);
+
+    let error = match compile::<TestSpec, TestLowering>(&program) {
+        Ok(_) => panic!("for loops should stay unsupported"),
         Err(error) => error,
     };
 
@@ -235,6 +320,6 @@ fn rejects_unsupported_control_flow() {
         error,
         CompileError::FunctionCompiler(compiler::Error::Unsupported(
             compiler::Unsupported::Statement { kind }
-        )) if kind == "WhileLoop"
+        )) if kind == "ForLoop"
     ));
 }
