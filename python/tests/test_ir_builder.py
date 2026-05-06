@@ -1188,6 +1188,15 @@ class TestWorkflowHelperMethods:
         assert fc.kwargs[0].name == "z", "Expected 'z' kwarg"
         assert fc.kwargs[0].value.literal.int_value == 3, "Expected z=3"
 
+    def test_helper_method_definitions_preserve_discovery_order(self) -> None:
+        """Test: reachable helper methods are emitted in deterministic call order."""
+        from tests.fixtures_workflow.workflow_helper_positional import WorkflowHelperPositionalArgs
+
+        program = WorkflowHelperPositionalArgs.workflow_ir()
+
+        fn_names = [fn.name for fn in program.functions if fn.name != "main"]
+        assert fn_names == ["add", "multiply"], f"Unexpected helper order: {fn_names}"
+
     def test_async_helper_method_included(self) -> None:
         """Test: await self.method() becomes a FunctionCall with a definition."""
         from tests.fixtures_workflow.workflow_helper_async import WorkflowWithAsyncHelper
