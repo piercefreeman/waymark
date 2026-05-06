@@ -80,6 +80,7 @@ waymark-vm-interpreter = { path = "crates/lib/vm-interpreter" }
 waymark-vm-interpreter-coreset = { path = "crates/lib/vm-interpreter-coreset" }
 waymark-vm-interpreter-fullset = { path = "crates/lib/vm-interpreter-fullset" }
 waymark-vm-interpreter-pureset = { path = "crates/lib/vm-interpreter-pureset" }
+waymark-vm-interpreter-utils = { path = "crates/lib/vm-interpreter-utils" }
 waymark-vm-runtime = { path = "crates/lib/vm-runtime" }
 waymark-vm-runtime-core = { path = "crates/lib/vm-runtime-core" }
 waymark-vm-runtime-test = { path = "crates/lib/vm-runtime-test" }

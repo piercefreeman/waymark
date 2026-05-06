@@ -35,6 +35,7 @@ pub struct TestExtCallId(pub String);
 pub enum TestValue {
     Int(i64),
     None,
+    List(Vec<TestValue>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -87,6 +88,7 @@ impl waymark_vm_interpreter_coreset::value::ShouldJump for TestValue {
         Ok(match self {
             Self::Int(value) => *value != 0,
             Self::None => false,
+            Self::List(_) => false,
         })
     }
 }
@@ -97,6 +99,15 @@ impl waymark_vm_interpreter_pureset::value::Add for TestValue {
             (Self::Int(a), Self::Int(b)) => Ok(Self::Int(a + b)),
             _ => Err(waymark_vm_interpreter_pureset::value::AddError::NotAddable),
         }
+    }
+}
+
+impl waymark_vm_interpreter_pureset::value::MakeList for TestValue {
+    fn make_list<I>(items: I) -> Result<Self, waymark_vm_interpreter_pureset::value::MakeListError>
+    where
+        I: IntoIterator<Item = Self>,
+    {
+        Ok(Self::List(items.into_iter().collect()))
     }
 }
 

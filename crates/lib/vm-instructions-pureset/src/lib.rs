@@ -44,4 +44,13 @@ pub enum PureSet<Spec: self::Spec> {
         /// the addition operation.
         b: Spec::RegisterId,
     },
+
+    /// Build a list value from resolved registers.
+    MakeList {
+        /// The register to store the resulting list at.
+        dst: Spec::RegisterId,
+
+        /// The registers to read list elements from in order.
+        items: Vec<Spec::RegisterId>,
+    },
 }

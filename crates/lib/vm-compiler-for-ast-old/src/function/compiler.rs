@@ -337,12 +337,17 @@ where
         calls: &[Call],
     ) -> Result<(), ErrorFor<Spec, Lowering>> {
         if targets.len() == 1 {
-            return Err(Unsupported::ParallelExprAssignment {
-                target_count: targets.len(),
-                call_count: calls.len(),
-                reason: "single-target parallel expressions require list aggregation, which is not implemented",
+            let target = &targets[0];
+            let target_register = self.ensure_variable_register(target);
+            let promise_registers = self.compile_parallel_calls_start(calls)?;
+
+            for promise_register in &promise_registers {
+                self.compile_await_register(*promise_register);
             }
-            .into());
+
+            self.emit_make_list(target_register, promise_registers);
+            self.initialized_variables.insert(target.clone());
+            return Ok(());
         }
 
         if targets.len() != calls.len() {
@@ -601,6 +606,10 @@ where
 
     fn emit_add(&mut self, dst: RegisterId, a: RegisterId, b: RegisterId) {
         self.emit(waymark_vm_instructions_pureset::PureSet::Add { dst, a, b }.into());
+    }
+
+    fn emit_make_list(&mut self, dst: RegisterId, items: Vec<RegisterId>) {
+        self.emit(waymark_vm_instructions_pureset::PureSet::MakeList { dst, items }.into());
     }
 
     fn emit_call(&mut self, dst: RegisterId, function_id: FunctionId, args: Vec<RegisterId>) {

@@ -325,7 +325,7 @@ fn rejects_unsupported_for_loops() {
 }
 
 #[test]
-fn rejects_single_target_parallel_expressions_that_need_aggregation() {
+fn allows_single_target_parallel_expressions_for_aggregation() {
     let program = program(vec![function(
         "main",
         &[],
@@ -338,21 +338,8 @@ fn rejects_single_target_parallel_expressions_that_need_aggregation() {
         )],
     )]);
 
-    let error = match compile::<TestSpec, TestLowering>(&program) {
-        Ok(_) => panic!("single-target parallel expressions should fail"),
-        Err(error) => error,
-    };
-
-    assert!(matches!(
-        error,
-        CompileError::FunctionCompiler(compiler::Error::Unsupported(
-            compiler::Unsupported::ParallelExprAssignment {
-                target_count,
-                call_count,
-                ..
-            }
-        )) if target_count == 1 && call_count == 2
-    ));
+    compile::<TestSpec, TestLowering>(&program)
+        .expect("single-target parallel expressions should compile");
 }
 
 #[test]

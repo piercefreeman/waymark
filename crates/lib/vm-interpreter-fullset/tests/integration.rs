@@ -34,21 +34,35 @@ struct TestExtCallId(usize);
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum TestValue {
     Int(i64),
+    List(Vec<TestValue>),
 }
 
 impl waymark_vm_interpreter_coreset::value::ShouldJump for TestValue {
     fn should_jump(
         &self,
     ) -> Result<bool, waymark_vm_interpreter_coreset::value::NotAConditionalError> {
-        let Self::Int(value) = self;
-        Ok(*value != 0)
+        match self {
+            Self::Int(value) => Ok(*value != 0),
+            Self::List(_) => Err(waymark_vm_interpreter_coreset::value::NotAConditionalError),
+        }
     }
 }
 
 impl waymark_vm_interpreter_pureset::value::Add for TestValue {
     fn add(a: &Self, b: &Self) -> Result<Self, waymark_vm_interpreter_pureset::value::AddError> {
-        let (Self::Int(a), Self::Int(b)) = (a, b);
-        Ok(Self::Int(a + b))
+        match (a, b) {
+            (Self::Int(a), Self::Int(b)) => Ok(Self::Int(a + b)),
+            _ => Err(waymark_vm_interpreter_pureset::value::AddError::NotAddable),
+        }
+    }
+}
+
+impl waymark_vm_interpreter_pureset::value::MakeList for TestValue {
+    fn make_list<I>(items: I) -> Result<Self, waymark_vm_interpreter_pureset::value::MakeListError>
+    where
+        I: IntoIterator<Item = Self>,
+    {
+        Ok(Self::List(items.into_iter().collect()))
     }
 }
 

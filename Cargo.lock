@@ -5169,9 +5169,17 @@ dependencies = [
  "thiserror",
  "waymark-vm-instructions-pureset",
  "waymark-vm-interpreter",
+ "waymark-vm-interpreter-utils",
  "waymark-vm-runtime",
  "waymark-vm-runtime-core",
  "waymark-vm-runtime-test",
+]
+
+[[package]]
+name = "waymark-vm-interpreter-utils"
+version = "0.1.0"
+dependencies = [
+ "waymark-vm-runtime-core",
 ]
 
 [[package]]

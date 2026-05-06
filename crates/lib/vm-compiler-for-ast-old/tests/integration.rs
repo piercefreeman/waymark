@@ -330,6 +330,62 @@ fn compiles_parallel_expressions_into_positional_assignments() {
 }
 
 #[test]
+fn compiles_parallel_expressions_into_aggregate_lists() {
+    let program = program(vec![
+        function(
+            "main",
+            &[],
+            vec![
+                assignment(
+                    "results",
+                    parallel_expr(vec![
+                        Call::Function(function_call("child", vec![int(3)])),
+                        Call::Action(action_call("fetch", vec![("value", int(4))])),
+                    ]),
+                ),
+                return_stmt(Some(variable("results"))),
+            ],
+        ),
+        function(
+            "child",
+            &["value"],
+            vec![return_stmt(Some(add(variable("value"), int(1))))],
+        ),
+    ]);
+
+    let executable = compile_program(&program);
+    let mut runtime = runtime(executable);
+
+    let promise_state_id = match runtime.run().expect("program should emit an extcall") {
+        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::ExtCall {
+            promise_state_id,
+            extcall_id,
+            args,
+        }) => {
+            assert_eq!(extcall_id, TestExtCallId("fetch".to_owned()));
+            assert_eq!(args, vec![TestValue::Int(4)]);
+            promise_state_id
+        }
+        other => panic!("unexpected first runtime effect: {other:?}"),
+    };
+
+    runtime
+        .resolve_promise(promise_state_id, TestValue::Int(5))
+        .expect("extcall promise should resolve");
+
+    let effect = runtime
+        .run()
+        .expect("program should complete after resolving the parallel expression");
+
+    match effect {
+        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(TestValue::List(
+            values,
+        ))) => assert_eq!(values, vec![TestValue::Int(4), TestValue::Int(5)]),
+        other => panic!("unexpected second runtime effect: {other:?}"),
+    }
+}
+
+#[test]
 fn compiles_parallel_expression_results_by_call_position() {
     let program = program(vec![function(
         "main",

@@ -27,6 +27,7 @@ pub enum SampleConstValue {
 #[derive(Debug, Clone)]
 pub enum SampleValue {
     Usize(usize),
+    List(#[allow(dead_code)] Vec<SampleValue>),
 }
 
 #[derive(Debug, Clone)]
@@ -36,19 +37,30 @@ impl waymark_vm_interpreter_coreset::value::ShouldJump for SampleValue {
     fn should_jump(
         &self,
     ) -> Result<bool, waymark_vm_interpreter_coreset::value::NotAConditionalError> {
-        let SampleValue::Usize(val) = self;
-        Ok(*val > 0)
+        match self {
+            SampleValue::Usize(val) => Ok(*val > 0),
+            SampleValue::List(_) => {
+                Err(waymark_vm_interpreter_coreset::value::NotAConditionalError)
+            }
+        }
     }
 }
 
 impl waymark_vm_interpreter_pureset::value::Add for SampleValue {
     fn add(a: &Self, b: &Self) -> Result<Self, waymark_vm_interpreter_pureset::value::AddError> {
-        let SampleValue::Usize(a) = a;
-        let SampleValue::Usize(b) = b;
+        match (a, b) {
+            (SampleValue::Usize(a), SampleValue::Usize(b)) => Ok(SampleValue::Usize(a + b)),
+            _ => Err(waymark_vm_interpreter_pureset::value::AddError::NotAddable),
+        }
+    }
+}
 
-        let val = a + b;
-
-        Ok(SampleValue::Usize(val))
+impl waymark_vm_interpreter_pureset::value::MakeList for SampleValue {
+    fn make_list<I>(items: I) -> Result<Self, waymark_vm_interpreter_pureset::value::MakeListError>
+    where
+        I: IntoIterator<Item = Self>,
+    {
+        Ok(SampleValue::List(items.into_iter().collect()))
     }
 }
 
