@@ -44,6 +44,7 @@ def main() -> None:
         workflow_cls = workflow_registry.get(workflow_name.lower())
     if workflow_cls is None:
         parser.error(f"Unable to locate the workflow {workflow_name}")
+    assert workflow_cls is not None
 
     program = workflow_cls.workflow_ir()
     program_data = program.SerializeToString()
