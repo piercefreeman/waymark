@@ -5,6 +5,8 @@ pub type Executable = waymark_vm_bytecode::Executable<InstructionSet>;
 #[derive(Debug)]
 pub struct SampleSpec;
 
+pub struct SampleLowering;
+
 impl waymark_vm_instructions_coreset::Spec for SampleSpec {
     type RegisterId = waymark_vm_runtime_core::RegisterId;
     type FunctionId = waymark_vm_bytecode_core::FunctionId;
@@ -54,5 +56,45 @@ impl From<SampleConstValue> for SampleValue {
     fn from(value: SampleConstValue) -> Self {
         let SampleConstValue::Usize(value) = value;
         SampleValue::Usize(value)
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("unsupported lowering")]
+pub struct UnsupportedLoweringError;
+
+impl<Spec> waymark_vm_compiler_for_ast_old::lowering::CoreSet<Spec> for SampleLowering
+where
+    Spec: waymark_vm_instructions_coreset::Spec<ExtCallId = SampleExtCallId>,
+{
+    type ActionError = UnsupportedLoweringError;
+
+    fn lower_action(
+        _call: &waymark_vm_ast_old::ActionCall,
+    ) -> Result<Spec::ExtCallId, Self::ActionError> {
+        Ok(SampleExtCallId(1337))
+    }
+}
+
+impl<Spec> waymark_vm_compiler_for_ast_old::lowering::PureSet<Spec> for SampleLowering
+where
+    Spec: waymark_vm_instructions_pureset::Spec<ConstValue = SampleConstValue>,
+{
+    type LiteralError = UnsupportedLoweringError;
+
+    fn lower_literal(
+        literal: &waymark_vm_ast_old::Literal,
+    ) -> Result<Spec::ConstValue, Self::LiteralError> {
+        Ok(match literal {
+            waymark_vm_ast_old::Literal::Int(val) => {
+                let val: u64 = (*val).try_into().map_err(|_| UnsupportedLoweringError)?;
+                let val: usize = val.try_into().map_err(|_| UnsupportedLoweringError)?;
+                SampleConstValue::Usize(val)
+            }
+            waymark_vm_ast_old::Literal::Float(_)
+            | waymark_vm_ast_old::Literal::String(_)
+            | waymark_vm_ast_old::Literal::Bool(_)
+            | waymark_vm_ast_old::Literal::None => return Err(UnsupportedLoweringError),
+        })
     }
 }
