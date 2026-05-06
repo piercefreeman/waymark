@@ -9,8 +9,8 @@ pub use self::error::*;
 use std::collections::{HashMap, HashSet};
 
 use waymark_vm_ast_old::{
-    ActionCall, BinaryOperator, Block, ElifBranch, ElseBranch, Expr, FunctionCall, FunctionDef,
-    IfBranch, Literal, Spanned, Statement,
+    ActionCall, BinaryOperator, Block, Call, ElifBranch, ElseBranch, Expr, FunctionCall,
+    FunctionDef, IfBranch, Literal, Spanned, Statement,
 };
 use waymark_vm_bytecode_core::{FunctionId, StateId};
 use waymark_vm_runtime_core::RegisterId;
@@ -113,6 +113,11 @@ where
     ) -> Result<(), ErrorFor<Spec, Lowering>> {
         match &statement.value {
             Statement::Assignment { targets, value } => {
+                if let Expr::ParallelExpr { calls } = &value.value {
+                    self.compile_parallel_assignment(targets, calls)?;
+                    return Ok(());
+                }
+
                 if targets.len() != 1 {
                     return Err(Unsupported::AssignmentTargetCount {
                         count: targets.len(),
@@ -152,11 +157,8 @@ where
                 }
                 .into());
             }
-            Statement::ParallelBlock { .. } => {
-                return Err(Unsupported::Statement {
-                    kind: "ParallelBlock",
-                }
-                .into());
+            Statement::ParallelBlock { calls } => {
+                self.compile_parallel_block(calls)?;
             }
             Statement::ForLoop { .. } => {
                 return Err(Unsupported::Statement { kind: "ForLoop" }.into());
@@ -319,6 +321,81 @@ where
         Ok(())
     }
 
+    fn compile_parallel_block(&mut self, calls: &[Call]) -> Result<(), ErrorFor<Spec, Lowering>> {
+        let promise_registers = self.compile_parallel_calls_start(calls)?;
+
+        for promise_register in promise_registers {
+            self.compile_await_register(promise_register);
+        }
+
+        Ok(())
+    }
+
+    fn compile_parallel_assignment(
+        &mut self,
+        targets: &[String],
+        calls: &[Call],
+    ) -> Result<(), ErrorFor<Spec, Lowering>> {
+        if targets.len() == 1 {
+            return Err(Unsupported::ParallelExprAssignment {
+                target_count: targets.len(),
+                call_count: calls.len(),
+                reason: "single-target parallel expressions require list aggregation, which is not implemented",
+            }
+            .into());
+        }
+
+        if targets.len() != calls.len() {
+            return Err(Unsupported::ParallelExprAssignment {
+                target_count: targets.len(),
+                call_count: calls.len(),
+                reason: "parallel expressions currently require one assignment target per call",
+            }
+            .into());
+        }
+
+        let target_registers = targets
+            .iter()
+            .map(|target| self.ensure_variable_register(target))
+            .collect::<Vec<_>>();
+        let promise_registers = self.compile_parallel_calls_start(calls)?;
+
+        for (target_register, promise_register) in
+            target_registers.into_iter().zip(promise_registers)
+        {
+            self.compile_await_into_register(target_register, promise_register);
+        }
+
+        self.initialized_variables.extend(targets.iter().cloned());
+
+        Ok(())
+    }
+
+    fn compile_parallel_calls_start(
+        &mut self,
+        calls: &[Call],
+    ) -> Result<Vec<RegisterId>, ErrorFor<Spec, Lowering>> {
+        let mut promise_registers = Vec::with_capacity(calls.len());
+
+        for call in calls {
+            let promise_register = self.allocate_register();
+            promise_registers.push(promise_register);
+
+            match call {
+                Call::Action(call) => {
+                    let resume_state = self.new_state();
+                    self.compile_action_call_start(call, promise_register, resume_state)?;
+                    self.switch_to_state(resume_state);
+                }
+                Call::Function(call) => {
+                    self.compile_function_call_start(call, promise_register)?;
+                }
+            }
+        }
+
+        Ok(promise_registers)
+    }
+
     fn compile_break(&mut self) -> Result<(), ErrorFor<Spec, Lowering>> {
         let Some(loop_context) = self.loop_stack.last().copied() else {
             return Err(Error::LoopControlOutsideLoop { kind: "break" });
@@ -416,6 +493,17 @@ where
         call: &FunctionCall,
         preferred_dst: Option<RegisterId>,
     ) -> Result<RegisterId, ErrorFor<Spec, Lowering>> {
+        let dst = preferred_dst.unwrap_or_else(|| self.allocate_register());
+        self.compile_function_call_start(call, dst)?;
+        self.compile_await_register(dst);
+        Ok(dst)
+    }
+
+    fn compile_function_call_start(
+        &mut self,
+        call: &FunctionCall,
+        dst: RegisterId,
+    ) -> Result<(), ErrorFor<Spec, Lowering>> {
         if !call.kwargs.is_empty() {
             return Err(Unsupported::FunctionCall {
                 name: call.name.clone(),
@@ -452,12 +540,8 @@ where
             args.push(self.compile_expr(arg, None)?);
         }
 
-        let dst = preferred_dst.unwrap_or_else(|| self.allocate_register());
-        let resume = self.new_state();
         self.emit_call(dst, known.id, args);
-        self.emit_await(dst, dst, resume);
-        self.switch_to_state(resume);
-        Ok(dst)
+        Ok(())
     }
 
     fn compile_action_call(
@@ -465,6 +549,20 @@ where
         call: &ActionCall,
         preferred_dst: Option<RegisterId>,
     ) -> Result<RegisterId, ErrorFor<Spec, Lowering>> {
+        let dst = preferred_dst.unwrap_or_else(|| self.allocate_register());
+        let await_state = self.new_state();
+        self.compile_action_call_start(call, dst, await_state)?;
+        self.switch_to_state(await_state);
+        self.compile_await_register(dst);
+        Ok(dst)
+    }
+
+    fn compile_action_call_start(
+        &mut self,
+        call: &ActionCall,
+        dst: RegisterId,
+        resume_state: StateId,
+    ) -> Result<(), ErrorFor<Spec, Lowering>> {
         let mut args = Vec::with_capacity(call.kwargs.len());
         for kwarg in &call.kwargs {
             args.push(self.compile_expr(&kwarg.value, None)?);
@@ -475,14 +573,22 @@ where
             error,
         })?;
 
-        let dst = preferred_dst.unwrap_or_else(|| self.allocate_register());
-        let await_state = self.new_state();
+        self.emit_extcall(dst, extcall_id, args, resume_state);
+        Ok(())
+    }
+
+    fn compile_await_register(&mut self, promise_register: RegisterId) {
+        self.compile_await_into_register(promise_register, promise_register);
+    }
+
+    fn compile_await_into_register(
+        &mut self,
+        target_register: RegisterId,
+        promise_register: RegisterId,
+    ) {
         let resume_state = self.new_state();
-        self.emit_extcall(dst, extcall_id, args, await_state);
-        self.switch_to_state(await_state);
-        self.emit_await(dst, dst, resume_state);
+        self.emit_await(target_register, promise_register, resume_state);
         self.switch_to_state(resume_state);
-        Ok(dst)
     }
 
     fn emit_load_const(

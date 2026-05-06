@@ -46,6 +46,21 @@ pub enum Unsupported {
         /// The number of assignment targets.
         count: usize,
     },
+
+    /// A parallel expression assignment shape cannot be represented directly.
+    #[error(
+        "parallel expression with {call_count} calls and {target_count} assignment targets is not supported: {reason}"
+    )]
+    ParallelExprAssignment {
+        /// The number of assignment targets.
+        target_count: usize,
+
+        /// The number of calls inside the parallel expression.
+        call_count: usize,
+
+        /// Why the current shape is unsupported.
+        reason: &'static str,
+    },
 }
 
 /// Errors produced while compiling an individual function body.

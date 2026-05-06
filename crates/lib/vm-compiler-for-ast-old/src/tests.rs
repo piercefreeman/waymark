@@ -1,7 +1,7 @@
-use waymark_vm_ast_old::{ActionCall, Literal};
+use waymark_vm_ast_old::{ActionCall, Call, Literal};
 use waymark_vm_ast_old_helpers::{
-    action_stmt, assignment, break_stmt, conditional_stmt, continue_stmt, float, for_stmt,
-    function, int, program, return_stmt, variable,
+    action_call, action_stmt, assignment, assignment_targets, break_stmt, conditional_stmt,
+    continue_stmt, float, for_stmt, function, int, parallel_expr, program, return_stmt, variable,
 };
 
 use crate::{
@@ -321,5 +321,64 @@ fn rejects_unsupported_for_loops() {
         CompileError::FunctionCompiler(compiler::Error::Unsupported(
             compiler::Unsupported::Statement { kind }
         )) if kind == "ForLoop"
+    ));
+}
+
+#[test]
+fn rejects_single_target_parallel_expressions_that_need_aggregation() {
+    let program = program(vec![function(
+        "main",
+        &[],
+        vec![assignment(
+            "results",
+            parallel_expr(vec![
+                Call::Action(action_call("first", Vec::new())),
+                Call::Action(action_call("second", Vec::new())),
+            ]),
+        )],
+    )]);
+
+    let error = match compile::<TestSpec, TestLowering>(&program) {
+        Ok(_) => panic!("single-target parallel expressions should fail"),
+        Err(error) => error,
+    };
+
+    assert!(matches!(
+        error,
+        CompileError::FunctionCompiler(compiler::Error::Unsupported(
+            compiler::Unsupported::ParallelExprAssignment {
+                target_count,
+                call_count,
+                ..
+            }
+        )) if target_count == 1 && call_count == 2
+    ));
+}
+
+#[test]
+fn rejects_parallel_expressions_with_mismatched_targets() {
+    let program = program(vec![function(
+        "main",
+        &[],
+        vec![assignment_targets(
+            &["left", "right"],
+            parallel_expr(vec![Call::Action(action_call("only", Vec::new()))]),
+        )],
+    )]);
+
+    let error = match compile::<TestSpec, TestLowering>(&program) {
+        Ok(_) => panic!("mismatched parallel expressions should fail"),
+        Err(error) => error,
+    };
+
+    assert!(matches!(
+        error,
+        CompileError::FunctionCompiler(compiler::Error::Unsupported(
+            compiler::Unsupported::ParallelExprAssignment {
+                target_count,
+                call_count,
+                ..
+            }
+        )) if target_count == 2 && call_count == 1
     ));
 }

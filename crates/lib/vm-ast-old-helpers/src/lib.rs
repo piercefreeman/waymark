@@ -1,6 +1,6 @@
 use waymark_vm_ast_old::{
-    ActionCall, BinaryOperator, Block, ElifBranch, ElseBranch, Expr, FunctionCall, FunctionDef,
-    IfBranch, IoDecl, Kwarg, Literal, Program, Span, Spanned, Statement,
+    ActionCall, BinaryOperator, Block, Call, ElifBranch, ElseBranch, Expr, FunctionCall,
+    FunctionDef, IfBranch, IoDecl, Kwarg, Literal, Program, Span, Spanned, Statement,
 };
 
 pub fn span() -> Span {
@@ -46,8 +46,12 @@ pub fn variable(name: &str) -> Spanned<Expr> {
 }
 
 pub fn assignment(target: &str, value: Spanned<Expr>) -> Spanned<Statement> {
+    assignment_targets(&[target], value)
+}
+
+pub fn assignment_targets(targets: &[&str], value: Spanned<Expr>) -> Spanned<Statement> {
     spanned(Statement::Assignment {
-        targets: vec![target.to_owned()],
+        targets: targets.iter().map(|target| (*target).to_owned()).collect(),
         value,
     })
 }
@@ -65,6 +69,14 @@ pub fn action_stmt(name: &str) -> Spanned<Statement> {
             module_name: None,
         },
     })
+}
+
+pub fn parallel_stmt(calls: Vec<Call>) -> Spanned<Statement> {
+    spanned(Statement::ParallelBlock { calls })
+}
+
+pub fn parallel_expr(calls: Vec<Call>) -> Spanned<Expr> {
+    spanned(Expr::ParallelExpr { calls })
 }
 
 pub fn conditional_stmt(
@@ -150,13 +162,17 @@ pub fn add(left: Spanned<Expr>, right: Spanned<Expr>) -> Spanned<Expr> {
 
 pub fn function_expr(name: &str, args: Vec<Spanned<Expr>>) -> Spanned<Expr> {
     spanned(Expr::FunctionCall {
-        call: FunctionCall {
-            name: name.to_owned(),
-            args,
-            kwargs: Vec::new(),
-            global_function: None,
-        },
+        call: function_call(name, args),
     })
+}
+
+pub fn function_call(name: &str, args: Vec<Spanned<Expr>>) -> FunctionCall {
+    FunctionCall {
+        name: name.to_owned(),
+        args,
+        kwargs: Vec::new(),
+        global_function: None,
+    }
 }
 
 pub fn action_call(name: &str, kwargs: Vec<(&str, Spanned<Expr>)>) -> ActionCall {
