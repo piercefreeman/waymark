@@ -5050,6 +5050,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-vm-compiler-core"
+version = "0.1.0"
+dependencies = [
+ "waymark-vm-bytecode-core",
+ "waymark-vm-instructions-coreset",
+ "waymark-vm-instructions-fullset",
+ "waymark-vm-instructions-pureset",
+ "waymark-vm-runtime-core",
+]
+
+[[package]]
+name = "waymark-vm-compiler-for-ast-old"
+version = "0.1.0"
+dependencies = [
+ "index_type",
+ "thiserror",
+ "waymark-vm-ast-old",
+ "waymark-vm-ast-old-helpers",
+ "waymark-vm-bytecode",
+ "waymark-vm-bytecode-core",
+ "waymark-vm-compiler-core",
+ "waymark-vm-instructions-coreset",
+ "waymark-vm-instructions-fullset",
+ "waymark-vm-instructions-pureset",
+ "waymark-vm-interpreter-coreset",
+ "waymark-vm-interpreter-fullset",
+ "waymark-vm-interpreter-pureset",
+ "waymark-vm-runtime",
+ "waymark-vm-runtime-core",
+]
+
+[[package]]
 name = "waymark-vm-driver"
 version = "0.1.0"
 dependencies = [

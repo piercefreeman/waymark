@@ -1,0 +1,25 @@
+[package]
+name = "waymark-vm-compiler-for-ast-old"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-vm-ast-old = { workspace = true }
+waymark-vm-bytecode = { workspace = true }
+waymark-vm-bytecode-core = { workspace = true }
+waymark-vm-compiler-core = { workspace = true }
+waymark-vm-instructions-coreset = { workspace = true }
+waymark-vm-instructions-fullset = { workspace = true }
+waymark-vm-instructions-pureset = { workspace = true }
+waymark-vm-runtime-core = { workspace = true }
+
+index_type = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+waymark-vm-ast-old-helpers = { workspace = true }
+waymark-vm-interpreter-coreset = { workspace = true }
+waymark-vm-interpreter-fullset = { workspace = true }
+waymark-vm-interpreter-pureset = { workspace = true }
+waymark-vm-runtime = { workspace = true }
