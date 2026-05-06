@@ -33,13 +33,6 @@ pub enum Unsupported {
         reason: &'static str,
     },
 
-    /// The current VM subset cannot copy a value from one register to another.
-    #[error("assignment to `{target}` requires a value-copy instruction that is not implemented")]
-    AssignmentNeedsCopy {
-        /// The assignment target.
-        target: String,
-    },
-
     /// Multiple assignment targets are not supported by the current VM subset.
     #[error("assignment with {count} targets is not supported by the compiler yet")]
     AssignmentTargetCount {

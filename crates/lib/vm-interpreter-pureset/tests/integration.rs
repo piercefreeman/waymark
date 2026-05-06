@@ -168,6 +168,37 @@ fn runtime_executes_load_const_and_add_to_a_terminal_effect() {
 }
 
 #[test]
+fn runtime_executes_copy_between_registers() {
+    let executable = executable(vec![function::<RuntimeInstruction>(
+        2,
+        vec![vec![
+            PureSet::LoadConst {
+                dst: RegisterId(0),
+                value: TestConstValue::Int(9),
+            }
+            .into(),
+            PureSet::Copy {
+                dst: RegisterId(1),
+                src: RegisterId(0),
+            }
+            .into(),
+            RuntimeInstruction::EmitRegister(RegisterId(1)),
+        ]],
+    )]);
+
+    let mut runtime =
+        Runtime::with_conventional_entrypoint(RuntimeInterpreter::default(), executable)
+            .expect("function 0 should exist");
+
+    assert_eq!(
+        runtime
+            .run()
+            .expect("runtime should emit the copied pure result"),
+        TestValue::Int(9)
+    );
+}
+
+#[test]
 fn runtime_surfaces_add_errors_from_the_pureset_interpreter() {
     let executable = executable(vec![function::<RuntimeInstruction>(
         2,

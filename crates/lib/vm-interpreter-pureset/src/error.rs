@@ -24,6 +24,13 @@ impl core::fmt::Display for BinaryOperandPosition {
 /// The error for the [`crate::PureSetInterpreter`].
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    /// A `Copy` instruction referenced an unset register.
+    #[error("copy source in register {register:?} is not initialized")]
+    MissingCopySource {
+        /// The register that was read.
+        register: RegisterId,
+    },
+
     /// An `Add` instruction referenced an unset register.
     #[error(" {operand_pos} add operand in register {register:?} is not initialized")]
     MissingAddOperand {

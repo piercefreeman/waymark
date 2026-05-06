@@ -31,6 +31,15 @@ pub enum PureSet<Spec: self::Spec> {
         value: Spec::ConstValue,
     },
 
+    /// Copy a value from one register into another register.
+    Copy {
+        /// The register to store the copied value at.
+        dst: Spec::RegisterId,
+
+        /// The register that contains the value to copy.
+        src: Spec::RegisterId,
+    },
+
     /// Add two values together.
     Add {
         /// The register to store the addition result at.

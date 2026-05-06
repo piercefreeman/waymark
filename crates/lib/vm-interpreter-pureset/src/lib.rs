@@ -49,6 +49,13 @@ where
                     .regs
                     .set(*dst, Promise::Resolved(value.clone().into()));
             }
+            waymark_vm_instructions_pureset::PureSet::Copy { dst, src } => {
+                let value = frame
+                    .regs
+                    .get(*src)
+                    .ok_or(Error::MissingCopySource { register: *src })?;
+                frame.regs.set(*dst, value.clone());
+            }
             waymark_vm_instructions_pureset::PureSet::Add { dst, a, b } => {
                 let x = frame.regs.get(*a).ok_or(Error::MissingAddOperand {
                     operand_pos: BinaryOperandPosition::First,

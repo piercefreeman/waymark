@@ -130,10 +130,7 @@ where
                 let value_register = self.compile_expr(value, Some(target_register))?;
 
                 if value_register != target_register {
-                    return Err(Unsupported::AssignmentNeedsCopy {
-                        target: target.clone(),
-                    }
-                    .into());
+                    self.emit_copy(target_register, value_register);
                 }
 
                 self.initialized_variables.insert(target.clone());
@@ -602,6 +599,10 @@ where
         value: <Spec as waymark_vm_instructions_pureset::Spec>::ConstValue,
     ) {
         self.emit(waymark_vm_instructions_pureset::PureSet::LoadConst { dst, value }.into());
+    }
+
+    fn emit_copy(&mut self, dst: RegisterId, src: RegisterId) {
+        self.emit(waymark_vm_instructions_pureset::PureSet::Copy { dst, src }.into());
     }
 
     fn emit_add(&mut self, dst: RegisterId, a: RegisterId, b: RegisterId) {

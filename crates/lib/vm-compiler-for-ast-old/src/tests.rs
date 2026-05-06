@@ -3,6 +3,9 @@ use waymark_vm_ast_old_helpers::{
     action_call, action_stmt, assignment, assignment_targets, break_stmt, conditional_stmt,
     continue_stmt, float, for_stmt, function, int, parallel_expr, program, return_stmt, variable,
 };
+use waymark_vm_instructions_fullset::FullSet;
+use waymark_vm_instructions_pureset::PureSet;
+use waymark_vm_runtime_core::RegisterId;
 
 use crate::{
     CompileError, compile,
@@ -219,7 +222,7 @@ fn preserves_action_lowering_errors() {
 }
 
 #[test]
-fn rejects_copy_assignments_without_a_move_instruction() {
+fn lowers_copy_assignments_with_a_copy_instruction() {
     let program = program(vec![function(
         "main",
         &[],
@@ -230,17 +233,28 @@ fn rejects_copy_assignments_without_a_move_instruction() {
         ],
     )]);
 
-    let error = match compile::<TestSpec, TestLowering>(&program) {
-        Ok(_) => panic!("copy assignment should fail"),
-        Err(error) => error,
-    };
+    let executable = compile::<TestSpec, TestLowering>(&program)
+        .expect("copy assignment should lower successfully");
+    let function = executable
+        .functions
+        .iter()
+        .next()
+        .expect("compiled main function should exist");
+    let state = function
+        .states
+        .iter()
+        .next()
+        .expect("entry state should exist");
 
-    assert!(matches!(
-        error,
-        CompileError::FunctionCompiler(compiler::Error::Unsupported(
-            compiler::Unsupported::AssignmentNeedsCopy { target }
-        )) if target == "y"
-    ));
+    assert!(state.instructions.iter().any(|instruction| {
+        matches!(
+            instruction,
+            FullSet::PureSet(PureSet::Copy {
+                dst: RegisterId(1),
+                src: RegisterId(0),
+            })
+        )
+    }));
 }
 
 #[test]
