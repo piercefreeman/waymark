@@ -1,0 +1,159 @@
+---
+source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
+expression: ast for python/tests/fixtures_actions/action_variable_args.py
+---
+Program {
+    functions: [
+        Spanned {
+            value: FunctionDef {
+                name: "main",
+                io: Spanned {
+                    value: IoDecl {
+                        inputs: [
+                            "factor",
+                        ],
+                        outputs: [],
+                    },
+                    span: Span {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    },
+                },
+                body: Spanned {
+                    value: Block {
+                        statements: [
+                            Spanned {
+                                value: Assignment {
+                                    targets: [
+                                        "base",
+                                    ],
+                                    value: Spanned {
+                                        value: ActionCall {
+                                            call: ActionCall {
+                                                action_name: "get_base_value",
+                                                kwargs: [],
+                                                policies: [],
+                                                module_name: Some(
+                                                    "action_variable_args",
+                                                ),
+                                            },
+                                        },
+                                        span: Span {
+                                            start_line: 2,
+                                            start_col: 4,
+                                            end_line: 2,
+                                            end_col: 33,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 2,
+                                    start_col: 4,
+                                    end_line: 2,
+                                    end_col: 33,
+                                },
+                            },
+                            Spanned {
+                                value: Assignment {
+                                    targets: [
+                                        "result",
+                                    ],
+                                    value: Spanned {
+                                        value: ActionCall {
+                                            call: ActionCall {
+                                                action_name: "multiply_by",
+                                                kwargs: [
+                                                    Kwarg {
+                                                        name: "value",
+                                                        value: Spanned {
+                                                            value: Variable {
+                                                                name: "base",
+                                                            },
+                                                            span: Span {
+                                                                start_line: 4,
+                                                                start_col: 37,
+                                                                end_line: 4,
+                                                                end_col: 41,
+                                                            },
+                                                        },
+                                                    },
+                                                    Kwarg {
+                                                        name: "factor",
+                                                        value: Spanned {
+                                                            value: Variable {
+                                                                name: "factor",
+                                                            },
+                                                            span: Span {
+                                                                start_line: 4,
+                                                                start_col: 50,
+                                                                end_line: 4,
+                                                                end_col: 56,
+                                                            },
+                                                        },
+                                                    },
+                                                ],
+                                                policies: [],
+                                                module_name: Some(
+                                                    "action_variable_args",
+                                                ),
+                                            },
+                                        },
+                                        span: Span {
+                                            start_line: 4,
+                                            start_col: 4,
+                                            end_line: 4,
+                                            end_col: 57,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 4,
+                                    start_col: 4,
+                                    end_line: 4,
+                                    end_col: 57,
+                                },
+                            },
+                            Spanned {
+                                value: Return {
+                                    value: Some(
+                                        Spanned {
+                                            value: Variable {
+                                                name: "result",
+                                            },
+                                            span: Span {
+                                                start_line: 5,
+                                                start_col: 11,
+                                                end_line: 5,
+                                                end_col: 17,
+                                            },
+                                        },
+                                    ),
+                                },
+                                span: Span {
+                                    start_line: 5,
+                                    start_col: 4,
+                                    end_line: 5,
+                                    end_col: 17,
+                                },
+                            },
+                        ],
+                    },
+                    span: Span {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    },
+                },
+            },
+            span: Span {
+                start_line: 1,
+                start_col: 0,
+                end_line: 5,
+                end_col: 17,
+            },
+        },
+    ],
+}

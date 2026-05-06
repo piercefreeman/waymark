@@ -1,0 +1,13 @@
+---
+source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
+expression: bytecode for python/tests/fixtures_models/dataclass_action_arg.py
+---
+Err(
+    FunctionCompiler(
+        Unsupported(
+            Expression {
+                kind: "Dict",
+            },
+        ),
+    ),
+)

@@ -1,0 +1,130 @@
+---
+source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
+expression: ast for python/tests/fixtures_actions/action_positional_args.py
+---
+Program {
+    functions: [
+        Spanned {
+            value: FunctionDef {
+                name: "main",
+                io: Spanned {
+                    value: IoDecl {
+                        inputs: [],
+                        outputs: [],
+                    },
+                    span: Span {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    },
+                },
+                body: Spanned {
+                    value: Block {
+                        statements: [
+                            Spanned {
+                                value: Assignment {
+                                    targets: [
+                                        "result",
+                                    ],
+                                    value: Spanned {
+                                        value: ActionCall {
+                                            call: ActionCall {
+                                                action_name: "add_numbers",
+                                                kwargs: [
+                                                    Kwarg {
+                                                        name: "a",
+                                                        value: Spanned {
+                                                            value: Literal {
+                                                                value: Int(
+                                                                    10,
+                                                                ),
+                                                            },
+                                                            span: Span {
+                                                                start_line: 3,
+                                                                start_col: 31,
+                                                                end_line: 3,
+                                                                end_col: 33,
+                                                            },
+                                                        },
+                                                    },
+                                                    Kwarg {
+                                                        name: "b",
+                                                        value: Spanned {
+                                                            value: Literal {
+                                                                value: Int(
+                                                                    20,
+                                                                ),
+                                                            },
+                                                            span: Span {
+                                                                start_line: 3,
+                                                                start_col: 35,
+                                                                end_line: 3,
+                                                                end_col: 37,
+                                                            },
+                                                        },
+                                                    },
+                                                ],
+                                                policies: [],
+                                                module_name: Some(
+                                                    "action_positional_args",
+                                                ),
+                                            },
+                                        },
+                                        span: Span {
+                                            start_line: 3,
+                                            start_col: 4,
+                                            end_line: 3,
+                                            end_col: 38,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 3,
+                                    start_col: 4,
+                                    end_line: 3,
+                                    end_col: 38,
+                                },
+                            },
+                            Spanned {
+                                value: Return {
+                                    value: Some(
+                                        Spanned {
+                                            value: Variable {
+                                                name: "result",
+                                            },
+                                            span: Span {
+                                                start_line: 4,
+                                                start_col: 11,
+                                                end_line: 4,
+                                                end_col: 17,
+                                            },
+                                        },
+                                    ),
+                                },
+                                span: Span {
+                                    start_line: 4,
+                                    start_col: 4,
+                                    end_line: 4,
+                                    end_col: 17,
+                                },
+                            },
+                        ],
+                    },
+                    span: Span {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    },
+                },
+            },
+            span: Span {
+                start_line: 1,
+                start_col: 0,
+                end_line: 4,
+                end_col: 17,
+            },
+        },
+    ],
+}

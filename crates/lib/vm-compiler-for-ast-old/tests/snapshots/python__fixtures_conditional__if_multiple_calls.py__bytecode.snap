@@ -1,0 +1,13 @@
+---
+source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
+expression: bytecode for python/tests/fixtures_conditional/if_multiple_calls.py
+---
+Err(
+    FunctionCompiler(
+        Unsupported(
+            BinaryOperator {
+                op: Gt,
+            },
+        ),
+    ),
+)

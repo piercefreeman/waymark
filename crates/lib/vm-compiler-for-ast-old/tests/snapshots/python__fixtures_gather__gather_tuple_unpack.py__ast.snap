@@ -1,0 +1,206 @@
+---
+source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
+expression: ast for python/tests/fixtures_gather/gather_tuple_unpack.py
+---
+Program {
+    functions: [
+        Spanned {
+            value: FunctionDef {
+                name: "main",
+                io: Spanned {
+                    value: IoDecl {
+                        inputs: [],
+                        outputs: [],
+                    },
+                    span: Span {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    },
+                },
+                body: Spanned {
+                    value: Block {
+                        statements: [
+                            Spanned {
+                                value: Assignment {
+                                    targets: [
+                                        "factorial_value",
+                                        "fib_value",
+                                    ],
+                                    value: Spanned {
+                                        value: ParallelExpr {
+                                            calls: [
+                                                Action(
+                                                    ActionCall {
+                                                        action_name: "compute_factorial",
+                                                        kwargs: [
+                                                            Kwarg {
+                                                                name: "n",
+                                                                value: Spanned {
+                                                                    value: Literal {
+                                                                        value: Int(
+                                                                            5,
+                                                                        ),
+                                                                    },
+                                                                    span: Span {
+                                                                        start_line: 4,
+                                                                        start_col: 28,
+                                                                        end_line: 4,
+                                                                        end_col: 29,
+                                                                    },
+                                                                },
+                                                            },
+                                                        ],
+                                                        policies: [],
+                                                        module_name: Some(
+                                                            "gather_tuple_unpack",
+                                                        ),
+                                                    },
+                                                ),
+                                                Action(
+                                                    ActionCall {
+                                                        action_name: "compute_fibonacci",
+                                                        kwargs: [
+                                                            Kwarg {
+                                                                name: "n",
+                                                                value: Spanned {
+                                                                    value: Literal {
+                                                                        value: Int(
+                                                                            10,
+                                                                        ),
+                                                                    },
+                                                                    span: Span {
+                                                                        start_line: 5,
+                                                                        start_col: 28,
+                                                                        end_line: 5,
+                                                                        end_col: 30,
+                                                                    },
+                                                                },
+                                                            },
+                                                        ],
+                                                        policies: [],
+                                                        module_name: Some(
+                                                            "gather_tuple_unpack",
+                                                        ),
+                                                    },
+                                                ),
+                                            ],
+                                        },
+                                        span: Span {
+                                            start_line: 3,
+                                            start_col: 4,
+                                            end_line: 7,
+                                            end_col: 5,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 3,
+                                    start_col: 4,
+                                    end_line: 7,
+                                    end_col: 5,
+                                },
+                            },
+                            Spanned {
+                                value: Assignment {
+                                    targets: [
+                                        "summary",
+                                    ],
+                                    value: Spanned {
+                                        value: ActionCall {
+                                            call: ActionCall {
+                                                action_name: "summarize_math",
+                                                kwargs: [
+                                                    Kwarg {
+                                                        name: "factorial_value",
+                                                        value: Spanned {
+                                                            value: Variable {
+                                                                name: "factorial_value",
+                                                            },
+                                                            span: Span {
+                                                                start_line: 10,
+                                                                start_col: 24,
+                                                                end_line: 10,
+                                                                end_col: 39,
+                                                            },
+                                                        },
+                                                    },
+                                                    Kwarg {
+                                                        name: "fib_value",
+                                                        value: Spanned {
+                                                            value: Variable {
+                                                                name: "fib_value",
+                                                            },
+                                                            span: Span {
+                                                                start_line: 11,
+                                                                start_col: 18,
+                                                                end_line: 11,
+                                                                end_col: 27,
+                                                            },
+                                                        },
+                                                    },
+                                                ],
+                                                policies: [],
+                                                module_name: Some(
+                                                    "gather_tuple_unpack",
+                                                ),
+                                            },
+                                        },
+                                        span: Span {
+                                            start_line: 9,
+                                            start_col: 4,
+                                            end_line: 12,
+                                            end_col: 5,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 9,
+                                    start_col: 4,
+                                    end_line: 12,
+                                    end_col: 5,
+                                },
+                            },
+                            Spanned {
+                                value: Return {
+                                    value: Some(
+                                        Spanned {
+                                            value: Variable {
+                                                name: "summary",
+                                            },
+                                            span: Span {
+                                                start_line: 13,
+                                                start_col: 11,
+                                                end_line: 13,
+                                                end_col: 18,
+                                            },
+                                        },
+                                    ),
+                                },
+                                span: Span {
+                                    start_line: 13,
+                                    start_col: 4,
+                                    end_line: 13,
+                                    end_col: 18,
+                                },
+                            },
+                        ],
+                    },
+                    span: Span {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    },
+                },
+            },
+            span: Span {
+                start_line: 1,
+                start_col: 0,
+                end_line: 13,
+                end_col: 18,
+            },
+        },
+    ],
+}

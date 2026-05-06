@@ -1,0 +1,72 @@
+---
+source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
+expression: ast for python/tests/fixtures_side_effects/side_effect_action.py
+---
+Program {
+    functions: [
+        Spanned {
+            value: FunctionDef {
+                name: "main",
+                io: Spanned {
+                    value: IoDecl {
+                        inputs: [],
+                        outputs: [],
+                    },
+                    span: Span {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    },
+                },
+                body: Spanned {
+                    value: Block {
+                        statements: [
+                            Spanned {
+                                value: ActionCall {
+                                    call: ActionCall {
+                                        action_name: "side_effect",
+                                        kwargs: [],
+                                        policies: [],
+                                        module_name: Some(
+                                            "side_effect_action",
+                                        ),
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 2,
+                                    start_col: 4,
+                                    end_line: 2,
+                                    end_col: 23,
+                                },
+                            },
+                            Spanned {
+                                value: Return {
+                                    value: None,
+                                },
+                                span: Span {
+                                    start_line: 3,
+                                    start_col: 4,
+                                    end_line: 3,
+                                    end_col: 10,
+                                },
+                            },
+                        ],
+                    },
+                    span: Span {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    },
+                },
+            },
+            span: Span {
+                start_line: 1,
+                start_col: 0,
+                end_line: 3,
+                end_col: 10,
+            },
+        },
+    ],
+}

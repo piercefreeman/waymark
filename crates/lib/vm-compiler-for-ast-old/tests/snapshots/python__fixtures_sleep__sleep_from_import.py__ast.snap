@@ -1,0 +1,168 @@
+---
+source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
+expression: ast for python/tests/fixtures_sleep/sleep_from_import.py
+---
+Program {
+    functions: [
+        Spanned {
+            value: FunctionDef {
+                name: "main",
+                io: Spanned {
+                    value: IoDecl {
+                        inputs: [],
+                        outputs: [],
+                    },
+                    span: Span {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    },
+                },
+                body: Spanned {
+                    value: Block {
+                        statements: [
+                            Spanned {
+                                value: Assignment {
+                                    targets: [
+                                        "val",
+                                    ],
+                                    value: Spanned {
+                                        value: ActionCall {
+                                            call: ActionCall {
+                                                action_name: "get_value_from_import",
+                                                kwargs: [],
+                                                policies: [],
+                                                module_name: Some(
+                                                    "sleep_from_import",
+                                                ),
+                                            },
+                                        },
+                                        span: Span {
+                                            start_line: 2,
+                                            start_col: 4,
+                                            end_line: 2,
+                                            end_col: 39,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 2,
+                                    start_col: 4,
+                                    end_line: 2,
+                                    end_col: 39,
+                                },
+                            },
+                            Spanned {
+                                value: Sleep {
+                                    duration: Some(
+                                        Spanned {
+                                            value: Literal {
+                                                value: Int(
+                                                    2,
+                                                ),
+                                            },
+                                            span: Span {
+                                                start_line: 3,
+                                                start_col: 16,
+                                                end_line: 3,
+                                                end_col: 17,
+                                            },
+                                        },
+                                    ),
+                                },
+                                span: Span {
+                                    start_line: 3,
+                                    start_col: 4,
+                                    end_line: 3,
+                                    end_col: 18,
+                                },
+                            },
+                            Spanned {
+                                value: Assignment {
+                                    targets: [
+                                        "_return_tmp",
+                                    ],
+                                    value: Spanned {
+                                        value: ActionCall {
+                                            call: ActionCall {
+                                                action_name: "format_done_from_import",
+                                                kwargs: [
+                                                    Kwarg {
+                                                        name: "value",
+                                                        value: Spanned {
+                                                            value: Variable {
+                                                                name: "val",
+                                                            },
+                                                            span: Span {
+                                                                start_line: 4,
+                                                                start_col: 47,
+                                                                end_line: 4,
+                                                                end_col: 50,
+                                                            },
+                                                        },
+                                                    },
+                                                ],
+                                                policies: [],
+                                                module_name: Some(
+                                                    "sleep_from_import",
+                                                ),
+                                            },
+                                        },
+                                        span: Span {
+                                            start_line: 4,
+                                            start_col: 4,
+                                            end_line: 4,
+                                            end_col: 51,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 4,
+                                    start_col: 4,
+                                    end_line: 4,
+                                    end_col: 51,
+                                },
+                            },
+                            Spanned {
+                                value: Return {
+                                    value: Some(
+                                        Spanned {
+                                            value: Variable {
+                                                name: "_return_tmp",
+                                            },
+                                            span: Span {
+                                                start_line: 4,
+                                                start_col: 4,
+                                                end_line: 4,
+                                                end_col: 51,
+                                            },
+                                        },
+                                    ),
+                                },
+                                span: Span {
+                                    start_line: 4,
+                                    start_col: 4,
+                                    end_line: 4,
+                                    end_col: 51,
+                                },
+                            },
+                        ],
+                    },
+                    span: Span {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    },
+                },
+            },
+            span: Span {
+                start_line: 1,
+                start_col: 0,
+                end_line: 4,
+                end_col: 51,
+            },
+        },
+    ],
+}

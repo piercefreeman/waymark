@@ -1,0 +1,181 @@
+---
+source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
+expression: ast for python/tests/fixtures_models/dataclass_action_arg.py
+---
+Program {
+    functions: [
+        Spanned {
+            value: FunctionDef {
+                name: "main",
+                io: Spanned {
+                    value: IoDecl {
+                        inputs: [],
+                        outputs: [],
+                    },
+                    span: Span {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    },
+                },
+                body: Spanned {
+                    value: Block {
+                        statements: [
+                            Spanned {
+                                value: Assignment {
+                                    targets: [
+                                        "items",
+                                    ],
+                                    value: Spanned {
+                                        value: ActionCall {
+                                            call: ActionCall {
+                                                action_name: "get_data_items",
+                                                kwargs: [],
+                                                policies: [],
+                                                module_name: Some(
+                                                    "dataclass_action_arg",
+                                                ),
+                                            },
+                                        },
+                                        span: Span {
+                                            start_line: 2,
+                                            start_col: 4,
+                                            end_line: 2,
+                                            end_col: 34,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 2,
+                                    start_col: 4,
+                                    end_line: 2,
+                                    end_col: 34,
+                                },
+                            },
+                            Spanned {
+                                value: Assignment {
+                                    targets: [
+                                        "result",
+                                    ],
+                                    value: Spanned {
+                                        value: ActionCall {
+                                            call: ActionCall {
+                                                action_name: "process_data",
+                                                kwargs: [
+                                                    Kwarg {
+                                                        name: "request",
+                                                        value: Spanned {
+                                                            value: Dict {
+                                                                entries: [
+                                                                    DictEntry {
+                                                                        key: Spanned {
+                                                                            value: Literal {
+                                                                                value: String(
+                                                                                    "items",
+                                                                                ),
+                                                                            },
+                                                                            span: Span {
+                                                                                start_line: 0,
+                                                                                start_col: 0,
+                                                                                end_line: 0,
+                                                                                end_col: 0,
+                                                                            },
+                                                                        },
+                                                                        value: Spanned {
+                                                                            value: Variable {
+                                                                                name: "items",
+                                                                            },
+                                                                            span: Span {
+                                                                                start_line: 4,
+                                                                                start_col: 50,
+                                                                                end_line: 4,
+                                                                                end_col: 55,
+                                                                            },
+                                                                        },
+                                                                    },
+                                                                ],
+                                                            },
+                                                            span: Span {
+                                                                start_line: 4,
+                                                                start_col: 32,
+                                                                end_line: 4,
+                                                                end_col: 56,
+                                                            },
+                                                        },
+                                                    },
+                                                ],
+                                                policies: [],
+                                                module_name: Some(
+                                                    "dataclass_action_arg",
+                                                ),
+                                            },
+                                        },
+                                        span: Span {
+                                            start_line: 4,
+                                            start_col: 4,
+                                            end_line: 4,
+                                            end_col: 57,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 4,
+                                    start_col: 4,
+                                    end_line: 4,
+                                    end_col: 57,
+                                },
+                            },
+                            Spanned {
+                                value: Return {
+                                    value: Some(
+                                        Spanned {
+                                            value: Dot {
+                                                object: Spanned {
+                                                    value: Variable {
+                                                        name: "result",
+                                                    },
+                                                    span: Span {
+                                                        start_line: 5,
+                                                        start_col: 11,
+                                                        end_line: 5,
+                                                        end_col: 17,
+                                                    },
+                                                },
+                                                attribute: "count",
+                                            },
+                                            span: Span {
+                                                start_line: 5,
+                                                start_col: 11,
+                                                end_line: 5,
+                                                end_col: 23,
+                                            },
+                                        },
+                                    ),
+                                },
+                                span: Span {
+                                    start_line: 5,
+                                    start_col: 4,
+                                    end_line: 5,
+                                    end_col: 23,
+                                },
+                            },
+                        ],
+                    },
+                    span: Span {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    },
+                },
+            },
+            span: Span {
+                start_line: 1,
+                start_col: 0,
+                end_line: 5,
+                end_col: 23,
+            },
+        },
+    ],
+}

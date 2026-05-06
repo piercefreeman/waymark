@@ -18,8 +18,14 @@ index_type = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
+waymark-support-test-python = { workspace = true }
 waymark-vm-ast-old-helpers = { workspace = true }
 waymark-vm-interpreter-coreset = { workspace = true }
 waymark-vm-interpreter-fullset = { workspace = true }
 waymark-vm-interpreter-pureset = { workspace = true }
 waymark-vm-runtime = { workspace = true }
+
+async-walkdir = { workspace = true }
+futures-util = { workspace = true }
+insta = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

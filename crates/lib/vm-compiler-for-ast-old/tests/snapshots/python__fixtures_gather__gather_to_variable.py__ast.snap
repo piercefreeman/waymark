@@ -1,0 +1,121 @@
+---
+source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
+expression: ast for python/tests/fixtures_gather/gather_to_variable.py
+---
+Program {
+    functions: [
+        Spanned {
+            value: FunctionDef {
+                name: "main",
+                io: Spanned {
+                    value: IoDecl {
+                        inputs: [],
+                        outputs: [],
+                    },
+                    span: Span {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    },
+                },
+                body: Spanned {
+                    value: Block {
+                        statements: [
+                            Spanned {
+                                value: Assignment {
+                                    targets: [
+                                        "results",
+                                    ],
+                                    value: Spanned {
+                                        value: ParallelExpr {
+                                            calls: [
+                                                Action(
+                                                    ActionCall {
+                                                        action_name: "fetch_value_1",
+                                                        kwargs: [],
+                                                        policies: [],
+                                                        module_name: Some(
+                                                            "gather_to_variable",
+                                                        ),
+                                                    },
+                                                ),
+                                                Action(
+                                                    ActionCall {
+                                                        action_name: "fetch_value_2",
+                                                        kwargs: [],
+                                                        policies: [],
+                                                        module_name: Some(
+                                                            "gather_to_variable",
+                                                        ),
+                                                    },
+                                                ),
+                                                Action(
+                                                    ActionCall {
+                                                        action_name: "fetch_value_3",
+                                                        kwargs: [],
+                                                        policies: [],
+                                                        module_name: Some(
+                                                            "gather_to_variable",
+                                                        ),
+                                                    },
+                                                ),
+                                            ],
+                                        },
+                                        span: Span {
+                                            start_line: 4,
+                                            start_col: 4,
+                                            end_line: 9,
+                                            end_col: 5,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 4,
+                                    start_col: 4,
+                                    end_line: 9,
+                                    end_col: 5,
+                                },
+                            },
+                            Spanned {
+                                value: Return {
+                                    value: Some(
+                                        Spanned {
+                                            value: Variable {
+                                                name: "results",
+                                            },
+                                            span: Span {
+                                                start_line: 10,
+                                                start_col: 11,
+                                                end_line: 10,
+                                                end_col: 18,
+                                            },
+                                        },
+                                    ),
+                                },
+                                span: Span {
+                                    start_line: 10,
+                                    start_col: 4,
+                                    end_line: 10,
+                                    end_col: 18,
+                                },
+                            },
+                        ],
+                    },
+                    span: Span {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    },
+                },
+            },
+            span: Span {
+                start_line: 1,
+                start_col: 0,
+                end_line: 10,
+                end_col: 18,
+            },
+        },
+    ],
+}

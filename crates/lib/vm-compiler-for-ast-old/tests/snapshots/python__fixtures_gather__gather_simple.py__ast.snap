@@ -1,0 +1,135 @@
+---
+source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
+expression: ast for python/tests/fixtures_gather/gather_simple.py
+---
+Program {
+    functions: [
+        Spanned {
+            value: FunctionDef {
+                name: "main",
+                io: Spanned {
+                    value: IoDecl {
+                        inputs: [],
+                        outputs: [],
+                    },
+                    span: Span {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    },
+                },
+                body: Spanned {
+                    value: Block {
+                        statements: [
+                            Spanned {
+                                value: Assignment {
+                                    targets: [
+                                        "a",
+                                        "b",
+                                    ],
+                                    value: Spanned {
+                                        value: ParallelExpr {
+                                            calls: [
+                                                Action(
+                                                    ActionCall {
+                                                        action_name: "action_a",
+                                                        kwargs: [],
+                                                        policies: [],
+                                                        module_name: Some(
+                                                            "gather_simple",
+                                                        ),
+                                                    },
+                                                ),
+                                                Action(
+                                                    ActionCall {
+                                                        action_name: "action_b",
+                                                        kwargs: [],
+                                                        policies: [],
+                                                        module_name: Some(
+                                                            "gather_simple",
+                                                        ),
+                                                    },
+                                                ),
+                                            ],
+                                        },
+                                        span: Span {
+                                            start_line: 2,
+                                            start_col: 4,
+                                            end_line: 6,
+                                            end_col: 5,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 2,
+                                    start_col: 4,
+                                    end_line: 6,
+                                    end_col: 5,
+                                },
+                            },
+                            Spanned {
+                                value: Return {
+                                    value: Some(
+                                        Spanned {
+                                            value: List {
+                                                elements: [
+                                                    Spanned {
+                                                        value: Variable {
+                                                            name: "a",
+                                                        },
+                                                        span: Span {
+                                                            start_line: 7,
+                                                            start_col: 11,
+                                                            end_line: 7,
+                                                            end_col: 12,
+                                                        },
+                                                    },
+                                                    Spanned {
+                                                        value: Variable {
+                                                            name: "b",
+                                                        },
+                                                        span: Span {
+                                                            start_line: 7,
+                                                            start_col: 14,
+                                                            end_line: 7,
+                                                            end_col: 15,
+                                                        },
+                                                    },
+                                                ],
+                                            },
+                                            span: Span {
+                                                start_line: 7,
+                                                start_col: 11,
+                                                end_line: 7,
+                                                end_col: 15,
+                                            },
+                                        },
+                                    ),
+                                },
+                                span: Span {
+                                    start_line: 7,
+                                    start_col: 4,
+                                    end_line: 7,
+                                    end_col: 15,
+                                },
+                            },
+                        ],
+                    },
+                    span: Span {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    },
+                },
+            },
+            span: Span {
+                start_line: 1,
+                start_col: 0,
+                end_line: 7,
+                end_col: 15,
+            },
+        },
+    ],
+}

@@ -1,0 +1,218 @@
+---
+source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
+expression: ast for python/tests/fixtures_workflow/workflow_helper_async.py
+---
+Program {
+    functions: [
+        Spanned {
+            value: FunctionDef {
+                name: "main",
+                io: Spanned {
+                    value: IoDecl {
+                        inputs: [
+                            "value",
+                        ],
+                        outputs: [],
+                    },
+                    span: Span {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    },
+                },
+                body: Spanned {
+                    value: Block {
+                        statements: [
+                            Spanned {
+                                value: Assignment {
+                                    targets: [
+                                        "result",
+                                    ],
+                                    value: Spanned {
+                                        value: FunctionCall {
+                                            call: FunctionCall {
+                                                name: "run_internal",
+                                                args: [],
+                                                kwargs: [
+                                                    Kwarg {
+                                                        name: "value",
+                                                        value: Spanned {
+                                                            value: Variable {
+                                                                name: "value",
+                                                            },
+                                                            span: Span {
+                                                                start_line: 2,
+                                                                start_col: 43,
+                                                                end_line: 2,
+                                                                end_col: 48,
+                                                            },
+                                                        },
+                                                    },
+                                                ],
+                                                global_function: None,
+                                            },
+                                        },
+                                        span: Span {
+                                            start_line: 2,
+                                            start_col: 13,
+                                            end_line: 2,
+                                            end_col: 49,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 2,
+                                    start_col: 4,
+                                    end_line: 2,
+                                    end_col: 49,
+                                },
+                            },
+                            Spanned {
+                                value: Return {
+                                    value: Some(
+                                        Spanned {
+                                            value: Variable {
+                                                name: "result",
+                                            },
+                                            span: Span {
+                                                start_line: 3,
+                                                start_col: 11,
+                                                end_line: 3,
+                                                end_col: 17,
+                                            },
+                                        },
+                                    ),
+                                },
+                                span: Span {
+                                    start_line: 3,
+                                    start_col: 4,
+                                    end_line: 3,
+                                    end_col: 17,
+                                },
+                            },
+                        ],
+                    },
+                    span: Span {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    },
+                },
+            },
+            span: Span {
+                start_line: 1,
+                start_col: 0,
+                end_line: 3,
+                end_col: 17,
+            },
+        },
+        Spanned {
+            value: FunctionDef {
+                name: "run_internal",
+                io: Spanned {
+                    value: IoDecl {
+                        inputs: [
+                            "value",
+                        ],
+                        outputs: [],
+                    },
+                    span: Span {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    },
+                },
+                body: Spanned {
+                    value: Block {
+                        statements: [
+                            Spanned {
+                                value: Assignment {
+                                    targets: [
+                                        "_return_tmp",
+                                    ],
+                                    value: Spanned {
+                                        value: ActionCall {
+                                            call: ActionCall {
+                                                action_name: "increment",
+                                                kwargs: [
+                                                    Kwarg {
+                                                        name: "value",
+                                                        value: Spanned {
+                                                            value: Variable {
+                                                                name: "value",
+                                                            },
+                                                            span: Span {
+                                                                start_line: 2,
+                                                                start_col: 33,
+                                                                end_line: 2,
+                                                                end_col: 38,
+                                                            },
+                                                        },
+                                                    },
+                                                ],
+                                                policies: [],
+                                                module_name: Some(
+                                                    "workflow_helper_async",
+                                                ),
+                                            },
+                                        },
+                                        span: Span {
+                                            start_line: 2,
+                                            start_col: 4,
+                                            end_line: 2,
+                                            end_col: 39,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 2,
+                                    start_col: 4,
+                                    end_line: 2,
+                                    end_col: 39,
+                                },
+                            },
+                            Spanned {
+                                value: Return {
+                                    value: Some(
+                                        Spanned {
+                                            value: Variable {
+                                                name: "_return_tmp",
+                                            },
+                                            span: Span {
+                                                start_line: 2,
+                                                start_col: 4,
+                                                end_line: 2,
+                                                end_col: 39,
+                                            },
+                                        },
+                                    ),
+                                },
+                                span: Span {
+                                    start_line: 2,
+                                    start_col: 4,
+                                    end_line: 2,
+                                    end_col: 39,
+                                },
+                            },
+                        ],
+                    },
+                    span: Span {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    },
+                },
+            },
+            span: Span {
+                start_line: 1,
+                start_col: 0,
+                end_line: 2,
+                end_col: 39,
+            },
+        },
+    ],
+}
