@@ -7,7 +7,7 @@ Err(
         Unsupported(
             FunctionCall {
                 name: "run_internal",
-                reason: "keyword arguments are not supported",
+                reason: KeywordArguments,
             },
         ),
     ),

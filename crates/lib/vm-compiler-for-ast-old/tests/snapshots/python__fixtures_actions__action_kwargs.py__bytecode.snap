@@ -4,8 +4,8 @@ expression: bytecode for python/tests/fixtures_actions/action_kwargs.py
 ---
 Err(
     FunctionCompiler(
-        LiteralLowering {
-            error: UnsupportedLiteral,
-        },
+        LiteralLowering(
+            UnsupportedLiteral,
+        ),
     ),
 )

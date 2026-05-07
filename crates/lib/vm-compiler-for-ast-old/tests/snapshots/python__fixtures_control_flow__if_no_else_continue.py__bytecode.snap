@@ -6,7 +6,7 @@ Err(
     FunctionCompiler(
         Unsupported(
             Expression {
-                kind: "Dot",
+                kind: Dot,
             },
         ),
     ),

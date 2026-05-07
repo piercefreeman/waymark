@@ -1,23 +1,41 @@
 //! Compiles the supported subset of [`waymark_vm_ast_old`] into
 //! [`waymark_vm_bytecode`] using [`waymark_vm_instructions_fullset`].
 //!
+//! [`compile`] is the crate entry point. It resolves user-defined functions in
+//! source order, lowers each function body independently, and returns a
+//! [`waymark_vm_bytecode::Executable`] parameterized by a
+//! [`waymark_vm_compiler_for_ast_old_core::lowering::FullSet`] implementation.
+//!
 //! The current compiler intentionally implements only the subset that can be
-//! represented by the existing VM instruction set:
-//! literals, variables, addition, simple assignments, conditionals, while
-//! loops, `break`/`continue`, returns, user function calls, and action calls.
+//! represented by the existing VM instruction set: literals, variables,
+//! addition, simple assignments, conditionals, while loops,
+//! `break`/`continue`, returns, user function calls, and action calls.
 //!
 //! Unsupported statements and expressions are rejected with [`CompileError`]
-//! instead of being lowered to incorrect bytecode.
+//! instead of being lowered to incorrect or lossy bytecode.
 
-// #![warn(missing_docs)]
+#![warn(missing_docs, clippy::missing_docs_in_private_items)]
 
 pub mod function;
-pub mod lowering;
+
+pub mod utils {
+    //! Utilities shared across the compiler's planning and lowering passes.
+
+    mod eevec;
+
+    mod marked;
+
+    pub use self::eevec::EEVec;
+    pub use self::marked::Marked;
+}
+
+use self::utils::*;
 
 #[cfg(test)]
 mod tests;
 
 use index_type::typed_vec::TypedVec;
+use waymark_vm_compiler_for_ast_old_core::{ExecutableFor, lowering};
 
 /// Errors that can occur while compiling AST into bytecode.
 #[derive(Debug, thiserror::Error)]
@@ -37,16 +55,10 @@ pub type CompileErrorFor<Spec, Lowering> = CompileError<
     <Lowering as lowering::CoreSet<Spec>>::ActionError,
 >;
 
-/// The [`waymark_vm_instructions_fullset::FullSet`] alias for convenience.
-pub type InstructionFor<Spec> = waymark_vm_instructions_fullset::FullSet<Spec>;
-
-/// The [`waymark_vm_bytecode::Executable`] alias for convenience.
-pub type ExecutableFor<Spec> = waymark_vm_bytecode::Executable<InstructionFor<Spec>>;
-
 /// Compile an old AST program into VM bytecode.
 ///
 /// Functions keep their source order. That means function `0` in the resulting
-/// executable is the first function in [`Program::functions`].
+/// executable is the first entry from `program.functions`.
 ///
 /// Unsupported AST constructs return [`CompileError`] instead of partial or
 /// lossy bytecode.
@@ -54,8 +66,8 @@ pub fn compile<Spec, Lowering>(
     program: &waymark_vm_ast_old::Program,
 ) -> Result<ExecutableFor<Spec>, CompileErrorFor<Spec, Lowering>>
 where
-    Spec: waymark_vm_compiler_core::SpecRequirements,
-    Lowering: lowering::FullSet<Spec>,
+    Spec: waymark_vm_compiler_for_ast_old_core::SpecRequirements,
+    Lowering: waymark_vm_compiler_for_ast_old_core::lowering::FullSet<Spec>,
 {
     let function_table = function::table::FunctionTable::build(program)?;
     let mut functions = TypedVec::with_capacity(program.functions.len());
