@@ -443,12 +443,14 @@ def build_workflow_ir(workflow_cls: type["Workflow"]) -> ir.Program:
     methods_to_process: List[tuple[Any, ast.AST, Optional[str], int, Optional[str]]] = [
         (original_run, run_tree, run_filename, run_start_line, "main")
     ]
-    pending = list(_collect_self_method_calls(run_tree))
+    pending = _collect_self_method_calls(run_tree)
+    pending_index = 0
     visited: Set[str] = set()
     skip_methods = {"run_action"}
 
-    while pending:
-        method_name = pending.pop()
+    while pending_index < len(pending):
+        method_name = pending[pending_index]
+        pending_index += 1
         if method_name in visited or method_name == "run" or method_name in skip_methods:
             continue
         visited.add(method_name)
@@ -499,17 +501,30 @@ def build_workflow_ir(workflow_cls: type["Workflow"]) -> ir.Program:
     return program
 
 
-def _collect_self_method_calls(tree: ast.AST) -> Set[str]:
-    """Collect self.method(...) call names from a parsed function AST."""
-    calls: Set[str] = set()
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        func = node.func
-        if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
-            if func.value.id == "self":
-                calls.add(func.attr)
-    return calls
+def _collect_self_method_calls(tree: ast.AST) -> List[str]:
+    """Collect self.method(...) call names from a parsed function AST in source order."""
+
+    class SelfMethodCallCollector(ast.NodeVisitor):
+        def __init__(self) -> None:
+            self.calls: List[str] = []
+            self._seen: Set[str] = set()
+
+        def visit_Call(self, node: ast.Call) -> None:
+            func = node.func
+            if (
+                isinstance(func, ast.Attribute)
+                and isinstance(func.value, ast.Name)
+                and func.value.id == "self"
+                and func.attr not in self._seen
+            ):
+                self._seen.add(func.attr)
+                self.calls.append(func.attr)
+
+            self.generic_visit(node)
+
+    collector = SelfMethodCallCollector()
+    collector.visit(tree)
+    return collector.calls
 
 
 def _find_workflow_method(workflow_cls: type["Workflow"], name: str) -> Optional[Any]:
