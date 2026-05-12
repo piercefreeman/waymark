@@ -355,6 +355,7 @@ mod tests {
     use waymark_vm_ast_old_helpers::{action_call, binary_expr, function_call, int};
     use waymark_vm_bytecode_core::{FunctionId, StateId};
     use waymark_vm_instructions_coreset::CoreSet;
+    use waymark_vm_instructions_extcallset::ExtCallSet;
     use waymark_vm_instructions_fullset::FullSet as InstructionSet;
     use waymark_vm_instructions_pureset::PureSet;
     use waymark_vm_runtime_core::RegisterId;
@@ -470,7 +471,7 @@ mod tests {
         ));
         assert!(matches!(
             start_instructions.next(),
-            Some(InstructionSet::CoreSet(CoreSet::ExtCall {
+            Some(InstructionSet::ExtCallSet(ExtCallSet::ExtCall {
                 dst,
                 extcall_id: TestExtCallId(extcall_id),
                 args,
@@ -736,7 +737,7 @@ mod tests {
         ));
         assert!(matches!(
             start_instructions.next(),
-            Some(InstructionSet::CoreSet(CoreSet::ExtCall {
+            Some(InstructionSet::ExtCallSet(ExtCallSet::ExtCall {
                 dst,
                 extcall_id: TestExtCallId(extcall_id),
                 args,
@@ -838,7 +839,7 @@ mod tests {
         let mut first_state_instructions = states[StateId(0)].instructions.iter();
         assert!(matches!(
             first_state_instructions.next(),
-            Some(InstructionSet::CoreSet(CoreSet::ExtCall {
+            Some(InstructionSet::ExtCallSet(ExtCallSet::ExtCall {
                 dst,
                 extcall_id: TestExtCallId(extcall_id),
                 args,
@@ -853,7 +854,7 @@ mod tests {
         let mut third_state_instructions = states[StateId(2)].instructions.iter();
         assert!(matches!(
             third_state_instructions.next(),
-            Some(InstructionSet::CoreSet(CoreSet::ExtCall {
+            Some(InstructionSet::ExtCallSet(ExtCallSet::ExtCall {
                 dst,
                 extcall_id: TestExtCallId(extcall_id),
                 args,
@@ -905,7 +906,7 @@ mod tests {
         ));
         assert!(matches!(
             first_state_instructions.next(),
-            Some(InstructionSet::CoreSet(CoreSet::ExtCall {
+            Some(InstructionSet::ExtCallSet(ExtCallSet::ExtCall {
                 dst,
                 extcall_id: TestExtCallId(extcall_id),
                 args,
@@ -927,7 +928,7 @@ mod tests {
         ));
         assert!(matches!(
             third_state_instructions.next(),
-            Some(InstructionSet::CoreSet(CoreSet::ExtCall {
+            Some(InstructionSet::ExtCallSet(ExtCallSet::ExtCall {
                 dst,
                 extcall_id: TestExtCallId(extcall_id),
                 args,

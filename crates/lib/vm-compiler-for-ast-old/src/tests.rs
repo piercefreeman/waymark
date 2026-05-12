@@ -25,9 +25,9 @@ enum UnitTestActionLoweringError {
 
 struct ActionFailingLowering;
 
-impl<Spec> lowering::CoreSet<Spec> for ActionFailingLowering
+impl<Spec> lowering::ExtCallSet<Spec> for ActionFailingLowering
 where
-    Spec: waymark_vm_instructions_coreset::Spec<ExtCallId = TestExtCallId>,
+    Spec: waymark_vm_instructions_extcallset::Spec<ExtCallId = TestExtCallId>,
 {
     type ActionError = UnitTestActionLoweringError;
 

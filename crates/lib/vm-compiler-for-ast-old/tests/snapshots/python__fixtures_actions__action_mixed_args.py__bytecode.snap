@@ -39,7 +39,7 @@ Ok(
                                     ),
                                 },
                             ),
-                            CoreSet(
+                            ExtCallSet(
                                 ExtCall {
                                     dst: RegisterId(
                                         0,

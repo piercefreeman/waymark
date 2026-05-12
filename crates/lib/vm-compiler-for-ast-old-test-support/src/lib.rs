@@ -47,6 +47,11 @@ impl waymark_vm_instructions_coreset::Spec for TestSpec {
     type RegisterId = waymark_vm_runtime_core::RegisterId;
     type FunctionId = waymark_vm_bytecode_core::FunctionId;
     type StateId = waymark_vm_bytecode_core::StateId;
+}
+
+impl waymark_vm_instructions_extcallset::Spec for TestSpec {
+    type RegisterId = waymark_vm_runtime_core::RegisterId;
+    type StateId = waymark_vm_bytecode_core::StateId;
     type ExtCallId = TestExtCallId;
 }
 
@@ -61,9 +66,9 @@ pub type TestExecutable = waymark_vm_compiler_for_ast_old_core::ExecutableFor<Te
 /// Lowering implementation used by compiler tests.
 pub struct TestLowering;
 
-impl<Spec> waymark_vm_compiler_for_ast_old_core::lowering::CoreSet<Spec> for TestLowering
+impl<Spec> waymark_vm_compiler_for_ast_old_core::lowering::ExtCallSet<Spec> for TestLowering
 where
-    Spec: waymark_vm_instructions_coreset::Spec<ExtCallId = TestExtCallId>,
+    Spec: waymark_vm_instructions_extcallset::Spec<ExtCallId = TestExtCallId>,
 {
     type ActionError = TestActionError;
 

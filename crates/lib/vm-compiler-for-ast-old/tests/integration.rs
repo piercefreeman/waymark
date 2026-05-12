@@ -337,7 +337,7 @@ fn compiles_action_calls_into_extcalls() {
     let effect = runtime.run().expect("program should emit an extcall");
 
     let promise_state_id = match effect {
-        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::ExtCall {
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ExtCall {
             promise_state_id,
             extcall_id,
             args,
@@ -420,8 +420,8 @@ fn compiles_parallel_blocks_to_fan_out_before_awaiting() {
     ));
     assert!(matches!(
         extcall,
-        waymark_vm_instructions_fullset::FullSet::CoreSet(
-            waymark_vm_instructions_coreset::CoreSet::ExtCall { resume, .. }
+        waymark_vm_instructions_fullset::FullSet::ExtCallSet(
+            waymark_vm_instructions_extcallset::ExtCallSet::ExtCall { resume, .. }
         ) if *resume == StateId(1)
     ));
     assert!(matches!(
@@ -453,7 +453,7 @@ fn compiles_parallel_action_blocks_with_multiple_outstanding_extcalls() {
         .run()
         .expect("first run should emit the first extcall")
     {
-        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::ExtCall {
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ExtCall {
             promise_state_id,
             extcall_id,
             args,
@@ -469,7 +469,7 @@ fn compiles_parallel_action_blocks_with_multiple_outstanding_extcalls() {
         .run()
         .expect("second run should emit the second extcall")
     {
-        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::ExtCall {
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ExtCall {
             promise_state_id,
             extcall_id,
             args,
@@ -529,7 +529,7 @@ fn compiles_mixed_parallel_blocks_with_leading_action_before_awaiting() {
         .run()
         .expect("first run should emit the first extcall")
     {
-        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::ExtCall {
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ExtCall {
             promise_state_id,
             extcall_id,
             args,
@@ -545,7 +545,7 @@ fn compiles_mixed_parallel_blocks_with_leading_action_before_awaiting() {
         .run()
         .expect("second run should emit the second extcall before awaiting the first")
     {
-        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::ExtCall {
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ExtCall {
             promise_state_id,
             extcall_id,
             args,
@@ -633,7 +633,7 @@ fn compiles_parallel_expressions_into_positional_assignments() {
     let mut runtime = runtime(executable);
 
     let promise_state_id = match runtime.run().expect("program should emit an extcall") {
-        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::ExtCall {
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ExtCall {
             promise_state_id,
             extcall_id,
             args,
@@ -701,7 +701,7 @@ fn compiles_mixed_parallel_expressions_with_leading_action_before_awaiting() {
         .run()
         .expect("first run should emit the first extcall")
     {
-        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::ExtCall {
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ExtCall {
             promise_state_id,
             extcall_id,
             args,
@@ -717,7 +717,7 @@ fn compiles_mixed_parallel_expressions_with_leading_action_before_awaiting() {
         .run()
         .expect("second run should emit the second extcall before awaiting the first")
     {
-        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::ExtCall {
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ExtCall {
             promise_state_id,
             extcall_id,
             args,
@@ -780,7 +780,7 @@ fn compiles_parallel_expressions_into_aggregate_lists() {
     let mut runtime = runtime(executable);
 
     let promise_state_id = match runtime.run().expect("program should emit an extcall") {
-        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::ExtCall {
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ExtCall {
             promise_state_id,
             extcall_id,
             args,
@@ -836,7 +836,7 @@ fn compiles_parallel_expression_results_by_call_position() {
         .run()
         .expect("first run should emit the first extcall")
     {
-        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::ExtCall {
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ExtCall {
             promise_state_id,
             extcall_id,
             args,
@@ -852,7 +852,7 @@ fn compiles_parallel_expression_results_by_call_position() {
         .run()
         .expect("second run should emit the second extcall")
     {
-        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::ExtCall {
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ExtCall {
             promise_state_id,
             extcall_id,
             args,

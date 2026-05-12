@@ -90,12 +90,12 @@ where
     pub fn emit_extcall(
         &mut self,
         dst: Marked<RegisterId, PromiseMarker>,
-        extcall_id: <Spec as waymark_vm_instructions_coreset::Spec>::ExtCallId,
+        extcall_id: <Spec as waymark_vm_instructions_extcallset::Spec>::ExtCallId,
         args: Vec<RegisterId>,
         resume: StateId,
     ) {
         self.emit(
-            waymark_vm_instructions_coreset::CoreSet::ExtCall {
+            waymark_vm_instructions_extcallset::ExtCallSet::ExtCall {
                 dst: *dst,
                 extcall_id,
                 args,

@@ -42,11 +42,11 @@ pub enum CallPlan<'a, ExtCallId> {
 
 /// Action-call plan specialized to a VM spec.
 pub type ActionCallPlanFor<'a, Spec> =
-    ActionCallPlan<'a, <Spec as waymark_vm_instructions_coreset::Spec>::ExtCallId>;
+    ActionCallPlan<'a, <Spec as waymark_vm_instructions_extcallset::Spec>::ExtCallId>;
 
 /// Generic call plan specialized to a VM spec.
 pub type CallPlanFor<'a, Spec> =
-    CallPlan<'a, <Spec as waymark_vm_instructions_coreset::Spec>::ExtCallId>;
+    CallPlan<'a, <Spec as waymark_vm_instructions_extcallset::Spec>::ExtCallId>;
 
 /// Reasons a function-call shape cannot be represented by this compiler.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -118,8 +118,8 @@ impl<'a, ExtCallId> ActionCallPlan<'a, ExtCallId> {
         call: &'a ActionCall,
     ) -> Result<Self, Error<LiteralLoweringError, Lowering::ActionError>>
     where
-        Spec: waymark_vm_instructions_coreset::Spec<ExtCallId = ExtCallId>,
-        Lowering: lowering::CoreSet<Spec>,
+        Spec: waymark_vm_instructions_extcallset::Spec<ExtCallId = ExtCallId>,
+        Lowering: lowering::ExtCallSet<Spec>,
     {
         let extcall_id = Lowering::lower_action(call).map_err(|error| Error::ActionLowering {
             action_name: call.action_name.clone(),
@@ -155,8 +155,8 @@ impl<'a, ExtCallId> CallPlan<'a, ExtCallId> {
         call: &'a ActionCall,
     ) -> Result<Self, Error<LiteralLoweringError, Lowering::ActionError>>
     where
-        Spec: waymark_vm_instructions_coreset::Spec<ExtCallId = ExtCallId>,
-        Lowering: lowering::CoreSet<Spec>,
+        Spec: waymark_vm_instructions_extcallset::Spec<ExtCallId = ExtCallId>,
+        Lowering: lowering::ExtCallSet<Spec>,
     {
         Ok(Self::Action(ActionCallPlan::lower::<Spec, Lowering, _>(
             call,
@@ -169,8 +169,8 @@ impl<'a, ExtCallId> CallPlan<'a, ExtCallId> {
         function_table: &FunctionTable,
     ) -> Result<Self, Error<LiteralLoweringError, Lowering::ActionError>>
     where
-        Spec: waymark_vm_instructions_coreset::Spec<ExtCallId = ExtCallId>,
-        Lowering: lowering::CoreSet<Spec>,
+        Spec: waymark_vm_instructions_extcallset::Spec<ExtCallId = ExtCallId>,
+        Lowering: lowering::ExtCallSet<Spec>,
     {
         match call {
             Call::Function(call) => Self::build_function(call, function_table),
@@ -184,8 +184,8 @@ impl<'a, ExtCallId> CallPlan<'a, ExtCallId> {
         function_table: &FunctionTable,
     ) -> Result<NEVec<Self>, Error<LiteralLoweringError, Lowering::ActionError>>
     where
-        Spec: waymark_vm_instructions_coreset::Spec<ExtCallId = ExtCallId>,
-        Lowering: lowering::CoreSet<Spec>,
+        Spec: waymark_vm_instructions_extcallset::Spec<ExtCallId = ExtCallId>,
+        Lowering: lowering::ExtCallSet<Spec>,
     {
         calls
             .into_nonempty_iter()
@@ -239,7 +239,7 @@ mod tests {
 
     struct FailingLowering;
 
-    impl lowering::CoreSet<TestSpec> for FailingLowering {
+    impl lowering::ExtCallSet<TestSpec> for FailingLowering {
         type ActionError = TestActionError;
 
         fn lower_action(_call: &ActionCall) -> Result<TestExtCallId, Self::ActionError> {

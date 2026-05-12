@@ -40,7 +40,9 @@ pub async fn run(
                             completion_tx.send(value).unwrap();
                             break;
                         }
-                        waymark_vm_interpreter_coreset::Effect::ExtCall {
+                    },
+                    waymark_vm_interpreter_fullset::Effect::ExtCallSet(effect) => match effect {
+                        waymark_vm_interpreter_extcallset::Effect::ExtCall {
                             promise_state_id,
                             extcall_id,
                             args,

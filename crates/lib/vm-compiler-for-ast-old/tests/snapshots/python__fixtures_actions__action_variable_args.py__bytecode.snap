@@ -9,7 +9,7 @@ Ok(
                 states: [
                     State {
                         instructions: [
-                            CoreSet(
+                            ExtCallSet(
                                 ExtCall {
                                     dst: RegisterId(
                                         1,
@@ -44,7 +44,7 @@ Ok(
                     },
                     State {
                         instructions: [
-                            CoreSet(
+                            ExtCallSet(
                                 ExtCall {
                                     dst: RegisterId(
                                         2,

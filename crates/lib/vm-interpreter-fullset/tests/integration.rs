@@ -1,4 +1,5 @@
 use waymark_vm_instructions_coreset::CoreSet;
+use waymark_vm_instructions_extcallset::ExtCallSet;
 use waymark_vm_instructions_fullset::FullSet;
 use waymark_vm_instructions_pureset::{BinaryOpKind, PureSet, UnaryOpKind};
 use waymark_vm_interpreter_fullset::{Effect, FullSetInterpreter};
@@ -14,8 +15,13 @@ struct TestSpec;
 impl waymark_vm_instructions_coreset::Spec for TestSpec {
     type RegisterId = RegisterId;
     type FunctionId = FunctionId;
-    type ExtCallId = TestExtCallId;
     type StateId = StateId;
+}
+
+impl waymark_vm_instructions_extcallset::Spec for TestSpec {
+    type RegisterId = RegisterId;
+    type StateId = StateId;
+    type ExtCallId = TestExtCallId;
 }
 
 impl waymark_vm_instructions_pureset::Spec for TestSpec {
@@ -150,7 +156,7 @@ fn runtime_executes_pure_and_core_instructions_to_completion() {
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(value)) => {
             assert_eq!(value, TestValue::Int(5));
         }
-        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::ExtCall { .. }) => {
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ExtCall { .. }) => {
             panic!("program should not emit an extcall")
         }
         Effect::PureSet(effect) => match effect {},
@@ -163,7 +169,7 @@ fn runtime_resumes_extcalls_and_finishes_with_pure_work() {
         4,
         vec![
             vec![
-                CoreSet::ExtCall {
+                ExtCallSet::ExtCall {
                     dst: RegisterId(1),
                     extcall_id: TestExtCallId(7),
                     args: vec![RegisterId(0)],
@@ -212,7 +218,7 @@ fn runtime_resumes_extcalls_and_finishes_with_pure_work() {
     let effect = runtime.run().expect("first run should emit the extcall");
 
     let promise_state_id = match effect {
-        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::ExtCall {
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ExtCall {
             promise_state_id,
             extcall_id,
             args,
@@ -239,7 +245,7 @@ fn runtime_resumes_extcalls_and_finishes_with_pure_work() {
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(value)) => {
             assert_eq!(value, TestValue::Int(42));
         }
-        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::ExtCall { .. }) => {
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ExtCall { .. }) => {
             panic!("resolved extcall should not emit another extcall")
         }
         Effect::PureSet(effect) => match effect {},

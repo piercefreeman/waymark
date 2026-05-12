@@ -67,7 +67,7 @@ Ok(
                     },
                     State {
                         instructions: [
-                            CoreSet(
+                            ExtCallSet(
                                 ExtCall {
                                     dst: RegisterId(
                                         1,

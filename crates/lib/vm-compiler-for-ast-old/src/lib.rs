@@ -52,7 +52,7 @@ pub enum CompileError<LiteralLoweringError, ActionLoweringError> {
 /// The [`CompileError`] alias for binding it to lowering.
 pub type CompileErrorFor<Spec, Lowering> = CompileError<
     <Lowering as lowering::PureSet<Spec>>::LiteralError,
-    <Lowering as lowering::CoreSet<Spec>>::ActionError,
+    <Lowering as lowering::ExtCallSet<Spec>>::ActionError,
 >;
 
 /// Compile an old AST program into VM bytecode.

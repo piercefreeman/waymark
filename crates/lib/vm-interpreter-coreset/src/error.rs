@@ -3,10 +3,6 @@ use waymark_vm_runtime_core::{PromiseStateNotFoundError, UnresolvedPromiseError}
 /// The error for the [`crate::CoreSetInterpreter`].
 #[derive(Debug, thiserror::Error)]
 pub enum Error<Spec: waymark_vm_instructions_coreset::Spec> {
-    /// Invoking an extcall failed.
-    #[error("extcall: {0}")]
-    ExtCall(#[source] ExtCallError),
-
     /// Awaiting a promise failed.
     #[error("await: {0}")]
     Await(#[source] AwaitError),
@@ -53,21 +49,6 @@ pub enum JumpIfError {
     /// The resolved condition value could not be interpreted as conditional.
     #[error("condition check: {0}")]
     ConditionCheck(#[source] crate::value::NotAConditionalError),
-}
-
-/// Errors produced while preparing an extcall invocation.
-#[derive(Debug, thiserror::Error)]
-pub enum ExtCallError {
-    /// An extcall argument still held an unresolved promise.
-    #[error("unresolved promise argument at position {arg_pos}: {source}")]
-    UnresolvedPromiseArgument {
-        /// The zero-based argument position that failed to resolve.
-        arg_pos: usize,
-
-        /// The underlying unresolved promise error for the argument.
-        #[source]
-        source: UnresolvedPromiseError,
-    },
 }
 
 /// Errors produced while returning from a frame.

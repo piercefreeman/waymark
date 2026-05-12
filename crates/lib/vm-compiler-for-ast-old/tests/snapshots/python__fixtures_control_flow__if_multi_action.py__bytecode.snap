@@ -19,7 +19,7 @@ Ok(
                                     ),
                                 },
                             ),
-                            CoreSet(
+                            ExtCallSet(
                                 ExtCall {
                                     dst: RegisterId(
                                         1,
@@ -48,7 +48,7 @@ Ok(
                     },
                     State {
                         instructions: [
-                            CoreSet(
+                            ExtCallSet(
                                 ExtCall {
                                     dst: RegisterId(
                                         4,
@@ -83,7 +83,7 @@ Ok(
                     },
                     State {
                         instructions: [
-                            CoreSet(
+                            ExtCallSet(
                                 ExtCall {
                                     dst: RegisterId(
                                         2,
@@ -160,7 +160,7 @@ Ok(
                     },
                     State {
                         instructions: [
-                            CoreSet(
+                            ExtCallSet(
                                 ExtCall {
                                     dst: RegisterId(
                                         5,

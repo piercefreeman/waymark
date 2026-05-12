@@ -4,6 +4,7 @@ pub fn executable() -> crate::integration::Executable {
     use waymark_vm_bytecode::*;
     use waymark_vm_bytecode_core::*;
     use waymark_vm_instructions_coreset::CoreSet;
+    use waymark_vm_instructions_extcallset::ExtCallSet;
     use waymark_vm_instructions_pureset::PureSet;
     use waymark_vm_runtime_core::RegisterId;
 
@@ -13,7 +14,7 @@ pub fn executable() -> crate::integration::Executable {
         states: typed_vec![
             State {
                 instructions: typed_vec![
-                    CoreSet::ExtCall {
+                    ExtCallSet::ExtCall {
                         dst: RegisterId::from_scalar(0),
                         extcall_id: SampleExtCallId(42),
                         args: vec![],

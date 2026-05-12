@@ -9,7 +9,7 @@ Ok(
                 states: [
                     State {
                         instructions: [
-                            CoreSet(
+                            ExtCallSet(
                                 ExtCall {
                                     dst: RegisterId(
                                         1,
@@ -48,7 +48,7 @@ Ok(
                     },
                     State {
                         instructions: [
-                            CoreSet(
+                            ExtCallSet(
                                 ExtCall {
                                     dst: RegisterId(
                                         2,
@@ -87,7 +87,7 @@ Ok(
                     },
                     State {
                         instructions: [
-                            CoreSet(
+                            ExtCallSet(
                                 ExtCall {
                                     dst: RegisterId(
                                         3,
@@ -126,7 +126,7 @@ Ok(
                     },
                     State {
                         instructions: [
-                            CoreSet(
+                            ExtCallSet(
                                 ExtCall {
                                     dst: RegisterId(
                                         4,
@@ -165,7 +165,7 @@ Ok(
                     },
                     State {
                         instructions: [
-                            CoreSet(
+                            ExtCallSet(
                                 ExtCall {
                                     dst: RegisterId(
                                         5,
@@ -204,7 +204,7 @@ Ok(
                     },
                     State {
                         instructions: [
-                            CoreSet(
+                            ExtCallSet(
                                 ExtCall {
                                     dst: RegisterId(
                                         6,
@@ -243,7 +243,7 @@ Ok(
                     },
                     State {
                         instructions: [
-                            CoreSet(
+                            ExtCallSet(
                                 ExtCall {
                                     dst: RegisterId(
                                         7,
