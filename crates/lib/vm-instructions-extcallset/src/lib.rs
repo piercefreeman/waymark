@@ -39,4 +39,17 @@ pub enum ExtCallSet<Spec: self::Spec> {
         /// The state to resume the execution from after invoking the extcall.
         resume: Spec::StateId,
     },
+
+    /// Start a sleep suspension.
+    Sleep {
+        /// The register in the current frame to assign the promise for this
+        /// sleep completion.
+        dst: Spec::RegisterId,
+
+        /// Register holding the requested sleep duration.
+        duration: Spec::RegisterId,
+
+        /// The state to resume the execution from after starting the sleep.
+        resume: Spec::StateId,
+    },
 }
