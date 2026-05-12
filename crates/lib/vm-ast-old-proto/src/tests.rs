@@ -114,6 +114,25 @@ fn returns_missing_field_error() {
 }
 
 #[test]
+fn returns_missing_sleep_duration_error() {
+    let statement = ast::Statement {
+        kind: Some(ast::statement::Kind::SleepStmt(ast::SleepStmt {
+            duration: None,
+        })),
+        span: span(1),
+    };
+
+    let error = convert(statement).expect_err("missing sleep duration should fail conversion");
+
+    assert_eq!(
+        error,
+        ConvertError::MissingField {
+            field: "SleepStmt.duration"
+        }
+    );
+}
+
+#[test]
 fn returns_invalid_enum_error() {
     let expr = ast::Expr {
         kind: Some(ast::expr::Kind::FunctionCall(ast::FunctionCall {
