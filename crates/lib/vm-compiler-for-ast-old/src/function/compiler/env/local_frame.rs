@@ -22,6 +22,9 @@ pub struct LocalFrame {
 
     /// The next register index to allocate.
     next_register_index: usize,
+
+    /// Reusable register for discarded statement results.
+    discard_register: Option<RegisterId>,
 }
 
 /// A local lookup result that may already exist or may need declaration.
@@ -60,6 +63,7 @@ impl LocalFrame {
         Self {
             locals: Locals::new(),
             next_register_index: 0,
+            discard_register: None,
         }
     }
 
@@ -83,6 +87,17 @@ impl LocalFrame {
     pub fn allocate_register(&mut self) -> RegisterId {
         let register = RegisterId(self.next_register_index);
         self.next_register_index += 1;
+        register
+    }
+
+    /// Returns a reusable register for statement results that will be discarded.
+    pub fn discard_register(&mut self) -> RegisterId {
+        if let Some(register) = self.discard_register {
+            return register;
+        }
+
+        let register = self.allocate_register();
+        self.discard_register = Some(register);
         register
     }
 

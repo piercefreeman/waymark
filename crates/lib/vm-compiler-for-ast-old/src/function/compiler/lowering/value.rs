@@ -72,7 +72,11 @@ where
         &mut self,
         call: &ActionCall,
     ) -> Result<(), ErrorFor<Spec, Lowering>> {
-        let _ = self.compile_call(self.plan_action_call(call)?, ResultTarget::Allocate)?;
+        let discard_register = self.context.local_frame.discard_register();
+        let _ = self.compile_call(
+            self.plan_action_call(call)?,
+            ResultTarget::Existing(discard_register),
+        )?;
         Ok(())
     }
 
@@ -89,7 +93,8 @@ where
         &mut self,
         expr: &Spanned<Expr>,
     ) -> Result<(), ErrorFor<Spec, Lowering>> {
-        let _ = self.compile_expr(expr, ResultTarget::Allocate)?;
+        let discard_register = self.context.local_frame.discard_register();
+        let _ = self.compile_expr(expr, ResultTarget::Existing(discard_register))?;
         Ok(())
     }
 
@@ -681,5 +686,112 @@ mod tests {
                     && *resume == StateId(2)
         ));
         assert!(resume_instructions.next().is_none());
+    }
+
+    #[test]
+    fn expression_statements_reuse_the_discard_register() {
+        let function_table = build_function_table();
+        let mut emitter = FunctionEmitter::<TestSpec>::new();
+        let mut local_frame = LocalFrame::new();
+        let mut flow_state = FlowState::new();
+
+        {
+            let mut values = ValueCompiler::<TestSpec, TestLowering>::new(
+                CompilerContextMut::new(
+                    &function_table,
+                    &mut emitter,
+                    &mut local_frame,
+                    &mut flow_state,
+                )
+                .into_ref(),
+            );
+
+            values
+                .compile_expression_statement(&int(1))
+                .expect("first expression statement should compile");
+            values
+                .compile_expression_statement(&int(2))
+                .expect("second expression statement should compile");
+        }
+
+        let states = emitter.finish();
+        assert_eq!(local_frame.num_registers(), 1);
+
+        let mut instructions = states[StateId(0)].instructions.iter();
+        assert!(matches!(
+            instructions.next(),
+            Some(InstructionSet::PureSet(PureSet::LoadConst {
+                dst,
+                value: TestConstValue::Int(1),
+            })) if *dst == RegisterId(0)
+        ));
+        assert!(matches!(
+            instructions.next(),
+            Some(InstructionSet::PureSet(PureSet::LoadConst {
+                dst,
+                value: TestConstValue::Int(2),
+            })) if *dst == RegisterId(0)
+        ));
+        assert!(instructions.next().is_none());
+    }
+
+    #[test]
+    fn action_statements_reuse_the_discard_register() {
+        let function_table = build_function_table();
+        let mut emitter = FunctionEmitter::<TestSpec>::new();
+        let mut local_frame = LocalFrame::new();
+        let mut flow_state = FlowState::new();
+
+        {
+            let mut values = ValueCompiler::<TestSpec, TestLowering>::new(
+                CompilerContextMut::new(
+                    &function_table,
+                    &mut emitter,
+                    &mut local_frame,
+                    &mut flow_state,
+                )
+                .into_ref(),
+            );
+
+            values
+                .compile_action_statement(&action_call("fetch_first", Vec::new()))
+                .expect("first action statement should compile");
+            values
+                .compile_action_statement(&action_call("fetch_second", Vec::new()))
+                .expect("second action statement should compile");
+        }
+
+        let states = emitter.finish();
+        assert_eq!(local_frame.num_registers(), 1);
+
+        let mut first_state_instructions = states[StateId(0)].instructions.iter();
+        assert!(matches!(
+            first_state_instructions.next(),
+            Some(InstructionSet::CoreSet(CoreSet::ExtCall {
+                dst,
+                extcall_id: TestExtCallId(extcall_id),
+                args,
+                resume,
+            })) if *dst == RegisterId(0)
+                && *extcall_id == "fetch_first"
+                && args.is_empty()
+                && *resume == StateId(1)
+        ));
+        assert!(first_state_instructions.next().is_none());
+
+        let mut third_state_instructions = states[StateId(2)].instructions.iter();
+        assert!(matches!(
+            third_state_instructions.next(),
+            Some(InstructionSet::CoreSet(CoreSet::ExtCall {
+                dst,
+                extcall_id: TestExtCallId(extcall_id),
+                args,
+                resume,
+            })) if *dst == RegisterId(0)
+                && *extcall_id == "fetch_second"
+                && args.is_empty()
+                && *resume == StateId(3)
+        ));
+        assert!(third_state_instructions.next().is_none());
     }
 }
