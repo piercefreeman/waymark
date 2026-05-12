@@ -31,6 +31,15 @@ pub enum PureSet<Spec: self::Spec> {
         value: Spec::ConstValue,
     },
 
+    /// Copy a value from one register into another register.
+    Copy {
+        /// The register to store the copied value at.
+        dst: Spec::RegisterId,
+
+        /// The register that contains the value to copy.
+        src: Spec::RegisterId,
+    },
+
     /// Add two values together.
     Add {
         /// The register to store the addition result at.
@@ -43,5 +52,14 @@ pub enum PureSet<Spec: self::Spec> {
         /// The register that contains the second value for
         /// the addition operation.
         b: Spec::RegisterId,
+    },
+
+    /// Build a list value from resolved registers.
+    MakeList {
+        /// The register to store the resulting list at.
+        dst: Spec::RegisterId,
+
+        /// The registers to read list elements from in order.
+        items: Vec<Spec::RegisterId>,
     },
 }

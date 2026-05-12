@@ -12,13 +12,33 @@ pub enum AddError {
     ResultOutOfBounds,
 }
 
+/// An error from [`MakeList::make_list`].
+#[derive(Debug, thiserror::Error)]
+pub enum MakeListError {
+    /// The value type does not support list construction.
+    #[error("constructing list values is not supported")]
+    NotListable,
+
+    /// The resulting list could not be represented by the value type.
+    #[error("list result is out of bounds")]
+    ResultOutOfBounds,
+}
+
 /// Add two values together and obtain a sum of them.
 pub trait Add: Sized {
     /// Add two resolved values and return the resulting value.
     fn add(a: &Self, b: &Self) -> Result<Self, AddError>;
 }
 
-/// A unifying trait for all value requirements.
-pub trait Value: Add {}
+/// Build a list value from a sequence of resolved items.
+pub trait MakeList: Sized {
+    /// Construct a list value preserving input order.
+    fn make_list<I>(items: I) -> Result<Self, MakeListError>
+    where
+        I: IntoIterator<Item = Self>;
+}
 
-impl<T> Value for T where T: Add {}
+/// A unifying trait for all value requirements.
+pub trait Value: Add + MakeList {}
+
+impl<T> Value for T where T: Add + MakeList {}

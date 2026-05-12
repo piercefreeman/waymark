@@ -65,9 +65,12 @@ waymark-tokio-metrics-bringup = { path = "crates/lib/tokio-metrics-bringup" }
 waymark-utils-futures = { path = "crates/lib/utils-futures" }
 waymark-utils-tokio-channel = { path = "crates/lib/utils-tokio-channel" }
 waymark-vm-ast-old = { path = "crates/lib/vm-ast-old" }
+waymark-vm-ast-old-helpers = { path = "crates/lib/vm-ast-old-helpers" }
 waymark-vm-ast-old-proto = { path = "crates/lib/vm-ast-old-proto" }
 waymark-vm-bytecode = { path = "crates/lib/vm-bytecode" }
 waymark-vm-bytecode-core = { path = "crates/lib/vm-bytecode-core" }
+waymark-vm-compiler-core = { path = "crates/lib/vm-compiler-core" }
+waymark-vm-compiler-for-ast-old = { path = "crates/lib/vm-compiler-for-ast-old" }
 waymark-vm-driver = { path = "crates/lib/vm-driver" }
 waymark-vm-executable = { path = "crates/lib/vm-executable" }
 waymark-vm-instructions-coreset = { path = "crates/lib/vm-instructions-coreset" }
@@ -77,6 +80,7 @@ waymark-vm-interpreter = { path = "crates/lib/vm-interpreter" }
 waymark-vm-interpreter-coreset = { path = "crates/lib/vm-interpreter-coreset" }
 waymark-vm-interpreter-fullset = { path = "crates/lib/vm-interpreter-fullset" }
 waymark-vm-interpreter-pureset = { path = "crates/lib/vm-interpreter-pureset" }
+waymark-vm-interpreter-utils = { path = "crates/lib/vm-interpreter-utils" }
 waymark-vm-runtime = { path = "crates/lib/vm-runtime" }
 waymark-vm-runtime-core = { path = "crates/lib/vm-runtime-core" }
 waymark-vm-runtime-test = { path = "crates/lib/vm-runtime-test" }

@@ -24,6 +24,13 @@ impl core::fmt::Display for BinaryOperandPosition {
 /// The error for the [`crate::PureSetInterpreter`].
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    /// A `Copy` instruction referenced an unset register.
+    #[error("copy source in register {register:?} is not initialized")]
+    MissingCopySource {
+        /// The register that was read.
+        register: RegisterId,
+    },
+
     /// An `Add` instruction referenced an unset register.
     #[error(" {operand_pos} add operand in register {register:?} is not initialized")]
     MissingAddOperand {
@@ -45,7 +52,32 @@ pub enum Error {
         source: UnresolvedPromiseError,
     },
 
+    /// A `MakeList` instruction referenced an unset register.
+    #[error("list item {item_pos} in register {register:?} is not initialized")]
+    MissingListItem {
+        /// The zero-based item position.
+        item_pos: usize,
+
+        /// The register that was read.
+        register: RegisterId,
+    },
+
+    /// A `MakeList` instruction referenced an unresolved promise.
+    #[error("list item {item_pos} is unresolved: {source}")]
+    UnresolvedListItem {
+        /// The zero-based item position.
+        item_pos: usize,
+
+        /// The underlying unresolved promise error.
+        #[source]
+        source: UnresolvedPromiseError,
+    },
+
     /// Evaluating an `Add` instruction failed.
     #[error("add: {0}")]
     Add(#[source] crate::value::AddError),
+
+    /// Evaluating a `MakeList` instruction failed.
+    #[error("make_list: {0}")]
+    MakeList(#[source] crate::value::MakeListError),
 }

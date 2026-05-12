@@ -4996,6 +4996,13 @@ name = "waymark-vm-ast-old"
 version = "0.1.0"
 
 [[package]]
+name = "waymark-vm-ast-old-helpers"
+version = "0.1.0"
+dependencies = [
+ "waymark-vm-ast-old",
+]
+
+[[package]]
 name = "waymark-vm-ast-old-proto"
 version = "0.1.0"
 dependencies = [
@@ -5026,12 +5033,48 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "index_type",
+ "thiserror",
  "tokio",
  "tracing",
  "waymark-fn-main-common",
+ "waymark-vm-ast-old",
+ "waymark-vm-ast-old-helpers",
  "waymark-vm-bytecode",
  "waymark-vm-bytecode-core",
+ "waymark-vm-compiler-for-ast-old",
  "waymark-vm-driver",
+ "waymark-vm-instructions-coreset",
+ "waymark-vm-instructions-fullset",
+ "waymark-vm-instructions-pureset",
+ "waymark-vm-interpreter-coreset",
+ "waymark-vm-interpreter-fullset",
+ "waymark-vm-interpreter-pureset",
+ "waymark-vm-runtime",
+ "waymark-vm-runtime-core",
+]
+
+[[package]]
+name = "waymark-vm-compiler-core"
+version = "0.1.0"
+dependencies = [
+ "waymark-vm-bytecode-core",
+ "waymark-vm-instructions-coreset",
+ "waymark-vm-instructions-fullset",
+ "waymark-vm-instructions-pureset",
+ "waymark-vm-runtime-core",
+]
+
+[[package]]
+name = "waymark-vm-compiler-for-ast-old"
+version = "0.1.0"
+dependencies = [
+ "index_type",
+ "thiserror",
+ "waymark-vm-ast-old",
+ "waymark-vm-ast-old-helpers",
+ "waymark-vm-bytecode",
+ "waymark-vm-bytecode-core",
+ "waymark-vm-compiler-core",
  "waymark-vm-instructions-coreset",
  "waymark-vm-instructions-fullset",
  "waymark-vm-instructions-pureset",
@@ -5126,9 +5169,17 @@ dependencies = [
  "thiserror",
  "waymark-vm-instructions-pureset",
  "waymark-vm-interpreter",
+ "waymark-vm-interpreter-utils",
  "waymark-vm-runtime",
  "waymark-vm-runtime-core",
  "waymark-vm-runtime-test",
+]
+
+[[package]]
+name = "waymark-vm-interpreter-utils"
+version = "0.1.0"
+dependencies = [
+ "waymark-vm-runtime-core",
 ]
 
 [[package]]

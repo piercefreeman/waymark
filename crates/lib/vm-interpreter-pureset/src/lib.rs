@@ -7,6 +7,7 @@ pub mod value;
 
 use derive_where::derive_where;
 use waymark_vm_interpreter::ExecutionOutcome;
+use waymark_vm_interpreter_utils::register_values::with_register_values;
 use waymark_vm_runtime_core::{Frame, Promise};
 
 pub use self::error::*;
@@ -24,7 +25,7 @@ where
     Spec: waymark_vm_instructions_pureset::Spec<RegisterId = waymark_vm_runtime_core::RegisterId>
         + 'static,
     Spec::ConstValue: Clone + Into<Value>,
-    Value: 'static,
+    Value: Clone + 'static,
     Value: value::Value,
 {
     type RuntimeView<'r> = ();
@@ -47,6 +48,13 @@ where
                 frame
                     .regs
                     .set(*dst, Promise::Resolved(value.clone().into()));
+            }
+            waymark_vm_instructions_pureset::PureSet::Copy { dst, src } => {
+                let value = frame
+                    .regs
+                    .get(*src)
+                    .ok_or(Error::MissingCopySource { register: *src })?;
+                frame.regs.set(*dst, value.clone());
             }
             waymark_vm_instructions_pureset::PureSet::Add { dst, a, b } => {
                 let x = frame.regs.get(*a).ok_or(Error::MissingAddOperand {
@@ -73,6 +81,26 @@ where
 
                 let value = Value::add(x, y).map_err(Error::Add)?;
                 frame.regs.set(*dst, Promise::Resolved(value));
+            }
+            waymark_vm_instructions_pureset::PureSet::MakeList { dst, items } => {
+                let make_list_result = with_register_values(
+                    items.iter().copied(),
+                    |item_pos, register| {
+                        let value = frame
+                            .regs
+                            .get(register)
+                            .ok_or(Error::MissingListItem { item_pos, register })?;
+                        let value = value
+                            .require_resolved_ref()
+                            .map_err(|source| Error::UnresolvedListItem { item_pos, source })?;
+
+                        Ok(value.clone())
+                    },
+                    |items| Value::make_list(items.by_ref()),
+                )?;
+
+                let list = make_list_result.map_err(Error::MakeList)?;
+                frame.regs.set(*dst, Promise::Resolved(list));
             }
         }
 
