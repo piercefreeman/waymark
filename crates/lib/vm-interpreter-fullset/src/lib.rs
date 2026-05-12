@@ -73,6 +73,7 @@ where
     ActionRefFor<Spec>: Clone,
     Value: Clone + 'static,
     Value: waymark_vm_interpreter_coreset::Value,
+    Value: waymark_vm_interpreter_extcallset::Value,
     Value: waymark_vm_interpreter_pureset::Value,
     Spec::ConstValue: Clone + Into<Value>,
 {
@@ -80,7 +81,7 @@ where
         RuntimeView<'r, Executable, FunctionIdFor<Spec>, StateIdFor<Spec>, Value>;
     type Frame = Frame<FunctionIdFor<Spec>, StateIdFor<Spec>, Promise<Value>>;
     type Instruction = waymark_vm_instructions_fullset::FullSet<Spec>;
-    type Error = Error<Spec>;
+    type Error = Error<Spec, Value>;
     type Effect = Effect<Value, ActionRefFor<Spec>>;
 
     fn execute<'r>(

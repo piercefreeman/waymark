@@ -2,16 +2,20 @@ use waymark_vm_runtime_core::UnresolvedPromiseError;
 
 /// The error for the [`crate::ExtCallSetInterpreter`].
 #[derive(Debug, thiserror::Error)]
-pub enum Error {
-    /// Invoking an extcall failed.
-    #[error("extcall: {0}")]
-    ExtCall(#[source] ExtCallError),
+pub enum Error<Value: crate::Value> {
+    /// Preparing an action call failed.
+    #[error("action call: {0}")]
+    ActionCall(#[source] ActionCallError),
+
+    /// Preparing a sleep suspension failed.
+    #[error("sleep: {0}")]
+    Sleep(#[source] SleepError<<Value as crate::value::SleepDuration>::Error>),
 }
 
-/// Errors produced while preparing an extcall invocation.
+/// Errors produced while preparing an action call invocation.
 #[derive(Debug, thiserror::Error)]
-pub enum ExtCallError {
-    /// An extcall argument still held an unresolved promise.
+pub enum ActionCallError {
+    /// An action-call argument still held an unresolved promise.
     #[error("unresolved promise argument at position {arg_pos}: {source}")]
     UnresolvedPromiseArgument {
         /// The zero-based argument position that failed to resolve.
@@ -20,5 +24,25 @@ pub enum ExtCallError {
         /// The underlying unresolved promise error for the argument.
         #[source]
         source: UnresolvedPromiseError,
+    },
+}
+
+/// Errors produced while preparing a sleep suspension.
+#[derive(Debug, thiserror::Error)]
+pub enum SleepError<DurationError> {
+    /// The requested sleep duration still held an unresolved promise.
+    #[error("unresolved promise duration: {source}")]
+    UnresolvedPromiseDuration {
+        /// The underlying unresolved promise error for the duration.
+        #[source]
+        source: UnresolvedPromiseError,
+    },
+
+    /// The resolved duration value could not be converted to a concrete delay.
+    #[error("invalid sleep duration: {source}")]
+    InvalidDuration {
+        /// The underlying value-conversion failure.
+        #[source]
+        source: DurationError,
     },
 }

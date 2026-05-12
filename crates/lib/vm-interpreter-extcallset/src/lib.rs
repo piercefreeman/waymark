@@ -3,12 +3,15 @@
 #![warn(missing_docs)]
 
 mod error;
+pub mod value;
 
 use derive_where::derive_where;
+use waymark_nonzero_duration::NonZeroDuration;
 use waymark_vm_interpreter::ExecutionOutcome;
-use waymark_vm_runtime_core::{Frame, Promise, PromiseStateId, RuntimeState};
+use waymark_vm_runtime_core::{Frame, Promise, PromiseStateId, RegisterId, RuntimeState};
 
 pub use self::error::*;
+pub use self::value::Value;
 
 /// An interpreter for the "extcall" instructions set.
 #[derive_where(Default)]
@@ -37,6 +40,28 @@ pub enum Effect<Value, ActionRef> {
         /// Args to pass to the action call.
         args: Vec<Value>,
     },
+
+    /// Sleep suspension is requested.
+    Sleep {
+        /// The ID of the promise to resolve when the sleep finishes.
+        promise_state_id: PromiseStateId,
+
+        /// Requested sleep duration.
+        duration: NonZeroDuration,
+    },
+}
+
+fn suspend_frame<FunctionId, StateId, Value>(
+    state: &mut RuntimeState<FunctionId, StateId, Value>,
+    mut frame: Frame<FunctionId, StateId, Promise<Value>>,
+    dst: RegisterId,
+    resume: StateId,
+) -> PromiseStateId {
+    let promise_state_id = state.promise_states.prepare();
+    frame.regs.set(dst, Promise::Pending(promise_state_id));
+    frame.state = resume;
+    state.ready.push_front(frame);
+    promise_state_id
 }
 
 impl<Spec, FunctionId, StateId, Value> waymark_vm_interpreter::Interpreter
@@ -49,18 +74,18 @@ where
     FunctionId: 'static,
     StateId: Copy + 'static,
     Spec::ActionRef: Clone,
-    Value: Clone + 'static,
+    Value: self::value::Value + Clone + 'static,
 {
     type RuntimeView<'r> = RuntimeView<'r, FunctionId, StateId, Value>;
     type Frame = Frame<FunctionId, StateId, Promise<Value>>;
     type Instruction = waymark_vm_instructions_extcallset::ExtCallSet<Spec>;
-    type Error = Error;
+    type Error = Error<Value>;
     type Effect = Effect<Value, Spec::ActionRef>;
 
     fn execute<'r>(
         &self,
         runtime_view: Self::RuntimeView<'r>,
-        mut frame: Frame<FunctionId, StateId, Promise<Value>>,
+        frame: Frame<FunctionId, StateId, Promise<Value>>,
         instruction: &Self::Instruction,
     ) -> Result<
         ExecutionOutcome<Frame<FunctionId, StateId, Promise<Value>>, Self::Effect>,
@@ -82,7 +107,7 @@ where
                         let value = frame.regs[*register].clone();
 
                         value.require_resolved().map_err(|source| {
-                            Error::ExtCall(ExtCallError::UnresolvedPromiseArgument {
+                            Error::ActionCall(ActionCallError::UnresolvedPromiseArgument {
                                 arg_pos,
                                 source,
                             })
@@ -90,17 +115,35 @@ where
                     })
                     .collect::<Result<_, _>>()?;
 
-                let promise_state_id = state.promise_states.prepare();
-                frame.regs.set(*dst, Promise::Pending(promise_state_id));
-
-                frame.state = *resume;
-
-                state.ready.push_front(frame);
+                let promise_state_id = suspend_frame(state, frame, *dst, *resume);
 
                 Ok(ExecutionOutcome::ExitFrameWithEffect(Effect::ActionCall {
                     promise_state_id,
                     action_ref: action_ref.clone(),
                     args,
+                }))
+            }
+            waymark_vm_instructions_extcallset::ExtCallSet::Sleep {
+                dst,
+                duration,
+                resume,
+            } => {
+                let value = frame.regs[*duration]
+                    .clone()
+                    .require_resolved()
+                    .map_err(|source| {
+                        Error::Sleep(SleepError::UnresolvedPromiseDuration { source })
+                    })?;
+
+                let duration = value
+                    .to_sleep_duration()
+                    .map_err(|source| Error::Sleep(SleepError::InvalidDuration { source }))?;
+
+                let promise_state_id = suspend_frame(state, frame, *dst, *resume);
+
+                Ok(ExecutionOutcome::ExitFrameWithEffect(Effect::Sleep {
+                    promise_state_id,
+                    duration,
                 }))
             }
         }
