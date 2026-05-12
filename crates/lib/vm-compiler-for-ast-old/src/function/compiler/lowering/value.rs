@@ -1,6 +1,8 @@
 //! Value lowering.
 
-use waymark_vm_ast_old::{ActionCall, Expr, FunctionCall, Literal, Spanned};
+use waymark_vm_ast_old::{
+    ActionCall, BinaryOperator, Expr, FunctionCall, Literal, Spanned, UnaryOperator,
+};
 use waymark_vm_runtime_core::RegisterId;
 
 use crate::Marked;
@@ -53,7 +55,12 @@ where
         match ExpressionPlan::build(expr)? {
             ExpressionPlan::Literal { value } => self.compile_literal(value, target),
             ExpressionPlan::Variable { name } => Ok(self.resolve_variable(name)?),
-            ExpressionPlan::Add { left, right } => self.compile_add_expr(left, right, target),
+            ExpressionPlan::BinaryOp { left, op, right } => {
+                self.compile_binary_expr(left, &op, right, target)
+            }
+            ExpressionPlan::UnaryOp { op, operand } => {
+                self.compile_unary_expr(&op, operand, target)
+            }
             ExpressionPlan::FunctionCall { call } => {
                 self.compile_call(self.plan_function_call(call)?, target)
             }
@@ -178,21 +185,36 @@ where
         Ok(dst)
     }
 
-    /// Compiles an addition expression and releases any temporary operands.
-    fn compile_add_expr(
+    /// Compiles a scalar binary expression and releases any temporary operands.
+    fn compile_binary_expr(
         &mut self,
         left: &Spanned<Expr>,
+        op: &BinaryOperator,
         right: &Spanned<Expr>,
         target: ResultTarget,
     ) -> Result<RegisterHandle, ErrorFor<Spec, Lowering>> {
         let left_register = self.compile_expr(left, ResultTarget::Allocate)?;
         let right_register = self.compile_expr(right, ResultTarget::Allocate)?;
         let dst = self.allocate_result_register(target);
-        self.context.emitter.emit_add(
+        self.emit_binary_instruction(
+            op,
             dst.register(),
             left_register.register(),
             right_register.register(),
         );
+        Ok(dst)
+    }
+
+    /// Compiles a scalar unary expression and releases its temporary operand.
+    fn compile_unary_expr(
+        &mut self,
+        op: &UnaryOperator,
+        operand: &Spanned<Expr>,
+        target: ResultTarget,
+    ) -> Result<RegisterHandle, ErrorFor<Spec, Lowering>> {
+        let operand_register = self.compile_expr(operand, ResultTarget::Allocate)?;
+        let dst = self.allocate_result_register(target);
+        self.emit_unary_instruction(op, dst.register(), operand_register.register());
         Ok(dst)
     }
 
@@ -263,6 +285,42 @@ where
         }
     }
 
+    /// Emits a scalar binary instruction for the selected operator.
+    fn emit_binary_instruction(
+        &mut self,
+        op: &BinaryOperator,
+        dst: RegisterId,
+        left: RegisterId,
+        right: RegisterId,
+    ) {
+        match op {
+            BinaryOperator::Add => self.context.emitter.emit_add(dst, left, right),
+            BinaryOperator::Sub => self.context.emitter.emit_sub(dst, left, right),
+            BinaryOperator::Mul => self.context.emitter.emit_mul(dst, left, right),
+            BinaryOperator::Div => self.context.emitter.emit_div(dst, left, right),
+            BinaryOperator::FloorDiv => self.context.emitter.emit_floor_div(dst, left, right),
+            BinaryOperator::Mod => self.context.emitter.emit_mod(dst, left, right),
+            BinaryOperator::Eq => self.context.emitter.emit_eq(dst, left, right),
+            BinaryOperator::Ne => self.context.emitter.emit_ne(dst, left, right),
+            BinaryOperator::Lt => self.context.emitter.emit_lt(dst, left, right),
+            BinaryOperator::Le => self.context.emitter.emit_le(dst, left, right),
+            BinaryOperator::Gt => self.context.emitter.emit_gt(dst, left, right),
+            BinaryOperator::Ge => self.context.emitter.emit_ge(dst, left, right),
+            BinaryOperator::In => self.context.emitter.emit_in(dst, left, right),
+            BinaryOperator::NotIn => self.context.emitter.emit_not_in(dst, left, right),
+            BinaryOperator::And => self.context.emitter.emit_and(dst, left, right),
+            BinaryOperator::Or => self.context.emitter.emit_or(dst, left, right),
+        }
+    }
+
+    /// Emits a scalar unary instruction for the selected operator.
+    fn emit_unary_instruction(&mut self, op: &UnaryOperator, dst: RegisterId, src: RegisterId) {
+        match op {
+            UnaryOperator::Neg => self.context.emitter.emit_neg(dst, src),
+            UnaryOperator::Not => self.context.emitter.emit_not(dst, src),
+        }
+    }
+
     /// Emits an await into `target_register` and advances to the resume state.
     pub fn compile_await(
         &mut self,
@@ -289,7 +347,8 @@ mod tests {
     use super::*;
 
     use index_type::IndexType;
-    use waymark_vm_ast_old_helpers::{action_call, add, function_call, int};
+    use waymark_vm_ast_old::BinaryOperator;
+    use waymark_vm_ast_old_helpers::{action_call, binary_expr, function_call, int};
     use waymark_vm_bytecode_core::{FunctionId, StateId};
     use waymark_vm_instructions_coreset::CoreSet;
     use waymark_vm_instructions_fullset::FullSet as InstructionSet;
@@ -530,7 +589,10 @@ mod tests {
             );
 
             values
-                .compile_expr(&add(int(1), int(2)), ResultTarget::Existing(preferred_dst))
+                .compile_expr(
+                    &binary_expr(int(1), BinaryOperator::Add, int(2)),
+                    ResultTarget::Existing(preferred_dst),
+                )
                 .expect("add expression with preferred dst should compile")
         };
 
@@ -890,7 +952,11 @@ mod tests {
             );
 
             values
-                .compile_expression_statement(&add(add(int(1), int(2)), int(3)))
+                .compile_expression_statement(&binary_expr(
+                    binary_expr(int(1), BinaryOperator::Add, int(2)),
+                    BinaryOperator::Add,
+                    int(3),
+                ))
                 .expect("nested add expression statement should compile");
         }
 

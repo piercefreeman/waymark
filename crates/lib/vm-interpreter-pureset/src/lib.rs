@@ -13,6 +13,8 @@ use waymark_vm_runtime_core::{Frame, Promise};
 pub use self::error::*;
 pub use self::value::Value;
 
+use self::value::{BinaryOperationKind, UnaryOperationKind};
+
 /// An interpreter for the "pure" instructions set.
 #[derive_where(Default)]
 pub struct PureSetInterpreter<Spec, FunctionId, StateId, Value> {
@@ -57,30 +59,70 @@ where
                 frame.regs.set(*dst, value.clone());
             }
             waymark_vm_instructions_pureset::PureSet::Add { dst, a, b } => {
-                let x = frame.regs.get(*a).ok_or(Error::MissingAddOperand {
-                    operand_pos: BinaryOperandPosition::First,
-                    register: *a,
-                })?;
-                let x = x
-                    .require_resolved_ref()
-                    .map_err(|source| Error::UnresolvedAddOperand {
-                        operand_pos: BinaryOperandPosition::First,
-                        source,
-                    })?;
-
-                let y = frame.regs.get(*b).ok_or(Error::MissingAddOperand {
-                    operand_pos: BinaryOperandPosition::Second,
-                    register: *b,
-                })?;
-                let y = y
-                    .require_resolved_ref()
-                    .map_err(|source| Error::UnresolvedAddOperand {
-                        operand_pos: BinaryOperandPosition::Second,
-                        source,
-                    })?;
-
-                let value = Value::add(x, y).map_err(Error::Add)?;
-                frame.regs.set(*dst, Promise::Resolved(value));
+                Self::execute_binary_operation(&mut frame, *dst, *a, *b, BinaryOperationKind::Add)?;
+            }
+            waymark_vm_instructions_pureset::PureSet::Sub { dst, a, b } => {
+                Self::execute_binary_operation(&mut frame, *dst, *a, *b, BinaryOperationKind::Sub)?;
+            }
+            waymark_vm_instructions_pureset::PureSet::Mul { dst, a, b } => {
+                Self::execute_binary_operation(&mut frame, *dst, *a, *b, BinaryOperationKind::Mul)?;
+            }
+            waymark_vm_instructions_pureset::PureSet::Div { dst, a, b } => {
+                Self::execute_binary_operation(&mut frame, *dst, *a, *b, BinaryOperationKind::Div)?;
+            }
+            waymark_vm_instructions_pureset::PureSet::FloorDiv { dst, a, b } => {
+                Self::execute_binary_operation(
+                    &mut frame,
+                    *dst,
+                    *a,
+                    *b,
+                    BinaryOperationKind::FloorDiv,
+                )?;
+            }
+            waymark_vm_instructions_pureset::PureSet::Mod { dst, a, b } => {
+                Self::execute_binary_operation(&mut frame, *dst, *a, *b, BinaryOperationKind::Mod)?;
+            }
+            waymark_vm_instructions_pureset::PureSet::Eq { dst, a, b } => {
+                Self::execute_binary_operation(&mut frame, *dst, *a, *b, BinaryOperationKind::Eq)?;
+            }
+            waymark_vm_instructions_pureset::PureSet::Ne { dst, a, b } => {
+                Self::execute_binary_operation(&mut frame, *dst, *a, *b, BinaryOperationKind::Ne)?;
+            }
+            waymark_vm_instructions_pureset::PureSet::Lt { dst, a, b } => {
+                Self::execute_binary_operation(&mut frame, *dst, *a, *b, BinaryOperationKind::Lt)?;
+            }
+            waymark_vm_instructions_pureset::PureSet::Le { dst, a, b } => {
+                Self::execute_binary_operation(&mut frame, *dst, *a, *b, BinaryOperationKind::Le)?;
+            }
+            waymark_vm_instructions_pureset::PureSet::Gt { dst, a, b } => {
+                Self::execute_binary_operation(&mut frame, *dst, *a, *b, BinaryOperationKind::Gt)?;
+            }
+            waymark_vm_instructions_pureset::PureSet::Ge { dst, a, b } => {
+                Self::execute_binary_operation(&mut frame, *dst, *a, *b, BinaryOperationKind::Ge)?;
+            }
+            waymark_vm_instructions_pureset::PureSet::In { dst, a, b } => {
+                Self::execute_binary_operation(&mut frame, *dst, *a, *b, BinaryOperationKind::In)?;
+            }
+            waymark_vm_instructions_pureset::PureSet::NotIn { dst, a, b } => {
+                Self::execute_binary_operation(
+                    &mut frame,
+                    *dst,
+                    *a,
+                    *b,
+                    BinaryOperationKind::NotIn,
+                )?;
+            }
+            waymark_vm_instructions_pureset::PureSet::And { dst, a, b } => {
+                Self::execute_binary_operation(&mut frame, *dst, *a, *b, BinaryOperationKind::And)?;
+            }
+            waymark_vm_instructions_pureset::PureSet::Or { dst, a, b } => {
+                Self::execute_binary_operation(&mut frame, *dst, *a, *b, BinaryOperationKind::Or)?;
+            }
+            waymark_vm_instructions_pureset::PureSet::Neg { dst, src } => {
+                Self::execute_unary_operation(&mut frame, *dst, *src, UnaryOperationKind::Neg)?;
+            }
+            waymark_vm_instructions_pureset::PureSet::Not { dst, src } => {
+                Self::execute_unary_operation(&mut frame, *dst, *src, UnaryOperationKind::Not)?;
             }
             waymark_vm_instructions_pureset::PureSet::MakeList { dst, items } => {
                 let make_list_result = with_register_values(
@@ -105,6 +147,92 @@ where
         }
 
         Ok(ExecutionOutcome::Continue(frame))
+    }
+}
+
+impl<Spec, FunctionId, StateId, Value> PureSetInterpreter<Spec, FunctionId, StateId, Value>
+where
+    Value: value::Value,
+{
+    fn execute_binary_operation(
+        frame: &mut Frame<FunctionId, StateId, Promise<Value>>,
+        dst: waymark_vm_runtime_core::RegisterId,
+        a: waymark_vm_runtime_core::RegisterId,
+        b: waymark_vm_runtime_core::RegisterId,
+        operation: BinaryOperationKind,
+    ) -> Result<(), Error> {
+        let x = frame.regs.get(a).ok_or(Error::MissingBinaryOperand {
+            operation,
+            operand_pos: BinaryOperandPosition::First,
+            register: a,
+        })?;
+        let x = x
+            .require_resolved_ref()
+            .map_err(|source| Error::UnresolvedBinaryOperand {
+                operation,
+                operand_pos: BinaryOperandPosition::First,
+                source,
+            })?;
+
+        let y = frame.regs.get(b).ok_or(Error::MissingBinaryOperand {
+            operation,
+            operand_pos: BinaryOperandPosition::Second,
+            register: b,
+        })?;
+        let y = y
+            .require_resolved_ref()
+            .map_err(|source| Error::UnresolvedBinaryOperand {
+                operation,
+                operand_pos: BinaryOperandPosition::Second,
+                source,
+            })?;
+
+        let value = match operation {
+            BinaryOperationKind::Add => Value::add(x, y),
+            BinaryOperationKind::Sub => Value::sub(x, y),
+            BinaryOperationKind::Mul => Value::mul(x, y),
+            BinaryOperationKind::Div => Value::div(x, y),
+            BinaryOperationKind::FloorDiv => Value::floor_div(x, y),
+            BinaryOperationKind::Mod => Value::modulo(x, y),
+            BinaryOperationKind::Eq => Value::eq(x, y),
+            BinaryOperationKind::Ne => Value::ne(x, y),
+            BinaryOperationKind::Lt => Value::lt(x, y),
+            BinaryOperationKind::Le => Value::le(x, y),
+            BinaryOperationKind::Gt => Value::gt(x, y),
+            BinaryOperationKind::Ge => Value::ge(x, y),
+            BinaryOperationKind::In => Value::contains(x, y),
+            BinaryOperationKind::NotIn => Value::not_contains(x, y),
+            BinaryOperationKind::And => Value::and(x, y),
+            BinaryOperationKind::Or => Value::or(x, y),
+        }
+        .map_err(|source| Error::BinaryOperation { operation, source })?;
+
+        frame.regs.set(dst, Promise::Resolved(value));
+        Ok(())
+    }
+
+    fn execute_unary_operation(
+        frame: &mut Frame<FunctionId, StateId, Promise<Value>>,
+        dst: waymark_vm_runtime_core::RegisterId,
+        src: waymark_vm_runtime_core::RegisterId,
+        operation: UnaryOperationKind,
+    ) -> Result<(), Error> {
+        let value = frame.regs.get(src).ok_or(Error::MissingUnaryOperand {
+            operation,
+            register: src,
+        })?;
+        let value = value
+            .require_resolved_ref()
+            .map_err(|source| Error::UnresolvedUnaryOperand { operation, source })?;
+
+        let value = match operation {
+            UnaryOperationKind::Neg => Value::neg(value),
+            UnaryOperationKind::Not => Value::not(value),
+        }
+        .map_err(|source| Error::UnaryOperation { operation, source })?;
+
+        frame.regs.set(dst, Promise::Resolved(value));
+        Ok(())
     }
 }
 

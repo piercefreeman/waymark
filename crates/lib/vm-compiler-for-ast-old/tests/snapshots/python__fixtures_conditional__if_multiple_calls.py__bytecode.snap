@@ -2,12 +2,160 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_conditional/if_multiple_calls.py
 ---
-Err(
-    FunctionCompiler(
-        Unsupported(
-            BinaryOperator {
-                op: Gt,
+Ok(
+    Executable {
+        functions: [
+            Function {
+                states: [
+                    State {
+                        instructions: [
+                            PureSet(
+                                LoadConst {
+                                    dst: RegisterId(
+                                        1,
+                                    ),
+                                    value: Int(
+                                        0,
+                                    ),
+                                },
+                            ),
+                            PureSet(
+                                Gt {
+                                    dst: RegisterId(
+                                        2,
+                                    ),
+                                    a: RegisterId(
+                                        0,
+                                    ),
+                                    b: RegisterId(
+                                        1,
+                                    ),
+                                },
+                            ),
+                            CoreSet(
+                                JumpIf {
+                                    target_state: StateId(
+                                        2,
+                                    ),
+                                    cond: RegisterId(
+                                        2,
+                                    ),
+                                },
+                            ),
+                            PureSet(
+                                LoadConst {
+                                    dst: RegisterId(
+                                        2,
+                                    ),
+                                    value: Int(
+                                        0,
+                                    ),
+                                },
+                            ),
+                            CoreSet(
+                                Return {
+                                    src: RegisterId(
+                                        2,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                ExtCall {
+                                    dst: RegisterId(
+                                        3,
+                                    ),
+                                    extcall_id: TestExtCallId(
+                                        "if_step_one",
+                                    ),
+                                    args: [
+                                        RegisterId(
+                                            0,
+                                        ),
+                                    ],
+                                    resume: StateId(
+                                        3,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                Await {
+                                    dst: RegisterId(
+                                        3,
+                                    ),
+                                    src: RegisterId(
+                                        3,
+                                    ),
+                                    resume: StateId(
+                                        4,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                ExtCall {
+                                    dst: RegisterId(
+                                        4,
+                                    ),
+                                    extcall_id: TestExtCallId(
+                                        "if_step_two",
+                                    ),
+                                    args: [
+                                        RegisterId(
+                                            3,
+                                        ),
+                                    ],
+                                    resume: StateId(
+                                        5,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                Await {
+                                    dst: RegisterId(
+                                        4,
+                                    ),
+                                    src: RegisterId(
+                                        4,
+                                    ),
+                                    resume: StateId(
+                                        6,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                Return {
+                                    src: RegisterId(
+                                        4,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                ],
+                num_regs: 5,
             },
-        ),
-    ),
+        ],
+    },
 )

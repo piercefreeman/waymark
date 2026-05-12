@@ -29,13 +29,6 @@ pub enum Unsupported {
     #[error("parallel expressions are only supported on the right-hand side of assignments")]
     ParallelExprOutsideAssignment,
 
-    /// A binary operator is not compiled yet.
-    #[error("binary operator `{op:?}` is not supported by the compiler yet")]
-    BinaryOperator {
-        /// The unsupported operator.
-        op: waymark_vm_ast_old::BinaryOperator,
-    },
-
     /// A function call shape cannot be represented by the current VM.
     #[error("function call `{name}` is not supported: {reason}")]
     FunctionCall {

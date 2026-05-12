@@ -2,12 +2,130 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_control_flow/while_simple.py
 ---
-Err(
-    FunctionCompiler(
-        Unsupported(
-            BinaryOperator {
-                op: Lt,
+Ok(
+    Executable {
+        functions: [
+            Function {
+                states: [
+                    State {
+                        instructions: [
+                            PureSet(
+                                LoadConst {
+                                    dst: RegisterId(
+                                        1,
+                                    ),
+                                    value: Int(
+                                        0,
+                                    ),
+                                },
+                            ),
+                            CoreSet(
+                                Jump {
+                                    target_state: StateId(
+                                        1,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            PureSet(
+                                Lt {
+                                    dst: RegisterId(
+                                        2,
+                                    ),
+                                    a: RegisterId(
+                                        1,
+                                    ),
+                                    b: RegisterId(
+                                        0,
+                                    ),
+                                },
+                            ),
+                            CoreSet(
+                                JumpIf {
+                                    target_state: StateId(
+                                        2,
+                                    ),
+                                    cond: RegisterId(
+                                        2,
+                                    ),
+                                },
+                            ),
+                            CoreSet(
+                                Jump {
+                                    target_state: StateId(
+                                        3,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                ExtCall {
+                                    dst: RegisterId(
+                                        1,
+                                    ),
+                                    extcall_id: TestExtCallId(
+                                        "increment",
+                                    ),
+                                    args: [
+                                        RegisterId(
+                                            1,
+                                        ),
+                                    ],
+                                    resume: StateId(
+                                        4,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                Return {
+                                    src: RegisterId(
+                                        1,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                Await {
+                                    dst: RegisterId(
+                                        1,
+                                    ),
+                                    src: RegisterId(
+                                        1,
+                                    ),
+                                    resume: StateId(
+                                        5,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                Jump {
+                                    target_state: StateId(
+                                        1,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                ],
+                num_regs: 3,
             },
-        ),
-    ),
+        ],
+    },
 )

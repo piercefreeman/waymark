@@ -1,21 +1,26 @@
 mod support;
 
 use support::{TestValue, compile_program, runtime, runtime_with_args};
-use waymark_vm_ast_old::Call;
+use waymark_vm_ast_old::{BinaryOperator, Call, Expr, Spanned, UnaryOperator};
 use waymark_vm_ast_old_helpers::{
-    action_call, action_expr, add, assignment, assignment_targets, break_stmt, conditional_stmt,
-    continue_stmt, function, function_call, function_expr, int, parallel_expr, parallel_stmt,
-    program, return_stmt, variable, while_stmt,
+    action_call, action_expr, assignment, assignment_targets, binary_expr, break_stmt,
+    conditional_stmt, continue_stmt, function, function_call, function_expr, int, parallel_expr,
+    parallel_stmt, program, return_stmt, unary_expr, variable, while_stmt,
 };
 use waymark_vm_bytecode_core::{FunctionId, InstructionId, StateId};
 use waymark_vm_compiler_for_ast_old_test_support::TestExtCallId;
 use waymark_vm_interpreter_fullset::Effect;
 
 fn completed_int(effect: Effect<TestValue, TestExtCallId>) -> i64 {
+    match completed_value(effect) {
+        TestValue::Int(value) => value,
+        other => panic!("unexpected runtime effect: {other:?}"),
+    }
+}
+
+fn completed_value(effect: Effect<TestValue, TestExtCallId>) -> TestValue {
     match effect {
-        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(TestValue::Int(
-            value,
-        ))) => value,
+        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(value)) => value,
         other => panic!("unexpected runtime effect: {other:?}"),
     }
 }
@@ -28,7 +33,11 @@ fn compiles_assignments_and_addition_to_completion() {
         vec![
             assignment("x", int(2)),
             assignment("y", int(3)),
-            return_stmt(Some(add(variable("x"), variable("y")))),
+            return_stmt(Some(binary_expr(
+                variable("x"),
+                BinaryOperator::Add,
+                variable("y"),
+            ))),
         ],
     )]);
 
@@ -46,6 +55,240 @@ fn compiles_assignments_and_addition_to_completion() {
 }
 
 #[test]
+fn compiles_scalar_binary_operations_to_completion() {
+    struct BinaryCase {
+        name: &'static str,
+        inputs: Vec<&'static str>,
+        expr: Spanned<Expr>,
+        args: Vec<TestValue>,
+        expected: TestValue,
+    }
+
+    let cases = vec![
+        BinaryCase {
+            name: "add",
+            inputs: Vec::new(),
+            expr: binary_expr(int(2), BinaryOperator::Add, int(3)),
+            args: Vec::new(),
+            expected: TestValue::Int(5),
+        },
+        BinaryCase {
+            name: "sub",
+            inputs: Vec::new(),
+            expr: binary_expr(int(9), BinaryOperator::Sub, int(4)),
+            args: Vec::new(),
+            expected: TestValue::Int(5),
+        },
+        BinaryCase {
+            name: "mul",
+            inputs: Vec::new(),
+            expr: binary_expr(int(6), BinaryOperator::Mul, int(7)),
+            args: Vec::new(),
+            expected: TestValue::Int(42),
+        },
+        BinaryCase {
+            name: "div",
+            inputs: Vec::new(),
+            expr: binary_expr(int(8), BinaryOperator::Div, int(2)),
+            args: Vec::new(),
+            expected: TestValue::Int(4),
+        },
+        BinaryCase {
+            name: "floor div",
+            inputs: Vec::new(),
+            expr: binary_expr(int(7), BinaryOperator::FloorDiv, int(2)),
+            args: Vec::new(),
+            expected: TestValue::Int(3),
+        },
+        BinaryCase {
+            name: "mod",
+            inputs: Vec::new(),
+            expr: binary_expr(int(7), BinaryOperator::Mod, int(3)),
+            args: Vec::new(),
+            expected: TestValue::Int(1),
+        },
+        BinaryCase {
+            name: "eq",
+            inputs: Vec::new(),
+            expr: binary_expr(int(4), BinaryOperator::Eq, int(4)),
+            args: Vec::new(),
+            expected: TestValue::Bool(true),
+        },
+        BinaryCase {
+            name: "ne",
+            inputs: Vec::new(),
+            expr: binary_expr(int(4), BinaryOperator::Ne, int(5)),
+            args: Vec::new(),
+            expected: TestValue::Bool(true),
+        },
+        BinaryCase {
+            name: "lt",
+            inputs: Vec::new(),
+            expr: binary_expr(int(1), BinaryOperator::Lt, int(2)),
+            args: Vec::new(),
+            expected: TestValue::Bool(true),
+        },
+        BinaryCase {
+            name: "le",
+            inputs: Vec::new(),
+            expr: binary_expr(int(2), BinaryOperator::Le, int(2)),
+            args: Vec::new(),
+            expected: TestValue::Bool(true),
+        },
+        BinaryCase {
+            name: "gt",
+            inputs: Vec::new(),
+            expr: binary_expr(int(3), BinaryOperator::Gt, int(2)),
+            args: Vec::new(),
+            expected: TestValue::Bool(true),
+        },
+        BinaryCase {
+            name: "ge",
+            inputs: Vec::new(),
+            expr: binary_expr(int(3), BinaryOperator::Ge, int(3)),
+            args: Vec::new(),
+            expected: TestValue::Bool(true),
+        },
+        BinaryCase {
+            name: "in",
+            inputs: vec!["needle", "haystack"],
+            expr: binary_expr(variable("needle"), BinaryOperator::In, variable("haystack")),
+            args: vec![
+                TestValue::Int(2),
+                TestValue::List(vec![TestValue::Int(1), TestValue::Int(2)]),
+            ],
+            expected: TestValue::Bool(true),
+        },
+        BinaryCase {
+            name: "not in",
+            inputs: vec!["needle", "haystack"],
+            expr: binary_expr(
+                variable("needle"),
+                BinaryOperator::NotIn,
+                variable("haystack"),
+            ),
+            args: vec![
+                TestValue::Int(4),
+                TestValue::List(vec![TestValue::Int(1), TestValue::Int(2)]),
+            ],
+            expected: TestValue::Bool(true),
+        },
+        BinaryCase {
+            name: "and falsey lhs",
+            inputs: vec!["lhs", "rhs"],
+            expr: binary_expr(variable("lhs"), BinaryOperator::And, variable("rhs")),
+            args: vec![TestValue::Int(0), TestValue::Int(5)],
+            expected: TestValue::Int(0),
+        },
+        BinaryCase {
+            name: "and truthy lhs",
+            inputs: vec!["lhs", "rhs"],
+            expr: binary_expr(variable("lhs"), BinaryOperator::And, variable("rhs")),
+            args: vec![TestValue::Int(2), TestValue::Int(5)],
+            expected: TestValue::Int(5),
+        },
+        BinaryCase {
+            name: "or falsey lhs",
+            inputs: vec!["lhs", "rhs"],
+            expr: binary_expr(variable("lhs"), BinaryOperator::Or, variable("rhs")),
+            args: vec![TestValue::Int(0), TestValue::Int(5)],
+            expected: TestValue::Int(5),
+        },
+        BinaryCase {
+            name: "or truthy lhs",
+            inputs: vec!["lhs", "rhs"],
+            expr: binary_expr(variable("lhs"), BinaryOperator::Or, variable("rhs")),
+            args: vec![TestValue::Int(2), TestValue::Int(5)],
+            expected: TestValue::Int(2),
+        },
+    ];
+
+    for case in cases {
+        let program = program(vec![function(
+            "main",
+            case.inputs.as_slice(),
+            vec![return_stmt(Some(case.expr.clone()))],
+        )]);
+        let executable = compile_program(&program);
+
+        let effect = if case.args.is_empty() {
+            runtime(executable)
+                .run()
+                .unwrap_or_else(|error| panic!("{} should complete: {error:?}", case.name))
+        } else {
+            runtime_with_args(executable, case.args.clone())
+                .run()
+                .unwrap_or_else(|error| panic!("{} should complete: {error:?}", case.name))
+        };
+
+        assert_eq!(completed_value(effect), case.expected, "{}", case.name);
+    }
+}
+
+#[test]
+fn compiles_scalar_unary_operations_to_completion() {
+    struct UnaryCase {
+        name: &'static str,
+        inputs: Vec<&'static str>,
+        expr: Spanned<Expr>,
+        args: Vec<TestValue>,
+        expected: TestValue,
+    }
+
+    let cases = vec![
+        UnaryCase {
+            name: "neg",
+            inputs: Vec::new(),
+            expr: unary_expr(UnaryOperator::Neg, int(5)),
+            args: Vec::new(),
+            expected: TestValue::Int(-5),
+        },
+        UnaryCase {
+            name: "not falsey int",
+            inputs: vec!["value"],
+            expr: unary_expr(UnaryOperator::Not, variable("value")),
+            args: vec![TestValue::Int(0)],
+            expected: TestValue::Bool(true),
+        },
+        UnaryCase {
+            name: "not truthy int",
+            inputs: vec!["value"],
+            expr: unary_expr(UnaryOperator::Not, variable("value")),
+            args: vec![TestValue::Int(7)],
+            expected: TestValue::Bool(false),
+        },
+        UnaryCase {
+            name: "not empty list",
+            inputs: vec!["value"],
+            expr: unary_expr(UnaryOperator::Not, variable("value")),
+            args: vec![TestValue::List(Vec::new())],
+            expected: TestValue::Bool(true),
+        },
+    ];
+
+    for case in cases {
+        let program = program(vec![function(
+            "main",
+            case.inputs.as_slice(),
+            vec![return_stmt(Some(case.expr.clone()))],
+        )]);
+        let executable = compile_program(&program);
+
+        let effect = if case.args.is_empty() {
+            runtime(executable)
+                .run()
+                .unwrap_or_else(|error| panic!("{} should complete: {error:?}", case.name))
+        } else {
+            runtime_with_args(executable, case.args.clone())
+                .run()
+                .unwrap_or_else(|error| panic!("{} should complete: {error:?}", case.name))
+        };
+
+        assert_eq!(completed_value(effect), case.expected, "{}", case.name);
+    }
+}
+
+#[test]
 fn compiles_user_function_calls() {
     let program = program(vec![
         function(
@@ -56,7 +299,11 @@ fn compiles_user_function_calls() {
         function(
             "increment",
             &["value"],
-            vec![return_stmt(Some(add(variable("value"), int(1))))],
+            vec![return_stmt(Some(binary_expr(
+                variable("value"),
+                BinaryOperator::Add,
+                int(1),
+            )))],
         ),
     ]);
 
@@ -364,13 +611,21 @@ fn compiles_parallel_expressions_into_positional_assignments() {
                         Call::Action(action_call("fetch", vec![("value", int(4))])),
                     ]),
                 ),
-                return_stmt(Some(add(variable("left"), variable("right")))),
+                return_stmt(Some(binary_expr(
+                    variable("left"),
+                    BinaryOperator::Add,
+                    variable("right"),
+                ))),
             ],
         ),
         function(
             "child",
             &["value"],
-            vec![return_stmt(Some(add(variable("value"), int(1))))],
+            vec![return_stmt(Some(binary_expr(
+                variable("value"),
+                BinaryOperator::Add,
+                int(1),
+            )))],
         ),
     ]);
 
@@ -421,16 +676,21 @@ fn compiles_mixed_parallel_expressions_with_leading_action_before_awaiting() {
                         Call::Action(action_call("fetch_second", vec![("value", int(3))])),
                     ]),
                 ),
-                return_stmt(Some(add(
+                return_stmt(Some(binary_expr(
                     variable("first"),
-                    add(variable("second"), variable("third")),
+                    BinaryOperator::Add,
+                    binary_expr(variable("second"), BinaryOperator::Add, variable("third")),
                 ))),
             ],
         ),
         function(
             "child",
             &["value"],
-            vec![return_stmt(Some(add(variable("value"), int(1))))],
+            vec![return_stmt(Some(binary_expr(
+                variable("value"),
+                BinaryOperator::Add,
+                int(1),
+            )))],
         ),
     ]);
 
@@ -508,7 +768,11 @@ fn compiles_parallel_expressions_into_aggregate_lists() {
         function(
             "child",
             &["value"],
-            vec![return_stmt(Some(add(variable("value"), int(1))))],
+            vec![return_stmt(Some(binary_expr(
+                variable("value"),
+                BinaryOperator::Add,
+                int(1),
+            )))],
         ),
     ]);
 
@@ -557,7 +821,11 @@ fn compiles_parallel_expression_results_by_call_position() {
                     Call::Action(action_call("fetch_second", vec![("value", int(2))])),
                 ]),
             ),
-            return_stmt(Some(add(variable("first"), variable("second")))),
+            return_stmt(Some(binary_expr(
+                variable("first"),
+                BinaryOperator::Add,
+                variable("second"),
+            ))),
         ],
     )]);
 
@@ -772,7 +1040,10 @@ fn compiles_nested_conditionals_inside_while_loops() {
                     variable("count"),
                     vec![break_stmt()],
                     Vec::new(),
-                    Some(vec![assignment("count", add(variable("count"), int(1)))]),
+                    Some(vec![assignment(
+                        "count",
+                        binary_expr(variable("count"), BinaryOperator::Add, int(1)),
+                    )]),
                 )],
             ),
             return_stmt(Some(variable("count"))),

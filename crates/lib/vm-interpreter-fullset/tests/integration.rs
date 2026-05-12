@@ -34,26 +34,60 @@ struct TestExtCallId(usize);
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum TestValue {
     Int(i64),
+    Bool(bool),
     List(Vec<TestValue>),
+}
+
+fn is_truthy(value: &TestValue) -> bool {
+    match value {
+        TestValue::Int(value) => *value != 0,
+        TestValue::Bool(value) => *value,
+        TestValue::List(items) => !items.is_empty(),
+    }
 }
 
 impl waymark_vm_interpreter_coreset::value::ShouldJump for TestValue {
     fn should_jump(
         &self,
     ) -> Result<bool, waymark_vm_interpreter_coreset::value::NotAConditionalError> {
-        match self {
-            Self::Int(value) => Ok(*value != 0),
-            Self::List(_) => Err(waymark_vm_interpreter_coreset::value::NotAConditionalError),
+        Ok(is_truthy(self))
+    }
+}
+
+impl waymark_vm_interpreter_pureset::value::BinaryOps for TestValue {
+    fn add(
+        a: &Self,
+        b: &Self,
+    ) -> Result<Self, waymark_vm_interpreter_pureset::value::BinaryOperationError> {
+        match (a, b) {
+            (Self::Int(a), Self::Int(b)) => Ok(Self::Int(*a + *b)),
+            _ => Err(
+                waymark_vm_interpreter_pureset::value::BinaryOperationError::UnsupportedOperation {
+                    operation: waymark_vm_interpreter_pureset::value::BinaryOperationKind::Add,
+                },
+            ),
         }
     }
 }
 
-impl waymark_vm_interpreter_pureset::value::Add for TestValue {
-    fn add(a: &Self, b: &Self) -> Result<Self, waymark_vm_interpreter_pureset::value::AddError> {
-        match (a, b) {
-            (Self::Int(a), Self::Int(b)) => Ok(Self::Int(a + b)),
-            _ => Err(waymark_vm_interpreter_pureset::value::AddError::NotAddable),
+impl waymark_vm_interpreter_pureset::value::UnaryOps for TestValue {
+    fn neg(
+        value: &Self,
+    ) -> Result<Self, waymark_vm_interpreter_pureset::value::UnaryOperationError> {
+        match value {
+            Self::Int(value) => Ok(Self::Int(-*value)),
+            _ => Err(
+                waymark_vm_interpreter_pureset::value::UnaryOperationError::UnsupportedOperation {
+                    operation: waymark_vm_interpreter_pureset::value::UnaryOperationKind::Neg,
+                },
+            ),
         }
+    }
+
+    fn not(
+        value: &Self,
+    ) -> Result<Self, waymark_vm_interpreter_pureset::value::UnaryOperationError> {
+        Ok(Self::Bool(!is_truthy(value)))
     }
 }
 

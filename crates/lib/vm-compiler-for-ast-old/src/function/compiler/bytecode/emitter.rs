@@ -69,6 +69,91 @@ where
         self.emit(waymark_vm_instructions_pureset::PureSet::Add { dst, a, b }.into());
     }
 
+    /// Emits a subtraction instruction.
+    pub fn emit_sub(&mut self, dst: RegisterId, a: RegisterId, b: RegisterId) {
+        self.emit(waymark_vm_instructions_pureset::PureSet::Sub { dst, a, b }.into());
+    }
+
+    /// Emits a multiplication instruction.
+    pub fn emit_mul(&mut self, dst: RegisterId, a: RegisterId, b: RegisterId) {
+        self.emit(waymark_vm_instructions_pureset::PureSet::Mul { dst, a, b }.into());
+    }
+
+    /// Emits a division instruction.
+    pub fn emit_div(&mut self, dst: RegisterId, a: RegisterId, b: RegisterId) {
+        self.emit(waymark_vm_instructions_pureset::PureSet::Div { dst, a, b }.into());
+    }
+
+    /// Emits a floor-division instruction.
+    pub fn emit_floor_div(&mut self, dst: RegisterId, a: RegisterId, b: RegisterId) {
+        self.emit(waymark_vm_instructions_pureset::PureSet::FloorDiv { dst, a, b }.into());
+    }
+
+    /// Emits a modulo instruction.
+    pub fn emit_mod(&mut self, dst: RegisterId, a: RegisterId, b: RegisterId) {
+        self.emit(waymark_vm_instructions_pureset::PureSet::Mod { dst, a, b }.into());
+    }
+
+    /// Emits an equality comparison instruction.
+    pub fn emit_eq(&mut self, dst: RegisterId, a: RegisterId, b: RegisterId) {
+        self.emit(waymark_vm_instructions_pureset::PureSet::Eq { dst, a, b }.into());
+    }
+
+    /// Emits an inequality comparison instruction.
+    pub fn emit_ne(&mut self, dst: RegisterId, a: RegisterId, b: RegisterId) {
+        self.emit(waymark_vm_instructions_pureset::PureSet::Ne { dst, a, b }.into());
+    }
+
+    /// Emits a less-than comparison instruction.
+    pub fn emit_lt(&mut self, dst: RegisterId, a: RegisterId, b: RegisterId) {
+        self.emit(waymark_vm_instructions_pureset::PureSet::Lt { dst, a, b }.into());
+    }
+
+    /// Emits a less-than-or-equal comparison instruction.
+    pub fn emit_le(&mut self, dst: RegisterId, a: RegisterId, b: RegisterId) {
+        self.emit(waymark_vm_instructions_pureset::PureSet::Le { dst, a, b }.into());
+    }
+
+    /// Emits a greater-than comparison instruction.
+    pub fn emit_gt(&mut self, dst: RegisterId, a: RegisterId, b: RegisterId) {
+        self.emit(waymark_vm_instructions_pureset::PureSet::Gt { dst, a, b }.into());
+    }
+
+    /// Emits a greater-than-or-equal comparison instruction.
+    pub fn emit_ge(&mut self, dst: RegisterId, a: RegisterId, b: RegisterId) {
+        self.emit(waymark_vm_instructions_pureset::PureSet::Ge { dst, a, b }.into());
+    }
+
+    /// Emits a membership instruction.
+    pub fn emit_in(&mut self, dst: RegisterId, a: RegisterId, b: RegisterId) {
+        self.emit(waymark_vm_instructions_pureset::PureSet::In { dst, a, b }.into());
+    }
+
+    /// Emits a negated-membership instruction.
+    pub fn emit_not_in(&mut self, dst: RegisterId, a: RegisterId, b: RegisterId) {
+        self.emit(waymark_vm_instructions_pureset::PureSet::NotIn { dst, a, b }.into());
+    }
+
+    /// Emits a logical-and instruction.
+    pub fn emit_and(&mut self, dst: RegisterId, a: RegisterId, b: RegisterId) {
+        self.emit(waymark_vm_instructions_pureset::PureSet::And { dst, a, b }.into());
+    }
+
+    /// Emits a logical-or instruction.
+    pub fn emit_or(&mut self, dst: RegisterId, a: RegisterId, b: RegisterId) {
+        self.emit(waymark_vm_instructions_pureset::PureSet::Or { dst, a, b }.into());
+    }
+
+    /// Emits a unary negation instruction.
+    pub fn emit_neg(&mut self, dst: RegisterId, src: RegisterId) {
+        self.emit(waymark_vm_instructions_pureset::PureSet::Neg { dst, src }.into());
+    }
+
+    /// Emits a logical-not instruction.
+    pub fn emit_not(&mut self, dst: RegisterId, src: RegisterId) {
+        self.emit(waymark_vm_instructions_pureset::PureSet::Not { dst, src }.into());
+    }
+
     /// Emits a list-construction instruction.
     pub fn emit_make_list(&mut self, dst: RegisterId, items: Vec<RegisterId>) {
         self.emit(waymark_vm_instructions_pureset::PureSet::MakeList { dst, items }.into());

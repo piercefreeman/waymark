@@ -8,7 +8,7 @@
 //!
 //! The current compiler intentionally implements only the subset that can be
 //! represented by the existing VM instruction set: literals, variables,
-//! addition, simple assignments, conditionals, while loops,
+//! scalar binary and unary operations, simple assignments, conditionals, while loops,
 //! `break`/`continue`, returns, user function calls, and action calls.
 //!
 //! Unsupported statements and expressions are rejected with [`CompileError`]

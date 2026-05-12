@@ -2,12 +2,308 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_control_flow/if_elif_else.py
 ---
-Err(
-    FunctionCompiler(
-        Unsupported(
-            BinaryOperator {
-                op: Eq,
+Ok(
+    Executable {
+        functions: [
+            Function {
+                states: [
+                    State {
+                        instructions: [
+                            PureSet(
+                                LoadConst {
+                                    dst: RegisterId(
+                                        1,
+                                    ),
+                                    value: Int(
+                                        1,
+                                    ),
+                                },
+                            ),
+                            PureSet(
+                                Eq {
+                                    dst: RegisterId(
+                                        2,
+                                    ),
+                                    a: RegisterId(
+                                        0,
+                                    ),
+                                    b: RegisterId(
+                                        1,
+                                    ),
+                                },
+                            ),
+                            CoreSet(
+                                JumpIf {
+                                    target_state: StateId(
+                                        2,
+                                    ),
+                                    cond: RegisterId(
+                                        2,
+                                    ),
+                                },
+                            ),
+                            PureSet(
+                                LoadConst {
+                                    dst: RegisterId(
+                                        2,
+                                    ),
+                                    value: Int(
+                                        2,
+                                    ),
+                                },
+                            ),
+                            PureSet(
+                                Eq {
+                                    dst: RegisterId(
+                                        1,
+                                    ),
+                                    a: RegisterId(
+                                        0,
+                                    ),
+                                    b: RegisterId(
+                                        2,
+                                    ),
+                                },
+                            ),
+                            CoreSet(
+                                JumpIf {
+                                    target_state: StateId(
+                                        3,
+                                    ),
+                                    cond: RegisterId(
+                                        1,
+                                    ),
+                                },
+                            ),
+                            PureSet(
+                                LoadConst {
+                                    dst: RegisterId(
+                                        1,
+                                    ),
+                                    value: Int(
+                                        3,
+                                    ),
+                                },
+                            ),
+                            PureSet(
+                                Eq {
+                                    dst: RegisterId(
+                                        2,
+                                    ),
+                                    a: RegisterId(
+                                        0,
+                                    ),
+                                    b: RegisterId(
+                                        1,
+                                    ),
+                                },
+                            ),
+                            CoreSet(
+                                JumpIf {
+                                    target_state: StateId(
+                                        4,
+                                    ),
+                                    cond: RegisterId(
+                                        2,
+                                    ),
+                                },
+                            ),
+                            CoreSet(
+                                ExtCall {
+                                    dst: RegisterId(
+                                        3,
+                                    ),
+                                    extcall_id: TestExtCallId(
+                                        "handle_default",
+                                    ),
+                                    args: [],
+                                    resume: StateId(
+                                        5,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                Return {
+                                    src: RegisterId(
+                                        3,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                ExtCall {
+                                    dst: RegisterId(
+                                        3,
+                                    ),
+                                    extcall_id: TestExtCallId(
+                                        "handle_case_a",
+                                    ),
+                                    args: [],
+                                    resume: StateId(
+                                        7,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                ExtCall {
+                                    dst: RegisterId(
+                                        3,
+                                    ),
+                                    extcall_id: TestExtCallId(
+                                        "handle_case_b",
+                                    ),
+                                    args: [],
+                                    resume: StateId(
+                                        9,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                ExtCall {
+                                    dst: RegisterId(
+                                        3,
+                                    ),
+                                    extcall_id: TestExtCallId(
+                                        "handle_case_c",
+                                    ),
+                                    args: [],
+                                    resume: StateId(
+                                        11,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                Await {
+                                    dst: RegisterId(
+                                        3,
+                                    ),
+                                    src: RegisterId(
+                                        3,
+                                    ),
+                                    resume: StateId(
+                                        6,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                Jump {
+                                    target_state: StateId(
+                                        1,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                Await {
+                                    dst: RegisterId(
+                                        3,
+                                    ),
+                                    src: RegisterId(
+                                        3,
+                                    ),
+                                    resume: StateId(
+                                        8,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                Jump {
+                                    target_state: StateId(
+                                        1,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                Await {
+                                    dst: RegisterId(
+                                        3,
+                                    ),
+                                    src: RegisterId(
+                                        3,
+                                    ),
+                                    resume: StateId(
+                                        10,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                Jump {
+                                    target_state: StateId(
+                                        1,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                Await {
+                                    dst: RegisterId(
+                                        3,
+                                    ),
+                                    src: RegisterId(
+                                        3,
+                                    ),
+                                    resume: StateId(
+                                        12,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                Jump {
+                                    target_state: StateId(
+                                        1,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                ],
+                num_regs: 4,
             },
-        ),
-    ),
+        ],
+    },
 )

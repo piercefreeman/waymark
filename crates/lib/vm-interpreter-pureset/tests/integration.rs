@@ -22,6 +22,7 @@ enum TestConstValue {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum TestValue {
     Int(i64),
+    Bool(bool),
     Text(&'static str),
     List(Vec<TestValue>),
 }
@@ -35,12 +36,49 @@ impl From<TestConstValue> for TestValue {
     }
 }
 
-impl waymark_vm_interpreter_pureset::value::Add for TestValue {
-    fn add(a: &Self, b: &Self) -> Result<Self, waymark_vm_interpreter_pureset::value::AddError> {
+fn is_truthy(value: &TestValue) -> bool {
+    match value {
+        TestValue::Int(value) => *value != 0,
+        TestValue::Bool(value) => *value,
+        TestValue::Text(value) => !value.is_empty(),
+        TestValue::List(items) => !items.is_empty(),
+    }
+}
+
+impl waymark_vm_interpreter_pureset::value::BinaryOps for TestValue {
+    fn add(
+        a: &Self,
+        b: &Self,
+    ) -> Result<Self, waymark_vm_interpreter_pureset::value::BinaryOperationError> {
         match (a, b) {
-            (Self::Int(a), Self::Int(b)) => Ok(Self::Int(a + b)),
-            _ => Err(waymark_vm_interpreter_pureset::value::AddError::NotAddable),
+            (Self::Int(a), Self::Int(b)) => Ok(Self::Int(*a + *b)),
+            _ => Err(
+                waymark_vm_interpreter_pureset::value::BinaryOperationError::UnsupportedOperation {
+                    operation: waymark_vm_interpreter_pureset::value::BinaryOperationKind::Add,
+                },
+            ),
         }
+    }
+}
+
+impl waymark_vm_interpreter_pureset::value::UnaryOps for TestValue {
+    fn neg(
+        value: &Self,
+    ) -> Result<Self, waymark_vm_interpreter_pureset::value::UnaryOperationError> {
+        match value {
+            Self::Int(value) => Ok(Self::Int(-*value)),
+            _ => Err(
+                waymark_vm_interpreter_pureset::value::UnaryOperationError::UnsupportedOperation {
+                    operation: waymark_vm_interpreter_pureset::value::UnaryOperationKind::Neg,
+                },
+            ),
+        }
+    }
+
+    fn not(
+        value: &Self,
+    ) -> Result<Self, waymark_vm_interpreter_pureset::value::UnaryOperationError> {
+        Ok(Self::Bool(!is_truthy(value)))
     }
 }
 
@@ -230,7 +268,14 @@ fn runtime_surfaces_add_errors_from_the_pureset_interpreter() {
     assert!(matches!(
         runtime.run(),
         Err(RunError::Step(waymark_vm_runtime::step::Error::Execution(
-            Error::Add(waymark_vm_interpreter_pureset::value::AddError::NotAddable)
+            Error::BinaryOperation {
+                operation: waymark_vm_interpreter_pureset::value::BinaryOperationKind::Add,
+                source:
+                    waymark_vm_interpreter_pureset::value::BinaryOperationError::UnsupportedOperation {
+                        operation:
+                            waymark_vm_interpreter_pureset::value::BinaryOperationKind::Add,
+                    },
+            }
         )))
     ));
 }
@@ -266,12 +311,44 @@ fn runtime_surfaces_unresolved_add_operand_errors_from_the_pureset_interpreter()
     assert!(matches!(
         runtime.run(),
         Err(RunError::Step(waymark_vm_runtime::step::Error::Execution(
-            Error::UnresolvedAddOperand {
+            Error::UnresolvedBinaryOperand {
+                operation: waymark_vm_interpreter_pureset::value::BinaryOperationKind::Add,
                 operand_pos: BinaryOperandPosition::First,
                 source: waymark_vm_runtime_core::UnresolvedPromiseError { promise_state_id },
             }
         ))) if promise_state_id == PromiseStateId(7)
     ));
+}
+
+#[test]
+fn runtime_executes_unary_not_to_a_terminal_effect() {
+    let executable = executable(vec![function::<RuntimeInstruction>(
+        2,
+        vec![vec![
+            PureSet::LoadConst {
+                dst: RegisterId(0),
+                value: TestConstValue::Int(0),
+            }
+            .into(),
+            PureSet::Not {
+                dst: RegisterId(1),
+                src: RegisterId(0),
+            }
+            .into(),
+            RuntimeInstruction::EmitRegister(RegisterId(1)),
+        ]],
+    )]);
+
+    let mut runtime =
+        Runtime::with_conventional_entrypoint(RuntimeInterpreter::default(), executable)
+            .expect("function 0 should exist");
+
+    assert_eq!(
+        runtime
+            .run()
+            .expect("runtime should emit the unary-not result"),
+        TestValue::Bool(true)
+    );
 }
 
 #[test]
