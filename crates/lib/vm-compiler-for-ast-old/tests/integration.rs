@@ -8,17 +8,17 @@ use waymark_vm_ast_old_helpers::{
     parallel_stmt, program, return_stmt, unary_expr, variable, while_stmt,
 };
 use waymark_vm_bytecode_core::{FunctionId, InstructionId, StateId};
-use waymark_vm_compiler_for_ast_old_test_support::TestExtCallId;
+use waymark_vm_compiler_for_ast_old_test_support::TestActionRef;
 use waymark_vm_interpreter_fullset::Effect;
 
-fn completed_int(effect: Effect<TestValue, TestExtCallId>) -> i64 {
+fn completed_int(effect: Effect<TestValue, TestActionRef>) -> i64 {
     match completed_value(effect) {
         TestValue::Int(value) => value,
         other => panic!("unexpected runtime effect: {other:?}"),
     }
 }
 
-fn completed_value(effect: Effect<TestValue, TestExtCallId>) -> TestValue {
+fn completed_value(effect: Effect<TestValue, TestActionRef>) -> TestValue {
     match effect {
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(value)) => value,
         other => panic!("unexpected runtime effect: {other:?}"),
@@ -337,12 +337,12 @@ fn compiles_action_calls_into_extcalls() {
     let effect = runtime.run().expect("program should emit an extcall");
 
     let promise_state_id = match effect {
-        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ExtCall {
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall {
             promise_state_id,
-            extcall_id,
+            action_ref,
             args,
         }) => {
-            assert!(matches!(&extcall_id, TestExtCallId(name) if name == "fetch"));
+            assert!(matches!(&action_ref, TestActionRef(name) if name == "fetch"));
             assert_eq!(args, vec![TestValue::Int(41)]);
             promise_state_id
         }
@@ -421,7 +421,7 @@ fn compiles_parallel_blocks_to_fan_out_before_awaiting() {
     assert!(matches!(
         extcall,
         waymark_vm_instructions_fullset::FullSet::ExtCallSet(
-            waymark_vm_instructions_extcallset::ExtCallSet::ExtCall { resume, .. }
+            waymark_vm_instructions_extcallset::ExtCallSet::ActionCall { resume, .. }
         ) if *resume == StateId(1)
     ));
     assert!(matches!(
@@ -453,12 +453,12 @@ fn compiles_parallel_action_blocks_with_multiple_outstanding_extcalls() {
         .run()
         .expect("first run should emit the first extcall")
     {
-        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ExtCall {
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall {
             promise_state_id,
-            extcall_id,
+            action_ref,
             args,
         }) => {
-            assert!(matches!(&extcall_id, TestExtCallId(name) if name == "fetch_first"));
+            assert!(matches!(&action_ref, TestActionRef(name) if name == "fetch_first"));
             assert_eq!(args, vec![TestValue::Int(1)]);
             promise_state_id
         }
@@ -469,12 +469,12 @@ fn compiles_parallel_action_blocks_with_multiple_outstanding_extcalls() {
         .run()
         .expect("second run should emit the second extcall")
     {
-        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ExtCall {
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall {
             promise_state_id,
-            extcall_id,
+            action_ref,
             args,
         }) => {
-            assert!(matches!(&extcall_id, TestExtCallId(name) if name == "fetch_second"));
+            assert!(matches!(&action_ref, TestActionRef(name) if name == "fetch_second"));
             assert_eq!(args, vec![TestValue::Int(2)]);
             promise_state_id
         }
@@ -529,12 +529,12 @@ fn compiles_mixed_parallel_blocks_with_leading_action_before_awaiting() {
         .run()
         .expect("first run should emit the first extcall")
     {
-        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ExtCall {
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall {
             promise_state_id,
-            extcall_id,
+            action_ref,
             args,
         }) => {
-            assert!(matches!(&extcall_id, TestExtCallId(name) if name == "fetch_first"));
+            assert!(matches!(&action_ref, TestActionRef(name) if name == "fetch_first"));
             assert_eq!(args, vec![TestValue::Int(1)]);
             promise_state_id
         }
@@ -545,12 +545,12 @@ fn compiles_mixed_parallel_blocks_with_leading_action_before_awaiting() {
         .run()
         .expect("second run should emit the second extcall before awaiting the first")
     {
-        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ExtCall {
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall {
             promise_state_id,
-            extcall_id,
+            action_ref,
             args,
         }) => {
-            assert!(matches!(&extcall_id, TestExtCallId(name) if name == "fetch_second"));
+            assert!(matches!(&action_ref, TestActionRef(name) if name == "fetch_second"));
             assert_eq!(args, vec![TestValue::Int(3)]);
             promise_state_id
         }
@@ -633,12 +633,12 @@ fn compiles_parallel_expressions_into_positional_assignments() {
     let mut runtime = runtime(executable);
 
     let promise_state_id = match runtime.run().expect("program should emit an extcall") {
-        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ExtCall {
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall {
             promise_state_id,
-            extcall_id,
+            action_ref,
             args,
         }) => {
-            assert!(matches!(&extcall_id, TestExtCallId(name) if name == "fetch"));
+            assert!(matches!(&action_ref, TestActionRef(name) if name == "fetch"));
             assert_eq!(args, vec![TestValue::Int(4)]);
             promise_state_id
         }
@@ -701,12 +701,12 @@ fn compiles_mixed_parallel_expressions_with_leading_action_before_awaiting() {
         .run()
         .expect("first run should emit the first extcall")
     {
-        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ExtCall {
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall {
             promise_state_id,
-            extcall_id,
+            action_ref,
             args,
         }) => {
-            assert!(matches!(&extcall_id, TestExtCallId(name) if name == "fetch_first"));
+            assert!(matches!(&action_ref, TestActionRef(name) if name == "fetch_first"));
             assert_eq!(args, vec![TestValue::Int(1)]);
             promise_state_id
         }
@@ -717,12 +717,12 @@ fn compiles_mixed_parallel_expressions_with_leading_action_before_awaiting() {
         .run()
         .expect("second run should emit the second extcall before awaiting the first")
     {
-        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ExtCall {
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall {
             promise_state_id,
-            extcall_id,
+            action_ref,
             args,
         }) => {
-            assert!(matches!(&extcall_id, TestExtCallId(name) if name == "fetch_second"));
+            assert!(matches!(&action_ref, TestActionRef(name) if name == "fetch_second"));
             assert_eq!(args, vec![TestValue::Int(3)]);
             promise_state_id
         }
@@ -780,12 +780,12 @@ fn compiles_parallel_expressions_into_aggregate_lists() {
     let mut runtime = runtime(executable);
 
     let promise_state_id = match runtime.run().expect("program should emit an extcall") {
-        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ExtCall {
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall {
             promise_state_id,
-            extcall_id,
+            action_ref,
             args,
         }) => {
-            assert!(matches!(&extcall_id, TestExtCallId(name) if name == "fetch"));
+            assert!(matches!(&action_ref, TestActionRef(name) if name == "fetch"));
             assert_eq!(args, vec![TestValue::Int(4)]);
             promise_state_id
         }
@@ -836,12 +836,12 @@ fn compiles_parallel_expression_results_by_call_position() {
         .run()
         .expect("first run should emit the first extcall")
     {
-        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ExtCall {
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall {
             promise_state_id,
-            extcall_id,
+            action_ref,
             args,
         }) => {
-            assert!(matches!(&extcall_id, TestExtCallId(name) if name == "fetch_first"));
+            assert!(matches!(&action_ref, TestActionRef(name) if name == "fetch_first"));
             assert_eq!(args, vec![TestValue::Int(1)]);
             promise_state_id
         }
@@ -852,12 +852,12 @@ fn compiles_parallel_expression_results_by_call_position() {
         .run()
         .expect("second run should emit the second extcall")
     {
-        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ExtCall {
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall {
             promise_state_id,
-            extcall_id,
+            action_ref,
             args,
         }) => {
-            assert!(matches!(&extcall_id, TestExtCallId(name) if name == "fetch_second"));
+            assert!(matches!(&action_ref, TestActionRef(name) if name == "fetch_second"));
             assert_eq!(args, vec![TestValue::Int(2)]);
             promise_state_id
         }

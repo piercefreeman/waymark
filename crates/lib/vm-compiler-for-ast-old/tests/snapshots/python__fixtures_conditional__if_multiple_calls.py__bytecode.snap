@@ -70,11 +70,11 @@ Ok(
                     State {
                         instructions: [
                             ExtCallSet(
-                                ExtCall {
+                                ActionCall {
                                     dst: RegisterId(
                                         3,
                                     ),
-                                    extcall_id: TestExtCallId(
+                                    action_ref: TestActionRef(
                                         "if_step_one",
                                     ),
                                     args: [
@@ -109,11 +109,11 @@ Ok(
                     State {
                         instructions: [
                             ExtCallSet(
-                                ExtCall {
+                                ActionCall {
                                     dst: RegisterId(
                                         4,
                                     ),
-                                    extcall_id: TestExtCallId(
+                                    action_ref: TestActionRef(
                                         "if_step_two",
                                     ),
                                     args: [

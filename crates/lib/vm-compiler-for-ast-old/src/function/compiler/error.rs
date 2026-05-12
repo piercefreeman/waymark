@@ -54,7 +54,7 @@ pub enum Error<LiteralLoweringError, ActionLoweringError> {
     #[error("literal lowering failed")]
     LiteralLowering(#[source] LiteralLoweringError),
 
-    /// Lowering an action call into the target VM extcall identifier failed.
+    /// Lowering an action call into the target VM action reference failed.
     #[error("lowering action `{action_name}` failed")]
     ActionLowering {
         /// The action name being lowered.

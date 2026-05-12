@@ -30,11 +30,11 @@ Ok(
                                 },
                             ),
                             ExtCallSet(
-                                ExtCall {
+                                ActionCall {
                                     dst: RegisterId(
                                         0,
                                     ),
-                                    extcall_id: TestExtCallId(
+                                    action_ref: TestActionRef(
                                         "add_numbers",
                                     ),
                                     args: [

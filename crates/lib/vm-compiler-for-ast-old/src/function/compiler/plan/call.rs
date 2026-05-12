@@ -20,11 +20,11 @@ pub struct FunctionCallPlan<'a> {
     args: &'a [Spanned<Expr>],
 }
 
-/// A validated action call with a lowered extcall identifier.
+/// A validated action call with a lowered action reference.
 #[derive(Debug)]
-pub struct ActionCallPlan<'a, ExtCallId> {
-    /// Lowered extcall id for the action invocation.
-    extcall_id: ExtCallId,
+pub struct ActionCallPlan<'a, ActionRef> {
+    /// Lowered action reference for the action invocation.
+    action_ref: ActionRef,
 
     /// Keyword arguments forwarded to the action.
     kwargs: &'a [Kwarg],
@@ -32,21 +32,21 @@ pub struct ActionCallPlan<'a, ExtCallId> {
 
 /// A normalized call plan for either a function call or an action call.
 #[derive(Debug)]
-pub enum CallPlan<'a, ExtCallId> {
+pub enum CallPlan<'a, ActionRef> {
     /// A call into another user-defined function.
     Function(FunctionCallPlan<'a>),
 
     /// A call into an external action.
-    Action(ActionCallPlan<'a, ExtCallId>),
+    Action(ActionCallPlan<'a, ActionRef>),
 }
 
 /// Action-call plan specialized to a VM spec.
 pub type ActionCallPlanFor<'a, Spec> =
-    ActionCallPlan<'a, <Spec as waymark_vm_instructions_extcallset::Spec>::ExtCallId>;
+    ActionCallPlan<'a, <Spec as waymark_vm_instructions_extcallset::Spec>::ActionRef>;
 
 /// Generic call plan specialized to a VM spec.
 pub type CallPlanFor<'a, Spec> =
-    CallPlan<'a, <Spec as waymark_vm_instructions_extcallset::Spec>::ExtCallId>;
+    CallPlan<'a, <Spec as waymark_vm_instructions_extcallset::Spec>::ActionRef>;
 
 /// Reasons a function-call shape cannot be represented by this compiler.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -112,33 +112,33 @@ impl<'a> FunctionCallPlan<'a> {
     }
 }
 
-impl<'a, ExtCallId> ActionCallPlan<'a, ExtCallId> {
-    /// Lowers an action call into the target spec's extcall identifier.
+impl<'a, ActionRef> ActionCallPlan<'a, ActionRef> {
+    /// Lowers an action call into the target spec's action.
     pub fn lower<Spec, Lowering, LiteralLoweringError>(
         call: &'a ActionCall,
     ) -> Result<Self, Error<LiteralLoweringError, Lowering::ActionError>>
     where
-        Spec: waymark_vm_instructions_extcallset::Spec<ExtCallId = ExtCallId>,
+        Spec: waymark_vm_instructions_extcallset::Spec<ActionRef = ActionRef>,
         Lowering: lowering::ExtCallSet<Spec>,
     {
-        let extcall_id = Lowering::lower_action(call).map_err(|error| Error::ActionLowering {
+        let action_ref = Lowering::lower_action(call).map_err(|error| Error::ActionLowering {
             action_name: call.action_name.clone(),
             error,
         })?;
 
         Ok(Self {
-            extcall_id,
+            action_ref,
             kwargs: &call.kwargs,
         })
     }
 
-    /// Returns the lowered extcall id and original keyword arguments.
-    pub fn into_parts(self) -> (ExtCallId, &'a [Kwarg]) {
-        (self.extcall_id, self.kwargs)
+    /// Returns the lowered action reference and original keyword arguments.
+    pub fn into_parts(self) -> (ActionRef, &'a [Kwarg]) {
+        (self.action_ref, self.kwargs)
     }
 }
 
-impl<'a, ExtCallId> CallPlan<'a, ExtCallId> {
+impl<'a, ActionRef> CallPlan<'a, ActionRef> {
     /// Builds a plan for a user-function call.
     pub fn build_function<LiteralLoweringError, ActionLoweringError>(
         call: &'a FunctionCall,
@@ -155,7 +155,7 @@ impl<'a, ExtCallId> CallPlan<'a, ExtCallId> {
         call: &'a ActionCall,
     ) -> Result<Self, Error<LiteralLoweringError, Lowering::ActionError>>
     where
-        Spec: waymark_vm_instructions_extcallset::Spec<ExtCallId = ExtCallId>,
+        Spec: waymark_vm_instructions_extcallset::Spec<ActionRef = ActionRef>,
         Lowering: lowering::ExtCallSet<Spec>,
     {
         Ok(Self::Action(ActionCallPlan::lower::<Spec, Lowering, _>(
@@ -169,7 +169,7 @@ impl<'a, ExtCallId> CallPlan<'a, ExtCallId> {
         function_table: &FunctionTable,
     ) -> Result<Self, Error<LiteralLoweringError, Lowering::ActionError>>
     where
-        Spec: waymark_vm_instructions_extcallset::Spec<ExtCallId = ExtCallId>,
+        Spec: waymark_vm_instructions_extcallset::Spec<ActionRef = ActionRef>,
         Lowering: lowering::ExtCallSet<Spec>,
     {
         match call {
@@ -184,7 +184,7 @@ impl<'a, ExtCallId> CallPlan<'a, ExtCallId> {
         function_table: &FunctionTable,
     ) -> Result<NEVec<Self>, Error<LiteralLoweringError, Lowering::ActionError>>
     where
-        Spec: waymark_vm_instructions_extcallset::Spec<ExtCallId = ExtCallId>,
+        Spec: waymark_vm_instructions_extcallset::Spec<ActionRef = ActionRef>,
         Lowering: lowering::ExtCallSet<Spec>,
     {
         calls
@@ -233,7 +233,7 @@ mod tests {
     use crate::function::compiler::{
         Error,
         test_helpers::{
-            TestActionError, TestExtCallId, TestLowering, TestSpec, build_function_table,
+            TestActionError, TestActionRef, TestLowering, TestSpec, build_function_table,
         },
     };
 
@@ -242,7 +242,7 @@ mod tests {
     impl lowering::ExtCallSet<TestSpec> for FailingLowering {
         type ActionError = TestActionError;
 
-        fn lower_action(_call: &ActionCall) -> Result<TestExtCallId, Self::ActionError> {
+        fn lower_action(_call: &ActionCall) -> Result<TestActionRef, Self::ActionError> {
             Err(TestActionError::Unsupported)
         }
     }
@@ -375,15 +375,15 @@ mod tests {
         let call = action_call("notify", Vec::new());
         let planned_call = ActionCallPlan::lower::<TestSpec, TestLowering, ()>(&call)
             .expect("supported action should lower");
-        let (extcall_id, kwargs) = planned_call.into_parts();
+        let (action_ref, kwargs) = planned_call.into_parts();
 
-        assert!(matches!(extcall_id, TestExtCallId(name) if name == "notify"));
+        assert!(matches!(action_ref, TestActionRef(name) if name == "notify"));
         assert!(kwargs.is_empty());
     }
 
     #[test]
     fn preserves_action_lowering_errors() {
-        let error = ActionCallPlan::<TestExtCallId>::lower::<TestSpec, FailingLowering, ()>(
+        let error = ActionCallPlan::<TestActionRef>::lower::<TestSpec, FailingLowering, ()>(
             &action_call("notify", Vec::new()),
         )
         .expect_err("unsupported action should fail");

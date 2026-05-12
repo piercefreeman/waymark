@@ -13,7 +13,7 @@ struct TestSpec;
 impl waymark_vm_instructions_extcallset::Spec for TestSpec {
     type RegisterId = RegisterId;
     type StateId = StateId;
-    type ExtCallId = usize;
+    type ActionRef = usize;
 }
 
 #[derive(Debug)]
@@ -30,7 +30,7 @@ impl From<ExtCallSet<TestSpec>> for RuntimeInstruction {
 
 #[derive(Debug)]
 enum TestEffect {
-    ExtCall(Effect<i32, usize>),
+    ActionCall(Effect<i32, usize>),
     PendingPromiseStateId(PromiseStateId),
 }
 
@@ -77,13 +77,13 @@ impl waymark_vm_interpreter::Interpreter for RuntimeInterpreter {
                     frame,
                     instruction,
                 )
-                .map(|outcome| outcome.map_effect(TestEffect::ExtCall))
+                .map(|outcome| outcome.map_effect(TestEffect::ActionCall))
             }
             RuntimeInstruction::InspectPending(register) => {
                 let RuntimeView { state } = runtime_view;
 
                 let Promise::Pending(promise_state_id) = frame.regs[*register].clone() else {
-                    panic!("register should hold the extcall's pending promise");
+                    panic!("register should hold the action call's pending promise");
                 };
 
                 assert!(matches!(
@@ -100,16 +100,16 @@ impl waymark_vm_interpreter::Interpreter for RuntimeInterpreter {
 }
 
 #[test]
-fn runtime_emits_an_extcall_effect_and_queues_the_resumed_frame() {
+fn runtime_emits_an_action_call_and_queues_the_resumed_frame() {
     let mut runtime = Runtime::with_custom_entrypoint(
         RuntimeInterpreter::default(),
         executable(vec![function::<RuntimeInstruction>(
             2,
             vec![
                 vec![
-                    ExtCallSet::ExtCall {
+                    ExtCallSet::ActionCall {
                         dst: RegisterId(1),
-                        extcall_id: 7,
+                        action_ref: 7,
                         args: vec![RegisterId(0)],
                         resume: StateId(1),
                     }
@@ -125,16 +125,18 @@ fn runtime_emits_an_extcall_effect_and_queues_the_resumed_frame() {
     )
     .expect("function 0 should exist");
 
-    let TestEffect::ExtCall(Effect::ExtCall {
+    let TestEffect::ActionCall(Effect::ActionCall {
         promise_state_id,
-        extcall_id,
+        action_ref,
         args,
-    }) = runtime.run().expect("first run should emit the extcall")
+    }) = runtime
+        .run()
+        .expect("first run should emit the action call")
     else {
-        panic!("first run should emit an extcall effect");
+        panic!("first run should emit an action call");
     };
 
-    assert_eq!(extcall_id, 7);
+    assert_eq!(action_ref, 7);
     assert_eq!(args, vec![41]);
 
     let TestEffect::PendingPromiseStateId(resumed_promise_state_id) = runtime

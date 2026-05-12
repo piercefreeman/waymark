@@ -42,13 +42,13 @@ pub async fn run(
                         }
                     },
                     waymark_vm_interpreter_fullset::Effect::ExtCallSet(effect) => match effect {
-                        waymark_vm_interpreter_extcallset::Effect::ExtCall {
+                        waymark_vm_interpreter_extcallset::Effect::ActionCall {
                             promise_state_id,
-                            extcall_id,
+                            action_ref,
                             args,
                         } => {
                             tracing::info!(
-                                ?extcall_id,
+                                ?action_ref,
                                 ?promise_state_id,
                                 ?args,
                                 "extcall received"
@@ -61,7 +61,7 @@ pub async fn run(
 
                                     let value = integration::SampleValue::Usize(42);
                                     tracing::info!(
-                                        ?extcall_id,
+                                        ?action_ref,
                                         ?promise_state_id,
                                         ?args,
                                         ?value,

@@ -10,11 +10,11 @@ Ok(
                     State {
                         instructions: [
                             ExtCallSet(
-                                ExtCall {
+                                ActionCall {
                                     dst: RegisterId(
                                         1,
                                     ),
-                                    extcall_id: TestExtCallId(
+                                    action_ref: TestActionRef(
                                         "action_with_timeout_int",
                                     ),
                                     args: [
@@ -49,11 +49,11 @@ Ok(
                     State {
                         instructions: [
                             ExtCallSet(
-                                ExtCall {
+                                ActionCall {
                                     dst: RegisterId(
                                         2,
                                     ),
-                                    extcall_id: TestExtCallId(
+                                    action_ref: TestActionRef(
                                         "action_with_timeout_minutes",
                                     ),
                                     args: [
@@ -88,11 +88,11 @@ Ok(
                     State {
                         instructions: [
                             ExtCallSet(
-                                ExtCall {
+                                ActionCall {
                                     dst: RegisterId(
                                         3,
                                     ),
-                                    extcall_id: TestExtCallId(
+                                    action_ref: TestActionRef(
                                         "action_with_retry_backoff",
                                     ),
                                     args: [
@@ -127,11 +127,11 @@ Ok(
                     State {
                         instructions: [
                             ExtCallSet(
-                                ExtCall {
+                                ActionCall {
                                     dst: RegisterId(
                                         4,
                                     ),
-                                    extcall_id: TestExtCallId(
+                                    action_ref: TestActionRef(
                                         "action_with_retry_exceptions",
                                     ),
                                     args: [
@@ -166,11 +166,11 @@ Ok(
                     State {
                         instructions: [
                             ExtCallSet(
-                                ExtCall {
+                                ActionCall {
                                     dst: RegisterId(
                                         5,
                                     ),
-                                    extcall_id: TestExtCallId(
+                                    action_ref: TestActionRef(
                                         "action_with_retry_default",
                                     ),
                                     args: [
@@ -205,11 +205,11 @@ Ok(
                     State {
                         instructions: [
                             ExtCallSet(
-                                ExtCall {
+                                ActionCall {
                                     dst: RegisterId(
                                         6,
                                     ),
-                                    extcall_id: TestExtCallId(
+                                    action_ref: TestActionRef(
                                         "action_with_timeout_hours",
                                     ),
                                     args: [
@@ -244,11 +244,11 @@ Ok(
                     State {
                         instructions: [
                             ExtCallSet(
-                                ExtCall {
+                                ActionCall {
                                     dst: RegisterId(
                                         7,
                                     ),
-                                    extcall_id: TestExtCallId(
+                                    action_ref: TestActionRef(
                                         "action_with_timeout_days",
                                     ),
                                     args: [

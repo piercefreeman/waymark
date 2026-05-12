@@ -20,11 +20,11 @@ Ok(
                                 },
                             ),
                             ExtCallSet(
-                                ExtCall {
+                                ActionCall {
                                     dst: RegisterId(
                                         2,
                                     ),
-                                    extcall_id: TestExtCallId(
+                                    action_ref: TestActionRef(
                                         "compute_factorial",
                                     ),
                                     args: [
@@ -52,11 +52,11 @@ Ok(
                                 },
                             ),
                             ExtCallSet(
-                                ExtCall {
+                                ActionCall {
                                     dst: RegisterId(
                                         3,
                                     ),
-                                    extcall_id: TestExtCallId(
+                                    action_ref: TestActionRef(
                                         "compute_fibonacci",
                                     ),
                                     args: [
@@ -108,11 +108,11 @@ Ok(
                     State {
                         instructions: [
                             ExtCallSet(
-                                ExtCall {
+                                ActionCall {
                                     dst: RegisterId(
                                         5,
                                     ),
-                                    extcall_id: TestExtCallId(
+                                    action_ref: TestActionRef(
                                         "summarize_math",
                                     ),
                                     args: [

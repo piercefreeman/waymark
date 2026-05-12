@@ -10,11 +10,11 @@ Ok(
                     State {
                         instructions: [
                             ExtCallSet(
-                                ExtCall {
+                                ActionCall {
                                     dst: RegisterId(
                                         0,
                                     ),
-                                    extcall_id: TestExtCallId(
+                                    action_ref: TestActionRef(
                                         "do_something",
                                     ),
                                     args: [],

@@ -14,23 +14,23 @@ pub trait Spec: 'static {
     /// The type used to refer to the executable function sub-states.
     type StateId: core::fmt::Debug;
 
-    /// The type used to refer to the extcalls.
-    type ExtCallId: core::fmt::Debug;
+    /// The type used to refer to an action.
+    type ActionRef: core::fmt::Debug;
 }
 
 /// The external-call instructions set.
 #[derive_where(Debug)]
 pub enum ExtCallSet<Spec: self::Spec> {
-    /// Start an extcall execution.
+    /// Start an action call execution.
     ///
     /// External calls are always asynchronous by nature.
-    ExtCall {
-        /// The resiter in the current frame to assign the promise for this
+    ActionCall {
+        /// The register in the current frame to assign the promise for this
         /// new call completion.
         dst: Spec::RegisterId,
 
-        /// The ID of the extcall to invoke.
-        extcall_id: Spec::ExtCallId,
+        /// The action to invoke.
+        action_ref: Spec::ActionRef,
 
         /// The registers in the current frame to take the arguments to pass to
         /// the extcall from.

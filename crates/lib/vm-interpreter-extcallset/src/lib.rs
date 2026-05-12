@@ -24,17 +24,17 @@ pub struct RuntimeView<'r, FunctionId, StateId, Value> {
 
 /// The effect for the [`ExtCallSetInterpreter`].
 #[derive(Debug)]
-pub enum Effect<Value, ExtCallId> {
-    /// Extcall invocation is requested.
-    ExtCall {
+pub enum Effect<Value, ActionRef> {
+    /// Action call invocation is requested.
+    ActionCall {
         /// The ID of the promise to resolve with the resulting value when
-        /// the extcall completes.
+        /// the action call completes.
         promise_state_id: PromiseStateId,
 
-        /// The ID of the extcall to invoke from the extcall table.
-        extcall_id: ExtCallId,
+        /// The action to invoke.
+        action_ref: ActionRef,
 
-        /// Args to pass to the extcall.
+        /// Args to pass to the action call.
         args: Vec<Value>,
     },
 }
@@ -48,14 +48,14 @@ where
         > + 'static,
     FunctionId: 'static,
     StateId: Copy + 'static,
-    Spec::ExtCallId: Clone,
+    Spec::ActionRef: Clone,
     Value: Clone + 'static,
 {
     type RuntimeView<'r> = RuntimeView<'r, FunctionId, StateId, Value>;
     type Frame = Frame<FunctionId, StateId, Promise<Value>>;
     type Instruction = waymark_vm_instructions_extcallset::ExtCallSet<Spec>;
     type Error = Error;
-    type Effect = Effect<Value, Spec::ExtCallId>;
+    type Effect = Effect<Value, Spec::ActionRef>;
 
     fn execute<'r>(
         &self,
@@ -69,9 +69,9 @@ where
         let Self::RuntimeView { state } = runtime_view;
 
         match instruction {
-            waymark_vm_instructions_extcallset::ExtCallSet::ExtCall {
+            waymark_vm_instructions_extcallset::ExtCallSet::ActionCall {
                 dst,
-                extcall_id,
+                action_ref,
                 args,
                 resume,
             } => {
@@ -97,9 +97,9 @@ where
 
                 state.ready.push_front(frame);
 
-                Ok(ExecutionOutcome::ExitFrameWithEffect(Effect::ExtCall {
+                Ok(ExecutionOutcome::ExitFrameWithEffect(Effect::ActionCall {
                     promise_state_id,
-                    extcall_id: extcall_id.clone(),
+                    action_ref: action_ref.clone(),
                     args,
                 }))
             }

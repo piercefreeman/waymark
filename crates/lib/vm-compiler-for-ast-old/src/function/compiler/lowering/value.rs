@@ -144,7 +144,7 @@ where
         call: ActionCallPlanFor<'_, Spec>,
         dst: &Marked<RegisterHandle, PromiseMarker>,
     ) -> Result<(), ErrorFor<Spec, Lowering>> {
-        let (extcall_id, kwargs) = call.into_parts();
+        let (action_ref, kwargs) = call.into_parts();
         let args = compile_expr_registers(
             kwargs,
             |kwarg| &kwarg.value,
@@ -156,7 +156,7 @@ where
 
         self.context
             .emitter
-            .emit_extcall(dst.marked(), extcall_id, arg_registers, resume_state);
+            .emit_extcall(dst.marked(), action_ref, arg_registers, resume_state);
 
         drop(args);
 
@@ -365,7 +365,7 @@ mod tests {
         bytecode::emitter::FunctionEmitter,
         env::{FlowState, LocalFrame},
         test_helpers::{
-            TestConstValue, TestExtCallId, TestLowering, TestSpec, build_function_table,
+            TestActionRef, TestConstValue, TestLowering, TestSpec, build_function_table,
         },
     };
 
@@ -471,13 +471,13 @@ mod tests {
         ));
         assert!(matches!(
             start_instructions.next(),
-            Some(InstructionSet::ExtCallSet(ExtCallSet::ExtCall {
+            Some(InstructionSet::ExtCallSet(ExtCallSet::ActionCall {
                 dst,
-                extcall_id: TestExtCallId(extcall_id),
+                action_ref: TestActionRef(action_ref),
                 args,
                 resume,
             })) if *dst == RegisterId(0)
-                && extcall_id == "fetch"
+                && action_ref == "fetch"
                 && args == &[RegisterId(1)]
                 && *resume == StateId(1)
         ));
@@ -737,13 +737,13 @@ mod tests {
         ));
         assert!(matches!(
             start_instructions.next(),
-            Some(InstructionSet::ExtCallSet(ExtCallSet::ExtCall {
+            Some(InstructionSet::ExtCallSet(ExtCallSet::ActionCall {
                 dst,
-                extcall_id: TestExtCallId(extcall_id),
+                action_ref: TestActionRef(action_ref),
                 args,
                 resume,
             })) if *dst == preferred_dst
-                && *extcall_id == "fetch"
+                && *action_ref == "fetch"
                 && args == &[RegisterId(1)]
                 && *resume == StateId(1)
         ));
@@ -839,13 +839,13 @@ mod tests {
         let mut first_state_instructions = states[StateId(0)].instructions.iter();
         assert!(matches!(
             first_state_instructions.next(),
-            Some(InstructionSet::ExtCallSet(ExtCallSet::ExtCall {
+            Some(InstructionSet::ExtCallSet(ExtCallSet::ActionCall {
                 dst,
-                extcall_id: TestExtCallId(extcall_id),
+                action_ref: TestActionRef(action_ref),
                 args,
                 resume,
             })) if *dst == RegisterId(0)
-                && *extcall_id == "fetch_first"
+                && *action_ref == "fetch_first"
                 && args.is_empty()
                 && *resume == StateId(1)
         ));
@@ -854,13 +854,13 @@ mod tests {
         let mut third_state_instructions = states[StateId(2)].instructions.iter();
         assert!(matches!(
             third_state_instructions.next(),
-            Some(InstructionSet::ExtCallSet(ExtCallSet::ExtCall {
+            Some(InstructionSet::ExtCallSet(ExtCallSet::ActionCall {
                 dst,
-                extcall_id: TestExtCallId(extcall_id),
+                action_ref: TestActionRef(action_ref),
                 args,
                 resume,
             })) if *dst == RegisterId(0)
-                && *extcall_id == "fetch_second"
+                && *action_ref == "fetch_second"
                 && args.is_empty()
                 && *resume == StateId(3)
         ));
@@ -906,13 +906,13 @@ mod tests {
         ));
         assert!(matches!(
             first_state_instructions.next(),
-            Some(InstructionSet::ExtCallSet(ExtCallSet::ExtCall {
+            Some(InstructionSet::ExtCallSet(ExtCallSet::ActionCall {
                 dst,
-                extcall_id: TestExtCallId(extcall_id),
+                action_ref: TestActionRef(action_ref),
                 args,
                 resume,
             })) if *dst == RegisterId(0)
-                && *extcall_id == "fetch_first"
+                && *action_ref == "fetch_first"
                 && args == &[RegisterId(1)]
                 && *resume == StateId(1)
         ));
@@ -928,13 +928,13 @@ mod tests {
         ));
         assert!(matches!(
             third_state_instructions.next(),
-            Some(InstructionSet::ExtCallSet(ExtCallSet::ExtCall {
+            Some(InstructionSet::ExtCallSet(ExtCallSet::ActionCall {
                 dst,
-                extcall_id: TestExtCallId(extcall_id),
+                action_ref: TestActionRef(action_ref),
                 args,
                 resume,
             })) if *dst == RegisterId(0)
-                && *extcall_id == "fetch_second"
+                && *action_ref == "fetch_second"
                 && args == &[RegisterId(1)]
                 && *resume == StateId(3)
         ));

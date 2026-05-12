@@ -21,7 +21,7 @@ impl waymark_vm_instructions_coreset::Spec for TestSpec {
 impl waymark_vm_instructions_extcallset::Spec for TestSpec {
     type RegisterId = RegisterId;
     type StateId = StateId;
-    type ExtCallId = TestExtCallId;
+    type ActionRef = TestActionRef;
 }
 
 impl waymark_vm_instructions_pureset::Spec for TestSpec {
@@ -35,7 +35,7 @@ enum TestConstValue {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct TestExtCallId(usize);
+struct TestActionRef(usize);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum TestValue {
@@ -156,8 +156,8 @@ fn runtime_executes_pure_and_core_instructions_to_completion() {
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(value)) => {
             assert_eq!(value, TestValue::Int(5));
         }
-        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ExtCall { .. }) => {
-            panic!("program should not emit an extcall")
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall { .. }) => {
+            panic!("program should not emit an action call")
         }
         Effect::PureSet(effect) => match effect {},
     }
@@ -169,9 +169,9 @@ fn runtime_resumes_extcalls_and_finishes_with_pure_work() {
         4,
         vec![
             vec![
-                ExtCallSet::ExtCall {
+                ExtCallSet::ActionCall {
                     dst: RegisterId(1),
-                    extcall_id: TestExtCallId(7),
+                    action_ref: TestActionRef(7),
                     args: vec![RegisterId(0)],
                     resume: StateId(1),
                 }
@@ -215,38 +215,40 @@ fn runtime_resumes_extcalls_and_finishes_with_pure_work() {
     )
     .expect("function 0 should exist");
 
-    let effect = runtime.run().expect("first run should emit the extcall");
+    let effect = runtime
+        .run()
+        .expect("first run should emit the action call");
 
     let promise_state_id = match effect {
-        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ExtCall {
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall {
             promise_state_id,
-            extcall_id,
+            action_ref,
             args,
         }) => {
-            assert_eq!(extcall_id, TestExtCallId(7));
+            assert_eq!(action_ref, TestActionRef(7));
             assert_eq!(args, vec![TestValue::Int(41)]);
             promise_state_id
         }
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(_)) => {
-            panic!("program should suspend on the extcall before completion")
+            panic!("program should suspend on the action call before completion")
         }
         Effect::PureSet(effect) => match effect {},
     };
 
     runtime
         .resolve_promise(promise_state_id, TestValue::Int(41))
-        .expect("extcall promise should resolve cleanly");
+        .expect("action call promise should resolve cleanly");
 
     let effect = runtime
         .run()
-        .expect("second run should finish after resuming the extcall");
+        .expect("second run should finish after resuming the action call");
 
     match effect {
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(value)) => {
             assert_eq!(value, TestValue::Int(42));
         }
-        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ExtCall { .. }) => {
-            panic!("resolved extcall should not emit another extcall")
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall { .. }) => {
+            panic!("resolved action call should not emit another action call")
         }
         Effect::PureSet(effect) => match effect {},
     }

@@ -14,7 +14,7 @@ pub use self::value::Value;
 
 type FunctionIdFor<Spec> = <Spec as waymark_vm_instructions_coreset::Spec>::FunctionId;
 type StateIdFor<Spec> = <Spec as waymark_vm_instructions_coreset::Spec>::StateId;
-type ExtCallIdFor<Spec> = <Spec as waymark_vm_instructions_extcallset::Spec>::ExtCallId;
+type ActionRefFor<Spec> = <Spec as waymark_vm_instructions_extcallset::Spec>::ActionRef;
 
 /// An interpreter for the "full" instructions set.
 #[derive_where(Default)]
@@ -44,12 +44,12 @@ pub use waymark_vm_runtime_core::FullRuntimeView as RuntimeView;
 
 /// The effect for the [`FullSetInterpreter`].
 #[derive(Debug)]
-pub enum Effect<Value, ExtCallId> {
+pub enum Effect<Value, ActionRef> {
     /// An effect produced while executing a coreset instruction.
     CoreSet(waymark_vm_interpreter_coreset::Effect<Value>),
 
     /// An effect produced while executing an extcallset instruction.
-    ExtCallSet(waymark_vm_interpreter_extcallset::Effect<Value, ExtCallId>),
+    ExtCallSet(waymark_vm_interpreter_extcallset::Effect<Value, ActionRef>),
 
     /// An impossible effect produced while executing a pureset instruction.
     PureSet(core::convert::Infallible),
@@ -70,7 +70,7 @@ where
     Spec: 'static,
     FunctionIdFor<Spec>: Copy,
     StateIdFor<Spec>: Copy + Default,
-    ExtCallIdFor<Spec>: Clone,
+    ActionRefFor<Spec>: Clone,
     Value: Clone + 'static,
     Value: waymark_vm_interpreter_coreset::Value,
     Value: waymark_vm_interpreter_pureset::Value,
@@ -81,7 +81,7 @@ where
     type Frame = Frame<FunctionIdFor<Spec>, StateIdFor<Spec>, Promise<Value>>;
     type Instruction = waymark_vm_instructions_fullset::FullSet<Spec>;
     type Error = Error<Spec>;
-    type Effect = Effect<Value, ExtCallIdFor<Spec>>;
+    type Effect = Effect<Value, ActionRefFor<Spec>>;
 
     fn execute<'r>(
         &self,

@@ -9,10 +9,10 @@ where
     /// Error returned when lowering an action call fails.
     type ActionError;
 
-    /// Lowers one AST action call into the target spec's extcall identifier.
+    /// Lowers one AST action call into the target spec's action reference.
     fn lower_action(
         call: &waymark_vm_ast_old::ActionCall,
-    ) -> Result<<Spec as waymark_vm_instructions_extcallset::Spec>::ExtCallId, Self::ActionError>;
+    ) -> Result<<Spec as waymark_vm_instructions_extcallset::Spec>::ActionRef, Self::ActionError>;
 }
 
 /// [`waymark_vm_instructions_pureset`] lowering from [`waymark_vm_ast_old`]

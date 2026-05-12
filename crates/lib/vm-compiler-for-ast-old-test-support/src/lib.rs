@@ -18,9 +18,9 @@ pub enum TestConstValue {
     None,
 }
 
-/// Extcall identifier used by the test VM spec.
+/// Action reference used by the test VM spec.
 #[derive(Debug, Clone)]
-pub struct TestExtCallId(
+pub struct TestActionRef(
     /// Action name captured from the AST call.
     pub String,
 );
@@ -52,7 +52,7 @@ impl waymark_vm_instructions_coreset::Spec for TestSpec {
 impl waymark_vm_instructions_extcallset::Spec for TestSpec {
     type RegisterId = waymark_vm_runtime_core::RegisterId;
     type StateId = waymark_vm_bytecode_core::StateId;
-    type ExtCallId = TestExtCallId;
+    type ActionRef = TestActionRef;
 }
 
 impl waymark_vm_instructions_pureset::Spec for TestSpec {
@@ -68,12 +68,12 @@ pub struct TestLowering;
 
 impl<Spec> waymark_vm_compiler_for_ast_old_core::lowering::ExtCallSet<Spec> for TestLowering
 where
-    Spec: waymark_vm_instructions_extcallset::Spec<ExtCallId = TestExtCallId>,
+    Spec: waymark_vm_instructions_extcallset::Spec<ActionRef = TestActionRef>,
 {
     type ActionError = TestActionError;
 
-    fn lower_action(call: &ActionCall) -> Result<Spec::ExtCallId, Self::ActionError> {
-        Ok(TestExtCallId(call.action_name.clone()))
+    fn lower_action(call: &ActionCall) -> Result<Spec::ActionRef, Self::ActionError> {
+        Ok(TestActionRef(call.action_name.clone()))
     }
 }
 
