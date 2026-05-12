@@ -5200,6 +5200,7 @@ dependencies = [
  "nonempty-collections",
  "thiserror",
  "tokio",
+ "waymark-nonzero-duration",
  "waymark-support-test-python",
  "waymark-vm-ast-old",
  "waymark-vm-ast-old-helpers",

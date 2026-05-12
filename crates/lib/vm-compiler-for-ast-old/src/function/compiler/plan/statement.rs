@@ -43,6 +43,12 @@ where
         expr: &'a Spanned<Expr>,
     },
 
+    /// Suspend execution until the requested duration elapses.
+    Sleep {
+        /// Duration expression forwarded to the sleep runtime.
+        duration: &'a Spanned<Expr>,
+    },
+
     /// Execute calls in parallel without assignment targets.
     ParallelBlock {
         /// Calls to start in parallel.
@@ -88,9 +94,6 @@ pub enum UnsupportedStatementKind {
 
     /// `try`/`except` blocks.
     TryExcept,
-
-    /// Sleep statements.
-    Sleep,
 }
 
 impl<'a, Spec> StatementPlan<'a, Spec>
@@ -112,6 +115,7 @@ where
                 value: value.as_ref(),
             }),
             Statement::ExprStmt { expr } => Ok(Self::Expr { expr }),
+            Statement::Sleep { duration } => Ok(Self::Sleep { duration }),
             Statement::ParallelBlock { calls } => Ok(Self::ParallelBlock {
                 calls: build_parallel_call_plans::<Spec, Lowering>(calls, function_table)?,
             }),
@@ -139,10 +143,6 @@ where
                 kind: UnsupportedStatementKind::TryExcept,
             }
             .into()),
-            Statement::Sleep { .. } => Err(Unsupported::Statement {
-                kind: UnsupportedStatementKind::Sleep,
-            }
-            .into()),
         }
     }
 }
@@ -153,7 +153,6 @@ impl core::fmt::Display for UnsupportedStatementKind {
             Self::SpreadAction => "SpreadAction",
             Self::ForLoop => "ForLoop",
             Self::TryExcept => "TryExcept",
-            Self::Sleep => "Sleep",
         })
     }
 }
@@ -165,7 +164,7 @@ mod tests {
     use waymark_vm_ast_old::{Spanned, Statement};
     use waymark_vm_ast_old_helpers::{
         action_call, action_stmt, assignment, block, break_stmt, conditional_stmt, continue_stmt,
-        int, parallel_stmt, return_stmt, spanned, variable, while_stmt,
+        int, parallel_stmt, return_stmt, sleep_stmt, spanned, variable, while_stmt,
     };
 
     use crate::function::compiler::{
@@ -182,6 +181,7 @@ mod tests {
         let expr = spanned(Statement::ExprStmt {
             expr: variable("value"),
         });
+        let sleep = sleep_stmt(int(1));
 
         assert!(matches!(
             StatementPlan::<TestSpec>::build::<TestLowering>(&assignment.value, &function_table)
@@ -202,6 +202,11 @@ mod tests {
             StatementPlan::<TestSpec>::build::<TestLowering>(&expr.value, &function_table)
                 .expect("expr statements should build"),
             StatementPlan::Expr { .. }
+        ));
+        assert!(matches!(
+            StatementPlan::<TestSpec>::build::<TestLowering>(&sleep.value, &function_table)
+                .expect("sleep statements should build"),
+            StatementPlan::Sleep { .. }
         ));
     }
 
@@ -267,12 +272,6 @@ mod tests {
                     try_block: block(Vec::new()),
                 }),
                 UnsupportedStatementKind::TryExcept,
-            ),
-            (
-                spanned(Statement::Sleep {
-                    duration: Some(int(1)),
-                }),
-                UnsupportedStatementKind::Sleep,
             ),
         ];
 

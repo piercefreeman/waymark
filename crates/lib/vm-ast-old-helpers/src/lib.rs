@@ -122,6 +122,10 @@ pub fn continue_stmt() -> Spanned<Statement> {
     spanned(Statement::Continue)
 }
 
+pub fn sleep_stmt(duration: Spanned<Expr>) -> Spanned<Statement> {
+    spanned(Statement::Sleep { duration })
+}
+
 pub fn for_stmt(
     loop_vars: &[&str],
     iterable: Spanned<Expr>,

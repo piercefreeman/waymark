@@ -1,3 +1,4 @@
+use waymark_nonzero_duration::NonZeroDuration;
 use waymark_vm_compiler_for_ast_old_test_support::{
     TestConstValue, TestExecutable, TestLowering, TestSpec,
 };
@@ -6,6 +7,18 @@ type TestInterpreter =
     waymark_vm_interpreter_fullset::FullSetInterpreter<TestSpec, TestExecutable, TestValue>;
 
 pub type TestRuntime = waymark_vm_runtime::Runtime<TestExecutable, TestInterpreter, TestValue>;
+
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum TestSleepDurationError {
+    #[error("the value cannot be used as a sleep duration")]
+    UnsupportedValue,
+
+    #[error("sleep duration must be non-zero")]
+    Zero,
+
+    #[error("sleep duration cannot be negative")]
+    Negative,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TestValue {
@@ -310,6 +323,20 @@ impl waymark_vm_interpreter_pureset::value::MakeList for TestValue {
         I: IntoIterator<Item = Self>,
     {
         Ok(Self::List(items.into_iter().collect()))
+    }
+}
+
+impl waymark_vm_interpreter_extcallset::value::SleepDuration for TestValue {
+    type Error = TestSleepDurationError;
+
+    fn to_sleep_duration(&self) -> Result<NonZeroDuration, Self::Error> {
+        match self {
+            Self::Int(value) => {
+                let seconds: u64 = (*value).try_into().map_err(|_| Self::Error::Negative)?;
+                NonZeroDuration::from_secs(seconds).ok_or(Self::Error::Zero)
+            }
+            Self::Bool(_) | Self::None | Self::List(_) => Err(Self::Error::UnsupportedValue),
+        }
     }
 }
 
