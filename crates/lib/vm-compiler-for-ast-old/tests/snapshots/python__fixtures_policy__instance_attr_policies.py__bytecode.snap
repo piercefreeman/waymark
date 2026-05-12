@@ -1,0 +1,143 @@
+---
+source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
+expression: bytecode for python/tests/fixtures_policy/instance_attr_policies.py
+---
+Ok(
+    Executable {
+        functions: [
+            Function {
+                states: [
+                    State {
+                        instructions: [
+                            CoreSet(
+                                ExtCall {
+                                    dst: RegisterId(
+                                        1,
+                                    ),
+                                    extcall_id: TestExtCallId(
+                                        "action_with_instance_retry",
+                                    ),
+                                    args: [
+                                        RegisterId(
+                                            0,
+                                        ),
+                                    ],
+                                    resume: StateId(
+                                        1,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                Await {
+                                    dst: RegisterId(
+                                        1,
+                                    ),
+                                    src: RegisterId(
+                                        1,
+                                    ),
+                                    resume: StateId(
+                                        2,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                ExtCall {
+                                    dst: RegisterId(
+                                        2,
+                                    ),
+                                    extcall_id: TestExtCallId(
+                                        "action_with_instance_timeout",
+                                    ),
+                                    args: [
+                                        RegisterId(
+                                            1,
+                                        ),
+                                    ],
+                                    resume: StateId(
+                                        3,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                Await {
+                                    dst: RegisterId(
+                                        2,
+                                    ),
+                                    src: RegisterId(
+                                        2,
+                                    ),
+                                    resume: StateId(
+                                        4,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                ExtCall {
+                                    dst: RegisterId(
+                                        3,
+                                    ),
+                                    extcall_id: TestExtCallId(
+                                        "action_with_both_policies",
+                                    ),
+                                    args: [
+                                        RegisterId(
+                                            2,
+                                        ),
+                                    ],
+                                    resume: StateId(
+                                        5,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                Await {
+                                    dst: RegisterId(
+                                        3,
+                                    ),
+                                    src: RegisterId(
+                                        3,
+                                    ),
+                                    resume: StateId(
+                                        6,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                Return {
+                                    src: RegisterId(
+                                        3,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                ],
+                num_regs: 4,
+            },
+        ],
+    },
+)

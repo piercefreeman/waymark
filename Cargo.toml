@@ -56,6 +56,7 @@ waymark-secret-string = { path = "crates/lib/secret-string" }
 waymark-smoke-sources = { path = "crates/lib/smoke-sources" }
 waymark-support-integration = { path = "crates/lib/support-integration" }
 waymark-support-test = { path = "crates/lib/support-test" }
+waymark-support-test-python = { path = "crates/lib/support-test-python" }
 waymark-synthetic-exception = { path = "crates/lib/synthetic-exception" }
 waymark-tick-loop = { path = "crates/lib/tick-loop" }
 waymark-timed = { path = "crates/lib/timed" }
@@ -109,6 +110,7 @@ waymark-workflow-registry-backend = { path = "crates/lib/workflow-registry-backe
 
 anyhow = "1"
 async-stream = "0.3"
+async-walkdir = "2"
 axum = "0.8"
 chrono = { version = "0.4", default-features = false }
 clap = "4.5"
@@ -124,6 +126,7 @@ futures-core = "0.3"
 futures-util = "0.3"
 http-body-util = "0.1"
 index_type = "0.4"
+insta = "1"
 metrics = "0.24"
 metrics-exporter-prometheus = "0.18"
 metrics-util = "0.20"

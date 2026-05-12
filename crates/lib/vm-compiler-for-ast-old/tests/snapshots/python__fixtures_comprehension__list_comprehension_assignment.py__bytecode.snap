@@ -1,0 +1,13 @@
+---
+source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
+expression: bytecode for python/tests/fixtures_comprehension/list_comprehension_assignment.py
+---
+Err(
+    FunctionCompiler(
+        Unsupported(
+            Expression {
+                kind: "List",
+            },
+        ),
+    ),
+)

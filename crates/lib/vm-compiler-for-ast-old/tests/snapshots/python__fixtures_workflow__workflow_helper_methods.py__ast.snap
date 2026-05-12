@@ -1,0 +1,515 @@
+---
+source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
+expression: ast for python/tests/fixtures_workflow/workflow_helper_methods.py
+---
+Program {
+    functions: [
+        Spanned {
+            value: FunctionDef {
+                name: "main",
+                io: Spanned {
+                    value: IoDecl {
+                        inputs: [
+                            "key",
+                            "base",
+                            "factor",
+                        ],
+                        outputs: [],
+                    },
+                    span: Span {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    },
+                },
+                body: Spanned {
+                    value: Block {
+                        statements: [
+                            Spanned {
+                                value: Assignment {
+                                    targets: [
+                                        "data",
+                                    ],
+                                    value: Spanned {
+                                        value: ActionCall {
+                                            call: ActionCall {
+                                                action_name: "fetch_data",
+                                                kwargs: [
+                                                    Kwarg {
+                                                        name: "key",
+                                                        value: Spanned {
+                                                            value: Variable {
+                                                                name: "key",
+                                                            },
+                                                            span: Span {
+                                                                start_line: 3,
+                                                                start_col: 32,
+                                                                end_line: 3,
+                                                                end_col: 35,
+                                                            },
+                                                        },
+                                                    },
+                                                ],
+                                                policies: [],
+                                                module_name: Some(
+                                                    "workflow_helper_methods",
+                                                ),
+                                            },
+                                        },
+                                        span: Span {
+                                            start_line: 3,
+                                            start_col: 4,
+                                            end_line: 3,
+                                            end_col: 36,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 3,
+                                    start_col: 4,
+                                    end_line: 3,
+                                    end_col: 36,
+                                },
+                            },
+                            Spanned {
+                                value: Assignment {
+                                    targets: [
+                                        "multiplier",
+                                    ],
+                                    value: Spanned {
+                                        value: FunctionCall {
+                                            call: FunctionCall {
+                                                name: "compute_multiplier",
+                                                args: [],
+                                                kwargs: [
+                                                    Kwarg {
+                                                        name: "base",
+                                                        value: Spanned {
+                                                            value: Variable {
+                                                                name: "base",
+                                                            },
+                                                            span: Span {
+                                                                start_line: 6,
+                                                                start_col: 46,
+                                                                end_line: 6,
+                                                                end_col: 50,
+                                                            },
+                                                        },
+                                                    },
+                                                    Kwarg {
+                                                        name: "factor",
+                                                        value: Spanned {
+                                                            value: Variable {
+                                                                name: "factor",
+                                                            },
+                                                            span: Span {
+                                                                start_line: 6,
+                                                                start_col: 59,
+                                                                end_line: 6,
+                                                                end_col: 65,
+                                                            },
+                                                        },
+                                                    },
+                                                ],
+                                                global_function: None,
+                                            },
+                                        },
+                                        span: Span {
+                                            start_line: 6,
+                                            start_col: 17,
+                                            end_line: 6,
+                                            end_col: 66,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 6,
+                                    start_col: 4,
+                                    end_line: 6,
+                                    end_col: 66,
+                                },
+                            },
+                            Spanned {
+                                value: Assignment {
+                                    targets: [
+                                        "processed",
+                                    ],
+                                    value: Spanned {
+                                        value: ActionCall {
+                                            call: ActionCall {
+                                                action_name: "process_data",
+                                                kwargs: [
+                                                    Kwarg {
+                                                        name: "data",
+                                                        value: Spanned {
+                                                            value: Variable {
+                                                                name: "data",
+                                                            },
+                                                            span: Span {
+                                                                start_line: 9,
+                                                                start_col: 40,
+                                                                end_line: 9,
+                                                                end_col: 44,
+                                                            },
+                                                        },
+                                                    },
+                                                    Kwarg {
+                                                        name: "multiplier",
+                                                        value: Spanned {
+                                                            value: Variable {
+                                                                name: "multiplier",
+                                                            },
+                                                            span: Span {
+                                                                start_line: 9,
+                                                                start_col: 57,
+                                                                end_line: 9,
+                                                                end_col: 67,
+                                                            },
+                                                        },
+                                                    },
+                                                ],
+                                                policies: [],
+                                                module_name: Some(
+                                                    "workflow_helper_methods",
+                                                ),
+                                            },
+                                        },
+                                        span: Span {
+                                            start_line: 9,
+                                            start_col: 4,
+                                            end_line: 9,
+                                            end_col: 68,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 9,
+                                    start_col: 4,
+                                    end_line: 9,
+                                    end_col: 68,
+                                },
+                            },
+                            Spanned {
+                                value: Assignment {
+                                    targets: [
+                                        "result",
+                                    ],
+                                    value: Spanned {
+                                        value: FunctionCall {
+                                            call: FunctionCall {
+                                                name: "format_result",
+                                                args: [],
+                                                kwargs: [
+                                                    Kwarg {
+                                                        name: "value",
+                                                        value: Spanned {
+                                                            value: Variable {
+                                                                name: "processed",
+                                                            },
+                                                            span: Span {
+                                                                start_line: 12,
+                                                                start_col: 38,
+                                                                end_line: 12,
+                                                                end_col: 47,
+                                                            },
+                                                        },
+                                                    },
+                                                ],
+                                                global_function: None,
+                                            },
+                                        },
+                                        span: Span {
+                                            start_line: 12,
+                                            start_col: 13,
+                                            end_line: 12,
+                                            end_col: 48,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 12,
+                                    start_col: 4,
+                                    end_line: 12,
+                                    end_col: 48,
+                                },
+                            },
+                            Spanned {
+                                value: Return {
+                                    value: Some(
+                                        Spanned {
+                                            value: Variable {
+                                                name: "result",
+                                            },
+                                            span: Span {
+                                                start_line: 14,
+                                                start_col: 11,
+                                                end_line: 14,
+                                                end_col: 17,
+                                            },
+                                        },
+                                    ),
+                                },
+                                span: Span {
+                                    start_line: 14,
+                                    start_col: 4,
+                                    end_line: 14,
+                                    end_col: 17,
+                                },
+                            },
+                        ],
+                    },
+                    span: Span {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    },
+                },
+            },
+            span: Span {
+                start_line: 1,
+                start_col: 0,
+                end_line: 14,
+                end_col: 17,
+            },
+        },
+        Spanned {
+            value: FunctionDef {
+                name: "compute_multiplier",
+                io: Spanned {
+                    value: IoDecl {
+                        inputs: [
+                            "base",
+                            "factor",
+                        ],
+                        outputs: [],
+                    },
+                    span: Span {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    },
+                },
+                body: Spanned {
+                    value: Block {
+                        statements: [
+                            Spanned {
+                                value: ExprStmt {
+                                    expr: Spanned {
+                                        value: Literal {
+                                            value: String(
+                                                "Pure Python helper - computes a value synchronously.",
+                                            ),
+                                        },
+                                        span: Span {
+                                            start_line: 2,
+                                            start_col: 4,
+                                            end_line: 2,
+                                            end_col: 62,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 2,
+                                    start_col: 4,
+                                    end_line: 2,
+                                    end_col: 62,
+                                },
+                            },
+                            Spanned {
+                                value: Return {
+                                    value: Some(
+                                        Spanned {
+                                            value: BinaryOp {
+                                                left: Spanned {
+                                                    value: Variable {
+                                                        name: "base",
+                                                    },
+                                                    span: Span {
+                                                        start_line: 3,
+                                                        start_col: 11,
+                                                        end_line: 3,
+                                                        end_col: 15,
+                                                    },
+                                                },
+                                                op: Mul,
+                                                right: Spanned {
+                                                    value: Variable {
+                                                        name: "factor",
+                                                    },
+                                                    span: Span {
+                                                        start_line: 3,
+                                                        start_col: 18,
+                                                        end_line: 3,
+                                                        end_col: 24,
+                                                    },
+                                                },
+                                            },
+                                            span: Span {
+                                                start_line: 3,
+                                                start_col: 11,
+                                                end_line: 3,
+                                                end_col: 24,
+                                            },
+                                        },
+                                    ),
+                                },
+                                span: Span {
+                                    start_line: 3,
+                                    start_col: 4,
+                                    end_line: 3,
+                                    end_col: 24,
+                                },
+                            },
+                        ],
+                    },
+                    span: Span {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    },
+                },
+            },
+            span: Span {
+                start_line: 1,
+                start_col: 0,
+                end_line: 3,
+                end_col: 24,
+            },
+        },
+        Spanned {
+            value: FunctionDef {
+                name: "format_result",
+                io: Spanned {
+                    value: IoDecl {
+                        inputs: [
+                            "value",
+                        ],
+                        outputs: [],
+                    },
+                    span: Span {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    },
+                },
+                body: Spanned {
+                    value: Block {
+                        statements: [
+                            Spanned {
+                                value: ExprStmt {
+                                    expr: Spanned {
+                                        value: Literal {
+                                            value: String(
+                                                "Pure Python helper - formats the final result.",
+                                            ),
+                                        },
+                                        span: Span {
+                                            start_line: 2,
+                                            start_col: 4,
+                                            end_line: 2,
+                                            end_col: 56,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 2,
+                                    start_col: 4,
+                                    end_line: 2,
+                                    end_col: 56,
+                                },
+                            },
+                            Spanned {
+                                value: Return {
+                                    value: Some(
+                                        Spanned {
+                                            value: BinaryOp {
+                                                left: Spanned {
+                                                    value: BinaryOp {
+                                                        left: Spanned {
+                                                            value: Literal {
+                                                                value: String(
+                                                                    "[RESULT: ",
+                                                                ),
+                                                            },
+                                                            span: Span {
+                                                                start_line: 3,
+                                                                start_col: 11,
+                                                                end_line: 3,
+                                                                end_col: 22,
+                                                            },
+                                                        },
+                                                        op: Add,
+                                                        right: Spanned {
+                                                            value: Variable {
+                                                                name: "value",
+                                                            },
+                                                            span: Span {
+                                                                start_line: 3,
+                                                                start_col: 25,
+                                                                end_line: 3,
+                                                                end_col: 30,
+                                                            },
+                                                        },
+                                                    },
+                                                    span: Span {
+                                                        start_line: 3,
+                                                        start_col: 11,
+                                                        end_line: 3,
+                                                        end_col: 30,
+                                                    },
+                                                },
+                                                op: Add,
+                                                right: Spanned {
+                                                    value: Literal {
+                                                        value: String(
+                                                            "]",
+                                                        ),
+                                                    },
+                                                    span: Span {
+                                                        start_line: 3,
+                                                        start_col: 33,
+                                                        end_line: 3,
+                                                        end_col: 36,
+                                                    },
+                                                },
+                                            },
+                                            span: Span {
+                                                start_line: 3,
+                                                start_col: 11,
+                                                end_line: 3,
+                                                end_col: 36,
+                                            },
+                                        },
+                                    ),
+                                },
+                                span: Span {
+                                    start_line: 3,
+                                    start_col: 4,
+                                    end_line: 3,
+                                    end_col: 36,
+                                },
+                            },
+                        ],
+                    },
+                    span: Span {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    },
+                },
+            },
+            span: Span {
+                start_line: 1,
+                start_col: 0,
+                end_line: 3,
+                end_col: 36,
+            },
+        },
+    ],
+}

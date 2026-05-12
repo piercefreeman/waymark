@@ -1,0 +1,141 @@
+---
+source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
+expression: ast for python/tests/fixtures_gather/gather_listcomp.py
+---
+Program {
+    functions: [
+        Spanned {
+            value: FunctionDef {
+                name: "main",
+                io: Spanned {
+                    value: IoDecl {
+                        inputs: [
+                            "items",
+                            "multiplier",
+                        ],
+                        outputs: [],
+                    },
+                    span: Span {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    },
+                },
+                body: Spanned {
+                    value: Block {
+                        statements: [
+                            Spanned {
+                                value: Assignment {
+                                    targets: [
+                                        "results",
+                                    ],
+                                    value: Spanned {
+                                        value: SpreadExpr {
+                                            collection: Spanned {
+                                                value: Variable {
+                                                    name: "items",
+                                                },
+                                                span: Span {
+                                                    start_line: 4,
+                                                    start_col: 69,
+                                                    end_line: 4,
+                                                    end_col: 74,
+                                                },
+                                            },
+                                            loop_var: "item",
+                                            action: ActionCall {
+                                                action_name: "process_item",
+                                                kwargs: [
+                                                    Kwarg {
+                                                        name: "item",
+                                                        value: Spanned {
+                                                            value: Variable {
+                                                                name: "item",
+                                                            },
+                                                            span: Span {
+                                                                start_line: 4,
+                                                                start_col: 28,
+                                                                end_line: 4,
+                                                                end_col: 32,
+                                                            },
+                                                        },
+                                                    },
+                                                    Kwarg {
+                                                        name: "multiplier",
+                                                        value: Spanned {
+                                                            value: Variable {
+                                                                name: "multiplier",
+                                                            },
+                                                            span: Span {
+                                                                start_line: 4,
+                                                                start_col: 45,
+                                                                end_line: 4,
+                                                                end_col: 55,
+                                                            },
+                                                        },
+                                                    },
+                                                ],
+                                                policies: [],
+                                                module_name: Some(
+                                                    "gather_listcomp",
+                                                ),
+                                            },
+                                        },
+                                        span: Span {
+                                            start_line: 3,
+                                            start_col: 4,
+                                            end_line: 6,
+                                            end_col: 5,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 3,
+                                    start_col: 4,
+                                    end_line: 6,
+                                    end_col: 5,
+                                },
+                            },
+                            Spanned {
+                                value: Return {
+                                    value: Some(
+                                        Spanned {
+                                            value: Variable {
+                                                name: "results",
+                                            },
+                                            span: Span {
+                                                start_line: 7,
+                                                start_col: 11,
+                                                end_line: 7,
+                                                end_col: 18,
+                                            },
+                                        },
+                                    ),
+                                },
+                                span: Span {
+                                    start_line: 7,
+                                    start_col: 4,
+                                    end_line: 7,
+                                    end_col: 18,
+                                },
+                            },
+                        ],
+                    },
+                    span: Span {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    },
+                },
+            },
+            span: Span {
+                start_line: 1,
+                start_col: 0,
+                end_line: 7,
+                end_col: 18,
+            },
+        },
+    ],
+}

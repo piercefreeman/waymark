@@ -1,0 +1,167 @@
+---
+source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
+expression: ast for python/tests/fixtures_actions/action_no_assignment.py
+---
+Program {
+    functions: [
+        Spanned {
+            value: FunctionDef {
+                name: "main",
+                io: Spanned {
+                    value: IoDecl {
+                        inputs: [],
+                        outputs: [],
+                    },
+                    span: Span {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    },
+                },
+                body: Spanned {
+                    value: Block {
+                        statements: [
+                            Spanned {
+                                value: ActionCall {
+                                    call: ActionCall {
+                                        action_name: "log_event",
+                                        kwargs: [
+                                            Kwarg {
+                                                name: "message",
+                                                value: Spanned {
+                                                    value: Literal {
+                                                        value: String(
+                                                            "starting",
+                                                        ),
+                                                    },
+                                                    span: Span {
+                                                        start_line: 3,
+                                                        start_col: 28,
+                                                        end_line: 3,
+                                                        end_col: 38,
+                                                    },
+                                                },
+                                            },
+                                        ],
+                                        policies: [],
+                                        module_name: Some(
+                                            "action_no_assignment",
+                                        ),
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 3,
+                                    start_col: 4,
+                                    end_line: 3,
+                                    end_col: 39,
+                                },
+                            },
+                            Spanned {
+                                value: Assignment {
+                                    targets: [
+                                        "result",
+                                    ],
+                                    value: Spanned {
+                                        value: ActionCall {
+                                            call: ActionCall {
+                                                action_name: "get_final_value",
+                                                kwargs: [],
+                                                policies: [],
+                                                module_name: Some(
+                                                    "action_no_assignment",
+                                                ),
+                                            },
+                                        },
+                                        span: Span {
+                                            start_line: 4,
+                                            start_col: 4,
+                                            end_line: 4,
+                                            end_col: 36,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 4,
+                                    start_col: 4,
+                                    end_line: 4,
+                                    end_col: 36,
+                                },
+                            },
+                            Spanned {
+                                value: ActionCall {
+                                    call: ActionCall {
+                                        action_name: "log_event",
+                                        kwargs: [
+                                            Kwarg {
+                                                name: "message",
+                                                value: Spanned {
+                                                    value: Literal {
+                                                        value: String(
+                                                            "finished",
+                                                        ),
+                                                    },
+                                                    span: Span {
+                                                        start_line: 5,
+                                                        start_col: 28,
+                                                        end_line: 5,
+                                                        end_col: 38,
+                                                    },
+                                                },
+                                            },
+                                        ],
+                                        policies: [],
+                                        module_name: Some(
+                                            "action_no_assignment",
+                                        ),
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 5,
+                                    start_col: 4,
+                                    end_line: 5,
+                                    end_col: 39,
+                                },
+                            },
+                            Spanned {
+                                value: Return {
+                                    value: Some(
+                                        Spanned {
+                                            value: Variable {
+                                                name: "result",
+                                            },
+                                            span: Span {
+                                                start_line: 6,
+                                                start_col: 11,
+                                                end_line: 6,
+                                                end_col: 17,
+                                            },
+                                        },
+                                    ),
+                                },
+                                span: Span {
+                                    start_line: 6,
+                                    start_col: 4,
+                                    end_line: 6,
+                                    end_col: 17,
+                                },
+                            },
+                        ],
+                    },
+                    span: Span {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    },
+                },
+            },
+            span: Span {
+                start_line: 1,
+                start_col: 0,
+                end_line: 6,
+                end_col: 17,
+            },
+        },
+    ],
+}

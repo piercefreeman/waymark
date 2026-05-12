@@ -1,0 +1,13 @@
+---
+source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
+expression: bytecode for python/tests/fixtures_control_flow/if_elif_else.py
+---
+Err(
+    FunctionCompiler(
+        Unsupported(
+            BinaryOperator {
+                op: Eq,
+            },
+        ),
+    ),
+)

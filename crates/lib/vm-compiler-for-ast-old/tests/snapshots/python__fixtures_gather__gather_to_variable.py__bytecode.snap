@@ -1,0 +1,149 @@
+---
+source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
+expression: bytecode for python/tests/fixtures_gather/gather_to_variable.py
+---
+Ok(
+    Executable {
+        functions: [
+            Function {
+                states: [
+                    State {
+                        instructions: [
+                            CoreSet(
+                                ExtCall {
+                                    dst: RegisterId(
+                                        1,
+                                    ),
+                                    extcall_id: TestExtCallId(
+                                        "fetch_value_1",
+                                    ),
+                                    args: [],
+                                    resume: StateId(
+                                        1,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                ExtCall {
+                                    dst: RegisterId(
+                                        2,
+                                    ),
+                                    extcall_id: TestExtCallId(
+                                        "fetch_value_2",
+                                    ),
+                                    args: [],
+                                    resume: StateId(
+                                        2,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                ExtCall {
+                                    dst: RegisterId(
+                                        3,
+                                    ),
+                                    extcall_id: TestExtCallId(
+                                        "fetch_value_3",
+                                    ),
+                                    args: [],
+                                    resume: StateId(
+                                        3,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                Await {
+                                    dst: RegisterId(
+                                        1,
+                                    ),
+                                    src: RegisterId(
+                                        1,
+                                    ),
+                                    resume: StateId(
+                                        4,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                Await {
+                                    dst: RegisterId(
+                                        2,
+                                    ),
+                                    src: RegisterId(
+                                        2,
+                                    ),
+                                    resume: StateId(
+                                        5,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                Await {
+                                    dst: RegisterId(
+                                        3,
+                                    ),
+                                    src: RegisterId(
+                                        3,
+                                    ),
+                                    resume: StateId(
+                                        6,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            PureSet(
+                                MakeList {
+                                    dst: RegisterId(
+                                        0,
+                                    ),
+                                    items: [
+                                        RegisterId(
+                                            1,
+                                        ),
+                                        RegisterId(
+                                            2,
+                                        ),
+                                        RegisterId(
+                                            3,
+                                        ),
+                                    ],
+                                },
+                            ),
+                            CoreSet(
+                                Return {
+                                    src: RegisterId(
+                                        0,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                ],
+                num_regs: 4,
+            },
+        ],
+    },
+)

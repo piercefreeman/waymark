@@ -1,0 +1,123 @@
+---
+source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
+expression: ast for python/tests/fixtures_models/pydantic_return_direct.py
+---
+Program {
+    functions: [
+        Spanned {
+            value: FunctionDef {
+                name: "main",
+                io: Spanned {
+                    value: IoDecl {
+                        inputs: [],
+                        outputs: [],
+                    },
+                    span: Span {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    },
+                },
+                body: Spanned {
+                    value: Block {
+                        statements: [
+                            Spanned {
+                                value: Return {
+                                    value: Some(
+                                        Spanned {
+                                            value: Dict {
+                                                entries: [
+                                                    DictEntry {
+                                                        key: Spanned {
+                                                            value: Literal {
+                                                                value: String(
+                                                                    "value",
+                                                                ),
+                                                            },
+                                                            span: Span {
+                                                                start_line: 0,
+                                                                start_col: 0,
+                                                                end_line: 0,
+                                                                end_col: 0,
+                                                            },
+                                                        },
+                                                        value: Spanned {
+                                                            value: Literal {
+                                                                value: Int(
+                                                                    1,
+                                                                ),
+                                                            },
+                                                            span: Span {
+                                                                start_line: 2,
+                                                                start_col: 30,
+                                                                end_line: 2,
+                                                                end_col: 31,
+                                                            },
+                                                        },
+                                                    },
+                                                    DictEntry {
+                                                        key: Spanned {
+                                                            value: Literal {
+                                                                value: String(
+                                                                    "message",
+                                                                ),
+                                                            },
+                                                            span: Span {
+                                                                start_line: 0,
+                                                                start_col: 0,
+                                                                end_line: 0,
+                                                                end_col: 0,
+                                                            },
+                                                        },
+                                                        value: Spanned {
+                                                            value: Literal {
+                                                                value: String(
+                                                                    "ok",
+                                                                ),
+                                                            },
+                                                            span: Span {
+                                                                start_line: 2,
+                                                                start_col: 41,
+                                                                end_line: 2,
+                                                                end_col: 45,
+                                                            },
+                                                        },
+                                                    },
+                                                ],
+                                            },
+                                            span: Span {
+                                                start_line: 2,
+                                                start_col: 11,
+                                                end_line: 2,
+                                                end_col: 46,
+                                            },
+                                        },
+                                    ),
+                                },
+                                span: Span {
+                                    start_line: 2,
+                                    start_col: 4,
+                                    end_line: 2,
+                                    end_col: 46,
+                                },
+                            },
+                        ],
+                    },
+                    span: Span {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    },
+                },
+            },
+            span: Span {
+                start_line: 1,
+                start_col: 0,
+                end_line: 2,
+                end_col: 46,
+            },
+        },
+    ],
+}

@@ -1,0 +1,235 @@
+---
+source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
+expression: ast for python/tests/fixtures_try_except/try_multiple_calls.py
+---
+Program {
+    functions: [
+        Spanned {
+            value: FunctionDef {
+                name: "main",
+                io: Spanned {
+                    value: IoDecl {
+                        inputs: [
+                            "value",
+                        ],
+                        outputs: [],
+                    },
+                    span: Span {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    },
+                },
+                body: Spanned {
+                    value: Block {
+                        statements: [
+                            Spanned {
+                                value: TryExcept {
+                                    handlers: [
+                                        Spanned {
+                                            value: ExceptHandler {
+                                                exception_types: [
+                                                    "ValueError",
+                                                ],
+                                                exception_var: None,
+                                                body: Spanned {
+                                                    value: Block {
+                                                        statements: [
+                                                            Spanned {
+                                                                value: Return {
+                                                                    value: Some(
+                                                                        Spanned {
+                                                                            value: Literal {
+                                                                                value: String(
+                                                                                    "error",
+                                                                                ),
+                                                                            },
+                                                                            span: Span {
+                                                                                start_line: 8,
+                                                                                start_col: 15,
+                                                                                end_line: 8,
+                                                                                end_col: 22,
+                                                                            },
+                                                                        },
+                                                                    ),
+                                                                },
+                                                                span: Span {
+                                                                    start_line: 8,
+                                                                    start_col: 8,
+                                                                    end_line: 8,
+                                                                    end_col: 22,
+                                                                },
+                                                            },
+                                                        ],
+                                                    },
+                                                    span: Span {
+                                                        start_line: 7,
+                                                        start_col: 4,
+                                                        end_line: 8,
+                                                        end_col: 22,
+                                                    },
+                                                },
+                                            },
+                                            span: Span {
+                                                start_line: 7,
+                                                start_col: 4,
+                                                end_line: 8,
+                                                end_col: 22,
+                                            },
+                                        },
+                                    ],
+                                    try_block: Spanned {
+                                        value: Block {
+                                            statements: [
+                                                Spanned {
+                                                    value: Assignment {
+                                                        targets: [
+                                                            "a",
+                                                        ],
+                                                        value: Spanned {
+                                                            value: ActionCall {
+                                                                call: ActionCall {
+                                                                    action_name: "risky_step_one",
+                                                                    kwargs: [
+                                                                        Kwarg {
+                                                                            name: "value",
+                                                                            value: Spanned {
+                                                                                value: Variable {
+                                                                                    name: "value",
+                                                                                },
+                                                                                span: Span {
+                                                                                    start_line: 4,
+                                                                                    start_col: 39,
+                                                                                    end_line: 4,
+                                                                                    end_col: 44,
+                                                                                },
+                                                                            },
+                                                                        },
+                                                                    ],
+                                                                    policies: [],
+                                                                    module_name: Some(
+                                                                        "try_multiple_calls",
+                                                                    ),
+                                                                },
+                                                            },
+                                                            span: Span {
+                                                                start_line: 4,
+                                                                start_col: 8,
+                                                                end_line: 4,
+                                                                end_col: 45,
+                                                            },
+                                                        },
+                                                    },
+                                                    span: Span {
+                                                        start_line: 4,
+                                                        start_col: 8,
+                                                        end_line: 4,
+                                                        end_col: 45,
+                                                    },
+                                                },
+                                                Spanned {
+                                                    value: Assignment {
+                                                        targets: [
+                                                            "b",
+                                                        ],
+                                                        value: Spanned {
+                                                            value: ActionCall {
+                                                                call: ActionCall {
+                                                                    action_name: "risky_step_two",
+                                                                    kwargs: [
+                                                                        Kwarg {
+                                                                            name: "value",
+                                                                            value: Spanned {
+                                                                                value: Variable {
+                                                                                    name: "a",
+                                                                                },
+                                                                                span: Span {
+                                                                                    start_line: 5,
+                                                                                    start_col: 39,
+                                                                                    end_line: 5,
+                                                                                    end_col: 40,
+                                                                                },
+                                                                            },
+                                                                        },
+                                                                    ],
+                                                                    policies: [],
+                                                                    module_name: Some(
+                                                                        "try_multiple_calls",
+                                                                    ),
+                                                                },
+                                                            },
+                                                            span: Span {
+                                                                start_line: 5,
+                                                                start_col: 8,
+                                                                end_line: 5,
+                                                                end_col: 41,
+                                                            },
+                                                        },
+                                                    },
+                                                    span: Span {
+                                                        start_line: 5,
+                                                        start_col: 8,
+                                                        end_line: 5,
+                                                        end_col: 41,
+                                                    },
+                                                },
+                                                Spanned {
+                                                    value: Return {
+                                                        value: Some(
+                                                            Spanned {
+                                                                value: Variable {
+                                                                    name: "b",
+                                                                },
+                                                                span: Span {
+                                                                    start_line: 6,
+                                                                    start_col: 15,
+                                                                    end_line: 6,
+                                                                    end_col: 16,
+                                                                },
+                                                            },
+                                                        ),
+                                                    },
+                                                    span: Span {
+                                                        start_line: 6,
+                                                        start_col: 8,
+                                                        end_line: 6,
+                                                        end_col: 16,
+                                                    },
+                                                },
+                                            ],
+                                        },
+                                        span: Span {
+                                            start_line: 2,
+                                            start_col: 4,
+                                            end_line: 8,
+                                            end_col: 22,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 2,
+                                    start_col: 4,
+                                    end_line: 8,
+                                    end_col: 22,
+                                },
+                            },
+                        ],
+                    },
+                    span: Span {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    },
+                },
+            },
+            span: Span {
+                start_line: 1,
+                start_col: 0,
+                end_line: 8,
+                end_col: 22,
+            },
+        },
+    ],
+}

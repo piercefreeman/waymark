@@ -1,0 +1,11 @@
+---
+source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
+expression: bytecode for python/tests/fixtures_try_except/try_stateful_outputs.py
+---
+Err(
+    FunctionCompiler(
+        LiteralLowering {
+            error: UnsupportedLiteral,
+        },
+    ),
+)

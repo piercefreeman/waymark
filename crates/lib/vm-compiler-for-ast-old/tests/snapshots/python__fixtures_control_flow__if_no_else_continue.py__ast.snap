@@ -1,0 +1,282 @@
+---
+source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
+expression: ast for python/tests/fixtures_control_flow/if_no_else_continue.py
+---
+Program {
+    functions: [
+        Spanned {
+            value: FunctionDef {
+                name: "main",
+                io: Spanned {
+                    value: IoDecl {
+                        inputs: [],
+                        outputs: [],
+                    },
+                    span: Span {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    },
+                },
+                body: Spanned {
+                    value: Block {
+                        statements: [
+                            Spanned {
+                                value: Assignment {
+                                    targets: [
+                                        "response",
+                                    ],
+                                    value: Spanned {
+                                        value: ActionCall {
+                                            call: ActionCall {
+                                                action_name: "get_items",
+                                                kwargs: [],
+                                                policies: [],
+                                                module_name: Some(
+                                                    "if_no_else_continue",
+                                                ),
+                                            },
+                                        },
+                                        span: Span {
+                                            start_line: 2,
+                                            start_col: 4,
+                                            end_line: 2,
+                                            end_col: 32,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 2,
+                                    start_col: 4,
+                                    end_line: 2,
+                                    end_col: 32,
+                                },
+                            },
+                            Spanned {
+                                value: Assignment {
+                                    targets: [
+                                        "count",
+                                    ],
+                                    value: Spanned {
+                                        value: Literal {
+                                            value: Int(
+                                                0,
+                                            ),
+                                        },
+                                        span: Span {
+                                            start_line: 4,
+                                            start_col: 12,
+                                            end_line: 4,
+                                            end_col: 13,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 4,
+                                    start_col: 4,
+                                    end_line: 4,
+                                    end_col: 13,
+                                },
+                            },
+                            Spanned {
+                                value: Conditional {
+                                    if_branch: Spanned {
+                                        value: IfBranch {
+                                            condition: Spanned {
+                                                value: Dot {
+                                                    object: Spanned {
+                                                        value: Variable {
+                                                            name: "response",
+                                                        },
+                                                        span: Span {
+                                                            start_line: 5,
+                                                            start_col: 7,
+                                                            end_line: 5,
+                                                            end_col: 15,
+                                                        },
+                                                    },
+                                                    attribute: "items",
+                                                },
+                                                span: Span {
+                                                    start_line: 5,
+                                                    start_col: 7,
+                                                    end_line: 5,
+                                                    end_col: 21,
+                                                },
+                                            },
+                                            body: Spanned {
+                                                value: Block {
+                                                    statements: [
+                                                        Spanned {
+                                                            value: Assignment {
+                                                                targets: [
+                                                                    "count",
+                                                                ],
+                                                                value: Spanned {
+                                                                    value: ActionCall {
+                                                                        call: ActionCall {
+                                                                            action_name: "process_items",
+                                                                            kwargs: [
+                                                                                Kwarg {
+                                                                                    name: "items",
+                                                                                    value: Spanned {
+                                                                                        value: Dot {
+                                                                                            object: Spanned {
+                                                                                                value: Variable {
+                                                                                                    name: "response",
+                                                                                                },
+                                                                                                span: Span {
+                                                                                                    start_line: 7,
+                                                                                                    start_col: 36,
+                                                                                                    end_line: 7,
+                                                                                                    end_col: 44,
+                                                                                                },
+                                                                                            },
+                                                                                            attribute: "items",
+                                                                                        },
+                                                                                        span: Span {
+                                                                                            start_line: 7,
+                                                                                            start_col: 36,
+                                                                                            end_line: 7,
+                                                                                            end_col: 50,
+                                                                                        },
+                                                                                    },
+                                                                                },
+                                                                            ],
+                                                                            policies: [],
+                                                                            module_name: Some(
+                                                                                "if_no_else_continue",
+                                                                            ),
+                                                                        },
+                                                                    },
+                                                                    span: Span {
+                                                                        start_line: 7,
+                                                                        start_col: 8,
+                                                                        end_line: 7,
+                                                                        end_col: 51,
+                                                                    },
+                                                                },
+                                                            },
+                                                            span: Span {
+                                                                start_line: 7,
+                                                                start_col: 8,
+                                                                end_line: 7,
+                                                                end_col: 51,
+                                                            },
+                                                        },
+                                                    ],
+                                                },
+                                                span: Span {
+                                                    start_line: 5,
+                                                    start_col: 4,
+                                                    end_line: 7,
+                                                    end_col: 51,
+                                                },
+                                            },
+                                        },
+                                        span: Span {
+                                            start_line: 5,
+                                            start_col: 4,
+                                            end_line: 7,
+                                            end_col: 51,
+                                        },
+                                    },
+                                    elif_branches: [],
+                                    else_branch: None,
+                                },
+                                span: Span {
+                                    start_line: 5,
+                                    start_col: 4,
+                                    end_line: 7,
+                                    end_col: 51,
+                                },
+                            },
+                            Spanned {
+                                value: Assignment {
+                                    targets: [
+                                        "result",
+                                    ],
+                                    value: Spanned {
+                                        value: ActionCall {
+                                            call: ActionCall {
+                                                action_name: "finalize",
+                                                kwargs: [
+                                                    Kwarg {
+                                                        name: "count",
+                                                        value: Spanned {
+                                                            value: Variable {
+                                                                name: "count",
+                                                            },
+                                                            span: Span {
+                                                                start_line: 10,
+                                                                start_col: 28,
+                                                                end_line: 10,
+                                                                end_col: 33,
+                                                            },
+                                                        },
+                                                    },
+                                                ],
+                                                policies: [],
+                                                module_name: Some(
+                                                    "if_no_else_continue",
+                                                ),
+                                            },
+                                        },
+                                        span: Span {
+                                            start_line: 10,
+                                            start_col: 4,
+                                            end_line: 10,
+                                            end_col: 34,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 10,
+                                    start_col: 4,
+                                    end_line: 10,
+                                    end_col: 34,
+                                },
+                            },
+                            Spanned {
+                                value: Return {
+                                    value: Some(
+                                        Spanned {
+                                            value: Variable {
+                                                name: "result",
+                                            },
+                                            span: Span {
+                                                start_line: 11,
+                                                start_col: 11,
+                                                end_line: 11,
+                                                end_col: 17,
+                                            },
+                                        },
+                                    ),
+                                },
+                                span: Span {
+                                    start_line: 11,
+                                    start_col: 4,
+                                    end_line: 11,
+                                    end_col: 17,
+                                },
+                            },
+                        ],
+                    },
+                    span: Span {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    },
+                },
+            },
+            span: Span {
+                start_line: 1,
+                start_col: 0,
+                end_line: 11,
+                end_col: 17,
+            },
+        },
+    ],
+}

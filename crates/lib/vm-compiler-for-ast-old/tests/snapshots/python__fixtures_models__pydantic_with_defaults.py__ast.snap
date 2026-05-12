@@ -1,0 +1,204 @@
+---
+source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
+expression: ast for python/tests/fixtures_models/pydantic_with_defaults.py
+---
+Program {
+    functions: [
+        Spanned {
+            value: FunctionDef {
+                name: "main",
+                io: Spanned {
+                    value: IoDecl {
+                        inputs: [],
+                        outputs: [],
+                    },
+                    span: Span {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    },
+                },
+                body: Spanned {
+                    value: Block {
+                        statements: [
+                            Spanned {
+                                value: Assignment {
+                                    targets: [
+                                        "value",
+                                    ],
+                                    value: Spanned {
+                                        value: ActionCall {
+                                            call: ActionCall {
+                                                action_name: "compute_value",
+                                                kwargs: [],
+                                                policies: [],
+                                                module_name: Some(
+                                                    "pydantic_with_defaults",
+                                                ),
+                                            },
+                                        },
+                                        span: Span {
+                                            start_line: 2,
+                                            start_col: 4,
+                                            end_line: 2,
+                                            end_col: 33,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 2,
+                                    start_col: 4,
+                                    end_line: 2,
+                                    end_col: 33,
+                                },
+                            },
+                            Spanned {
+                                value: Assignment {
+                                    targets: [
+                                        "result",
+                                    ],
+                                    value: Spanned {
+                                        value: Dict {
+                                            entries: [
+                                                DictEntry {
+                                                    key: Spanned {
+                                                        value: Literal {
+                                                            value: String(
+                                                                "value",
+                                                            ),
+                                                        },
+                                                        span: Span {
+                                                            start_line: 0,
+                                                            start_col: 0,
+                                                            end_line: 0,
+                                                            end_col: 0,
+                                                        },
+                                                    },
+                                                    value: Spanned {
+                                                        value: Variable {
+                                                            name: "value",
+                                                        },
+                                                        span: Span {
+                                                            start_line: 4,
+                                                            start_col: 38,
+                                                            end_line: 4,
+                                                            end_col: 43,
+                                                        },
+                                                    },
+                                                },
+                                                DictEntry {
+                                                    key: Spanned {
+                                                        value: Literal {
+                                                            value: String(
+                                                                "status",
+                                                            ),
+                                                        },
+                                                        span: Span {
+                                                            start_line: 0,
+                                                            start_col: 0,
+                                                            end_line: 0,
+                                                            end_col: 0,
+                                                        },
+                                                    },
+                                                    value: Spanned {
+                                                        value: Literal {
+                                                            value: String(
+                                                                "ok",
+                                                            ),
+                                                        },
+                                                        span: Span {
+                                                            start_line: 0,
+                                                            start_col: 0,
+                                                            end_line: 0,
+                                                            end_col: 0,
+                                                        },
+                                                    },
+                                                },
+                                                DictEntry {
+                                                    key: Spanned {
+                                                        value: Literal {
+                                                            value: String(
+                                                                "count",
+                                                            ),
+                                                        },
+                                                        span: Span {
+                                                            start_line: 0,
+                                                            start_col: 0,
+                                                            end_line: 0,
+                                                            end_col: 0,
+                                                        },
+                                                    },
+                                                    value: Spanned {
+                                                        value: Literal {
+                                                            value: Int(
+                                                                0,
+                                                            ),
+                                                        },
+                                                        span: Span {
+                                                            start_line: 0,
+                                                            start_col: 0,
+                                                            end_line: 0,
+                                                            end_col: 0,
+                                                        },
+                                                    },
+                                                },
+                                            ],
+                                        },
+                                        span: Span {
+                                            start_line: 4,
+                                            start_col: 13,
+                                            end_line: 4,
+                                            end_col: 44,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 4,
+                                    start_col: 4,
+                                    end_line: 4,
+                                    end_col: 44,
+                                },
+                            },
+                            Spanned {
+                                value: Return {
+                                    value: Some(
+                                        Spanned {
+                                            value: Variable {
+                                                name: "result",
+                                            },
+                                            span: Span {
+                                                start_line: 5,
+                                                start_col: 11,
+                                                end_line: 5,
+                                                end_col: 17,
+                                            },
+                                        },
+                                    ),
+                                },
+                                span: Span {
+                                    start_line: 5,
+                                    start_col: 4,
+                                    end_line: 5,
+                                    end_col: 17,
+                                },
+                            },
+                        ],
+                    },
+                    span: Span {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    },
+                },
+            },
+            span: Span {
+                start_line: 1,
+                start_col: 0,
+                end_line: 5,
+                end_col: 17,
+            },
+        },
+    ],
+}

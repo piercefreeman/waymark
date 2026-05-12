@@ -1,0 +1,153 @@
+---
+source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
+expression: ast for python/tests/fixtures_comprehension/dict_comprehension_tuple.py
+---
+Program {
+    functions: [
+        Spanned {
+            value: FunctionDef {
+                name: "main",
+                io: Spanned {
+                    value: IoDecl {
+                        inputs: [
+                            "pairs",
+                        ],
+                        outputs: [],
+                    },
+                    span: Span {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    },
+                },
+                body: Spanned {
+                    value: Block {
+                        statements: [
+                            Spanned {
+                                value: Assignment {
+                                    targets: [
+                                        "mapping",
+                                    ],
+                                    value: Spanned {
+                                        value: Dict {
+                                            entries: [],
+                                        },
+                                        span: Span {
+                                            start_line: 2,
+                                            start_col: 4,
+                                            end_line: 2,
+                                            end_col: 50,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 2,
+                                    start_col: 4,
+                                    end_line: 2,
+                                    end_col: 50,
+                                },
+                            },
+                            Spanned {
+                                value: ForLoop {
+                                    loop_vars: [
+                                        "key",
+                                        "value",
+                                    ],
+                                    iterable: Spanned {
+                                        value: Variable {
+                                            name: "pairs",
+                                        },
+                                        span: Span {
+                                            start_line: 2,
+                                            start_col: 44,
+                                            end_line: 2,
+                                            end_col: 49,
+                                        },
+                                    },
+                                    body: Spanned {
+                                        value: Block {
+                                            statements: [
+                                                Spanned {
+                                                    value: Assignment {
+                                                        targets: [
+                                                            "mapping[key]",
+                                                        ],
+                                                        value: Spanned {
+                                                            value: Variable {
+                                                                name: "value",
+                                                            },
+                                                            span: Span {
+                                                                start_line: 2,
+                                                                start_col: 20,
+                                                                end_line: 2,
+                                                                end_col: 25,
+                                                            },
+                                                        },
+                                                    },
+                                                    span: Span {
+                                                        start_line: 2,
+                                                        start_col: 14,
+                                                        end_line: 2,
+                                                        end_col: 50,
+                                                    },
+                                                },
+                                            ],
+                                        },
+                                        span: Span {
+                                            start_line: 2,
+                                            start_col: 4,
+                                            end_line: 2,
+                                            end_col: 50,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 2,
+                                    start_col: 4,
+                                    end_line: 2,
+                                    end_col: 50,
+                                },
+                            },
+                            Spanned {
+                                value: Return {
+                                    value: Some(
+                                        Spanned {
+                                            value: Variable {
+                                                name: "mapping",
+                                            },
+                                            span: Span {
+                                                start_line: 3,
+                                                start_col: 11,
+                                                end_line: 3,
+                                                end_col: 18,
+                                            },
+                                        },
+                                    ),
+                                },
+                                span: Span {
+                                    start_line: 3,
+                                    start_col: 4,
+                                    end_line: 3,
+                                    end_col: 18,
+                                },
+                            },
+                        ],
+                    },
+                    span: Span {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    },
+                },
+            },
+            span: Span {
+                start_line: 1,
+                start_col: 0,
+                end_line: 3,
+                end_col: 18,
+            },
+        },
+    ],
+}

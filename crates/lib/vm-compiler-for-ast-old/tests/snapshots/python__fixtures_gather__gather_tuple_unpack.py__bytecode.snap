@@ -1,0 +1,166 @@
+---
+source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
+expression: bytecode for python/tests/fixtures_gather/gather_tuple_unpack.py
+---
+Ok(
+    Executable {
+        functions: [
+            Function {
+                states: [
+                    State {
+                        instructions: [
+                            PureSet(
+                                LoadConst {
+                                    dst: RegisterId(
+                                        3,
+                                    ),
+                                    value: Int(
+                                        5,
+                                    ),
+                                },
+                            ),
+                            CoreSet(
+                                ExtCall {
+                                    dst: RegisterId(
+                                        2,
+                                    ),
+                                    extcall_id: TestExtCallId(
+                                        "compute_factorial",
+                                    ),
+                                    args: [
+                                        RegisterId(
+                                            3,
+                                        ),
+                                    ],
+                                    resume: StateId(
+                                        1,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            PureSet(
+                                LoadConst {
+                                    dst: RegisterId(
+                                        5,
+                                    ),
+                                    value: Int(
+                                        10,
+                                    ),
+                                },
+                            ),
+                            CoreSet(
+                                ExtCall {
+                                    dst: RegisterId(
+                                        4,
+                                    ),
+                                    extcall_id: TestExtCallId(
+                                        "compute_fibonacci",
+                                    ),
+                                    args: [
+                                        RegisterId(
+                                            5,
+                                        ),
+                                    ],
+                                    resume: StateId(
+                                        2,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                Await {
+                                    dst: RegisterId(
+                                        0,
+                                    ),
+                                    src: RegisterId(
+                                        2,
+                                    ),
+                                    resume: StateId(
+                                        3,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                Await {
+                                    dst: RegisterId(
+                                        1,
+                                    ),
+                                    src: RegisterId(
+                                        4,
+                                    ),
+                                    resume: StateId(
+                                        4,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                ExtCall {
+                                    dst: RegisterId(
+                                        6,
+                                    ),
+                                    extcall_id: TestExtCallId(
+                                        "summarize_math",
+                                    ),
+                                    args: [
+                                        RegisterId(
+                                            0,
+                                        ),
+                                        RegisterId(
+                                            1,
+                                        ),
+                                    ],
+                                    resume: StateId(
+                                        5,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                Await {
+                                    dst: RegisterId(
+                                        6,
+                                    ),
+                                    src: RegisterId(
+                                        6,
+                                    ),
+                                    resume: StateId(
+                                        6,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                Return {
+                                    src: RegisterId(
+                                        6,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                ],
+                num_regs: 7,
+            },
+        ],
+    },
+)

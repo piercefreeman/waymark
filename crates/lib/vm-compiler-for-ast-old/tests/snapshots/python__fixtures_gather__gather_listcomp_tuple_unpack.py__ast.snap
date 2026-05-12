@@ -1,0 +1,186 @@
+---
+source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
+expression: ast for python/tests/fixtures_gather/gather_listcomp_tuple_unpack.py
+---
+Program {
+    functions: [
+        Spanned {
+            value: FunctionDef {
+                name: "main",
+                io: Spanned {
+                    value: IoDecl {
+                        inputs: [
+                            "pairs",
+                        ],
+                        outputs: [],
+                    },
+                    span: Span {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    },
+                },
+                body: Spanned {
+                    value: Block {
+                        statements: [
+                            Spanned {
+                                value: Assignment {
+                                    targets: [
+                                        "results",
+                                    ],
+                                    value: Spanned {
+                                        value: SpreadExpr {
+                                            collection: Spanned {
+                                                value: Variable {
+                                                    name: "pairs",
+                                                },
+                                                span: Span {
+                                                    start_line: 3,
+                                                    start_col: 66,
+                                                    end_line: 3,
+                                                    end_col: 71,
+                                                },
+                                            },
+                                            loop_var: "__spread_item_1__",
+                                            action: ActionCall {
+                                                action_name: "process_pair",
+                                                kwargs: [
+                                                    Kwarg {
+                                                        name: "name",
+                                                        value: Spanned {
+                                                            value: Index {
+                                                                object: Spanned {
+                                                                    value: Variable {
+                                                                        name: "__spread_item_1__",
+                                                                    },
+                                                                    span: Span {
+                                                                        start_line: 3,
+                                                                        start_col: 51,
+                                                                        end_line: 3,
+                                                                        end_col: 62,
+                                                                    },
+                                                                },
+                                                                index: Spanned {
+                                                                    value: Literal {
+                                                                        value: Int(
+                                                                            0,
+                                                                        ),
+                                                                    },
+                                                                    span: Span {
+                                                                        start_line: 3,
+                                                                        start_col: 51,
+                                                                        end_line: 3,
+                                                                        end_col: 55,
+                                                                    },
+                                                                },
+                                                            },
+                                                            span: Span {
+                                                                start_line: 3,
+                                                                start_col: 28,
+                                                                end_line: 3,
+                                                                end_col: 32,
+                                                            },
+                                                        },
+                                                    },
+                                                    Kwarg {
+                                                        name: "score",
+                                                        value: Spanned {
+                                                            value: Index {
+                                                                object: Spanned {
+                                                                    value: Variable {
+                                                                        name: "__spread_item_1__",
+                                                                    },
+                                                                    span: Span {
+                                                                        start_line: 3,
+                                                                        start_col: 51,
+                                                                        end_line: 3,
+                                                                        end_col: 62,
+                                                                    },
+                                                                },
+                                                                index: Spanned {
+                                                                    value: Literal {
+                                                                        value: Int(
+                                                                            1,
+                                                                        ),
+                                                                    },
+                                                                    span: Span {
+                                                                        start_line: 3,
+                                                                        start_col: 57,
+                                                                        end_line: 3,
+                                                                        end_col: 62,
+                                                                    },
+                                                                },
+                                                            },
+                                                            span: Span {
+                                                                start_line: 3,
+                                                                start_col: 40,
+                                                                end_line: 3,
+                                                                end_col: 45,
+                                                            },
+                                                        },
+                                                    },
+                                                ],
+                                                policies: [],
+                                                module_name: Some(
+                                                    "gather_listcomp_tuple_unpack",
+                                                ),
+                                            },
+                                        },
+                                        span: Span {
+                                            start_line: 2,
+                                            start_col: 4,
+                                            end_line: 5,
+                                            end_col: 5,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 2,
+                                    start_col: 4,
+                                    end_line: 5,
+                                    end_col: 5,
+                                },
+                            },
+                            Spanned {
+                                value: Return {
+                                    value: Some(
+                                        Spanned {
+                                            value: Variable {
+                                                name: "results",
+                                            },
+                                            span: Span {
+                                                start_line: 6,
+                                                start_col: 11,
+                                                end_line: 6,
+                                                end_col: 18,
+                                            },
+                                        },
+                                    ),
+                                },
+                                span: Span {
+                                    start_line: 6,
+                                    start_col: 4,
+                                    end_line: 6,
+                                    end_col: 18,
+                                },
+                            },
+                        ],
+                    },
+                    span: Span {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    },
+                },
+            },
+            span: Span {
+                start_line: 1,
+                start_col: 0,
+                end_line: 6,
+                end_col: 18,
+            },
+        },
+    ],
+}
