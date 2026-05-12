@@ -1,13 +1,13 @@
 //! Parallel lowering.
 
 use nonempty_collections::NEVec;
-use waymark_vm_runtime_core::RegisterId;
 
 use crate::Marked;
 
 use super::CompilerContextMut;
 use super::ErrorFor;
 use super::ValueCompiler;
+use super::env::RegisterHandle;
 use super::plan::call::CallPlanFor;
 use super::plan::parallel::*;
 use super::suspend::PromiseMarker;
@@ -73,7 +73,7 @@ where
     /// Lowers the materialization step for a parallel assignment.
     fn compile_assignment_execution(
         &mut self,
-        assignment: &ParallelAssignmentItems<Marked<RegisterId, PromiseMarker>>,
+        assignment: &ParallelAssignmentItems<Marked<RegisterHandle, PromiseMarker>>,
     ) {
         match assignment {
             ParallelAssignmentItems::Aggregate(targeted_items) => {
@@ -86,7 +86,7 @@ where
                     target.register(),
                     registers
                         .iter()
-                        .map(|register| Marked::unmark(*register))
+                        .map(|register| register.register())
                         .collect(),
                 );
             }
@@ -100,7 +100,7 @@ where
     fn compile_call_start(
         &mut self,
         call: CallPlanFor<'_, Spec>,
-    ) -> Result<Marked<RegisterId, PromiseMarker>, ErrorFor<Spec, Lowering>> {
+    ) -> Result<Marked<RegisterHandle, PromiseMarker>, ErrorFor<Spec, Lowering>> {
         self.value_compiler()
             .compile_call_start(call, super::value::ResultTarget::Allocate)
     }
@@ -111,17 +111,20 @@ where
     }
 
     /// Awaits each promise register in order.
-    fn await_promise_registers(&mut self, promise_registers: &[Marked<RegisterId, PromiseMarker>]) {
+    fn await_promise_registers(
+        &mut self,
+        promise_registers: &[Marked<RegisterHandle, PromiseMarker>],
+    ) {
         for promise_register in promise_registers {
             self.value_compiler()
-                .compile_await(**promise_register, *promise_register);
+                .compile_await(promise_register.register(), promise_register);
         }
     }
 
     /// Awaits each promise directly into its final assignment target.
     fn await_targets(
         &mut self,
-        awaited_targets: &NEVec<ParallelTargeted<Marked<RegisterId, PromiseMarker>>>,
+        awaited_targets: &NEVec<ParallelTargeted<Marked<RegisterHandle, PromiseMarker>>>,
     ) {
         for awaited_target in awaited_targets {
             self.value_compiler().compile_await(
@@ -145,6 +148,7 @@ mod tests {
     use waymark_vm_instructions_pureset::PureSet;
     use waymark_vm_runtime_core::RegisterId;
 
+    use crate::Marked;
     use crate::function::compiler::{
         CompilerContextMut,
         bytecode::emitter::FunctionEmitter,
@@ -272,7 +276,7 @@ mod tests {
             Some(InstructionSet::PureSet(PureSet::LoadConst {
                 dst,
                 value: TestConstValue::Int(2),
-            })) if *dst == RegisterId(4)
+            })) if *dst == RegisterId(3)
         ));
         assert!(matches!(
             start_instructions.next(),
@@ -280,9 +284,9 @@ mod tests {
                 dst,
                 function_id,
                 args,
-            })) if *dst == RegisterId(3)
+            })) if *dst == RegisterId(2)
                 && *function_id == FunctionId(0)
-                && args == &[RegisterId(4)]
+                && args == &[RegisterId(3)]
         ));
         assert!(matches!(
             start_instructions.next(),
@@ -297,8 +301,8 @@ mod tests {
         assert!(matches!(
             middle_instructions.next(),
             Some(InstructionSet::CoreSet(CoreSet::Await { dst, src, resume }))
-                if *dst == RegisterId(3)
-                    && *src == RegisterId(3)
+                if *dst == RegisterId(2)
+                    && *src == RegisterId(2)
                     && *resume == StateId(2)
         ));
         assert!(middle_instructions.next().is_none());
@@ -307,7 +311,7 @@ mod tests {
         assert!(matches!(
             final_instructions.next(),
             Some(InstructionSet::PureSet(PureSet::MakeList { dst, items }))
-                if *dst == RegisterId(0) && items == &[RegisterId(1), RegisterId(3)]
+                if *dst == RegisterId(0) && items == &[RegisterId(1), RegisterId(2)]
         ));
         assert!(final_instructions.next().is_none());
     }

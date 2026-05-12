@@ -6,6 +6,7 @@ use waymark_vm_runtime_core::RegisterId;
 use crate::Marked;
 
 use super::CompilerContextRef;
+use super::env::RegisterHandle;
 use super::plan::call::{
     ActionCallPlanFor, CallPlan, CallPlanFor, FunctionCallPlan, compile_expr_registers,
 };
@@ -48,10 +49,10 @@ where
         &mut self,
         expr: &Spanned<Expr>,
         target: ResultTarget,
-    ) -> Result<RegisterId, ErrorFor<Spec, Lowering>> {
+    ) -> Result<RegisterHandle, ErrorFor<Spec, Lowering>> {
         match ExpressionPlan::build(expr)? {
             ExpressionPlan::Literal { value } => self.compile_literal(value, target),
-            ExpressionPlan::Variable { name } => self.resolve_variable(name),
+            ExpressionPlan::Variable { name } => Ok(self.resolve_variable(name)?),
             ExpressionPlan::Add { left, right } => self.compile_add_expr(left, right, target),
             ExpressionPlan::FunctionCall { call } => {
                 self.compile_call(self.plan_function_call(call)?, target)
@@ -63,7 +64,7 @@ where
     }
 
     /// Compiles the `None` literal into a fresh register.
-    pub fn compile_none_literal(&mut self) -> Result<RegisterId, ErrorFor<Spec, Lowering>> {
+    pub fn compile_none_literal(&mut self) -> Result<RegisterHandle, ErrorFor<Spec, Lowering>> {
         self.compile_literal(&Literal::None, ResultTarget::Allocate)
     }
 
@@ -112,7 +113,7 @@ where
             Some(value) => self.compile_expr(value, ResultTarget::Allocate)?,
             None => self.compile_none_literal()?,
         };
-        self.context.emitter.emit_return(register);
+        self.context.emitter.emit_return(register.register());
         Ok(())
     }
 
@@ -120,16 +121,18 @@ where
     pub fn compile_function_call_start(
         &mut self,
         call: FunctionCallPlan<'_>,
-        dst: Marked<RegisterId, PromiseMarker>,
+        dst: &Marked<RegisterHandle, PromiseMarker>,
     ) -> Result<(), ErrorFor<Spec, Lowering>> {
         let args = compile_expr_registers(
             call.args(),
             |arg| arg,
             |arg| self.compile_expr(arg, ResultTarget::Allocate),
         )?;
+        let arg_registers = args.iter().map(RegisterHandle::register).collect();
         self.context
             .emitter
-            .emit_call(dst, call.function_id(), args);
+            .emit_call(dst.marked(), call.function_id(), arg_registers);
+        drop(args);
         Ok(())
     }
 
@@ -137,7 +140,7 @@ where
     pub fn compile_action_call_start(
         &mut self,
         call: ActionCallPlanFor<'_, Spec>,
-        dst: Marked<RegisterId, PromiseMarker>,
+        dst: &Marked<RegisterHandle, PromiseMarker>,
     ) -> Result<(), ErrorFor<Spec, Lowering>> {
         let (extcall_id, kwargs) = call.into_parts();
         let args = compile_expr_registers(
@@ -145,12 +148,15 @@ where
             |kwarg| &kwarg.value,
             |arg| self.compile_expr(arg, ResultTarget::Allocate),
         )?;
+        let arg_registers = args.iter().map(RegisterHandle::register).collect();
 
         let resume_state = self.reserve_state();
 
         self.context
             .emitter
-            .emit_extcall(dst, extcall_id, args, resume_state);
+            .emit_extcall(dst.marked(), extcall_id, arg_registers, resume_state);
+
+        drop(args);
 
         self.context.emitter.switch_to(resume_state);
 
@@ -162,35 +168,36 @@ where
         &mut self,
         call: CallPlanFor<'_, Spec>,
         target: ResultTarget,
-    ) -> Result<Marked<RegisterId, PromiseMarker>, ErrorFor<Spec, Lowering>> {
-        let dst = self.allocate_result_register(target);
-        let dst = Marked::mark(dst);
+    ) -> Result<Marked<RegisterHandle, PromiseMarker>, ErrorFor<Spec, Lowering>> {
+        let dst = Marked::mark(self.allocate_result_register(target));
 
         match call {
             CallPlan::Function(call) => {
-                self.compile_function_call_start(call, dst)?;
+                self.compile_function_call_start(call, &dst)?;
             }
             CallPlan::Action(call) => {
-                self.compile_action_call_start(call, dst)?;
+                self.compile_action_call_start(call, &dst)?;
             }
         }
 
         Ok(dst)
     }
 
-    /// Compiles an addition expression.
+    /// Compiles an addition expression and releases any temporary operands.
     fn compile_add_expr(
         &mut self,
         left: &Spanned<Expr>,
         right: &Spanned<Expr>,
         target: ResultTarget,
-    ) -> Result<RegisterId, ErrorFor<Spec, Lowering>> {
+    ) -> Result<RegisterHandle, ErrorFor<Spec, Lowering>> {
         let left_register = self.compile_expr(left, ResultTarget::Allocate)?;
         let right_register = self.compile_expr(right, ResultTarget::Allocate)?;
         let dst = self.allocate_result_register(target);
-        self.context
-            .emitter
-            .emit_add(dst, left_register, right_register);
+        self.context.emitter.emit_add(
+            dst.register(),
+            left_register.register(),
+            right_register.register(),
+        );
         Ok(dst)
     }
 
@@ -199,15 +206,13 @@ where
         &mut self,
         call: CallPlanFor<'_, Spec>,
         target: ResultTarget,
-    ) -> Result<RegisterId, ErrorFor<Spec, Lowering>> {
-        let reg_promise = self.compile_call_start(call, target)?;
+    ) -> Result<RegisterHandle, ErrorFor<Spec, Lowering>> {
+        let promise_register = self.compile_call_start(call, target)?;
+        let result_register = promise_register.register();
 
-        // Place the result into the same register.
-        let reg_result = Marked::unmark(reg_promise);
+        self.compile_await(result_register, &promise_register);
 
-        self.compile_await(reg_result, reg_promise);
-
-        Ok(reg_result)
+        Ok(promise_register.into_register())
     }
 
     /// Compiles a lowered literal into the target register.
@@ -215,15 +220,15 @@ where
         &mut self,
         literal: &Literal,
         target: ResultTarget,
-    ) -> Result<RegisterId, ErrorFor<Spec, Lowering>> {
+    ) -> Result<RegisterHandle, ErrorFor<Spec, Lowering>> {
         let dst = self.allocate_result_register(target);
         let value = Lowering::lower_literal(literal).map_err(Error::LiteralLowering)?;
-        self.context.emitter.emit_load_const(dst, value);
+        self.context.emitter.emit_load_const(dst.register(), value);
         Ok(dst)
     }
 
     /// Resolves an initialized local variable into its register.
-    fn resolve_variable(&self, name: &str) -> Result<RegisterId, ErrorFor<Spec, Lowering>> {
+    fn resolve_variable(&self, name: &str) -> Result<RegisterHandle, ErrorFor<Spec, Lowering>> {
         let Some(local) = self
             .context
             .local_frame
@@ -234,7 +239,7 @@ where
             });
         };
 
-        Ok(local.register())
+        Ok(RegisterHandle::Existing(local.register()))
     }
 
     /// Plans a user-function call against the current function table.
@@ -254,10 +259,12 @@ where
     }
 
     /// Chooses the register where the next result should be stored.
-    fn allocate_result_register(&mut self, target: ResultTarget) -> RegisterId {
+    fn allocate_result_register(&mut self, target: ResultTarget) -> RegisterHandle {
         match target {
-            ResultTarget::Allocate => self.context.local_frame.allocate_register(),
-            ResultTarget::Existing(register) => register,
+            ResultTarget::Allocate => {
+                RegisterHandle::Temporary(self.context.local_frame.allocate_temporary_register())
+            }
+            ResultTarget::Existing(register) => RegisterHandle::Existing(register),
         }
     }
 
@@ -265,13 +272,13 @@ where
     pub fn compile_await(
         &mut self,
         target_register: RegisterId,
-        promise_register: Marked<RegisterId, PromiseMarker>,
+        promise_register: &Marked<RegisterHandle, PromiseMarker>,
     ) {
         let resume_state = self.reserve_state();
 
         self.context
             .emitter
-            .emit_await(target_register, promise_register, resume_state);
+            .emit_await(target_register, promise_register.marked(), resume_state);
 
         self.context.emitter.switch_to(resume_state);
     }
@@ -332,7 +339,7 @@ mod tests {
         };
 
         let states = emitter.finish();
-        assert_eq!(dst, RegisterId(0));
+        assert_eq!(dst.register(), RegisterId(0));
         assert_eq!(states.len().to_scalar(), 2);
 
         let mut instructions = states[StateId(0)].instructions.iter();
@@ -392,7 +399,7 @@ mod tests {
         };
 
         let states = emitter.finish();
-        assert_eq!(dst, RegisterId(0));
+        assert_eq!(dst.register(), RegisterId(0));
         assert_eq!(states.len().to_scalar(), 3);
 
         let mut start_instructions = states[StateId(0)].instructions.iter();
@@ -494,7 +501,7 @@ mod tests {
         };
 
         let states = emitter.finish();
-        assert_eq!(dst, preferred_dst);
+        assert_eq!(dst.register(), preferred_dst);
         assert_eq!(local_frame.num_registers(), 1);
 
         let mut instructions = states[StateId(0)].instructions.iter();
@@ -533,7 +540,7 @@ mod tests {
         };
 
         let states = emitter.finish();
-        assert_eq!(dst, preferred_dst);
+        assert_eq!(dst.register(), preferred_dst);
         assert_eq!(local_frame.num_registers(), 3);
 
         let mut instructions = states[StateId(0)].instructions.iter();
@@ -591,7 +598,7 @@ mod tests {
         };
 
         let states = emitter.finish();
-        assert_eq!(dst, preferred_dst);
+        assert_eq!(dst.register(), preferred_dst);
         assert_eq!(local_frame.num_registers(), 2);
 
         let mut instructions = states[StateId(0)].instructions.iter();
@@ -652,7 +659,7 @@ mod tests {
         };
 
         let states = emitter.finish();
-        assert_eq!(dst, preferred_dst);
+        assert_eq!(dst.register(), preferred_dst);
         assert_eq!(local_frame.num_registers(), 2);
 
         let mut start_instructions = states[StateId(0)].instructions.iter();
@@ -793,5 +800,144 @@ mod tests {
                 && *resume == StateId(3)
         ));
         assert!(third_state_instructions.next().is_none());
+    }
+
+    #[test]
+    fn action_statements_reuse_temporary_argument_registers() {
+        let function_table = build_function_table();
+        let mut emitter = FunctionEmitter::<TestSpec>::new();
+        let mut local_frame = LocalFrame::new();
+        let mut flow_state = FlowState::new();
+
+        {
+            let mut values = ValueCompiler::<TestSpec, TestLowering>::new(
+                CompilerContextMut::new(
+                    &function_table,
+                    &mut emitter,
+                    &mut local_frame,
+                    &mut flow_state,
+                )
+                .into_ref(),
+            );
+
+            values
+                .compile_action_statement(&action_call("fetch_first", vec![("value", int(1))]))
+                .expect("first action statement should compile");
+            values
+                .compile_action_statement(&action_call("fetch_second", vec![("value", int(2))]))
+                .expect("second action statement should compile");
+        }
+
+        let states = emitter.finish();
+        assert_eq!(local_frame.num_registers(), 2);
+
+        let mut first_state_instructions = states[StateId(0)].instructions.iter();
+        assert!(matches!(
+            first_state_instructions.next(),
+            Some(InstructionSet::PureSet(PureSet::LoadConst {
+                dst,
+                value: TestConstValue::Int(1),
+            })) if *dst == RegisterId(1)
+        ));
+        assert!(matches!(
+            first_state_instructions.next(),
+            Some(InstructionSet::CoreSet(CoreSet::ExtCall {
+                dst,
+                extcall_id: TestExtCallId(extcall_id),
+                args,
+                resume,
+            })) if *dst == RegisterId(0)
+                && *extcall_id == "fetch_first"
+                && args == &[RegisterId(1)]
+                && *resume == StateId(1)
+        ));
+        assert!(first_state_instructions.next().is_none());
+
+        let mut third_state_instructions = states[StateId(2)].instructions.iter();
+        assert!(matches!(
+            third_state_instructions.next(),
+            Some(InstructionSet::PureSet(PureSet::LoadConst {
+                dst,
+                value: TestConstValue::Int(2),
+            })) if *dst == RegisterId(1)
+        ));
+        assert!(matches!(
+            third_state_instructions.next(),
+            Some(InstructionSet::CoreSet(CoreSet::ExtCall {
+                dst,
+                extcall_id: TestExtCallId(extcall_id),
+                args,
+                resume,
+            })) if *dst == RegisterId(0)
+                && *extcall_id == "fetch_second"
+                && args == &[RegisterId(1)]
+                && *resume == StateId(3)
+        ));
+        assert!(third_state_instructions.next().is_none());
+    }
+
+    #[test]
+    fn nested_adds_release_temporary_registers_after_use() {
+        let function_table = build_function_table();
+        let mut emitter = FunctionEmitter::<TestSpec>::new();
+        let mut local_frame = LocalFrame::new();
+        let mut flow_state = FlowState::new();
+
+        {
+            let mut values = ValueCompiler::<TestSpec, TestLowering>::new(
+                CompilerContextMut::new(
+                    &function_table,
+                    &mut emitter,
+                    &mut local_frame,
+                    &mut flow_state,
+                )
+                .into_ref(),
+            );
+
+            values
+                .compile_expression_statement(&add(add(int(1), int(2)), int(3)))
+                .expect("nested add expression statement should compile");
+        }
+
+        let states = emitter.finish();
+        assert_eq!(local_frame.num_registers(), 4);
+
+        let mut instructions = states[StateId(0)].instructions.iter();
+        assert!(matches!(
+            instructions.next(),
+            Some(InstructionSet::PureSet(PureSet::LoadConst {
+                dst,
+                value: TestConstValue::Int(1),
+            })) if *dst == RegisterId(1)
+        ));
+        assert!(matches!(
+            instructions.next(),
+            Some(InstructionSet::PureSet(PureSet::LoadConst {
+                dst,
+                value: TestConstValue::Int(2),
+            })) if *dst == RegisterId(2)
+        ));
+        assert!(matches!(
+            instructions.next(),
+            Some(InstructionSet::PureSet(PureSet::Add { dst, a, b }))
+                if *dst == RegisterId(3)
+                    && *a == RegisterId(1)
+                    && *b == RegisterId(2)
+        ));
+        assert!(matches!(
+            instructions.next(),
+            Some(InstructionSet::PureSet(PureSet::LoadConst {
+                dst,
+                value: TestConstValue::Int(3),
+            })) if *dst == RegisterId(1)
+        ));
+        assert!(matches!(
+            instructions.next(),
+            Some(InstructionSet::PureSet(PureSet::Add { dst, a, b }))
+                if *dst == RegisterId(0)
+                    && *a == RegisterId(3)
+                    && *b == RegisterId(1)
+        ));
+        assert!(instructions.next().is_none());
     }
 }

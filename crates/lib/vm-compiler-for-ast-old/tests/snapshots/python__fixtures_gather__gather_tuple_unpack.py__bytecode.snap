@@ -44,7 +44,7 @@ Ok(
                             PureSet(
                                 LoadConst {
                                     dst: RegisterId(
-                                        5,
+                                        4,
                                     ),
                                     value: Int(
                                         10,
@@ -54,14 +54,14 @@ Ok(
                             CoreSet(
                                 ExtCall {
                                     dst: RegisterId(
-                                        4,
+                                        3,
                                     ),
                                     extcall_id: TestExtCallId(
                                         "compute_fibonacci",
                                     ),
                                     args: [
                                         RegisterId(
-                                            5,
+                                            4,
                                         ),
                                     ],
                                     resume: StateId(
@@ -96,7 +96,7 @@ Ok(
                                         1,
                                     ),
                                     src: RegisterId(
-                                        4,
+                                        3,
                                     ),
                                     resume: StateId(
                                         4,
@@ -110,7 +110,7 @@ Ok(
                             CoreSet(
                                 ExtCall {
                                     dst: RegisterId(
-                                        6,
+                                        5,
                                     ),
                                     extcall_id: TestExtCallId(
                                         "summarize_math",
@@ -135,10 +135,10 @@ Ok(
                             CoreSet(
                                 Await {
                                     dst: RegisterId(
-                                        6,
+                                        5,
                                     ),
                                     src: RegisterId(
-                                        6,
+                                        5,
                                     ),
                                     resume: StateId(
                                         6,
@@ -152,14 +152,14 @@ Ok(
                             CoreSet(
                                 Return {
                                     src: RegisterId(
-                                        6,
+                                        5,
                                     ),
                                 },
                             ),
                         ],
                     },
                 ],
-                num_regs: 7,
+                num_regs: 6,
             },
         ],
     },

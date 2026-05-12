@@ -72,7 +72,7 @@ Ok(
                             PureSet(
                                 LoadConst {
                                     dst: RegisterId(
-                                        3,
+                                        2,
                                     ),
                                     value: Int(
                                         0,
@@ -82,7 +82,7 @@ Ok(
                             CoreSet(
                                 Return {
                                     src: RegisterId(
-                                        3,
+                                        2,
                                     ),
                                 },
                             ),
@@ -110,7 +110,7 @@ Ok(
                         ],
                     },
                 ],
-                num_regs: 4,
+                num_regs: 3,
             },
         ],
     },

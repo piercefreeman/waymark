@@ -1,13 +1,100 @@
 //! Local-frame and register-allocation management.
 
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use waymark_vm_runtime_core::RegisterId;
 
 use crate::Marked;
 
+use super::super::suspend::PromiseMarker;
 use super::{
     FlowState, InitializedLocalMarker, LocalSlot,
     locals::{LocalId, Locals},
 };
+
+/// Shared storage for reusable temporary registers.
+#[derive(Debug, Clone, Default)]
+struct TemporaryRegisterPool {
+    /// Registers released back into the temporary pool.
+    available_registers: Rc<RefCell<Vec<RegisterId>>>,
+}
+
+impl TemporaryRegisterPool {
+    /// Removes one reusable register from the pool if available.
+    fn pop(&self) -> Option<RegisterId> {
+        self.available_registers.borrow_mut().pop()
+    }
+
+    /// Creates an owned temporary-register handle for `register`.
+    fn lease(&self, register: RegisterId) -> TemporaryRegister {
+        TemporaryRegister {
+            register,
+            pool: self.clone(),
+        }
+    }
+
+    /// Returns a released temporary register back to the pool.
+    fn release(&self, register: RegisterId) {
+        self.available_registers.borrow_mut().push(register);
+    }
+}
+
+/// An owned temporary register that returns itself to the pool on drop.
+#[derive(Debug)]
+pub struct TemporaryRegister {
+    /// The leased register id.
+    register: RegisterId,
+
+    /// Shared temporary-register pool that owns reusable ids.
+    pool: TemporaryRegisterPool,
+}
+
+impl TemporaryRegister {
+    /// Returns the underlying register id.
+    pub fn register(&self) -> RegisterId {
+        self.register
+    }
+}
+
+impl Drop for TemporaryRegister {
+    fn drop(&mut self) {
+        self.pool.release(self.register);
+    }
+}
+
+/// A register handle that may own a temporary register lease.
+#[derive(Debug)]
+pub enum RegisterHandle {
+    /// A stable pre-existing register that must not be released.
+    Existing(RegisterId),
+
+    /// A temporary register lease that is released on drop.
+    Temporary(TemporaryRegister),
+}
+
+impl RegisterHandle {
+    /// Returns the underlying register id.
+    pub fn register(&self) -> RegisterId {
+        match self {
+            Self::Existing(register) => *register,
+            Self::Temporary(register) => register.register(),
+        }
+    }
+}
+
+/// Helpers for promise-register handles that keep temporary leases alive until await.
+impl Marked<RegisterHandle, PromiseMarker> {
+    /// Returns the promise register tagged for VM core instructions.
+    pub fn marked(&self) -> Marked<RegisterId, PromiseMarker> {
+        Marked::mark(self.register())
+    }
+
+    /// Converts the promise register back into a plain register handle.
+    pub fn into_register(self) -> RegisterHandle {
+        Self::unmark(self)
+    }
+}
 
 /// Per-function local-variable state and register allocation.
 ///
@@ -22,6 +109,9 @@ pub struct LocalFrame {
 
     /// The next register index to allocate.
     next_register_index: usize,
+
+    /// Released temporary registers that can be reused by later lowering.
+    available_temporary_registers: TemporaryRegisterPool,
 
     /// Reusable register for discarded statement results.
     discard_register: Option<RegisterId>,
@@ -63,6 +153,7 @@ impl LocalFrame {
         Self {
             locals: Locals::new(),
             next_register_index: 0,
+            available_temporary_registers: TemporaryRegisterPool::default(),
             discard_register: None,
         }
     }
@@ -88,6 +179,15 @@ impl LocalFrame {
         let register = RegisterId(self.next_register_index);
         self.next_register_index += 1;
         register
+    }
+
+    /// Allocates a temporary register that is released back to the pool on drop.
+    pub fn allocate_temporary_register(&mut self) -> TemporaryRegister {
+        let register = self
+            .available_temporary_registers
+            .pop()
+            .unwrap_or_else(|| self.allocate_register());
+        self.available_temporary_registers.lease(register)
     }
 
     /// Returns a reusable register for statement results that will be discarded.

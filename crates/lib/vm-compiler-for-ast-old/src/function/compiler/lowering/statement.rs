@@ -284,7 +284,7 @@ where
             .compile_expr(condition, super::value::ResultTarget::Allocate)?;
         self.context
             .emitter
-            .emit_jump_if(target_state, condition_register);
+            .emit_jump_if(target_state, condition_register.register());
         Ok(())
     }
 
