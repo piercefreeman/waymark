@@ -1,3 +1,5 @@
+use waymark_nonzero_duration::NonZeroDuration;
+
 pub type InstructionSet = waymark_vm_instructions_fullset::FullSet<SampleSpec>;
 
 pub type Executable = waymark_vm_bytecode::Executable<InstructionSet>;
@@ -38,6 +40,18 @@ pub enum SampleValue {
 #[derive(Debug, Clone)]
 pub struct SampleActionRef(#[allow(dead_code)] pub usize);
 
+#[derive(Debug, thiserror::Error)]
+pub enum SampleSleepDurationError {
+    #[error("the value cannot be used as a sleep duration")]
+    UnsupportedValue,
+
+    #[error("sleep duration must be non-zero")]
+    Zero,
+
+    #[error("sleep duration is out of range")]
+    OutOfRange,
+}
+
 impl waymark_vm_interpreter_coreset::value::ShouldJump for SampleValue {
     fn should_jump(
         &self,
@@ -75,6 +89,20 @@ impl waymark_vm_interpreter_pureset::value::MakeList for SampleValue {
         I: IntoIterator<Item = Self>,
     {
         Ok(SampleValue::List(items.into_iter().collect()))
+    }
+}
+
+impl waymark_vm_interpreter_extcallset::value::SleepDuration for SampleValue {
+    type Error = SampleSleepDurationError;
+
+    fn to_sleep_duration(&self) -> Result<NonZeroDuration, Self::Error> {
+        match self {
+            SampleValue::Usize(seconds) => {
+                let seconds: u64 = (*seconds).try_into().map_err(|_| Self::Error::OutOfRange)?;
+                NonZeroDuration::from_secs(seconds).ok_or(Self::Error::Zero)
+            }
+            SampleValue::List(_) => Err(Self::Error::UnsupportedValue),
+        }
     }
 }
 

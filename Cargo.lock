@@ -5170,6 +5170,7 @@ dependencies = [
  "tokio",
  "tracing",
  "waymark-fn-main-common",
+ "waymark-nonzero-duration",
  "waymark-vm-ast-old",
  "waymark-vm-ast-old-helpers",
  "waymark-vm-bytecode",
