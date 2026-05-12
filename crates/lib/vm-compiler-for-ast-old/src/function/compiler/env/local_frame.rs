@@ -112,9 +112,6 @@ pub struct LocalFrame {
 
     /// Released temporary registers that can be reused by later lowering.
     available_temporary_registers: TemporaryRegisterPool,
-
-    /// Reusable register for discarded statement results.
-    discard_register: Option<RegisterId>,
 }
 
 /// A local lookup result that may already exist or may need declaration.
@@ -154,7 +151,6 @@ impl LocalFrame {
             locals: Locals::new(),
             next_register_index: 0,
             available_temporary_registers: TemporaryRegisterPool::default(),
-            discard_register: None,
         }
     }
 
@@ -188,17 +184,6 @@ impl LocalFrame {
             .pop()
             .unwrap_or_else(|| self.allocate_register());
         self.available_temporary_registers.lease(register)
-    }
-
-    /// Returns a reusable register for statement results that will be discarded.
-    pub fn discard_register(&mut self) -> RegisterId {
-        if let Some(register) = self.discard_register {
-            return register;
-        }
-
-        let register = self.allocate_register();
-        self.discard_register = Some(register);
-        register
     }
 
     /// Resolves a local by name, declaring it if needed.

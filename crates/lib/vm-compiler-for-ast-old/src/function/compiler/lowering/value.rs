@@ -73,11 +73,7 @@ where
         &mut self,
         call: &ActionCall,
     ) -> Result<(), ErrorFor<Spec, Lowering>> {
-        let discard_register = self.context.local_frame.discard_register();
-        let _ = self.compile_call(
-            self.plan_action_call(call)?,
-            ResultTarget::Existing(discard_register),
-        )?;
+        let _ = self.compile_call(self.plan_action_call(call)?, ResultTarget::Allocate)?;
         Ok(())
     }
 
@@ -94,8 +90,7 @@ where
         &mut self,
         expr: &Spanned<Expr>,
     ) -> Result<(), ErrorFor<Spec, Lowering>> {
-        let discard_register = self.context.local_frame.discard_register();
-        let _ = self.compile_expr(expr, ResultTarget::Existing(discard_register))?;
+        let _ = self.compile_expr(expr, ResultTarget::Allocate)?;
         Ok(())
     }
 
@@ -696,7 +691,7 @@ mod tests {
     }
 
     #[test]
-    fn expression_statements_reuse_the_discard_register() {
+    fn expression_statements_reuse_temporary_result_registers() {
         let function_table = build_function_table();
         let mut emitter = FunctionEmitter::<TestSpec>::new();
         let mut local_frame = LocalFrame::new();
@@ -743,7 +738,7 @@ mod tests {
     }
 
     #[test]
-    fn action_statements_reuse_the_discard_register() {
+    fn action_statements_reuse_temporary_result_registers() {
         let function_table = build_function_table();
         let mut emitter = FunctionEmitter::<TestSpec>::new();
         let mut local_frame = LocalFrame::new();
@@ -900,7 +895,7 @@ mod tests {
         }
 
         let states = emitter.finish();
-        assert_eq!(local_frame.num_registers(), 4);
+        assert_eq!(local_frame.num_registers(), 3);
 
         let mut instructions = states[StateId(0)].instructions.iter();
         assert!(matches!(
@@ -908,35 +903,35 @@ mod tests {
             Some(InstructionSet::PureSet(PureSet::LoadConst {
                 dst,
                 value: TestConstValue::Int(1),
-            })) if *dst == RegisterId(1)
+            })) if *dst == RegisterId(0)
         ));
         assert!(matches!(
             instructions.next(),
             Some(InstructionSet::PureSet(PureSet::LoadConst {
                 dst,
                 value: TestConstValue::Int(2),
-            })) if *dst == RegisterId(2)
+            })) if *dst == RegisterId(1)
         ));
         assert!(matches!(
             instructions.next(),
             Some(InstructionSet::PureSet(PureSet::Add { dst, a, b }))
-                if *dst == RegisterId(3)
-                    && *a == RegisterId(1)
-                    && *b == RegisterId(2)
+                if *dst == RegisterId(2)
+                    && *a == RegisterId(0)
+                    && *b == RegisterId(1)
         ));
         assert!(matches!(
             instructions.next(),
             Some(InstructionSet::PureSet(PureSet::LoadConst {
                 dst,
                 value: TestConstValue::Int(3),
-            })) if *dst == RegisterId(1)
+            })) if *dst == RegisterId(0)
         ));
         assert!(matches!(
             instructions.next(),
             Some(InstructionSet::PureSet(PureSet::Add { dst, a, b }))
-                if *dst == RegisterId(0)
-                    && *a == RegisterId(3)
-                    && *b == RegisterId(1)
+                if *dst == RegisterId(1)
+                    && *a == RegisterId(2)
+                    && *b == RegisterId(0)
         ));
         assert!(instructions.next().is_none());
     }

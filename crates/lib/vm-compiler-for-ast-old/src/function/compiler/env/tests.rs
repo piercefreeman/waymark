@@ -121,18 +121,6 @@ fn local_frame_reuses_released_temporary_registers() {
 }
 
 #[test]
-fn local_frame_reuses_discard_register() {
-    let mut frame = LocalFrame::new();
-
-    let first = frame.discard_register();
-    let second = frame.discard_register();
-
-    assert_eq!(first, RegisterId(0));
-    assert_eq!(second, RegisterId(0));
-    assert_eq!(frame.num_registers(), 1);
-}
-
-#[test]
 fn local_frame_reuses_existing_local_bindings() {
     let mut frame = LocalFrame::new();
     let mut flow_state = FlowState::new();
