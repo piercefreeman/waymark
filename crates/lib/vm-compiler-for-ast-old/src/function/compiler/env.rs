@@ -9,7 +9,7 @@ mod locals;
 mod tests;
 
 pub use self::flow_state::FlowState;
-pub use self::local_frame::LocalFrame;
+pub use self::local_frame::{LocalFrame, RegisterHandle};
 pub use self::local_slot::{AssignmentTargetMarker, InitializedLocalMarker, LocalSlot};
 
 #[cfg(test)]

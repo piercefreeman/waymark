@@ -77,10 +77,10 @@ where
             super::value::ResultTarget::Existing(target.register()),
         )?;
 
-        if value_register != target.register() {
+        if value_register.register() != target.register() {
             self.context
                 .emitter
-                .emit_copy(target.register(), value_register);
+                .emit_copy(target.register(), value_register.register());
         }
 
         target.mark_initialized(self.context.flow_state);

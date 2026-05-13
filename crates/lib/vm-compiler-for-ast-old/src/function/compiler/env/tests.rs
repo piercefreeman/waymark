@@ -100,6 +100,27 @@ fn duplicate_input_declarations_do_not_consume_registers() {
 }
 
 #[test]
+fn local_frame_reuses_released_temporary_registers() {
+    let mut frame = LocalFrame::new();
+
+    let first = frame.allocate_temporary_register();
+    let second = frame.allocate_temporary_register();
+    let first_register = first.register();
+    let second_register = second.register();
+    drop(second);
+    drop(first);
+
+    let reused_first = frame.allocate_temporary_register();
+    let reused_second = frame.allocate_temporary_register();
+
+    assert_eq!(first_register, RegisterId(0));
+    assert_eq!(second_register, RegisterId(1));
+    assert_eq!(reused_first.register(), RegisterId(0));
+    assert_eq!(reused_second.register(), RegisterId(1));
+    assert_eq!(frame.num_registers(), 2);
+}
+
+#[test]
 fn local_frame_reuses_existing_local_bindings() {
     let mut frame = LocalFrame::new();
     let mut flow_state = FlowState::new();

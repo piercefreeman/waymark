@@ -2,9 +2,8 @@
 
 use nonempty_collections::{IntoNonEmptyIterator, NESlice, NEVec, NonEmptyIterator};
 use waymark_vm_ast_old::Call;
-use waymark_vm_runtime_core::RegisterId;
 
-use crate::function::compiler::env::{AssignmentTargetMarker, LocalSlot};
+use crate::function::compiler::env::{AssignmentTargetMarker, LocalSlot, RegisterHandle};
 use crate::function::table::FunctionTable;
 use crate::{EEVec, Marked};
 
@@ -116,10 +115,10 @@ impl<T> ParallelAssignmentItems<T> {
     }
 }
 
-impl ParallelTargeted<Marked<RegisterId, PromiseMarker>> {
+impl ParallelTargeted<Marked<RegisterHandle, PromiseMarker>> {
     /// Returns the promise register produced for this targeted parallel call.
-    pub fn promise_register(&self) -> Marked<RegisterId, PromiseMarker> {
-        self.payload
+    pub fn promise_register(&self) -> &Marked<RegisterHandle, PromiseMarker> {
+        &self.payload
     }
 }
 
@@ -129,13 +128,13 @@ pub enum ParallelExecutionPlan {
     /// Execute a parallel block for side effects and await the produced promises.
     Block {
         /// Promise registers returned by starting each call.
-        promise_registers: EEVec<Marked<RegisterId, PromiseMarker>>,
+        promise_registers: EEVec<Marked<RegisterHandle, PromiseMarker>>,
     },
 
     /// Execute a parallel assignment and route each promise to its target.
     Assignment {
         /// Targeted promise registers to await and materialize.
-        assignment: ParallelAssignmentItems<Marked<RegisterId, PromiseMarker>>,
+        assignment: ParallelAssignmentItems<Marked<RegisterHandle, PromiseMarker>>,
     },
 }
 
@@ -270,19 +269,21 @@ impl ParallelExecutionPlan {
 #[cfg(test)]
 impl ParallelExecutionPlan {
     /// Builds a parallel-block execution plan for tests.
-    pub fn block(promise_registers: EEVec<Marked<RegisterId, PromiseMarker>>) -> Self {
+    pub fn block(promise_registers: EEVec<Marked<RegisterHandle, PromiseMarker>>) -> Self {
         Self::Block { promise_registers }
     }
 
     /// Builds an assignment execution plan for tests.
-    fn assignment(assignment: ParallelAssignmentItems<Marked<RegisterId, PromiseMarker>>) -> Self {
+    fn assignment(
+        assignment: ParallelAssignmentItems<Marked<RegisterHandle, PromiseMarker>>,
+    ) -> Self {
         Self::Assignment { assignment }
     }
 
     /// Builds an aggregate assignment execution plan for tests.
     pub fn aggregate(
         target: Marked<LocalSlot, AssignmentTargetMarker>,
-        promise_registers: EEVec<Marked<RegisterId, PromiseMarker>>,
+        promise_registers: EEVec<Marked<RegisterHandle, PromiseMarker>>,
     ) -> Self {
         Self::assignment(ParallelAssignmentItems::Aggregate(ParallelTargeted {
             target,
@@ -292,7 +293,7 @@ impl ParallelExecutionPlan {
 
     /// Builds a positional assignment execution plan for tests.
     pub fn positional(
-        awaited_targets: NEVec<ParallelTargeted<Marked<RegisterId, PromiseMarker>>>,
+        awaited_targets: NEVec<ParallelTargeted<Marked<RegisterHandle, PromiseMarker>>>,
     ) -> Self {
         Self::assignment(ParallelAssignmentItems::Positional(awaited_targets))
     }
@@ -489,13 +490,13 @@ mod tests {
         let (first_targeted_call, targeted_calls) = targeted_items.into_nonempty_iter().next();
         let mut awaited_targets = NEVec::new(ParallelTargeted::new(
             first_targeted_call.target(),
-            Marked::mark(RegisterId(4)),
+            Marked::mark(RegisterHandle::Existing(RegisterId(4))),
         ));
 
         for targeted_call in targeted_calls {
             awaited_targets.push(ParallelTargeted::new(
                 targeted_call.target(),
-                Marked::mark(RegisterId(7)),
+                Marked::mark(RegisterHandle::Existing(RegisterId(7))),
             ));
         }
 
@@ -590,15 +591,23 @@ mod tests {
 
     #[test]
     fn block_execution_plan_preserves_promise_registers() {
-        let mut promise_registers = NEVec::new(Marked::mark(RegisterId(2)));
-        promise_registers.push(Marked::mark(RegisterId(5)));
+        let mut promise_registers =
+            NEVec::new(Marked::mark(RegisterHandle::Existing(RegisterId(2))));
+        promise_registers.push(Marked::mark(RegisterHandle::Existing(RegisterId(5))));
 
-        let expected = EEVec::NonEmpty(promise_registers);
-        let plan = ParallelExecutionPlan::block(expected.clone());
+        let plan = ParallelExecutionPlan::block(EEVec::NonEmpty(promise_registers));
 
         match plan {
-            ParallelExecutionPlan::Block { promise_registers } => {
-                assert_eq!(promise_registers, expected);
+            ParallelExecutionPlan::Block {
+                promise_registers: EEVec::NonEmpty(promise_registers),
+            } => {
+                let (first_register, promise_registers) =
+                    promise_registers.into_nonempty_iter().next();
+                let promise_registers = promise_registers.collect::<Vec<_>>();
+
+                assert_eq!(first_register.register(), RegisterId(2));
+                assert_eq!(promise_registers.len(), 1);
+                assert_eq!(promise_registers[0].register(), RegisterId(5));
             }
             other => panic!("unexpected block execution plan {other:?}"),
         }
@@ -639,11 +648,12 @@ mod tests {
             panic!("single target should build aggregate plan");
         };
 
-        let mut promise_registers = NEVec::new(Marked::mark(RegisterId(1)));
-        promise_registers.push(Marked::mark(RegisterId(3)));
+        let mut promise_registers =
+            NEVec::new(Marked::mark(RegisterHandle::Existing(RegisterId(1))));
+        promise_registers.push(Marked::mark(RegisterHandle::Existing(RegisterId(3))));
 
-        let expected = EEVec::NonEmpty(promise_registers);
-        let execution_plan = ParallelExecutionPlan::aggregate(target, expected.clone());
+        let execution_plan =
+            ParallelExecutionPlan::aggregate(target, EEVec::NonEmpty(promise_registers));
 
         match execution_plan {
             ParallelExecutionPlan::Assignment {
@@ -654,7 +664,16 @@ mod tests {
                     }),
             } => {
                 assert_eq!(target.register(), target_register);
-                assert_eq!(promise_registers, expected);
+                let EEVec::NonEmpty(promise_registers) = promise_registers else {
+                    panic!("aggregate execution plan should keep non-empty promises")
+                };
+                let (first_register, promise_registers) =
+                    promise_registers.into_nonempty_iter().next();
+                let promise_registers = promise_registers.collect::<Vec<_>>();
+
+                assert_eq!(first_register.register(), RegisterId(1));
+                assert_eq!(promise_registers.len(), 1);
+                assert_eq!(promise_registers[0].register(), RegisterId(3));
             }
             other => panic!("unexpected aggregate execution plan {other:?}"),
         }
@@ -702,13 +721,13 @@ mod tests {
         let (first_targeted_call, targeted_calls) = targeted_items.into_nonempty_iter().next();
         let mut awaited_targets = NEVec::new(ParallelTargeted::new(
             first_targeted_call.target(),
-            Marked::mark(RegisterId(4)),
+            Marked::mark(RegisterHandle::Existing(RegisterId(4))),
         ));
 
         for targeted_call in targeted_calls {
             awaited_targets.push(ParallelTargeted::new(
                 targeted_call.target(),
-                Marked::mark(RegisterId(9)),
+                Marked::mark(RegisterHandle::Existing(RegisterId(9))),
             ));
         }
 
@@ -727,8 +746,8 @@ mod tests {
                     left_target_register
                 );
                 assert_eq!(
-                    first_targeted_call.promise_register(),
-                    Marked::mark(RegisterId(4))
+                    first_targeted_call.promise_register().register(),
+                    RegisterId(4)
                 );
                 assert_eq!(awaited_targets.len(), 1);
                 assert_eq!(
@@ -736,8 +755,8 @@ mod tests {
                     right_target_register
                 );
                 assert_eq!(
-                    awaited_targets[0].promise_register(),
-                    Marked::mark(RegisterId(9))
+                    awaited_targets[0].promise_register().register(),
+                    RegisterId(9)
                 );
             }
             other => panic!("unexpected positional execution plan {other:?}"),
