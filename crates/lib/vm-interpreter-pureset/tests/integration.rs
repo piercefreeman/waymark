@@ -183,11 +183,11 @@ fn runtime_executes_load_const_and_add_to_a_terminal_effect() {
                 value: TestConstValue::Int(3),
             }
             .into(),
-            PureSet::Add {
+            PureSet::Add(waymark_vm_instructions_pureset::BinaryOp {
                 dst: RegisterId(2),
                 a: RegisterId(0),
                 b: RegisterId(1),
-            }
+            })
             .into(),
             RuntimeInstruction::EmitRegister(RegisterId(2)),
         ]],
@@ -251,11 +251,11 @@ fn runtime_surfaces_add_errors_from_the_pureset_interpreter() {
                 value: TestConstValue::Int(3),
             }
             .into(),
-            PureSet::Add {
+            PureSet::Add(waymark_vm_instructions_pureset::BinaryOp {
                 dst: RegisterId(0),
                 a: RegisterId(0),
                 b: RegisterId(1),
-            }
+            })
             .into(),
             RuntimeInstruction::EmitRegister(RegisterId(0)),
         ]],
@@ -294,11 +294,11 @@ fn runtime_surfaces_unresolved_add_operand_errors_from_the_pureset_interpreter()
                 value: TestConstValue::Int(3),
             }
             .into(),
-            PureSet::Add {
+            PureSet::Add(waymark_vm_instructions_pureset::BinaryOp {
                 dst: RegisterId(0),
                 a: RegisterId(0),
                 b: RegisterId(1),
-            }
+            })
             .into(),
             RuntimeInstruction::EmitRegister(RegisterId(0)),
         ]],
@@ -330,10 +330,10 @@ fn runtime_executes_unary_not_to_a_terminal_effect() {
                 value: TestConstValue::Int(0),
             }
             .into(),
-            PureSet::Not {
+            PureSet::Not(waymark_vm_instructions_pureset::UnaryOp {
                 dst: RegisterId(1),
                 src: RegisterId(0),
-            }
+            })
             .into(),
             RuntimeInstruction::EmitRegister(RegisterId(1)),
         ]],

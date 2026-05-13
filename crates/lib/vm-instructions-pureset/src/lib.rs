@@ -19,6 +19,29 @@ pub trait Spec: 'static {
     type ConstValue: core::fmt::Debug;
 }
 
+/// An unary operation.
+#[derive(Debug)]
+pub struct UnaryOp<RegisterId> {
+    /// The register to store the result of the operation at.
+    pub dst: RegisterId,
+
+    /// The register that contains the operand value.
+    pub src: RegisterId,
+}
+
+/// A binary operation.
+#[derive(Debug)]
+pub struct BinaryOp<RegisterId> {
+    /// The register to store the result of the operation at.
+    pub dst: RegisterId,
+
+    /// The register that contains the first operand.
+    pub a: RegisterId,
+
+    /// The register that contains the second operand.
+    pub b: RegisterId,
+}
+
 /// Pure instructions set.
 #[derive_where(Debug)]
 pub enum PureSet<Spec: self::Spec> {
@@ -41,220 +64,58 @@ pub enum PureSet<Spec: self::Spec> {
     },
 
     /// Add two values together.
-    Add {
-        /// The register to store the addition result at.
-        dst: Spec::RegisterId,
-
-        /// The register that contains the first value for
-        /// the addition operation.
-        a: Spec::RegisterId,
-
-        /// The register that contains the second value for
-        /// the addition operation.
-        b: Spec::RegisterId,
-    },
+    Add(BinaryOp<Spec::RegisterId>),
 
     /// Subtract one value from another.
-    Sub {
-        /// The register to store the subtraction result at.
-        dst: Spec::RegisterId,
-
-        /// The register that contains the first value for
-        /// the subtraction operation.
-        a: Spec::RegisterId,
-
-        /// The register that contains the second value for
-        /// the subtraction operation.
-        b: Spec::RegisterId,
-    },
+    Sub(BinaryOp<Spec::RegisterId>),
 
     /// Multiply two values together.
-    Mul {
-        /// The register to store the multiplication result at.
-        dst: Spec::RegisterId,
-
-        /// The register that contains the first value for
-        /// the multiplication operation.
-        a: Spec::RegisterId,
-
-        /// The register that contains the second value for
-        /// the multiplication operation.
-        b: Spec::RegisterId,
-    },
+    Mul(BinaryOp<Spec::RegisterId>),
 
     /// Divide one value by another.
-    Div {
-        /// The register to store the division result at.
-        dst: Spec::RegisterId,
-
-        /// The register that contains the dividend.
-        a: Spec::RegisterId,
-
-        /// The register that contains the divisor.
-        b: Spec::RegisterId,
-    },
+    Div(BinaryOp<Spec::RegisterId>),
 
     /// Floor-divide one value by another.
-    FloorDiv {
-        /// The register to store the floor-division result at.
-        dst: Spec::RegisterId,
-
-        /// The register that contains the dividend.
-        a: Spec::RegisterId,
-
-        /// The register that contains the divisor.
-        b: Spec::RegisterId,
-    },
+    FloorDiv(BinaryOp<Spec::RegisterId>),
 
     /// Compute one value modulo another.
-    Mod {
-        /// The register to store the modulo result at.
-        dst: Spec::RegisterId,
-
-        /// The register that contains the dividend.
-        a: Spec::RegisterId,
-
-        /// The register that contains the divisor.
-        b: Spec::RegisterId,
-    },
+    Mod(BinaryOp<Spec::RegisterId>),
 
     /// Compare two values for equality.
-    Eq {
-        /// The register to store the equality result at.
-        dst: Spec::RegisterId,
-
-        /// The register that contains the left operand.
-        a: Spec::RegisterId,
-
-        /// The register that contains the right operand.
-        b: Spec::RegisterId,
-    },
+    Eq(BinaryOp<Spec::RegisterId>),
 
     /// Compare two values for inequality.
-    Ne {
-        /// The register to store the inequality result at.
-        dst: Spec::RegisterId,
-
-        /// The register that contains the left operand.
-        a: Spec::RegisterId,
-
-        /// The register that contains the right operand.
-        b: Spec::RegisterId,
-    },
+    Ne(BinaryOp<Spec::RegisterId>),
 
     /// Compare whether one value is less than another.
-    Lt {
-        /// The register to store the comparison result at.
-        dst: Spec::RegisterId,
-
-        /// The register that contains the left operand.
-        a: Spec::RegisterId,
-
-        /// The register that contains the right operand.
-        b: Spec::RegisterId,
-    },
+    Lt(BinaryOp<Spec::RegisterId>),
 
     /// Compare whether one value is less than or equal to another.
-    Le {
-        /// The register to store the comparison result at.
-        dst: Spec::RegisterId,
-
-        /// The register that contains the left operand.
-        a: Spec::RegisterId,
-
-        /// The register that contains the right operand.
-        b: Spec::RegisterId,
-    },
+    Le(BinaryOp<Spec::RegisterId>),
 
     /// Compare whether one value is greater than another.
-    Gt {
-        /// The register to store the comparison result at.
-        dst: Spec::RegisterId,
-
-        /// The register that contains the left operand.
-        a: Spec::RegisterId,
-
-        /// The register that contains the right operand.
-        b: Spec::RegisterId,
-    },
+    Gt(BinaryOp<Spec::RegisterId>),
 
     /// Compare whether one value is greater than or equal to another.
-    Ge {
-        /// The register to store the comparison result at.
-        dst: Spec::RegisterId,
-
-        /// The register that contains the left operand.
-        a: Spec::RegisterId,
-
-        /// The register that contains the right operand.
-        b: Spec::RegisterId,
-    },
+    Ge(BinaryOp<Spec::RegisterId>),
 
     /// Test whether the left operand is contained in the right operand.
-    In {
-        /// The register to store the membership result at.
-        dst: Spec::RegisterId,
-
-        /// The register that contains the candidate value.
-        a: Spec::RegisterId,
-
-        /// The register that contains the container value.
-        b: Spec::RegisterId,
-    },
+    In(BinaryOp<Spec::RegisterId>),
 
     /// Test whether the left operand is not contained in the right operand.
-    NotIn {
-        /// The register to store the membership result at.
-        dst: Spec::RegisterId,
-
-        /// The register that contains the candidate value.
-        a: Spec::RegisterId,
-
-        /// The register that contains the container value.
-        b: Spec::RegisterId,
-    },
+    NotIn(BinaryOp<Spec::RegisterId>),
 
     /// Apply Python-style logical `and` to two values.
-    And {
-        /// The register to store the logical result at.
-        dst: Spec::RegisterId,
-
-        /// The register that contains the left operand.
-        a: Spec::RegisterId,
-
-        /// The register that contains the right operand.
-        b: Spec::RegisterId,
-    },
+    And(BinaryOp<Spec::RegisterId>),
 
     /// Apply Python-style logical `or` to two values.
-    Or {
-        /// The register to store the logical result at.
-        dst: Spec::RegisterId,
-
-        /// The register that contains the left operand.
-        a: Spec::RegisterId,
-
-        /// The register that contains the right operand.
-        b: Spec::RegisterId,
-    },
+    Or(BinaryOp<Spec::RegisterId>),
 
     /// Negate a value.
-    Neg {
-        /// The register to store the negated result at.
-        dst: Spec::RegisterId,
-
-        /// The register that contains the operand value.
-        src: Spec::RegisterId,
-    },
+    Neg(UnaryOp<Spec::RegisterId>),
 
     /// Apply Python-style logical `not` to a value.
-    Not {
-        /// The register to store the logical result at.
-        dst: Spec::RegisterId,
-
-        /// The register that contains the operand value.
-        src: Spec::RegisterId,
-    },
+    Not(UnaryOp<Spec::RegisterId>),
 
     /// Build a list value from resolved registers.
     MakeList {

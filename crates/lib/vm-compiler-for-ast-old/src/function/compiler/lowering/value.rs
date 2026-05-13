@@ -617,7 +617,9 @@ mod tests {
         ));
         assert!(matches!(
             instructions.next(),
-            Some(InstructionSet::PureSet(PureSet::Add { dst, a, b }))
+            Some(InstructionSet::PureSet(PureSet::Add(
+                waymark_vm_instructions_pureset::BinaryOp { dst, a, b },
+            )))
                 if *dst == preferred_dst
                     && *a == RegisterId(1)
                     && *b == RegisterId(2)
@@ -980,7 +982,9 @@ mod tests {
         ));
         assert!(matches!(
             instructions.next(),
-            Some(InstructionSet::PureSet(PureSet::Add { dst, a, b }))
+            Some(InstructionSet::PureSet(PureSet::Add(
+                waymark_vm_instructions_pureset::BinaryOp { dst, a, b },
+            )))
                 if *dst == RegisterId(2)
                     && *a == RegisterId(0)
                     && *b == RegisterId(1)
@@ -994,7 +998,9 @@ mod tests {
         ));
         assert!(matches!(
             instructions.next(),
-            Some(InstructionSet::PureSet(PureSet::Add { dst, a, b }))
+            Some(InstructionSet::PureSet(PureSet::Add(
+                waymark_vm_instructions_pureset::BinaryOp { dst, a, b },
+            )))
                 if *dst == RegisterId(1)
                     && *a == RegisterId(2)
                     && *b == RegisterId(0)

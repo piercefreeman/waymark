@@ -20,17 +20,19 @@ Ok(
                                 },
                             ),
                             PureSet(
-                                Gt {
-                                    dst: RegisterId(
-                                        2,
-                                    ),
-                                    a: RegisterId(
-                                        0,
-                                    ),
-                                    b: RegisterId(
-                                        1,
-                                    ),
-                                },
+                                Gt(
+                                    BinaryOp {
+                                        dst: RegisterId(
+                                            2,
+                                        ),
+                                        a: RegisterId(
+                                            0,
+                                        ),
+                                        b: RegisterId(
+                                            1,
+                                        ),
+                                    },
+                                ),
                             ),
                             CoreSet(
                                 JumpIf {

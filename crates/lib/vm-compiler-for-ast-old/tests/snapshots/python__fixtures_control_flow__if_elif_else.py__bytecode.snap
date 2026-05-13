@@ -20,17 +20,19 @@ Ok(
                                 },
                             ),
                             PureSet(
-                                Eq {
-                                    dst: RegisterId(
-                                        2,
-                                    ),
-                                    a: RegisterId(
-                                        0,
-                                    ),
-                                    b: RegisterId(
-                                        1,
-                                    ),
-                                },
+                                Eq(
+                                    BinaryOp {
+                                        dst: RegisterId(
+                                            2,
+                                        ),
+                                        a: RegisterId(
+                                            0,
+                                        ),
+                                        b: RegisterId(
+                                            1,
+                                        ),
+                                    },
+                                ),
                             ),
                             CoreSet(
                                 JumpIf {
@@ -53,17 +55,19 @@ Ok(
                                 },
                             ),
                             PureSet(
-                                Eq {
-                                    dst: RegisterId(
-                                        1,
-                                    ),
-                                    a: RegisterId(
-                                        0,
-                                    ),
-                                    b: RegisterId(
-                                        2,
-                                    ),
-                                },
+                                Eq(
+                                    BinaryOp {
+                                        dst: RegisterId(
+                                            1,
+                                        ),
+                                        a: RegisterId(
+                                            0,
+                                        ),
+                                        b: RegisterId(
+                                            2,
+                                        ),
+                                    },
+                                ),
                             ),
                             CoreSet(
                                 JumpIf {
@@ -86,17 +90,19 @@ Ok(
                                 },
                             ),
                             PureSet(
-                                Eq {
-                                    dst: RegisterId(
-                                        2,
-                                    ),
-                                    a: RegisterId(
-                                        0,
-                                    ),
-                                    b: RegisterId(
-                                        1,
-                                    ),
-                                },
+                                Eq(
+                                    BinaryOp {
+                                        dst: RegisterId(
+                                            2,
+                                        ),
+                                        a: RegisterId(
+                                            0,
+                                        ),
+                                        b: RegisterId(
+                                            1,
+                                        ),
+                                    },
+                                ),
                             ),
                             CoreSet(
                                 JumpIf {

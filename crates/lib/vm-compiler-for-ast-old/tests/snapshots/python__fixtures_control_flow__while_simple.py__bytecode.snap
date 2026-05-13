@@ -31,17 +31,19 @@ Ok(
                     State {
                         instructions: [
                             PureSet(
-                                Lt {
-                                    dst: RegisterId(
-                                        2,
-                                    ),
-                                    a: RegisterId(
-                                        1,
-                                    ),
-                                    b: RegisterId(
-                                        0,
-                                    ),
-                                },
+                                Lt(
+                                    BinaryOp {
+                                        dst: RegisterId(
+                                            2,
+                                        ),
+                                        a: RegisterId(
+                                            1,
+                                        ),
+                                        b: RegisterId(
+                                            0,
+                                        ),
+                                    },
+                                ),
                             ),
                             CoreSet(
                                 JumpIf {

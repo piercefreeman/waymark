@@ -123,11 +123,11 @@ fn runtime_executes_pure_and_core_instructions_to_completion() {
                 value: TestConstValue::Int(3),
             }
             .into(),
-            PureSet::Add {
+            PureSet::Add(waymark_vm_instructions_pureset::BinaryOp {
                 dst: RegisterId(2),
                 a: RegisterId(0),
                 b: RegisterId(1),
-            }
+            })
             .into(),
             CoreSet::Return { src: RegisterId(2) }.into(),
         ]],
@@ -182,11 +182,11 @@ fn runtime_resumes_extcalls_and_finishes_with_pure_work() {
                     value: TestConstValue::Int(1),
                 }
                 .into(),
-                PureSet::Add {
+                PureSet::Add(waymark_vm_instructions_pureset::BinaryOp {
                     dst: RegisterId(3),
                     a: RegisterId(2),
                     b: RegisterId(3),
-                }
+                })
                 .into(),
                 CoreSet::Return { src: RegisterId(3) }.into(),
             ],

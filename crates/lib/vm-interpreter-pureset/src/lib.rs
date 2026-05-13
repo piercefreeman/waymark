@@ -58,19 +58,29 @@ where
                     .ok_or(Error::MissingCopySource { register: *src })?;
                 frame.regs.set(*dst, value.clone());
             }
-            waymark_vm_instructions_pureset::PureSet::Add { dst, a, b } => {
+            waymark_vm_instructions_pureset::PureSet::Add(
+                waymark_vm_instructions_pureset::BinaryOp { dst, a, b },
+            ) => {
                 Self::execute_binary_operation(&mut frame, *dst, *a, *b, BinaryOperationKind::Add)?;
             }
-            waymark_vm_instructions_pureset::PureSet::Sub { dst, a, b } => {
+            waymark_vm_instructions_pureset::PureSet::Sub(
+                waymark_vm_instructions_pureset::BinaryOp { dst, a, b },
+            ) => {
                 Self::execute_binary_operation(&mut frame, *dst, *a, *b, BinaryOperationKind::Sub)?;
             }
-            waymark_vm_instructions_pureset::PureSet::Mul { dst, a, b } => {
+            waymark_vm_instructions_pureset::PureSet::Mul(
+                waymark_vm_instructions_pureset::BinaryOp { dst, a, b },
+            ) => {
                 Self::execute_binary_operation(&mut frame, *dst, *a, *b, BinaryOperationKind::Mul)?;
             }
-            waymark_vm_instructions_pureset::PureSet::Div { dst, a, b } => {
+            waymark_vm_instructions_pureset::PureSet::Div(
+                waymark_vm_instructions_pureset::BinaryOp { dst, a, b },
+            ) => {
                 Self::execute_binary_operation(&mut frame, *dst, *a, *b, BinaryOperationKind::Div)?;
             }
-            waymark_vm_instructions_pureset::PureSet::FloorDiv { dst, a, b } => {
+            waymark_vm_instructions_pureset::PureSet::FloorDiv(
+                waymark_vm_instructions_pureset::BinaryOp { dst, a, b },
+            ) => {
                 Self::execute_binary_operation(
                     &mut frame,
                     *dst,
@@ -79,31 +89,49 @@ where
                     BinaryOperationKind::FloorDiv,
                 )?;
             }
-            waymark_vm_instructions_pureset::PureSet::Mod { dst, a, b } => {
+            waymark_vm_instructions_pureset::PureSet::Mod(
+                waymark_vm_instructions_pureset::BinaryOp { dst, a, b },
+            ) => {
                 Self::execute_binary_operation(&mut frame, *dst, *a, *b, BinaryOperationKind::Mod)?;
             }
-            waymark_vm_instructions_pureset::PureSet::Eq { dst, a, b } => {
+            waymark_vm_instructions_pureset::PureSet::Eq(
+                waymark_vm_instructions_pureset::BinaryOp { dst, a, b },
+            ) => {
                 Self::execute_binary_operation(&mut frame, *dst, *a, *b, BinaryOperationKind::Eq)?;
             }
-            waymark_vm_instructions_pureset::PureSet::Ne { dst, a, b } => {
+            waymark_vm_instructions_pureset::PureSet::Ne(
+                waymark_vm_instructions_pureset::BinaryOp { dst, a, b },
+            ) => {
                 Self::execute_binary_operation(&mut frame, *dst, *a, *b, BinaryOperationKind::Ne)?;
             }
-            waymark_vm_instructions_pureset::PureSet::Lt { dst, a, b } => {
+            waymark_vm_instructions_pureset::PureSet::Lt(
+                waymark_vm_instructions_pureset::BinaryOp { dst, a, b },
+            ) => {
                 Self::execute_binary_operation(&mut frame, *dst, *a, *b, BinaryOperationKind::Lt)?;
             }
-            waymark_vm_instructions_pureset::PureSet::Le { dst, a, b } => {
+            waymark_vm_instructions_pureset::PureSet::Le(
+                waymark_vm_instructions_pureset::BinaryOp { dst, a, b },
+            ) => {
                 Self::execute_binary_operation(&mut frame, *dst, *a, *b, BinaryOperationKind::Le)?;
             }
-            waymark_vm_instructions_pureset::PureSet::Gt { dst, a, b } => {
+            waymark_vm_instructions_pureset::PureSet::Gt(
+                waymark_vm_instructions_pureset::BinaryOp { dst, a, b },
+            ) => {
                 Self::execute_binary_operation(&mut frame, *dst, *a, *b, BinaryOperationKind::Gt)?;
             }
-            waymark_vm_instructions_pureset::PureSet::Ge { dst, a, b } => {
+            waymark_vm_instructions_pureset::PureSet::Ge(
+                waymark_vm_instructions_pureset::BinaryOp { dst, a, b },
+            ) => {
                 Self::execute_binary_operation(&mut frame, *dst, *a, *b, BinaryOperationKind::Ge)?;
             }
-            waymark_vm_instructions_pureset::PureSet::In { dst, a, b } => {
+            waymark_vm_instructions_pureset::PureSet::In(
+                waymark_vm_instructions_pureset::BinaryOp { dst, a, b },
+            ) => {
                 Self::execute_binary_operation(&mut frame, *dst, *a, *b, BinaryOperationKind::In)?;
             }
-            waymark_vm_instructions_pureset::PureSet::NotIn { dst, a, b } => {
+            waymark_vm_instructions_pureset::PureSet::NotIn(
+                waymark_vm_instructions_pureset::BinaryOp { dst, a, b },
+            ) => {
                 Self::execute_binary_operation(
                     &mut frame,
                     *dst,
@@ -112,16 +140,24 @@ where
                     BinaryOperationKind::NotIn,
                 )?;
             }
-            waymark_vm_instructions_pureset::PureSet::And { dst, a, b } => {
+            waymark_vm_instructions_pureset::PureSet::And(
+                waymark_vm_instructions_pureset::BinaryOp { dst, a, b },
+            ) => {
                 Self::execute_binary_operation(&mut frame, *dst, *a, *b, BinaryOperationKind::And)?;
             }
-            waymark_vm_instructions_pureset::PureSet::Or { dst, a, b } => {
+            waymark_vm_instructions_pureset::PureSet::Or(
+                waymark_vm_instructions_pureset::BinaryOp { dst, a, b },
+            ) => {
                 Self::execute_binary_operation(&mut frame, *dst, *a, *b, BinaryOperationKind::Or)?;
             }
-            waymark_vm_instructions_pureset::PureSet::Neg { dst, src } => {
+            waymark_vm_instructions_pureset::PureSet::Neg(
+                waymark_vm_instructions_pureset::UnaryOp { dst, src },
+            ) => {
                 Self::execute_unary_operation(&mut frame, *dst, *src, UnaryOperationKind::Neg)?;
             }
-            waymark_vm_instructions_pureset::PureSet::Not { dst, src } => {
+            waymark_vm_instructions_pureset::PureSet::Not(
+                waymark_vm_instructions_pureset::UnaryOp { dst, src },
+            ) => {
                 Self::execute_unary_operation(&mut frame, *dst, *src, UnaryOperationKind::Not)?;
             }
             waymark_vm_instructions_pureset::PureSet::MakeList { dst, items } => {
