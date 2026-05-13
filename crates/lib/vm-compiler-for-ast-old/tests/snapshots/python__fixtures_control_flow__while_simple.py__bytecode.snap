@@ -31,8 +31,9 @@ Ok(
                     State {
                         instructions: [
                             PureSet(
-                                Lt(
-                                    BinaryOp {
+                                Binary {
+                                    kind: Lt,
+                                    op: BinaryOp {
                                         dst: RegisterId(
                                             2,
                                         ),
@@ -43,7 +44,7 @@ Ok(
                                             0,
                                         ),
                                     },
-                                ),
+                                },
                             ),
                             CoreSet(
                                 JumpIf {

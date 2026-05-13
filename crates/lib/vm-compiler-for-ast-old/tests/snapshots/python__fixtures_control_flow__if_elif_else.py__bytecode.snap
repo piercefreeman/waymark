@@ -20,8 +20,9 @@ Ok(
                                 },
                             ),
                             PureSet(
-                                Eq(
-                                    BinaryOp {
+                                Binary {
+                                    kind: Eq,
+                                    op: BinaryOp {
                                         dst: RegisterId(
                                             2,
                                         ),
@@ -32,7 +33,7 @@ Ok(
                                             1,
                                         ),
                                     },
-                                ),
+                                },
                             ),
                             CoreSet(
                                 JumpIf {
@@ -55,8 +56,9 @@ Ok(
                                 },
                             ),
                             PureSet(
-                                Eq(
-                                    BinaryOp {
+                                Binary {
+                                    kind: Eq,
+                                    op: BinaryOp {
                                         dst: RegisterId(
                                             1,
                                         ),
@@ -67,7 +69,7 @@ Ok(
                                             2,
                                         ),
                                     },
-                                ),
+                                },
                             ),
                             CoreSet(
                                 JumpIf {
@@ -90,8 +92,9 @@ Ok(
                                 },
                             ),
                             PureSet(
-                                Eq(
-                                    BinaryOp {
+                                Binary {
+                                    kind: Eq,
+                                    op: BinaryOp {
                                         dst: RegisterId(
                                             2,
                                         ),
@@ -102,7 +105,7 @@ Ok(
                                             1,
                                         ),
                                     },
-                                ),
+                                },
                             ),
                             CoreSet(
                                 JumpIf {

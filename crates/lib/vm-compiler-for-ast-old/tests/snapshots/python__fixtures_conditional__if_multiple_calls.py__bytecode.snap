@@ -20,8 +20,9 @@ Ok(
                                 },
                             ),
                             PureSet(
-                                Gt(
-                                    BinaryOp {
+                                Binary {
+                                    kind: Gt,
+                                    op: BinaryOp {
                                         dst: RegisterId(
                                             2,
                                         ),
@@ -32,7 +33,7 @@ Ok(
                                             1,
                                         ),
                                     },
-                                ),
+                                },
                             ),
                             CoreSet(
                                 JumpIf {

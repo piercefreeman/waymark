@@ -293,32 +293,36 @@ where
         left: RegisterId,
         right: RegisterId,
     ) {
-        match op {
-            BinaryOperator::Add => self.context.emitter.emit_add(dst, left, right),
-            BinaryOperator::Sub => self.context.emitter.emit_sub(dst, left, right),
-            BinaryOperator::Mul => self.context.emitter.emit_mul(dst, left, right),
-            BinaryOperator::Div => self.context.emitter.emit_div(dst, left, right),
-            BinaryOperator::FloorDiv => self.context.emitter.emit_floor_div(dst, left, right),
-            BinaryOperator::Mod => self.context.emitter.emit_mod(dst, left, right),
-            BinaryOperator::Eq => self.context.emitter.emit_eq(dst, left, right),
-            BinaryOperator::Ne => self.context.emitter.emit_ne(dst, left, right),
-            BinaryOperator::Lt => self.context.emitter.emit_lt(dst, left, right),
-            BinaryOperator::Le => self.context.emitter.emit_le(dst, left, right),
-            BinaryOperator::Gt => self.context.emitter.emit_gt(dst, left, right),
-            BinaryOperator::Ge => self.context.emitter.emit_ge(dst, left, right),
-            BinaryOperator::In => self.context.emitter.emit_in(dst, left, right),
-            BinaryOperator::NotIn => self.context.emitter.emit_not_in(dst, left, right),
-            BinaryOperator::And => self.context.emitter.emit_and(dst, left, right),
-            BinaryOperator::Or => self.context.emitter.emit_or(dst, left, right),
-        }
+        let kind = match op {
+            BinaryOperator::Add => waymark_vm_instructions_pureset::BinaryOpKind::Add,
+            BinaryOperator::Sub => waymark_vm_instructions_pureset::BinaryOpKind::Sub,
+            BinaryOperator::Mul => waymark_vm_instructions_pureset::BinaryOpKind::Mul,
+            BinaryOperator::Div => waymark_vm_instructions_pureset::BinaryOpKind::Div,
+            BinaryOperator::FloorDiv => waymark_vm_instructions_pureset::BinaryOpKind::FloorDiv,
+            BinaryOperator::Mod => waymark_vm_instructions_pureset::BinaryOpKind::Mod,
+            BinaryOperator::Eq => waymark_vm_instructions_pureset::BinaryOpKind::Eq,
+            BinaryOperator::Ne => waymark_vm_instructions_pureset::BinaryOpKind::Ne,
+            BinaryOperator::Lt => waymark_vm_instructions_pureset::BinaryOpKind::Lt,
+            BinaryOperator::Le => waymark_vm_instructions_pureset::BinaryOpKind::Le,
+            BinaryOperator::Gt => waymark_vm_instructions_pureset::BinaryOpKind::Gt,
+            BinaryOperator::Ge => waymark_vm_instructions_pureset::BinaryOpKind::Ge,
+            BinaryOperator::In => waymark_vm_instructions_pureset::BinaryOpKind::In,
+            BinaryOperator::NotIn => waymark_vm_instructions_pureset::BinaryOpKind::NotIn,
+            BinaryOperator::And => waymark_vm_instructions_pureset::BinaryOpKind::And,
+            BinaryOperator::Or => waymark_vm_instructions_pureset::BinaryOpKind::Or,
+        };
+
+        self.context.emitter.emit_binary(kind, dst, left, right);
     }
 
     /// Emits a scalar unary instruction for the selected operator.
     fn emit_unary_instruction(&mut self, op: &UnaryOperator, dst: RegisterId, src: RegisterId) {
-        match op {
-            UnaryOperator::Neg => self.context.emitter.emit_neg(dst, src),
-            UnaryOperator::Not => self.context.emitter.emit_not(dst, src),
-        }
+        let kind = match op {
+            UnaryOperator::Neg => waymark_vm_instructions_pureset::UnaryOpKind::Neg,
+            UnaryOperator::Not => waymark_vm_instructions_pureset::UnaryOpKind::Not,
+        };
+
+        self.context.emitter.emit_unary(kind, dst, src);
     }
 
     /// Emits an await into `target_register` and advances to the resume state.
@@ -617,9 +621,10 @@ mod tests {
         ));
         assert!(matches!(
             instructions.next(),
-            Some(InstructionSet::PureSet(PureSet::Add(
-                waymark_vm_instructions_pureset::BinaryOp { dst, a, b },
-            )))
+            Some(InstructionSet::PureSet(PureSet::Binary {
+                kind: waymark_vm_instructions_pureset::BinaryOpKind::Add,
+                op: waymark_vm_instructions_pureset::BinaryOp { dst, a, b },
+            }))
                 if *dst == preferred_dst
                     && *a == RegisterId(1)
                     && *b == RegisterId(2)
@@ -982,9 +987,10 @@ mod tests {
         ));
         assert!(matches!(
             instructions.next(),
-            Some(InstructionSet::PureSet(PureSet::Add(
-                waymark_vm_instructions_pureset::BinaryOp { dst, a, b },
-            )))
+            Some(InstructionSet::PureSet(PureSet::Binary {
+                kind: waymark_vm_instructions_pureset::BinaryOpKind::Add,
+                op: waymark_vm_instructions_pureset::BinaryOp { dst, a, b },
+            }))
                 if *dst == RegisterId(2)
                     && *a == RegisterId(0)
                     && *b == RegisterId(1)
@@ -998,9 +1004,10 @@ mod tests {
         ));
         assert!(matches!(
             instructions.next(),
-            Some(InstructionSet::PureSet(PureSet::Add(
-                waymark_vm_instructions_pureset::BinaryOp { dst, a, b },
-            )))
+            Some(InstructionSet::PureSet(PureSet::Binary {
+                kind: waymark_vm_instructions_pureset::BinaryOpKind::Add,
+                op: waymark_vm_instructions_pureset::BinaryOp { dst, a, b },
+            }))
                 if *dst == RegisterId(1)
                     && *a == RegisterId(2)
                     && *b == RegisterId(0)

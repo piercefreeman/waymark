@@ -42,6 +42,68 @@ pub struct BinaryOp<RegisterId> {
     pub b: RegisterId,
 }
 
+/// The kind of binary operation to apply.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BinaryOpKind {
+    /// Add two values together.
+    Add,
+
+    /// Subtract one value from another.
+    Sub,
+
+    /// Multiply two values together.
+    Mul,
+
+    /// Divide one value by another.
+    Div,
+
+    /// Floor-divide one value by another.
+    FloorDiv,
+
+    /// Compute one value modulo another.
+    Mod,
+
+    /// Compare two values for equality.
+    Eq,
+
+    /// Compare two values for inequality.
+    Ne,
+
+    /// Compare whether one value is less than another.
+    Lt,
+
+    /// Compare whether one value is less than or equal to another.
+    Le,
+
+    /// Compare whether one value is greater than another.
+    Gt,
+
+    /// Compare whether one value is greater than or equal to another.
+    Ge,
+
+    /// Test whether the left operand is contained in the right operand.
+    In,
+
+    /// Test whether the left operand is not contained in the right operand.
+    NotIn,
+
+    /// Apply Python-style logical `and` to two values.
+    And,
+
+    /// Apply Python-style logical `or` to two values.
+    Or,
+}
+
+/// The kind of unary operation to apply.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnaryOpKind {
+    /// Negate a value.
+    Neg,
+
+    /// Apply Python-style logical `not` to a value.
+    Not,
+}
+
 /// Pure instructions set.
 #[derive_where(Debug)]
 pub enum PureSet<Spec: self::Spec> {
@@ -63,59 +125,23 @@ pub enum PureSet<Spec: self::Spec> {
         src: Spec::RegisterId,
     },
 
-    /// Add two values together.
-    Add(BinaryOp<Spec::RegisterId>),
+    /// Apply a binary operation to two values.
+    Binary {
+        /// The binary operation kind to apply.
+        kind: BinaryOpKind,
 
-    /// Subtract one value from another.
-    Sub(BinaryOp<Spec::RegisterId>),
+        /// The registers used by the binary operation.
+        op: BinaryOp<Spec::RegisterId>,
+    },
 
-    /// Multiply two values together.
-    Mul(BinaryOp<Spec::RegisterId>),
+    /// Apply a unary operation to a value.
+    Unary {
+        /// The unary operation kind to apply.
+        kind: UnaryOpKind,
 
-    /// Divide one value by another.
-    Div(BinaryOp<Spec::RegisterId>),
-
-    /// Floor-divide one value by another.
-    FloorDiv(BinaryOp<Spec::RegisterId>),
-
-    /// Compute one value modulo another.
-    Mod(BinaryOp<Spec::RegisterId>),
-
-    /// Compare two values for equality.
-    Eq(BinaryOp<Spec::RegisterId>),
-
-    /// Compare two values for inequality.
-    Ne(BinaryOp<Spec::RegisterId>),
-
-    /// Compare whether one value is less than another.
-    Lt(BinaryOp<Spec::RegisterId>),
-
-    /// Compare whether one value is less than or equal to another.
-    Le(BinaryOp<Spec::RegisterId>),
-
-    /// Compare whether one value is greater than another.
-    Gt(BinaryOp<Spec::RegisterId>),
-
-    /// Compare whether one value is greater than or equal to another.
-    Ge(BinaryOp<Spec::RegisterId>),
-
-    /// Test whether the left operand is contained in the right operand.
-    In(BinaryOp<Spec::RegisterId>),
-
-    /// Test whether the left operand is not contained in the right operand.
-    NotIn(BinaryOp<Spec::RegisterId>),
-
-    /// Apply Python-style logical `and` to two values.
-    And(BinaryOp<Spec::RegisterId>),
-
-    /// Apply Python-style logical `or` to two values.
-    Or(BinaryOp<Spec::RegisterId>),
-
-    /// Negate a value.
-    Neg(UnaryOp<Spec::RegisterId>),
-
-    /// Apply Python-style logical `not` to a value.
-    Not(UnaryOp<Spec::RegisterId>),
+        /// The registers used by the unary operation.
+        op: UnaryOp<Spec::RegisterId>,
+    },
 
     /// Build a list value from resolved registers.
     MakeList {

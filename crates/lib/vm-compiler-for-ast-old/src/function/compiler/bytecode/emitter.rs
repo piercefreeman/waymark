@@ -64,186 +64,6 @@ where
         self.emit(waymark_vm_instructions_pureset::PureSet::Copy { dst, src }.into());
     }
 
-    /// Emits an integer/string addition instruction.
-    pub fn emit_add(&mut self, dst: RegisterId, a: RegisterId, b: RegisterId) {
-        self.emit(
-            waymark_vm_instructions_pureset::PureSet::Add(
-                waymark_vm_instructions_pureset::BinaryOp { dst, a, b },
-            )
-            .into(),
-        );
-    }
-
-    /// Emits a subtraction instruction.
-    pub fn emit_sub(&mut self, dst: RegisterId, a: RegisterId, b: RegisterId) {
-        self.emit(
-            waymark_vm_instructions_pureset::PureSet::Sub(
-                waymark_vm_instructions_pureset::BinaryOp { dst, a, b },
-            )
-            .into(),
-        );
-    }
-
-    /// Emits a multiplication instruction.
-    pub fn emit_mul(&mut self, dst: RegisterId, a: RegisterId, b: RegisterId) {
-        self.emit(
-            waymark_vm_instructions_pureset::PureSet::Mul(
-                waymark_vm_instructions_pureset::BinaryOp { dst, a, b },
-            )
-            .into(),
-        );
-    }
-
-    /// Emits a division instruction.
-    pub fn emit_div(&mut self, dst: RegisterId, a: RegisterId, b: RegisterId) {
-        self.emit(
-            waymark_vm_instructions_pureset::PureSet::Div(
-                waymark_vm_instructions_pureset::BinaryOp { dst, a, b },
-            )
-            .into(),
-        );
-    }
-
-    /// Emits a floor-division instruction.
-    pub fn emit_floor_div(&mut self, dst: RegisterId, a: RegisterId, b: RegisterId) {
-        self.emit(
-            waymark_vm_instructions_pureset::PureSet::FloorDiv(
-                waymark_vm_instructions_pureset::BinaryOp { dst, a, b },
-            )
-            .into(),
-        );
-    }
-
-    /// Emits a modulo instruction.
-    pub fn emit_mod(&mut self, dst: RegisterId, a: RegisterId, b: RegisterId) {
-        self.emit(
-            waymark_vm_instructions_pureset::PureSet::Mod(
-                waymark_vm_instructions_pureset::BinaryOp { dst, a, b },
-            )
-            .into(),
-        );
-    }
-
-    /// Emits an equality comparison instruction.
-    pub fn emit_eq(&mut self, dst: RegisterId, a: RegisterId, b: RegisterId) {
-        self.emit(
-            waymark_vm_instructions_pureset::PureSet::Eq(
-                waymark_vm_instructions_pureset::BinaryOp { dst, a, b },
-            )
-            .into(),
-        );
-    }
-
-    /// Emits an inequality comparison instruction.
-    pub fn emit_ne(&mut self, dst: RegisterId, a: RegisterId, b: RegisterId) {
-        self.emit(
-            waymark_vm_instructions_pureset::PureSet::Ne(
-                waymark_vm_instructions_pureset::BinaryOp { dst, a, b },
-            )
-            .into(),
-        );
-    }
-
-    /// Emits a less-than comparison instruction.
-    pub fn emit_lt(&mut self, dst: RegisterId, a: RegisterId, b: RegisterId) {
-        self.emit(
-            waymark_vm_instructions_pureset::PureSet::Lt(
-                waymark_vm_instructions_pureset::BinaryOp { dst, a, b },
-            )
-            .into(),
-        );
-    }
-
-    /// Emits a less-than-or-equal comparison instruction.
-    pub fn emit_le(&mut self, dst: RegisterId, a: RegisterId, b: RegisterId) {
-        self.emit(
-            waymark_vm_instructions_pureset::PureSet::Le(
-                waymark_vm_instructions_pureset::BinaryOp { dst, a, b },
-            )
-            .into(),
-        );
-    }
-
-    /// Emits a greater-than comparison instruction.
-    pub fn emit_gt(&mut self, dst: RegisterId, a: RegisterId, b: RegisterId) {
-        self.emit(
-            waymark_vm_instructions_pureset::PureSet::Gt(
-                waymark_vm_instructions_pureset::BinaryOp { dst, a, b },
-            )
-            .into(),
-        );
-    }
-
-    /// Emits a greater-than-or-equal comparison instruction.
-    pub fn emit_ge(&mut self, dst: RegisterId, a: RegisterId, b: RegisterId) {
-        self.emit(
-            waymark_vm_instructions_pureset::PureSet::Ge(
-                waymark_vm_instructions_pureset::BinaryOp { dst, a, b },
-            )
-            .into(),
-        );
-    }
-
-    /// Emits a membership instruction.
-    pub fn emit_in(&mut self, dst: RegisterId, a: RegisterId, b: RegisterId) {
-        self.emit(
-            waymark_vm_instructions_pureset::PureSet::In(
-                waymark_vm_instructions_pureset::BinaryOp { dst, a, b },
-            )
-            .into(),
-        );
-    }
-
-    /// Emits a negated-membership instruction.
-    pub fn emit_not_in(&mut self, dst: RegisterId, a: RegisterId, b: RegisterId) {
-        self.emit(
-            waymark_vm_instructions_pureset::PureSet::NotIn(
-                waymark_vm_instructions_pureset::BinaryOp { dst, a, b },
-            )
-            .into(),
-        );
-    }
-
-    /// Emits a logical-and instruction.
-    pub fn emit_and(&mut self, dst: RegisterId, a: RegisterId, b: RegisterId) {
-        self.emit(
-            waymark_vm_instructions_pureset::PureSet::And(
-                waymark_vm_instructions_pureset::BinaryOp { dst, a, b },
-            )
-            .into(),
-        );
-    }
-
-    /// Emits a logical-or instruction.
-    pub fn emit_or(&mut self, dst: RegisterId, a: RegisterId, b: RegisterId) {
-        self.emit(
-            waymark_vm_instructions_pureset::PureSet::Or(
-                waymark_vm_instructions_pureset::BinaryOp { dst, a, b },
-            )
-            .into(),
-        );
-    }
-
-    /// Emits a unary negation instruction.
-    pub fn emit_neg(&mut self, dst: RegisterId, src: RegisterId) {
-        self.emit(
-            waymark_vm_instructions_pureset::PureSet::Neg(
-                waymark_vm_instructions_pureset::UnaryOp { dst, src },
-            )
-            .into(),
-        );
-    }
-
-    /// Emits a logical-not instruction.
-    pub fn emit_not(&mut self, dst: RegisterId, src: RegisterId) {
-        self.emit(
-            waymark_vm_instructions_pureset::PureSet::Not(
-                waymark_vm_instructions_pureset::UnaryOp { dst, src },
-            )
-            .into(),
-        );
-    }
-
     /// Emits a list-construction instruction.
     pub fn emit_make_list(&mut self, dst: RegisterId, items: Vec<RegisterId>) {
         self.emit(waymark_vm_instructions_pureset::PureSet::MakeList { dst, items }.into());
@@ -317,6 +137,39 @@ where
     pub fn emit_return(&mut self, src: RegisterId) {
         self.emit(waymark_vm_instructions_coreset::CoreSet::Return { src }.into());
         self.function_states.terminate();
+    }
+
+    /// Emits a binary pureset instruction with the provided operation kind.
+    pub fn emit_binary(
+        &mut self,
+        kind: waymark_vm_instructions_pureset::BinaryOpKind,
+        dst: RegisterId,
+        a: RegisterId,
+        b: RegisterId,
+    ) {
+        self.emit(
+            waymark_vm_instructions_pureset::PureSet::Binary {
+                kind,
+                op: waymark_vm_instructions_pureset::BinaryOp { dst, a, b },
+            }
+            .into(),
+        );
+    }
+
+    /// Emits a unary pureset instruction with the provided operation kind.
+    pub fn emit_unary(
+        &mut self,
+        kind: waymark_vm_instructions_pureset::UnaryOpKind,
+        dst: RegisterId,
+        src: RegisterId,
+    ) {
+        self.emit(
+            waymark_vm_instructions_pureset::PureSet::Unary {
+                kind,
+                op: waymark_vm_instructions_pureset::UnaryOp { dst, src },
+            }
+            .into(),
+        );
     }
 
     /// Appends an instruction to the current state.

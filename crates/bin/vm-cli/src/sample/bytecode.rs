@@ -39,11 +39,14 @@ pub fn executable() -> crate::integration::Executable {
                         value: SampleConstValue::Usize(5),
                     }
                     .into(),
-                    PureSet::Add(waymark_vm_instructions_pureset::BinaryOp {
-                        dst: RegisterId::from_scalar(2),
-                        a: RegisterId::from_scalar(1),
-                        b: RegisterId::from_scalar(2),
-                    })
+                    PureSet::Binary {
+                        kind: waymark_vm_instructions_pureset::BinaryOpKind::Add,
+                        op: waymark_vm_instructions_pureset::BinaryOp {
+                            dst: RegisterId::from_scalar(2),
+                            a: RegisterId::from_scalar(1),
+                            b: RegisterId::from_scalar(2),
+                        },
+                    }
                     .into(),
                     CoreSet::Return {
                         src: RegisterId::from_scalar(2),
@@ -92,11 +95,14 @@ pub fn executable() -> crate::integration::Executable {
             },
             State {
                 instructions: typed_vec![
-                    PureSet::Add(waymark_vm_instructions_pureset::BinaryOp {
-                        dst: RegisterId::from_scalar(4),
-                        a: RegisterId::from_scalar(2),
-                        b: RegisterId::from_scalar(3)
-                    })
+                    PureSet::Binary {
+                        kind: waymark_vm_instructions_pureset::BinaryOpKind::Add,
+                        op: waymark_vm_instructions_pureset::BinaryOp {
+                            dst: RegisterId::from_scalar(4),
+                            a: RegisterId::from_scalar(2),
+                            b: RegisterId::from_scalar(3)
+                        },
+                    }
                     .into(),
                     CoreSet::Return {
                         src: RegisterId::from_scalar(4)
