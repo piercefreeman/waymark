@@ -1,4 +1,4 @@
-use waymark_vm_instructions_pureset::PureSet;
+use waymark_vm_instructions_pureset::{BinaryOpKind, PureSet, UnaryOpKind};
 use waymark_vm_interpreter::ExecutionOutcome;
 use waymark_vm_interpreter_pureset::{BinaryOperandPosition, Error, PureSetInterpreter};
 use waymark_vm_runtime::{RunError, Runtime};
@@ -54,7 +54,7 @@ impl waymark_vm_interpreter_pureset::value::BinaryOps for TestValue {
             (Self::Int(a), Self::Int(b)) => Ok(Self::Int(*a + *b)),
             _ => Err(
                 waymark_vm_interpreter_pureset::value::BinaryOperationError::UnsupportedOperation {
-                    operation: waymark_vm_interpreter_pureset::value::BinaryOperationKind::Add,
+                    operation: BinaryOpKind::Add,
                 },
             ),
         }
@@ -69,7 +69,7 @@ impl waymark_vm_interpreter_pureset::value::UnaryOps for TestValue {
             Self::Int(value) => Ok(Self::Int(-*value)),
             _ => Err(
                 waymark_vm_interpreter_pureset::value::UnaryOperationError::UnsupportedOperation {
-                    operation: waymark_vm_interpreter_pureset::value::UnaryOperationKind::Neg,
+                    operation: UnaryOpKind::Neg,
                 },
             ),
         }
@@ -275,11 +275,10 @@ fn runtime_surfaces_add_errors_from_the_pureset_interpreter() {
         runtime.run(),
         Err(RunError::Step(waymark_vm_runtime::step::Error::Execution(
             Error::BinaryOperation {
-                operation: waymark_vm_interpreter_pureset::value::BinaryOperationKind::Add,
+                operation: BinaryOpKind::Add,
                 source:
                     waymark_vm_interpreter_pureset::value::BinaryOperationError::UnsupportedOperation {
-                        operation:
-                            waymark_vm_interpreter_pureset::value::BinaryOperationKind::Add,
+                        operation: BinaryOpKind::Add,
                     },
             }
         )))
@@ -321,7 +320,7 @@ fn runtime_surfaces_unresolved_add_operand_errors_from_the_pureset_interpreter()
         runtime.run(),
         Err(RunError::Step(waymark_vm_runtime::step::Error::Execution(
             Error::UnresolvedBinaryOperand {
-                operation: waymark_vm_interpreter_pureset::value::BinaryOperationKind::Add,
+                operation: BinaryOpKind::Add,
                 operand_pos: BinaryOperandPosition::First,
                 source: waymark_vm_runtime_core::UnresolvedPromiseError { promise_state_id },
             }

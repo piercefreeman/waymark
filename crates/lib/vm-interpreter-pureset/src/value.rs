@@ -1,79 +1,6 @@
 //! Value requirements.
 
-/// A supported binary scalar operation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum BinaryOperationKind {
-    /// Addition.
-    Add,
-
-    /// Subtraction.
-    Sub,
-
-    /// Multiplication.
-    Mul,
-
-    /// Division.
-    Div,
-
-    /// Floor division.
-    FloorDiv,
-
-    /// Modulo.
-    Mod,
-
-    /// Equality.
-    Eq,
-
-    /// Inequality.
-    Ne,
-
-    /// Less-than comparison.
-    Lt,
-
-    /// Less-than-or-equal comparison.
-    Le,
-
-    /// Greater-than comparison.
-    Gt,
-
-    /// Greater-than-or-equal comparison.
-    Ge,
-
-    /// Membership test.
-    In,
-
-    /// Negated membership test.
-    NotIn,
-
-    /// Logical `and`.
-    And,
-
-    /// Logical `or`.
-    Or,
-}
-
-impl core::fmt::Display for BinaryOperationKind {
-    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        formatter.write_str(match self {
-            Self::Add => "+",
-            Self::Sub => "-",
-            Self::Mul => "*",
-            Self::Div => "/",
-            Self::FloorDiv => "//",
-            Self::Mod => "%",
-            Self::Eq => "==",
-            Self::Ne => "!=",
-            Self::Lt => "<",
-            Self::Le => "<=",
-            Self::Gt => ">",
-            Self::Ge => ">=",
-            Self::In => "in",
-            Self::NotIn => "not in",
-            Self::And => "and",
-            Self::Or => "or",
-        })
-    }
-}
+use waymark_vm_instructions_pureset::{BinaryOpKind, UnaryOpKind};
 
 /// An error from a binary scalar operation.
 #[derive(Debug, thiserror::Error)]
@@ -82,41 +9,22 @@ pub enum BinaryOperationError {
     #[error("{operation} is not supported for these operands")]
     UnsupportedOperation {
         /// The unsupported operation.
-        operation: BinaryOperationKind,
+        operation: BinaryOpKind,
     },
 
     /// The result could not be represented by the value type.
     #[error("{operation} result is out of bounds")]
     ResultOutOfBounds {
         /// The operation that overflowed or otherwise could not be represented.
-        operation: BinaryOperationKind,
+        operation: BinaryOpKind,
     },
 
     /// The operation attempted to divide by zero.
     #[error("{operation} cannot divide by zero")]
     DivisionByZero {
         /// The operation that attempted division by zero.
-        operation: BinaryOperationKind,
+        operation: BinaryOpKind,
     },
-}
-
-/// A supported unary scalar operation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum UnaryOperationKind {
-    /// Numeric negation.
-    Neg,
-
-    /// Logical negation.
-    Not,
-}
-
-impl core::fmt::Display for UnaryOperationKind {
-    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        formatter.write_str(match self {
-            Self::Neg => "-",
-            Self::Not => "not",
-        })
-    }
 }
 
 /// An error from a unary scalar operation.
@@ -126,14 +34,14 @@ pub enum UnaryOperationError {
     #[error("{operation} is not supported for this operand")]
     UnsupportedOperation {
         /// The unsupported operation.
-        operation: UnaryOperationKind,
+        operation: UnaryOpKind,
     },
 
     /// The result could not be represented by the value type.
     #[error("{operation} result is out of bounds")]
     ResultOutOfBounds {
         /// The operation that overflowed or otherwise could not be represented.
-        operation: UnaryOperationKind,
+        operation: UnaryOpKind,
     },
 }
 
@@ -155,7 +63,7 @@ pub trait BinaryOps: Sized {
     fn add(a: &Self, b: &Self) -> Result<Self, BinaryOperationError> {
         let _ = (a, b);
         Err(BinaryOperationError::UnsupportedOperation {
-            operation: BinaryOperationKind::Add,
+            operation: BinaryOpKind::Add,
         })
     }
 
@@ -163,7 +71,7 @@ pub trait BinaryOps: Sized {
     fn sub(a: &Self, b: &Self) -> Result<Self, BinaryOperationError> {
         let _ = (a, b);
         Err(BinaryOperationError::UnsupportedOperation {
-            operation: BinaryOperationKind::Sub,
+            operation: BinaryOpKind::Sub,
         })
     }
 
@@ -171,7 +79,7 @@ pub trait BinaryOps: Sized {
     fn mul(a: &Self, b: &Self) -> Result<Self, BinaryOperationError> {
         let _ = (a, b);
         Err(BinaryOperationError::UnsupportedOperation {
-            operation: BinaryOperationKind::Mul,
+            operation: BinaryOpKind::Mul,
         })
     }
 
@@ -179,7 +87,7 @@ pub trait BinaryOps: Sized {
     fn div(a: &Self, b: &Self) -> Result<Self, BinaryOperationError> {
         let _ = (a, b);
         Err(BinaryOperationError::UnsupportedOperation {
-            operation: BinaryOperationKind::Div,
+            operation: BinaryOpKind::Div,
         })
     }
 
@@ -187,7 +95,7 @@ pub trait BinaryOps: Sized {
     fn floor_div(a: &Self, b: &Self) -> Result<Self, BinaryOperationError> {
         let _ = (a, b);
         Err(BinaryOperationError::UnsupportedOperation {
-            operation: BinaryOperationKind::FloorDiv,
+            operation: BinaryOpKind::FloorDiv,
         })
     }
 
@@ -195,7 +103,7 @@ pub trait BinaryOps: Sized {
     fn modulo(a: &Self, b: &Self) -> Result<Self, BinaryOperationError> {
         let _ = (a, b);
         Err(BinaryOperationError::UnsupportedOperation {
-            operation: BinaryOperationKind::Mod,
+            operation: BinaryOpKind::Mod,
         })
     }
 
@@ -203,7 +111,7 @@ pub trait BinaryOps: Sized {
     fn eq(a: &Self, b: &Self) -> Result<Self, BinaryOperationError> {
         let _ = (a, b);
         Err(BinaryOperationError::UnsupportedOperation {
-            operation: BinaryOperationKind::Eq,
+            operation: BinaryOpKind::Eq,
         })
     }
 
@@ -211,7 +119,7 @@ pub trait BinaryOps: Sized {
     fn ne(a: &Self, b: &Self) -> Result<Self, BinaryOperationError> {
         let _ = (a, b);
         Err(BinaryOperationError::UnsupportedOperation {
-            operation: BinaryOperationKind::Ne,
+            operation: BinaryOpKind::Ne,
         })
     }
 
@@ -219,7 +127,7 @@ pub trait BinaryOps: Sized {
     fn lt(a: &Self, b: &Self) -> Result<Self, BinaryOperationError> {
         let _ = (a, b);
         Err(BinaryOperationError::UnsupportedOperation {
-            operation: BinaryOperationKind::Lt,
+            operation: BinaryOpKind::Lt,
         })
     }
 
@@ -227,7 +135,7 @@ pub trait BinaryOps: Sized {
     fn le(a: &Self, b: &Self) -> Result<Self, BinaryOperationError> {
         let _ = (a, b);
         Err(BinaryOperationError::UnsupportedOperation {
-            operation: BinaryOperationKind::Le,
+            operation: BinaryOpKind::Le,
         })
     }
 
@@ -235,7 +143,7 @@ pub trait BinaryOps: Sized {
     fn gt(a: &Self, b: &Self) -> Result<Self, BinaryOperationError> {
         let _ = (a, b);
         Err(BinaryOperationError::UnsupportedOperation {
-            operation: BinaryOperationKind::Gt,
+            operation: BinaryOpKind::Gt,
         })
     }
 
@@ -243,7 +151,7 @@ pub trait BinaryOps: Sized {
     fn ge(a: &Self, b: &Self) -> Result<Self, BinaryOperationError> {
         let _ = (a, b);
         Err(BinaryOperationError::UnsupportedOperation {
-            operation: BinaryOperationKind::Ge,
+            operation: BinaryOpKind::Ge,
         })
     }
 
@@ -251,7 +159,7 @@ pub trait BinaryOps: Sized {
     fn contains(a: &Self, b: &Self) -> Result<Self, BinaryOperationError> {
         let _ = (a, b);
         Err(BinaryOperationError::UnsupportedOperation {
-            operation: BinaryOperationKind::In,
+            operation: BinaryOpKind::In,
         })
     }
 
@@ -259,7 +167,7 @@ pub trait BinaryOps: Sized {
     fn not_contains(a: &Self, b: &Self) -> Result<Self, BinaryOperationError> {
         let _ = (a, b);
         Err(BinaryOperationError::UnsupportedOperation {
-            operation: BinaryOperationKind::NotIn,
+            operation: BinaryOpKind::NotIn,
         })
     }
 
@@ -267,7 +175,7 @@ pub trait BinaryOps: Sized {
     fn and(a: &Self, b: &Self) -> Result<Self, BinaryOperationError> {
         let _ = (a, b);
         Err(BinaryOperationError::UnsupportedOperation {
-            operation: BinaryOperationKind::And,
+            operation: BinaryOpKind::And,
         })
     }
 
@@ -275,7 +183,7 @@ pub trait BinaryOps: Sized {
     fn or(a: &Self, b: &Self) -> Result<Self, BinaryOperationError> {
         let _ = (a, b);
         Err(BinaryOperationError::UnsupportedOperation {
-            operation: BinaryOperationKind::Or,
+            operation: BinaryOpKind::Or,
         })
     }
 }
@@ -286,7 +194,7 @@ pub trait UnaryOps: Sized {
     fn neg(value: &Self) -> Result<Self, UnaryOperationError> {
         let _ = value;
         Err(UnaryOperationError::UnsupportedOperation {
-            operation: UnaryOperationKind::Neg,
+            operation: UnaryOpKind::Neg,
         })
     }
 
@@ -294,7 +202,7 @@ pub trait UnaryOps: Sized {
     fn not(value: &Self) -> Result<Self, UnaryOperationError> {
         let _ = value;
         Err(UnaryOperationError::UnsupportedOperation {
-            operation: UnaryOperationKind::Not,
+            operation: UnaryOpKind::Not,
         })
     }
 }

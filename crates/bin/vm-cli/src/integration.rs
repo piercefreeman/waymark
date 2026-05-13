@@ -55,7 +55,7 @@ impl waymark_vm_interpreter_pureset::value::BinaryOps for SampleValue {
             (SampleValue::Usize(a), SampleValue::Usize(b)) => Ok(SampleValue::Usize(*a + *b)),
             _ => Err(
                 waymark_vm_interpreter_pureset::value::BinaryOperationError::UnsupportedOperation {
-                    operation: waymark_vm_interpreter_pureset::value::BinaryOperationKind::Add,
+                    operation: waymark_vm_instructions_pureset::BinaryOpKind::Add,
                 },
             ),
         }

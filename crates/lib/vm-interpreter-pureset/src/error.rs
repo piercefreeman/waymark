@@ -1,6 +1,6 @@
 use waymark_vm_runtime_core::{RegisterId, UnresolvedPromiseError};
 
-use crate::value::{BinaryOperationKind, UnaryOperationKind};
+use waymark_vm_instructions_pureset::{BinaryOpKind, UnaryOpKind};
 
 /// A specified of the operand position in a binary operation.
 ///
@@ -37,7 +37,7 @@ pub enum Error {
     #[error("{operand_pos} {operation} operand in register {register:?} is not initialized")]
     MissingBinaryOperand {
         /// The binary operation being evaluated.
-        operation: BinaryOperationKind,
+        operation: BinaryOpKind,
 
         /// The operand position.
         operand_pos: BinaryOperandPosition,
@@ -50,7 +50,7 @@ pub enum Error {
     #[error("{operand_pos} {operation} operand is unresolved: {source}")]
     UnresolvedBinaryOperand {
         /// The binary operation being evaluated.
-        operation: BinaryOperationKind,
+        operation: BinaryOpKind,
 
         /// The operand position.
         operand_pos: BinaryOperandPosition,
@@ -64,7 +64,7 @@ pub enum Error {
     #[error("{operation} operand in register {register:?} is not initialized")]
     MissingUnaryOperand {
         /// The unary operation being evaluated.
-        operation: UnaryOperationKind,
+        operation: UnaryOpKind,
 
         /// The register that was read.
         register: RegisterId,
@@ -74,7 +74,7 @@ pub enum Error {
     #[error("{operation} operand is unresolved: {source}")]
     UnresolvedUnaryOperand {
         /// The unary operation being evaluated.
-        operation: UnaryOperationKind,
+        operation: UnaryOpKind,
 
         /// The underlying unresolved promise error.
         #[source]
@@ -106,7 +106,7 @@ pub enum Error {
     #[error("{operation}: {source}")]
     BinaryOperation {
         /// The binary operation that failed.
-        operation: BinaryOperationKind,
+        operation: BinaryOpKind,
 
         /// The operation-specific failure.
         #[source]
@@ -117,7 +117,7 @@ pub enum Error {
     #[error("{operation}: {source}")]
     UnaryOperation {
         /// The unary operation that failed.
-        operation: UnaryOperationKind,
+        operation: UnaryOpKind,
 
         /// The operation-specific failure.
         #[source]

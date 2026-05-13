@@ -1,6 +1,6 @@
 use waymark_vm_instructions_coreset::CoreSet;
 use waymark_vm_instructions_fullset::FullSet;
-use waymark_vm_instructions_pureset::PureSet;
+use waymark_vm_instructions_pureset::{BinaryOpKind, PureSet, UnaryOpKind};
 use waymark_vm_interpreter_fullset::{Effect, FullSetInterpreter};
 use waymark_vm_runtime::{CallSpec, Runtime};
 use waymark_vm_runtime_core::RegisterId;
@@ -63,7 +63,7 @@ impl waymark_vm_interpreter_pureset::value::BinaryOps for TestValue {
             (Self::Int(a), Self::Int(b)) => Ok(Self::Int(*a + *b)),
             _ => Err(
                 waymark_vm_interpreter_pureset::value::BinaryOperationError::UnsupportedOperation {
-                    operation: waymark_vm_interpreter_pureset::value::BinaryOperationKind::Add,
+                    operation: BinaryOpKind::Add,
                 },
             ),
         }
@@ -78,7 +78,7 @@ impl waymark_vm_interpreter_pureset::value::UnaryOps for TestValue {
             Self::Int(value) => Ok(Self::Int(-*value)),
             _ => Err(
                 waymark_vm_interpreter_pureset::value::UnaryOperationError::UnsupportedOperation {
-                    operation: waymark_vm_interpreter_pureset::value::UnaryOperationKind::Neg,
+                    operation: UnaryOpKind::Neg,
                 },
             ),
         }

@@ -40,7 +40,7 @@ impl waymark_vm_interpreter_pureset::value::BinaryOps for TestValue {
         match (a, b) {
             (Self::Int(a), Self::Int(b)) => a.checked_add(*b).map(Self::Int).ok_or(
                 waymark_vm_interpreter_pureset::value::BinaryOperationError::ResultOutOfBounds {
-                    operation: waymark_vm_interpreter_pureset::value::BinaryOperationKind::Add,
+                    operation: waymark_vm_instructions_pureset::BinaryOpKind::Add,
                 },
             ),
             (Self::List(left), Self::List(right)) => {
@@ -50,7 +50,7 @@ impl waymark_vm_interpreter_pureset::value::BinaryOps for TestValue {
             }
             _ => Err(
                 waymark_vm_interpreter_pureset::value::BinaryOperationError::UnsupportedOperation {
-                    operation: waymark_vm_interpreter_pureset::value::BinaryOperationKind::Add,
+                    operation: waymark_vm_instructions_pureset::BinaryOpKind::Add,
                 },
             ),
         }
@@ -63,12 +63,12 @@ impl waymark_vm_interpreter_pureset::value::BinaryOps for TestValue {
         match (a, b) {
             (Self::Int(a), Self::Int(b)) => a.checked_sub(*b).map(Self::Int).ok_or(
                 waymark_vm_interpreter_pureset::value::BinaryOperationError::ResultOutOfBounds {
-                    operation: waymark_vm_interpreter_pureset::value::BinaryOperationKind::Sub,
+                    operation: waymark_vm_instructions_pureset::BinaryOpKind::Sub,
                 },
             ),
             _ => Err(
                 waymark_vm_interpreter_pureset::value::BinaryOperationError::UnsupportedOperation {
-                    operation: waymark_vm_interpreter_pureset::value::BinaryOperationKind::Sub,
+                    operation: waymark_vm_instructions_pureset::BinaryOpKind::Sub,
                 },
             ),
         }
@@ -81,12 +81,12 @@ impl waymark_vm_interpreter_pureset::value::BinaryOps for TestValue {
         match (a, b) {
             (Self::Int(a), Self::Int(b)) => a.checked_mul(*b).map(Self::Int).ok_or(
                 waymark_vm_interpreter_pureset::value::BinaryOperationError::ResultOutOfBounds {
-                    operation: waymark_vm_interpreter_pureset::value::BinaryOperationKind::Mul,
+                    operation: waymark_vm_instructions_pureset::BinaryOpKind::Mul,
                 },
             ),
             _ => Err(
                 waymark_vm_interpreter_pureset::value::BinaryOperationError::UnsupportedOperation {
-                    operation: waymark_vm_interpreter_pureset::value::BinaryOperationKind::Mul,
+                    operation: waymark_vm_instructions_pureset::BinaryOpKind::Mul,
                 },
             ),
         }
@@ -99,7 +99,7 @@ impl waymark_vm_interpreter_pureset::value::BinaryOps for TestValue {
         match (a, b) {
             (Self::Int(_), Self::Int(0)) => Err(
                 waymark_vm_interpreter_pureset::value::BinaryOperationError::DivisionByZero {
-                    operation: waymark_vm_interpreter_pureset::value::BinaryOperationKind::Div,
+                    operation: waymark_vm_instructions_pureset::BinaryOpKind::Div,
                 },
             ),
             (Self::Int(a), Self::Int(b)) => {
@@ -108,14 +108,14 @@ impl waymark_vm_interpreter_pureset::value::BinaryOps for TestValue {
                 } else {
                     Err(
                         waymark_vm_interpreter_pureset::value::BinaryOperationError::ResultOutOfBounds {
-                            operation: waymark_vm_interpreter_pureset::value::BinaryOperationKind::Div,
+                            operation: waymark_vm_instructions_pureset::BinaryOpKind::Div,
                         },
                     )
                 }
             }
             _ => Err(
                 waymark_vm_interpreter_pureset::value::BinaryOperationError::UnsupportedOperation {
-                    operation: waymark_vm_interpreter_pureset::value::BinaryOperationKind::Div,
+                    operation: waymark_vm_instructions_pureset::BinaryOpKind::Div,
                 },
             ),
         }
@@ -128,7 +128,7 @@ impl waymark_vm_interpreter_pureset::value::BinaryOps for TestValue {
         match (a, b) {
             (Self::Int(_), Self::Int(0)) => Err(
                 waymark_vm_interpreter_pureset::value::BinaryOperationError::DivisionByZero {
-                    operation: waymark_vm_interpreter_pureset::value::BinaryOperationKind::FloorDiv,
+                    operation: waymark_vm_instructions_pureset::BinaryOpKind::FloorDiv,
                 },
             ),
             (Self::Int(a), Self::Int(b)) => {
@@ -137,7 +137,7 @@ impl waymark_vm_interpreter_pureset::value::BinaryOps for TestValue {
             }
             _ => Err(
                 waymark_vm_interpreter_pureset::value::BinaryOperationError::UnsupportedOperation {
-                    operation: waymark_vm_interpreter_pureset::value::BinaryOperationKind::FloorDiv,
+                    operation: waymark_vm_instructions_pureset::BinaryOpKind::FloorDiv,
                 },
             ),
         }
@@ -150,13 +150,13 @@ impl waymark_vm_interpreter_pureset::value::BinaryOps for TestValue {
         match (a, b) {
             (Self::Int(_), Self::Int(0)) => Err(
                 waymark_vm_interpreter_pureset::value::BinaryOperationError::DivisionByZero {
-                    operation: waymark_vm_interpreter_pureset::value::BinaryOperationKind::Mod,
+                    operation: waymark_vm_instructions_pureset::BinaryOpKind::Mod,
                 },
             ),
             (Self::Int(a), Self::Int(b)) => Ok(Self::Int(*a % *b)),
             _ => Err(
                 waymark_vm_interpreter_pureset::value::BinaryOperationError::UnsupportedOperation {
-                    operation: waymark_vm_interpreter_pureset::value::BinaryOperationKind::Mod,
+                    operation: waymark_vm_instructions_pureset::BinaryOpKind::Mod,
                 },
             ),
         }
@@ -184,7 +184,7 @@ impl waymark_vm_interpreter_pureset::value::BinaryOps for TestValue {
             (Self::Int(a), Self::Int(b)) => Ok(Self::Bool(a < b)),
             _ => Err(
                 waymark_vm_interpreter_pureset::value::BinaryOperationError::UnsupportedOperation {
-                    operation: waymark_vm_interpreter_pureset::value::BinaryOperationKind::Lt,
+                    operation: waymark_vm_instructions_pureset::BinaryOpKind::Lt,
                 },
             ),
         }
@@ -198,7 +198,7 @@ impl waymark_vm_interpreter_pureset::value::BinaryOps for TestValue {
             (Self::Int(a), Self::Int(b)) => Ok(Self::Bool(a <= b)),
             _ => Err(
                 waymark_vm_interpreter_pureset::value::BinaryOperationError::UnsupportedOperation {
-                    operation: waymark_vm_interpreter_pureset::value::BinaryOperationKind::Le,
+                    operation: waymark_vm_instructions_pureset::BinaryOpKind::Le,
                 },
             ),
         }
@@ -212,7 +212,7 @@ impl waymark_vm_interpreter_pureset::value::BinaryOps for TestValue {
             (Self::Int(a), Self::Int(b)) => Ok(Self::Bool(a > b)),
             _ => Err(
                 waymark_vm_interpreter_pureset::value::BinaryOperationError::UnsupportedOperation {
-                    operation: waymark_vm_interpreter_pureset::value::BinaryOperationKind::Gt,
+                    operation: waymark_vm_instructions_pureset::BinaryOpKind::Gt,
                 },
             ),
         }
@@ -226,7 +226,7 @@ impl waymark_vm_interpreter_pureset::value::BinaryOps for TestValue {
             (Self::Int(a), Self::Int(b)) => Ok(Self::Bool(a >= b)),
             _ => Err(
                 waymark_vm_interpreter_pureset::value::BinaryOperationError::UnsupportedOperation {
-                    operation: waymark_vm_interpreter_pureset::value::BinaryOperationKind::Ge,
+                    operation: waymark_vm_instructions_pureset::BinaryOpKind::Ge,
                 },
             ),
         }
@@ -240,7 +240,7 @@ impl waymark_vm_interpreter_pureset::value::BinaryOps for TestValue {
             Self::List(items) => Ok(Self::Bool(items.iter().any(|item| item == a))),
             _ => Err(
                 waymark_vm_interpreter_pureset::value::BinaryOperationError::UnsupportedOperation {
-                    operation: waymark_vm_interpreter_pureset::value::BinaryOperationKind::In,
+                    operation: waymark_vm_instructions_pureset::BinaryOpKind::In,
                 },
             ),
         }
@@ -286,12 +286,12 @@ impl waymark_vm_interpreter_pureset::value::UnaryOps for TestValue {
         match value {
             Self::Int(value) => value.checked_neg().map(Self::Int).ok_or(
                 waymark_vm_interpreter_pureset::value::UnaryOperationError::ResultOutOfBounds {
-                    operation: waymark_vm_interpreter_pureset::value::UnaryOperationKind::Neg,
+                    operation: waymark_vm_instructions_pureset::UnaryOpKind::Neg,
                 },
             ),
             _ => Err(
                 waymark_vm_interpreter_pureset::value::UnaryOperationError::UnsupportedOperation {
-                    operation: waymark_vm_interpreter_pureset::value::UnaryOperationKind::Neg,
+                    operation: waymark_vm_instructions_pureset::UnaryOpKind::Neg,
                 },
             ),
         }

@@ -43,7 +43,7 @@ pub struct BinaryOp<RegisterId> {
 }
 
 /// The kind of binary operation to apply.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BinaryOpKind {
     /// Add two values together.
     Add,
@@ -95,7 +95,7 @@ pub enum BinaryOpKind {
 }
 
 /// The kind of unary operation to apply.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum UnaryOpKind {
     /// Negate a value.
     Neg,
@@ -151,4 +151,36 @@ pub enum PureSet<Spec: self::Spec> {
         /// The registers to read list elements from in order.
         items: Vec<Spec::RegisterId>,
     },
+}
+
+impl core::fmt::Display for BinaryOpKind {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        formatter.write_str(match self {
+            Self::Add => "+",
+            Self::Sub => "-",
+            Self::Mul => "*",
+            Self::Div => "/",
+            Self::FloorDiv => "//",
+            Self::Mod => "%",
+            Self::Eq => "==",
+            Self::Ne => "!=",
+            Self::Lt => "<",
+            Self::Le => "<=",
+            Self::Gt => ">",
+            Self::Ge => ">=",
+            Self::In => "in",
+            Self::NotIn => "not in",
+            Self::And => "and",
+            Self::Or => "or",
+        })
+    }
+}
+
+impl core::fmt::Display for UnaryOpKind {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        formatter.write_str(match self {
+            Self::Neg => "-",
+            Self::Not => "not",
+        })
+    }
 }
