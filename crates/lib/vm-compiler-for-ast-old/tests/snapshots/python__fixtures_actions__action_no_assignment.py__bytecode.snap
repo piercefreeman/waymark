@@ -4,8 +4,8 @@ expression: bytecode for python/tests/fixtures_actions/action_no_assignment.py
 ---
 Err(
     FunctionCompiler(
-        LiteralLowering {
-            error: UnsupportedLiteral,
-        },
+        LiteralLowering(
+            UnsupportedLiteral,
+        ),
     ),
 )

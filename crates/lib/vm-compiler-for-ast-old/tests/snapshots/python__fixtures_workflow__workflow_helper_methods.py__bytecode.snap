@@ -7,7 +7,7 @@ Err(
         Unsupported(
             FunctionCall {
                 name: "compute_multiplier",
-                reason: "keyword arguments are not supported",
+                reason: KeywordArguments,
             },
         ),
     ),

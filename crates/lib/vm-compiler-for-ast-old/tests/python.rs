@@ -3,6 +3,7 @@ mod support;
 
 use futures_util::StreamExt as _;
 use std::path::{Path, PathBuf};
+use waymark_vm_compiler_for_ast_old_test_support::{TestLowering, TestSpec};
 
 const SKIP_TESTS: &[&str] = &[
     "fixtures/test_actions.py",
@@ -92,10 +93,8 @@ async fn compile_python_tests() {
         let details = format!("ast for python/tests/{}", python_test_file.display());
         insta::assert_debug_snapshot!(snapshot, program, &details);
 
-        let bytecode_result = waymark_vm_compiler_for_ast_old::compile::<
-            support::TestSpec,
-            support::TestLowering,
-        >(&program);
+        let bytecode_result =
+            waymark_vm_compiler_for_ast_old::compile::<TestSpec, TestLowering>(&program);
 
         let snapshot = format!("{}/bytecode", python_test_file.display());
         let details = format!("bytecode for python/tests/{}", python_test_file.display());

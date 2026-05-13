@@ -146,7 +146,6 @@ celerybeat.pid
 .venv
 python/.venv/
 python/src/waymark/bin/
-env/
 venv/
 ENV/
 env.bak/

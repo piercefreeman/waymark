@@ -2,6 +2,12 @@ use waymark_vm_ast_old::{ActionCall, Call, Literal};
 use waymark_vm_ast_old_helpers::{
     action_call, action_stmt, assignment, assignment_targets, break_stmt, conditional_stmt,
     continue_stmt, float, for_stmt, function, int, parallel_expr, program, return_stmt, variable,
+    while_stmt,
+};
+use waymark_vm_compiler_for_ast_old_core::lowering;
+use waymark_vm_compiler_for_ast_old_test_support::{
+    TestConstValue, TestExtCallId, TestLiteralError as TestLiteralLoweringError, TestLowering,
+    TestSpec,
 };
 use waymark_vm_instructions_fullset::FullSet;
 use waymark_vm_instructions_pureset::PureSet;
@@ -13,60 +19,13 @@ use crate::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum TestConstValue {
-    Int(i64),
-    None,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct TestExtCallId(String);
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum TestLiteralLoweringError {
-    UnsupportedLiteral,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum TestActionLoweringError {}
-
-struct TestLowering;
-
-impl<Spec> crate::lowering::CoreSet<Spec> for TestLowering
-where
-    Spec: waymark_vm_instructions_coreset::Spec<ExtCallId = TestExtCallId>,
-{
-    type ActionError = TestActionLoweringError;
-
-    fn lower_action(call: &ActionCall) -> Result<Spec::ExtCallId, Self::ActionError> {
-        Ok(TestExtCallId(call.action_name.clone()))
-    }
-}
-
-impl<Spec> crate::lowering::PureSet<Spec> for TestLowering
-where
-    Spec: waymark_vm_instructions_pureset::Spec<ConstValue = TestConstValue>,
-{
-    type LiteralError = TestLiteralLoweringError;
-
-    fn lower_literal(literal: &Literal) -> Result<Spec::ConstValue, Self::LiteralError> {
-        match literal {
-            Literal::Int(value) => Ok(TestConstValue::Int(*value)),
-            Literal::None => Ok(TestConstValue::None),
-            Literal::Float(_) | Literal::String(_) | Literal::Bool(_) => {
-                Err(TestLiteralLoweringError::UnsupportedLiteral)
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 enum UnitTestActionLoweringError {
     UnsupportedAction,
 }
 
 struct ActionFailingLowering;
 
-impl<Spec> crate::lowering::CoreSet<Spec> for ActionFailingLowering
+impl<Spec> lowering::CoreSet<Spec> for ActionFailingLowering
 where
     Spec: waymark_vm_instructions_coreset::Spec<ExtCallId = TestExtCallId>,
 {
@@ -77,7 +36,7 @@ where
     }
 }
 
-impl<Spec> crate::lowering::PureSet<Spec> for ActionFailingLowering
+impl<Spec> lowering::PureSet<Spec> for ActionFailingLowering
 where
     Spec: waymark_vm_instructions_pureset::Spec<ConstValue = TestConstValue>,
 {
@@ -92,20 +51,6 @@ where
             }
         }
     }
-}
-
-struct TestSpec;
-
-impl waymark_vm_instructions_coreset::Spec for TestSpec {
-    type RegisterId = waymark_vm_runtime_core::RegisterId;
-    type FunctionId = waymark_vm_bytecode_core::FunctionId;
-    type StateId = waymark_vm_bytecode_core::StateId;
-    type ExtCallId = TestExtCallId;
-}
-
-impl waymark_vm_instructions_pureset::Spec for TestSpec {
-    type RegisterId = waymark_vm_runtime_core::RegisterId;
-    type ConstValue = TestConstValue;
 }
 
 #[test]
@@ -197,9 +142,9 @@ fn preserves_literal_lowering_errors() {
 
     assert!(matches!(
         error,
-        CompileError::FunctionCompiler(compiler::Error::LiteralLowering {
-            error: TestLiteralLoweringError::UnsupportedLiteral,
-        })
+        CompileError::FunctionCompiler(compiler::Error::LiteralLowering(
+            TestLiteralLoweringError::UnsupportedLiteral
+        ))
     ));
 }
 
@@ -268,8 +213,9 @@ fn rejects_break_outside_loops() {
 
     assert!(matches!(
         error,
-        CompileError::FunctionCompiler(compiler::Error::LoopControlOutsideLoop { kind })
-            if kind == "break"
+        CompileError::FunctionCompiler(compiler::Error::LoopControlOutsideLoop {
+            kind: compiler::LoopControlKind::Break
+        })
     ));
 }
 
@@ -284,8 +230,9 @@ fn rejects_continue_outside_loops() {
 
     assert!(matches!(
         error,
-        CompileError::FunctionCompiler(compiler::Error::LoopControlOutsideLoop { kind })
-            if kind == "continue"
+        CompileError::FunctionCompiler(compiler::Error::LoopControlOutsideLoop {
+            kind: compiler::LoopControlKind::Continue
+        })
     ));
 }
 
@@ -318,6 +265,139 @@ fn rejects_variables_missing_on_some_conditional_paths() {
 }
 
 #[test]
+fn allows_variables_initialized_on_all_conditional_paths() {
+    let program = program(vec![function(
+        "main",
+        &["flag"],
+        vec![
+            conditional_stmt(
+                variable("flag"),
+                vec![assignment("x", int(1))],
+                Vec::new(),
+                Some(vec![assignment("x", int(2))]),
+            ),
+            return_stmt(Some(variable("x"))),
+        ],
+    )]);
+
+    let executable = compile::<TestSpec, TestLowering>(&program)
+        .expect("variables initialized on every path should compile");
+    let function = executable
+        .functions
+        .iter()
+        .next()
+        .expect("compiled main function should exist");
+
+    assert_eq!(function.num_regs, 2);
+}
+
+#[test]
+fn allows_variables_initialized_on_all_if_elif_and_else_paths() {
+    let program = program(vec![function(
+        "main",
+        &["flag", "fallback"],
+        vec![
+            conditional_stmt(
+                variable("flag"),
+                vec![assignment("x", int(1))],
+                vec![(variable("fallback"), vec![assignment("x", int(2))])],
+                Some(vec![assignment("x", int(3))]),
+            ),
+            return_stmt(Some(variable("x"))),
+        ],
+    )]);
+
+    let executable = compile::<TestSpec, TestLowering>(&program)
+        .expect("variables initialized on every if/elif/else path should compile");
+    let function = executable
+        .functions
+        .iter()
+        .next()
+        .expect("compiled main function should exist");
+
+    assert_eq!(function.num_regs, 3);
+}
+
+#[test]
+fn rejects_variables_missing_on_an_elif_path() {
+    let program = program(vec![function(
+        "main",
+        &["flag", "fallback"],
+        vec![
+            conditional_stmt(
+                variable("flag"),
+                vec![assignment("x", int(1))],
+                vec![(variable("fallback"), Vec::new())],
+                Some(vec![assignment("x", int(3))]),
+            ),
+            return_stmt(Some(variable("x"))),
+        ],
+    )]);
+
+    let error = match compile::<TestSpec, TestLowering>(&program) {
+        Ok(_) => panic!("missing elif initialization should fail"),
+        Err(error) => error,
+    };
+
+    assert!(matches!(
+        error,
+        CompileError::FunctionCompiler(compiler::Error::UnknownVariable { name })
+            if name == "x"
+    ));
+}
+
+#[test]
+fn reuses_function_scope_locals_after_branch_only_declarations() {
+    let program = program(vec![function(
+        "main",
+        &["flag"],
+        vec![
+            conditional_stmt(
+                variable("flag"),
+                vec![assignment("x", int(1))],
+                Vec::new(),
+                None,
+            ),
+            assignment("x", int(2)),
+            return_stmt(Some(variable("x"))),
+        ],
+    )]);
+
+    let executable = compile::<TestSpec, TestLowering>(&program)
+        .expect("locals declared in a branch should stay bound at function scope");
+    let function = executable
+        .functions
+        .iter()
+        .next()
+        .expect("compiled main function should exist");
+
+    assert_eq!(function.num_regs, 2);
+}
+
+#[test]
+fn rejects_variables_initialized_only_inside_while_loops() {
+    let program = program(vec![function(
+        "main",
+        &["flag"],
+        vec![
+            while_stmt(variable("flag"), vec![assignment("x", int(1))]),
+            return_stmt(Some(variable("x"))),
+        ],
+    )]);
+
+    let error = match compile::<TestSpec, TestLowering>(&program) {
+        Ok(_) => panic!("loop-only initialization should fail"),
+        Err(error) => error,
+    };
+
+    assert!(matches!(
+        error,
+        CompileError::FunctionCompiler(compiler::Error::UnknownVariable { name })
+            if name == "x"
+    ));
+}
+
+#[test]
 fn rejects_unsupported_for_loops() {
     let program = program(vec![function(
         "main",
@@ -333,8 +413,10 @@ fn rejects_unsupported_for_loops() {
     assert!(matches!(
         error,
         CompileError::FunctionCompiler(compiler::Error::Unsupported(
-            compiler::Unsupported::Statement { kind }
-        )) if kind == "ForLoop"
+            compiler::Unsupported::Statement {
+                kind: compiler::UnsupportedStatementKind::ForLoop
+            }
+        ))
     ));
 }
 
@@ -354,6 +436,18 @@ fn allows_single_target_parallel_expressions_for_aggregation() {
 
     compile::<TestSpec, TestLowering>(&program)
         .expect("single-target parallel expressions should compile");
+}
+
+#[test]
+fn allows_empty_single_target_parallel_expressions_for_aggregation() {
+    let program = program(vec![function(
+        "main",
+        &[],
+        vec![assignment("results", parallel_expr(Vec::new()))],
+    )]);
+
+    compile::<TestSpec, TestLowering>(&program)
+        .expect("empty single-target parallel expressions should compile");
 }
 
 #[test]
@@ -378,8 +472,11 @@ fn rejects_parallel_expressions_with_mismatched_targets() {
             compiler::Unsupported::ParallelExprAssignment {
                 target_count,
                 call_count,
+                reason,
                 ..
             }
-        )) if target_count == 2 && call_count == 1
+        )) if target_count.get() == 2
+            && call_count == 1
+            && reason == compiler::UnsupportedParallelExprAssignment::TargetCountMustMatchCalls
     ));
 }

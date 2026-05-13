@@ -6,7 +6,7 @@ Err(
     FunctionCompiler(
         Unsupported(
             Expression {
-                kind: "Dict",
+                kind: Dict,
             },
         ),
     ),

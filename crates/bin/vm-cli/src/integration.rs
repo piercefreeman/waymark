@@ -75,7 +75,7 @@ impl From<SampleConstValue> for SampleValue {
 #[error("unsupported lowering")]
 pub struct UnsupportedLoweringError;
 
-impl<Spec> waymark_vm_compiler_for_ast_old::lowering::CoreSet<Spec> for SampleLowering
+impl<Spec> waymark_vm_compiler_for_ast_old_core::lowering::CoreSet<Spec> for SampleLowering
 where
     Spec: waymark_vm_instructions_coreset::Spec<ExtCallId = SampleExtCallId>,
 {
@@ -88,7 +88,7 @@ where
     }
 }
 
-impl<Spec> waymark_vm_compiler_for_ast_old::lowering::PureSet<Spec> for SampleLowering
+impl<Spec> waymark_vm_compiler_for_ast_old_core::lowering::PureSet<Spec> for SampleLowering
 where
     Spec: waymark_vm_instructions_pureset::Spec<ConstValue = SampleConstValue>,
 {

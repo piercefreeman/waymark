@@ -1,6 +1,6 @@
 mod support;
 
-use support::{TestExtCallId, TestValue, compile_program, runtime, runtime_with_args};
+use support::{TestValue, compile_program, runtime, runtime_with_args};
 use waymark_vm_ast_old::Call;
 use waymark_vm_ast_old_helpers::{
     action_call, action_expr, add, assignment, assignment_targets, break_stmt, conditional_stmt,
@@ -8,6 +8,7 @@ use waymark_vm_ast_old_helpers::{
     program, return_stmt, variable, while_stmt,
 };
 use waymark_vm_bytecode_core::{FunctionId, InstructionId, StateId};
+use waymark_vm_compiler_for_ast_old_test_support::TestExtCallId;
 use waymark_vm_interpreter_fullset::Effect;
 
 fn completed_int(effect: Effect<TestValue, TestExtCallId>) -> i64 {
@@ -94,7 +95,7 @@ fn compiles_action_calls_into_extcalls() {
             extcall_id,
             args,
         }) => {
-            assert_eq!(extcall_id, TestExtCallId("fetch".to_owned()));
+            assert!(matches!(&extcall_id, TestExtCallId(name) if name == "fetch"));
             assert_eq!(args, vec![TestValue::Int(41)]);
             promise_state_id
         }
@@ -210,7 +211,7 @@ fn compiles_parallel_action_blocks_with_multiple_outstanding_extcalls() {
             extcall_id,
             args,
         }) => {
-            assert_eq!(extcall_id, TestExtCallId("fetch_first".to_owned()));
+            assert!(matches!(&extcall_id, TestExtCallId(name) if name == "fetch_first"));
             assert_eq!(args, vec![TestValue::Int(1)]);
             promise_state_id
         }
@@ -226,7 +227,7 @@ fn compiles_parallel_action_blocks_with_multiple_outstanding_extcalls() {
             extcall_id,
             args,
         }) => {
-            assert_eq!(extcall_id, TestExtCallId("fetch_second".to_owned()));
+            assert!(matches!(&extcall_id, TestExtCallId(name) if name == "fetch_second"));
             assert_eq!(args, vec![TestValue::Int(2)]);
             promise_state_id
         }
@@ -235,6 +236,82 @@ fn compiles_parallel_action_blocks_with_multiple_outstanding_extcalls() {
 
     runtime
         .resolve_promise(second_promise, TestValue::Int(20))
+        .expect("second extcall promise should resolve");
+    runtime
+        .resolve_promise(first_promise, TestValue::Int(10))
+        .expect("first extcall promise should resolve");
+
+    let effect = runtime
+        .run()
+        .expect("program should complete after resolving both extcalls");
+
+    match effect {
+        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(TestValue::Int(
+            value,
+        ))) => assert_eq!(value, 7),
+        other => panic!("unexpected final runtime effect: {other:?}"),
+    }
+}
+
+#[test]
+fn compiles_mixed_parallel_blocks_with_leading_action_before_awaiting() {
+    let program = program(vec![
+        function(
+            "main",
+            &[],
+            vec![
+                parallel_stmt(vec![
+                    Call::Action(action_call("fetch_first", vec![("value", int(1))])),
+                    Call::Function(function_call("child", vec![int(2)])),
+                    Call::Action(action_call("fetch_second", vec![("value", int(3))])),
+                ]),
+                return_stmt(Some(int(7))),
+            ],
+        ),
+        function(
+            "child",
+            &["value"],
+            vec![return_stmt(Some(variable("value")))],
+        ),
+    ]);
+
+    let executable = compile_program(&program);
+    let mut runtime = runtime(executable);
+
+    let first_promise = match runtime
+        .run()
+        .expect("first run should emit the first extcall")
+    {
+        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::ExtCall {
+            promise_state_id,
+            extcall_id,
+            args,
+        }) => {
+            assert!(matches!(&extcall_id, TestExtCallId(name) if name == "fetch_first"));
+            assert_eq!(args, vec![TestValue::Int(1)]);
+            promise_state_id
+        }
+        other => panic!("unexpected first runtime effect: {other:?}"),
+    };
+
+    let second_promise = match runtime
+        .run()
+        .expect("second run should emit the second extcall before awaiting the first")
+    {
+        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::ExtCall {
+            promise_state_id,
+            extcall_id,
+            args,
+        }) => {
+            assert!(matches!(&extcall_id, TestExtCallId(name) if name == "fetch_second"));
+            assert_eq!(args, vec![TestValue::Int(3)]);
+            promise_state_id
+        }
+        other => panic!("unexpected second runtime effect: {other:?}"),
+    };
+
+    runtime
+        .resolve_promise(second_promise, TestValue::Int(30))
         .expect("second extcall promise should resolve");
     runtime
         .resolve_promise(first_promise, TestValue::Int(10))
@@ -306,7 +383,7 @@ fn compiles_parallel_expressions_into_positional_assignments() {
             extcall_id,
             args,
         }) => {
-            assert_eq!(extcall_id, TestExtCallId("fetch".to_owned()));
+            assert!(matches!(&extcall_id, TestExtCallId(name) if name == "fetch"));
             assert_eq!(args, vec![TestValue::Int(4)]);
             promise_state_id
         }
@@ -326,6 +403,88 @@ fn compiles_parallel_expressions_into_positional_assignments() {
             value,
         ))) => assert_eq!(value, 9),
         other => panic!("unexpected second runtime effect: {other:?}"),
+    }
+}
+
+#[test]
+fn compiles_mixed_parallel_expressions_with_leading_action_before_awaiting() {
+    let program = program(vec![
+        function(
+            "main",
+            &[],
+            vec![
+                assignment_targets(
+                    &["first", "second", "third"],
+                    parallel_expr(vec![
+                        Call::Action(action_call("fetch_first", vec![("value", int(1))])),
+                        Call::Function(function_call("child", vec![int(2)])),
+                        Call::Action(action_call("fetch_second", vec![("value", int(3))])),
+                    ]),
+                ),
+                return_stmt(Some(add(
+                    variable("first"),
+                    add(variable("second"), variable("third")),
+                ))),
+            ],
+        ),
+        function(
+            "child",
+            &["value"],
+            vec![return_stmt(Some(add(variable("value"), int(1))))],
+        ),
+    ]);
+
+    let executable = compile_program(&program);
+    let mut runtime = runtime(executable);
+
+    let first_promise = match runtime
+        .run()
+        .expect("first run should emit the first extcall")
+    {
+        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::ExtCall {
+            promise_state_id,
+            extcall_id,
+            args,
+        }) => {
+            assert!(matches!(&extcall_id, TestExtCallId(name) if name == "fetch_first"));
+            assert_eq!(args, vec![TestValue::Int(1)]);
+            promise_state_id
+        }
+        other => panic!("unexpected first runtime effect: {other:?}"),
+    };
+
+    let second_promise = match runtime
+        .run()
+        .expect("second run should emit the second extcall before awaiting the first")
+    {
+        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::ExtCall {
+            promise_state_id,
+            extcall_id,
+            args,
+        }) => {
+            assert!(matches!(&extcall_id, TestExtCallId(name) if name == "fetch_second"));
+            assert_eq!(args, vec![TestValue::Int(3)]);
+            promise_state_id
+        }
+        other => panic!("unexpected second runtime effect: {other:?}"),
+    };
+
+    runtime
+        .resolve_promise(second_promise, TestValue::Int(30))
+        .expect("second extcall promise should resolve");
+    runtime
+        .resolve_promise(first_promise, TestValue::Int(10))
+        .expect("first extcall promise should resolve");
+
+    let effect = runtime
+        .run()
+        .expect("program should complete after resolving both extcalls");
+
+    match effect {
+        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(TestValue::Int(
+            value,
+        ))) => assert_eq!(value, 43),
+        other => panic!("unexpected final runtime effect: {other:?}"),
     }
 }
 
@@ -362,7 +521,7 @@ fn compiles_parallel_expressions_into_aggregate_lists() {
             extcall_id,
             args,
         }) => {
-            assert_eq!(extcall_id, TestExtCallId("fetch".to_owned()));
+            assert!(matches!(&extcall_id, TestExtCallId(name) if name == "fetch"));
             assert_eq!(args, vec![TestValue::Int(4)]);
             promise_state_id
         }
@@ -414,7 +573,7 @@ fn compiles_parallel_expression_results_by_call_position() {
             extcall_id,
             args,
         }) => {
-            assert_eq!(extcall_id, TestExtCallId("fetch_first".to_owned()));
+            assert!(matches!(&extcall_id, TestExtCallId(name) if name == "fetch_first"));
             assert_eq!(args, vec![TestValue::Int(1)]);
             promise_state_id
         }
@@ -430,7 +589,7 @@ fn compiles_parallel_expression_results_by_call_position() {
             extcall_id,
             args,
         }) => {
-            assert_eq!(extcall_id, TestExtCallId("fetch_second".to_owned()));
+            assert!(matches!(&extcall_id, TestExtCallId(name) if name == "fetch_second"));
             assert_eq!(args, vec![TestValue::Int(2)]);
             promise_state_id
         }
@@ -591,6 +750,41 @@ fn lowers_continue_to_the_loop_condition_state() {
             waymark_vm_instructions_coreset::CoreSet::Jump { target_state }
         ) if *target_state == StateId(1)
     ));
+
+    let result = completed_int(
+        runtime_with_args(compile_program(&program), vec![TestValue::Int(0)])
+            .run()
+            .expect("program should complete"),
+    );
+    assert_eq!(result, 0);
+}
+
+#[test]
+fn compiles_nested_conditionals_inside_while_loops() {
+    let program = program(vec![function(
+        "main",
+        &["flag"],
+        vec![
+            assignment("count", int(0)),
+            while_stmt(
+                variable("flag"),
+                vec![conditional_stmt(
+                    variable("count"),
+                    vec![break_stmt()],
+                    Vec::new(),
+                    Some(vec![assignment("count", add(variable("count"), int(1)))]),
+                )],
+            ),
+            return_stmt(Some(variable("count"))),
+        ],
+    )]);
+
+    let result = completed_int(
+        runtime_with_args(compile_program(&program), vec![TestValue::Int(1)])
+            .run()
+            .expect("program should complete"),
+    );
+    assert_eq!(result, 1);
 
     let result = completed_int(
         runtime_with_args(compile_program(&program), vec![TestValue::Int(0)])

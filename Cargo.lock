@@ -5175,6 +5175,7 @@ dependencies = [
  "waymark-vm-bytecode",
  "waymark-vm-bytecode-core",
  "waymark-vm-compiler-for-ast-old",
+ "waymark-vm-compiler-for-ast-old-core",
  "waymark-vm-driver",
  "waymark-vm-instructions-coreset",
  "waymark-vm-instructions-fullset",
@@ -5187,9 +5188,39 @@ dependencies = [
 ]
 
 [[package]]
-name = "waymark-vm-compiler-core"
+name = "waymark-vm-compiler-for-ast-old"
 version = "0.1.0"
 dependencies = [
+ "async-walkdir",
+ "futures-util",
+ "index_type",
+ "insta",
+ "nonempty-collections",
+ "thiserror",
+ "tokio",
+ "waymark-support-test-python",
+ "waymark-vm-ast-old",
+ "waymark-vm-ast-old-helpers",
+ "waymark-vm-bytecode",
+ "waymark-vm-bytecode-core",
+ "waymark-vm-compiler-for-ast-old-core",
+ "waymark-vm-compiler-for-ast-old-test-support",
+ "waymark-vm-instructions-coreset",
+ "waymark-vm-instructions-fullset",
+ "waymark-vm-instructions-pureset",
+ "waymark-vm-interpreter-coreset",
+ "waymark-vm-interpreter-fullset",
+ "waymark-vm-interpreter-pureset",
+ "waymark-vm-runtime",
+ "waymark-vm-runtime-core",
+]
+
+[[package]]
+name = "waymark-vm-compiler-for-ast-old-core"
+version = "0.1.0"
+dependencies = [
+ "waymark-vm-ast-old",
+ "waymark-vm-bytecode",
  "waymark-vm-bytecode-core",
  "waymark-vm-instructions-coreset",
  "waymark-vm-instructions-fullset",
@@ -5198,28 +5229,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "waymark-vm-compiler-for-ast-old"
+name = "waymark-vm-compiler-for-ast-old-test-support"
 version = "0.1.0"
 dependencies = [
- "async-walkdir",
- "futures-util",
- "index_type",
- "insta",
- "thiserror",
- "tokio",
- "waymark-support-test-python",
  "waymark-vm-ast-old",
- "waymark-vm-ast-old-helpers",
- "waymark-vm-bytecode",
  "waymark-vm-bytecode-core",
- "waymark-vm-compiler-core",
+ "waymark-vm-compiler-for-ast-old-core",
  "waymark-vm-instructions-coreset",
- "waymark-vm-instructions-fullset",
  "waymark-vm-instructions-pureset",
- "waymark-vm-interpreter-coreset",
- "waymark-vm-interpreter-fullset",
- "waymark-vm-interpreter-pureset",
- "waymark-vm-runtime",
  "waymark-vm-runtime-core",
 ]
 
