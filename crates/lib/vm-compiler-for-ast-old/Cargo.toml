@@ -27,7 +27,6 @@ waymark-vm-compiler-for-ast-old-test-support = { workspace = true }
 waymark-vm-interpreter-coreset = { workspace = true }
 waymark-vm-interpreter-extcallset = { workspace = true }
 waymark-vm-interpreter-fullset = { workspace = true }
-waymark-vm-interpreter-pureset = { workspace = true }
 waymark-vm-runtime = { workspace = true }
 
 async-walkdir = { workspace = true }

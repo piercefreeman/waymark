@@ -4,8 +4,10 @@ expression: bytecode for python/tests/fixtures_try_except/try_stateful_outputs.p
 ---
 Err(
     FunctionCompiler(
-        LiteralLowering(
-            UnsupportedLiteral,
+        Unsupported(
+            Statement {
+                kind: TryExcept,
+            },
         ),
     ),
 )

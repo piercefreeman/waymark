@@ -3,11 +3,12 @@ mod support;
 use support::{TestValue, compile_program, runtime, runtime_with_args};
 
 use waymark_nonzero_duration::NonZeroDuration;
-use waymark_vm_ast_old::{BinaryOperator, Call, Expr, Spanned, UnaryOperator};
+use waymark_vm_ast_old::{BinaryOperator, Call, Expr, Literal, Spanned, UnaryOperator};
 use waymark_vm_ast_old_helpers::{
     action_call, action_expr, assignment, assignment_targets, binary_expr, break_stmt,
-    conditional_stmt, continue_stmt, function, function_call, function_expr, int, parallel_expr,
-    parallel_stmt, program, return_stmt, sleep_stmt, unary_expr, variable, while_stmt,
+    conditional_stmt, continue_stmt, float, function, function_call, function_expr, int,
+    parallel_expr, parallel_stmt, program, return_stmt, sleep_stmt, spanned, unary_expr, variable,
+    while_stmt,
 };
 use waymark_vm_bytecode_core::{FunctionId, InstructionId, StateId};
 use waymark_vm_compiler_for_ast_old_test_support::TestActionRef;
@@ -53,6 +54,51 @@ fn compiles_assignments_and_addition_to_completion() {
             value,
         ))) => assert_eq!(value, 5),
         other => panic!("unexpected runtime effect: {other:?}"),
+    }
+}
+
+#[test]
+fn compiles_supported_scalar_literals_to_completion() {
+    struct LiteralCase {
+        name: &'static str,
+        expr: Spanned<Expr>,
+        expected: TestValue,
+    }
+
+    let cases = vec![
+        LiteralCase {
+            name: "float",
+            expr: float(1.5),
+            expected: TestValue::Float(1.5.try_into().unwrap()),
+        },
+        LiteralCase {
+            name: "string",
+            expr: spanned(Expr::Literal {
+                value: Literal::String("hello".to_owned()),
+            }),
+            expected: TestValue::String("hello".to_owned()),
+        },
+        LiteralCase {
+            name: "bool",
+            expr: spanned(Expr::Literal {
+                value: Literal::Bool(true),
+            }),
+            expected: TestValue::Bool(true),
+        },
+    ];
+
+    for case in cases {
+        let program = program(vec![function(
+            "main",
+            &[],
+            vec![return_stmt(Some(case.expr.clone()))],
+        )]);
+
+        let effect = runtime(compile_program(&program))
+            .run()
+            .unwrap_or_else(|error| panic!("{} should complete: {error:?}", case.name));
+
+        assert_eq!(completed_value(effect), case.expected, "{}", case.name);
     }
 }
 
