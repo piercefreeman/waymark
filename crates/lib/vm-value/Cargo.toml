@@ -14,3 +14,6 @@ waymark-vm-interpreter-pureset = { workspace = true }
 indexmap = { workspace = true }
 thiserror = { workspace = true }
 typed_floats = { workspace = true }
+
+[dev-dependencies]
+waymark-vm-interpreter-fullset = { workspace = true }

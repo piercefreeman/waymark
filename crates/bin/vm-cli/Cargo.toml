@@ -6,7 +6,6 @@ publish.workspace = true
 
 [dependencies]
 waymark-fn-main-common = { workspace = true }
-waymark-nonzero-duration = { workspace = true }
 waymark-vm-ast-old = { workspace = true }
 waymark-vm-ast-old-helpers = { workspace = true }
 waymark-vm-bytecode = { workspace = true }
@@ -21,9 +20,9 @@ waymark-vm-instructions-pureset = { workspace = true }
 waymark-vm-interpreter-coreset = { workspace = true }
 waymark-vm-interpreter-extcallset = { workspace = true }
 waymark-vm-interpreter-fullset = { workspace = true }
-waymark-vm-interpreter-pureset = { workspace = true }
 waymark-vm-runtime = { workspace = true }
 waymark-vm-runtime-core = { workspace = true }
+waymark-vm-value = { workspace = true }
 
 clap = { workspace = true, features = ["derive"] }
 index_type = { workspace = true }

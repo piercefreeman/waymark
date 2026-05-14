@@ -5199,7 +5199,6 @@ dependencies = [
  "tokio",
  "tracing",
  "waymark-fn-main-common",
- "waymark-nonzero-duration",
  "waymark-vm-ast-old",
  "waymark-vm-ast-old-helpers",
  "waymark-vm-bytecode",
@@ -5214,9 +5213,9 @@ dependencies = [
  "waymark-vm-interpreter-coreset",
  "waymark-vm-interpreter-extcallset",
  "waymark-vm-interpreter-fullset",
- "waymark-vm-interpreter-pureset",
  "waymark-vm-runtime",
  "waymark-vm-runtime-core",
+ "waymark-vm-value",
 ]
 
 [[package]]
@@ -5442,6 +5441,7 @@ dependencies = [
  "waymark-vm-instructions-pureset",
  "waymark-vm-interpreter-coreset",
  "waymark-vm-interpreter-extcallset",
+ "waymark-vm-interpreter-fullset",
  "waymark-vm-interpreter-pureset",
 ]
 
