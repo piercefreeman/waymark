@@ -1,6 +1,8 @@
 //! Value lowering.
 
-use waymark_vm_ast_old::{ActionCall, Expr, FunctionCall, Literal, Spanned};
+use waymark_vm_ast_old::{
+    ActionCall, BinaryOperator, Expr, FunctionCall, Literal, Spanned, UnaryOperator,
+};
 use waymark_vm_runtime_core::RegisterId;
 
 use crate::Marked;
@@ -53,7 +55,12 @@ where
         match ExpressionPlan::build(expr)? {
             ExpressionPlan::Literal { value } => self.compile_literal(value, target),
             ExpressionPlan::Variable { name } => Ok(self.resolve_variable(name)?),
-            ExpressionPlan::Add { left, right } => self.compile_add_expr(left, right, target),
+            ExpressionPlan::BinaryOp { left, op, right } => {
+                self.compile_binary_expr(left, &op, right, target)
+            }
+            ExpressionPlan::UnaryOp { op, operand } => {
+                self.compile_unary_expr(&op, operand, target)
+            }
             ExpressionPlan::FunctionCall { call } => {
                 self.compile_call(self.plan_function_call(call)?, target)
             }
@@ -178,21 +185,36 @@ where
         Ok(dst)
     }
 
-    /// Compiles an addition expression and releases any temporary operands.
-    fn compile_add_expr(
+    /// Compiles a scalar binary expression and releases any temporary operands.
+    fn compile_binary_expr(
         &mut self,
         left: &Spanned<Expr>,
+        op: &BinaryOperator,
         right: &Spanned<Expr>,
         target: ResultTarget,
     ) -> Result<RegisterHandle, ErrorFor<Spec, Lowering>> {
         let left_register = self.compile_expr(left, ResultTarget::Allocate)?;
         let right_register = self.compile_expr(right, ResultTarget::Allocate)?;
         let dst = self.allocate_result_register(target);
-        self.context.emitter.emit_add(
+        self.emit_binary_instruction(
+            op,
             dst.register(),
             left_register.register(),
             right_register.register(),
         );
+        Ok(dst)
+    }
+
+    /// Compiles a scalar unary expression and releases its temporary operand.
+    fn compile_unary_expr(
+        &mut self,
+        op: &UnaryOperator,
+        operand: &Spanned<Expr>,
+        target: ResultTarget,
+    ) -> Result<RegisterHandle, ErrorFor<Spec, Lowering>> {
+        let operand_register = self.compile_expr(operand, ResultTarget::Allocate)?;
+        let dst = self.allocate_result_register(target);
+        self.emit_unary_instruction(op, dst.register(), operand_register.register());
         Ok(dst)
     }
 
@@ -263,6 +285,46 @@ where
         }
     }
 
+    /// Emits a scalar binary instruction for the selected operator.
+    fn emit_binary_instruction(
+        &mut self,
+        op: &BinaryOperator,
+        dst: RegisterId,
+        left: RegisterId,
+        right: RegisterId,
+    ) {
+        let kind = match op {
+            BinaryOperator::Add => waymark_vm_instructions_pureset::BinaryOpKind::Add,
+            BinaryOperator::Sub => waymark_vm_instructions_pureset::BinaryOpKind::Sub,
+            BinaryOperator::Mul => waymark_vm_instructions_pureset::BinaryOpKind::Mul,
+            BinaryOperator::Div => waymark_vm_instructions_pureset::BinaryOpKind::Div,
+            BinaryOperator::FloorDiv => waymark_vm_instructions_pureset::BinaryOpKind::FloorDiv,
+            BinaryOperator::Mod => waymark_vm_instructions_pureset::BinaryOpKind::Mod,
+            BinaryOperator::Eq => waymark_vm_instructions_pureset::BinaryOpKind::Eq,
+            BinaryOperator::Ne => waymark_vm_instructions_pureset::BinaryOpKind::Ne,
+            BinaryOperator::Lt => waymark_vm_instructions_pureset::BinaryOpKind::Lt,
+            BinaryOperator::Le => waymark_vm_instructions_pureset::BinaryOpKind::Le,
+            BinaryOperator::Gt => waymark_vm_instructions_pureset::BinaryOpKind::Gt,
+            BinaryOperator::Ge => waymark_vm_instructions_pureset::BinaryOpKind::Ge,
+            BinaryOperator::In => waymark_vm_instructions_pureset::BinaryOpKind::In,
+            BinaryOperator::NotIn => waymark_vm_instructions_pureset::BinaryOpKind::NotIn,
+            BinaryOperator::And => waymark_vm_instructions_pureset::BinaryOpKind::And,
+            BinaryOperator::Or => waymark_vm_instructions_pureset::BinaryOpKind::Or,
+        };
+
+        self.context.emitter.emit_binary(kind, dst, left, right);
+    }
+
+    /// Emits a scalar unary instruction for the selected operator.
+    fn emit_unary_instruction(&mut self, op: &UnaryOperator, dst: RegisterId, src: RegisterId) {
+        let kind = match op {
+            UnaryOperator::Neg => waymark_vm_instructions_pureset::UnaryOpKind::Neg,
+            UnaryOperator::Not => waymark_vm_instructions_pureset::UnaryOpKind::Not,
+        };
+
+        self.context.emitter.emit_unary(kind, dst, src);
+    }
+
     /// Emits an await into `target_register` and advances to the resume state.
     pub fn compile_await(
         &mut self,
@@ -289,7 +351,8 @@ mod tests {
     use super::*;
 
     use index_type::IndexType;
-    use waymark_vm_ast_old_helpers::{action_call, add, function_call, int};
+    use waymark_vm_ast_old::BinaryOperator;
+    use waymark_vm_ast_old_helpers::{action_call, binary_expr, function_call, int};
     use waymark_vm_bytecode_core::{FunctionId, StateId};
     use waymark_vm_instructions_coreset::CoreSet;
     use waymark_vm_instructions_fullset::FullSet as InstructionSet;
@@ -530,7 +593,10 @@ mod tests {
             );
 
             values
-                .compile_expr(&add(int(1), int(2)), ResultTarget::Existing(preferred_dst))
+                .compile_expr(
+                    &binary_expr(int(1), BinaryOperator::Add, int(2)),
+                    ResultTarget::Existing(preferred_dst),
+                )
                 .expect("add expression with preferred dst should compile")
         };
 
@@ -555,7 +621,10 @@ mod tests {
         ));
         assert!(matches!(
             instructions.next(),
-            Some(InstructionSet::PureSet(PureSet::Add { dst, a, b }))
+            Some(InstructionSet::PureSet(PureSet::Binary {
+                kind: waymark_vm_instructions_pureset::BinaryOpKind::Add,
+                op: waymark_vm_instructions_pureset::BinaryOp { dst, a, b },
+            }))
                 if *dst == preferred_dst
                     && *a == RegisterId(1)
                     && *b == RegisterId(2)
@@ -890,7 +959,11 @@ mod tests {
             );
 
             values
-                .compile_expression_statement(&add(add(int(1), int(2)), int(3)))
+                .compile_expression_statement(&binary_expr(
+                    binary_expr(int(1), BinaryOperator::Add, int(2)),
+                    BinaryOperator::Add,
+                    int(3),
+                ))
                 .expect("nested add expression statement should compile");
         }
 
@@ -914,7 +987,10 @@ mod tests {
         ));
         assert!(matches!(
             instructions.next(),
-            Some(InstructionSet::PureSet(PureSet::Add { dst, a, b }))
+            Some(InstructionSet::PureSet(PureSet::Binary {
+                kind: waymark_vm_instructions_pureset::BinaryOpKind::Add,
+                op: waymark_vm_instructions_pureset::BinaryOp { dst, a, b },
+            }))
                 if *dst == RegisterId(2)
                     && *a == RegisterId(0)
                     && *b == RegisterId(1)
@@ -928,7 +1004,10 @@ mod tests {
         ));
         assert!(matches!(
             instructions.next(),
-            Some(InstructionSet::PureSet(PureSet::Add { dst, a, b }))
+            Some(InstructionSet::PureSet(PureSet::Binary {
+                kind: waymark_vm_instructions_pureset::BinaryOpKind::Add,
+                op: waymark_vm_instructions_pureset::BinaryOp { dst, a, b },
+            }))
                 if *dst == RegisterId(1)
                     && *a == RegisterId(2)
                     && *b == RegisterId(0)

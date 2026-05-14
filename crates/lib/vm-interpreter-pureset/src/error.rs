@@ -1,5 +1,7 @@
 use waymark_vm_runtime_core::{RegisterId, UnresolvedPromiseError};
 
+use waymark_vm_instructions_pureset::{BinaryOpKind, UnaryOpKind};
+
 /// A specified of the operand position in a binary operation.
 ///
 /// Used in the errors.
@@ -31,9 +33,12 @@ pub enum Error {
         register: RegisterId,
     },
 
-    /// An `Add` instruction referenced an unset register.
-    #[error(" {operand_pos} add operand in register {register:?} is not initialized")]
-    MissingAddOperand {
+    /// A binary scalar instruction referenced an unset register.
+    #[error("{operand_pos} {operation} operand in register {register:?} is not initialized")]
+    MissingBinaryOperand {
+        /// The binary operation being evaluated.
+        operation: BinaryOpKind,
+
         /// The operand position.
         operand_pos: BinaryOperandPosition,
 
@@ -41,11 +46,35 @@ pub enum Error {
         register: RegisterId,
     },
 
-    /// An `Add` instruction referenced an unresolved promise.
-    #[error("{operand_pos} add operand is unresolved: {source}")]
-    UnresolvedAddOperand {
+    /// A binary scalar instruction referenced an unresolved promise.
+    #[error("{operand_pos} {operation} operand is unresolved: {source}")]
+    UnresolvedBinaryOperand {
+        /// The binary operation being evaluated.
+        operation: BinaryOpKind,
+
         /// The operand position.
         operand_pos: BinaryOperandPosition,
+
+        /// The underlying unresolved promise error.
+        #[source]
+        source: UnresolvedPromiseError,
+    },
+
+    /// A unary scalar instruction referenced an unset register.
+    #[error("{operation} operand in register {register:?} is not initialized")]
+    MissingUnaryOperand {
+        /// The unary operation being evaluated.
+        operation: UnaryOpKind,
+
+        /// The register that was read.
+        register: RegisterId,
+    },
+
+    /// A unary scalar instruction referenced an unresolved promise.
+    #[error("{operation} operand is unresolved: {source}")]
+    UnresolvedUnaryOperand {
+        /// The unary operation being evaluated.
+        operation: UnaryOpKind,
 
         /// The underlying unresolved promise error.
         #[source]
@@ -73,9 +102,27 @@ pub enum Error {
         source: UnresolvedPromiseError,
     },
 
-    /// Evaluating an `Add` instruction failed.
-    #[error("add: {0}")]
-    Add(#[source] crate::value::AddError),
+    /// Evaluating a binary scalar instruction failed.
+    #[error("{operation}: {source}")]
+    BinaryOperation {
+        /// The binary operation that failed.
+        operation: BinaryOpKind,
+
+        /// The operation-specific failure.
+        #[source]
+        source: crate::value::BinaryOperationError,
+    },
+
+    /// Evaluating a unary scalar instruction failed.
+    #[error("{operation}: {source}")]
+    UnaryOperation {
+        /// The unary operation that failed.
+        operation: UnaryOpKind,
+
+        /// The operation-specific failure.
+        #[source]
+        source: crate::value::UnaryOperationError,
+    },
 
     /// Evaluating a `MakeList` instruction failed.
     #[error("make_list: {0}")]

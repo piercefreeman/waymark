@@ -1,6 +1,8 @@
 //! Expression planning for generic value positions.
 
-use waymark_vm_ast_old::{ActionCall, BinaryOperator, Expr, FunctionCall, Literal, Spanned};
+use waymark_vm_ast_old::{
+    ActionCall, BinaryOperator, Expr, FunctionCall, Literal, Spanned, UnaryOperator,
+};
 
 use super::Unsupported;
 
@@ -23,13 +25,25 @@ pub enum ExpressionPlan<'a> {
         name: &'a str,
     },
 
-    /// An addition expression.
-    Add {
+    /// A scalar binary expression.
+    BinaryOp {
         /// Left-hand operand.
         left: &'a Spanned<Expr>,
 
+        /// Binary operator to apply.
+        op: BinaryOperator,
+
         /// Right-hand operand.
         right: &'a Spanned<Expr>,
+    },
+
+    /// A scalar unary expression.
+    UnaryOp {
+        /// Unary operator to apply.
+        op: UnaryOperator,
+
+        /// Operand to evaluate.
+        operand: &'a Spanned<Expr>,
     },
 
     /// A call to another in-VM function.
@@ -48,9 +62,6 @@ pub enum ExpressionPlan<'a> {
 /// Expression variants that the generic value-lowering path rejects.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnsupportedExpressionKind {
-    /// Unary operations such as `not value`.
-    UnaryOp,
-
     /// List literals.
     List,
 
@@ -77,17 +88,16 @@ impl<'a> ExpressionPlan<'a> {
         match &expr.value {
             Expr::Literal { value } => Ok(Self::Literal { value }),
             Expr::Variable { name } => Ok(Self::Variable { name }),
-            Expr::BinaryOp { left, op, right } => {
-                if !matches!(op, BinaryOperator::Add) {
-                    return Err(Unsupported::BinaryOperator { op: op.clone() });
-                }
-
-                Ok(Self::Add { left, right })
-            }
+            Expr::BinaryOp { left, op, right } => Ok(Self::BinaryOp {
+                left,
+                op: op.clone(),
+                right,
+            }),
             Expr::FunctionCall { call } => Ok(Self::FunctionCall { call }),
             Expr::ActionCall { call } => Ok(Self::ActionCall { call }),
-            Expr::UnaryOp { .. } => Err(Unsupported::Expression {
-                kind: UnsupportedExpressionKind::UnaryOp,
+            Expr::UnaryOp { op, operand } => Ok(Self::UnaryOp {
+                op: op.clone(),
+                operand,
             }),
             Expr::List { .. } => Err(Unsupported::Expression {
                 kind: UnsupportedExpressionKind::List,
@@ -112,7 +122,6 @@ impl<'a> ExpressionPlan<'a> {
 impl core::fmt::Display for UnsupportedExpressionKind {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         formatter.write_str(match self {
-            Self::UnaryOp => "UnaryOp",
             Self::List => "List",
             Self::Dict => "Dict",
             Self::Index => "Index",
@@ -126,33 +135,61 @@ impl core::fmt::Display for UnsupportedExpressionKind {
 mod tests {
     use super::*;
 
-    use waymark_vm_ast_old::{BinaryOperator, Call, DictEntry, Expr, Literal, UnaryOperator};
+    use waymark_vm_ast_old::{BinaryOperator, Call, DictEntry, Expr, UnaryOperator};
     use waymark_vm_ast_old_helpers::{
-        action_call, action_expr, add, function_expr, int, spanned, variable,
+        action_call, action_expr, function_expr, int, spanned, variable,
     };
 
     #[test]
-    fn builds_add_plan_for_supported_binary_ops() {
-        let expr = add(int(1), int(2));
+    fn builds_scalar_operator_plans() {
+        let supported_binary_ops = [
+            BinaryOperator::Add,
+            BinaryOperator::Sub,
+            BinaryOperator::Mul,
+            BinaryOperator::Div,
+            BinaryOperator::FloorDiv,
+            BinaryOperator::Mod,
+            BinaryOperator::Eq,
+            BinaryOperator::Ne,
+            BinaryOperator::Lt,
+            BinaryOperator::Le,
+            BinaryOperator::Gt,
+            BinaryOperator::Ge,
+            BinaryOperator::In,
+            BinaryOperator::NotIn,
+            BinaryOperator::And,
+            BinaryOperator::Or,
+        ];
 
-        let plan = ExpressionPlan::build(&expr).expect("add expressions should build");
+        for op in supported_binary_ops {
+            let expr = spanned(Expr::BinaryOp {
+                left: Box::new(int(1)),
+                op: op.clone(),
+                right: Box::new(int(2)),
+            });
 
-        match plan {
-            ExpressionPlan::Add { left, right } => {
-                assert!(matches!(
-                    left.value,
-                    Expr::Literal {
-                        value: Literal::Int(1),
-                    }
-                ));
-                assert!(matches!(
-                    right.value,
-                    Expr::Literal {
-                        value: Literal::Int(2),
-                    }
-                ));
-            }
-            other => panic!("unexpected expression plan {other:?}"),
+            let plan = ExpressionPlan::build(&expr).expect("binary expressions should build");
+
+            assert!(matches!(
+                plan,
+                ExpressionPlan::BinaryOp { op: actual, .. } if actual == op
+            ));
+        }
+
+        let supported_unary_ops = [UnaryOperator::Neg, UnaryOperator::Not];
+
+        for op in supported_unary_ops {
+            let expr = spanned(Expr::UnaryOp {
+                op: op.clone(),
+                operand: Box::new(int(1)),
+            });
+
+            let plan = ExpressionPlan::build(&expr).expect("unary expressions should build");
+
+            assert!(matches!(
+                plan,
+                ExpressionPlan::UnaryOp { op: actual, .. } if actual == op
+            ));
         }
     }
 
@@ -177,33 +214,8 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unsupported_binary_ops() {
-        let expr = spanned(Expr::BinaryOp {
-            left: Box::new(int(1)),
-            op: BinaryOperator::Ne,
-            right: Box::new(int(2)),
-        });
-
-        let error = ExpressionPlan::build(&expr).expect_err("unsupported binary ops should fail");
-
-        assert!(matches!(
-            error,
-            Unsupported::BinaryOperator {
-                op: BinaryOperator::Ne,
-            }
-        ));
-    }
-
-    #[test]
     fn rejects_unsupported_expression_variants() {
         let unsupported = [
-            (
-                spanned(Expr::UnaryOp {
-                    op: UnaryOperator::Not,
-                    operand: Box::new(int(1)),
-                }),
-                UnsupportedExpressionKind::UnaryOp,
-            ),
             (
                 spanned(Expr::List {
                     elements: vec![int(1)],

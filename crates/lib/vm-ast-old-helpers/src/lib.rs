@@ -152,11 +152,18 @@ pub fn function(
     })
 }
 
-pub fn add(left: Spanned<Expr>, right: Spanned<Expr>) -> Spanned<Expr> {
+pub fn binary_expr(left: Spanned<Expr>, op: BinaryOperator, right: Spanned<Expr>) -> Spanned<Expr> {
     spanned(Expr::BinaryOp {
         left: Box::new(left),
-        op: BinaryOperator::Add,
+        op,
         right: Box::new(right),
+    })
+}
+
+pub fn unary_expr(op: waymark_vm_ast_old::UnaryOperator, operand: Spanned<Expr>) -> Spanned<Expr> {
+    spanned(Expr::UnaryOp {
+        op,
+        operand: Box::new(operand),
     })
 }
 

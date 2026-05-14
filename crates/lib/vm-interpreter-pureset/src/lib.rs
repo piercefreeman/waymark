@@ -13,6 +13,8 @@ use waymark_vm_runtime_core::{Frame, Promise};
 pub use self::error::*;
 pub use self::value::Value;
 
+use waymark_vm_instructions_pureset::{BinaryOpKind, UnaryOpKind};
+
 /// An interpreter for the "pure" instructions set.
 #[derive_where(Default)]
 pub struct PureSetInterpreter<Spec, FunctionId, StateId, Value> {
@@ -56,31 +58,17 @@ where
                     .ok_or(Error::MissingCopySource { register: *src })?;
                 frame.regs.set(*dst, value.clone());
             }
-            waymark_vm_instructions_pureset::PureSet::Add { dst, a, b } => {
-                let x = frame.regs.get(*a).ok_or(Error::MissingAddOperand {
-                    operand_pos: BinaryOperandPosition::First,
-                    register: *a,
-                })?;
-                let x = x
-                    .require_resolved_ref()
-                    .map_err(|source| Error::UnresolvedAddOperand {
-                        operand_pos: BinaryOperandPosition::First,
-                        source,
-                    })?;
-
-                let y = frame.regs.get(*b).ok_or(Error::MissingAddOperand {
-                    operand_pos: BinaryOperandPosition::Second,
-                    register: *b,
-                })?;
-                let y = y
-                    .require_resolved_ref()
-                    .map_err(|source| Error::UnresolvedAddOperand {
-                        operand_pos: BinaryOperandPosition::Second,
-                        source,
-                    })?;
-
-                let value = Value::add(x, y).map_err(Error::Add)?;
-                frame.regs.set(*dst, Promise::Resolved(value));
+            waymark_vm_instructions_pureset::PureSet::Binary {
+                kind,
+                op: waymark_vm_instructions_pureset::BinaryOp { dst, a, b },
+            } => {
+                Self::execute_binary_operation(&mut frame, *dst, *a, *b, *kind)?;
+            }
+            waymark_vm_instructions_pureset::PureSet::Unary {
+                kind,
+                op: waymark_vm_instructions_pureset::UnaryOp { dst, src },
+            } => {
+                Self::execute_unary_operation(&mut frame, *dst, *src, *kind)?;
             }
             waymark_vm_instructions_pureset::PureSet::MakeList { dst, items } => {
                 let make_list_result = with_register_values(
@@ -105,6 +93,92 @@ where
         }
 
         Ok(ExecutionOutcome::Continue(frame))
+    }
+}
+
+impl<Spec, FunctionId, StateId, Value> PureSetInterpreter<Spec, FunctionId, StateId, Value>
+where
+    Value: value::Value,
+{
+    fn execute_binary_operation(
+        frame: &mut Frame<FunctionId, StateId, Promise<Value>>,
+        dst: waymark_vm_runtime_core::RegisterId,
+        a: waymark_vm_runtime_core::RegisterId,
+        b: waymark_vm_runtime_core::RegisterId,
+        operation: BinaryOpKind,
+    ) -> Result<(), Error> {
+        let x = frame.regs.get(a).ok_or(Error::MissingBinaryOperand {
+            operation,
+            operand_pos: BinaryOperandPosition::First,
+            register: a,
+        })?;
+        let x = x
+            .require_resolved_ref()
+            .map_err(|source| Error::UnresolvedBinaryOperand {
+                operation,
+                operand_pos: BinaryOperandPosition::First,
+                source,
+            })?;
+
+        let y = frame.regs.get(b).ok_or(Error::MissingBinaryOperand {
+            operation,
+            operand_pos: BinaryOperandPosition::Second,
+            register: b,
+        })?;
+        let y = y
+            .require_resolved_ref()
+            .map_err(|source| Error::UnresolvedBinaryOperand {
+                operation,
+                operand_pos: BinaryOperandPosition::Second,
+                source,
+            })?;
+
+        let value = match operation {
+            BinaryOpKind::Add => Value::add(x, y),
+            BinaryOpKind::Sub => Value::sub(x, y),
+            BinaryOpKind::Mul => Value::mul(x, y),
+            BinaryOpKind::Div => Value::div(x, y),
+            BinaryOpKind::FloorDiv => Value::floor_div(x, y),
+            BinaryOpKind::Mod => Value::modulo(x, y),
+            BinaryOpKind::Eq => Value::eq(x, y),
+            BinaryOpKind::Ne => Value::ne(x, y),
+            BinaryOpKind::Lt => Value::lt(x, y),
+            BinaryOpKind::Le => Value::le(x, y),
+            BinaryOpKind::Gt => Value::gt(x, y),
+            BinaryOpKind::Ge => Value::ge(x, y),
+            BinaryOpKind::In => Value::contains(x, y),
+            BinaryOpKind::NotIn => Value::not_contains(x, y),
+            BinaryOpKind::And => Value::and(x, y),
+            BinaryOpKind::Or => Value::or(x, y),
+        }
+        .map_err(|source| Error::BinaryOperation { operation, source })?;
+
+        frame.regs.set(dst, Promise::Resolved(value));
+        Ok(())
+    }
+
+    fn execute_unary_operation(
+        frame: &mut Frame<FunctionId, StateId, Promise<Value>>,
+        dst: waymark_vm_runtime_core::RegisterId,
+        src: waymark_vm_runtime_core::RegisterId,
+        operation: UnaryOpKind,
+    ) -> Result<(), Error> {
+        let value = frame.regs.get(src).ok_or(Error::MissingUnaryOperand {
+            operation,
+            register: src,
+        })?;
+        let value = value
+            .require_resolved_ref()
+            .map_err(|source| Error::UnresolvedUnaryOperand { operation, source })?;
+
+        let value = match operation {
+            UnaryOpKind::Neg => Value::neg(value),
+            UnaryOpKind::Not => Value::not(value),
+        }
+        .map_err(|source| Error::UnaryOperation { operation, source })?;
+
+        frame.regs.set(dst, Promise::Resolved(value));
+        Ok(())
     }
 }
 

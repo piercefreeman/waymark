@@ -11,7 +11,11 @@ pub fn program() -> waymark_vm_ast_old::Program {
         vec![
             assignment("x", int(2)),
             assignment("y", int(3)),
-            return_stmt(Some(add(variable("x"), variable("y")))),
+            return_stmt(Some(binary_expr(
+                variable("x"),
+                waymark_vm_ast_old::BinaryOperator::Add,
+                variable("y"),
+            ))),
         ],
     );
 
@@ -25,7 +29,11 @@ pub fn program() -> waymark_vm_ast_old::Program {
         vec![
             assignment("a", function_expr("f1", vec![])),
             assignment("b", function_expr("f1", vec![])),
-            return_stmt(Some(add(variable("a"), variable("b")))),
+            return_stmt(Some(binary_expr(
+                variable("a"),
+                waymark_vm_ast_old::BinaryOperator::Add,
+                variable("b"),
+            ))),
         ],
     );
 

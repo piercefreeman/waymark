@@ -46,14 +46,23 @@ impl waymark_vm_interpreter_coreset::value::ShouldJump for SampleValue {
     }
 }
 
-impl waymark_vm_interpreter_pureset::value::Add for SampleValue {
-    fn add(a: &Self, b: &Self) -> Result<Self, waymark_vm_interpreter_pureset::value::AddError> {
+impl waymark_vm_interpreter_pureset::value::BinaryOps for SampleValue {
+    fn add(
+        a: &Self,
+        b: &Self,
+    ) -> Result<Self, waymark_vm_interpreter_pureset::value::BinaryOperationError> {
         match (a, b) {
-            (SampleValue::Usize(a), SampleValue::Usize(b)) => Ok(SampleValue::Usize(a + b)),
-            _ => Err(waymark_vm_interpreter_pureset::value::AddError::NotAddable),
+            (SampleValue::Usize(a), SampleValue::Usize(b)) => Ok(SampleValue::Usize(*a + *b)),
+            _ => Err(
+                waymark_vm_interpreter_pureset::value::BinaryOperationError::UnsupportedOperation {
+                    operation: waymark_vm_instructions_pureset::BinaryOpKind::Add,
+                },
+            ),
         }
     }
 }
+
+impl waymark_vm_interpreter_pureset::value::UnaryOps for SampleValue {}
 
 impl waymark_vm_interpreter_pureset::value::MakeList for SampleValue {
     fn make_list<I>(items: I) -> Result<Self, waymark_vm_interpreter_pureset::value::MakeListError>

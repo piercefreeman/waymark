@@ -64,11 +64,6 @@ where
         self.emit(waymark_vm_instructions_pureset::PureSet::Copy { dst, src }.into());
     }
 
-    /// Emits an integer/string addition instruction.
-    pub fn emit_add(&mut self, dst: RegisterId, a: RegisterId, b: RegisterId) {
-        self.emit(waymark_vm_instructions_pureset::PureSet::Add { dst, a, b }.into());
-    }
-
     /// Emits a list-construction instruction.
     pub fn emit_make_list(&mut self, dst: RegisterId, items: Vec<RegisterId>) {
         self.emit(waymark_vm_instructions_pureset::PureSet::MakeList { dst, items }.into());
@@ -142,6 +137,39 @@ where
     pub fn emit_return(&mut self, src: RegisterId) {
         self.emit(waymark_vm_instructions_coreset::CoreSet::Return { src }.into());
         self.function_states.terminate();
+    }
+
+    /// Emits a binary pureset instruction with the provided operation kind.
+    pub fn emit_binary(
+        &mut self,
+        kind: waymark_vm_instructions_pureset::BinaryOpKind,
+        dst: RegisterId,
+        a: RegisterId,
+        b: RegisterId,
+    ) {
+        self.emit(
+            waymark_vm_instructions_pureset::PureSet::Binary {
+                kind,
+                op: waymark_vm_instructions_pureset::BinaryOp { dst, a, b },
+            }
+            .into(),
+        );
+    }
+
+    /// Emits a unary pureset instruction with the provided operation kind.
+    pub fn emit_unary(
+        &mut self,
+        kind: waymark_vm_instructions_pureset::UnaryOpKind,
+        dst: RegisterId,
+        src: RegisterId,
+    ) {
+        self.emit(
+            waymark_vm_instructions_pureset::PureSet::Unary {
+                kind,
+                op: waymark_vm_instructions_pureset::UnaryOp { dst, src },
+            }
+            .into(),
+        );
     }
 
     /// Appends an instruction to the current state.

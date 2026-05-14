@@ -1,6 +1,6 @@
 use waymark_vm_instructions_coreset::CoreSet;
 use waymark_vm_instructions_fullset::FullSet;
-use waymark_vm_instructions_pureset::PureSet;
+use waymark_vm_instructions_pureset::{BinaryOpKind, PureSet, UnaryOpKind};
 use waymark_vm_interpreter_fullset::{Effect, FullSetInterpreter};
 use waymark_vm_runtime::{CallSpec, Runtime};
 use waymark_vm_runtime_core::RegisterId;
@@ -34,26 +34,60 @@ struct TestExtCallId(usize);
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum TestValue {
     Int(i64),
+    Bool(bool),
     List(Vec<TestValue>),
+}
+
+fn is_truthy(value: &TestValue) -> bool {
+    match value {
+        TestValue::Int(value) => *value != 0,
+        TestValue::Bool(value) => *value,
+        TestValue::List(items) => !items.is_empty(),
+    }
 }
 
 impl waymark_vm_interpreter_coreset::value::ShouldJump for TestValue {
     fn should_jump(
         &self,
     ) -> Result<bool, waymark_vm_interpreter_coreset::value::NotAConditionalError> {
-        match self {
-            Self::Int(value) => Ok(*value != 0),
-            Self::List(_) => Err(waymark_vm_interpreter_coreset::value::NotAConditionalError),
+        Ok(is_truthy(self))
+    }
+}
+
+impl waymark_vm_interpreter_pureset::value::BinaryOps for TestValue {
+    fn add(
+        a: &Self,
+        b: &Self,
+    ) -> Result<Self, waymark_vm_interpreter_pureset::value::BinaryOperationError> {
+        match (a, b) {
+            (Self::Int(a), Self::Int(b)) => Ok(Self::Int(*a + *b)),
+            _ => Err(
+                waymark_vm_interpreter_pureset::value::BinaryOperationError::UnsupportedOperation {
+                    operation: BinaryOpKind::Add,
+                },
+            ),
         }
     }
 }
 
-impl waymark_vm_interpreter_pureset::value::Add for TestValue {
-    fn add(a: &Self, b: &Self) -> Result<Self, waymark_vm_interpreter_pureset::value::AddError> {
-        match (a, b) {
-            (Self::Int(a), Self::Int(b)) => Ok(Self::Int(a + b)),
-            _ => Err(waymark_vm_interpreter_pureset::value::AddError::NotAddable),
+impl waymark_vm_interpreter_pureset::value::UnaryOps for TestValue {
+    fn neg(
+        value: &Self,
+    ) -> Result<Self, waymark_vm_interpreter_pureset::value::UnaryOperationError> {
+        match value {
+            Self::Int(value) => Ok(Self::Int(-*value)),
+            _ => Err(
+                waymark_vm_interpreter_pureset::value::UnaryOperationError::UnsupportedOperation {
+                    operation: UnaryOpKind::Neg,
+                },
+            ),
         }
+    }
+
+    fn not(
+        value: &Self,
+    ) -> Result<Self, waymark_vm_interpreter_pureset::value::UnaryOperationError> {
+        Ok(Self::Bool(!is_truthy(value)))
     }
 }
 
@@ -89,10 +123,13 @@ fn runtime_executes_pure_and_core_instructions_to_completion() {
                 value: TestConstValue::Int(3),
             }
             .into(),
-            PureSet::Add {
-                dst: RegisterId(2),
-                a: RegisterId(0),
-                b: RegisterId(1),
+            PureSet::Binary {
+                kind: waymark_vm_instructions_pureset::BinaryOpKind::Add,
+                op: waymark_vm_instructions_pureset::BinaryOp {
+                    dst: RegisterId(2),
+                    a: RegisterId(0),
+                    b: RegisterId(1),
+                },
             }
             .into(),
             CoreSet::Return { src: RegisterId(2) }.into(),
@@ -148,10 +185,13 @@ fn runtime_resumes_extcalls_and_finishes_with_pure_work() {
                     value: TestConstValue::Int(1),
                 }
                 .into(),
-                PureSet::Add {
-                    dst: RegisterId(3),
-                    a: RegisterId(2),
-                    b: RegisterId(3),
+                PureSet::Binary {
+                    kind: waymark_vm_instructions_pureset::BinaryOpKind::Add,
+                    op: waymark_vm_instructions_pureset::BinaryOp {
+                        dst: RegisterId(3),
+                        a: RegisterId(2),
+                        b: RegisterId(3),
+                    },
                 }
                 .into(),
                 CoreSet::Return { src: RegisterId(3) }.into(),
