@@ -84,6 +84,20 @@ where
         Ok(())
     }
 
+    /// Compiles a sleep statement as a dedicated async suspension point.
+    pub fn compile_sleep_statement(
+        &mut self,
+        duration: &Spanned<Expr>,
+    ) -> Result<(), ErrorFor<Spec, Lowering>> {
+        let promise_register = Marked::mark(self.allocate_result_register(ResultTarget::Allocate));
+        let result_register = promise_register.register();
+
+        self.compile_sleep_start(duration, &promise_register)?;
+        self.compile_await(result_register, &promise_register);
+
+        Ok(())
+    }
+
     /// Compiles a return statement.
     pub fn compile_return_statement(
         &mut self,
@@ -159,6 +173,25 @@ where
             .emit_extcall(dst.marked(), action_ref, arg_registers, resume_state);
 
         drop(args);
+
+        self.context.emitter.switch_to(resume_state);
+
+        Ok(())
+    }
+
+    /// Starts a sleep suspension into the given promise register.
+    pub fn compile_sleep_start(
+        &mut self,
+        duration: &Spanned<Expr>,
+        dst: &Marked<RegisterHandle, PromiseMarker>,
+    ) -> Result<(), ErrorFor<Spec, Lowering>> {
+        let duration_register = self.compile_expr(duration, ResultTarget::Allocate)?;
+
+        let resume_state = self.reserve_state();
+
+        self.context
+            .emitter
+            .emit_sleep(dst.marked(), duration_register.register(), resume_state);
 
         self.context.emitter.switch_to(resume_state);
 
@@ -479,6 +512,64 @@ mod tests {
             })) if *dst == RegisterId(0)
                 && action_ref == "fetch"
                 && args == &[RegisterId(1)]
+                && *resume == StateId(1)
+        ));
+        assert!(start_instructions.next().is_none());
+
+        let mut resume_instructions = states[StateId(1)].instructions.iter();
+        assert!(matches!(
+            resume_instructions.next(),
+            Some(InstructionSet::CoreSet(CoreSet::Await { dst, src, resume }))
+                if *dst == RegisterId(0)
+                    && *src == RegisterId(0)
+                    && *resume == StateId(2)
+        ));
+        assert!(resume_instructions.next().is_none());
+    }
+
+    #[test]
+    fn sleep_statements_emit_sleep_then_await_in_resume_state() {
+        let function_table = build_function_table();
+        let mut emitter = FunctionEmitter::<TestSpec>::new();
+        let mut local_frame = LocalFrame::new();
+        let mut flow_state = FlowState::new();
+        let duration = int(2);
+
+        {
+            let mut values = ValueCompiler::<TestSpec, TestLowering>::new(
+                CompilerContextMut::new(
+                    &function_table,
+                    &mut emitter,
+                    &mut local_frame,
+                    &mut flow_state,
+                )
+                .into_ref(),
+            );
+
+            values
+                .compile_sleep_statement(&duration)
+                .expect("sleep statement should compile");
+        }
+
+        let states = emitter.finish();
+        assert_eq!(states.len().to_scalar(), 3);
+
+        let mut start_instructions = states[StateId(0)].instructions.iter();
+        assert!(matches!(
+            start_instructions.next(),
+            Some(InstructionSet::PureSet(PureSet::LoadConst {
+                dst,
+                value: TestConstValue::Int(2),
+            })) if *dst == RegisterId(1)
+        ));
+        assert!(matches!(
+            start_instructions.next(),
+            Some(InstructionSet::ExtCallSet(ExtCallSet::Sleep {
+                dst,
+                duration,
+                resume,
+            })) if *dst == RegisterId(0)
+                && *duration == RegisterId(1)
                 && *resume == StateId(1)
         ));
         assert!(start_instructions.next().is_none());

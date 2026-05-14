@@ -20,5 +20,6 @@ derive-where = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
+waymark-nonzero-duration = { workspace = true }
 waymark-vm-runtime = { workspace = true }
 waymark-vm-runtime-test = { workspace = true }

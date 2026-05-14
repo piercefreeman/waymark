@@ -74,6 +74,26 @@ pub async fn run(
                                 }
                             });
                         }
+                        waymark_vm_interpreter_extcallset::Effect::Sleep {
+                            promise_state_id,
+                            duration,
+                        } => {
+                            tracing::info!(?promise_state_id, ?duration, "sleep received");
+
+                            tokio::spawn({
+                                let promise_resolutions_tx = promise_resolutions_tx.clone();
+                                async move {
+                                    tokio::time::sleep(duration.get()).await;
+
+                                    let value = integration::SampleValue::Usize(0);
+                                    tracing::info!(?promise_state_id, ?value, "resolving sleep");
+                                    promise_resolutions_tx
+                                        .send((promise_state_id, value))
+                                        .await
+                                        .unwrap();
+                                }
+                            });
+                        }
                     },
                 }
             }

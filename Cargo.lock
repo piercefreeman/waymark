@@ -5170,6 +5170,7 @@ dependencies = [
  "tokio",
  "tracing",
  "waymark-fn-main-common",
+ "waymark-nonzero-duration",
  "waymark-vm-ast-old",
  "waymark-vm-ast-old-helpers",
  "waymark-vm-bytecode",
@@ -5200,6 +5201,7 @@ dependencies = [
  "nonempty-collections",
  "thiserror",
  "tokio",
+ "waymark-nonzero-duration",
  "waymark-support-test-python",
  "waymark-vm-ast-old",
  "waymark-vm-ast-old-helpers",
@@ -5318,6 +5320,7 @@ version = "0.1.0"
 dependencies = [
  "derive-where",
  "thiserror",
+ "waymark-nonzero-duration",
  "waymark-vm-instructions-extcallset",
  "waymark-vm-interpreter",
  "waymark-vm-runtime",
@@ -5331,6 +5334,7 @@ version = "0.1.0"
 dependencies = [
  "derive-where",
  "thiserror",
+ "waymark-nonzero-duration",
  "waymark-vm-executable",
  "waymark-vm-instructions-coreset",
  "waymark-vm-instructions-extcallset",

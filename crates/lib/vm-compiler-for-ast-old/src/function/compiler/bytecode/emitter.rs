@@ -105,6 +105,23 @@ where
         );
     }
 
+    /// Emits a sleep instruction that resumes at `resume`.
+    pub fn emit_sleep(
+        &mut self,
+        dst: Marked<RegisterId, PromiseMarker>,
+        duration: RegisterId,
+        resume: StateId,
+    ) {
+        self.emit(
+            waymark_vm_instructions_extcallset::ExtCallSet::Sleep {
+                dst: *dst,
+                duration,
+                resume,
+            }
+            .into(),
+        );
+    }
+
     /// Emits an await instruction for a promise register.
     pub fn emit_await(
         &mut self,

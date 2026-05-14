@@ -1,11 +1,13 @@
 mod support;
 
 use support::{TestValue, compile_program, runtime, runtime_with_args};
+
+use waymark_nonzero_duration::NonZeroDuration;
 use waymark_vm_ast_old::{BinaryOperator, Call, Expr, Spanned, UnaryOperator};
 use waymark_vm_ast_old_helpers::{
     action_call, action_expr, assignment, assignment_targets, binary_expr, break_stmt,
     conditional_stmt, continue_stmt, function, function_call, function_expr, int, parallel_expr,
-    parallel_stmt, program, return_stmt, unary_expr, variable, while_stmt,
+    parallel_stmt, program, return_stmt, sleep_stmt, unary_expr, variable, while_stmt,
 };
 use waymark_vm_bytecode_core::{FunctionId, InstructionId, StateId};
 use waymark_vm_compiler_for_ast_old_test_support::TestActionRef;
@@ -363,6 +365,42 @@ fn compiles_action_calls_into_extcalls() {
         ))) => assert_eq!(value, 42),
         other => panic!("unexpected second runtime effect: {other:?}"),
     }
+}
+
+#[test]
+fn compiles_sleep_statements_into_resumable_sleep_effects() {
+    let program = program(vec![function(
+        "main",
+        &[],
+        vec![sleep_stmt(int(2)), return_stmt(Some(int(7)))],
+    )]);
+
+    let executable = compile_program(&program);
+    let mut runtime = runtime(executable);
+
+    let promise_state_id = match runtime.run().expect("program should emit a sleep effect") {
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::Sleep {
+            promise_state_id,
+            duration,
+        }) => {
+            assert_eq!(duration, NonZeroDuration::from_secs(2).unwrap());
+            promise_state_id
+        }
+        other => panic!("unexpected first runtime effect: {other:?}"),
+    };
+
+    runtime
+        .resolve_promise(promise_state_id, TestValue::None)
+        .expect("sleep promise should resolve");
+
+    assert_eq!(
+        completed_int(
+            runtime
+                .run()
+                .expect("program should complete after sleep resolves")
+        ),
+        7
+    );
 }
 
 #[test]

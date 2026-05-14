@@ -1,3 +1,4 @@
+use waymark_nonzero_duration::NonZeroDuration;
 use waymark_vm_instructions_coreset::CoreSet;
 use waymark_vm_instructions_extcallset::ExtCallSet;
 use waymark_vm_instructions_fullset::FullSet;
@@ -36,6 +37,18 @@ enum TestConstValue {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct TestActionRef(usize);
+
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+enum TestSleepDurationError {
+    #[error("the value cannot be used as a sleep duration")]
+    UnsupportedValue,
+
+    #[error("sleep duration must be non-zero")]
+    Zero,
+
+    #[error("sleep duration cannot be negative")]
+    Negative,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum TestValue {
@@ -106,6 +119,20 @@ impl waymark_vm_interpreter_pureset::value::MakeList for TestValue {
     }
 }
 
+impl waymark_vm_interpreter_extcallset::value::SleepDuration for TestValue {
+    type Error = TestSleepDurationError;
+
+    fn to_sleep_duration(&self) -> Result<NonZeroDuration, Self::Error> {
+        match self {
+            Self::Int(value) => {
+                let seconds: u64 = (*value).try_into().map_err(|_| Self::Error::Negative)?;
+                NonZeroDuration::from_secs(seconds).ok_or(Self::Error::Zero)
+            }
+            Self::Bool(_) | Self::List(_) => Err(Self::Error::UnsupportedValue),
+        }
+    }
+}
+
 impl From<TestConstValue> for TestValue {
     fn from(value: TestConstValue) -> Self {
         match value {
@@ -158,6 +185,95 @@ fn runtime_executes_pure_and_core_instructions_to_completion() {
         }
         Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall { .. }) => {
             panic!("program should not emit an action call")
+        }
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::Sleep { .. }) => {
+            panic!("program should not emit a sleep effect")
+        }
+        Effect::PureSet(effect) => match effect {},
+    }
+}
+
+#[test]
+fn runtime_resumes_sleep_effects_and_finishes_with_pure_work() {
+    let executable = executable(vec![function::<Instruction>(
+        4,
+        vec![
+            vec![
+                PureSet::LoadConst {
+                    dst: RegisterId(0),
+                    value: TestConstValue::Int(2),
+                }
+                .into(),
+                ExtCallSet::Sleep {
+                    dst: RegisterId(1),
+                    duration: RegisterId(0),
+                    resume: StateId(1),
+                }
+                .into(),
+            ],
+            vec![
+                CoreSet::Await {
+                    dst: RegisterId(2),
+                    src: RegisterId(1),
+                    resume: StateId(2),
+                }
+                .into(),
+            ],
+            vec![
+                PureSet::LoadConst {
+                    dst: RegisterId(3),
+                    value: TestConstValue::Int(7),
+                }
+                .into(),
+                CoreSet::Return { src: RegisterId(3) }.into(),
+            ],
+        ],
+    )]);
+
+    let mut runtime = Runtime::with_conventional_entrypoint(
+        FullSetInterpreter::<TestSpec, _, TestValue>::default(),
+        executable,
+    )
+    .expect("function 0 should exist");
+
+    let effect = runtime
+        .run()
+        .expect("first run should emit the sleep effect");
+
+    let promise_state_id = match effect {
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::Sleep {
+            promise_state_id,
+            duration,
+        }) => {
+            assert_eq!(duration, NonZeroDuration::from_secs(2).unwrap());
+            promise_state_id
+        }
+        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(_)) => {
+            panic!("program should suspend on sleep before completion")
+        }
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall { .. }) => {
+            panic!("program should emit a sleep effect, not an action call")
+        }
+        Effect::PureSet(effect) => match effect {},
+    };
+
+    runtime
+        .resolve_promise(promise_state_id, TestValue::Int(0))
+        .expect("sleep promise should resolve cleanly");
+
+    let effect = runtime
+        .run()
+        .expect("second run should finish after resuming sleep");
+
+    match effect {
+        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(value)) => {
+            assert_eq!(value, TestValue::Int(7));
+        }
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall { .. }) => {
+            panic!("resolved sleep should not emit an action call")
+        }
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::Sleep { .. }) => {
+            panic!("resolved sleep should not emit another sleep effect")
         }
         Effect::PureSet(effect) => match effect {},
     }
@@ -232,6 +348,9 @@ fn runtime_resumes_extcalls_and_finishes_with_pure_work() {
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(_)) => {
             panic!("program should suspend on the action call before completion")
         }
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::Sleep { .. }) => {
+            panic!("program should suspend on an extcall, not a sleep effect")
+        }
         Effect::PureSet(effect) => match effect {},
     };
 
@@ -249,6 +368,9 @@ fn runtime_resumes_extcalls_and_finishes_with_pure_work() {
         }
         Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall { .. }) => {
             panic!("resolved action call should not emit another action call")
+        }
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::Sleep { .. }) => {
+            panic!("resolved extcall should not emit a sleep effect")
         }
         Effect::PureSet(effect) => match effect {},
     }

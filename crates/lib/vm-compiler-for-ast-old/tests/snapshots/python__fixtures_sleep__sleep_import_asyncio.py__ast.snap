@@ -55,21 +55,19 @@ Program {
                             },
                             Spanned {
                                 value: Sleep {
-                                    duration: Some(
-                                        Spanned {
-                                            value: Literal {
-                                                value: Int(
-                                                    1,
-                                                ),
-                                            },
-                                            span: Span {
-                                                start_line: 3,
-                                                start_col: 24,
-                                                end_line: 3,
-                                                end_col: 25,
-                                            },
+                                    duration: Spanned {
+                                        value: Literal {
+                                            value: Int(
+                                                1,
+                                            ),
                                         },
-                                    ),
+                                        span: Span {
+                                            start_line: 3,
+                                            start_col: 24,
+                                            end_line: 3,
+                                            end_col: 25,
+                                        },
+                                    },
                                 },
                                 span: Span {
                                     start_line: 3,

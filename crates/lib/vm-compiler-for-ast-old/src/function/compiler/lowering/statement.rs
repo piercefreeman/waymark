@@ -94,6 +94,9 @@ where
             StatementPlan::Expr { expr } => {
                 self.value_compiler().compile_expression_statement(expr)?;
             }
+            StatementPlan::Sleep { duration } => {
+                self.value_compiler().compile_sleep_statement(duration)?;
+            }
             StatementPlan::ParallelBlock { calls } => {
                 self.parallel_compiler().compile_block(calls)?;
             }

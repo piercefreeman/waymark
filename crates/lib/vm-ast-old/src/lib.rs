@@ -67,7 +67,7 @@ pub enum Statement {
     Break,
     Continue,
     Sleep {
-        duration: Option<Spanned<Expr>>,
+        duration: Spanned<Expr>,
     },
 }
 

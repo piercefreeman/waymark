@@ -5,6 +5,7 @@ version.workspace = true
 publish.workspace = true
 
 [dependencies]
+waymark-nonzero-duration = { workspace = true }
 waymark-vm-instructions-extcallset = { workspace = true }
 waymark-vm-interpreter = { workspace = true }
 waymark-vm-runtime-core = { workspace = true }

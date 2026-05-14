@@ -2,12 +2,143 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_sleep/sleep_from_import.py
 ---
-Err(
-    FunctionCompiler(
-        Unsupported(
-            Statement {
-                kind: Sleep,
+Ok(
+    Executable {
+        functions: [
+            Function {
+                states: [
+                    State {
+                        instructions: [
+                            ExtCallSet(
+                                ActionCall {
+                                    dst: RegisterId(
+                                        0,
+                                    ),
+                                    action_ref: TestActionRef(
+                                        "get_value_from_import",
+                                    ),
+                                    args: [],
+                                    resume: StateId(
+                                        1,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                Await {
+                                    dst: RegisterId(
+                                        0,
+                                    ),
+                                    src: RegisterId(
+                                        0,
+                                    ),
+                                    resume: StateId(
+                                        2,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            PureSet(
+                                LoadConst {
+                                    dst: RegisterId(
+                                        2,
+                                    ),
+                                    value: Int(
+                                        2,
+                                    ),
+                                },
+                            ),
+                            ExtCallSet(
+                                Sleep {
+                                    dst: RegisterId(
+                                        1,
+                                    ),
+                                    duration: RegisterId(
+                                        2,
+                                    ),
+                                    resume: StateId(
+                                        3,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                Await {
+                                    dst: RegisterId(
+                                        1,
+                                    ),
+                                    src: RegisterId(
+                                        1,
+                                    ),
+                                    resume: StateId(
+                                        4,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            ExtCallSet(
+                                ActionCall {
+                                    dst: RegisterId(
+                                        3,
+                                    ),
+                                    action_ref: TestActionRef(
+                                        "format_done_from_import",
+                                    ),
+                                    args: [
+                                        RegisterId(
+                                            0,
+                                        ),
+                                    ],
+                                    resume: StateId(
+                                        5,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                Await {
+                                    dst: RegisterId(
+                                        3,
+                                    ),
+                                    src: RegisterId(
+                                        3,
+                                    ),
+                                    resume: StateId(
+                                        6,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                Return {
+                                    src: RegisterId(
+                                        3,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                ],
+                num_regs: 4,
             },
-        ),
-    ),
+        ],
+    },
 )

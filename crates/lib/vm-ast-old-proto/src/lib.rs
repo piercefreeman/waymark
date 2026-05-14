@@ -144,7 +144,7 @@ impl Convert<ast::Statement> for Converter {
                 }
             }
             ast::statement::Kind::SleepStmt(sleep_stmt) => vm_ast::Statement::Sleep {
-                duration: convert_optional_owned(sleep_stmt.duration)?,
+                duration: convert_required(sleep_stmt.duration, "SleepStmt.duration")?,
             },
         };
 
