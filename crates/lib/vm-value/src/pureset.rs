@@ -1,12 +1,27 @@
 //! [`waymark_vm_interpreter_pureset`] trait implementations for [`Value`].
 
+use indexmap::IndexMap;
 use typed_floats::NonNaNFinite;
 use waymark_vm_instructions_pureset::{
     BinaryOpKind as BinaryOperationKind, UnaryOpKind as UnaryOperationKind,
 };
-use waymark_vm_interpreter_pureset::value::{BinaryOperationError, UnaryOperationError};
+use waymark_vm_interpreter_pureset::value::{
+    BinaryOperationError, MakeDictError, UnaryOperationError,
+};
 
 use crate::{Value, pythonic};
+
+fn dict_key(value: &Value) -> Result<String, MakeDictError> {
+    match value {
+        Value::String(value) => Ok(value.clone()),
+        Value::Int(_)
+        | Value::Float(_)
+        | Value::Bool(_)
+        | Value::None
+        | Value::List(_)
+        | Value::Dict(_) => Err(MakeDictError::UnsupportedKeyType),
+    }
+}
 
 fn contains_bool(a: &Value, b: &Value) -> Result<bool, BinaryOperationError> {
     match (a, b) {
@@ -285,5 +300,20 @@ impl waymark_vm_interpreter_pureset::value::MakeList for Value {
         I: IntoIterator<Item = Self>,
     {
         Ok(Self::List(items.into_iter().collect()))
+    }
+}
+
+impl waymark_vm_interpreter_pureset::value::MakeDict for Value {
+    fn make_dict<I>(entries: I) -> Result<Self, MakeDictError>
+    where
+        I: IntoIterator<Item = (Self, Self)>,
+    {
+        let mut dict = IndexMap::new();
+
+        for (key, value) in entries {
+            dict.insert(dict_key(&key)?, value);
+        }
+
+        Ok(Self::Dict(dict))
     }
 }
