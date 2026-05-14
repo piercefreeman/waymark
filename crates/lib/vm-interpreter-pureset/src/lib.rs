@@ -90,6 +90,32 @@ where
                 let list = make_list_result.map_err(Error::MakeList)?;
                 frame.regs.set(*dst, Promise::Resolved(list));
             }
+            waymark_vm_instructions_pureset::PureSet::MakeDict { dst, entries } => {
+                let mut resolved_entries = Vec::with_capacity(entries.len());
+
+                for (entry_pos, entry) in entries.iter().enumerate() {
+                    let key = frame.regs.get(entry.key).ok_or(Error::MissingDictKey {
+                        entry_pos,
+                        register: entry.key,
+                    })?;
+                    let key = key
+                        .require_resolved_ref()
+                        .map_err(|source| Error::UnresolvedDictKey { entry_pos, source })?;
+
+                    let value = frame.regs.get(entry.value).ok_or(Error::MissingDictValue {
+                        entry_pos,
+                        register: entry.value,
+                    })?;
+                    let value = value
+                        .require_resolved_ref()
+                        .map_err(|source| Error::UnresolvedDictValue { entry_pos, source })?;
+
+                    resolved_entries.push((key.clone(), value.clone()));
+                }
+
+                let dict = Value::make_dict(resolved_entries).map_err(Error::MakeDict)?;
+                frame.regs.set(*dst, Promise::Resolved(dict));
+            }
         }
 
         Ok(ExecutionOutcome::Continue(frame))

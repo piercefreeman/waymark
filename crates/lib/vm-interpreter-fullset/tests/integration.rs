@@ -119,6 +119,18 @@ impl waymark_vm_interpreter_pureset::value::MakeList for TestValue {
     }
 }
 
+impl waymark_vm_interpreter_pureset::value::MakeDict for TestValue {
+    fn make_dict<I>(
+        entries: I,
+    ) -> Result<Self, waymark_vm_interpreter_pureset::value::MakeDictError>
+    where
+        I: IntoIterator<Item = (Self, Self)>,
+    {
+        let _ = entries;
+        Err(waymark_vm_interpreter_pureset::value::MakeDictError::NotDictable)
+    }
+}
+
 impl waymark_vm_interpreter_extcallset::value::SleepDuration for TestValue {
     type Error = TestSleepDurationError;
 
