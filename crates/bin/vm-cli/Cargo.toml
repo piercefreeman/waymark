@@ -14,9 +14,11 @@ waymark-vm-compiler-for-ast-old = { workspace = true }
 waymark-vm-compiler-for-ast-old-core = { workspace = true }
 waymark-vm-driver = { workspace = true }
 waymark-vm-instructions-coreset = { workspace = true }
+waymark-vm-instructions-extcallset = { workspace = true }
 waymark-vm-instructions-fullset = { workspace = true }
 waymark-vm-instructions-pureset = { workspace = true }
 waymark-vm-interpreter-coreset = { workspace = true }
+waymark-vm-interpreter-extcallset = { workspace = true }
 waymark-vm-interpreter-fullset = { workspace = true }
 waymark-vm-interpreter-pureset = { workspace = true }
 waymark-vm-runtime = { workspace = true }

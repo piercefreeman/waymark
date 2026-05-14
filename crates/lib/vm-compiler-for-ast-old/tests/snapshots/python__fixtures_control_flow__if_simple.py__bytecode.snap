@@ -19,12 +19,12 @@ Ok(
                                     ),
                                 },
                             ),
-                            CoreSet(
-                                ExtCall {
+                            ExtCallSet(
+                                ActionCall {
                                     dst: RegisterId(
                                         1,
                                     ),
-                                    extcall_id: TestExtCallId(
+                                    action_ref: TestActionRef(
                                         "handle_false_case",
                                     ),
                                     args: [],
@@ -48,12 +48,12 @@ Ok(
                     },
                     State {
                         instructions: [
-                            CoreSet(
-                                ExtCall {
+                            ExtCallSet(
+                                ActionCall {
                                     dst: RegisterId(
                                         1,
                                     ),
-                                    extcall_id: TestExtCallId(
+                                    action_ref: TestActionRef(
                                         "handle_true_case",
                                     ),
                                     args: [],

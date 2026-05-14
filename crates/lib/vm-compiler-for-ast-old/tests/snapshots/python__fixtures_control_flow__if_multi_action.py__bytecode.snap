@@ -19,12 +19,12 @@ Ok(
                                     ),
                                 },
                             ),
-                            CoreSet(
-                                ExtCall {
+                            ExtCallSet(
+                                ActionCall {
                                     dst: RegisterId(
                                         1,
                                     ),
-                                    extcall_id: TestExtCallId(
+                                    action_ref: TestActionRef(
                                         "action_else_1",
                                     ),
                                     args: [],
@@ -48,12 +48,12 @@ Ok(
                     },
                     State {
                         instructions: [
-                            CoreSet(
-                                ExtCall {
+                            ExtCallSet(
+                                ActionCall {
                                     dst: RegisterId(
                                         4,
                                     ),
-                                    extcall_id: TestExtCallId(
+                                    action_ref: TestActionRef(
                                         "action_if_1",
                                     ),
                                     args: [],
@@ -83,12 +83,12 @@ Ok(
                     },
                     State {
                         instructions: [
-                            CoreSet(
-                                ExtCall {
+                            ExtCallSet(
+                                ActionCall {
                                     dst: RegisterId(
                                         2,
                                     ),
-                                    extcall_id: TestExtCallId(
+                                    action_ref: TestActionRef(
                                         "action_else_2",
                                     ),
                                     args: [
@@ -160,12 +160,12 @@ Ok(
                     },
                     State {
                         instructions: [
-                            CoreSet(
-                                ExtCall {
+                            ExtCallSet(
+                                ActionCall {
                                     dst: RegisterId(
                                         5,
                                     ),
-                                    extcall_id: TestExtCallId(
+                                    action_ref: TestActionRef(
                                         "action_if_2",
                                     ),
                                     args: [

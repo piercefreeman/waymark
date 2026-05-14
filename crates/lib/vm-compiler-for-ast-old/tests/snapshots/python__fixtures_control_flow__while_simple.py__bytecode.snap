@@ -67,12 +67,12 @@ Ok(
                     },
                     State {
                         instructions: [
-                            CoreSet(
-                                ExtCall {
+                            ExtCallSet(
+                                ActionCall {
                                     dst: RegisterId(
                                         1,
                                     ),
-                                    extcall_id: TestExtCallId(
+                                    action_ref: TestActionRef(
                                         "increment",
                                     ),
                                     args: [

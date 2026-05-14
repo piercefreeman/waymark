@@ -73,7 +73,7 @@ use super::table::FunctionTable;
 /// Concrete function-compiler error type for a spec and lowering pair.
 type ErrorFor<Spec, Lowering> = Error<
     <Lowering as waymark_vm_compiler_for_ast_old_core::lowering::PureSet<Spec>>::LiteralError,
-    <Lowering as waymark_vm_compiler_for_ast_old_core::lowering::CoreSet<Spec>>::ActionError,
+    <Lowering as waymark_vm_compiler_for_ast_old_core::lowering::ExtCallSet<Spec>>::ActionError,
 >;
 
 /// Lowers one AST function body into VM bytecode.

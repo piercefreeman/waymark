@@ -4,18 +4,19 @@ pub fn executable() -> crate::integration::Executable {
     use waymark_vm_bytecode::*;
     use waymark_vm_bytecode_core::*;
     use waymark_vm_instructions_coreset::CoreSet;
+    use waymark_vm_instructions_extcallset::ExtCallSet;
     use waymark_vm_instructions_pureset::PureSet;
     use waymark_vm_runtime_core::RegisterId;
 
-    // function 1: f() = await ExtCall(SampleExtCallId(42)) + 5
+    // function 1: f() = await ActionCall(SampleActionRef(42)) + 5
     let f1 = Function {
         num_regs: 3,
         states: typed_vec![
             State {
                 instructions: typed_vec![
-                    CoreSet::ExtCall {
+                    ExtCallSet::ActionCall {
                         dst: RegisterId::from_scalar(0),
-                        extcall_id: SampleExtCallId(42),
+                        action_ref: SampleActionRef(42),
                         args: vec![],
                         resume: StateId::from_scalar(1),
                     }

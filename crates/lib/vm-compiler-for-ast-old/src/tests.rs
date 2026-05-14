@@ -6,7 +6,7 @@ use waymark_vm_ast_old_helpers::{
 };
 use waymark_vm_compiler_for_ast_old_core::lowering;
 use waymark_vm_compiler_for_ast_old_test_support::{
-    TestConstValue, TestExtCallId, TestLiteralError as TestLiteralLoweringError, TestLowering,
+    TestActionRef, TestConstValue, TestLiteralError as TestLiteralLoweringError, TestLowering,
     TestSpec,
 };
 use waymark_vm_instructions_fullset::FullSet;
@@ -25,13 +25,13 @@ enum UnitTestActionLoweringError {
 
 struct ActionFailingLowering;
 
-impl<Spec> lowering::CoreSet<Spec> for ActionFailingLowering
+impl<Spec> lowering::ExtCallSet<Spec> for ActionFailingLowering
 where
-    Spec: waymark_vm_instructions_coreset::Spec<ExtCallId = TestExtCallId>,
+    Spec: waymark_vm_instructions_extcallset::Spec<ActionRef = TestActionRef>,
 {
     type ActionError = UnitTestActionLoweringError;
 
-    fn lower_action(_call: &ActionCall) -> Result<Spec::ExtCallId, Self::ActionError> {
+    fn lower_action(_call: &ActionCall) -> Result<Spec::ActionRef, Self::ActionError> {
         Err(UnitTestActionLoweringError::UnsupportedAction)
     }
 }

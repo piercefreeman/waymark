@@ -1,7 +1,7 @@
 //! The "core" instruction set for the VM.
 //!
-//! Responsible for representing function calls, returns, awaits, control flow
-//! and extcalls.
+//! Responsible for representing function calls, returns, awaits, and control
+//! flow.
 //!
 //! Minimal core functionality of the VM.
 
@@ -19,9 +19,6 @@ pub trait Spec: 'static {
 
     /// The type used to refer to the executable function sub-states.
     type StateId: core::fmt::Debug;
-
-    /// The type used to refer to the extcalls.
-    type ExtCallId: core::fmt::Debug;
 }
 
 /// The core instructions set.
@@ -41,25 +38,6 @@ pub enum CoreSet<Spec: self::Spec> {
         /// The registers in the current frame to take the arguments to pass to
         /// the function from.
         args: Vec<Spec::RegisterId>,
-    },
-
-    /// Start an extcall execution.
-    ///
-    /// External calls are always asynchronous by nature.
-    ExtCall {
-        /// The resiter in the current frame to assign the promise for this
-        /// new call completion.
-        dst: Spec::RegisterId,
-
-        /// The ID of the extcall to invoke.
-        extcall_id: Spec::ExtCallId,
-
-        /// The registers in the current frame to take the arguments to pass to
-        /// the extcall from.
-        args: Vec<Spec::RegisterId>,
-
-        /// The state to resume the execution from after invoking the extcall.
-        resume: Spec::StateId,
     },
 
     /// Suspend the execution until a promise is resolved.

@@ -9,12 +9,12 @@ Ok(
                 states: [
                     State {
                         instructions: [
-                            CoreSet(
-                                ExtCall {
+                            ExtCallSet(
+                                ActionCall {
                                     dst: RegisterId(
                                         1,
                                     ),
-                                    extcall_id: TestExtCallId(
+                                    action_ref: TestActionRef(
                                         "get_base_value",
                                     ),
                                     args: [],
@@ -44,12 +44,12 @@ Ok(
                     },
                     State {
                         instructions: [
-                            CoreSet(
-                                ExtCall {
+                            ExtCallSet(
+                                ActionCall {
                                     dst: RegisterId(
                                         2,
                                     ),
-                                    extcall_id: TestExtCallId(
+                                    action_ref: TestActionRef(
                                         "multiply_by",
                                     ),
                                     args: [

@@ -9,12 +9,12 @@ Ok(
                 states: [
                     State {
                         instructions: [
-                            CoreSet(
-                                ExtCall {
+                            ExtCallSet(
+                                ActionCall {
                                     dst: RegisterId(
                                         0,
                                     ),
-                                    extcall_id: TestExtCallId(
+                                    action_ref: TestActionRef(
                                         "side_effect",
                                     ),
                                     args: [],

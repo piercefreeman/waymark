@@ -10,8 +10,13 @@ pub struct SampleLowering;
 impl waymark_vm_instructions_coreset::Spec for SampleSpec {
     type RegisterId = waymark_vm_runtime_core::RegisterId;
     type FunctionId = waymark_vm_bytecode_core::FunctionId;
-    type ExtCallId = SampleExtCallId;
     type StateId = waymark_vm_bytecode_core::StateId;
+}
+
+impl waymark_vm_instructions_extcallset::Spec for SampleSpec {
+    type RegisterId = waymark_vm_runtime_core::RegisterId;
+    type StateId = waymark_vm_bytecode_core::StateId;
+    type ActionRef = SampleActionRef;
 }
 
 impl waymark_vm_instructions_pureset::Spec for SampleSpec {
@@ -31,7 +36,7 @@ pub enum SampleValue {
 }
 
 #[derive(Debug, Clone)]
-pub struct SampleExtCallId(#[allow(dead_code)] pub usize);
+pub struct SampleActionRef(#[allow(dead_code)] pub usize);
 
 impl waymark_vm_interpreter_coreset::value::ShouldJump for SampleValue {
     fn should_jump(
@@ -84,16 +89,16 @@ impl From<SampleConstValue> for SampleValue {
 #[error("unsupported lowering")]
 pub struct UnsupportedLoweringError;
 
-impl<Spec> waymark_vm_compiler_for_ast_old_core::lowering::CoreSet<Spec> for SampleLowering
+impl<Spec> waymark_vm_compiler_for_ast_old_core::lowering::ExtCallSet<Spec> for SampleLowering
 where
-    Spec: waymark_vm_instructions_coreset::Spec<ExtCallId = SampleExtCallId>,
+    Spec: waymark_vm_instructions_extcallset::Spec<ActionRef = SampleActionRef>,
 {
     type ActionError = UnsupportedLoweringError;
 
     fn lower_action(
         _call: &waymark_vm_ast_old::ActionCall,
-    ) -> Result<Spec::ExtCallId, Self::ActionError> {
-        Ok(SampleExtCallId(1337))
+    ) -> Result<Spec::ActionRef, Self::ActionError> {
+        Ok(SampleActionRef(1337))
     }
 }
 

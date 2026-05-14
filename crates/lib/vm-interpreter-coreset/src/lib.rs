@@ -8,7 +8,7 @@ pub mod value;
 use derive_where::derive_where;
 use waymark_vm_interpreter::ExecutionOutcome;
 use waymark_vm_runtime_core::{
-    Continuation, Frame, FrameKind, Promise, PromiseState, PromiseStateId, Registers, RuntimeState,
+    Continuation, Frame, FrameKind, Promise, PromiseState, Registers, RuntimeState,
 };
 
 pub use self::error::*;
@@ -31,22 +31,9 @@ pub struct RuntimeView<'r, Executable, FunctionId, StateId, Value> {
 
 /// The effect for the [`CoreSetInterpreter`].
 #[derive(Debug)]
-pub enum Effect<Value, ExtCallId> {
+pub enum Effect<Value> {
     /// Program execution is complete.
     Complete(Value),
-
-    /// Extcall invocation is requested.
-    ExtCall {
-        /// The ID of the promise to resolve with the resulting value when
-        /// the extcall completes.
-        promise_state_id: PromiseStateId,
-
-        /// The ID of the extcall to invoke from the extcall table.
-        extcall_id: ExtCallId,
-
-        /// Args to pass to the extcall.
-        args: Vec<Value>,
-    },
 }
 
 impl<Spec, Executable, Value> waymark_vm_interpreter::Interpreter
@@ -57,7 +44,6 @@ where
     Spec: waymark_vm_instructions_coreset::Spec<RegisterId = waymark_vm_runtime_core::RegisterId>,
     Spec::FunctionId: Copy,
     Spec::StateId: Copy + Default,
-    Spec::ExtCallId: Clone,
     Value: self::Value,
     Value: Clone,
     Value: 'static,
@@ -66,7 +52,7 @@ where
     type Frame = Frame<Spec::FunctionId, Spec::StateId, Promise<Value>>;
     type Instruction = waymark_vm_instructions_coreset::CoreSet<Spec>;
     type Error = Error<Spec>;
-    type Effect = Effect<Value, Spec::ExtCallId>;
+    type Effect = Effect<Value>;
 
     fn execute<'r>(
         &self,
@@ -110,41 +96,6 @@ where
                 };
 
                 state.ready.push_back(new_frame);
-            }
-            waymark_vm_instructions_coreset::CoreSet::ExtCall {
-                dst,
-                extcall_id,
-                args,
-                resume,
-            } => {
-                let args = args
-                    .iter()
-                    .enumerate()
-                    .map(|(arg_pos, register)| {
-                        let value = frame.regs[*register].clone();
-
-                        value.require_resolved().map_err(|err| {
-                            ExtCallError::UnresolvedPromiseArgument {
-                                arg_pos,
-                                source: err,
-                            }
-                        })
-                    })
-                    .collect::<Result<_, _>>()
-                    .map_err(Error::ExtCall)?;
-
-                let promise_state_id = state.promise_states.prepare();
-                frame.regs.set(*dst, Promise::Pending(promise_state_id));
-
-                frame.state = *resume;
-
-                state.ready.push_front(frame);
-
-                return Ok(ExecutionOutcome::ExitFrameWithEffect(Effect::ExtCall {
-                    promise_state_id,
-                    extcall_id: extcall_id.clone(),
-                    args,
-                }));
             }
             waymark_vm_instructions_coreset::CoreSet::Await { dst, src, resume } => {
                 match &frame.regs[*src] {

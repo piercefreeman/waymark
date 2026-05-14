@@ -39,12 +39,12 @@ Ok(
                                     ),
                                 },
                             ),
-                            CoreSet(
-                                ExtCall {
+                            ExtCallSet(
+                                ActionCall {
                                     dst: RegisterId(
                                         0,
                                     ),
-                                    extcall_id: TestExtCallId(
+                                    action_ref: TestActionRef(
                                         "compute_value",
                                     ),
                                     args: [
