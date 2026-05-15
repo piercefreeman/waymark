@@ -1,7 +1,8 @@
 //! Value lowering.
 
 use waymark_vm_ast_old::{
-    ActionCall, BinaryOperator, DictEntry, Expr, FunctionCall, Literal, Spanned, UnaryOperator,
+    ActionCall, BinaryOperator, DictEntry, Expr, FunctionCall, GlobalFunction, Literal, Spanned,
+    UnaryOperator,
 };
 use waymark_vm_runtime_core::RegisterId;
 
@@ -10,11 +11,12 @@ use crate::Marked;
 use super::CompilerContextRef;
 use super::env::RegisterHandle;
 use super::plan::call::{
-    ActionCallPlanFor, CallPlan, CallPlanFor, FunctionCallPlan, compile_expr_registers,
+    ActionCallPlanFor, CallPlan, CallPlanFor, FunctionCallPlan, UnsupportedFunctionCall,
+    compile_expr_registers,
 };
 use super::plan::expr::ExpressionPlan;
 use super::suspend::PromiseMarker;
-use super::{Error, ErrorFor};
+use super::{Error, ErrorFor, Unsupported};
 
 /// Lowers expressions and calls into bytecode values and control flow.
 pub struct ValueCompiler<'borrow, 'table, Spec, Lowering>
@@ -63,9 +65,10 @@ where
             }
             ExpressionPlan::List { elements } => self.compile_list_expr(elements, target),
             ExpressionPlan::Dict { entries } => self.compile_dict_expr(entries, target),
-            ExpressionPlan::FunctionCall { call } => {
-                self.compile_call(self.plan_function_call(call)?, target)
-            }
+            ExpressionPlan::FunctionCall { call } => match call.global_function {
+                Some(GlobalFunction::Len) => self.compile_length_call(call, target),
+                Some(_) | None => self.compile_call(self.plan_function_call(call)?, target),
+            },
             ExpressionPlan::ActionCall { call } => {
                 self.compile_call(self.plan_action_call(call)?, target)
             }
@@ -305,6 +308,36 @@ where
         Ok(dst)
     }
 
+    /// Compiles the built-in `len(...)` function into a dedicated pure opcode.
+    fn compile_length_call(
+        &mut self,
+        call: &FunctionCall,
+        target: ResultTarget,
+    ) -> Result<RegisterHandle, ErrorFor<Spec, Lowering>> {
+        if !call.kwargs.is_empty() {
+            return Err(Unsupported::FunctionCall {
+                name: call.name.clone(),
+                reason: UnsupportedFunctionCall::KeywordArguments,
+            }
+            .into());
+        }
+
+        if call.args.len() != 1 {
+            return Err(Error::FunctionArityMismatch {
+                function: call.name.clone(),
+                expected: 1,
+                actual: call.args.len(),
+            });
+        }
+
+        let src = self.compile_expr(&call.args[0], ResultTarget::Allocate)?;
+        let dst = self.allocate_result_register(target);
+        self.context
+            .emitter
+            .emit_length(dst.register(), src.register());
+        Ok(dst)
+    }
+
     /// Compiles a call and awaits its result.
     fn compile_call(
         &mut self,
@@ -439,7 +472,9 @@ mod tests {
 
     use index_type::IndexType;
     use waymark_vm_ast_old::{BinaryOperator, DictEntry, Expr};
-    use waymark_vm_ast_old_helpers::{action_call, binary_expr, function_call, int, spanned};
+    use waymark_vm_ast_old_helpers::{
+        action_call, binary_expr, function_call, int, len_expr, spanned,
+    };
     use waymark_vm_bytecode_core::{FunctionId, StateId};
     use waymark_vm_compiler_for_ast_old_test_support::{
         TestActionRef, TestConstValue, TestLowering, TestSpec,
@@ -1195,6 +1230,64 @@ mod tests {
                     && entries.len() == 1
                     && entries[0].key == RegisterId(0)
                     && entries[0].value == RegisterId(1)
+        ));
+        assert!(instructions.next().is_none());
+    }
+
+    #[test]
+    fn global_len_function_calls_emit_length_instruction() {
+        let function_table = build_function_table();
+        let mut emitter = FunctionEmitter::<TestSpec>::new();
+        let mut local_frame = LocalFrame::new();
+        let mut flow_state = FlowState::new();
+        let expr = len_expr(spanned(Expr::List {
+            elements: vec![int(1), int(2)],
+        }));
+
+        let dst = {
+            let mut values = ValueCompiler::<TestSpec, TestLowering>::new(
+                CompilerContextMut::new(
+                    &function_table,
+                    &mut emitter,
+                    &mut local_frame,
+                    &mut flow_state,
+                )
+                .into_ref(),
+            );
+
+            values
+                .compile_expr(&expr, ResultTarget::Allocate)
+                .expect("len expression should compile")
+        };
+
+        let result_register = dst.register();
+        let states = emitter.finish();
+        assert_eq!(local_frame.num_registers(), 3);
+
+        let mut instructions = states[StateId(0)].instructions.iter();
+        assert!(matches!(
+            instructions.next(),
+            Some(InstructionSet::PureSet(PureSet::LoadConst {
+                dst,
+                value: TestConstValue::Int(1),
+            })) if *dst == RegisterId(0)
+        ));
+        assert!(matches!(
+            instructions.next(),
+            Some(InstructionSet::PureSet(PureSet::LoadConst {
+                dst,
+                value: TestConstValue::Int(2),
+            })) if *dst == RegisterId(1)
+        ));
+        assert!(matches!(
+            instructions.next(),
+            Some(InstructionSet::PureSet(PureSet::MakeList { dst, items }))
+                if *dst == RegisterId(2) && items == &[RegisterId(0), RegisterId(1)]
+        ));
+        assert!(matches!(
+            instructions.next(),
+            Some(InstructionSet::PureSet(PureSet::Length { dst, src }))
+                if *dst == result_register && *src == RegisterId(2)
         ));
         assert!(instructions.next().is_none());
     }

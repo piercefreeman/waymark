@@ -70,6 +70,9 @@ where
             } => {
                 Self::execute_unary_operation(&mut frame, *dst, *src, *kind)?;
             }
+            waymark_vm_instructions_pureset::PureSet::Length { dst, src } => {
+                Self::execute_length(&mut frame, *dst, *src)?;
+            }
             waymark_vm_instructions_pureset::PureSet::MakeList { dst, items } => {
                 let make_list_result = with_register_values(
                     items.iter().copied(),
@@ -202,6 +205,26 @@ where
             UnaryOpKind::Not => Value::not(value),
         }
         .map_err(|source| Error::UnaryOperation { operation, source })?;
+
+        frame.regs.set(dst, Promise::Resolved(value));
+        Ok(())
+    }
+
+    fn execute_length(
+        frame: &mut Frame<FunctionId, StateId, Promise<Value>>,
+        dst: waymark_vm_runtime_core::RegisterId,
+        src: waymark_vm_runtime_core::RegisterId,
+    ) -> Result<(), Error> {
+        let value = frame
+            .regs
+            .get(src)
+            .ok_or(Error::MissingLengthOperand { register: src })?;
+        let value = value
+            .require_resolved_ref()
+            .map_err(|source| Error::UnresolvedLengthOperand { source })?;
+
+        let length = <Value as value::Length>::length(value).map_err(Error::Length)?;
+        let value = <Value as value::Length>::from_length(length).map_err(Error::FromLength)?;
 
         frame.regs.set(dst, Promise::Resolved(value));
         Ok(())

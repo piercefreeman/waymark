@@ -131,6 +131,28 @@ impl waymark_vm_interpreter_pureset::value::MakeDict for TestValue {
     }
 }
 
+impl waymark_vm_interpreter_pureset::value::Length for TestValue {
+    type Length = usize;
+
+    fn length(&self) -> Result<usize, waymark_vm_interpreter_pureset::value::LengthError> {
+        match self {
+            Self::List(items) => Ok(items.len()),
+            Self::Int(_) | Self::Bool(_) => {
+                Err(waymark_vm_interpreter_pureset::value::LengthError::UnsupportedValue)
+            }
+        }
+    }
+
+    fn from_length(
+        length: usize,
+    ) -> Result<Self, waymark_vm_interpreter_pureset::value::FromLengthError> {
+        let value = i64::try_from(length).map_err(|_| {
+            waymark_vm_interpreter_pureset::value::FromLengthError::ResultOutOfBounds
+        })?;
+        Ok(Self::Int(value))
+    }
+}
+
 impl waymark_vm_interpreter_extcallset::value::SleepDuration for TestValue {
     type Error = TestSleepDurationError;
 

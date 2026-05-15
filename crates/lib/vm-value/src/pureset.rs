@@ -6,7 +6,7 @@ use waymark_vm_instructions_pureset::{
     BinaryOpKind as BinaryOperationKind, UnaryOpKind as UnaryOperationKind,
 };
 use waymark_vm_interpreter_pureset::value::{
-    BinaryOperationError, MakeDictError, UnaryOperationError,
+    BinaryOperationError, FromLengthError, LengthError, MakeDictError, UnaryOperationError,
 };
 
 use crate::{Value, pythonic};
@@ -315,5 +315,25 @@ impl waymark_vm_interpreter_pureset::value::MakeDict for Value {
         }
 
         Ok(Self::Dict(dict))
+    }
+}
+
+impl waymark_vm_interpreter_pureset::value::Length for Value {
+    type Length = usize;
+
+    fn length(&self) -> Result<Self::Length, LengthError> {
+        match self {
+            Self::String(value) => Ok(value.len()),
+            Self::List(items) => Ok(items.len()),
+            Self::Dict(entries) => Ok(entries.len()),
+            Self::Int(_) | Self::Float(_) | Self::Bool(_) | Self::None => {
+                Err(LengthError::UnsupportedValue)
+            }
+        }
+    }
+
+    fn from_length(length: Self::Length) -> Result<Self, FromLengthError> {
+        let value = i64::try_from(length).map_err(|_| FromLengthError::ResultOutOfBounds)?;
+        Ok(Self::Int(value))
     }
 }

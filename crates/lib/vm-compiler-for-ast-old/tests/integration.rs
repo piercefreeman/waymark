@@ -3,7 +3,9 @@ mod support;
 use support::{TestValue, compile_program, runtime, runtime_with_args};
 
 use waymark_nonzero_duration::NonZeroDuration;
-use waymark_vm_ast_old::{BinaryOperator, Call, Expr, Literal, Spanned, UnaryOperator};
+use waymark_vm_ast_old::{
+    BinaryOperator, Call, Expr, FunctionCall, GlobalFunction, Literal, Spanned, UnaryOperator,
+};
 use waymark_vm_ast_old_helpers::{
     action_call, action_expr, assignment, assignment_targets, binary_expr, break_stmt,
     conditional_stmt, continue_stmt, float, function, function_call, function_expr, int,
@@ -442,6 +444,37 @@ fn compiles_nested_dict_and_list_literals_to_completion() {
             .collect()
         )
     );
+}
+
+#[test]
+fn compiles_global_len_calls_to_completion() {
+    let program = program(vec![function(
+        "main",
+        &["items"],
+        vec![return_stmt(Some(spanned(Expr::FunctionCall {
+            call: FunctionCall {
+                name: "len".to_owned(),
+                args: vec![variable("items")],
+                kwargs: Vec::new(),
+                global_function: Some(GlobalFunction::Len),
+            },
+        })))],
+    )]);
+
+    let result = completed_int(
+        runtime_with_args(
+            compile_program(&program),
+            vec![TestValue::List(vec![
+                TestValue::Int(1),
+                TestValue::Int(2),
+                TestValue::Int(3),
+            ])],
+        )
+        .run()
+        .expect("program should complete"),
+    );
+
+    assert_eq!(result, 3);
 }
 
 #[test]

@@ -19,6 +19,7 @@ impl waymark_vm_instructions_pureset::Spec for TestSpec {
 enum TestConstValue {
     Int(i64),
     Text(&'static str),
+    OverflowLength,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -28,6 +29,7 @@ enum TestValue {
     Text(&'static str),
     List(Vec<TestValue>),
     Dict(BTreeMap<String, TestValue>),
+    OverflowLength,
 }
 
 impl From<TestConstValue> for TestValue {
@@ -35,6 +37,7 @@ impl From<TestConstValue> for TestValue {
         match value {
             TestConstValue::Int(value) => Self::Int(value),
             TestConstValue::Text(value) => Self::Text(value),
+            TestConstValue::OverflowLength => Self::OverflowLength,
         }
     }
 }
@@ -46,6 +49,7 @@ fn is_truthy(value: &TestValue) -> bool {
         TestValue::Text(value) => !value.is_empty(),
         TestValue::List(items) => !items.is_empty(),
         TestValue::Dict(entries) => !entries.is_empty(),
+        TestValue::OverflowLength => true,
     }
 }
 
@@ -54,7 +58,11 @@ fn dict_key(
 ) -> Result<String, waymark_vm_interpreter_pureset::value::MakeDictError> {
     match value {
         TestValue::Text(value) => Ok((*value).to_owned()),
-        TestValue::Int(_) | TestValue::Bool(_) | TestValue::List(_) | TestValue::Dict(_) => {
+        TestValue::Int(_)
+        | TestValue::Bool(_)
+        | TestValue::List(_)
+        | TestValue::Dict(_)
+        | TestValue::OverflowLength => {
             Err(waymark_vm_interpreter_pureset::value::MakeDictError::UnsupportedKeyType)
         }
     }
@@ -120,6 +128,50 @@ impl waymark_vm_interpreter_pureset::value::MakeDict for TestValue {
         }
 
         Ok(Self::Dict(dict))
+    }
+}
+
+enum TestLength {
+    Valid(i64),
+    Overflow,
+}
+
+impl waymark_vm_interpreter_pureset::value::Length for TestValue {
+    type Length = TestLength;
+
+    fn length(&self) -> Result<Self::Length, waymark_vm_interpreter_pureset::value::LengthError> {
+        match self {
+            Self::Text(value) => Ok(value
+                .len()
+                .try_into()
+                .map(TestLength::Valid)
+                .unwrap_or(TestLength::Overflow)),
+            Self::List(items) => Ok(items
+                .len()
+                .try_into()
+                .map(TestLength::Valid)
+                .unwrap_or(TestLength::Overflow)),
+            Self::Dict(entries) => Ok(entries
+                .len()
+                .try_into()
+                .map(TestLength::Valid)
+                .unwrap_or(TestLength::Overflow)),
+            Self::OverflowLength => Ok(TestLength::Overflow),
+            Self::Int(_) | Self::Bool(_) => {
+                Err(waymark_vm_interpreter_pureset::value::LengthError::UnsupportedValue)
+            }
+        }
+    }
+
+    fn from_length(
+        length: Self::Length,
+    ) -> Result<Self, waymark_vm_interpreter_pureset::value::FromLengthError> {
+        match length {
+            TestLength::Valid(value) => Ok(Self::Int(value)),
+            TestLength::Overflow => {
+                Err(waymark_vm_interpreter_pureset::value::FromLengthError::ResultOutOfBounds)
+            }
+        }
     }
 }
 
@@ -272,6 +324,109 @@ fn runtime_executes_copy_between_registers() {
 }
 
 #[test]
+fn runtime_executes_length_to_a_terminal_effect() {
+    let executable = executable(vec![function::<RuntimeInstruction>(
+        4,
+        vec![vec![
+            PureSet::LoadConst {
+                dst: RegisterId(0),
+                value: TestConstValue::Int(2),
+            }
+            .into(),
+            PureSet::LoadConst {
+                dst: RegisterId(1),
+                value: TestConstValue::Text("hello"),
+            }
+            .into(),
+            PureSet::MakeList {
+                dst: RegisterId(2),
+                items: vec![RegisterId(0), RegisterId(1)],
+            }
+            .into(),
+            PureSet::Length {
+                dst: RegisterId(3),
+                src: RegisterId(2),
+            }
+            .into(),
+            RuntimeInstruction::EmitRegister(RegisterId(3)),
+        ]],
+    )]);
+
+    let mut runtime =
+        Runtime::with_conventional_entrypoint(RuntimeInterpreter::default(), executable)
+            .expect("function 0 should exist");
+
+    assert_eq!(
+        runtime.run().expect("runtime should emit the list length"),
+        TestValue::Int(2)
+    );
+}
+
+#[test]
+fn runtime_surfaces_length_errors_from_the_pureset_interpreter() {
+    let executable = executable(vec![function::<RuntimeInstruction>(
+        2,
+        vec![vec![
+            PureSet::LoadConst {
+                dst: RegisterId(0),
+                value: TestConstValue::Int(9),
+            }
+            .into(),
+            PureSet::Length {
+                dst: RegisterId(1),
+                src: RegisterId(0),
+            }
+            .into(),
+            RuntimeInstruction::EmitRegister(RegisterId(1)),
+        ]],
+    )]);
+
+    let mut runtime =
+        Runtime::with_conventional_entrypoint(RuntimeInterpreter::default(), executable)
+            .expect("function 0 should exist");
+
+    assert!(matches!(
+        runtime.run(),
+        Err(RunError::Step(waymark_vm_runtime::step::Error::Execution(
+            Error::Length(waymark_vm_interpreter_pureset::value::LengthError::UnsupportedValue)
+        )))
+    ));
+}
+
+#[test]
+fn runtime_surfaces_from_length_errors_from_the_pureset_interpreter() {
+    let executable = executable(vec![function::<RuntimeInstruction>(
+        2,
+        vec![vec![
+            PureSet::LoadConst {
+                dst: RegisterId(0),
+                value: TestConstValue::OverflowLength,
+            }
+            .into(),
+            PureSet::Length {
+                dst: RegisterId(1),
+                src: RegisterId(0),
+            }
+            .into(),
+            RuntimeInstruction::EmitRegister(RegisterId(1)),
+        ]],
+    )]);
+
+    let mut runtime =
+        Runtime::with_conventional_entrypoint(RuntimeInterpreter::default(), executable)
+            .expect("function 0 should exist");
+
+    assert!(matches!(
+        runtime.run(),
+        Err(RunError::Step(waymark_vm_runtime::step::Error::Execution(
+            Error::FromLength(
+                waymark_vm_interpreter_pureset::value::FromLengthError::ResultOutOfBounds
+            )
+        )))
+    ));
+}
+
+#[test]
 fn runtime_surfaces_add_errors_from_the_pureset_interpreter() {
     let executable = executable(vec![function::<RuntimeInstruction>(
         2,
@@ -354,6 +509,38 @@ fn runtime_surfaces_unresolved_add_operand_errors_from_the_pureset_interpreter()
             Error::UnresolvedBinaryOperand {
                 operation: BinaryOpKind::Add,
                 operand_pos: BinaryOperandPosition::First,
+                source: waymark_vm_runtime_core::UnresolvedPromiseError { promise_state_id },
+            }
+        ))) if promise_state_id == PromiseStateId(7)
+    ));
+}
+
+#[test]
+fn runtime_surfaces_unresolved_length_operand_errors_from_the_pureset_interpreter() {
+    let executable = executable(vec![function::<RuntimeInstruction>(
+        2,
+        vec![vec![
+            RuntimeInstruction::SetPending {
+                dst: RegisterId(0),
+                promise_state_id: PromiseStateId(7),
+            },
+            PureSet::Length {
+                dst: RegisterId(1),
+                src: RegisterId(0),
+            }
+            .into(),
+            RuntimeInstruction::EmitRegister(RegisterId(1)),
+        ]],
+    )]);
+
+    let mut runtime =
+        Runtime::with_conventional_entrypoint(RuntimeInterpreter::default(), executable)
+            .expect("function 0 should exist");
+
+    assert!(matches!(
+        runtime.run(),
+        Err(RunError::Step(waymark_vm_runtime::step::Error::Execution(
+            Error::UnresolvedLengthOperand {
                 source: waymark_vm_runtime_core::UnresolvedPromiseError { promise_state_id },
             }
         ))) if promise_state_id == PromiseStateId(7)

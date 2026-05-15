@@ -1,6 +1,7 @@
 use waymark_vm_ast_old::{
     ActionCall, BinaryOperator, Block, Call, ElifBranch, ElseBranch, Expr, FunctionCall,
-    FunctionDef, IfBranch, IoDecl, Kwarg, Literal, Program, Span, Spanned, Statement,
+    FunctionDef, GlobalFunction, IfBranch, IoDecl, Kwarg, Literal, Program, Span, Spanned,
+    Statement,
 };
 
 pub fn span() -> Span {
@@ -190,6 +191,34 @@ pub fn function_call(name: &str, args: Vec<Spanned<Expr>>) -> FunctionCall {
         kwargs: Vec::new(),
         global_function: None,
     }
+}
+
+pub fn builtin_function_call(
+    global_function: GlobalFunction,
+    args: Vec<Spanned<Expr>>,
+) -> FunctionCall {
+    let name = match global_function {
+        GlobalFunction::Range => "range",
+        GlobalFunction::Len => "len",
+        GlobalFunction::Enumerate => "enumerate",
+        GlobalFunction::IsException => "isexception",
+    };
+    let mut call = function_call(name, args);
+    call.global_function = Some(global_function);
+    call
+}
+
+pub fn builtin_function_expr(
+    global_function: GlobalFunction,
+    args: Vec<Spanned<Expr>>,
+) -> Spanned<Expr> {
+    spanned(Expr::FunctionCall {
+        call: builtin_function_call(global_function, args),
+    })
+}
+
+pub fn len_expr(arg: Spanned<Expr>) -> Spanned<Expr> {
+    builtin_function_expr(GlobalFunction::Len, vec![arg])
 }
 
 pub fn action_call(name: &str, kwargs: Vec<(&str, Spanned<Expr>)>) -> ActionCall {
