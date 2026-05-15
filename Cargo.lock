@@ -5278,6 +5278,7 @@ version = "0.1.0"
 dependencies = [
  "waymark-vm-ast-old",
  "waymark-vm-bytecode-core",
+ "waymark-vm-compiler-for-ast-old-const-value",
  "waymark-vm-compiler-for-ast-old-core",
  "waymark-vm-instructions-coreset",
  "waymark-vm-instructions-extcallset",

@@ -1,18 +1,21 @@
 //! Test support types for `vm-compiler-for-ast-old` crates.
 //!
-//! This crate provides a small VM spec plus lowering implementation used by
-//! compiler tests to assert on emitted bytecode without depending on a real
-//! production lowering.
+//! This crate provides a small VM spec used by compiler tests and wraps the
+//! shared const-value lowering in test-named types.
 
 #![warn(missing_docs, clippy::missing_docs_in_private_items)]
 
 use waymark_vm_ast_old::{ActionCall, Literal};
 
-/// Runtime VM values used by compiler tests.
+/// Test value type definition as an actual [`waymark_vm_value::Value`].
 pub use waymark_vm_value::Value as TestValue;
 
-/// Constant values used by the test VM spec.
-pub type TestConstValue = TestValue;
+/// Test const value type definition as
+/// an actual [`waymark_vm_compiler_for_ast_old_const_value::ConstValue`].
+pub use waymark_vm_compiler_for_ast_old_const_value::ConstValue as TestConstValue;
+
+/// Errors produced while lowering literals in tests.
+pub use waymark_vm_compiler_for_ast_old_const_value::LoweringError as TestLiteralLoweringError;
 
 /// Action reference used by the test VM spec.
 #[derive(Debug, Clone)]
@@ -20,13 +23,6 @@ pub struct TestActionRef(
     /// Action name captured from the AST call.
     pub String,
 );
-
-/// Errors produced while lowering literals in tests.
-#[derive(Debug, Clone)]
-pub enum TestLiteralError {
-    /// A floating-point literal could not be represented as a VM float.
-    InvalidFloat,
-}
 
 /// Errors produced while lowering actions in tests.
 #[derive(Debug, Clone)]
@@ -77,20 +73,9 @@ impl<Spec> waymark_vm_compiler_for_ast_old_core::lowering::PureSet<Spec> for Tes
 where
     Spec: waymark_vm_instructions_pureset::Spec<ConstValue = TestConstValue>,
 {
-    type LiteralError = TestLiteralError;
+    type LiteralError = TestLiteralLoweringError;
 
     fn lower_literal(literal: &Literal) -> Result<Spec::ConstValue, Self::LiteralError> {
-        match literal {
-            Literal::Int(value) => Ok(TestConstValue::Int(*value)),
-            Literal::Float(value) => {
-                let value = (*value)
-                    .try_into()
-                    .map_err(|_| TestLiteralError::InvalidFloat)?;
-                Ok(TestConstValue::Float(value))
-            }
-            Literal::String(value) => Ok(TestConstValue::String(value.clone())),
-            Literal::Bool(value) => Ok(TestConstValue::Bool(*value)),
-            Literal::None => Ok(TestConstValue::None),
-        }
+        TestConstValue::lower(literal)
     }
 }

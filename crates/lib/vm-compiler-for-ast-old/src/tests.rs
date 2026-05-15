@@ -6,8 +6,7 @@ use waymark_vm_ast_old_helpers::{
 };
 use waymark_vm_compiler_for_ast_old_core::lowering;
 use waymark_vm_compiler_for_ast_old_test_support::{
-    TestActionRef, TestConstValue, TestLiteralError as TestLiteralLoweringError, TestLowering,
-    TestSpec,
+    TestActionRef, TestConstValue, TestLiteralLoweringError, TestLowering, TestSpec,
 };
 use waymark_vm_instructions_fullset::FullSet;
 use waymark_vm_instructions_pureset::PureSet;
@@ -137,7 +136,7 @@ fn rejects_non_finite_float_literals() {
     assert!(matches!(
         error,
         CompileError::FunctionCompiler(compiler::Error::LiteralLowering(
-            TestLiteralLoweringError::InvalidFloat
+            TestLiteralLoweringError::InvalidFloat(_)
         ))
     ));
 }
