@@ -5249,6 +5249,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-vm-compiler-for-ast-old-const-value"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+ "typed_floats",
+ "waymark-vm-ast-old",
+ "waymark-vm-value",
+]
+
+[[package]]
 name = "waymark-vm-compiler-for-ast-old-core"
 version = "0.1.0"
 dependencies = [
