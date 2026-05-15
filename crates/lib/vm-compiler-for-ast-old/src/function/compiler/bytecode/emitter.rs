@@ -208,9 +208,9 @@ where
 mod tests {
     use super::*;
 
-    use crate::function::compiler::test_helpers::{TestConstValue, TestSpec};
     use index_type::IndexType;
     use waymark_vm_bytecode_core::{FunctionId, StateId};
+    use waymark_vm_compiler_for_ast_old_test_support::{TestConstValue, TestSpec};
     use waymark_vm_runtime_core::RegisterId;
 
     #[test]

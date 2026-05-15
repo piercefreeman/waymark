@@ -335,6 +335,7 @@ mod tests {
     use index_type::IndexType;
     use waymark_vm_ast_old_helpers::{assignment, block, conditional_stmt, variable};
     use waymark_vm_bytecode_core::StateId;
+    use waymark_vm_compiler_for_ast_old_test_support::{TestLowering, TestSpec};
     use waymark_vm_instructions_coreset::CoreSet;
     use waymark_vm_instructions_fullset::FullSet as InstructionSet;
     use waymark_vm_instructions_pureset::PureSet;
@@ -345,7 +346,7 @@ mod tests {
         bytecode::emitter::FunctionEmitter,
         env::{FlowState, LocalFrame},
         r#loop::LoopControlStack,
-        test_helpers::{TestLowering, TestSpec, build_function_table},
+        test_helpers::build_function_table,
     };
 
     #[test]

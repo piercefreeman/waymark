@@ -143,6 +143,7 @@ mod tests {
     use waymark_vm_ast_old::Call;
     use waymark_vm_ast_old_helpers::{function_call, int};
     use waymark_vm_bytecode_core::{FunctionId, StateId};
+    use waymark_vm_compiler_for_ast_old_test_support::{TestConstValue, TestLowering, TestSpec};
     use waymark_vm_instructions_coreset::CoreSet;
     use waymark_vm_instructions_fullset::FullSet as InstructionSet;
     use waymark_vm_instructions_pureset::PureSet;
@@ -153,7 +154,7 @@ mod tests {
         CompilerContextMut,
         bytecode::emitter::FunctionEmitter,
         env::{AssignmentTargetMarker, FlowState, LocalFrame, LocalSlot},
-        test_helpers::{TestConstValue, TestLowering, TestSpec, build_function_table},
+        test_helpers::build_function_table,
     };
 
     #[test]

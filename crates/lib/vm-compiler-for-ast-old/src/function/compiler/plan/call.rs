@@ -228,12 +228,10 @@ mod tests {
     use waymark_vm_ast_old_helpers::{action_call, function_call, int};
     use waymark_vm_bytecode_core::FunctionId;
     use waymark_vm_compiler_for_ast_old_core::lowering;
+    use waymark_vm_compiler_for_ast_old_test_support::{TestActionRef, TestLowering, TestSpec};
     use waymark_vm_runtime_core::RegisterId;
 
-    use crate::function::compiler::{
-        Error,
-        test_helpers::{TestActionRef, TestLowering, TestSpec, build_function_table},
-    };
+    use crate::function::compiler::{Error, test_helpers::build_function_table};
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     enum TestActionLoweringError {

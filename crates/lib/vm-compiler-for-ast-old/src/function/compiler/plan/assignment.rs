@@ -83,13 +83,14 @@ mod tests {
     use nonempty_collections::{IntoNonEmptyIterator as _, NonEmptyIterator as _};
     use waymark_vm_ast_old::Expr;
     use waymark_vm_ast_old_helpers::{action_call, int, parallel_expr};
+    use waymark_vm_compiler_for_ast_old_test_support::{TestLowering, TestSpec};
     use waymark_vm_runtime_core::RegisterId;
 
     use crate::function::compiler::{
         Error,
         env::{AssignmentTargetMarker, FlowState, LocalFrame, LocalSlot},
         plan::parallel::ParallelAssignmentItems,
-        test_helpers::{TestLowering, TestSpec, build_function_table},
+        test_helpers::build_function_table,
     };
 
     #[test]
