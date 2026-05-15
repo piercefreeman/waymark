@@ -102,6 +102,48 @@ pub enum Error {
         source: UnresolvedPromiseError,
     },
 
+    /// A `MakeDict` instruction referenced an unset key register.
+    #[error("dict entry {entry_pos} key in register {register:?} is not initialized")]
+    MissingDictKey {
+        /// The zero-based dictionary entry position.
+        entry_pos: usize,
+
+        /// The register that was read.
+        register: RegisterId,
+    },
+
+    /// A `MakeDict` instruction referenced an unresolved key promise.
+    #[error("dict entry {entry_pos} key is unresolved: {source}")]
+    UnresolvedDictKey {
+        /// The zero-based dictionary entry position.
+        entry_pos: usize,
+
+        /// The underlying unresolved promise error.
+        #[source]
+        source: UnresolvedPromiseError,
+    },
+
+    /// A `MakeDict` instruction referenced an unset value register.
+    #[error("dict entry {entry_pos} value in register {register:?} is not initialized")]
+    MissingDictValue {
+        /// The zero-based dictionary entry position.
+        entry_pos: usize,
+
+        /// The register that was read.
+        register: RegisterId,
+    },
+
+    /// A `MakeDict` instruction referenced an unresolved value promise.
+    #[error("dict entry {entry_pos} value is unresolved: {source}")]
+    UnresolvedDictValue {
+        /// The zero-based dictionary entry position.
+        entry_pos: usize,
+
+        /// The underlying unresolved promise error.
+        #[source]
+        source: UnresolvedPromiseError,
+    },
+
     /// Evaluating a binary scalar instruction failed.
     #[error("{operation}: {source}")]
     BinaryOperation {
@@ -127,4 +169,8 @@ pub enum Error {
     /// Evaluating a `MakeList` instruction failed.
     #[error("make_list: {0}")]
     MakeList(#[source] crate::value::MakeListError),
+
+    /// Evaluating a `MakeDict` instruction failed.
+    #[error("make_dict: {0}")]
+    MakeDict(#[source] crate::value::MakeDictError),
 }

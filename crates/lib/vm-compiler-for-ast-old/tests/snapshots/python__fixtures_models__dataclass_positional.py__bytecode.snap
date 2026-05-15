@@ -2,12 +2,140 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_models/dataclass_positional.py
 ---
-Err(
-    FunctionCompiler(
-        Unsupported(
-            Expression {
-                kind: Dict,
+Ok(
+    Executable {
+        functions: [
+            Function {
+                states: [
+                    State {
+                        instructions: [
+                            ExtCallSet(
+                                ActionCall {
+                                    dst: RegisterId(
+                                        0,
+                                    ),
+                                    action_ref: TestActionRef(
+                                        "get_x",
+                                    ),
+                                    args: [],
+                                    resume: StateId(
+                                        1,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                Await {
+                                    dst: RegisterId(
+                                        0,
+                                    ),
+                                    src: RegisterId(
+                                        0,
+                                    ),
+                                    resume: StateId(
+                                        2,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            ExtCallSet(
+                                ActionCall {
+                                    dst: RegisterId(
+                                        1,
+                                    ),
+                                    action_ref: TestActionRef(
+                                        "get_y",
+                                    ),
+                                    args: [],
+                                    resume: StateId(
+                                        3,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                Await {
+                                    dst: RegisterId(
+                                        1,
+                                    ),
+                                    src: RegisterId(
+                                        1,
+                                    ),
+                                    resume: StateId(
+                                        4,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            PureSet(
+                                LoadConst {
+                                    dst: RegisterId(
+                                        3,
+                                    ),
+                                    value: String(
+                                        "x",
+                                    ),
+                                },
+                            ),
+                            PureSet(
+                                LoadConst {
+                                    dst: RegisterId(
+                                        4,
+                                    ),
+                                    value: String(
+                                        "y",
+                                    ),
+                                },
+                            ),
+                            PureSet(
+                                MakeDict {
+                                    dst: RegisterId(
+                                        2,
+                                    ),
+                                    entries: [
+                                        DictEntry {
+                                            key: RegisterId(
+                                                3,
+                                            ),
+                                            value: RegisterId(
+                                                0,
+                                            ),
+                                        },
+                                        DictEntry {
+                                            key: RegisterId(
+                                                4,
+                                            ),
+                                            value: RegisterId(
+                                                1,
+                                            ),
+                                        },
+                                    ],
+                                },
+                            ),
+                            CoreSet(
+                                Return {
+                                    src: RegisterId(
+                                        2,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                ],
+                num_regs: 5,
             },
-        ),
-    ),
+        ],
+    },
 )

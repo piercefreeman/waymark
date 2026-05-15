@@ -104,6 +104,16 @@ pub enum UnaryOpKind {
     Not,
 }
 
+/// One dictionary entry.
+#[derive(Debug)]
+pub struct DictEntry<RegisterId> {
+    /// The register that contains the entry key.
+    pub key: RegisterId,
+
+    /// The register that contains the entry value.
+    pub value: RegisterId,
+}
+
 /// Pure instructions set.
 #[derive_where(Debug)]
 pub enum PureSet<Spec: self::Spec> {
@@ -150,6 +160,15 @@ pub enum PureSet<Spec: self::Spec> {
 
         /// The registers to read list elements from in order.
         items: Vec<Spec::RegisterId>,
+    },
+
+    /// Build a dictionary value from resolved key and value registers.
+    MakeDict {
+        /// The register to store the resulting dictionary at.
+        dst: Spec::RegisterId,
+
+        /// The dictionary entries to read in source order.
+        entries: Vec<DictEntry<Spec::RegisterId>>,
     },
 }
 

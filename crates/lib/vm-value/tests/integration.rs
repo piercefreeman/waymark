@@ -4,7 +4,8 @@ use waymark_vm_instructions_pureset::BinaryOpKind;
 use waymark_vm_interpreter_coreset::value::ShouldJump as _;
 use waymark_vm_interpreter_extcallset::value::SleepDuration as _;
 use waymark_vm_interpreter_pureset::value::{
-    BinaryOperationError, BinaryOps as _, MakeList as _, UnaryOps as _,
+    BinaryOperationError, BinaryOps as _, MakeDict as _, MakeDictError, MakeList as _,
+    UnaryOps as _,
 };
 use waymark_vm_value::{Value, extcallset};
 
@@ -233,6 +234,28 @@ fn logical_ops_lists_and_sleep_duration_use_runtime_semantics() {
         Value::make_list([Value::Int(2), Value::Bool(false)]).unwrap(),
         Value::List(vec![Value::Int(2), Value::Bool(false)])
     );
+    assert_eq!(
+        Value::make_dict([
+            (Value::String("name".to_owned()), Value::Int(2)),
+            (Value::String("na\"me".to_owned()), Value::Bool(false)),
+        ])
+        .unwrap(),
+        Value::Dict(IndexMap::from([
+            ("name".to_owned(), Value::Int(2)),
+            ("na\"me".to_owned(), Value::Bool(false)),
+        ]))
+    );
+    assert!(matches!(
+        Value::make_dict([(Value::Int(3), Value::Bool(false))]),
+        Err(MakeDictError::UnsupportedKeyType)
+    ));
+    assert!(matches!(
+        Value::make_dict([(
+            Value::List(vec![Value::String("nested".to_owned())]),
+            Value::None,
+        )]),
+        Err(MakeDictError::UnsupportedKeyType)
+    ));
     assert_eq!(
         Value::Int(5).to_sleep_duration().unwrap().get(),
         std::time::Duration::from_secs(5)

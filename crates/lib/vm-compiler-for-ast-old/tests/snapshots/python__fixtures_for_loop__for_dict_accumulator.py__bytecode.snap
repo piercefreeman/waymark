@@ -5,8 +5,8 @@ expression: bytecode for python/tests/fixtures_for_loop/for_dict_accumulator.py
 Err(
     FunctionCompiler(
         Unsupported(
-            Expression {
-                kind: Dict,
+            Statement {
+                kind: ForLoop,
             },
         ),
     ),

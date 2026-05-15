@@ -7,8 +7,8 @@ use waymark_vm_ast_old::{BinaryOperator, Call, Expr, Literal, Spanned, UnaryOper
 use waymark_vm_ast_old_helpers::{
     action_call, action_expr, assignment, assignment_targets, binary_expr, break_stmt,
     conditional_stmt, continue_stmt, float, function, function_call, function_expr, int,
-    parallel_expr, parallel_stmt, program, return_stmt, sleep_stmt, spanned, unary_expr, variable,
-    while_stmt,
+    parallel_expr, parallel_stmt, program, return_stmt, sleep_stmt, spanned, string, unary_expr,
+    variable, while_stmt,
 };
 use waymark_vm_bytecode_core::{FunctionId, InstructionId, StateId};
 use waymark_vm_compiler_for_ast_old_test_support::TestActionRef;
@@ -411,6 +411,37 @@ fn compiles_action_calls_into_extcalls() {
         ))) => assert_eq!(value, 42),
         other => panic!("unexpected second runtime effect: {other:?}"),
     }
+}
+
+#[test]
+fn compiles_nested_dict_and_list_literals_to_completion() {
+    let program = program(vec![function(
+        "main",
+        &[],
+        vec![return_stmt(Some(spanned(Expr::Dict {
+            entries: vec![waymark_vm_ast_old::DictEntry {
+                key: string("key"),
+                value: spanned(Expr::List {
+                    elements: vec![int(2), int(3)],
+                }),
+            }],
+        })))],
+    )]);
+
+    let executable = compile_program(&program);
+    let mut runtime = runtime(executable);
+
+    assert_eq!(
+        completed_value(runtime.run().expect("program should complete")),
+        TestValue::Dict(
+            [(
+                "key".to_owned(),
+                TestValue::List(vec![TestValue::Int(2), TestValue::Int(3)]),
+            )]
+            .into_iter()
+            .collect()
+        )
+    );
 }
 
 #[test]

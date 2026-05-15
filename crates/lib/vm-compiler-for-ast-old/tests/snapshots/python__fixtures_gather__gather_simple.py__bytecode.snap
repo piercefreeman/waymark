@@ -2,12 +2,110 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_gather/gather_simple.py
 ---
-Err(
-    FunctionCompiler(
-        Unsupported(
-            Expression {
-                kind: List,
+Ok(
+    Executable {
+        functions: [
+            Function {
+                states: [
+                    State {
+                        instructions: [
+                            ExtCallSet(
+                                ActionCall {
+                                    dst: RegisterId(
+                                        2,
+                                    ),
+                                    action_ref: TestActionRef(
+                                        "action_a",
+                                    ),
+                                    args: [],
+                                    resume: StateId(
+                                        1,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            ExtCallSet(
+                                ActionCall {
+                                    dst: RegisterId(
+                                        3,
+                                    ),
+                                    action_ref: TestActionRef(
+                                        "action_b",
+                                    ),
+                                    args: [],
+                                    resume: StateId(
+                                        2,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                Await {
+                                    dst: RegisterId(
+                                        0,
+                                    ),
+                                    src: RegisterId(
+                                        2,
+                                    ),
+                                    resume: StateId(
+                                        3,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                Await {
+                                    dst: RegisterId(
+                                        1,
+                                    ),
+                                    src: RegisterId(
+                                        3,
+                                    ),
+                                    resume: StateId(
+                                        4,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            PureSet(
+                                MakeList {
+                                    dst: RegisterId(
+                                        3,
+                                    ),
+                                    items: [
+                                        RegisterId(
+                                            0,
+                                        ),
+                                        RegisterId(
+                                            1,
+                                        ),
+                                    ],
+                                },
+                            ),
+                            CoreSet(
+                                Return {
+                                    src: RegisterId(
+                                        3,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                ],
+                num_regs: 4,
             },
-        ),
-    ),
+        ],
+    },
 )

@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use waymark_vm_instructions_pureset::{BinaryOpKind, PureSet, UnaryOpKind};
 use waymark_vm_interpreter::ExecutionOutcome;
 use waymark_vm_interpreter_pureset::{BinaryOperandPosition, Error, PureSetInterpreter};
@@ -25,6 +27,7 @@ enum TestValue {
     Bool(bool),
     Text(&'static str),
     List(Vec<TestValue>),
+    Dict(BTreeMap<String, TestValue>),
 }
 
 impl From<TestConstValue> for TestValue {
@@ -42,6 +45,18 @@ fn is_truthy(value: &TestValue) -> bool {
         TestValue::Bool(value) => *value,
         TestValue::Text(value) => !value.is_empty(),
         TestValue::List(items) => !items.is_empty(),
+        TestValue::Dict(entries) => !entries.is_empty(),
+    }
+}
+
+fn dict_key(
+    value: &TestValue,
+) -> Result<String, waymark_vm_interpreter_pureset::value::MakeDictError> {
+    match value {
+        TestValue::Text(value) => Ok((*value).to_owned()),
+        TestValue::Int(_) | TestValue::Bool(_) | TestValue::List(_) | TestValue::Dict(_) => {
+            Err(waymark_vm_interpreter_pureset::value::MakeDictError::UnsupportedKeyType)
+        }
     }
 }
 
@@ -88,6 +103,23 @@ impl waymark_vm_interpreter_pureset::value::MakeList for TestValue {
         I: IntoIterator<Item = Self>,
     {
         Ok(Self::List(items.into_iter().collect()))
+    }
+}
+
+impl waymark_vm_interpreter_pureset::value::MakeDict for TestValue {
+    fn make_dict<I>(
+        entries: I,
+    ) -> Result<Self, waymark_vm_interpreter_pureset::value::MakeDictError>
+    where
+        I: IntoIterator<Item = (Self, Self)>,
+    {
+        let mut dict = BTreeMap::new();
+
+        for (key, value) in entries {
+            dict.insert(dict_key(&key)?, value);
+        }
+
+        Ok(Self::Dict(dict))
     }
 }
 
@@ -425,6 +457,89 @@ fn runtime_executes_make_list_to_a_terminal_effect() {
 }
 
 #[test]
+fn runtime_executes_make_dict_to_a_terminal_effect() {
+    let executable = executable(vec![function::<RuntimeInstruction>(
+        4,
+        vec![vec![
+            PureSet::LoadConst {
+                dst: RegisterId(0),
+                value: TestConstValue::Text("key"),
+            }
+            .into(),
+            PureSet::LoadConst {
+                dst: RegisterId(1),
+                value: TestConstValue::Text("hello"),
+            }
+            .into(),
+            PureSet::MakeDict {
+                dst: RegisterId(2),
+                entries: vec![waymark_vm_instructions_pureset::DictEntry {
+                    key: RegisterId(0),
+                    value: RegisterId(1),
+                }],
+            }
+            .into(),
+            RuntimeInstruction::EmitRegister(RegisterId(2)),
+        ]],
+    )]);
+
+    let mut runtime =
+        Runtime::with_conventional_entrypoint(RuntimeInterpreter::default(), executable)
+            .expect("function 0 should exist");
+
+    assert_eq!(
+        runtime
+            .run()
+            .expect("runtime should emit the constructed dict"),
+        TestValue::Dict(BTreeMap::from([(
+            "key".to_owned(),
+            TestValue::Text("hello"),
+        )]))
+    );
+}
+
+#[test]
+fn runtime_surfaces_make_dict_key_type_errors_from_the_pureset_interpreter() {
+    let executable = executable(vec![function::<RuntimeInstruction>(
+        4,
+        vec![vec![
+            PureSet::LoadConst {
+                dst: RegisterId(0),
+                value: TestConstValue::Int(2),
+            }
+            .into(),
+            PureSet::LoadConst {
+                dst: RegisterId(1),
+                value: TestConstValue::Text("hello"),
+            }
+            .into(),
+            PureSet::MakeDict {
+                dst: RegisterId(2),
+                entries: vec![waymark_vm_instructions_pureset::DictEntry {
+                    key: RegisterId(0),
+                    value: RegisterId(1),
+                }],
+            }
+            .into(),
+            RuntimeInstruction::EmitRegister(RegisterId(2)),
+        ]],
+    )]);
+
+    let mut runtime =
+        Runtime::with_conventional_entrypoint(RuntimeInterpreter::default(), executable)
+            .expect("function 0 should exist");
+
+    assert!(matches!(
+        runtime.run(),
+        Err(RunError::Step(waymark_vm_runtime::step::Error::Execution(
+            Error::MakeDict(
+                waymark_vm_interpreter_pureset::value::MakeDictError::UnsupportedKeyType
+            )
+        )))
+    ));
+}
+
+#[test]
 fn runtime_surfaces_unresolved_make_list_item_errors_from_the_pureset_interpreter() {
     let executable = executable(vec![function::<RuntimeInstruction>(
         2,
@@ -454,5 +569,46 @@ fn runtime_surfaces_unresolved_make_list_item_errors_from_the_pureset_interprete
                 source: waymark_vm_runtime_core::UnresolvedPromiseError { promise_state_id },
             }
         ))) if item_pos == 0 && promise_state_id == PromiseStateId(7)
+    ));
+}
+
+#[test]
+fn runtime_surfaces_unresolved_make_dict_key_errors_from_the_pureset_interpreter() {
+    let executable = executable(vec![function::<RuntimeInstruction>(
+        3,
+        vec![vec![
+            RuntimeInstruction::SetPending {
+                dst: RegisterId(0),
+                promise_state_id: PromiseStateId(7),
+            },
+            PureSet::LoadConst {
+                dst: RegisterId(1),
+                value: TestConstValue::Int(3),
+            }
+            .into(),
+            PureSet::MakeDict {
+                dst: RegisterId(2),
+                entries: vec![waymark_vm_instructions_pureset::DictEntry {
+                    key: RegisterId(0),
+                    value: RegisterId(1),
+                }],
+            }
+            .into(),
+            RuntimeInstruction::EmitRegister(RegisterId(2)),
+        ]],
+    )]);
+
+    let mut runtime =
+        Runtime::with_conventional_entrypoint(RuntimeInterpreter::default(), executable)
+            .expect("function 0 should exist");
+
+    assert!(matches!(
+        runtime.run(),
+        Err(RunError::Step(waymark_vm_runtime::step::Error::Execution(
+            Error::UnresolvedDictKey {
+                entry_pos,
+                source: waymark_vm_runtime_core::UnresolvedPromiseError { promise_state_id },
+            }
+        ))) if entry_pos == 0 && promise_state_id == PromiseStateId(7)
     ));
 }

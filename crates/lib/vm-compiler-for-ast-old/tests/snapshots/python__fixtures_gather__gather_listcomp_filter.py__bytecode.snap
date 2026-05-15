@@ -5,8 +5,8 @@ expression: bytecode for python/tests/fixtures_gather/gather_listcomp_filter.py
 Err(
     FunctionCompiler(
         Unsupported(
-            Expression {
-                kind: List,
+            Statement {
+                kind: ForLoop,
             },
         ),
     ),

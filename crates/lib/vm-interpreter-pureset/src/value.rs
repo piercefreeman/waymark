@@ -57,6 +57,22 @@ pub enum MakeListError {
     ResultOutOfBounds,
 }
 
+/// An error from [`MakeDict::make_dict`].
+#[derive(Debug, thiserror::Error)]
+pub enum MakeDictError {
+    /// The value type does not support dictionary construction.
+    #[error("constructing dict values is not supported")]
+    NotDictable,
+
+    /// The value type does not support the provided key type.
+    #[error("dict keys of this type are not supported")]
+    UnsupportedKeyType,
+
+    /// The resulting dictionary could not be represented by the value type.
+    #[error("dict result is out of bounds")]
+    ResultOutOfBounds,
+}
+
 /// Apply binary scalar operations to resolved values.
 pub trait BinaryOps: Sized {
     /// Add two resolved values together.
@@ -215,7 +231,15 @@ pub trait MakeList: Sized {
         I: IntoIterator<Item = Self>;
 }
 
-/// A unifying trait for all value requirements.
-pub trait Value: BinaryOps + UnaryOps + MakeList {}
+/// Build a dictionary value from a sequence of resolved key-value pairs.
+pub trait MakeDict: Sized {
+    /// Construct a dictionary value preserving entry order.
+    fn make_dict<I>(entries: I) -> Result<Self, MakeDictError>
+    where
+        I: IntoIterator<Item = (Self, Self)>;
+}
 
-impl<T> Value for T where T: BinaryOps + UnaryOps + MakeList {}
+/// A unifying trait for all value requirements.
+pub trait Value: BinaryOps + UnaryOps + MakeList + MakeDict {}
+
+impl<T> Value for T where T: BinaryOps + UnaryOps + MakeList + MakeDict {}
