@@ -1,0 +1,19 @@
+[package]
+name = "waymark-vm-value"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-nonzero-duration = { workspace = true }
+waymark-vm-instructions-pureset = { workspace = true }
+waymark-vm-interpreter-coreset = { workspace = true }
+waymark-vm-interpreter-extcallset = { workspace = true }
+waymark-vm-interpreter-pureset = { workspace = true }
+
+indexmap = { workspace = true }
+thiserror = { workspace = true }
+typed_floats = { workspace = true }
+
+[dev-dependencies]
+waymark-vm-interpreter-fullset = { workspace = true }
