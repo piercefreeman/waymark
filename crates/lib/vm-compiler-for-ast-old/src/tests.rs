@@ -43,13 +43,7 @@ where
     type LiteralError = TestLiteralLoweringError;
 
     fn lower_literal(literal: &Literal) -> Result<Spec::ConstValue, Self::LiteralError> {
-        match literal {
-            Literal::Int(value) => Ok(TestConstValue::Int(*value)),
-            Literal::None => Ok(TestConstValue::None),
-            Literal::Float(_) | Literal::String(_) | Literal::Bool(_) => {
-                Err(TestLiteralLoweringError::UnsupportedLiteral)
-            }
-        }
+        <TestLowering as lowering::PureSet<Spec>>::lower_literal(literal)
     }
 }
 
@@ -128,22 +122,22 @@ fn rejects_self_referential_assignments_to_new_variables() {
 }
 
 #[test]
-fn preserves_literal_lowering_errors() {
+fn rejects_non_finite_float_literals() {
     let program = program(vec![function(
         "main",
         &[],
-        vec![return_stmt(Some(float(1.5)))],
+        vec![return_stmt(Some(float(f64::NAN)))],
     )]);
 
     let error = match compile::<TestSpec, TestLowering>(&program) {
-        Ok(_) => panic!("unsupported literals should fail"),
+        Ok(_) => panic!("non-finite literals should fail"),
         Err(error) => error,
     };
 
     assert!(matches!(
         error,
         CompileError::FunctionCompiler(compiler::Error::LiteralLowering(
-            TestLiteralLoweringError::UnsupportedLiteral
+            TestLiteralLoweringError::InvalidFloat
         ))
     ));
 }

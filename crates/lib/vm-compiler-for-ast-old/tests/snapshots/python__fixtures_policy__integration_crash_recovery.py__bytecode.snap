@@ -2,10 +2,191 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_policy/integration_crash_recovery.py
 ---
-Err(
-    FunctionCompiler(
-        LiteralLowering(
-            UnsupportedLiteral,
-        ),
-    ),
+Ok(
+    Executable {
+        functions: [
+            Function {
+                states: [
+                    State {
+                        instructions: [
+                            PureSet(
+                                LoadConst {
+                                    dst: RegisterId(
+                                        1,
+                                    ),
+                                    value: String(
+                                        "start",
+                                    ),
+                                },
+                            ),
+                            ExtCallSet(
+                                ActionCall {
+                                    dst: RegisterId(
+                                        0,
+                                    ),
+                                    action_ref: TestActionRef(
+                                        "step_one",
+                                    ),
+                                    args: [
+                                        RegisterId(
+                                            1,
+                                        ),
+                                    ],
+                                    resume: StateId(
+                                        1,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                Await {
+                                    dst: RegisterId(
+                                        0,
+                                    ),
+                                    src: RegisterId(
+                                        0,
+                                    ),
+                                    resume: StateId(
+                                        2,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            ExtCallSet(
+                                ActionCall {
+                                    dst: RegisterId(
+                                        2,
+                                    ),
+                                    action_ref: TestActionRef(
+                                        "step_two",
+                                    ),
+                                    args: [
+                                        RegisterId(
+                                            0,
+                                        ),
+                                    ],
+                                    resume: StateId(
+                                        3,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                Await {
+                                    dst: RegisterId(
+                                        2,
+                                    ),
+                                    src: RegisterId(
+                                        2,
+                                    ),
+                                    resume: StateId(
+                                        4,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            ExtCallSet(
+                                ActionCall {
+                                    dst: RegisterId(
+                                        3,
+                                    ),
+                                    action_ref: TestActionRef(
+                                        "step_three",
+                                    ),
+                                    args: [
+                                        RegisterId(
+                                            2,
+                                        ),
+                                    ],
+                                    resume: StateId(
+                                        5,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                Await {
+                                    dst: RegisterId(
+                                        3,
+                                    ),
+                                    src: RegisterId(
+                                        3,
+                                    ),
+                                    resume: StateId(
+                                        6,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            ExtCallSet(
+                                ActionCall {
+                                    dst: RegisterId(
+                                        4,
+                                    ),
+                                    action_ref: TestActionRef(
+                                        "step_four",
+                                    ),
+                                    args: [
+                                        RegisterId(
+                                            3,
+                                        ),
+                                    ],
+                                    resume: StateId(
+                                        7,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                Await {
+                                    dst: RegisterId(
+                                        4,
+                                    ),
+                                    src: RegisterId(
+                                        4,
+                                    ),
+                                    resume: StateId(
+                                        8,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                Return {
+                                    src: RegisterId(
+                                        4,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                ],
+                num_regs: 5,
+            },
+        ],
+    },
 )

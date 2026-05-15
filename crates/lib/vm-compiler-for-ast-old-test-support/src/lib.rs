@@ -8,15 +8,11 @@
 
 use waymark_vm_ast_old::{ActionCall, Literal};
 
-/// Constant values used by the test VM spec.
-#[derive(Debug, Clone)]
-pub enum TestConstValue {
-    /// Integer constant.
-    Int(i64),
+/// Runtime VM values used by compiler tests.
+pub use waymark_vm_value::Value as TestValue;
 
-    /// `None` constant.
-    None,
-}
+/// Constant values used by the test VM spec.
+pub type TestConstValue = TestValue;
 
 /// Action reference used by the test VM spec.
 #[derive(Debug, Clone)]
@@ -28,8 +24,8 @@ pub struct TestActionRef(
 /// Errors produced while lowering literals in tests.
 #[derive(Debug, Clone)]
 pub enum TestLiteralError {
-    /// The literal variant is intentionally unsupported by the test lowering.
-    UnsupportedLiteral,
+    /// A floating-point literal could not be represented as a VM float.
+    InvalidFloat,
 }
 
 /// Errors produced while lowering actions in tests.
@@ -86,10 +82,15 @@ where
     fn lower_literal(literal: &Literal) -> Result<Spec::ConstValue, Self::LiteralError> {
         match literal {
             Literal::Int(value) => Ok(TestConstValue::Int(*value)),
-            Literal::None => Ok(TestConstValue::None),
-            Literal::Float(_) | Literal::String(_) | Literal::Bool(_) => {
-                Err(TestLiteralError::UnsupportedLiteral)
+            Literal::Float(value) => {
+                let value = (*value)
+                    .try_into()
+                    .map_err(|_| TestLiteralError::InvalidFloat)?;
+                Ok(TestConstValue::Float(value))
             }
+            Literal::String(value) => Ok(TestConstValue::String(value.clone())),
+            Literal::Bool(value) => Ok(TestConstValue::Bool(*value)),
+            Literal::None => Ok(TestConstValue::None),
         }
     }
 }

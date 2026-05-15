@@ -5244,7 +5244,6 @@ dependencies = [
  "waymark-vm-interpreter-coreset",
  "waymark-vm-interpreter-extcallset",
  "waymark-vm-interpreter-fullset",
- "waymark-vm-interpreter-pureset",
  "waymark-vm-runtime",
  "waymark-vm-runtime-core",
 ]
@@ -5274,6 +5273,7 @@ dependencies = [
  "waymark-vm-instructions-extcallset",
  "waymark-vm-instructions-pureset",
  "waymark-vm-runtime-core",
+ "waymark-vm-value",
 ]
 
 [[package]]

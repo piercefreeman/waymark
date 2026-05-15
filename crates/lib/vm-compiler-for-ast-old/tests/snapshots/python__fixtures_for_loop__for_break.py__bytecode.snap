@@ -4,8 +4,10 @@ expression: bytecode for python/tests/fixtures_for_loop/for_break.py
 ---
 Err(
     FunctionCompiler(
-        LiteralLowering(
-            UnsupportedLiteral,
+        Unsupported(
+            Statement {
+                kind: ForLoop,
+            },
         ),
     ),
 )
