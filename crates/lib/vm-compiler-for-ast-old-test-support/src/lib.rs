@@ -24,13 +24,6 @@ pub struct TestActionRef(
     pub String,
 );
 
-/// Errors produced while lowering actions in tests.
-#[derive(Debug, Clone)]
-pub enum TestActionError {
-    /// Placeholder unsupported-action error.
-    Unsupported,
-}
-
 /// Minimal VM spec used by compiler tests.
 #[derive(Debug)]
 pub struct TestSpec;
@@ -62,7 +55,7 @@ impl<Spec> waymark_vm_compiler_for_ast_old_core::lowering::ExtCallSet<Spec> for 
 where
     Spec: waymark_vm_instructions_extcallset::Spec<ActionRef = TestActionRef>,
 {
-    type ActionError = TestActionError;
+    type ActionError = core::convert::Infallible;
 
     fn lower_action(call: &ActionCall) -> Result<Spec::ActionRef, Self::ActionError> {
         Ok(TestActionRef(call.action_name.clone()))

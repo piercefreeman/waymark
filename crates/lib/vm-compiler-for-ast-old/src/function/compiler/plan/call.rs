@@ -232,18 +232,21 @@ mod tests {
 
     use crate::function::compiler::{
         Error,
-        test_helpers::{
-            TestActionError, TestActionRef, TestLowering, TestSpec, build_function_table,
-        },
+        test_helpers::{TestActionRef, TestLowering, TestSpec, build_function_table},
     };
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    enum TestActionLoweringError {
+        Unsupported,
+    }
 
     struct FailingLowering;
 
     impl lowering::ExtCallSet<TestSpec> for FailingLowering {
-        type ActionError = TestActionError;
+        type ActionError = TestActionLoweringError;
 
         fn lower_action(_call: &ActionCall) -> Result<TestActionRef, Self::ActionError> {
-            Err(TestActionError::Unsupported)
+            Err(TestActionLoweringError::Unsupported)
         }
     }
 
@@ -392,7 +395,7 @@ mod tests {
             error,
             Error::ActionLowering {
                 action_name,
-                error: TestActionError::Unsupported,
+                error: TestActionLoweringError::Unsupported,
             } if action_name == "notify"
         ));
     }
