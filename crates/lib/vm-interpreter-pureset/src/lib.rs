@@ -73,6 +73,16 @@ where
             waymark_vm_instructions_pureset::PureSet::Length { dst, src } => {
                 Self::execute_length(&mut frame, *dst, *src)?;
             }
+            waymark_vm_instructions_pureset::PureSet::Index { dst, object, index } => {
+                Self::execute_index_operation(&mut frame, *dst, *object, *index)?;
+            }
+            waymark_vm_instructions_pureset::PureSet::Dot {
+                dst,
+                object,
+                attribute,
+            } => {
+                Self::execute_dot_operation(&mut frame, *dst, *object, attribute)?;
+            }
             waymark_vm_instructions_pureset::PureSet::MakeList { dst, items } => {
                 let make_list_result = with_register_values(
                     items.iter().copied(),
@@ -225,6 +235,65 @@ where
 
         let length = <Value as value::Length>::length(value).map_err(Error::Length)?;
         let value = <Value as value::Length>::from_length(length).map_err(Error::FromLength)?;
+
+        frame.regs.set(dst, Promise::Resolved(value));
+        Ok(())
+    }
+
+    fn execute_index_operation(
+        frame: &mut Frame<FunctionId, StateId, Promise<Value>>,
+        dst: waymark_vm_runtime_core::RegisterId,
+        object: waymark_vm_runtime_core::RegisterId,
+        index: waymark_vm_runtime_core::RegisterId,
+    ) -> Result<(), Error> {
+        let object_value = frame
+            .regs
+            .get(object)
+            .ok_or(Error::MissingIndexObject { register: object })?;
+        let object_value = object_value
+            .require_resolved_ref()
+            .map_err(|source| Error::UnresolvedIndexObject { source })?;
+
+        let index_value = frame
+            .regs
+            .get(index)
+            .ok_or(Error::MissingIndexOperand { register: index })?;
+        let index_value = index_value
+            .require_resolved_ref()
+            .map_err(|source| Error::UnresolvedIndexOperand { source })?;
+
+        let value = Value::index(object_value, index_value)
+            .map_err(|source| Error::IndexOperation { source })?;
+
+        frame.regs.set(dst, Promise::Resolved(value));
+        Ok(())
+    }
+
+    fn execute_dot_operation(
+        frame: &mut Frame<FunctionId, StateId, Promise<Value>>,
+        dst: waymark_vm_runtime_core::RegisterId,
+        object: waymark_vm_runtime_core::RegisterId,
+        attribute: &str,
+    ) -> Result<(), Error> {
+        let object_value = frame
+            .regs
+            .get(object)
+            .ok_or_else(|| Error::MissingDotObject {
+                attribute: attribute.to_owned(),
+                register: object,
+            })?;
+        let object_value =
+            object_value
+                .require_resolved_ref()
+                .map_err(|source| Error::UnresolvedDotObject {
+                    attribute: attribute.to_owned(),
+                    source,
+                })?;
+
+        let value = Value::dot(object_value, attribute).map_err(|source| Error::DotOperation {
+            attribute: attribute.to_owned(),
+            source,
+        })?;
 
         frame.regs.set(dst, Promise::Resolved(value));
         Ok(())

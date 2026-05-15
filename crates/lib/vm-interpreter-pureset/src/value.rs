@@ -89,6 +89,34 @@ pub enum FromLengthError {
     ResultOutOfBounds,
 }
 
+/// An error from [`IndexOp::index`].
+#[derive(Debug, thiserror::Error)]
+pub enum IndexOperationError {
+    /// The value type does not support indexed access for the operands.
+    #[error("indexed access is not supported for these operands")]
+    UnsupportedOperation,
+
+    /// The provided index falls outside the bounds of the target object.
+    #[error("index is out of bounds")]
+    IndexOutOfBounds,
+
+    /// The target dictionary does not contain the requested key.
+    #[error("key is missing")]
+    MissingKey,
+}
+
+/// An error from [`DotOp::dot`].
+#[derive(Debug, thiserror::Error)]
+pub enum DotOperationError {
+    /// The value type does not support attribute access for this object.
+    #[error("attribute access is not supported for this value")]
+    UnsupportedOperation,
+
+    /// The target object does not contain the requested attribute.
+    #[error("attribute is missing")]
+    MissingAttribute,
+}
+
 /// Apply binary scalar operations to resolved values.
 pub trait BinaryOps: Sized {
     /// Add two resolved values together.
@@ -267,7 +295,25 @@ pub trait Length: Sized {
     fn from_length(length: Self::Length) -> Result<Self, FromLengthError>;
 }
 
-/// A unifying trait for all value requirements.
-pub trait Value: BinaryOps + UnaryOps + MakeList + MakeDict + Length {}
+/// Resolve indexed access from a value and index operand.
+pub trait IndexOp: Sized {
+    /// Index into the resolved object using the resolved index value.
+    fn index(object: &Self, index: &Self) -> Result<Self, IndexOperationError> {
+        let _ = (object, index);
+        Err(IndexOperationError::UnsupportedOperation)
+    }
+}
 
-impl<T> Value for T where T: BinaryOps + UnaryOps + MakeList + MakeDict + Length {}
+/// Resolve attribute access from a value and attribute name.
+pub trait DotOp: Sized {
+    /// Read the named attribute from the resolved object.
+    fn dot(object: &Self, attribute: &str) -> Result<Self, DotOperationError> {
+        let _ = (object, attribute);
+        Err(DotOperationError::UnsupportedOperation)
+    }
+}
+
+/// A unifying trait for all value requirements.
+pub trait Value: BinaryOps + UnaryOps + MakeList + MakeDict + Length + IndexOp + DotOp {}
+
+impl<T> Value for T where T: BinaryOps + UnaryOps + MakeList + MakeDict + Length + IndexOp + DotOp {}

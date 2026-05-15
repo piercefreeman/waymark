@@ -4,8 +4,9 @@ use waymark_vm_instructions_pureset::BinaryOpKind;
 use waymark_vm_interpreter_coreset::value::ShouldJump as _;
 use waymark_vm_interpreter_extcallset::value::SleepDuration as _;
 use waymark_vm_interpreter_pureset::value::{
-    BinaryOperationError, BinaryOps as _, FromLengthError, Length as _, LengthError, MakeDict as _,
-    MakeDictError, MakeList as _, UnaryOps as _,
+    BinaryOperationError, BinaryOps as _, DotOp as _, DotOperationError, FromLengthError,
+    IndexOp as _, IndexOperationError, Length as _, LengthError, MakeDict as _, MakeDictError,
+    MakeList as _, UnaryOps as _,
 };
 use waymark_vm_value::{Value, extcallset};
 
@@ -204,6 +205,64 @@ fn mixed_numeric_operations_do_not_silently_promote_ints_to_floats() {
         .unwrap(),
         Value::Bool(false)
     );
+}
+
+#[test]
+fn index_and_dot_operations_follow_runtime_semantics() {
+    assert_eq!(
+        Value::index(
+            &Value::List(vec![Value::Int(1), Value::Int(2)]),
+            &Value::Int(-1)
+        )
+        .unwrap(),
+        Value::Int(2)
+    );
+    assert_eq!(
+        Value::index(&Value::String("hello".to_owned()), &Value::Int(1)).unwrap(),
+        Value::String("e".to_owned())
+    );
+    assert_eq!(
+        Value::index(
+            &Value::Dict(IndexMap::from([("field".to_owned(), Value::Int(7))])),
+            &Value::String("field".to_owned())
+        )
+        .unwrap(),
+        Value::Int(7)
+    );
+    assert_eq!(
+        Value::dot(
+            &Value::Dict(IndexMap::from([("field".to_owned(), Value::Int(7))])),
+            "field"
+        )
+        .unwrap(),
+        Value::Int(7)
+    );
+}
+
+#[test]
+fn index_and_dot_operations_surface_expected_errors() {
+    assert!(matches!(
+        Value::index(&Value::List(vec![Value::Int(1)]), &Value::Int(1)),
+        Err(IndexOperationError::IndexOutOfBounds)
+    ));
+    assert!(matches!(
+        Value::index(
+            &Value::Dict(IndexMap::from([("field".to_owned(), Value::Int(7))])),
+            &Value::String("missing".to_owned())
+        ),
+        Err(IndexOperationError::MissingKey)
+    ));
+    assert!(matches!(
+        Value::dot(
+            &Value::Dict(IndexMap::from([("field".to_owned(), Value::Int(7))])),
+            "missing"
+        ),
+        Err(DotOperationError::MissingAttribute)
+    ));
+    assert!(matches!(
+        Value::dot(&Value::List(Vec::new()), "field"),
+        Err(DotOperationError::UnsupportedOperation)
+    ));
 }
 
 #[test]

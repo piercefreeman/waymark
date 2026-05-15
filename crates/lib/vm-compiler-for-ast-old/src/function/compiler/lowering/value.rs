@@ -65,6 +65,12 @@ where
             }
             ExpressionPlan::List { elements } => self.compile_list_expr(elements, target),
             ExpressionPlan::Dict { entries } => self.compile_dict_expr(entries, target),
+            ExpressionPlan::Index { object, index } => {
+                self.compile_index_expr(object, index, target)
+            }
+            ExpressionPlan::Dot { object, attribute } => {
+                self.compile_dot_expr(object, attribute, target)
+            }
             ExpressionPlan::FunctionCall { call } => match call.global_function {
                 Some(GlobalFunction::Len) => self.compile_length_call(call, target),
                 Some(_) | None => self.compile_call(self.plan_function_call(call)?, target),
@@ -335,6 +341,46 @@ where
         self.context
             .emitter
             .emit_length(dst.register(), src.register());
+
+        Ok(dst)
+    }
+
+    /// Compiles an indexed-access expression from recursively evaluated operands.
+    fn compile_index_expr(
+        &mut self,
+        object: &Spanned<Expr>,
+        index: &Spanned<Expr>,
+        target: ResultTarget,
+    ) -> Result<RegisterHandle, ErrorFor<Spec, Lowering>> {
+        let object_register = self.compile_expr(object, ResultTarget::Allocate)?;
+        let index_register = self.compile_expr(index, ResultTarget::Allocate)?;
+        let dst = self.allocate_result_register(target);
+
+        self.context.emitter.emit_index(
+            dst.register(),
+            object_register.register(),
+            index_register.register(),
+        );
+
+        Ok(dst)
+    }
+
+    /// Compiles an attribute-access expression from a recursively evaluated object.
+    fn compile_dot_expr(
+        &mut self,
+        object: &Spanned<Expr>,
+        attribute: &str,
+        target: ResultTarget,
+    ) -> Result<RegisterHandle, ErrorFor<Spec, Lowering>> {
+        let object_register = self.compile_expr(object, ResultTarget::Allocate)?;
+        let dst = self.allocate_result_register(target);
+
+        self.context.emitter.emit_dot(
+            dst.register(),
+            object_register.register(),
+            attribute.to_owned(),
+        );
+
         Ok(dst)
     }
 
@@ -473,7 +519,7 @@ mod tests {
     use index_type::IndexType;
     use waymark_vm_ast_old::{BinaryOperator, DictEntry, Expr};
     use waymark_vm_ast_old_helpers::{
-        action_call, binary_expr, function_call, int, len_expr, spanned,
+        action_call, binary_expr, function_call, int, len_expr, spanned, string,
     };
     use waymark_vm_bytecode_core::{FunctionId, StateId};
     use waymark_vm_compiler_for_ast_old_test_support::{
@@ -1289,6 +1335,152 @@ mod tests {
             Some(InstructionSet::PureSet(PureSet::Length { dst, src }))
                 if *dst == result_register && *src == RegisterId(2)
         ));
+        assert!(instructions.next().is_none());
+    }
+
+    #[test]
+    fn index_expressions_emit_index() {
+        let function_table = build_function_table();
+        let mut emitter = FunctionEmitter::<TestSpec>::new();
+        let mut local_frame = LocalFrame::new();
+        let mut flow_state = FlowState::new();
+        let expr = spanned(Expr::Index {
+            object: Box::new(spanned(Expr::List {
+                elements: vec![int(3), int(4)],
+            })),
+            index: Box::new(int(1)),
+        });
+
+        let dst = {
+            let mut values = ValueCompiler::<TestSpec, TestLowering>::new(
+                CompilerContextMut::new(
+                    &function_table,
+                    &mut emitter,
+                    &mut local_frame,
+                    &mut flow_state,
+                )
+                .into_ref(),
+            );
+
+            values
+                .compile_expr(&expr, ResultTarget::Allocate)
+                .expect("index expression should compile")
+        };
+
+        let states = emitter.finish();
+
+        let mut instructions = states[StateId(0)].instructions.iter();
+        let first_item = match instructions.next() {
+            Some(InstructionSet::PureSet(PureSet::LoadConst {
+                dst,
+                value: TestConstValue::Int(3),
+            })) => *dst,
+            other => panic!("unexpected first instruction: {other:?}"),
+        };
+        let second_item = match instructions.next() {
+            Some(InstructionSet::PureSet(PureSet::LoadConst {
+                dst,
+                value: TestConstValue::Int(4),
+            })) => *dst,
+            other => panic!("unexpected second instruction: {other:?}"),
+        };
+        let list_register = match instructions.next() {
+            Some(InstructionSet::PureSet(PureSet::MakeList { dst, items }))
+                if items == &[first_item, second_item] =>
+            {
+                *dst
+            }
+            other => panic!("unexpected make-list instruction: {other:?}"),
+        };
+        let index_register = match instructions.next() {
+            Some(InstructionSet::PureSet(PureSet::LoadConst {
+                dst,
+                value: TestConstValue::Int(1),
+            })) => *dst,
+            other => panic!("unexpected index literal instruction: {other:?}"),
+        };
+        let result_register = match instructions.next() {
+            Some(InstructionSet::PureSet(PureSet::Index { dst, object, index }))
+                if *object == list_register && *index == index_register =>
+            {
+                *dst
+            }
+            other => panic!("unexpected index instruction: {other:?}"),
+        };
+
+        assert_eq!(dst.register(), result_register);
+        assert!(instructions.next().is_none());
+    }
+
+    #[test]
+    fn dot_expressions_emit_dot() {
+        let function_table = build_function_table();
+        let mut emitter = FunctionEmitter::<TestSpec>::new();
+        let mut local_frame = LocalFrame::new();
+        let mut flow_state = FlowState::new();
+        let expr = spanned(Expr::Dot {
+            object: Box::new(spanned(Expr::Dict {
+                entries: vec![DictEntry {
+                    key: string("field"),
+                    value: int(9),
+                }],
+            })),
+            attribute: "field".to_owned(),
+        });
+
+        let dst = {
+            let mut values = ValueCompiler::<TestSpec, TestLowering>::new(
+                CompilerContextMut::new(
+                    &function_table,
+                    &mut emitter,
+                    &mut local_frame,
+                    &mut flow_state,
+                )
+                .into_ref(),
+            );
+
+            values
+                .compile_expr(&expr, ResultTarget::Allocate)
+                .expect("dot expression should compile")
+        };
+
+        let states = emitter.finish();
+
+        let mut instructions = states[StateId(0)].instructions.iter();
+        let key_register = match instructions.next() {
+            Some(InstructionSet::PureSet(PureSet::LoadConst {
+                dst,
+                value: TestConstValue::String(value),
+            })) if value == "field" => *dst,
+            other => panic!("unexpected dict-key instruction: {other:?}"),
+        };
+        let value_register = match instructions.next() {
+            Some(InstructionSet::PureSet(PureSet::LoadConst {
+                dst,
+                value: TestConstValue::Int(9),
+            })) => *dst,
+            other => panic!("unexpected dict-value instruction: {other:?}"),
+        };
+        let object_register = match instructions.next() {
+            Some(InstructionSet::PureSet(PureSet::MakeDict { dst, entries }))
+                if entries.len() == 1
+                    && entries[0].key == key_register
+                    && entries[0].value == value_register =>
+            {
+                *dst
+            }
+            other => panic!("unexpected make-dict instruction: {other:?}"),
+        };
+        let result_register = match instructions.next() {
+            Some(InstructionSet::PureSet(PureSet::Dot {
+                dst,
+                object,
+                attribute,
+            })) if *object == object_register && attribute == "field" => *dst,
+            other => panic!("unexpected dot instruction: {other:?}"),
+        };
+
+        assert_eq!(dst.register(), result_register);
         assert!(instructions.next().is_none());
     }
 

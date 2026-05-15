@@ -159,6 +159,57 @@ pub enum Error {
         source: UnresolvedPromiseError,
     },
 
+    /// An `Index` instruction referenced an unset object register.
+    #[error("index object in register {register:?} is not initialized")]
+    MissingIndexObject {
+        /// The register that was read.
+        register: RegisterId,
+    },
+
+    /// An `Index` instruction referenced an unresolved object promise.
+    #[error("index object is unresolved: {source}")]
+    UnresolvedIndexObject {
+        /// The underlying unresolved promise error.
+        #[source]
+        source: UnresolvedPromiseError,
+    },
+
+    /// An `Index` instruction referenced an unset index register.
+    #[error("index operand in register {register:?} is not initialized")]
+    MissingIndexOperand {
+        /// The register that was read.
+        register: RegisterId,
+    },
+
+    /// An `Index` instruction referenced an unresolved index promise.
+    #[error("index operand is unresolved: {source}")]
+    UnresolvedIndexOperand {
+        /// The underlying unresolved promise error.
+        #[source]
+        source: UnresolvedPromiseError,
+    },
+
+    /// A `Dot` instruction referenced an unset object register.
+    #[error("dot object for attribute {attribute:?} in register {register:?} is not initialized")]
+    MissingDotObject {
+        /// The accessed attribute name.
+        attribute: String,
+
+        /// The register that was read.
+        register: RegisterId,
+    },
+
+    /// A `Dot` instruction referenced an unresolved object promise.
+    #[error("dot object for attribute {attribute:?} is unresolved: {source}")]
+    UnresolvedDotObject {
+        /// The accessed attribute name.
+        attribute: String,
+
+        /// The underlying unresolved promise error.
+        #[source]
+        source: UnresolvedPromiseError,
+    },
+
     /// Evaluating a binary scalar instruction failed.
     #[error("{operation}: {source}")]
     BinaryOperation {
@@ -196,4 +247,23 @@ pub enum Error {
     /// Evaluating a `MakeDict` instruction failed.
     #[error("make_dict: {0}")]
     MakeDict(#[source] crate::value::MakeDictError),
+
+    /// Evaluating an `Index` instruction failed.
+    #[error("index: {source}")]
+    IndexOperation {
+        /// The operation-specific failure.
+        #[source]
+        source: crate::value::IndexOperationError,
+    },
+
+    /// Evaluating a `Dot` instruction failed.
+    #[error("dot attribute {attribute:?}: {source}")]
+    DotOperation {
+        /// The accessed attribute name.
+        attribute: String,
+
+        /// The operation-specific failure.
+        #[source]
+        source: crate::value::DotOperationError,
+    },
 }

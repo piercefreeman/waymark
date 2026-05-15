@@ -6,7 +6,8 @@ use waymark_vm_instructions_pureset::{
     BinaryOpKind as BinaryOperationKind, UnaryOpKind as UnaryOperationKind,
 };
 use waymark_vm_interpreter_pureset::value::{
-    BinaryOperationError, FromLengthError, LengthError, MakeDictError, UnaryOperationError,
+    BinaryOperationError, DotOperationError, FromLengthError, IndexOperationError, LengthError,
+    MakeDictError, UnaryOperationError,
 };
 
 use crate::{Value, pythonic};
@@ -45,6 +46,20 @@ where
     value
         .try_into()
         .map_err(|_| BinaryOperationError::ResultOutOfBounds { operation })
+}
+
+fn normalized_index(index: &Value, len: usize) -> Result<usize, IndexOperationError> {
+    match index {
+        Value::Int(index) => {
+            pythonic::normalized_index(*index, len).ok_or(IndexOperationError::IndexOutOfBounds)
+        }
+        Value::Float(_)
+        | Value::Bool(_)
+        | Value::String(_)
+        | Value::None
+        | Value::List(_)
+        | Value::Dict(_) => Err(IndexOperationError::UnsupportedOperation),
+    }
 }
 
 impl waymark_vm_interpreter_pureset::value::BinaryOps for Value {
@@ -335,5 +350,56 @@ impl waymark_vm_interpreter_pureset::value::Length for Value {
     fn from_length(length: Self::Length) -> Result<Self, FromLengthError> {
         let value = i64::try_from(length).map_err(|_| FromLengthError::ResultOutOfBounds)?;
         Ok(Self::Int(value))
+    }
+}
+
+impl waymark_vm_interpreter_pureset::value::IndexOp for Value {
+    fn index(object: &Self, index: &Self) -> Result<Self, IndexOperationError> {
+        match object {
+            Self::List(items) => {
+                let index = normalized_index(index, items.len())?;
+                Ok(items[index].clone())
+            }
+            Self::String(value) => {
+                let index = normalized_index(index, value.chars().count())?;
+                let character = value
+                    .chars()
+                    .nth(index)
+                    .expect("normalized string index should be in bounds");
+                Ok(Self::String(character.to_string()))
+            }
+            Self::Dict(entries) => match index {
+                Self::String(key) => entries
+                    .get(key)
+                    .cloned()
+                    .ok_or(IndexOperationError::MissingKey),
+                Self::Int(_)
+                | Self::Float(_)
+                | Self::Bool(_)
+                | Self::None
+                | Self::List(_)
+                | Self::Dict(_) => Err(IndexOperationError::UnsupportedOperation),
+            },
+            Self::Int(_) | Self::Float(_) | Self::Bool(_) | Self::None => {
+                Err(IndexOperationError::UnsupportedOperation)
+            }
+        }
+    }
+}
+
+impl waymark_vm_interpreter_pureset::value::DotOp for Value {
+    fn dot(object: &Self, attribute: &str) -> Result<Self, DotOperationError> {
+        match object {
+            Self::Dict(entries) => entries
+                .get(attribute)
+                .cloned()
+                .ok_or(DotOperationError::MissingAttribute),
+            Self::Int(_)
+            | Self::Float(_)
+            | Self::Bool(_)
+            | Self::String(_)
+            | Self::None
+            | Self::List(_) => Err(DotOperationError::UnsupportedOperation),
+        }
     }
 }
