@@ -1,6 +1,3 @@
-#[allow(dead_code)]
-mod support;
-
 use futures_util::StreamExt as _;
 use std::path::{Path, PathBuf};
 use waymark_vm_compiler_for_ast_old_test_support::{TestLowering, TestSpec};
