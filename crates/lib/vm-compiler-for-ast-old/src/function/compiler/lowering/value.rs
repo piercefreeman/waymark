@@ -1,7 +1,7 @@
 //! Value lowering.
 
 use waymark_vm_ast_old::{
-    ActionCall, BinaryOperator, Expr, FunctionCall, Literal, Spanned, UnaryOperator,
+    ActionCall, BinaryOperator, DictEntry, Expr, FunctionCall, Literal, Spanned, UnaryOperator,
 };
 use waymark_vm_runtime_core::RegisterId;
 
@@ -61,6 +61,8 @@ where
             ExpressionPlan::UnaryOp { op, operand } => {
                 self.compile_unary_expr(&op, operand, target)
             }
+            ExpressionPlan::List { elements } => self.compile_list_expr(elements, target),
+            ExpressionPlan::Dict { entries } => self.compile_dict_expr(entries, target),
             ExpressionPlan::FunctionCall { call } => {
                 self.compile_call(self.plan_function_call(call)?, target)
             }
@@ -251,6 +253,58 @@ where
         Ok(dst)
     }
 
+    /// Compiles a list literal from recursively evaluated items.
+    fn compile_list_expr(
+        &mut self,
+        elements: &[Spanned<Expr>],
+        target: ResultTarget,
+    ) -> Result<RegisterHandle, ErrorFor<Spec, Lowering>> {
+        let item_registers = compile_expr_registers(
+            elements,
+            |element| element,
+            |element| self.compile_expr(element, ResultTarget::Allocate),
+        )?;
+        let dst = self.allocate_result_register(target);
+
+        self.context.emitter.emit_make_list(
+            dst.register(),
+            item_registers
+                .iter()
+                .map(RegisterHandle::register)
+                .collect(),
+        );
+
+        Ok(dst)
+    }
+
+    /// Compiles a dictionary literal from recursively evaluated key-value pairs.
+    fn compile_dict_expr(
+        &mut self,
+        entries: &[DictEntry],
+        target: ResultTarget,
+    ) -> Result<RegisterHandle, ErrorFor<Spec, Lowering>> {
+        let mut entry_registers = Vec::with_capacity(entries.len());
+        let mut compiled_entries = Vec::with_capacity(entries.len());
+
+        for entry in entries {
+            let key = self.compile_expr(&entry.key, ResultTarget::Allocate)?;
+            let value = self.compile_expr(&entry.value, ResultTarget::Allocate)?;
+
+            compiled_entries.push(waymark_vm_instructions_pureset::DictEntry {
+                key: key.register(),
+                value: value.register(),
+            });
+            entry_registers.push((key, value));
+        }
+
+        let dst = self.allocate_result_register(target);
+        self.context
+            .emitter
+            .emit_make_dict(dst.register(), compiled_entries);
+
+        Ok(dst)
+    }
+
     /// Compiles a call and awaits its result.
     fn compile_call(
         &mut self,
@@ -384,8 +438,8 @@ mod tests {
     use super::*;
 
     use index_type::IndexType;
-    use waymark_vm_ast_old::BinaryOperator;
-    use waymark_vm_ast_old_helpers::{action_call, binary_expr, function_call, int};
+    use waymark_vm_ast_old::{BinaryOperator, DictEntry, Expr};
+    use waymark_vm_ast_old_helpers::{action_call, binary_expr, function_call, int, spanned};
     use waymark_vm_bytecode_core::{FunctionId, StateId};
     use waymark_vm_instructions_coreset::CoreSet;
     use waymark_vm_instructions_extcallset::ExtCallSet;
@@ -1030,6 +1084,118 @@ mod tests {
                 && *resume == StateId(3)
         ));
         assert!(third_state_instructions.next().is_none());
+    }
+
+    #[test]
+    fn list_expressions_emit_make_list() {
+        let function_table = build_function_table();
+        let mut emitter = FunctionEmitter::<TestSpec>::new();
+        let mut local_frame = LocalFrame::new();
+        let mut flow_state = FlowState::new();
+        let expr = spanned(Expr::List {
+            elements: vec![int(1), int(2)],
+        });
+
+        let dst = {
+            let mut values = ValueCompiler::<TestSpec, TestLowering>::new(
+                CompilerContextMut::new(
+                    &function_table,
+                    &mut emitter,
+                    &mut local_frame,
+                    &mut flow_state,
+                )
+                .into_ref(),
+            );
+
+            values
+                .compile_expr(&expr, ResultTarget::Allocate)
+                .expect("list expression should compile")
+        };
+
+        let states = emitter.finish();
+        assert_eq!(dst.register(), RegisterId(2));
+        assert_eq!(local_frame.num_registers(), 3);
+
+        let mut instructions = states[StateId(0)].instructions.iter();
+        assert!(matches!(
+            instructions.next(),
+            Some(InstructionSet::PureSet(PureSet::LoadConst {
+                dst,
+                value: TestConstValue::Int(1),
+            })) if *dst == RegisterId(0)
+        ));
+        assert!(matches!(
+            instructions.next(),
+            Some(InstructionSet::PureSet(PureSet::LoadConst {
+                dst,
+                value: TestConstValue::Int(2),
+            })) if *dst == RegisterId(1)
+        ));
+        assert!(matches!(
+            instructions.next(),
+            Some(InstructionSet::PureSet(PureSet::MakeList { dst, items }))
+                if *dst == RegisterId(2) && items == &[RegisterId(0), RegisterId(1)]
+        ));
+        assert!(instructions.next().is_none());
+    }
+
+    #[test]
+    fn dict_expressions_emit_make_dict() {
+        let function_table = build_function_table();
+        let mut emitter = FunctionEmitter::<TestSpec>::new();
+        let mut local_frame = LocalFrame::new();
+        let mut flow_state = FlowState::new();
+        let expr = spanned(Expr::Dict {
+            entries: vec![DictEntry {
+                key: int(1),
+                value: int(2),
+            }],
+        });
+
+        let dst = {
+            let mut values = ValueCompiler::<TestSpec, TestLowering>::new(
+                CompilerContextMut::new(
+                    &function_table,
+                    &mut emitter,
+                    &mut local_frame,
+                    &mut flow_state,
+                )
+                .into_ref(),
+            );
+
+            values
+                .compile_expr(&expr, ResultTarget::Allocate)
+                .expect("dict expression should compile")
+        };
+
+        let states = emitter.finish();
+        assert_eq!(dst.register(), RegisterId(2));
+        assert_eq!(local_frame.num_registers(), 3);
+
+        let mut instructions = states[StateId(0)].instructions.iter();
+        assert!(matches!(
+            instructions.next(),
+            Some(InstructionSet::PureSet(PureSet::LoadConst {
+                dst,
+                value: TestConstValue::Int(1),
+            })) if *dst == RegisterId(0)
+        ));
+        assert!(matches!(
+            instructions.next(),
+            Some(InstructionSet::PureSet(PureSet::LoadConst {
+                dst,
+                value: TestConstValue::Int(2),
+            })) if *dst == RegisterId(1)
+        ));
+        assert!(matches!(
+            instructions.next(),
+            Some(InstructionSet::PureSet(PureSet::MakeDict { dst, entries }))
+                if *dst == RegisterId(2)
+                    && entries.len() == 1
+                    && entries[0].key == RegisterId(0)
+                    && entries[0].value == RegisterId(1)
+        ));
+        assert!(instructions.next().is_none());
     }
 
     #[test]

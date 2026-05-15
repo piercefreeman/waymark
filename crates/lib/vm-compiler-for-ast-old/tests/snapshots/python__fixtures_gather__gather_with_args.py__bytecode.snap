@@ -2,12 +2,118 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_gather/gather_with_args.py
 ---
-Err(
-    FunctionCompiler(
-        Unsupported(
-            Expression {
-                kind: List,
+Ok(
+    Executable {
+        functions: [
+            Function {
+                states: [
+                    State {
+                        instructions: [
+                            ExtCallSet(
+                                ActionCall {
+                                    dst: RegisterId(
+                                        3,
+                                    ),
+                                    action_ref: TestActionRef(
+                                        "compute_square",
+                                    ),
+                                    args: [
+                                        RegisterId(
+                                            0,
+                                        ),
+                                    ],
+                                    resume: StateId(
+                                        1,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            ExtCallSet(
+                                ActionCall {
+                                    dst: RegisterId(
+                                        4,
+                                    ),
+                                    action_ref: TestActionRef(
+                                        "compute_cube",
+                                    ),
+                                    args: [
+                                        RegisterId(
+                                            0,
+                                        ),
+                                    ],
+                                    resume: StateId(
+                                        2,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                Await {
+                                    dst: RegisterId(
+                                        1,
+                                    ),
+                                    src: RegisterId(
+                                        3,
+                                    ),
+                                    resume: StateId(
+                                        3,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                Await {
+                                    dst: RegisterId(
+                                        2,
+                                    ),
+                                    src: RegisterId(
+                                        4,
+                                    ),
+                                    resume: StateId(
+                                        4,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            PureSet(
+                                MakeList {
+                                    dst: RegisterId(
+                                        4,
+                                    ),
+                                    items: [
+                                        RegisterId(
+                                            1,
+                                        ),
+                                        RegisterId(
+                                            2,
+                                        ),
+                                    ],
+                                },
+                            ),
+                            CoreSet(
+                                Return {
+                                    src: RegisterId(
+                                        4,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                ],
+                num_regs: 5,
             },
-        ),
-    ),
+        ],
+    },
 )

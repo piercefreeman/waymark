@@ -1,7 +1,7 @@
 //! Expression planning for generic value positions.
 
 use waymark_vm_ast_old::{
-    ActionCall, BinaryOperator, Expr, FunctionCall, Literal, Spanned, UnaryOperator,
+    ActionCall, BinaryOperator, DictEntry, Expr, FunctionCall, Literal, Spanned, UnaryOperator,
 };
 
 use super::Unsupported;
@@ -46,6 +46,18 @@ pub enum ExpressionPlan<'a> {
         operand: &'a Spanned<Expr>,
     },
 
+    /// A list literal.
+    List {
+        /// List items in source order.
+        elements: &'a [Spanned<Expr>],
+    },
+
+    /// A dictionary literal.
+    Dict {
+        /// Dictionary entries in source order.
+        entries: &'a [DictEntry],
+    },
+
     /// A call to another in-VM function.
     FunctionCall {
         /// Function-call payload from the AST.
@@ -62,12 +74,6 @@ pub enum ExpressionPlan<'a> {
 /// Expression variants that the generic value-lowering path rejects.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnsupportedExpressionKind {
-    /// List literals.
-    List,
-
-    /// Dictionary literals.
-    Dict,
-
     /// Indexing expressions such as `items[0]`.
     Index,
 
@@ -99,12 +105,8 @@ impl<'a> ExpressionPlan<'a> {
                 op: op.clone(),
                 operand,
             }),
-            Expr::List { .. } => Err(Unsupported::Expression {
-                kind: UnsupportedExpressionKind::List,
-            }),
-            Expr::Dict { .. } => Err(Unsupported::Expression {
-                kind: UnsupportedExpressionKind::Dict,
-            }),
+            Expr::List { elements } => Ok(Self::List { elements }),
+            Expr::Dict { entries } => Ok(Self::Dict { entries }),
             Expr::Index { .. } => Err(Unsupported::Expression {
                 kind: UnsupportedExpressionKind::Index,
             }),
@@ -122,8 +124,6 @@ impl<'a> ExpressionPlan<'a> {
 impl core::fmt::Display for UnsupportedExpressionKind {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         formatter.write_str(match self {
-            Self::List => "List",
-            Self::Dict => "Dict",
             Self::Index => "Index",
             Self::Dot => "Dot",
             Self::SpreadExpr => "SpreadExpr",
@@ -198,6 +198,15 @@ mod tests {
         let variable_expr = variable("value");
         let function_expr = function_expr("child", vec![int(1)]);
         let action_expr = action_expr("fetch", vec![("value", int(2))]);
+        let list_expr = spanned(Expr::List {
+            elements: vec![int(1), int(2)],
+        });
+        let dict_expr = spanned(Expr::Dict {
+            entries: vec![DictEntry {
+                key: int(1),
+                value: int(2),
+            }],
+        });
 
         assert!(matches!(
             ExpressionPlan::build(&variable_expr).expect("variables should build"),
@@ -211,26 +220,19 @@ mod tests {
             ExpressionPlan::build(&action_expr).expect("action calls should build"),
             ExpressionPlan::ActionCall { call } if call.action_name == "fetch"
         ));
+        assert!(matches!(
+            ExpressionPlan::build(&list_expr).expect("lists should build"),
+            ExpressionPlan::List { elements } if elements.len() == 2
+        ));
+        assert!(matches!(
+            ExpressionPlan::build(&dict_expr).expect("dicts should build"),
+            ExpressionPlan::Dict { entries } if entries.len() == 1
+        ));
     }
 
     #[test]
     fn rejects_unsupported_expression_variants() {
         let unsupported = [
-            (
-                spanned(Expr::List {
-                    elements: vec![int(1)],
-                }),
-                UnsupportedExpressionKind::List,
-            ),
-            (
-                spanned(Expr::Dict {
-                    entries: vec![DictEntry {
-                        key: int(1),
-                        value: int(2),
-                    }],
-                }),
-                UnsupportedExpressionKind::Dict,
-            ),
             (
                 spanned(Expr::Index {
                     object: Box::new(variable("items")),

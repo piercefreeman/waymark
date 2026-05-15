@@ -5,8 +5,8 @@ expression: bytecode for python/tests/fixtures_comprehension/dict_comprehension_
 Err(
     FunctionCompiler(
         Unsupported(
-            Expression {
-                kind: Dict,
+            Statement {
+                kind: ForLoop,
             },
         ),
     ),

@@ -5,8 +5,8 @@ expression: bytecode for python/tests/fixtures_for_loop/for_concat_accumulator.p
 Err(
     FunctionCompiler(
         Unsupported(
-            Expression {
-                kind: List,
+            Statement {
+                kind: ForLoop,
             },
         ),
     ),

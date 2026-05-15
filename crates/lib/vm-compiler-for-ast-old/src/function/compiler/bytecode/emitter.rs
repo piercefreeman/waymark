@@ -69,6 +69,15 @@ where
         self.emit(waymark_vm_instructions_pureset::PureSet::MakeList { dst, items }.into());
     }
 
+    /// Emits a dictionary-construction instruction.
+    pub fn emit_make_dict(
+        &mut self,
+        dst: RegisterId,
+        entries: Vec<waymark_vm_instructions_pureset::DictEntry<RegisterId>>,
+    ) {
+        self.emit(waymark_vm_instructions_pureset::PureSet::MakeDict { dst, entries }.into());
+    }
+
     /// Emits a user-function call that writes a promise register.
     pub fn emit_call(
         &mut self,

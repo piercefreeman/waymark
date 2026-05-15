@@ -2,12 +2,90 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_models/pydantic_return_direct.py
 ---
-Err(
-    FunctionCompiler(
-        Unsupported(
-            Expression {
-                kind: Dict,
+Ok(
+    Executable {
+        functions: [
+            Function {
+                states: [
+                    State {
+                        instructions: [
+                            PureSet(
+                                LoadConst {
+                                    dst: RegisterId(
+                                        0,
+                                    ),
+                                    value: String(
+                                        "value",
+                                    ),
+                                },
+                            ),
+                            PureSet(
+                                LoadConst {
+                                    dst: RegisterId(
+                                        1,
+                                    ),
+                                    value: Int(
+                                        1,
+                                    ),
+                                },
+                            ),
+                            PureSet(
+                                LoadConst {
+                                    dst: RegisterId(
+                                        2,
+                                    ),
+                                    value: String(
+                                        "message",
+                                    ),
+                                },
+                            ),
+                            PureSet(
+                                LoadConst {
+                                    dst: RegisterId(
+                                        3,
+                                    ),
+                                    value: String(
+                                        "ok",
+                                    ),
+                                },
+                            ),
+                            PureSet(
+                                MakeDict {
+                                    dst: RegisterId(
+                                        4,
+                                    ),
+                                    entries: [
+                                        DictEntry {
+                                            key: RegisterId(
+                                                0,
+                                            ),
+                                            value: RegisterId(
+                                                1,
+                                            ),
+                                        },
+                                        DictEntry {
+                                            key: RegisterId(
+                                                2,
+                                            ),
+                                            value: RegisterId(
+                                                3,
+                                            ),
+                                        },
+                                    ],
+                                },
+                            ),
+                            CoreSet(
+                                Return {
+                                    src: RegisterId(
+                                        4,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                ],
+                num_regs: 5,
             },
-        ),
-    ),
+        ],
+    },
 )

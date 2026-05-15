@@ -39,6 +39,12 @@ pub fn float(value: f64) -> Spanned<Expr> {
     })
 }
 
+pub fn string(value: &str) -> Spanned<Expr> {
+    spanned(Expr::Literal {
+        value: Literal::String(value.to_owned()),
+    })
+}
+
 pub fn variable(name: &str) -> Spanned<Expr> {
     spanned(Expr::Variable {
         name: name.to_owned(),
