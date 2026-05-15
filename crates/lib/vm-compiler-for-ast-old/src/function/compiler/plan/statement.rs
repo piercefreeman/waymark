@@ -166,11 +166,9 @@ mod tests {
         action_call, action_stmt, assignment, block, break_stmt, conditional_stmt, continue_stmt,
         int, parallel_stmt, return_stmt, sleep_stmt, spanned, variable, while_stmt,
     };
+    use waymark_vm_compiler_for_ast_old_test_support::{TestLowering, TestSpec};
 
-    use crate::function::compiler::{
-        Error,
-        test_helpers::{TestLowering, TestSpec, build_function_table},
-    };
+    use crate::function::compiler::{Error, test_helpers::build_function_table};
 
     #[test]
     fn builds_simple_statement_plans() {

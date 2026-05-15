@@ -228,22 +228,23 @@ mod tests {
     use waymark_vm_ast_old_helpers::{action_call, function_call, int};
     use waymark_vm_bytecode_core::FunctionId;
     use waymark_vm_compiler_for_ast_old_core::lowering;
+    use waymark_vm_compiler_for_ast_old_test_support::{TestActionRef, TestLowering, TestSpec};
     use waymark_vm_runtime_core::RegisterId;
 
-    use crate::function::compiler::{
-        Error,
-        test_helpers::{
-            TestActionError, TestActionRef, TestLowering, TestSpec, build_function_table,
-        },
-    };
+    use crate::function::compiler::{Error, test_helpers::build_function_table};
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    enum TestActionLoweringError {
+        Unsupported,
+    }
 
     struct FailingLowering;
 
     impl lowering::ExtCallSet<TestSpec> for FailingLowering {
-        type ActionError = TestActionError;
+        type ActionError = TestActionLoweringError;
 
         fn lower_action(_call: &ActionCall) -> Result<TestActionRef, Self::ActionError> {
-            Err(TestActionError::Unsupported)
+            Err(TestActionLoweringError::Unsupported)
         }
     }
 
@@ -392,7 +393,7 @@ mod tests {
             error,
             Error::ActionLowering {
                 action_name,
-                error: TestActionError::Unsupported,
+                error: TestActionLoweringError::Unsupported,
             } if action_name == "notify"
         ));
     }

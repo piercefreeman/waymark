@@ -316,12 +316,13 @@ mod tests {
     use nonempty_collections::NEVec;
     use waymark_vm_ast_old::Call;
     use waymark_vm_ast_old_helpers::{function_call, int};
+    use waymark_vm_compiler_for_ast_old_test_support::{TestLowering, TestSpec};
     use waymark_vm_runtime_core::RegisterId;
 
     use crate::function::compiler::{
         Error, Unsupported,
         env::{AssignmentTargetMarker, FlowState, LocalFrame, LocalSlot},
-        test_helpers::{TestLowering, TestSpec, build_function_table},
+        test_helpers::build_function_table,
     };
 
     #[test]

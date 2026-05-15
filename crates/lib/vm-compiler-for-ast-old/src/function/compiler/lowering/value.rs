@@ -441,6 +441,9 @@ mod tests {
     use waymark_vm_ast_old::{BinaryOperator, DictEntry, Expr};
     use waymark_vm_ast_old_helpers::{action_call, binary_expr, function_call, int, spanned};
     use waymark_vm_bytecode_core::{FunctionId, StateId};
+    use waymark_vm_compiler_for_ast_old_test_support::{
+        TestActionRef, TestConstValue, TestLowering, TestSpec,
+    };
     use waymark_vm_instructions_coreset::CoreSet;
     use waymark_vm_instructions_extcallset::ExtCallSet;
     use waymark_vm_instructions_fullset::FullSet as InstructionSet;
@@ -451,9 +454,7 @@ mod tests {
         CompilerContextMut,
         bytecode::emitter::FunctionEmitter,
         env::{FlowState, LocalFrame},
-        test_helpers::{
-            TestActionRef, TestConstValue, TestLowering, TestSpec, build_function_table,
-        },
+        test_helpers::build_function_table,
     };
 
     #[test]
