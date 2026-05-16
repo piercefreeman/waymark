@@ -153,6 +153,15 @@ pub enum PureSet<Spec: self::Spec> {
         op: UnaryOp<Spec::RegisterId>,
     },
 
+    /// Compute the length of a resolved container value.
+    Length {
+        /// The register to store the resulting length at.
+        dst: Spec::RegisterId,
+
+        /// The register that contains the value to measure.
+        src: Spec::RegisterId,
+    },
+
     /// Build a list value from resolved registers.
     MakeList {
         /// The register to store the resulting list at.

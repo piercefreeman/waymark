@@ -73,6 +73,22 @@ pub enum MakeDictError {
     ResultOutOfBounds,
 }
 
+/// An error from [`Length::length`].
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum LengthError {
+    /// The value type does not support reporting a length for this value.
+    #[error("determining length is not supported for this value")]
+    UnsupportedValue,
+}
+
+/// An error from [`Length::from_length`].
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum FromLengthError {
+    /// The resulting length could not be represented by the value type.
+    #[error("length result is out of bounds")]
+    ResultOutOfBounds,
+}
+
 /// Apply binary scalar operations to resolved values.
 pub trait BinaryOps: Sized {
     /// Add two resolved values together.
@@ -239,7 +255,19 @@ pub trait MakeDict: Sized {
         I: IntoIterator<Item = (Self, Self)>;
 }
 
-/// A unifying trait for all value requirements.
-pub trait Value: BinaryOps + UnaryOps + MakeList + MakeDict {}
+/// Compute and materialize container lengths.
+pub trait Length: Sized {
+    /// The type for internal representation of a value length.
+    type Length;
 
-impl<T> Value for T where T: BinaryOps + UnaryOps + MakeList + MakeDict {}
+    /// Determine the length of the resolved value.
+    fn length(&self) -> Result<Self::Length, LengthError>;
+
+    /// Materialize a length result back into the VM value type.
+    fn from_length(length: Self::Length) -> Result<Self, FromLengthError>;
+}
+
+/// A unifying trait for all value requirements.
+pub trait Value: BinaryOps + UnaryOps + MakeList + MakeDict + Length {}
+
+impl<T> Value for T where T: BinaryOps + UnaryOps + MakeList + MakeDict + Length {}

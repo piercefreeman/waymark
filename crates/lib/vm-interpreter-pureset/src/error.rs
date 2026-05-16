@@ -81,6 +81,21 @@ pub enum Error {
         source: UnresolvedPromiseError,
     },
 
+    /// A `Length` instruction referenced an unset register.
+    #[error("length operand in register {register:?} is not initialized")]
+    MissingLengthOperand {
+        /// The register that was read.
+        register: RegisterId,
+    },
+
+    /// A `Length` instruction referenced an unresolved promise.
+    #[error("length operand is unresolved: {source}")]
+    UnresolvedLengthOperand {
+        /// The underlying unresolved promise error.
+        #[source]
+        source: UnresolvedPromiseError,
+    },
+
     /// A `MakeList` instruction referenced an unset register.
     #[error("list item {item_pos} in register {register:?} is not initialized")]
     MissingListItem {
@@ -165,6 +180,14 @@ pub enum Error {
         #[source]
         source: crate::value::UnaryOperationError,
     },
+
+    /// Evaluating a `Length` instruction failed.
+    #[error("length: {0}")]
+    Length(#[source] crate::value::LengthError),
+
+    /// Materializing the result of a `Length` instruction failed.
+    #[error("length result: {0}")]
+    FromLength(#[source] crate::value::FromLengthError),
 
     /// Evaluating a `MakeList` instruction failed.
     #[error("make_list: {0}")]

@@ -4,8 +4,8 @@ use waymark_vm_instructions_pureset::BinaryOpKind;
 use waymark_vm_interpreter_coreset::value::ShouldJump as _;
 use waymark_vm_interpreter_extcallset::value::SleepDuration as _;
 use waymark_vm_interpreter_pureset::value::{
-    BinaryOperationError, BinaryOps as _, MakeDict as _, MakeDictError, MakeList as _,
-    UnaryOps as _,
+    BinaryOperationError, BinaryOps as _, FromLengthError, Length as _, LengthError, MakeDict as _,
+    MakeDictError, MakeList as _, UnaryOps as _,
 };
 use waymark_vm_value::{Value, extcallset};
 
@@ -293,6 +293,36 @@ fn logical_ops_lists_and_sleep_duration_use_runtime_semantics() {
         Value::Bool(true).to_sleep_duration().unwrap_err(),
         extcallset::SleepDurationError::UnsupportedValue
     );
+}
+
+#[test]
+fn length_operations_follow_runtime_semantics() {
+    assert_eq!(
+        Value::List(vec![Value::Int(1), Value::Int(2)])
+            .length()
+            .unwrap(),
+        2
+    );
+    assert_eq!(Value::String("hello".to_owned()).length().unwrap(), 5);
+    assert_eq!(
+        Value::Dict(IndexMap::from([("key".to_owned(), Value::Int(1))]))
+            .length()
+            .unwrap(),
+        1
+    );
+    assert_eq!(Value::from_length(3).unwrap(), Value::Int(3));
+    assert!(matches!(
+        Value::Bool(false).length(),
+        Err(LengthError::UnsupportedValue)
+    ));
+
+    let too_large = usize::try_from(i64::MAX as u128 + 1).ok();
+    if let Some(too_large) = too_large {
+        assert!(matches!(
+            Value::from_length(too_large),
+            Err(FromLengthError::ResultOutOfBounds)
+        ));
+    }
 }
 
 #[test]

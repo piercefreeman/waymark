@@ -78,6 +78,11 @@ where
         self.emit(waymark_vm_instructions_pureset::PureSet::MakeDict { dst, entries }.into());
     }
 
+    /// Emits a container-length instruction.
+    pub fn emit_length(&mut self, dst: RegisterId, src: RegisterId) {
+        self.emit(waymark_vm_instructions_pureset::PureSet::Length { dst, src }.into());
+    }
+
     /// Emits a user-function call that writes a promise register.
     pub fn emit_call(
         &mut self,
