@@ -4,6 +4,7 @@ use waymark_vm_ast_old::{Block, ElifBranch, ElseBranch, Expr, IfBranch, Spanned,
 
 use super::AssignmentCompiler;
 use super::CompilerContextMut;
+use super::ForLoopCompiler;
 use super::ParallelCompiler;
 use super::ValueCompiler;
 use super::conditional::{ConditionalJoin, ConditionalJoinFinish};
@@ -102,6 +103,13 @@ where
             }
             StatementPlan::WhileLoop { condition, body } => {
                 self.compile_while_loop(condition, body)?;
+            }
+            StatementPlan::ForLoop {
+                loop_vars,
+                iterable,
+                body,
+            } => {
+                self.compile_for_loop(loop_vars, iterable, body)?;
             }
             StatementPlan::Conditional {
                 if_branch,
@@ -255,6 +263,17 @@ where
         Ok(())
     }
 
+    /// Compiles a `for` loop over a generic iterable, `range(...)`, or
+    /// `enumerate(...)`.
+    fn compile_for_loop(
+        &mut self,
+        loop_vars: &[String],
+        iterable: &Spanned<Expr>,
+        body: &Spanned<Block>,
+    ) -> Result<(), ErrorFor<Spec, Lowering>> {
+        self.for_loop_compiler().compile(loop_vars, iterable, body)
+    }
+
     /// Compiles a `break` statement.
     fn compile_break(&mut self) -> Result<(), ErrorFor<Spec, Lowering>> {
         self.compile_loop_control(LoopControlKind::Break)
@@ -307,6 +326,11 @@ where
     /// Creates a value compiler borrowing the current context.
     fn value_compiler(&mut self) -> ValueCompiler<'_, 'table, Spec, Lowering> {
         ValueCompiler::new(self.context.reborrow_ref())
+    }
+
+    /// Creates a for-loop compiler borrowing the current context mutably.
+    fn for_loop_compiler(&mut self) -> ForLoopCompiler<'_, 'table, Spec, Lowering> {
+        ForLoopCompiler::new(self.context.reborrow_mut(), self.loop_control.clone())
     }
 
     /// Creates an assignment compiler borrowing the current context mutably.

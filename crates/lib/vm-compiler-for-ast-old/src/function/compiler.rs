@@ -34,11 +34,13 @@ mod lowering {
     use super::*;
 
     pub mod assignment;
+    pub mod for_loop;
     pub mod parallel;
     pub mod statement;
     pub mod value;
 
     pub use self::assignment::AssignmentCompiler;
+    pub use self::for_loop::ForLoopCompiler;
     pub use self::parallel::ParallelCompiler;
     pub use self::statement::StatementCompiler;
     pub use self::value::ValueCompiler;

@@ -217,8 +217,16 @@ pub fn builtin_function_expr(
     })
 }
 
+pub fn range_expr(args: Vec<Spanned<Expr>>) -> Spanned<Expr> {
+    builtin_function_expr(GlobalFunction::Range, args)
+}
+
 pub fn len_expr(arg: Spanned<Expr>) -> Spanned<Expr> {
     builtin_function_expr(GlobalFunction::Len, vec![arg])
+}
+
+pub fn enumerate_expr(iterable: Spanned<Expr>) -> Spanned<Expr> {
+    builtin_function_expr(GlobalFunction::Enumerate, vec![iterable])
 }
 
 pub fn action_call(name: &str, kwargs: Vec<(&str, Spanned<Expr>)>) -> ActionCall {

@@ -5,8 +5,8 @@ expression: bytecode for python/tests/fixtures_for_loop/for_multi_accumulator.py
 Err(
     FunctionCompiler(
         Unsupported(
-            Statement {
-                kind: ForLoop,
+            AssignmentTargetCount {
+                count: 2,
             },
         ),
     ),
