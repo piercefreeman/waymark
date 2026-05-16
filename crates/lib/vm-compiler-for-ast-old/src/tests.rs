@@ -1,8 +1,8 @@
-use waymark_vm_ast_old::{ActionCall, Call, Literal};
+use waymark_vm_ast_old::{ActionCall, BinaryOperator, Call, Expr, GlobalFunction, Kwarg, Literal};
 use waymark_vm_ast_old_helpers::{
-    action_call, action_stmt, assignment, assignment_targets, break_stmt, conditional_stmt,
-    continue_stmt, float, for_stmt, function, int, parallel_expr, program, return_stmt, variable,
-    while_stmt,
+    action_call, action_stmt, assignment, assignment_targets, binary_expr, break_stmt,
+    builtin_function_call, conditional_stmt, continue_stmt, enumerate_expr, float, for_stmt,
+    function, int, parallel_expr, program, range_expr, return_stmt, spanned, variable, while_stmt,
 };
 use waymark_vm_compiler_for_ast_old_core::lowering;
 use waymark_vm_compiler_for_ast_old_test_support::{
@@ -391,25 +391,245 @@ fn rejects_variables_initialized_only_inside_while_loops() {
 }
 
 #[test]
-fn rejects_unsupported_for_loops() {
+fn compiles_for_loops_over_lists() {
+    let program = program(vec![function(
+        "main",
+        &["items"],
+        vec![
+            assignment("total", int(0)),
+            for_stmt(
+                &["item"],
+                variable("items"),
+                vec![assignment(
+                    "total",
+                    binary_expr(variable("total"), BinaryOperator::Add, variable("item")),
+                )],
+            ),
+            return_stmt(Some(variable("total"))),
+        ],
+    )]);
+
+    compile::<TestSpec, TestLowering>(&program).expect("list for loops should compile");
+}
+
+#[test]
+fn compiles_for_loops_over_range() {
     let program = program(vec![function(
         "main",
         &[],
-        vec![for_stmt(&["item"], int(1), vec![])],
+        vec![
+            assignment("total", int(0)),
+            for_stmt(
+                &["item"],
+                range_expr(vec![int(1), int(4)]),
+                vec![assignment(
+                    "total",
+                    binary_expr(variable("total"), BinaryOperator::Add, variable("item")),
+                )],
+            ),
+            return_stmt(Some(variable("total"))),
+        ],
+    )]);
+
+    compile::<TestSpec, TestLowering>(&program).expect("range for loops should compile");
+}
+
+#[test]
+fn compiles_for_loops_over_enumerate() {
+    let program = program(vec![function(
+        "main",
+        &["items"],
+        vec![
+            assignment("total", int(0)),
+            for_stmt(
+                &["idx", "item"],
+                enumerate_expr(variable("items")),
+                vec![assignment(
+                    "total",
+                    binary_expr(
+                        variable("total"),
+                        BinaryOperator::Add,
+                        binary_expr(variable("idx"), BinaryOperator::Add, variable("item")),
+                    ),
+                )],
+            ),
+            return_stmt(Some(variable("total"))),
+        ],
+    )]);
+
+    compile::<TestSpec, TestLowering>(&program).expect("enumerate for loops should compile");
+}
+
+#[test]
+fn compiles_enumerate_over_range_for_loops() {
+    let program = program(vec![function(
+        "main",
+        &[],
+        vec![
+            assignment("total", int(0)),
+            for_stmt(
+                &["idx", "item"],
+                enumerate_expr(range_expr(vec![int(2), int(5)])),
+                vec![assignment(
+                    "total",
+                    binary_expr(
+                        variable("total"),
+                        BinaryOperator::Add,
+                        binary_expr(variable("idx"), BinaryOperator::Add, variable("item")),
+                    ),
+                )],
+            ),
+            return_stmt(Some(variable("total"))),
+        ],
+    )]);
+
+    compile::<TestSpec, TestLowering>(&program).expect("enumerated range for loops should compile");
+}
+
+#[test]
+fn compiles_for_loops_over_enumerate_items_kwarg() {
+    let mut call = builtin_function_call(GlobalFunction::Enumerate, Vec::new());
+    call.kwargs.push(Kwarg {
+        name: "items".to_owned(),
+        value: variable("items"),
+    });
+
+    let program = program(vec![function(
+        "main",
+        &["items"],
+        vec![
+            assignment("total", int(0)),
+            for_stmt(
+                &["idx", "item"],
+                spanned(Expr::FunctionCall { call }),
+                vec![assignment(
+                    "total",
+                    binary_expr(
+                        variable("total"),
+                        BinaryOperator::Add,
+                        binary_expr(variable("idx"), BinaryOperator::Add, variable("item")),
+                    ),
+                )],
+            ),
+            return_stmt(Some(variable("total"))),
+        ],
+    )]);
+
+    compile::<TestSpec, TestLowering>(&program)
+        .expect("enumerate(items=...) for loops should compile");
+}
+
+#[test]
+fn rejects_for_loops_over_range_with_too_many_args() {
+    let program = program(vec![function(
+        "main",
+        &[],
+        vec![for_stmt(
+            &["item"],
+            range_expr(vec![int(0), int(4), int(1), int(2)]),
+            Vec::new(),
+        )],
     )]);
 
     let error = match compile::<TestSpec, TestLowering>(&program) {
-        Ok(_) => panic!("for loops should stay unsupported"),
+        Ok(_) => panic!("range with too many args should fail"),
+        Err(error) => error,
+    };
+
+    assert!(matches!(
+        error,
+        CompileError::FunctionCompiler(compiler::Error::FunctionArityMismatch {
+            function,
+            expected,
+            actual,
+        }) if function == "range" && expected == 3 && actual == 4
+    ));
+}
+
+#[test]
+fn rejects_for_loops_over_enumerate_with_too_many_args() {
+    let program = program(vec![function(
+        "main",
+        &["items", "other"],
+        vec![for_stmt(
+            &["idx", "item"],
+            spanned(Expr::FunctionCall {
+                call: builtin_function_call(
+                    GlobalFunction::Enumerate,
+                    vec![variable("items"), variable("other")],
+                ),
+            }),
+            Vec::new(),
+        )],
+    )]);
+
+    let error = match compile::<TestSpec, TestLowering>(&program) {
+        Ok(_) => panic!("enumerate with too many args should fail"),
+        Err(error) => error,
+    };
+
+    assert!(matches!(
+        error,
+        CompileError::FunctionCompiler(compiler::Error::FunctionArityMismatch {
+            function,
+            expected,
+            actual,
+        }) if function == "enumerate" && expected == 1 && actual == 2
+    ));
+}
+
+#[test]
+fn rejects_for_loops_over_enumerate_with_mixed_positional_and_keyword_args() {
+    let mut call = builtin_function_call(GlobalFunction::Enumerate, vec![variable("items")]);
+    call.kwargs.push(Kwarg {
+        name: "items".to_owned(),
+        value: variable("other"),
+    });
+
+    let program = program(vec![function(
+        "main",
+        &["items", "other"],
+        vec![for_stmt(
+            &["idx", "item"],
+            spanned(Expr::FunctionCall { call }),
+            Vec::new(),
+        )],
+    )]);
+
+    let error = match compile::<TestSpec, TestLowering>(&program) {
+        Ok(_) => panic!("enumerate with mixed args should fail"),
         Err(error) => error,
     };
 
     assert!(matches!(
         error,
         CompileError::FunctionCompiler(compiler::Error::Unsupported(
-            compiler::Unsupported::Statement {
-                kind: compiler::UnsupportedStatementKind::ForLoop
-            }
-        ))
+            compiler::Unsupported::FunctionCall { name, reason }
+        )) if name == "enumerate"
+            && reason == compiler::UnsupportedFunctionCall::KeywordArguments
+    ));
+}
+
+#[test]
+fn rejects_loop_variables_initialized_only_inside_for_loops() {
+    let program = program(vec![function(
+        "main",
+        &["items"],
+        vec![
+            for_stmt(&["item"], variable("items"), vec![continue_stmt()]),
+            return_stmt(Some(variable("item"))),
+        ],
+    )]);
+
+    let error = match compile::<TestSpec, TestLowering>(&program) {
+        Ok(_) => panic!("loop-only bindings should fail outside the for loop"),
+        Err(error) => error,
+    };
+
+    assert!(matches!(
+        error,
+        CompileError::FunctionCompiler(compiler::Error::UnknownVariable { name })
+            if name == "item"
     ));
 }
 
