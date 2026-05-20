@@ -1,5 +1,6 @@
-pub use waymark_vm_compiler_for_ast_old_test_support::TestValue;
-use waymark_vm_compiler_for_ast_old_test_support::{TestExecutable, TestLowering, TestSpec};
+use waymark_vm_compiler_for_ast_old_test_support::{
+    TestExecutable, TestLowering, TestReadyValue, TestSpec, TestValue,
+};
 
 type TestInterpreter =
     waymark_vm_interpreter_fullset::FullSetInterpreter<TestSpec, TestExecutable, TestValue>;
@@ -19,13 +20,13 @@ pub fn runtime(executable: TestExecutable) -> TestRuntime {
     .expect("compiled main function should exist")
 }
 
-pub fn runtime_with_args(executable: TestExecutable, args: Vec<TestValue>) -> TestRuntime {
+pub fn runtime_with_args(executable: TestExecutable, args: Vec<TestReadyValue>) -> TestRuntime {
     waymark_vm_runtime::Runtime::with_custom_entrypoint(
         TestInterpreter::default(),
         executable,
         waymark_vm_runtime::CallSpec {
             func: waymark_vm_bytecode_core::FunctionId::default(),
-            args,
+            args: args.into_iter().map(TestValue::Ready).collect(),
         },
     )
     .expect("compiled main function should exist")

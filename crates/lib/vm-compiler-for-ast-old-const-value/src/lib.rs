@@ -27,13 +27,13 @@ pub enum ConstValue {
     None,
 }
 
-impl From<ConstValue> for waymark_vm_value::Value {
-    fn from(value: ConstValue) -> Self {
+impl From<&ConstValue> for waymark_vm_value::ReadyValue {
+    fn from(value: &ConstValue) -> Self {
         match value {
-            ConstValue::Int(value) => Self::Int(value),
-            ConstValue::Float(value) => Self::Float(value),
-            ConstValue::Bool(value) => Self::Bool(value),
-            ConstValue::String(value) => Self::String(value),
+            ConstValue::Int(value) => Self::Int(*value),
+            ConstValue::Float(value) => Self::Float(*value),
+            ConstValue::Bool(value) => Self::Bool(*value),
+            ConstValue::String(value) => Self::String(value.clone()),
             ConstValue::None => Self::None,
         }
     }
