@@ -155,6 +155,7 @@ sha1_smol = "1"
 sha2 = "0.10"
 slotmap = "1"
 sqlx = { version = "0.8", default-features = false }
+static_assertions = "1"
 strum = "0.28"
 syn = "2"
 tera = "1"

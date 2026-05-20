@@ -2,8 +2,12 @@ use crate::integration;
 
 pub async fn run(
     executable: integration::Executable,
-) -> Result<integration::SampleValue, waymark_fn_main_common::Error> {
-    let interpreter = waymark_vm_interpreter_fullset::FullSetInterpreter::default();
+) -> Result<integration::SampleReadyValue, waymark_fn_main_common::Error> {
+    let interpreter = waymark_vm_interpreter_fullset::FullSetInterpreter::<
+        integration::SampleSpec,
+        integration::Executable,
+        integration::SampleValue,
+    >::default();
 
     let runtime =
         waymark_vm_runtime::Runtime::with_conventional_entrypoint(interpreter, executable)?;
@@ -59,7 +63,7 @@ pub async fn run(
                                 async move {
                                     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 
-                                    let value = integration::SampleValue::Int(42);
+                                    let value = integration::SampleReadyValue::Int(42);
                                     tracing::info!(
                                         ?action_ref,
                                         ?promise_state_id,
@@ -85,7 +89,7 @@ pub async fn run(
                                 async move {
                                     tokio::time::sleep(duration.get()).await;
 
-                                    let value = integration::SampleValue::Int(0);
+                                    let value = integration::SampleReadyValue::None;
                                     tracing::info!(?promise_state_id, ?value, "resolving sleep");
                                     promise_resolutions_tx
                                         .send((promise_state_id, value))
