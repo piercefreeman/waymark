@@ -1,7 +1,9 @@
 use waymark_vm_driver::{Error, Params, run};
-use waymark_vm_runtime_core::{PromiseStateId, RegisterId, ResolvePromiseError};
+use waymark_vm_runtime_core::{RegisterId, ResolvePromiseError};
+use waymark_vm_runtime_promise_core::PromiseStateId;
 use waymark_vm_runtime_test::{
-    StateId, TestEffect, TestExecutionError, TestInstruction, executable, function, runtime,
+    StateId, TestEffect, TestExecutionError, TestInstruction, TestReadyValue, executable, function,
+    runtime,
 };
 
 #[tokio::test]
@@ -48,11 +50,14 @@ async fn resumes_waiting_promises_and_forwards_the_resolved_effect() {
     }));
 
     promise_resolutions_tx
-        .send((PromiseStateId(0), 41))
+        .send((PromiseStateId(0), TestReadyValue(41)))
         .await
         .expect("driver should accept the promise resolution");
 
-    assert_eq!(effects_rx.recv().await, Some(TestEffect::Value(41)));
+    assert_eq!(
+        effects_rx.recv().await,
+        Some(TestEffect::Value(TestReadyValue(41)))
+    );
     drop(promise_resolutions_tx);
 
     assert!(matches!(
@@ -134,11 +139,11 @@ async fn returns_resolving_promise_errors_for_duplicate_resolutions() {
     let (promise_resolutions_tx, promise_resolutions_rx) = tokio::sync::mpsc::channel(2);
 
     promise_resolutions_tx
-        .send((PromiseStateId(0), 10))
+        .send((PromiseStateId(0), TestReadyValue(10)))
         .await
         .expect("first resolution should enqueue");
     promise_resolutions_tx
-        .send((PromiseStateId(0), 11))
+        .send((PromiseStateId(0), TestReadyValue(11)))
         .await
         .expect("second resolution should enqueue");
 
@@ -166,7 +171,7 @@ async fn returns_resolving_promise_errors_for_duplicate_resolutions() {
         panic!("duplicate promise resolution should report already-resolved errors");
     };
 
-    assert_eq!(err.new_value, 11);
+    assert_eq!(err.new_value, TestReadyValue(11));
 }
 
 #[tokio::test]
@@ -175,7 +180,7 @@ async fn returns_not_found_errors_for_unknown_promise_ids() {
     let (promise_resolutions_tx, promise_resolutions_rx) = tokio::sync::mpsc::channel(1);
 
     promise_resolutions_tx
-        .send((PromiseStateId(9), 41))
+        .send((PromiseStateId(9), TestReadyValue(41)))
         .await
         .expect("invalid resolution should still enqueue");
 
