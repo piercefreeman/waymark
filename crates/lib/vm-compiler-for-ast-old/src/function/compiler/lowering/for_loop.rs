@@ -1,4 +1,32 @@
 //! For-loop lowering.
+//!
+//! `for` loops are lowered into a four-state bytecode skeleton modeled by
+//! [`ForLoopPlan`]: a `condition` state, a `body` state, a `continue` state
+//! (the target of `continue` statements and the natural fallthrough at the end
+//! of the body), and an `exit` state (the target of `break`). All variants
+//! share that shape and reach it through [`ForLoopCompiler::compile_loop_skeleton`],
+//! which lets each header shape contribute only the parts that actually
+//! differ:
+//!
+//! - **Header classification** ([`ResolvedForLoop`]) inspects the iterable
+//!   expression and decides between three lowering strategies: walking an
+//!   indexable value, a positive-step `range`, or a runtime-signed-step
+//!   `range`. `enumerate(...)` is unwrapped at this stage so the chosen
+//!   strategy is independent of whether the loop binds `(index, value)` pairs.
+//! - **Per-strategy lowering** ([`ForLoopCompiler::compile_indexed_loop`],
+//!   [`compile_positive_range_loop`](ForLoopCompiler::compile_positive_range_loop),
+//!   [`compile_stepped_range_loop`](ForLoopCompiler::compile_stepped_range_loop))
+//!   allocates the registers that must survive across iterations, then hands
+//!   the skeleton three closures that emit the loop condition, the
+//!   per-iteration body prep, and the continue-edge update.
+//! - **Variable binding** ([`compile_loop_bindings`](ForLoopCompiler::compile_loop_bindings))
+//!   normalizes the value/`enumerate` distinction and handles destructuring
+//!   into one, two, or N loop locals.
+//!
+//! Loop-control (`break`/`continue`) targets come from the shared
+//! [`LoopControlStack`]; the nested statement compiler used for the body
+//! pushes the current [`ForLoopPlan`]'s scope so inner statements jump to the
+//! correct states without knowing the lowering strategy.
 
 use waymark_vm_ast_old::{
     Block, Expr, FunctionCall, GlobalFunction, Kwarg, Literal, Span, Spanned,
@@ -242,7 +270,26 @@ where
         }
     }
 
-    /// Compiles a `for` loop that walks an indexable iterable.
+    /// Compiles a `for` loop that walks an arbitrary indexable iterable
+    /// (lists, tuples, strings, etc.) by stepping through `0..len(iterable)`.
+    ///
+    /// The lowering reserves three persistent registers up front:
+    ///
+    /// - `iterable_register` holds the evaluated source so we evaluate the
+    ///   iterable expression exactly once, even when the body mutates locals
+    ///   that the expression depends on.
+    /// - `index_register` is the loop counter, initialized to `0`. It doubles
+    ///   as the enumerate index when the binding is `Enumerate`, which is why
+    ///   no separate enumerate register is allocated and the continue update
+    ///   only increments `index_register`.
+    /// - `length_register` snapshots `len(iterable)` once via
+    ///   [`emit_length`](Self::context). Snapshotting matches Python's `for`
+    ///   semantics and avoids re-emitting the length probe per iteration.
+    ///
+    /// The body prep allocates a per-iteration temporary `item_register`,
+    /// emits `item = iterable[index]`, and routes both `item` and `index`
+    /// through [`compile_loop_bindings`](Self::compile_loop_bindings) so the
+    /// value/enumerate distinction is handled uniformly.
     fn compile_indexed_loop(
         &mut self,
         loop_vars: &[String],
@@ -357,7 +404,31 @@ where
         )
     }
 
-    /// Compiles `range(start, end, step)` loops with runtime sign checks.
+    /// Compiles `range(start, end, step)` loops where the step direction is
+    /// not known until run time.
+    ///
+    /// Python's `range` uses a strict comparison whose direction depends on
+    /// the sign of `step`: positive steps iterate while `current < end`,
+    /// negative steps while `current > end`, and a zero step raises
+    /// `ValueError` (which we model as an immediate `break`, leaving runtime
+    /// validation to the caller). Because `step` is a general expression, we
+    /// can't pick the comparison at compile time, so the condition fans out
+    /// across three bytecode states:
+    ///
+    /// 1. The loop's `condition_state` classifies `sign(step)`: it computes
+    ///    `step > 0` and `step < 0` against a `zero_register`, jumps to the
+    ///    matching bound-check state, and falls through to `break` when the
+    ///    step is zero. The two comparisons live in the same state as a
+    ///    fall-through chain to minimize jumps.
+    /// 2. `positive_condition_state` tests `current < end` and jumps to body
+    ///    or break.
+    /// 3. `negative_condition_state` tests `current > end` and jumps to body
+    ///    or break.
+    ///
+    /// `current_register`, `end_register`, and `step_register` are persistent
+    /// because they are read on every iteration; the continue update mutates
+    /// `current_register` in place via `current += step` (a true binary `Add`
+    /// rather than an immediate, since the step is a runtime value).
     fn compile_stepped_range_loop(
         &mut self,
         loop_vars: &[String],
@@ -505,6 +576,12 @@ where
     }
 
     /// Emits `if cmp(left, right) jump on_true else jump on_false`.
+    ///
+    /// Allocates a fresh temporary register for the boolean comparison result
+    /// rather than reusing one supplied by the caller, since the value is
+    /// consumed immediately by `emit_jump_if` and never read again. The
+    /// trailing unconditional `emit_jump(on_false)` closes the current state
+    /// so callers do not need to terminate it themselves.
     fn emit_compare_and_branch(
         &mut self,
         op: BinaryOpKind,
@@ -535,6 +612,13 @@ where
     }
 
     /// Compiles the loop body and routes fallthrough to the `continue` target.
+    ///
+    /// Pushes the loop's scope onto [`LoopControlStack`] before recursing into
+    /// the nested statement compiler so any `break`/`continue` inside the body
+    /// resolves to this loop's reserved states. After the body finishes, we
+    /// only emit the trailing jump to the continue target when the emitter is
+    /// still active (i.e. the body did not already terminate the current
+    /// state via `return`, an unconditional `break`, or similar).
     fn compile_loop_body<F>(
         &mut self,
         for_loop: &ForLoopPlan,
@@ -563,6 +647,16 @@ where
     }
 
     /// Compiles loop-variable bindings for one iteration.
+    ///
+    /// Dispatches on the binding mode, delegating to
+    /// [`compile_value_bindings`](Self::compile_value_bindings) for plain
+    /// iteration and to
+    /// [`compile_enumerate_bindings`](Self::compile_enumerate_bindings) for
+    /// `enumerate(...)` headers. The `enumerate` path requires an index
+    /// register; the caller is responsible for allocating it via
+    /// [`allocate_enumerate_index_register`](Self::allocate_enumerate_index_register)
+    /// (or, in the indexed-iteration case, reusing the loop counter) before
+    /// invoking this method.
     fn compile_loop_bindings(
         &mut self,
         loop_vars: &[String],
@@ -581,6 +675,16 @@ where
     }
 
     /// Compiles direct or destructured bindings from the current iteration value.
+    ///
+    /// Handles three shapes:
+    ///
+    /// - Zero loop variables (e.g. `for _ in xs` after lowering elides the
+    ///   binding): emit nothing.
+    /// - A single loop variable: bind the value register straight to the
+    ///   local via [`bind_register_to_local`](Self::bind_register_to_local),
+    ///   which elides the copy when the local already aliases the register.
+    /// - Multiple loop variables (tuple destructuring): index into the value
+    ///   register positionally, emitting one `emit_index` per loop local.
     fn compile_value_bindings(
         &mut self,
         loop_vars: &[String],
@@ -614,6 +718,19 @@ where
 
     /// Compiles `enumerate(...)` bindings as either a pair value or destructured
     /// index/value locals.
+    ///
+    /// Mirrors Python's `for x in enumerate(it)` vs `for i, v in enumerate(it)`
+    /// distinction:
+    ///
+    /// - One loop variable: materialize `[index, value]` as a list literal
+    ///   into the local so the user observes the same pair object Python
+    ///   would.
+    /// - Two loop variables: bind `index` and `value` directly, avoiding the
+    ///   list allocation.
+    /// - Three or more: build the pair list into a temporary and reuse
+    ///   [`compile_value_bindings`](Self::compile_value_bindings) to project
+    ///   it. This case is unreachable from well-formed Python but keeps the
+    ///   lowering total instead of panicking on malformed input.
     fn compile_enumerate_bindings(
         &mut self,
         loop_vars: &[String],
@@ -667,6 +784,12 @@ where
 
     /// Binds `source_register` into `name`, copying only when the target local
     /// uses a different register.
+    ///
+    /// The copy elision matters for hot loop variables: when the local was
+    /// freshly declared, the register allocator typically hands back the
+    /// source register itself, in which case the explicit `emit_copy` would
+    /// be a no-op store-then-load. The flow-state update still runs so
+    /// downstream passes see the local as initialized.
     fn bind_register_to_local(&mut self, name: &str, source_register: RegisterId) {
         let target = self
             .context
@@ -692,6 +815,12 @@ where
     }
 
     /// Compiles an expression into the exact target register.
+    ///
+    /// Hints the value compiler with [`ResultTarget::Existing`] so it can emit
+    /// directly into `target_register` when possible, and falls back to a
+    /// trailing `emit_copy` when the compiler had to materialize the value in
+    /// a different register (for example, because the expression evaluated to
+    /// an existing local that the loop must not overwrite).
     fn compile_expr_into_register(
         &mut self,
         expr: &Spanned<Expr>,
@@ -729,6 +858,12 @@ where
     }
 
     /// Emits `target_register = target_register + immediate`.
+    ///
+    /// Used for the constant `+1` step of indexed and positive-range loops,
+    /// as well as the enumerate-index update. The immediate is materialized
+    /// through [`compile_temporary_int_literal`](Self::compile_temporary_int_literal)
+    /// so it goes through the same literal-folding path as any other integer
+    /// literal in the program.
     fn emit_add_assign_immediate(
         &mut self,
         target_register: RegisterId,
