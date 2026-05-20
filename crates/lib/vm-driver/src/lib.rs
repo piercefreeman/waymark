@@ -7,7 +7,7 @@
 #![warn(missing_docs)]
 
 use waymark_vm_runtime::{FrameFor, Runtime};
-use waymark_vm_runtime_core::PromiseStateId;
+use waymark_vm_runtime_promise_core::PromiseStateId;
 
 /// Errors returned by the driver loop.
 #[derive(Debug)]
@@ -30,6 +30,7 @@ pub struct Params<Executable, Interpreter, Value>
 where
     Executable: waymark_vm_executable::FunctionStates,
     Interpreter: waymark_vm_interpreter::Interpreter<Frame = FrameFor<Executable, Value>>,
+    Value: waymark_vm_runtime_promise_core::Resolvable,
 {
     /// Runtime instance to drive.
     pub runtime: Runtime<Executable, Interpreter, Value>,
@@ -38,7 +39,7 @@ where
     pub effects_tx: tokio::sync::mpsc::Sender<Interpreter::Effect>,
 
     /// Channel used to receive promise resolutions for pending promises.
-    pub promise_resolutions_rx: tokio::sync::mpsc::Receiver<(PromiseStateId, Value)>,
+    pub promise_resolutions_rx: tokio::sync::mpsc::Receiver<(PromiseStateId, Value::ReadyValue)>,
 }
 
 /// Drive the runtime until the loop terminates with an error.
@@ -49,7 +50,7 @@ where
 /// of those operations fails.
 pub async fn run<Executable, Interpreter, Value>(
     params: Params<Executable, Interpreter, Value>,
-) -> Result<core::convert::Infallible, Error<Interpreter::Error, Value>>
+) -> Result<core::convert::Infallible, Error<Interpreter::Error, Value::ReadyValue>>
 where
     Executable: waymark_vm_executable::InstructionsProvider,
     Executable::FunctionId: Copy,
@@ -68,10 +69,12 @@ where
         >,
     Value: 'static,
     Value: Clone,
+    Value: waymark_vm_runtime_promise_core::Resolvable,
     // Debug
     Interpreter::Instruction: core::fmt::Debug,
     Interpreter::Effect: core::fmt::Debug,
     Value: core::fmt::Debug,
+    Value::ReadyValue: core::fmt::Debug,
 {
     let Params {
         mut runtime,
