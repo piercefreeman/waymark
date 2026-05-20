@@ -5371,14 +5371,15 @@ dependencies = [
  "derive-where",
  "thiserror",
  "waymark-nonzero-duration",
+ "waymark-vm-bytecode",
  "waymark-vm-instructions-extcallset",
  "waymark-vm-interpreter",
  "waymark-vm-interpreter-coreset",
  "waymark-vm-runtime",
  "waymark-vm-runtime-core",
  "waymark-vm-runtime-promise-core",
- "waymark-vm-runtime-promise-value",
  "waymark-vm-runtime-test",
+ "waymark-vm-runtime-value",
 ]
 
 [[package]]
