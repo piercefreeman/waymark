@@ -5464,6 +5464,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-vm-runtime-value"
+version = "0.1.0"
+
+[[package]]
 name = "waymark-vm-value"
 version = "0.1.0"
 dependencies = [
