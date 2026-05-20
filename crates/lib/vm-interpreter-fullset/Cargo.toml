@@ -22,7 +22,7 @@ thiserror = { workspace = true }
 
 [dev-dependencies]
 waymark-nonzero-duration = { workspace = true }
+waymark-vm-bytecode = { workspace = true }
 waymark-vm-runtime = { workspace = true }
-waymark-vm-runtime-promise-value = { workspace = true }
 waymark-vm-runtime-test = { workspace = true }
 waymark-vm-runtime-value = { workspace = true }
