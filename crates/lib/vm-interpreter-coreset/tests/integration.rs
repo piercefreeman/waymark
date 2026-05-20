@@ -2,6 +2,7 @@ use waymark_vm_instructions_coreset::CoreSet;
 use waymark_vm_interpreter_coreset::{CoreSetInterpreter, Effect};
 use waymark_vm_runtime::{CallSpec, Runtime};
 use waymark_vm_runtime_core::RegisterId;
+use waymark_vm_runtime_promise_value::PromiseValue;
 use waymark_vm_runtime_test::{FunctionId, StateId, executable, function};
 
 #[derive(Debug)]
@@ -14,11 +15,25 @@ impl waymark_vm_instructions_coreset::Spec for TestSpec {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum TestValue {
+enum TestReadyValue {
     Int(i64),
 }
 
-impl waymark_vm_interpreter_coreset::value::ShouldJump for TestValue {
+type TestValue = PromiseValue<TestReadyValue>;
+
+impl waymark_vm_runtime_value::RootValueAccess for TestReadyValue {
+    type RootValue = TestValue;
+}
+
+static_assertions::assert_impl_all!(TestValue: waymark_vm_interpreter_coreset::Value);
+
+impl waymark_vm_interpreter_coreset::value::CaptureCallArgument for TestReadyValue {
+    fn capture_call_argument(&self) -> Self {
+        self.clone()
+    }
+}
+
+impl waymark_vm_interpreter_coreset::value::ShouldJump for TestReadyValue {
     fn should_jump(
         &self,
     ) -> Result<bool, waymark_vm_interpreter_coreset::value::NotAConditionalError> {
@@ -56,7 +71,7 @@ fn runtime_executes_call_await_and_return_to_completion() {
         executable,
         CallSpec {
             func: FunctionId(0),
-            args: vec![TestValue::Int(7)],
+            args: vec![TestValue::Ready(TestReadyValue::Int(7))],
         },
     )
     .expect("function 0 should exist");
@@ -66,7 +81,7 @@ fn runtime_executes_call_await_and_return_to_completion() {
         .expect("runtime should complete after the nested call resolves");
 
     let Effect::Complete(value) = effect;
-    assert_eq!(value, TestValue::Int(7));
+    assert_eq!(value, TestReadyValue::Int(7));
 }
 
 #[test]
@@ -90,7 +105,10 @@ fn runtime_follows_jump_and_jump_if_before_returning() {
         executable,
         CallSpec {
             func: FunctionId(0),
-            args: vec![TestValue::Int(1), TestValue::Int(9)],
+            args: vec![
+                TestValue::Ready(TestReadyValue::Int(1)),
+                TestValue::Ready(TestReadyValue::Int(9)),
+            ],
         },
     )
     .expect("function 0 should exist");
@@ -100,5 +118,5 @@ fn runtime_follows_jump_and_jump_if_before_returning() {
         .expect("runtime should follow the branch states to completion");
 
     let Effect::Complete(value) = effect;
-    assert_eq!(value, TestValue::Int(9));
+    assert_eq!(value, TestReadyValue::Int(9));
 }

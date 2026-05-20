@@ -3441,6 +3441,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 
 [[package]]
+name = "static_assertions"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
+
+[[package]]
 name = "stringprep"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5215,6 +5221,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "index_type",
+ "static_assertions",
  "thiserror",
  "tokio",
  "tracing",
@@ -5319,6 +5326,7 @@ dependencies = [
  "waymark-vm-interpreter",
  "waymark-vm-runtime",
  "waymark-vm-runtime-core",
+ "waymark-vm-runtime-promise-core",
  "waymark-vm-runtime-test",
 ]
 
@@ -5366,13 +5374,17 @@ name = "waymark-vm-interpreter-coreset"
 version = "0.1.0"
 dependencies = [
  "derive-where",
+ "static_assertions",
  "thiserror",
  "waymark-vm-executable",
  "waymark-vm-instructions-coreset",
  "waymark-vm-interpreter",
  "waymark-vm-runtime",
  "waymark-vm-runtime-core",
+ "waymark-vm-runtime-promise-core",
+ "waymark-vm-runtime-promise-value",
  "waymark-vm-runtime-test",
+ "waymark-vm-runtime-value",
 ]
 
 [[package]]
@@ -5384,8 +5396,11 @@ dependencies = [
  "waymark-nonzero-duration",
  "waymark-vm-instructions-extcallset",
  "waymark-vm-interpreter",
+ "waymark-vm-interpreter-coreset",
  "waymark-vm-runtime",
  "waymark-vm-runtime-core",
+ "waymark-vm-runtime-promise-core",
+ "waymark-vm-runtime-promise-value",
  "waymark-vm-runtime-test",
 ]
 
@@ -5407,7 +5422,10 @@ dependencies = [
  "waymark-vm-interpreter-pureset",
  "waymark-vm-runtime",
  "waymark-vm-runtime-core",
+ "waymark-vm-runtime-promise-core",
+ "waymark-vm-runtime-promise-value",
  "waymark-vm-runtime-test",
+ "waymark-vm-runtime-value",
 ]
 
 [[package]]
@@ -5415,13 +5433,16 @@ name = "waymark-vm-interpreter-pureset"
 version = "0.1.0"
 dependencies = [
  "derive-where",
+ "static_assertions",
  "thiserror",
  "waymark-vm-instructions-pureset",
  "waymark-vm-interpreter",
+ "waymark-vm-interpreter-coreset",
  "waymark-vm-interpreter-utils",
  "waymark-vm-runtime",
  "waymark-vm-runtime-core",
  "waymark-vm-runtime-test",
+ "waymark-vm-runtime-value",
 ]
 
 [[package]]
@@ -5429,6 +5450,8 @@ name = "waymark-vm-interpreter-utils"
 version = "0.1.0"
 dependencies = [
  "waymark-vm-runtime-core",
+ "waymark-vm-runtime-promise-core",
+ "waymark-vm-runtime-promise-value",
 ]
 
 [[package]]
@@ -5439,7 +5462,9 @@ dependencies = [
  "tracing",
  "waymark-vm-executable",
  "waymark-vm-interpreter",
+ "waymark-vm-interpreter-coreset",
  "waymark-vm-runtime-core",
+ "waymark-vm-runtime-promise-core",
  "waymark-vm-runtime-test",
 ]
 
@@ -5449,6 +5474,29 @@ version = "0.1.0"
 dependencies = [
  "index_type",
  "thiserror",
+ "waymark-vm-runtime-promise-core",
+ "waymark-vm-runtime-promise-value",
+]
+
+[[package]]
+name = "waymark-vm-runtime-promise-core"
+version = "0.1.0"
+dependencies = [
+ "index_type",
+ "thiserror",
+]
+
+[[package]]
+name = "waymark-vm-runtime-promise-value"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+ "waymark-nonzero-duration",
+ "waymark-vm-interpreter-coreset",
+ "waymark-vm-interpreter-extcallset",
+ "waymark-vm-interpreter-pureset",
+ "waymark-vm-runtime-promise-core",
+ "waymark-vm-runtime-value",
 ]
 
 [[package]]
@@ -5459,8 +5507,11 @@ dependencies = [
  "waymark-vm-bytecode",
  "waymark-vm-bytecode-core",
  "waymark-vm-interpreter",
+ "waymark-vm-interpreter-coreset",
  "waymark-vm-runtime",
  "waymark-vm-runtime-core",
+ "waymark-vm-runtime-promise-value",
+ "waymark-vm-runtime-value",
 ]
 
 [[package]]
@@ -5472,6 +5523,7 @@ name = "waymark-vm-value"
 version = "0.1.0"
 dependencies = [
  "indexmap 2.13.0",
+ "static_assertions",
  "thiserror",
  "typed_floats",
  "waymark-nonzero-duration",
@@ -5480,6 +5532,8 @@ dependencies = [
  "waymark-vm-interpreter-extcallset",
  "waymark-vm-interpreter-fullset",
  "waymark-vm-interpreter-pureset",
+ "waymark-vm-runtime-promise-value",
+ "waymark-vm-runtime-value",
 ]
 
 [[package]]

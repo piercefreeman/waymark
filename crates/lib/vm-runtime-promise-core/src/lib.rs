@@ -1,4 +1,7 @@
 //! Core traits and type for promises support at runtime.
+//!
+//! Provides abstraction layer necessary to generalize the promise-capable
+//! value types.
 
 #![warn(missing_docs)]
 

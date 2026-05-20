@@ -8,7 +8,10 @@ publish.workspace = true
 waymark-vm-bytecode = { workspace = true }
 waymark-vm-bytecode-core = { workspace = true }
 waymark-vm-interpreter = { workspace = true }
+waymark-vm-interpreter-coreset = { workspace = true }
 waymark-vm-runtime = { workspace = true }
 waymark-vm-runtime-core = { workspace = true }
+waymark-vm-runtime-promise-value = { workspace = true }
+waymark-vm-runtime-value = { workspace = true }
 
 thiserror = { workspace = true }

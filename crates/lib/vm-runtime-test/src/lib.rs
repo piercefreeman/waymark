@@ -1,11 +1,12 @@
 use waymark_vm_interpreter::{ExecutionOutcome, Interpreter};
 use waymark_vm_runtime::{CallSpec, FunctionNotFoundError, Runtime};
 use waymark_vm_runtime_core::{
-    CaptureRuntimeView, Continuation, Frame, FrameKind, FullRuntimeView, Promise, PromiseState,
-    RegisterId, Registers,
+    CaptureRuntimeView, Continuation, Frame, FrameKind, FullRuntimeView, PromiseState, RegisterId,
+    Registers,
 };
 
 pub use waymark_vm_bytecode_core::{FunctionId, StateId};
+use waymark_vm_runtime_promise_value::PromiseValue;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TestInstruction {
@@ -27,7 +28,7 @@ pub enum TestInstruction {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TestEffect {
     Message(&'static str),
-    Value(i32),
+    Value(TestReadyValue),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -39,6 +40,20 @@ pub struct TestInterpreter;
 pub type TestExecutable = waymark_vm_bytecode::Executable<TestInstruction>;
 
 pub type TestFunction = waymark_vm_bytecode::Function<TestInstruction>;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TestReadyValue(pub i32);
+pub type TestValue = PromiseValue<TestReadyValue>;
+
+impl waymark_vm_runtime_value::RootValueAccess for TestReadyValue {
+    type RootValue = TestValue;
+}
+
+impl waymark_vm_interpreter_coreset::value::CaptureCallArgument for TestReadyValue {
+    fn capture_call_argument(&self) -> Self {
+        self.clone()
+    }
+}
 
 pub fn function<Instruction>(
     num_regs: usize,
@@ -63,19 +78,19 @@ pub fn executable<Instruction>(
     }
 }
 
-impl CaptureRuntimeView<TestExecutable, FunctionId, StateId, i32> for TestInterpreter {
-    type RuntimeView<'r> = FullRuntimeView<'r, TestExecutable, FunctionId, StateId, i32>;
+impl CaptureRuntimeView<TestExecutable, FunctionId, StateId, TestValue> for TestInterpreter {
+    type RuntimeView<'r> = FullRuntimeView<'r, TestExecutable, FunctionId, StateId, TestValue>;
 
     fn capture_runtime_view<'r>(
-        view: FullRuntimeView<'r, TestExecutable, FunctionId, StateId, i32>,
+        view: FullRuntimeView<'r, TestExecutable, FunctionId, StateId, TestValue>,
     ) -> Self::RuntimeView<'r> {
         view
     }
 }
 
 impl Interpreter for TestInterpreter {
-    type RuntimeView<'r> = FullRuntimeView<'r, TestExecutable, FunctionId, StateId, i32>;
-    type Frame = Frame<FunctionId, StateId, Promise<i32>>;
+    type RuntimeView<'r> = FullRuntimeView<'r, TestExecutable, FunctionId, StateId, TestValue>;
+    type Frame = Frame<FunctionId, StateId, TestValue>;
     type Instruction = TestInstruction;
     type Error = TestExecutionError;
     type Effect = TestEffect;
@@ -103,11 +118,11 @@ impl Interpreter for TestInterpreter {
                 Ok(ExecutionOutcome::ExitFrame)
             }
             TestInstruction::EmitRegister(register) => {
-                let Some(Promise::Resolved(value)) = frame.regs.get(register) else {
+                let Some(PromiseValue::Ready(value)) = frame.regs.get(register) else {
                     panic!("register should hold a resolved value before emitting it");
                 };
                 Ok(ExecutionOutcome::ExitFrameWithEffect(TestEffect::Value(
-                    *value,
+                    value.clone(),
                 )))
             }
             TestInstruction::EnqueueFrameAndExit {
@@ -129,7 +144,7 @@ impl Interpreter for TestInterpreter {
     }
 }
 
-pub type TestRuntime = Runtime<TestExecutable, TestInterpreter, i32>;
+pub type TestRuntime = Runtime<TestExecutable, TestInterpreter, TestValue>;
 
 pub fn try_runtime(
     executable: TestExecutable,
@@ -143,15 +158,19 @@ pub fn runtime(executable: TestExecutable) -> TestRuntime {
 
 pub fn try_runtime_with_entrypoint(
     executable: TestExecutable,
-    call: CallSpec<FunctionId, i32>,
+    call: CallSpec<FunctionId, TestValue>,
 ) -> Result<TestRuntime, FunctionNotFoundError<FunctionId>> {
     Runtime::with_custom_entrypoint(TestInterpreter, executable, call)
 }
 
 pub fn runtime_with_entrypoint(
     executable: TestExecutable,
-    call: CallSpec<FunctionId, i32>,
+    call: CallSpec<FunctionId, TestValue>,
 ) -> TestRuntime {
     try_runtime_with_entrypoint(executable, call)
         .expect("test executable should define the entrypoint")
+}
+
+pub fn value_ready(value: TestReadyValue) -> TestValue {
+    PromiseValue::Ready(value)
 }

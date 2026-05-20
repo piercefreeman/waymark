@@ -6,8 +6,10 @@ use waymark_vm_interpreter_extcallset::{
 };
 use waymark_vm_runtime::{CallSpec, RunError, Runtime};
 use waymark_vm_runtime_core::{
-    CaptureRuntimeView, Frame, FullRuntimeView, Promise, PromiseState, PromiseStateId, RegisterId,
+    CaptureRuntimeView, Frame, FullRuntimeView, PromiseState, RegisterId,
 };
+use waymark_vm_runtime_promise_core::PromiseStateId;
+use waymark_vm_runtime_promise_value::PromiseValue;
 use waymark_vm_runtime_test::{FunctionId, StateId, executable, function};
 
 #[derive(Debug)]
@@ -19,8 +21,25 @@ impl waymark_vm_instructions_extcallset::Spec for TestSpec {
     type ActionRef = usize;
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct TestValue(i32);
+#[derive(Debug, Clone)]
+struct TestReadyValue(i32);
+type TestValue = PromiseValue<TestReadyValue>;
+
+impl waymark_vm_interpreter_coreset::value::CaptureCallArgument for TestReadyValue {
+    fn capture_call_argument(&self) -> Self {
+        self.clone()
+    }
+}
+
+impl waymark_vm_interpreter_extcallset::value::CaptureActionCallArgument for TestReadyValue {
+    type ActionCallArgument = i32;
+    type Error = waymark_vm_runtime_promise_core::UnresolvedPromiseError;
+
+    fn capture_action_call_argument(&self) -> Result<Self::ActionCallArgument, Self::Error> {
+        let Self(value) = self;
+        Ok(*value)
+    }
+}
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 enum TestSleepDurationError {
@@ -31,7 +50,7 @@ enum TestSleepDurationError {
     Zero,
 }
 
-impl waymark_vm_interpreter_extcallset::value::SleepDuration for TestValue {
+impl waymark_vm_interpreter_extcallset::value::SleepDuration for TestReadyValue {
     type Error = TestSleepDurationError;
 
     fn to_sleep_duration(&self) -> Result<NonZeroDuration, Self::Error> {
@@ -54,7 +73,7 @@ impl From<ExtCallSet<TestSpec>> for RuntimeInstruction {
 
 #[derive(Debug)]
 enum TestEffect {
-    ExtCallSet(Effect<TestValue, usize>),
+    ExtCallSet(Effect<usize, i32>),
     PendingPromiseStateId(PromiseStateId),
 }
 
@@ -84,7 +103,7 @@ impl<Executable> CaptureRuntimeView<Executable, FunctionId, StateId, TestValue>
 
 impl waymark_vm_interpreter::Interpreter for RuntimeInterpreter {
     type RuntimeView<'r> = RuntimeView<'r, FunctionId, StateId, TestValue>;
-    type Frame = Frame<FunctionId, StateId, Promise<TestValue>>;
+    type Frame = Frame<FunctionId, StateId, TestValue>;
     type Instruction = RuntimeInstruction;
     type Error = InterpreterError<TestValue>;
     type Effect = TestEffect;
@@ -108,7 +127,7 @@ impl waymark_vm_interpreter::Interpreter for RuntimeInterpreter {
             RuntimeInstruction::InspectPending(register) => {
                 let RuntimeView { state } = runtime_view;
 
-                let Promise::Pending(promise_state_id) = frame.regs[*register].clone() else {
+                let PromiseValue::Pending(promise_state_id) = frame.regs[*register].clone() else {
                     panic!("register should hold the suspended operation's pending promise");
                 };
 
@@ -146,7 +165,7 @@ fn runtime_emits_an_action_call_and_queues_the_resumed_frame() {
         )]),
         CallSpec {
             func: FunctionId(0),
-            args: vec![TestValue(41)],
+            args: vec![TestValue::Ready(TestReadyValue(41))],
         },
     )
     .expect("function 0 should exist");
@@ -163,7 +182,7 @@ fn runtime_emits_an_action_call_and_queues_the_resumed_frame() {
     };
 
     assert_eq!(action_ref, 7);
-    assert_eq!(args, vec![TestValue(41)]);
+    assert_eq!(args, vec![41]);
 
     let TestEffect::PendingPromiseStateId(resumed_promise_state_id) = runtime
         .run()
@@ -195,7 +214,7 @@ fn runtime_emits_a_sleep_effect_and_queues_the_resumed_frame() {
         )]),
         CallSpec {
             func: FunctionId(0),
-            args: vec![TestValue(5)],
+            args: vec![TestValue::Ready(TestReadyValue(5))],
         },
     )
     .expect("function 0 should exist");
@@ -239,7 +258,7 @@ fn runtime_surfaces_invalid_sleep_duration_errors_from_the_interpreter() {
         )]),
         CallSpec {
             func: FunctionId(0),
-            args: vec![TestValue(0)],
+            args: vec![TestValue::Ready(TestReadyValue(0))],
         },
     )
     .expect("function 0 should exist");
@@ -248,7 +267,9 @@ fn runtime_surfaces_invalid_sleep_duration_errors_from_the_interpreter() {
         runtime.run(),
         Err(RunError::Step(waymark_vm_runtime::step::Error::Execution(
             InterpreterError::Sleep(SleepError::InvalidDuration {
-                source: TestSleepDurationError::Zero,
+                source: waymark_vm_runtime_promise_value::Error::Ready(
+                    TestSleepDurationError::Zero
+                ),
             })
         )))
     ));

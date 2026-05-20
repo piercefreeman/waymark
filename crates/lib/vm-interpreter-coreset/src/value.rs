@@ -14,7 +14,21 @@ pub trait ShouldJump {
     fn should_jump(&self) -> Result<bool, NotAConditionalError>;
 }
 
-/// A unifying trait for all value requirements.
-pub trait Value: ShouldJump {}
+/// Capture the value for the purposes of using it as a function call argument.
+pub trait CaptureCallArgument {
+    /// Clone or otherwise convert this value for the runtime function call.
+    fn capture_call_argument(&self) -> Self;
+}
 
-impl<T> Value for T where T: ShouldJump {}
+/// A unifying trait for all value requirements.
+pub trait Value:
+    waymark_vm_runtime_value::RootValueAccess<RootValue = Self> + CaptureCallArgument + ShouldJump
+{
+}
+
+impl<T> Value for T where
+    T: waymark_vm_runtime_value::RootValueAccess<RootValue = Self>
+        + CaptureCallArgument
+        + ShouldJump
+{
+}

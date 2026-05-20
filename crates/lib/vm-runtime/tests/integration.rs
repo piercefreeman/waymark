@@ -1,8 +1,9 @@
 use waymark_vm_runtime::{CallSpec, RunError};
-use waymark_vm_runtime_core::{PromiseStateId, RegisterId, ResolvePromiseError};
+use waymark_vm_runtime_core::{RegisterId, ResolvePromiseError};
+use waymark_vm_runtime_promise_core::PromiseStateId;
 use waymark_vm_runtime_test::{
-    FunctionId, StateId, TestEffect, TestInstruction, executable, function, runtime,
-    runtime_with_entrypoint, try_runtime,
+    FunctionId, StateId, TestEffect, TestInstruction, TestReadyValue, TestValue, executable,
+    function, runtime, runtime_with_entrypoint, try_runtime,
 };
 
 #[test]
@@ -14,13 +15,16 @@ fn with_custom_entrypoint_uses_requested_function_and_arguments() {
         ]),
         CallSpec {
             func: FunctionId(1),
-            args: vec![7, 9],
+            args: vec![
+                TestValue::Ready(TestReadyValue(7)),
+                TestValue::Ready(TestReadyValue(9)),
+            ],
         },
     );
 
     assert_eq!(
         runtime.run().expect("custom entrypoint should emit"),
-        TestEffect::Value(9)
+        TestEffect::Value(TestReadyValue(9))
     );
 }
 
@@ -113,12 +117,12 @@ fn resolve_promise_resumes_a_suspended_frame_and_emits_the_resolved_value() {
     assert!(matches!(runtime.run(), Err(RunError::NoReadyFrame)));
 
     runtime
-        .resolve_promise(PromiseStateId(0), 41)
+        .resolve_promise(PromiseStateId(0), TestReadyValue(41))
         .expect("prepared promise should resolve");
 
     assert_eq!(
         runtime.run().expect("resumed frame should emit"),
-        TestEffect::Value(41)
+        TestEffect::Value(TestReadyValue(41))
     );
 }
 
@@ -138,7 +142,7 @@ fn resolve_promise_rejects_unknown_promise_ids_without_disturbing_waiting_work()
     assert!(matches!(runtime.run(), Err(RunError::NoReadyFrame)));
 
     let err = runtime
-        .resolve_promise(PromiseStateId(9), 41)
+        .resolve_promise(PromiseStateId(9), TestReadyValue(41))
         .expect_err("unknown promise IDs should be rejected");
 
     let ResolvePromiseError::PromiseStateNotFound(err) = err else {
@@ -147,12 +151,12 @@ fn resolve_promise_rejects_unknown_promise_ids_without_disturbing_waiting_work()
     assert_eq!(err.promise_state_id, PromiseStateId(9));
 
     runtime
-        .resolve_promise(PromiseStateId(0), 41)
+        .resolve_promise(PromiseStateId(0), TestReadyValue(41))
         .expect("the waiting promise should still resolve cleanly");
 
     assert_eq!(
         runtime.run().expect("resumed frame should still emit"),
-        TestEffect::Value(41)
+        TestEffect::Value(TestReadyValue(41))
     );
 }
 
@@ -172,22 +176,22 @@ fn resolve_promise_preserves_the_first_value_when_duplicate_resolution_occurs() 
     assert!(matches!(runtime.run(), Err(RunError::NoReadyFrame)));
 
     runtime
-        .resolve_promise(PromiseStateId(0), 7)
+        .resolve_promise(PromiseStateId(0), TestReadyValue(7))
         .expect("first promise resolution should succeed");
 
     let err = runtime
-        .resolve_promise(PromiseStateId(0), 11)
+        .resolve_promise(PromiseStateId(0), TestReadyValue(11))
         .expect_err("already-ready promise should reject a new value");
 
     let ResolvePromiseError::AlreadyResolved(err) = err else {
         panic!("duplicate resolutions should report already-resolved errors");
     };
 
-    assert_eq!(err.new_value, 11);
+    assert_eq!(err.new_value, TestReadyValue(11));
     assert_eq!(
         runtime
             .run()
             .expect("resumed frame should keep the first value"),
-        TestEffect::Value(7)
+        TestEffect::Value(TestReadyValue(7))
     );
 }

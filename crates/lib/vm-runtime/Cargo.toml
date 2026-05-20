@@ -7,7 +7,9 @@ publish.workspace = true
 [dependencies]
 waymark-vm-executable = { workspace = true }
 waymark-vm-interpreter = { workspace = true }
+waymark-vm-interpreter-coreset = { workspace = true }
 waymark-vm-runtime-core = { workspace = true }
+waymark-vm-runtime-promise-core = { workspace = true }
 
 thiserror = { workspace = true }
 tracing = { workspace = true }

@@ -6,3 +6,7 @@ publish.workspace = true
 
 [dependencies]
 waymark-vm-runtime-core = { workspace = true }
+
+[dev-dependencies]
+waymark-vm-runtime-promise-core = { workspace = true }
+waymark-vm-runtime-promise-value = { workspace = true }

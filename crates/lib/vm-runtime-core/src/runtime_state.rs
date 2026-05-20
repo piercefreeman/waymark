@@ -1,6 +1,8 @@
 use std::collections::VecDeque;
 
-use crate::{Frame, Promise, PromiseStateId, PromiseStates, ResolvePromiseError};
+use waymark_vm_runtime_promise_core::PromiseStateId;
+
+use crate::{Frame, PromiseStates, ResolvePromiseError};
 
 /// The state shape of the runtime.
 ///
@@ -16,7 +18,7 @@ pub struct RuntimeState<FunctionId, StateId, Value> {
     /// that at runtime all the values can be promises.
     //
     // TODO: replace with a more restricted interface
-    pub ready: VecDeque<Frame<FunctionId, StateId, Promise<Value>>>,
+    pub ready: VecDeque<Frame<FunctionId, StateId, Value>>,
 
     /// A state of the promises of this runtime.
     //
@@ -24,7 +26,7 @@ pub struct RuntimeState<FunctionId, StateId, Value> {
     // the promise values that refer to them. We can implement this without
     // a full garbage-collector by holding the promises in a weak-rc-map
     // or something like that.
-    pub promise_states: PromiseStates<FunctionId, StateId, Promise<Value>>,
+    pub promise_states: PromiseStates<FunctionId, StateId, Value>,
 }
 
 impl<FunctionId, StateId, Value> RuntimeState<FunctionId, StateId, Value>
@@ -37,12 +39,14 @@ where
     pub fn resolve_promise(
         &mut self,
         promise_state_id: PromiseStateId,
-        val: Promise<Value>,
-    ) -> Result<(), ResolvePromiseError<Promise<Value>>> {
-        let continuations = self.promise_states.resolve(promise_state_id, val.clone())?;
+        value: Value,
+    ) -> Result<(), ResolvePromiseError<Value>> {
+        let continuations = self
+            .promise_states
+            .resolve(promise_state_id, value.clone())?;
 
         for continuation in continuations {
-            let frame = continuation.resume(val.clone());
+            let frame = continuation.resume(value.clone());
             self.ready.push_back(frame);
         }
 
@@ -54,13 +58,15 @@ where
 mod tests {
     use std::collections::VecDeque;
 
+    use waymark_vm_runtime_promise_value::PromiseValue;
+
     use super::RuntimeState;
     use crate::{
-        Continuation, Frame, FrameKind, Promise, PromiseState, PromiseStates, RegisterId,
-        Registers, ResolvePromiseError,
+        Continuation, Frame, FrameKind, PromiseState, PromiseStates, RegisterId, Registers,
+        ResolvePromiseError,
     };
 
-    fn frame(state: usize) -> Frame<&'static str, usize, Promise<i32>> {
+    fn frame(state: usize) -> Frame<&'static str, usize, PromiseValue<i32>> {
         Frame {
             func: "example",
             state,
@@ -72,13 +78,13 @@ mod tests {
     fn continuation(
         dst: RegisterId,
         resume_state: usize,
-    ) -> Continuation<&'static str, usize, Promise<i32>, crate::ResumeWithValue> {
+    ) -> Continuation<&'static str, usize, PromiseValue<i32>, crate::ResumeWithValue> {
         Continuation::capture(frame(0), resume_state, dst)
     }
 
     #[test]
     fn resolve_promise_enqueues_resumed_frames_and_records_resolved_value() {
-        let mut promise_states = PromiseStates::<&'static str, usize, Promise<i32>>::new();
+        let mut promise_states = PromiseStates::<&'static str, usize, PromiseValue<i32>>::new();
         let promise_state_id = promise_states.prepare();
         let promise_state = promise_states
             .get_mut(promise_state_id)
@@ -94,12 +100,12 @@ mod tests {
         };
 
         runtime
-            .resolve_promise(promise_state_id, Promise::Resolved(41))
+            .resolve_promise(promise_state_id, PromiseValue::Ready(41))
             .expect("waiting promise should resolve");
 
         assert_eq!(runtime.ready.len(), 2);
 
-        let PromiseState::Ready(Promise::Resolved(value)) = runtime
+        let PromiseState::Ready(PromiseValue::Ready(value)) = runtime
             .promise_states
             .get(promise_state_id)
             .expect("promise state exists")
@@ -110,14 +116,14 @@ mod tests {
 
         let first = runtime.ready.pop_front().expect("first resumed frame");
         assert_eq!(first.state, 3);
-        let Some(Promise::Resolved(value)) = first.regs.get(RegisterId(0)) else {
+        let Some(PromiseValue::Ready(value)) = first.regs.get(RegisterId(0)) else {
             panic!("first resumed frame should receive the resolved value");
         };
         assert_eq!(*value, 41);
 
         let second = runtime.ready.pop_front().expect("second resumed frame");
         assert_eq!(second.state, 5);
-        let Some(Promise::Resolved(value)) = second.regs.get(RegisterId(1)) else {
+        let Some(PromiseValue::Ready(value)) = second.regs.get(RegisterId(1)) else {
             panic!("second resumed frame should receive the resolved value");
         };
         assert_eq!(*value, 41);
@@ -125,12 +131,12 @@ mod tests {
 
     #[test]
     fn resolve_promise_returns_error_when_promise_is_already_resolved() {
-        let mut promise_states = PromiseStates::<&'static str, usize, Promise<i32>>::new();
+        let mut promise_states = PromiseStates::<&'static str, usize, PromiseValue<i32>>::new();
         let promise_state_id = promise_states.prepare();
         let promise_state = promise_states
             .get_mut(promise_state_id)
             .expect("promise state exists");
-        *promise_state = PromiseState::Ready(Promise::Resolved(7));
+        *promise_state = PromiseState::Ready(PromiseValue::Ready(7));
 
         let mut runtime = RuntimeState {
             ready: VecDeque::new(),
@@ -138,20 +144,20 @@ mod tests {
         };
 
         let err = runtime
-            .resolve_promise(promise_state_id, Promise::Resolved(9))
+            .resolve_promise(promise_state_id, PromiseValue::Ready(9))
             .expect_err("already resolved promise should reject a second value");
 
         let ResolvePromiseError::AlreadyResolved(err) = err else {
             panic!("duplicate resolution should surface an already-resolved error");
         };
 
-        let Promise::Resolved(value) = err.new_value else {
+        let PromiseValue::Ready(value) = err.new_value else {
             panic!("rejected value should be returned to the caller");
         };
         assert_eq!(value, 9);
         assert!(runtime.ready.is_empty());
 
-        let PromiseState::Ready(Promise::Resolved(value)) = runtime
+        let PromiseState::Ready(PromiseValue::Ready(value)) = runtime
             .promise_states
             .get(promise_state_id)
             .expect("promise state exists")
