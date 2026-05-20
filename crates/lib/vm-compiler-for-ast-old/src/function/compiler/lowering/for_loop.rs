@@ -293,6 +293,24 @@ where
 
     /// Compiles `range(stop)` and `range(start, stop)` loops with implicit
     /// positive step `1`.
+    ///
+    /// This is kept separate from [`Self::compile_stepped_range_loop`] rather
+    /// than dispatched through it with a synthetic `step = 1` because the step
+    /// sign is statically known here. That lets us:
+    ///
+    /// - Skip the runtime sign-classification chain in the condition state
+    ///   (two extra comparisons, two `jump_if`s, the step-zero break edge),
+    ///   plus the two auxiliary `positive_condition_state` /
+    ///   `negative_condition_state` bytecode states they require.
+    /// - Avoid materializing a `step` register and the zero literal used to
+    ///   classify it.
+    /// - Fold the continue-edge update into `emit_add_assign_immediate`, which
+    ///   emits a constant `+1` via a temporary instead of an `Add` against a
+    ///   persistent step register.
+    ///
+    /// The stepped variant could produce equivalent semantics, but only after
+    /// the bytecode pass eliminated the dead negative branch, and we would
+    /// still pay for the extra reserved states.
     fn compile_positive_range_loop(
         &mut self,
         loop_vars: &[String],
@@ -441,12 +459,12 @@ where
     /// Emits the common scaffold shared by every `for` loop lowering.
     ///
     /// The caller supplies three closures:
-    /// * `emit_condition` runs starting in the condition state and must end
+    /// - `emit_condition` runs starting in the condition state and must end
     ///   with control transferred to either the body state or the loop's break
     ///   target via [`emit_compare_and_branch`].
-    /// * `prepare_body` runs at the top of the body state to materialize loop
+    /// - `prepare_body` runs at the top of the body state to materialize loop
     ///   variable bindings before the body block compiles.
-    /// * `emit_continue_update` runs in the continue state and must advance the
+    /// - `emit_continue_update` runs in the continue state and must advance the
     ///   loop state before the skeleton jumps back to the condition.
     fn compile_loop_skeleton<C, B, U>(
         &mut self,
