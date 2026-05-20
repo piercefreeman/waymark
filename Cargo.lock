@@ -5352,15 +5352,14 @@ name = "waymark-vm-interpreter-coreset"
 version = "0.1.0"
 dependencies = [
  "derive-where",
- "static_assertions",
  "thiserror",
+ "waymark-vm-bytecode",
  "waymark-vm-executable",
  "waymark-vm-instructions-coreset",
  "waymark-vm-interpreter",
  "waymark-vm-runtime",
  "waymark-vm-runtime-core",
  "waymark-vm-runtime-promise-core",
- "waymark-vm-runtime-promise-value",
  "waymark-vm-runtime-test",
  "waymark-vm-runtime-value",
 ]
