@@ -11,6 +11,12 @@ pub enum PromiseValue<T> {
     Pending(PromiseStateId),
 }
 
+impl<T> From<T> for PromiseValue<T> {
+    fn from(value: T) -> Self {
+        Self::Ready(value)
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error<ReadyValueError> {
     #[error(transparent)]

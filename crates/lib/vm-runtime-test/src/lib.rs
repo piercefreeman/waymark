@@ -188,17 +188,23 @@ pub fn runtime(executable: TestExecutable) -> TestRuntime {
     try_runtime(executable).expect("entrypoint should exist")
 }
 
-pub fn try_runtime_with_entrypoint(
+pub fn try_runtime_with_entrypoint<Arg>(
     executable: TestExecutable,
-    call: CallSpec<FunctionId, TestValue>,
-) -> Result<TestRuntime, FunctionNotFoundError<FunctionId>> {
+    call: CallSpec<FunctionId, Arg>,
+) -> Result<TestRuntime, FunctionNotFoundError<FunctionId>>
+where
+    Arg: Into<TestValue>,
+{
     Runtime::with_custom_entrypoint(TestInterpreter, executable, call)
 }
 
-pub fn runtime_with_entrypoint(
+pub fn runtime_with_entrypoint<Arg>(
     executable: TestExecutable,
-    call: CallSpec<FunctionId, TestValue>,
-) -> TestRuntime {
+    call: CallSpec<FunctionId, Arg>,
+) -> TestRuntime
+where
+    Arg: Into<TestValue>,
+{
     try_runtime_with_entrypoint(executable, call)
         .expect("test executable should define the entrypoint")
 }

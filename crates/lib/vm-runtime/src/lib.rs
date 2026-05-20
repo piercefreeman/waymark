@@ -31,12 +31,12 @@ where
 }
 
 /// A specification of a VM function call.
-pub struct CallSpec<FunctionId, Value> {
+pub struct CallSpec<FunctionId, Arg> {
     /// A function to call.
     pub func: FunctionId,
 
     /// A list of arguments to pass to the function.
-    pub args: Vec<Value>,
+    pub args: Vec<Arg>,
 }
 
 /// An error returned when to such function id is defined in the executable.
@@ -51,9 +51,8 @@ where
     Interpreter: waymark_vm_interpreter::Interpreter,
     Executable: waymark_vm_executable::FunctionStates,
     Executable: waymark_vm_executable::FunctionInfo,
-    Executable::FunctionId: Copy + Default,
+    Executable::FunctionId: Copy,
     Executable::StateId: Default,
-    Value: waymark_vm_interpreter_coreset::value::CaptureCallArgument,
 {
     /// Create a new runtime with a conventional entrypoint.
     ///
@@ -62,37 +61,34 @@ where
     pub fn with_conventional_entrypoint(
         interpreter: Interpreter,
         executable: Executable,
-    ) -> Result<Self, FunctionNotFoundError<Executable::FunctionId>> {
+    ) -> Result<Self, FunctionNotFoundError<Executable::FunctionId>>
+    where
+        Executable::FunctionId: Default,
+    {
         Self::with_custom_entrypoint(
             interpreter,
             executable,
-            CallSpec {
+            CallSpec::<_, Value> {
                 func: Executable::FunctionId::default(),
                 args: Vec::new(),
             },
         )
     }
-}
 
-impl<Executable, Interpreter, Value> Runtime<Executable, Interpreter, Value>
-where
-    Interpreter: waymark_vm_interpreter::Interpreter,
-    Executable: waymark_vm_executable::FunctionStates,
-    Executable: waymark_vm_executable::FunctionInfo,
-    Executable::FunctionId: Copy + Default,
-    Executable::StateId: Default,
-    Value: waymark_vm_interpreter_coreset::value::CaptureCallArgument,
-{
     /// Create a new runtime with a custom entrypoint.
     ///
     /// Initialized the top-level frame with a call to the `func` specified
     /// in the `call` and the list of arguments as specified by the `args`
-    /// in the `call`.
-    pub fn with_custom_entrypoint(
+    /// in the `call`. Each argument is converted into the runtime value
+    /// type via [`Into`].
+    pub fn with_custom_entrypoint<Arg>(
         interpreter: Interpreter,
         executable: Executable,
-        call: CallSpec<Executable::FunctionId, Value>,
-    ) -> Result<Self, FunctionNotFoundError<Executable::FunctionId>> {
+        call: CallSpec<Executable::FunctionId, Arg>,
+    ) -> Result<Self, FunctionNotFoundError<Executable::FunctionId>>
+    where
+        Arg: Into<Value>,
+    {
         let mut ready = VecDeque::new();
 
         let CallSpec { func, args } = call;
@@ -101,10 +97,7 @@ where
             .function_num_regs(func)
             .ok_or(FunctionNotFoundError { function_id: func })?;
 
-        let regs = Registers::new_for_fn_call(
-            num_regs,
-            args.into_iter().map(|value| value.capture_call_argument()),
-        );
+        let regs = Registers::new_for_fn_call(num_regs, args.into_iter().map(Arg::into));
 
         ready.push_back(Frame {
             func,

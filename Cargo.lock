@@ -5462,7 +5462,6 @@ dependencies = [
  "tracing",
  "waymark-vm-executable",
  "waymark-vm-interpreter",
- "waymark-vm-interpreter-coreset",
  "waymark-vm-runtime-core",
  "waymark-vm-runtime-promise-core",
  "waymark-vm-runtime-test",

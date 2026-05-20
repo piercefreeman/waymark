@@ -2,12 +2,12 @@ use waymark_vm_runtime::{CallSpec, RunError};
 use waymark_vm_runtime_core::{RegisterId, ResolvePromiseError};
 use waymark_vm_runtime_promise_core::PromiseStateId;
 use waymark_vm_runtime_test::{
-    FunctionId, StateId, TestEffect, TestInstruction, TestReadyValue, TestValue, executable,
-    function, runtime, runtime_with_entrypoint, try_runtime,
+    FunctionId, StateId, TestEffect, TestInstruction, TestReadyValue, executable, function,
+    runtime, runtime_with_entrypoint, try_runtime,
 };
 
 #[test]
-fn with_custom_entrypoint_uses_requested_function_and_arguments() {
+fn with_custom_entrypoint_uses_requested_function_and_ready_arguments() {
     let mut runtime = runtime_with_entrypoint(
         executable(vec![
             function(0, vec![vec![TestInstruction::Emit("wrong")]]),
@@ -15,10 +15,7 @@ fn with_custom_entrypoint_uses_requested_function_and_arguments() {
         ]),
         CallSpec {
             func: FunctionId(1),
-            args: vec![
-                TestValue::Ready(TestReadyValue(7)),
-                TestValue::Ready(TestReadyValue(9)),
-            ],
+            args: vec![TestReadyValue(7), TestReadyValue(9)],
         },
     );
 
@@ -70,7 +67,7 @@ fn run_returns_step_error_when_a_state_has_no_instructions() {
         executable(vec![function(0, vec![Vec::new()])]),
         CallSpec {
             func: FunctionId(0),
-            args: Vec::new(),
+            args: Vec::<TestReadyValue>::new(),
         },
     );
 
