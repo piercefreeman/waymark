@@ -1,3 +1,35 @@
+//! Universal test fixtures for the VM runtime.
+//!
+//! Everything in this crate must remain agnostic to any specific instruction
+//! set or interpreter (coreset, pureset, extcallset, fullset, …). The intent
+//! is that adding a new instruction, effect, or value-trait to one of those
+//! interpreters never forces a change here.
+//!
+//! Concretely, this crate may depend on the core runtime traits
+//! ([`waymark_vm_interpreter::Interpreter`],
+//! [`waymark_vm_runtime_core::CaptureRuntimeView`],
+//! [`waymark_vm_interpreter_coreset::value::CaptureCallArgument`], etc.) that
+//! every interpreter is expected to honor, but it must not depend on the
+//! per-instruction-set crates (e.g. `waymark-vm-instructions-pureset`,
+//! `waymark-vm-interpreter-extcallset`).
+//!
+//! What belongs here:
+//!
+//! - Generic builder helpers ([`function`], [`executable`]) that don't know
+//!   about any particular instruction set.
+//! - Re-exports of universal id types ([`FunctionId`], [`StateId`]).
+//! - A self-contained [`TestInstruction`]/[`TestInterpreter`]/[`TestRuntime`]
+//!   fixture used by `vm-runtime`'s own tests — its surface only changes when
+//!   the core runtime traits change.
+//!
+//! What does NOT belong here:
+//!
+//! - Trait impls for any `<instruction-set>::value::*` trait that isn't a
+//!   universal contract.
+//! - `Spec` types or value enums tailored to a specific interpreter's needs.
+//! - Per-interpreter `TestSpec`/`TestValue` aliases — those live in each
+//!   interpreter crate's `tests/support/mod.rs`.
+
 use waymark_vm_interpreter::{ExecutionOutcome, Interpreter};
 use waymark_vm_runtime::{CallSpec, FunctionNotFoundError, Runtime};
 use waymark_vm_runtime_core::{
