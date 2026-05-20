@@ -1,4 +1,6 @@
-use crate::{PromiseStateId, Registers};
+use waymark_vm_runtime_promise_core::PromiseStateId;
+
+use crate::Registers;
 
 /// A frame shape used in runtime.
 pub struct Frame<FunctionId, StateId, Value> {

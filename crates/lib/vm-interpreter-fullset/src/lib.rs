@@ -7,7 +7,7 @@ pub mod value;
 
 use derive_where::derive_where;
 use waymark_vm_interpreter::ExecutionOutcome;
-use waymark_vm_runtime_core::{CaptureRuntimeView as _, Frame, Promise};
+use waymark_vm_runtime_core::{CaptureRuntimeView as _, Frame};
 
 pub use self::error::*;
 pub use self::value::Value;
@@ -44,12 +44,12 @@ pub use waymark_vm_runtime_core::FullRuntimeView as RuntimeView;
 
 /// The effect for the [`FullSetInterpreter`].
 #[derive(Debug)]
-pub enum Effect<Value, ActionRef> {
+pub enum Effect<Value, ActionRef, ActionCallArgument> {
     /// An effect produced while executing a coreset instruction.
     CoreSet(waymark_vm_interpreter_coreset::Effect<Value>),
 
     /// An effect produced while executing an extcallset instruction.
-    ExtCallSet(waymark_vm_interpreter_extcallset::Effect<Value, ActionRef>),
+    ExtCallSet(waymark_vm_interpreter_extcallset::Effect<ActionRef, ActionCallArgument>),
 
     /// An impossible effect produced while executing a pureset instruction.
     PureSet(core::convert::Infallible),
@@ -75,25 +75,25 @@ where
     Value: waymark_vm_interpreter_coreset::Value,
     Value: waymark_vm_interpreter_extcallset::Value,
     Value: waymark_vm_interpreter_pureset::Value,
-    Spec::ConstValue: Clone + Into<Value>,
+    Value: for<'a> waymark_vm_interpreter_pureset::value::LoadConst<&'a Spec::ConstValue>,
+    Value: waymark_vm_runtime_promise_core::Resolvable,
+    Value: waymark_vm_runtime_promise_core::Suspendable,
+    Value::ReadyValue: Clone,
 {
     type RuntimeView<'r> =
         RuntimeView<'r, Executable, FunctionIdFor<Spec>, StateIdFor<Spec>, Value>;
-    type Frame = Frame<FunctionIdFor<Spec>, StateIdFor<Spec>, Promise<Value>>;
+    type Frame = Frame<FunctionIdFor<Spec>, StateIdFor<Spec>, Value>;
     type Instruction = waymark_vm_instructions_fullset::FullSet<Spec>;
     type Error = Error<Spec, Value>;
-    type Effect = Effect<Value, ActionRefFor<Spec>>;
+    type Effect = Effect<Value::ReadyValue, ActionRefFor<Spec>, Value::ActionCallArgument>;
 
     fn execute<'r>(
         &self,
         runtime_view: Self::RuntimeView<'r>,
-        frame: Frame<FunctionIdFor<Spec>, StateIdFor<Spec>, Promise<Value>>,
+        frame: Frame<FunctionIdFor<Spec>, StateIdFor<Spec>, Value>,
         instruction: &Self::Instruction,
     ) -> Result<
-        ExecutionOutcome<
-            Frame<FunctionIdFor<Spec>, StateIdFor<Spec>, Promise<Value>>,
-            Self::Effect,
-        >,
+        ExecutionOutcome<Frame<FunctionIdFor<Spec>, StateIdFor<Spec>, Value>, Self::Effect>,
         Self::Error,
     > {
         Ok(match instruction {

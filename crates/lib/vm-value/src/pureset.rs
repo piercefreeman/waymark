@@ -6,30 +6,20 @@ use waymark_vm_instructions_pureset::{
     BinaryOpKind as BinaryOperationKind, UnaryOpKind as UnaryOperationKind,
 };
 use waymark_vm_interpreter_pureset::value::{
-    BinaryOperationError, DotOperationError, FromLengthError, IndexOperationError, LengthError,
-    MakeDictError, UnaryOperationError,
+    AsDictKeyError, BinaryOperationError, DotOperationError, FromLengthError, IndexOperationError,
+    LengthError, MakeDictError, UnaryOperationError,
 };
 
-use crate::{Value, pythonic};
+use crate::{ReadyValue, ReadyValue as RV, Value, pythonic};
 
-fn dict_key(value: &Value) -> Result<String, MakeDictError> {
-    match value {
-        Value::String(value) => Ok(value.clone()),
-        Value::Int(_)
-        | Value::Float(_)
-        | Value::Bool(_)
-        | Value::None
-        | Value::List(_)
-        | Value::Dict(_) => Err(MakeDictError::UnsupportedKeyType),
-    }
-}
-
-fn contains_bool(a: &Value, b: &Value) -> Result<bool, BinaryOperationError> {
+fn contains_bool(a: &ReadyValue, b: &ReadyValue) -> Result<bool, BinaryOperationError> {
     match (a, b) {
-        (Value::String(needle), Value::String(haystack)) => Ok(haystack.contains(needle)),
-        (value, Value::List(items)) => Ok(items.iter().any(|item| item == value)),
-        (Value::String(needle), Value::Dict(entries)) => Ok(entries.contains_key(needle)),
-        (_, Value::Dict(_)) => Ok(false),
+        (ReadyValue::String(needle), ReadyValue::String(haystack)) => Ok(haystack.contains(needle)),
+        (value, ReadyValue::List(items)) => Ok(items
+            .iter()
+            .any(|item| matches!(item, Value::Ready(item) if item == value))),
+        (ReadyValue::String(needle), ReadyValue::Dict(entries)) => Ok(entries.contains_key(needle)),
+        (_, ReadyValue::Dict(_)) => Ok(false),
         _ => Err(BinaryOperationError::UnsupportedOperation {
             operation: BinaryOperationKind::In,
         }),
@@ -48,21 +38,36 @@ where
         .map_err(|_| BinaryOperationError::ResultOutOfBounds { operation })
 }
 
-fn normalized_index(index: &Value, len: usize) -> Result<usize, IndexOperationError> {
+fn normalized_index(index: &ReadyValue, len: usize) -> Result<usize, IndexOperationError> {
     match index {
-        Value::Int(index) => {
+        ReadyValue::Int(index) => {
             pythonic::normalized_index(*index, len).ok_or(IndexOperationError::IndexOutOfBounds)
         }
-        Value::Float(_)
-        | Value::Bool(_)
-        | Value::String(_)
-        | Value::None
-        | Value::List(_)
-        | Value::Dict(_) => Err(IndexOperationError::UnsupportedOperation),
+        ReadyValue::Float(_)
+        | ReadyValue::Bool(_)
+        | ReadyValue::String(_)
+        | ReadyValue::None
+        | ReadyValue::List(_)
+        | RV::Dict(_) => Err(IndexOperationError::UnsupportedOperation),
     }
 }
 
-impl waymark_vm_interpreter_pureset::value::BinaryOps for Value {
+impl<ConstValue> waymark_vm_interpreter_pureset::value::LoadConst<ConstValue> for ReadyValue
+where
+    Self: From<ConstValue>,
+{
+    fn load_const(const_value: ConstValue) -> Self {
+        const_value.into()
+    }
+}
+
+impl waymark_vm_interpreter_pureset::value::CaptureCopy for ReadyValue {
+    fn capture_copy(&self) -> Self {
+        self.clone()
+    }
+}
+
+impl waymark_vm_interpreter_pureset::value::BinaryOps for ReadyValue {
     fn add(a: &Self, b: &Self) -> Result<Self, BinaryOperationError> {
         match (a, b) {
             (Self::Int(left), Self::Int(right)) => left.checked_add(*right).map(Self::Int).ok_or(
@@ -286,7 +291,7 @@ impl waymark_vm_interpreter_pureset::value::BinaryOps for Value {
     }
 }
 
-impl waymark_vm_interpreter_pureset::value::UnaryOps for Value {
+impl waymark_vm_interpreter_pureset::value::UnaryOps for ReadyValue {
     fn neg(value: &Self) -> Result<Self, UnaryOperationError> {
         match value {
             Self::Int(value) => {
@@ -309,31 +314,45 @@ impl waymark_vm_interpreter_pureset::value::UnaryOps for Value {
     }
 }
 
-impl waymark_vm_interpreter_pureset::value::MakeList for Value {
+impl waymark_vm_interpreter_pureset::value::MakeList for ReadyValue {
     fn make_list<I>(items: I) -> Result<Self, waymark_vm_interpreter_pureset::value::MakeListError>
     where
-        I: IntoIterator<Item = Self>,
+        I: IntoIterator<Item = Self::RootValue>,
     {
         Ok(Self::List(items.into_iter().collect()))
     }
 }
 
-impl waymark_vm_interpreter_pureset::value::MakeDict for Value {
+impl waymark_vm_interpreter_pureset::value::AsDictKey for ReadyValue {
+    fn as_dict_key(&self) -> Result<&str, AsDictKeyError> {
+        match self {
+            Self::String(value) => Ok(value),
+            Self::Int(_)
+            | Self::Float(_)
+            | Self::Bool(_)
+            | Self::None
+            | Self::List(_)
+            | Self::Dict(_) => Err(AsDictKeyError::UnsupportedKeyType),
+        }
+    }
+}
+
+impl waymark_vm_interpreter_pureset::value::MakeDict for ReadyValue {
     fn make_dict<I>(entries: I) -> Result<Self, MakeDictError>
     where
-        I: IntoIterator<Item = (Self, Self)>,
+        I: IntoIterator<Item = (String, Self::RootValue)>,
     {
         let mut dict = IndexMap::new();
 
         for (key, value) in entries {
-            dict.insert(dict_key(&key)?, value);
+            dict.insert(key, value);
         }
 
         Ok(Self::Dict(dict))
     }
 }
 
-impl waymark_vm_interpreter_pureset::value::Length for Value {
+impl waymark_vm_interpreter_pureset::value::Length for ReadyValue {
     type Length = usize;
 
     fn length(&self) -> Result<Self::Length, LengthError> {
@@ -353,8 +372,8 @@ impl waymark_vm_interpreter_pureset::value::Length for Value {
     }
 }
 
-impl waymark_vm_interpreter_pureset::value::IndexOp for Value {
-    fn index(object: &Self, index: &Self) -> Result<Self, IndexOperationError> {
+impl waymark_vm_interpreter_pureset::value::IndexOp for ReadyValue {
+    fn index(object: &Self, index: &Self) -> Result<Self::RootValue, IndexOperationError> {
         match object {
             Self::List(items) => {
                 let index = normalized_index(index, items.len())?;
@@ -366,7 +385,7 @@ impl waymark_vm_interpreter_pureset::value::IndexOp for Value {
                     .chars()
                     .nth(index)
                     .expect("normalized string index should be in bounds");
-                Ok(Self::String(character.to_string()))
+                Ok(Value::Ready(Self::String(character.to_string())))
             }
             Self::Dict(entries) => match index {
                 Self::String(key) => entries
@@ -387,8 +406,8 @@ impl waymark_vm_interpreter_pureset::value::IndexOp for Value {
     }
 }
 
-impl waymark_vm_interpreter_pureset::value::DotOp for Value {
-    fn dot(object: &Self, attribute: &str) -> Result<Self, DotOperationError> {
+impl waymark_vm_interpreter_pureset::value::DotOp for ReadyValue {
+    fn dot(object: &Self, attribute: &str) -> Result<Self::RootValue, DotOperationError> {
         match object {
             Self::Dict(entries) => entries
                 .get(attribute)

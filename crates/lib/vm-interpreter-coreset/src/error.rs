@@ -1,4 +1,5 @@
-use waymark_vm_runtime_core::{PromiseStateNotFoundError, UnresolvedPromiseError};
+use waymark_vm_runtime_core::PromiseStateNotFoundError;
+use waymark_vm_runtime_promise_core::UnresolvedPromiseError;
 
 /// The error for the [`crate::CoreSetInterpreter`].
 #[derive(Debug, thiserror::Error)]
@@ -42,10 +43,6 @@ pub enum AwaitError {
 /// Errors produced while evaluating a `JumpIf` instruction.
 #[derive(Debug, thiserror::Error)]
 pub enum JumpIfError {
-    /// The condition register still held an unresolved promise.
-    #[error("unresolved conditional value: {0}")]
-    UnresolvedConditionPromise(#[source] UnresolvedPromiseError),
-
     /// The resolved condition value could not be interpreted as conditional.
     #[error("condition check: {0}")]
     ConditionCheck(#[source] crate::value::NotAConditionalError),

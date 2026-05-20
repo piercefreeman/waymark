@@ -6,6 +6,7 @@ use waymark_vm_instructions_pureset::{BinaryOpKind, PureSet, UnaryOpKind};
 use waymark_vm_interpreter_fullset::{Effect, FullSetInterpreter};
 use waymark_vm_runtime::{CallSpec, Runtime};
 use waymark_vm_runtime_core::RegisterId;
+use waymark_vm_runtime_promise_value::PromiseValue;
 use waymark_vm_runtime_test::{FunctionId, StateId, executable, function};
 
 type Instruction = FullSet<TestSpec>;
@@ -51,21 +52,33 @@ enum TestSleepDurationError {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum TestValue {
+enum TestReadyValue {
     Int(i64),
     Bool(bool),
     List(Vec<TestValue>),
 }
 
-fn is_truthy(value: &TestValue) -> bool {
+type TestValue = PromiseValue<TestReadyValue>;
+
+impl waymark_vm_runtime_value::RootValueAccess for TestReadyValue {
+    type RootValue = TestValue;
+}
+
+fn is_truthy(value: &TestReadyValue) -> bool {
     match value {
-        TestValue::Int(value) => *value != 0,
-        TestValue::Bool(value) => *value,
-        TestValue::List(items) => !items.is_empty(),
+        TestReadyValue::Int(value) => *value != 0,
+        TestReadyValue::Bool(value) => *value,
+        TestReadyValue::List(items) => !items.is_empty(),
     }
 }
 
-impl waymark_vm_interpreter_coreset::value::ShouldJump for TestValue {
+impl waymark_vm_interpreter_coreset::value::CaptureCallArgument for TestReadyValue {
+    fn capture_call_argument(&self) -> Self {
+        self.clone()
+    }
+}
+
+impl waymark_vm_interpreter_coreset::value::ShouldJump for TestReadyValue {
     fn should_jump(
         &self,
     ) -> Result<bool, waymark_vm_interpreter_coreset::value::NotAConditionalError> {
@@ -73,7 +86,35 @@ impl waymark_vm_interpreter_coreset::value::ShouldJump for TestValue {
     }
 }
 
-impl waymark_vm_interpreter_pureset::value::BinaryOps for TestValue {
+impl waymark_vm_interpreter_pureset::value::CaptureCopy for TestReadyValue {
+    fn capture_copy(&self) -> Self {
+        self.clone()
+    }
+}
+
+impl waymark_vm_interpreter_pureset::value::LoadConst<&TestConstValue> for TestReadyValue {
+    fn load_const(const_value: &TestConstValue) -> Self {
+        match const_value {
+            TestConstValue::Int(val) => Self::Int(*val),
+        }
+    }
+}
+
+impl waymark_vm_interpreter_pureset::value::AsScalar for TestReadyValue {
+    type Scalar = TestReadyValue;
+
+    fn as_scalar(
+        &self,
+    ) -> Result<&Self::Scalar, waymark_vm_interpreter_pureset::value::AsScalarError> {
+        Ok(self)
+    }
+
+    fn from_scalar(scalar: Self::Scalar) -> Self {
+        scalar
+    }
+}
+
+impl waymark_vm_interpreter_pureset::value::BinaryOps for TestReadyValue {
     fn add(
         a: &Self,
         b: &Self,
@@ -89,7 +130,7 @@ impl waymark_vm_interpreter_pureset::value::BinaryOps for TestValue {
     }
 }
 
-impl waymark_vm_interpreter_pureset::value::UnaryOps for TestValue {
+impl waymark_vm_interpreter_pureset::value::UnaryOps for TestReadyValue {
     fn neg(
         value: &Self,
     ) -> Result<Self, waymark_vm_interpreter_pureset::value::UnaryOperationError> {
@@ -110,28 +151,34 @@ impl waymark_vm_interpreter_pureset::value::UnaryOps for TestValue {
     }
 }
 
-impl waymark_vm_interpreter_pureset::value::MakeList for TestValue {
+impl waymark_vm_interpreter_pureset::value::MakeList for TestReadyValue {
     fn make_list<I>(items: I) -> Result<Self, waymark_vm_interpreter_pureset::value::MakeListError>
     where
-        I: IntoIterator<Item = Self>,
+        I: IntoIterator<Item = Self::RootValue>,
     {
         Ok(Self::List(items.into_iter().collect()))
     }
 }
 
-impl waymark_vm_interpreter_pureset::value::MakeDict for TestValue {
+impl waymark_vm_interpreter_pureset::value::AsDictKey for TestReadyValue {
+    fn as_dict_key(&self) -> Result<&str, waymark_vm_interpreter_pureset::value::AsDictKeyError> {
+        Err(waymark_vm_interpreter_pureset::value::AsDictKeyError::UnsupportedKeyType)
+    }
+}
+
+impl waymark_vm_interpreter_pureset::value::MakeDict for TestReadyValue {
     fn make_dict<I>(
         entries: I,
     ) -> Result<Self, waymark_vm_interpreter_pureset::value::MakeDictError>
     where
-        I: IntoIterator<Item = (Self, Self)>,
+        I: IntoIterator<Item = (String, Self::RootValue)>,
     {
         let _ = entries;
         Err(waymark_vm_interpreter_pureset::value::MakeDictError::NotDictable)
     }
 }
 
-impl waymark_vm_interpreter_pureset::value::Length for TestValue {
+impl waymark_vm_interpreter_pureset::value::Length for TestReadyValue {
     type Length = usize;
 
     fn length(&self) -> Result<usize, waymark_vm_interpreter_pureset::value::LengthError> {
@@ -153,11 +200,11 @@ impl waymark_vm_interpreter_pureset::value::Length for TestValue {
     }
 }
 
-impl waymark_vm_interpreter_pureset::value::IndexOp for TestValue {}
+impl waymark_vm_interpreter_pureset::value::IndexOp for TestReadyValue {}
 
-impl waymark_vm_interpreter_pureset::value::DotOp for TestValue {}
+impl waymark_vm_interpreter_pureset::value::DotOp for TestReadyValue {}
 
-impl waymark_vm_interpreter_extcallset::value::SleepDuration for TestValue {
+impl waymark_vm_interpreter_extcallset::value::SleepDuration for TestReadyValue {
     type Error = TestSleepDurationError;
 
     fn to_sleep_duration(&self) -> Result<NonZeroDuration, Self::Error> {
@@ -171,10 +218,20 @@ impl waymark_vm_interpreter_extcallset::value::SleepDuration for TestValue {
     }
 }
 
-impl From<TestConstValue> for TestValue {
-    fn from(value: TestConstValue) -> Self {
+impl waymark_vm_interpreter_extcallset::value::CaptureActionCallArgument for TestReadyValue {
+    type Error = core::convert::Infallible;
+
+    type ActionCallArgument = TestReadyValue;
+
+    fn capture_action_call_argument(&self) -> Result<Self::ActionCallArgument, Self::Error> {
+        Ok(self.clone())
+    }
+}
+
+impl From<&TestConstValue> for TestReadyValue {
+    fn from(value: &TestConstValue) -> Self {
         match value {
-            TestConstValue::Int(value) => Self::Int(value),
+            TestConstValue::Int(value) => Self::Int(*value),
         }
     }
 }
@@ -219,7 +276,7 @@ fn runtime_executes_pure_and_core_instructions_to_completion() {
 
     match effect {
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(value)) => {
-            assert_eq!(value, TestValue::Int(5));
+            assert_eq!(value, TestReadyValue::Int(5));
         }
         Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall { .. }) => {
             panic!("program should not emit an action call")
@@ -296,7 +353,7 @@ fn runtime_resumes_sleep_effects_and_finishes_with_pure_work() {
     };
 
     runtime
-        .resolve_promise(promise_state_id, TestValue::Int(0))
+        .resolve_promise(promise_state_id, TestReadyValue::Int(0))
         .expect("sleep promise should resolve cleanly");
 
     let effect = runtime
@@ -305,7 +362,7 @@ fn runtime_resumes_sleep_effects_and_finishes_with_pure_work() {
 
     match effect {
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(value)) => {
-            assert_eq!(value, TestValue::Int(7));
+            assert_eq!(value, TestReadyValue::Int(7));
         }
         Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall { .. }) => {
             panic!("resolved sleep should not emit an action call")
@@ -364,7 +421,7 @@ fn runtime_resumes_extcalls_and_finishes_with_pure_work() {
         executable,
         CallSpec {
             func: FunctionId(0),
-            args: vec![TestValue::Int(41)],
+            args: vec![TestValue::Ready(TestReadyValue::Int(41))],
         },
     )
     .expect("function 0 should exist");
@@ -380,7 +437,7 @@ fn runtime_resumes_extcalls_and_finishes_with_pure_work() {
             args,
         }) => {
             assert_eq!(action_ref, TestActionRef(7));
-            assert_eq!(args, vec![TestValue::Int(41)]);
+            assert_eq!(args, vec![TestReadyValue::Int(41)]);
             promise_state_id
         }
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(_)) => {
@@ -393,7 +450,7 @@ fn runtime_resumes_extcalls_and_finishes_with_pure_work() {
     };
 
     runtime
-        .resolve_promise(promise_state_id, TestValue::Int(41))
+        .resolve_promise(promise_state_id, TestReadyValue::Int(41))
         .expect("action call promise should resolve cleanly");
 
     let effect = runtime
@@ -402,7 +459,7 @@ fn runtime_resumes_extcalls_and_finishes_with_pure_work() {
 
     match effect {
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(value)) => {
-            assert_eq!(value, TestValue::Int(42));
+            assert_eq!(value, TestReadyValue::Int(42));
         }
         Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall { .. }) => {
             panic!("resolved action call should not emit another action call")

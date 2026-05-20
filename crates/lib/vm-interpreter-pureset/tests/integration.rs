@@ -4,7 +4,7 @@ use waymark_vm_instructions_pureset::{BinaryOpKind, PureSet, UnaryOpKind};
 use waymark_vm_interpreter::ExecutionOutcome;
 use waymark_vm_interpreter_pureset::{BinaryOperandPosition, Error, PureSetInterpreter};
 use waymark_vm_runtime::{RunError, Runtime};
-use waymark_vm_runtime_core::{CaptureRuntimeView, Frame, Promise, PromiseStateId, RegisterId};
+use waymark_vm_runtime_core::{CaptureRuntimeView, Frame, RegisterId};
 use waymark_vm_runtime_test::{FunctionId, StateId, executable, function};
 
 #[derive(Debug)]
@@ -29,13 +29,34 @@ enum TestValue {
     Text(&'static str),
     List(Vec<TestValue>),
     Dict(BTreeMap<String, TestValue>),
+    // Test-only sentinel for values that should be rejected by pureset operations
+    // without coupling these tests to promise-specific runtime behavior.
+    Unusable,
     OverflowLength,
 }
 
-impl From<TestConstValue> for TestValue {
-    fn from(value: TestConstValue) -> Self {
-        match value {
-            TestConstValue::Int(value) => Self::Int(value),
+impl waymark_vm_runtime_value::RootValueAccess for TestValue {
+    type RootValue = TestValue;
+}
+
+static_assertions::assert_impl_all!(TestValue: waymark_vm_interpreter_pureset::Value);
+
+impl waymark_vm_interpreter_coreset::value::CaptureCallArgument for TestValue {
+    fn capture_call_argument(&self) -> Self {
+        self.clone()
+    }
+}
+
+impl waymark_vm_interpreter_pureset::value::CaptureCopy for TestValue {
+    fn capture_copy(&self) -> Self {
+        self.clone()
+    }
+}
+
+impl waymark_vm_interpreter_pureset::value::LoadConst<&TestConstValue> for TestValue {
+    fn load_const(const_value: &TestConstValue) -> Self {
+        match const_value {
+            TestConstValue::Int(value) => Self::Int(*value),
             TestConstValue::Text(value) => Self::Text(value),
             TestConstValue::OverflowLength => Self::OverflowLength,
         }
@@ -49,22 +70,8 @@ fn is_truthy(value: &TestValue) -> bool {
         TestValue::Text(value) => !value.is_empty(),
         TestValue::List(items) => !items.is_empty(),
         TestValue::Dict(entries) => !entries.is_empty(),
+        TestValue::Unusable => unreachable!("unusable values are not scalar"),
         TestValue::OverflowLength => true,
-    }
-}
-
-fn dict_key(
-    value: &TestValue,
-) -> Result<String, waymark_vm_interpreter_pureset::value::MakeDictError> {
-    match value {
-        TestValue::Text(value) => Ok((*value).to_owned()),
-        TestValue::Int(_)
-        | TestValue::Bool(_)
-        | TestValue::List(_)
-        | TestValue::Dict(_)
-        | TestValue::OverflowLength => {
-            Err(waymark_vm_interpreter_pureset::value::MakeDictError::UnsupportedKeyType)
-        }
     }
 }
 
@@ -76,6 +83,23 @@ fn normalized_index(index: i64, len: usize) -> Option<usize> {
 
     let distance_from_end = usize::try_from(index.unsigned_abs()).ok()?;
     (distance_from_end <= len).then_some(len - distance_from_end)
+}
+
+impl waymark_vm_interpreter_pureset::value::AsScalar for TestValue {
+    type Scalar = Self;
+
+    fn as_scalar(
+        &self,
+    ) -> Result<&Self::Scalar, waymark_vm_interpreter_pureset::value::AsScalarError> {
+        match self {
+            Self::Unusable => Err(waymark_vm_interpreter_pureset::value::AsScalarError::NotAScalar),
+            _ => Ok(self),
+        }
+    }
+
+    fn from_scalar(scalar: Self::Scalar) -> Self {
+        scalar
+    }
 }
 
 impl waymark_vm_interpreter_pureset::value::BinaryOps for TestValue {
@@ -124,17 +148,33 @@ impl waymark_vm_interpreter_pureset::value::MakeList for TestValue {
     }
 }
 
+impl waymark_vm_interpreter_pureset::value::AsDictKey for TestValue {
+    fn as_dict_key(&self) -> Result<&str, waymark_vm_interpreter_pureset::value::AsDictKeyError> {
+        match self {
+            TestValue::Text(value) => Ok(value),
+            TestValue::Int(_)
+            | TestValue::Bool(_)
+            | TestValue::List(_)
+            | TestValue::Dict(_)
+            | TestValue::Unusable
+            | TestValue::OverflowLength => {
+                Err(waymark_vm_interpreter_pureset::value::AsDictKeyError::UnsupportedKeyType)
+            }
+        }
+    }
+}
+
 impl waymark_vm_interpreter_pureset::value::MakeDict for TestValue {
     fn make_dict<I>(
         entries: I,
     ) -> Result<Self, waymark_vm_interpreter_pureset::value::MakeDictError>
     where
-        I: IntoIterator<Item = (Self, Self)>,
+        I: IntoIterator<Item = (String, Self)>,
     {
         let mut dict = BTreeMap::new();
 
         for (key, value) in entries {
-            dict.insert(dict_key(&key)?, value);
+            dict.insert(key, value);
         }
 
         Ok(Self::Dict(dict))
@@ -166,6 +206,9 @@ impl waymark_vm_interpreter_pureset::value::Length for TestValue {
                 .try_into()
                 .map(TestLength::Valid)
                 .unwrap_or(TestLength::Overflow)),
+            Self::Unusable => {
+                Err(waymark_vm_interpreter_pureset::value::LengthError::UnsupportedValue)
+            }
             Self::OverflowLength => Ok(TestLength::Overflow),
             Self::Int(_) | Self::Bool(_) => {
                 Err(waymark_vm_interpreter_pureset::value::LengthError::UnsupportedValue)
@@ -229,10 +272,7 @@ impl waymark_vm_interpreter_pureset::value::DotOp for TestValue {
 #[derive(Debug)]
 enum RuntimeInstruction {
     Pure(PureSet<TestSpec>),
-    SetPending {
-        dst: RegisterId,
-        promise_state_id: PromiseStateId,
-    },
+    SetUnusable { dst: RegisterId },
     EmitRegister(RegisterId),
 }
 
@@ -272,7 +312,7 @@ impl<Executable> CaptureRuntimeView<Executable, FunctionId, StateId, TestValue>
 
 impl waymark_vm_interpreter::Interpreter for RuntimeInterpreter {
     type RuntimeView<'r> = ();
-    type Frame = Frame<FunctionId, StateId, Promise<TestValue>>;
+    type Frame = Frame<FunctionId, StateId, TestValue>;
     type Instruction = RuntimeInstruction;
     type Error = Error;
     type Effect = TestValue;
@@ -288,15 +328,12 @@ impl waymark_vm_interpreter::Interpreter for RuntimeInterpreter {
                 .pure
                 .execute((), frame, instruction)
                 .map(|outcome| outcome.map_effect(|effect| match effect {})),
-            RuntimeInstruction::SetPending {
-                dst,
-                promise_state_id,
-            } => {
-                frame.regs.set(*dst, Promise::Pending(*promise_state_id));
+            RuntimeInstruction::SetUnusable { dst } => {
+                frame.regs.set(*dst, TestValue::Unusable);
                 Ok(ExecutionOutcome::Continue(frame))
             }
             RuntimeInstruction::EmitRegister(register) => {
-                let value = frame.regs[*register].clone().require_resolved().unwrap();
+                let value = frame.regs[*register].clone();
                 Ok(ExecutionOutcome::ExitFrameWithEffect(value))
             }
         }
@@ -524,14 +561,11 @@ fn runtime_surfaces_add_errors_from_the_pureset_interpreter() {
 }
 
 #[test]
-fn runtime_surfaces_unresolved_add_operand_errors_from_the_pureset_interpreter() {
+fn runtime_surfaces_unusable_add_operand_errors_from_unusable_values() {
     let executable = executable(vec![function::<RuntimeInstruction>(
         2,
         vec![vec![
-            RuntimeInstruction::SetPending {
-                dst: RegisterId(0),
-                promise_state_id: PromiseStateId(7),
-            },
+            RuntimeInstruction::SetUnusable { dst: RegisterId(0) },
             PureSet::LoadConst {
                 dst: RegisterId(1),
                 value: TestConstValue::Int(3),
@@ -557,24 +591,21 @@ fn runtime_surfaces_unresolved_add_operand_errors_from_the_pureset_interpreter()
     assert!(matches!(
         runtime.run(),
         Err(RunError::Step(waymark_vm_runtime::step::Error::Execution(
-            Error::UnresolvedBinaryOperand {
+            Error::UnusableBinaryOperand {
                 operation: BinaryOpKind::Add,
                 operand_pos: BinaryOperandPosition::First,
-                source: waymark_vm_runtime_core::UnresolvedPromiseError { promise_state_id },
+                source: waymark_vm_interpreter_pureset::value::AsScalarError::NotAScalar,
             }
-        ))) if promise_state_id == PromiseStateId(7)
+        )))
     ));
 }
 
 #[test]
-fn runtime_surfaces_unresolved_length_operand_errors_from_the_pureset_interpreter() {
+fn runtime_surfaces_length_errors_from_unusable_values() {
     let executable = executable(vec![function::<RuntimeInstruction>(
         2,
         vec![vec![
-            RuntimeInstruction::SetPending {
-                dst: RegisterId(0),
-                promise_state_id: PromiseStateId(7),
-            },
+            RuntimeInstruction::SetUnusable { dst: RegisterId(0) },
             PureSet::Length {
                 dst: RegisterId(1),
                 src: RegisterId(0),
@@ -591,10 +622,8 @@ fn runtime_surfaces_unresolved_length_operand_errors_from_the_pureset_interprete
     assert!(matches!(
         runtime.run(),
         Err(RunError::Step(waymark_vm_runtime::step::Error::Execution(
-            Error::UnresolvedLengthOperand {
-                source: waymark_vm_runtime_core::UnresolvedPromiseError { promise_state_id },
-            }
-        ))) if promise_state_id == PromiseStateId(7)
+            Error::Length(waymark_vm_interpreter_pureset::value::LengthError::UnsupportedValue)
+        )))
     ));
 }
 
@@ -857,15 +886,16 @@ fn runtime_surfaces_make_dict_key_type_errors_from_the_pureset_interpreter() {
     assert!(matches!(
         runtime.run(),
         Err(RunError::Step(waymark_vm_runtime::step::Error::Execution(
-            Error::MakeDict(
-                waymark_vm_interpreter_pureset::value::MakeDictError::UnsupportedKeyType
-            )
-        )))
+            Error::UnusableDictKey {
+                entry_pos,
+                source: waymark_vm_interpreter_pureset::value::AsDictKeyError::UnsupportedKeyType,
+            }
+        ))) if entry_pos == 0
     ));
 }
 
 #[test]
-fn runtime_surfaces_unresolved_index_operand_errors_from_the_pureset_interpreter() {
+fn runtime_surfaces_index_errors_from_unusable_values() {
     let executable = executable(vec![function::<RuntimeInstruction>(
         4,
         vec![vec![
@@ -879,10 +909,7 @@ fn runtime_surfaces_unresolved_index_operand_errors_from_the_pureset_interpreter
                 items: vec![RegisterId(0)],
             }
             .into(),
-            RuntimeInstruction::SetPending {
-                dst: RegisterId(2),
-                promise_state_id: PromiseStateId(7),
-            },
+            RuntimeInstruction::SetUnusable { dst: RegisterId(2) },
             PureSet::Index {
                 dst: RegisterId(3),
                 object: RegisterId(1),
@@ -900,10 +927,11 @@ fn runtime_surfaces_unresolved_index_operand_errors_from_the_pureset_interpreter
     assert!(matches!(
         runtime.run(),
         Err(RunError::Step(waymark_vm_runtime::step::Error::Execution(
-            Error::UnresolvedIndexOperand {
-                source: waymark_vm_runtime_core::UnresolvedPromiseError { promise_state_id },
+            Error::IndexOperation {
+                source:
+                    waymark_vm_interpreter_pureset::value::IndexOperationError::UnsupportedOperation,
             }
-        ))) if promise_state_id == PromiseStateId(7)
+        )))
     ));
 }
 
@@ -957,14 +985,11 @@ fn runtime_surfaces_missing_dot_attribute_errors_from_the_pureset_interpreter() 
 }
 
 #[test]
-fn runtime_surfaces_unresolved_make_list_item_errors_from_the_pureset_interpreter() {
+fn runtime_copies_unusable_make_list_items_to_a_terminal_effect() {
     let executable = executable(vec![function::<RuntimeInstruction>(
         2,
         vec![vec![
-            RuntimeInstruction::SetPending {
-                dst: RegisterId(0),
-                promise_state_id: PromiseStateId(7),
-            },
+            RuntimeInstruction::SetUnusable { dst: RegisterId(0) },
             PureSet::MakeList {
                 dst: RegisterId(1),
                 items: vec![RegisterId(0)],
@@ -978,26 +1003,20 @@ fn runtime_surfaces_unresolved_make_list_item_errors_from_the_pureset_interprete
         Runtime::with_conventional_entrypoint(RuntimeInterpreter::default(), executable)
             .expect("function 0 should exist");
 
-    assert!(matches!(
-        runtime.run(),
-        Err(RunError::Step(waymark_vm_runtime::step::Error::Execution(
-            Error::UnresolvedListItem {
-                item_pos,
-                source: waymark_vm_runtime_core::UnresolvedPromiseError { promise_state_id },
-            }
-        ))) if item_pos == 0 && promise_state_id == PromiseStateId(7)
-    ));
+    assert_eq!(
+        runtime
+            .run()
+            .expect("runtime should preserve unusable list items"),
+        TestValue::List(vec![TestValue::Unusable])
+    );
 }
 
 #[test]
-fn runtime_surfaces_unresolved_make_dict_key_errors_from_the_pureset_interpreter() {
+fn runtime_surfaces_unusable_make_dict_key_errors_from_unusable_values() {
     let executable = executable(vec![function::<RuntimeInstruction>(
         3,
         vec![vec![
-            RuntimeInstruction::SetPending {
-                dst: RegisterId(0),
-                promise_state_id: PromiseStateId(7),
-            },
+            RuntimeInstruction::SetUnusable { dst: RegisterId(0) },
             PureSet::LoadConst {
                 dst: RegisterId(1),
                 value: TestConstValue::Int(3),
@@ -1022,10 +1041,10 @@ fn runtime_surfaces_unresolved_make_dict_key_errors_from_the_pureset_interpreter
     assert!(matches!(
         runtime.run(),
         Err(RunError::Step(waymark_vm_runtime::step::Error::Execution(
-            Error::UnresolvedDictKey {
+            Error::UnusableDictKey {
                 entry_pos,
-                source: waymark_vm_runtime_core::UnresolvedPromiseError { promise_state_id },
+                source: waymark_vm_interpreter_pureset::value::AsDictKeyError::UnsupportedKeyType,
             }
-        ))) if entry_pos == 0 && promise_state_id == PromiseStateId(7)
+        ))) if entry_pos == 0
     ));
 }
