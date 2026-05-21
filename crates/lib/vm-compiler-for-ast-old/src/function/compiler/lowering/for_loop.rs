@@ -1,32 +1,22 @@
 //! For-loop lowering.
 //!
-//! `for` loops are lowered into a four-state bytecode skeleton modeled by
-//! [`ForLoopPlan`]: a `condition` state, a `body` state, a `continue` state
-//! (the target of `continue` statements and the natural fallthrough at the end
-//! of the body), and an `exit` state (the target of `break`). All variants
-//! share that shape and reach it through [`ForLoopCompiler::compile_loop_skeleton`],
-//! which lets each header shape contribute only the parts that actually
-//! differ:
+//! # Shared skeleton
 //!
-//! - **Header classification** ([`ResolvedForLoop`]) inspects the iterable
-//!   expression and decides between three lowering strategies: walking an
-//!   indexable value, a positive-step `range`, or a runtime-signed-step
-//!   `range`. `enumerate(...)` is unwrapped at this stage so the chosen
-//!   strategy is independent of whether the loop binds `(index, value)` pairs.
-//! - **Per-strategy lowering** ([`ForLoopCompiler::compile_indexed_loop`],
-//!   [`compile_positive_range_loop`](ForLoopCompiler::compile_positive_range_loop),
-//!   [`compile_stepped_range_loop`](ForLoopCompiler::compile_stepped_range_loop))
-//!   allocates the registers that must survive across iterations, then hands
-//!   the skeleton three closures that emit the loop condition, the
-//!   per-iteration body prep, and the continue-edge update.
-//! - **Variable binding** ([`compile_loop_bindings`](ForLoopCompiler::compile_loop_bindings))
-//!   normalizes the value/`enumerate` distinction and handles destructuring
-//!   into one, two, or N loop locals.
+//! All `for` loops share one four-state skeleton (condition, body, continue,
+//! exit) so that `break`/`continue` resolution and flow-state plumbing stay
+//! in one place.
 //!
-//! Loop-control (`break`/`continue`) targets come from the shared
-//! [`LoopControlStack`]; the nested statement compiler used for the body
-//! pushes the current [`ForLoopPlan`]'s scope so inner statements jump to the
-//! correct states without knowing the lowering strategy.
+//! # Header variants
+//!
+//! Header variants exist only where they let cheaper cases skip machinery
+//! the expensive ones need. In particular, a runtime-signed `range` step is
+//! the only thing that forces extra condition states, so statically-known
+//! steps get their own path.
+//!
+//! # Enumerate
+//!
+//! `enumerate(...)` is unwrapped during header classification to keep
+//! iteration mechanics independent of variable-binding shape.
 
 use waymark_vm_ast_old::{
     Block, Expr, FunctionCall, GlobalFunction, Kwarg, Literal, Span, Spanned,
