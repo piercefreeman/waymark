@@ -273,65 +273,20 @@ where
     where
         F: FnOnce(&mut Self, RegisterId) -> Result<(), ErrorFor<Spec, Lowering>>,
     {
-        let index_register = self.context.local_frame.allocate_register();
-        self.emit_int_literal_into_register(index_register, 0)?;
-
-        let length_register = self.context.local_frame.allocate_register();
-        self.context
-            .emitter
-            .emit_length(length_register, collection_register);
-
-        let incoming_flow = self.context.flow_state.clone();
-        let for_loop = ForLoopPlan::new(
-            &incoming_flow,
-            self.new_state(),
-            self.new_state(),
-            self.new_state(),
-            self.new_state(),
-        );
-
-        self.context.emitter.emit_jump(for_loop.condition_state());
-
-        self.switch_to_with_flow(for_loop.condition_state(), for_loop.condition_flow());
-        {
-            let condition_register = self.context.local_frame.allocate_temporary_register();
-            self.context.emitter.emit_binary(
-                BinaryOpKind::Lt,
-                condition_register.register(),
-                index_register,
-                length_register,
-            );
-            self.context
-                .emitter
-                .emit_jump_if(for_loop.body_state(), condition_register.register());
-        }
-        self.context
-            .emitter
-            .emit_jump(for_loop.loop_scope().target(LoopControlKind::Break));
-
-        self.switch_to_with_flow(for_loop.body_state(), for_loop.body_flow());
-        {
-            let item_register = self.context.local_frame.allocate_temporary_register();
-            self.context.emitter.emit_index(
-                item_register.register(),
-                collection_register,
-                index_register,
-            );
-            compile_body(self, item_register.register())?;
-        }
-
-        if self.context.emitter.is_active() {
-            self.context.emitter.emit_jump(for_loop.continue_state());
-        }
-
-        self.switch_to_with_flow(for_loop.continue_state(), for_loop.continue_flow());
-        self.emit_add_assign_immediate(index_register, 1)?;
-        self.context.emitter.emit_jump(for_loop.condition_state());
-
-        let (exit_state, exit_flow) = for_loop.finish();
-        self.switch_to_with_flow(exit_state, exit_flow);
-
-        Ok(())
+        self.compile_indexed_register_loop(
+            collection_register,
+            move |compiler, for_loop, collection_register, index_register| {
+                compiler.compile_body_state(for_loop, move |compiler| {
+                    let item_register = compiler.context.local_frame.allocate_temporary_register();
+                    compiler.context.emitter.emit_index(
+                        item_register.register(),
+                        collection_register,
+                        index_register,
+                    );
+                    compile_body(compiler, item_register.register())
+                })
+            },
+        )
     }
 
     /// Compiles a `for` loop that walks an indexable iterable.
@@ -345,66 +300,25 @@ where
         let iterable_register = self.context.local_frame.allocate_register();
         self.compile_expr_into_register(iterable, iterable_register)?;
 
-        let index_register = self.context.local_frame.allocate_register();
-        self.emit_int_literal_into_register(index_register, 0)?;
-
-        let length_register = self.context.local_frame.allocate_register();
-        self.context
-            .emitter
-            .emit_length(length_register, iterable_register);
-
-        let incoming_flow = self.context.flow_state.clone();
-        let for_loop = ForLoopPlan::new(
-            &incoming_flow,
-            self.new_state(),
-            self.new_state(),
-            self.new_state(),
-            self.new_state(),
-        );
-        let body_loop_scope = for_loop.loop_scope();
-
-        self.context.emitter.emit_jump(for_loop.condition_state());
-
-        self.switch_to_with_flow(for_loop.condition_state(), for_loop.condition_flow());
-        {
-            let condition_register = self.context.local_frame.allocate_temporary_register();
-            self.context.emitter.emit_binary(
-                BinaryOpKind::Lt,
-                condition_register.register(),
-                index_register,
-                length_register,
-            );
-            self.context
-                .emitter
-                .emit_jump_if(for_loop.body_state(), condition_register.register());
-        }
-        self.context
-            .emitter
-            .emit_jump(body_loop_scope.target(LoopControlKind::Break));
-
-        self.compile_loop_body(&for_loop, body, |compiler| {
-            let item_register = compiler.context.local_frame.allocate_temporary_register();
-            compiler.context.emitter.emit_index(
-                item_register.register(),
-                iterable_register,
-                index_register,
-            );
-            compiler.compile_loop_bindings(
-                loop_vars,
-                binding,
-                item_register.register(),
-                Some(index_register),
-            )
-        })?;
-
-        self.switch_to_with_flow(for_loop.continue_state(), for_loop.continue_flow());
-        self.emit_add_assign_immediate(index_register, 1)?;
-        self.context.emitter.emit_jump(for_loop.condition_state());
-
-        let (exit_state, exit_flow) = for_loop.finish();
-        self.switch_to_with_flow(exit_state, exit_flow);
-
-        Ok(())
+        self.compile_indexed_register_loop(
+            iterable_register,
+            |compiler, for_loop, iterable_register, index_register| {
+                compiler.compile_loop_body(for_loop, body, |compiler| {
+                    let item_register = compiler.context.local_frame.allocate_temporary_register();
+                    compiler.context.emitter.emit_index(
+                        item_register.register(),
+                        iterable_register,
+                        index_register,
+                    );
+                    compiler.compile_loop_bindings(
+                        loop_vars,
+                        binding,
+                        item_register.register(),
+                        Some(index_register),
+                    )
+                })
+            },
+        )
     }
 
     /// Compiles `range(stop)` and `range(start, stop)` loops with implicit
@@ -428,55 +342,21 @@ where
 
         let enumerate_index_register = self.allocate_enumerate_index_register(binding)?;
 
-        let incoming_flow = self.context.flow_state.clone();
-        let for_loop = ForLoopPlan::new(
-            &incoming_flow,
-            self.new_state(),
-            self.new_state(),
-            self.new_state(),
-            self.new_state(),
-        );
-        let body_loop_scope = for_loop.loop_scope();
-
-        self.context.emitter.emit_jump(for_loop.condition_state());
-
-        self.switch_to_with_flow(for_loop.condition_state(), for_loop.condition_flow());
-        {
-            let condition_register = self.context.local_frame.allocate_temporary_register();
-            self.context.emitter.emit_binary(
-                BinaryOpKind::Lt,
-                condition_register.register(),
-                current_register,
-                end_register,
-            );
-            self.context
-                .emitter
-                .emit_jump_if(for_loop.body_state(), condition_register.register());
-        }
-        self.context
-            .emitter
-            .emit_jump(body_loop_scope.target(LoopControlKind::Break));
-
-        self.compile_loop_body(&for_loop, body, |compiler| {
-            compiler.compile_loop_bindings(
-                loop_vars,
-                binding,
-                current_register,
-                enumerate_index_register,
-            )
-        })?;
-
-        self.switch_to_with_flow(for_loop.continue_state(), for_loop.continue_flow());
-        self.emit_add_assign_immediate(current_register, 1)?;
-        if let Some(enumerate_index_register) = enumerate_index_register {
-            self.emit_add_assign_immediate(enumerate_index_register, 1)?;
-        }
-        self.context.emitter.emit_jump(for_loop.condition_state());
-
-        let (exit_state, exit_flow) = for_loop.finish();
-        self.switch_to_with_flow(exit_state, exit_flow);
-
-        Ok(())
+        self.compile_positive_range_body(
+            current_register,
+            end_register,
+            enumerate_index_register,
+            |compiler, for_loop| {
+                compiler.compile_loop_body(for_loop, body, |compiler| {
+                    compiler.compile_loop_bindings(
+                        loop_vars,
+                        binding,
+                        current_register,
+                        enumerate_index_register,
+                    )
+                })
+            },
+        )
     }
 
     /// Compiles `range(start, end, step)` loops with runtime sign checks.
@@ -500,6 +380,120 @@ where
 
         let enumerate_index_register = self.allocate_enumerate_index_register(binding)?;
 
+        self.compile_stepped_range_body(
+            current_register,
+            end_register,
+            step_register,
+            enumerate_index_register,
+            |compiler, for_loop| {
+                compiler.compile_loop_body(for_loop, body, |compiler| {
+                    compiler.compile_loop_bindings(
+                        loop_vars,
+                        binding,
+                        current_register,
+                        enumerate_index_register,
+                    )
+                })
+            },
+        )
+    }
+
+    /// Compiles the shared control-flow skeleton for indexed loops.
+    fn compile_indexed_register_loop<F>(
+        &mut self,
+        collection_register: RegisterId,
+        compile_body: F,
+    ) -> Result<(), ErrorFor<Spec, Lowering>>
+    where
+        F: FnOnce(
+            &mut Self,
+            &ForLoopPlan,
+            RegisterId,
+            RegisterId,
+        ) -> Result<(), ErrorFor<Spec, Lowering>>,
+    {
+        let index_register = self.context.local_frame.allocate_register();
+        self.emit_int_literal_into_register(index_register, 0)?;
+
+        let length_register = self.context.local_frame.allocate_register();
+        self.context
+            .emitter
+            .emit_length(length_register, collection_register);
+
+        let for_loop = self.new_for_loop_plan();
+
+        self.context.emitter.emit_jump(for_loop.condition_state());
+        self.emit_binary_condition_branch(
+            &for_loop,
+            for_loop.condition_state(),
+            for_loop.condition_flow(),
+            BinaryOpKind::Lt,
+            index_register,
+            length_register,
+        );
+
+        compile_body(self, &for_loop, collection_register, index_register)?;
+
+        self.switch_to_with_flow(for_loop.continue_state(), for_loop.continue_flow());
+        self.emit_add_assign_immediate(index_register, 1)?;
+        self.context.emitter.emit_jump(for_loop.condition_state());
+
+        let (exit_state, exit_flow) = for_loop.finish();
+        self.switch_to_with_flow(exit_state, exit_flow);
+
+        Ok(())
+    }
+
+    /// Compiles the shared control-flow skeleton for positive-step range loops.
+    fn compile_positive_range_body<F>(
+        &mut self,
+        current_register: RegisterId,
+        end_register: RegisterId,
+        enumerate_index_register: Option<RegisterId>,
+        compile_body: F,
+    ) -> Result<(), ErrorFor<Spec, Lowering>>
+    where
+        F: FnOnce(&mut Self, &ForLoopPlan) -> Result<(), ErrorFor<Spec, Lowering>>,
+    {
+        let for_loop = self.new_for_loop_plan();
+
+        self.context.emitter.emit_jump(for_loop.condition_state());
+        self.emit_binary_condition_branch(
+            &for_loop,
+            for_loop.condition_state(),
+            for_loop.condition_flow(),
+            BinaryOpKind::Lt,
+            current_register,
+            end_register,
+        );
+
+        compile_body(self, &for_loop)?;
+
+        self.switch_to_with_flow(for_loop.continue_state(), for_loop.continue_flow());
+        self.emit_add_assign_immediate(current_register, 1)?;
+        if let Some(enumerate_index_register) = enumerate_index_register {
+            self.emit_add_assign_immediate(enumerate_index_register, 1)?;
+        }
+        self.context.emitter.emit_jump(for_loop.condition_state());
+
+        let (exit_state, exit_flow) = for_loop.finish();
+        self.switch_to_with_flow(exit_state, exit_flow);
+
+        Ok(())
+    }
+
+    /// Compiles the shared control-flow skeleton for stepped range loops.
+    fn compile_stepped_range_body<F>(
+        &mut self,
+        current_register: RegisterId,
+        end_register: RegisterId,
+        step_register: RegisterId,
+        enumerate_index_register: Option<RegisterId>,
+        compile_body: F,
+    ) -> Result<(), ErrorFor<Spec, Lowering>>
+    where
+        F: FnOnce(&mut Self, &ForLoopPlan) -> Result<(), ErrorFor<Spec, Lowering>>,
+    {
         let incoming_flow = self.context.flow_state.clone();
         let condition_state = self.new_state();
         let positive_condition_state = self.new_state();
@@ -514,7 +508,7 @@ where
             continue_state,
             exit_state,
         );
-        let body_loop_scope = for_loop.loop_scope();
+        let break_state = for_loop.loop_scope().target(LoopControlKind::Break);
 
         self.context.emitter.emit_jump(for_loop.condition_state());
 
@@ -543,52 +537,26 @@ where
                 .emitter
                 .emit_jump_if(negative_condition_state, negative_register.register());
         }
-        self.context
-            .emitter
-            .emit_jump(body_loop_scope.target(LoopControlKind::Break));
+        self.context.emitter.emit_jump(break_state);
 
-        self.switch_to_with_flow(positive_condition_state, incoming_flow.clone());
-        {
-            let condition_register = self.context.local_frame.allocate_temporary_register();
-            self.context.emitter.emit_binary(
-                BinaryOpKind::Lt,
-                condition_register.register(),
-                current_register,
-                end_register,
-            );
-            self.context
-                .emitter
-                .emit_jump_if(for_loop.body_state(), condition_register.register());
-        }
-        self.context
-            .emitter
-            .emit_jump(body_loop_scope.target(LoopControlKind::Break));
+        self.emit_binary_condition_branch(
+            &for_loop,
+            positive_condition_state,
+            incoming_flow.clone(),
+            BinaryOpKind::Lt,
+            current_register,
+            end_register,
+        );
+        self.emit_binary_condition_branch(
+            &for_loop,
+            negative_condition_state,
+            incoming_flow,
+            BinaryOpKind::Gt,
+            current_register,
+            end_register,
+        );
 
-        self.switch_to_with_flow(negative_condition_state, incoming_flow.clone());
-        {
-            let condition_register = self.context.local_frame.allocate_temporary_register();
-            self.context.emitter.emit_binary(
-                BinaryOpKind::Gt,
-                condition_register.register(),
-                current_register,
-                end_register,
-            );
-            self.context
-                .emitter
-                .emit_jump_if(for_loop.body_state(), condition_register.register());
-        }
-        self.context
-            .emitter
-            .emit_jump(body_loop_scope.target(LoopControlKind::Break));
-
-        self.compile_loop_body(&for_loop, body, |compiler| {
-            compiler.compile_loop_bindings(
-                loop_vars,
-                binding,
-                current_register,
-                enumerate_index_register,
-            )
-        })?;
+        compile_body(self, &for_loop)?;
 
         self.switch_to_with_flow(for_loop.continue_state(), for_loop.continue_flow());
         self.context.emitter.emit_binary(
@@ -621,19 +589,12 @@ where
         let body_loop_scope = for_loop.loop_scope();
         let body_loop_control = self.loop_control.with_loop(body_loop_scope);
 
-        self.switch_to_with_flow(for_loop.body_state(), for_loop.body_flow());
-        prepare_body(self)?;
+        self.compile_body_state(for_loop, move |compiler| {
+            prepare_body(compiler)?;
 
-        let mut body_compiler = self.nested_statement_compiler(body_loop_control);
-        body_compiler.compile_block(body)?;
-
-        if self.context.emitter.is_active() {
-            self.context
-                .emitter
-                .emit_jump(body_loop_scope.target(LoopControlKind::Continue));
-        }
-
-        Ok(())
+            let mut body_compiler = compiler.nested_statement_compiler(body_loop_control);
+            body_compiler.compile_block(body)
+        })
     }
 
     /// Compiles loop-variable bindings for one iteration.
@@ -770,58 +731,21 @@ where
 
         let enumerate_index_register = self.allocate_enumerate_index_register(binding)?;
 
-        let incoming_flow = self.context.flow_state.clone();
-        let for_loop = ForLoopPlan::new(
-            &incoming_flow,
-            self.new_state(),
-            self.new_state(),
-            self.new_state(),
-            self.new_state(),
-        );
-        let body_loop_scope = for_loop.loop_scope();
-
-        self.context.emitter.emit_jump(for_loop.condition_state());
-
-        self.switch_to_with_flow(for_loop.condition_state(), for_loop.condition_flow());
-        {
-            let condition_register = self.context.local_frame.allocate_temporary_register();
-            self.context.emitter.emit_binary(
-                BinaryOpKind::Lt,
-                condition_register.register(),
-                current_register,
-                end_register,
-            );
-            self.context
-                .emitter
-                .emit_jump_if(for_loop.body_state(), condition_register.register());
-        }
-        self.context
-            .emitter
-            .emit_jump(body_loop_scope.target(LoopControlKind::Break));
-
-        self.switch_to_with_flow(for_loop.body_state(), for_loop.body_flow());
-        self.compile_bound_value(
-            binding,
+        self.compile_positive_range_body(
             current_register,
+            end_register,
             enumerate_index_register,
-            compile_body,
-        )?;
-
-        if self.context.emitter.is_active() {
-            self.context.emitter.emit_jump(for_loop.continue_state());
-        }
-
-        self.switch_to_with_flow(for_loop.continue_state(), for_loop.continue_flow());
-        self.emit_add_assign_immediate(current_register, 1)?;
-        if let Some(enumerate_index_register) = enumerate_index_register {
-            self.emit_add_assign_immediate(enumerate_index_register, 1)?;
-        }
-        self.context.emitter.emit_jump(for_loop.condition_state());
-
-        let (exit_state, exit_flow) = for_loop.finish();
-        self.switch_to_with_flow(exit_state, exit_flow);
-
-        Ok(())
+            move |compiler, for_loop| {
+                compiler.compile_body_state(for_loop, move |compiler| {
+                    compiler.compile_bound_value(
+                        binding,
+                        current_register,
+                        enumerate_index_register,
+                        compile_body,
+                    )
+                })
+            },
+        )
     }
 
     /// Compiles a custom body over each value produced by a stepped range.
@@ -847,115 +771,22 @@ where
 
         let enumerate_index_register = self.allocate_enumerate_index_register(binding)?;
 
-        let incoming_flow = self.context.flow_state.clone();
-        let condition_state = self.new_state();
-        let positive_condition_state = self.new_state();
-        let negative_condition_state = self.new_state();
-        let body_state = self.new_state();
-        let continue_state = self.new_state();
-        let exit_state = self.new_state();
-        let for_loop = ForLoopPlan::new(
-            &incoming_flow,
-            condition_state,
-            body_state,
-            continue_state,
-            exit_state,
-        );
-        let body_loop_scope = for_loop.loop_scope();
-
-        self.context.emitter.emit_jump(for_loop.condition_state());
-
-        self.switch_to_with_flow(for_loop.condition_state(), for_loop.condition_flow());
-        {
-            let zero_register = self.compile_temporary_int_literal(0)?;
-            let positive_register = self.context.local_frame.allocate_temporary_register();
-            self.context.emitter.emit_binary(
-                BinaryOpKind::Gt,
-                positive_register.register(),
-                step_register,
-                zero_register.register(),
-            );
-            self.context
-                .emitter
-                .emit_jump_if(positive_condition_state, positive_register.register());
-
-            let negative_register = self.context.local_frame.allocate_temporary_register();
-            self.context.emitter.emit_binary(
-                BinaryOpKind::Lt,
-                negative_register.register(),
-                step_register,
-                zero_register.register(),
-            );
-            self.context
-                .emitter
-                .emit_jump_if(negative_condition_state, negative_register.register());
-        }
-        self.context
-            .emitter
-            .emit_jump(body_loop_scope.target(LoopControlKind::Break));
-
-        self.switch_to_with_flow(positive_condition_state, incoming_flow.clone());
-        {
-            let condition_register = self.context.local_frame.allocate_temporary_register();
-            self.context.emitter.emit_binary(
-                BinaryOpKind::Lt,
-                condition_register.register(),
-                current_register,
-                end_register,
-            );
-            self.context
-                .emitter
-                .emit_jump_if(for_loop.body_state(), condition_register.register());
-        }
-        self.context
-            .emitter
-            .emit_jump(body_loop_scope.target(LoopControlKind::Break));
-
-        self.switch_to_with_flow(negative_condition_state, incoming_flow.clone());
-        {
-            let condition_register = self.context.local_frame.allocate_temporary_register();
-            self.context.emitter.emit_binary(
-                BinaryOpKind::Gt,
-                condition_register.register(),
-                current_register,
-                end_register,
-            );
-            self.context
-                .emitter
-                .emit_jump_if(for_loop.body_state(), condition_register.register());
-        }
-        self.context
-            .emitter
-            .emit_jump(body_loop_scope.target(LoopControlKind::Break));
-
-        self.switch_to_with_flow(for_loop.body_state(), for_loop.body_flow());
-        self.compile_bound_value(
-            binding,
+        self.compile_stepped_range_body(
             current_register,
-            enumerate_index_register,
-            compile_body,
-        )?;
-
-        if self.context.emitter.is_active() {
-            self.context.emitter.emit_jump(for_loop.continue_state());
-        }
-
-        self.switch_to_with_flow(for_loop.continue_state(), for_loop.continue_flow());
-        self.context.emitter.emit_binary(
-            BinaryOpKind::Add,
-            current_register,
-            current_register,
+            end_register,
             step_register,
-        );
-        if let Some(enumerate_index_register) = enumerate_index_register {
-            self.emit_add_assign_immediate(enumerate_index_register, 1)?;
-        }
-        self.context.emitter.emit_jump(for_loop.condition_state());
-
-        let (exit_state, exit_flow) = for_loop.finish();
-        self.switch_to_with_flow(exit_state, exit_flow);
-
-        Ok(())
+            enumerate_index_register,
+            move |compiler, for_loop| {
+                compiler.compile_body_state(for_loop, move |compiler| {
+                    compiler.compile_bound_value(
+                        binding,
+                        current_register,
+                        enumerate_index_register,
+                        compile_body,
+                    )
+                })
+            },
+        )
     }
 
     /// Compiles a custom body against the loop-visible value for one iteration.
@@ -1040,9 +871,71 @@ where
         *self.context.flow_state = flow_state;
     }
 
+    /// Switches to one loop body state, emits its instructions, and routes
+    /// fallthrough to the loop's `continue` target.
+    fn compile_body_state<F>(
+        &mut self,
+        for_loop: &ForLoopPlan,
+        compile_body: F,
+    ) -> Result<(), ErrorFor<Spec, Lowering>>
+    where
+        F: FnOnce(&mut Self) -> Result<(), ErrorFor<Spec, Lowering>>,
+    {
+        let body_loop_scope = for_loop.loop_scope();
+
+        self.switch_to_with_flow(for_loop.body_state(), for_loop.body_flow());
+        compile_body(self)?;
+
+        if self.context.emitter.is_active() {
+            self.context
+                .emitter
+                .emit_jump(body_loop_scope.target(LoopControlKind::Continue));
+        }
+
+        Ok(())
+    }
+
+    /// Emits one binary condition branch that jumps to either `success_state`
+    /// or `failure_state`.
+    fn emit_binary_condition_branch(
+        &mut self,
+        for_loop: &ForLoopPlan,
+        state_id: StateId,
+        flow_state: FlowState,
+        kind: BinaryOpKind,
+        left: RegisterId,
+        right: RegisterId,
+    ) {
+        self.switch_to_with_flow(state_id, flow_state);
+
+        let condition_register = self.context.local_frame.allocate_temporary_register();
+        self.context
+            .emitter
+            .emit_binary(kind, condition_register.register(), left, right);
+        self.context
+            .emitter
+            .emit_jump_if(for_loop.body_state(), condition_register.register());
+        self.context
+            .emitter
+            .emit_jump(for_loop.loop_scope().target(LoopControlKind::Break));
+    }
+
     /// Reserves a new bytecode state id.
     fn new_state(&mut self) -> StateId {
         self.context.emitter.reserve_state()
+    }
+
+    /// Reserves the standard condition/body/continue/exit states for a `for`
+    /// loop using the current incoming flow.
+    fn new_for_loop_plan(&mut self) -> ForLoopPlan {
+        let incoming_flow = self.context.flow_state.clone();
+        ForLoopPlan::new(
+            &incoming_flow,
+            self.new_state(),
+            self.new_state(),
+            self.new_state(),
+            self.new_state(),
+        )
     }
 
     /// Compiles an expression into the exact target register.
