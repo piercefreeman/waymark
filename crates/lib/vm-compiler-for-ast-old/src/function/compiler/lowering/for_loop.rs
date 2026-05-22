@@ -1,8 +1,6 @@
 //! For-loop lowering.
 
-use waymark_vm_ast_old::{
-    Block, Expr, FunctionCall, GlobalFunction, Kwarg, Literal, Span, Spanned,
-};
+use waymark_vm_ast_old::{Block, Expr, FunctionCall, GlobalFunction, Kwarg, Literal, Spanned};
 use waymark_vm_bytecode_core::StateId;
 use waymark_vm_instructions_pureset::BinaryOpKind;
 use waymark_vm_runtime_core::RegisterId;
@@ -240,6 +238,100 @@ where
                 binding,
             } => self.compile_stepped_range_loop(loop_vars, start, end, step, body, binding),
         }
+    }
+
+    /// Compiles a loop body over each value produced by `iterable`.
+    pub(crate) fn compile_each_value<F>(
+        &mut self,
+        iterable: &Spanned<Expr>,
+        compile_body: F,
+    ) -> Result<(), ErrorFor<Spec, Lowering>>
+    where
+        F: FnOnce(&mut Self, RegisterId) -> Result<(), ErrorFor<Spec, Lowering>>,
+    {
+        match ResolvedForLoop::build::<Spec, Lowering>(iterable)? {
+            ResolvedForLoop::Indexed { iterable, binding } => {
+                self.compile_each_indexed_source(iterable, binding, compile_body)
+            }
+            ResolvedForLoop::Range {
+                range: RangeLoop::Positive { start, end },
+                binding,
+            } => self.compile_each_positive_range_source(start, end, binding, compile_body),
+            ResolvedForLoop::Range {
+                range: RangeLoop::Stepped { start, end, step },
+                binding,
+            } => self.compile_each_stepped_range_source(start, end, step, binding, compile_body),
+        }
+    }
+
+    /// Compiles a loop body over each item in a list-valued register.
+    pub(crate) fn compile_each_list_item<F>(
+        &mut self,
+        collection_register: RegisterId,
+        compile_body: F,
+    ) -> Result<(), ErrorFor<Spec, Lowering>>
+    where
+        F: FnOnce(&mut Self, RegisterId) -> Result<(), ErrorFor<Spec, Lowering>>,
+    {
+        let index_register = self.context.local_frame.allocate_register();
+        self.emit_int_literal_into_register(index_register, 0)?;
+
+        let length_register = self.context.local_frame.allocate_register();
+        self.context
+            .emitter
+            .emit_length(length_register, collection_register);
+
+        let incoming_flow = self.context.flow_state.clone();
+        let for_loop = ForLoopPlan::new(
+            &incoming_flow,
+            self.new_state(),
+            self.new_state(),
+            self.new_state(),
+            self.new_state(),
+        );
+
+        self.context.emitter.emit_jump(for_loop.condition_state());
+
+        self.switch_to_with_flow(for_loop.condition_state(), for_loop.condition_flow());
+        {
+            let condition_register = self.context.local_frame.allocate_temporary_register();
+            self.context.emitter.emit_binary(
+                BinaryOpKind::Lt,
+                condition_register.register(),
+                index_register,
+                length_register,
+            );
+            self.context
+                .emitter
+                .emit_jump_if(for_loop.body_state(), condition_register.register());
+        }
+        self.context
+            .emitter
+            .emit_jump(for_loop.loop_scope().target(LoopControlKind::Break));
+
+        self.switch_to_with_flow(for_loop.body_state(), for_loop.body_flow());
+        {
+            let item_register = self.context.local_frame.allocate_temporary_register();
+            self.context.emitter.emit_index(
+                item_register.register(),
+                collection_register,
+                index_register,
+            );
+            compile_body(self, item_register.register())?;
+        }
+
+        if self.context.emitter.is_active() {
+            self.context.emitter.emit_jump(for_loop.continue_state());
+        }
+
+        self.switch_to_with_flow(for_loop.continue_state(), for_loop.continue_flow());
+        self.emit_add_assign_immediate(index_register, 1)?;
+        self.context.emitter.emit_jump(for_loop.condition_state());
+
+        let (exit_state, exit_flow) = for_loop.finish();
+        self.switch_to_with_flow(exit_state, exit_flow);
+
+        Ok(())
     }
 
     /// Compiles a `for` loop that walks an indexable iterable.
@@ -632,6 +724,268 @@ where
         self.compile_value_bindings(loop_vars, pair_register.register())
     }
 
+    /// Compiles a custom body over one indexed iterable source.
+    fn compile_each_indexed_source<F>(
+        &mut self,
+        iterable: &Spanned<Expr>,
+        binding: LoopBinding,
+        compile_body: F,
+    ) -> Result<(), ErrorFor<Spec, Lowering>>
+    where
+        F: FnOnce(&mut Self, RegisterId) -> Result<(), ErrorFor<Spec, Lowering>>,
+    {
+        let iterable_register = self.context.local_frame.allocate_register();
+        self.compile_expr_into_register(iterable, iterable_register)?;
+
+        let enumerate_index_register = self.allocate_enumerate_index_register(binding)?;
+        self.compile_each_list_item(iterable_register, move |compiler, item_register| {
+            compiler.compile_bound_value(
+                binding,
+                item_register,
+                enumerate_index_register,
+                compile_body,
+            )
+        })
+    }
+
+    /// Compiles a custom body over each value produced by a positive range.
+    fn compile_each_positive_range_source<F>(
+        &mut self,
+        start: Option<&Spanned<Expr>>,
+        end: &Spanned<Expr>,
+        binding: LoopBinding,
+        compile_body: F,
+    ) -> Result<(), ErrorFor<Spec, Lowering>>
+    where
+        F: FnOnce(&mut Self, RegisterId) -> Result<(), ErrorFor<Spec, Lowering>>,
+    {
+        let current_register = self.context.local_frame.allocate_register();
+        match start {
+            Some(start) => self.compile_expr_into_register(start, current_register)?,
+            None => self.emit_int_literal_into_register(current_register, 0)?,
+        }
+
+        let end_register = self.context.local_frame.allocate_register();
+        self.compile_expr_into_register(end, end_register)?;
+
+        let enumerate_index_register = self.allocate_enumerate_index_register(binding)?;
+
+        let incoming_flow = self.context.flow_state.clone();
+        let for_loop = ForLoopPlan::new(
+            &incoming_flow,
+            self.new_state(),
+            self.new_state(),
+            self.new_state(),
+            self.new_state(),
+        );
+        let body_loop_scope = for_loop.loop_scope();
+
+        self.context.emitter.emit_jump(for_loop.condition_state());
+
+        self.switch_to_with_flow(for_loop.condition_state(), for_loop.condition_flow());
+        {
+            let condition_register = self.context.local_frame.allocate_temporary_register();
+            self.context.emitter.emit_binary(
+                BinaryOpKind::Lt,
+                condition_register.register(),
+                current_register,
+                end_register,
+            );
+            self.context
+                .emitter
+                .emit_jump_if(for_loop.body_state(), condition_register.register());
+        }
+        self.context
+            .emitter
+            .emit_jump(body_loop_scope.target(LoopControlKind::Break));
+
+        self.switch_to_with_flow(for_loop.body_state(), for_loop.body_flow());
+        self.compile_bound_value(
+            binding,
+            current_register,
+            enumerate_index_register,
+            compile_body,
+        )?;
+
+        if self.context.emitter.is_active() {
+            self.context.emitter.emit_jump(for_loop.continue_state());
+        }
+
+        self.switch_to_with_flow(for_loop.continue_state(), for_loop.continue_flow());
+        self.emit_add_assign_immediate(current_register, 1)?;
+        if let Some(enumerate_index_register) = enumerate_index_register {
+            self.emit_add_assign_immediate(enumerate_index_register, 1)?;
+        }
+        self.context.emitter.emit_jump(for_loop.condition_state());
+
+        let (exit_state, exit_flow) = for_loop.finish();
+        self.switch_to_with_flow(exit_state, exit_flow);
+
+        Ok(())
+    }
+
+    /// Compiles a custom body over each value produced by a stepped range.
+    fn compile_each_stepped_range_source<F>(
+        &mut self,
+        start: &Spanned<Expr>,
+        end: &Spanned<Expr>,
+        step: &Spanned<Expr>,
+        binding: LoopBinding,
+        compile_body: F,
+    ) -> Result<(), ErrorFor<Spec, Lowering>>
+    where
+        F: FnOnce(&mut Self, RegisterId) -> Result<(), ErrorFor<Spec, Lowering>>,
+    {
+        let current_register = self.context.local_frame.allocate_register();
+        self.compile_expr_into_register(start, current_register)?;
+
+        let end_register = self.context.local_frame.allocate_register();
+        self.compile_expr_into_register(end, end_register)?;
+
+        let step_register = self.context.local_frame.allocate_register();
+        self.compile_expr_into_register(step, step_register)?;
+
+        let enumerate_index_register = self.allocate_enumerate_index_register(binding)?;
+
+        let incoming_flow = self.context.flow_state.clone();
+        let condition_state = self.new_state();
+        let positive_condition_state = self.new_state();
+        let negative_condition_state = self.new_state();
+        let body_state = self.new_state();
+        let continue_state = self.new_state();
+        let exit_state = self.new_state();
+        let for_loop = ForLoopPlan::new(
+            &incoming_flow,
+            condition_state,
+            body_state,
+            continue_state,
+            exit_state,
+        );
+        let body_loop_scope = for_loop.loop_scope();
+
+        self.context.emitter.emit_jump(for_loop.condition_state());
+
+        self.switch_to_with_flow(for_loop.condition_state(), for_loop.condition_flow());
+        {
+            let zero_register = self.compile_temporary_int_literal(0)?;
+            let positive_register = self.context.local_frame.allocate_temporary_register();
+            self.context.emitter.emit_binary(
+                BinaryOpKind::Gt,
+                positive_register.register(),
+                step_register,
+                zero_register.register(),
+            );
+            self.context
+                .emitter
+                .emit_jump_if(positive_condition_state, positive_register.register());
+
+            let negative_register = self.context.local_frame.allocate_temporary_register();
+            self.context.emitter.emit_binary(
+                BinaryOpKind::Lt,
+                negative_register.register(),
+                step_register,
+                zero_register.register(),
+            );
+            self.context
+                .emitter
+                .emit_jump_if(negative_condition_state, negative_register.register());
+        }
+        self.context
+            .emitter
+            .emit_jump(body_loop_scope.target(LoopControlKind::Break));
+
+        self.switch_to_with_flow(positive_condition_state, incoming_flow.clone());
+        {
+            let condition_register = self.context.local_frame.allocate_temporary_register();
+            self.context.emitter.emit_binary(
+                BinaryOpKind::Lt,
+                condition_register.register(),
+                current_register,
+                end_register,
+            );
+            self.context
+                .emitter
+                .emit_jump_if(for_loop.body_state(), condition_register.register());
+        }
+        self.context
+            .emitter
+            .emit_jump(body_loop_scope.target(LoopControlKind::Break));
+
+        self.switch_to_with_flow(negative_condition_state, incoming_flow.clone());
+        {
+            let condition_register = self.context.local_frame.allocate_temporary_register();
+            self.context.emitter.emit_binary(
+                BinaryOpKind::Gt,
+                condition_register.register(),
+                current_register,
+                end_register,
+            );
+            self.context
+                .emitter
+                .emit_jump_if(for_loop.body_state(), condition_register.register());
+        }
+        self.context
+            .emitter
+            .emit_jump(body_loop_scope.target(LoopControlKind::Break));
+
+        self.switch_to_with_flow(for_loop.body_state(), for_loop.body_flow());
+        self.compile_bound_value(
+            binding,
+            current_register,
+            enumerate_index_register,
+            compile_body,
+        )?;
+
+        if self.context.emitter.is_active() {
+            self.context.emitter.emit_jump(for_loop.continue_state());
+        }
+
+        self.switch_to_with_flow(for_loop.continue_state(), for_loop.continue_flow());
+        self.context.emitter.emit_binary(
+            BinaryOpKind::Add,
+            current_register,
+            current_register,
+            step_register,
+        );
+        if let Some(enumerate_index_register) = enumerate_index_register {
+            self.emit_add_assign_immediate(enumerate_index_register, 1)?;
+        }
+        self.context.emitter.emit_jump(for_loop.condition_state());
+
+        let (exit_state, exit_flow) = for_loop.finish();
+        self.switch_to_with_flow(exit_state, exit_flow);
+
+        Ok(())
+    }
+
+    /// Compiles a custom body against the loop-visible value for one iteration.
+    fn compile_bound_value<F>(
+        &mut self,
+        binding: LoopBinding,
+        value_register: RegisterId,
+        enumerate_index_register: Option<RegisterId>,
+        compile_body: F,
+    ) -> Result<(), ErrorFor<Spec, Lowering>>
+    where
+        F: FnOnce(&mut Self, RegisterId) -> Result<(), ErrorFor<Spec, Lowering>>,
+    {
+        match binding {
+            LoopBinding::Value => compile_body(self, value_register),
+            LoopBinding::Enumerate => {
+                let pair_register = self.context.local_frame.allocate_temporary_register();
+                self.context.emitter.emit_make_list(
+                    pair_register.register(),
+                    vec![
+                        enumerate_index_register
+                            .expect("enumerate loops require an index register"),
+                        value_register,
+                    ],
+                );
+                compile_body(self, pair_register.register())
+            }
+        }
+    }
+
     /// Allocates and initializes the enumerate index register when needed.
     fn allocate_enumerate_index_register(
         &mut self,
@@ -645,6 +999,24 @@ where
                 Ok(Some(register))
             }
         }
+    }
+
+    /// Appends one item to a list register using `list + [item]` semantics.
+    pub(crate) fn emit_append_to_list(
+        &mut self,
+        list_register: RegisterId,
+        item_register: RegisterId,
+    ) {
+        let singleton_register = self.context.local_frame.allocate_temporary_register();
+        self.context
+            .emitter
+            .emit_make_list(singleton_register.register(), vec![item_register]);
+        self.context.emitter.emit_binary(
+            BinaryOpKind::Add,
+            list_register,
+            list_register,
+            singleton_register.register(),
+        );
     }
 
     /// Binds `source_register` into `name`, copying only when the target local
@@ -696,7 +1068,16 @@ where
         target_register: RegisterId,
         value: i64,
     ) -> Result<(), ErrorFor<Spec, Lowering>> {
-        self.compile_expr_into_register(&synthetic_int_expr(value), target_register)
+        let value_register = self.value_compiler().compile_literal_value(
+            &Literal::Int(value),
+            super::value::ResultTarget::Existing(target_register),
+        )?;
+        if value_register.register() != target_register {
+            self.context
+                .emitter
+                .emit_copy(target_register, value_register.register());
+        }
+        Ok(())
     }
 
     /// Compiles an integer literal into a temporary register.
@@ -704,10 +1085,8 @@ where
         &mut self,
         value: i64,
     ) -> Result<RegisterHandle, ErrorFor<Spec, Lowering>> {
-        self.value_compiler().compile_expr(
-            &synthetic_int_expr(value),
-            super::value::ResultTarget::Allocate,
-        )
+        self.value_compiler()
+            .compile_literal_value(&Literal::Int(value), super::value::ResultTarget::Allocate)
     }
 
     /// Emits `target_register = target_register + immediate`.
@@ -726,8 +1105,13 @@ where
         Ok(())
     }
 
+    /// Allocates one persistent register in the current function frame.
+    pub(crate) fn allocate_register(&mut self) -> RegisterId {
+        self.context.local_frame.allocate_register()
+    }
+
     /// Creates a value compiler borrowing the current context.
-    fn value_compiler(&mut self) -> ValueCompiler<'_, 'table, Spec, Lowering> {
+    pub(crate) fn value_compiler(&mut self) -> ValueCompiler<'_, 'table, Spec, Lowering> {
         ValueCompiler::new(self.context.reborrow_ref())
     }
 
@@ -747,19 +1131,4 @@ fn builtin_call_name(call: &FunctionCall, fallback: &str) -> String {
     }
 
     call.name.clone()
-}
-
-/// Creates a synthetic integer literal expression for compiler-internal lowering.
-fn synthetic_int_expr(value: i64) -> Spanned<Expr> {
-    Spanned {
-        value: Expr::Literal {
-            value: Literal::Int(value),
-        },
-        span: Span {
-            start_line: 0,
-            start_col: 0,
-            end_line: 0,
-            end_col: 0,
-        },
-    }
 }

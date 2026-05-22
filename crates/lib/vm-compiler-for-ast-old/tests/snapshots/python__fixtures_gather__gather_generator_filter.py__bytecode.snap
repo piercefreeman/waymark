@@ -336,48 +336,21 @@ Ok(
                                     ),
                                 },
                             ),
-                            PureSet(
-                                Copy {
+                            ExtCallSet(
+                                ActionCall {
                                     dst: RegisterId(
                                         12,
                                     ),
-                                    src: RegisterId(
-                                        5,
+                                    action_ref: TestActionRef(
+                                        "process_user",
                                     ),
-                                },
-                            ),
-                            PureSet(
-                                MakeList {
-                                    dst: RegisterId(
-                                        5,
-                                    ),
-                                    items: [
+                                    args: [
                                         RegisterId(
-                                            12,
-                                        ),
-                                    ],
-                                },
-                            ),
-                            PureSet(
-                                Binary {
-                                    kind: Add,
-                                    op: BinaryOp {
-                                        dst: RegisterId(
-                                            8,
-                                        ),
-                                        a: RegisterId(
-                                            8,
-                                        ),
-                                        b: RegisterId(
                                             5,
                                         ),
-                                    },
-                                },
-                            ),
-                            CoreSet(
-                                Jump {
-                                    target_state: StateId(
-                                        9,
+                                    ],
+                                    resume: StateId(
+                                        11,
                                     ),
                                 },
                             ),
@@ -425,7 +398,7 @@ Ok(
                             PureSet(
                                 MakeList {
                                     dst: RegisterId(
-                                        13,
+                                        7,
                                     ),
                                     items: [],
                                 },
@@ -453,7 +426,46 @@ Ok(
                             CoreSet(
                                 Jump {
                                     target_state: StateId(
-                                        11,
+                                        12,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            PureSet(
+                                MakeList {
+                                    dst: RegisterId(
+                                        13,
+                                    ),
+                                    items: [
+                                        RegisterId(
+                                            12,
+                                        ),
+                                    ],
+                                },
+                            ),
+                            PureSet(
+                                Binary {
+                                    kind: Add,
+                                    op: BinaryOp {
+                                        dst: RegisterId(
+                                            8,
+                                        ),
+                                        a: RegisterId(
+                                            8,
+                                        ),
+                                        b: RegisterId(
+                                            13,
+                                        ),
+                                    },
+                                },
+                            ),
+                            CoreSet(
+                                Jump {
+                                    target_state: StateId(
+                                        9,
                                     ),
                                 },
                             ),
@@ -480,7 +492,7 @@ Ok(
                             CoreSet(
                                 JumpIf {
                                     target_state: StateId(
-                                        12,
+                                        13,
                                     ),
                                     cond: RegisterId(
                                         5,
@@ -490,7 +502,7 @@ Ok(
                             CoreSet(
                                 Jump {
                                     target_state: StateId(
-                                        14,
+                                        15,
                                     ),
                                 },
                             ),
@@ -511,213 +523,16 @@ Ok(
                                     ),
                                 },
                             ),
-                            PureSet(
-                                Copy {
-                                    dst: RegisterId(
-                                        16,
-                                    ),
-                                    src: RegisterId(
-                                        5,
-                                    ),
-                                },
-                            ),
-                            ExtCallSet(
-                                ActionCall {
-                                    dst: RegisterId(
-                                        17,
-                                    ),
-                                    action_ref: TestActionRef(
-                                        "process_user",
-                                    ),
-                                    args: [
-                                        RegisterId(
-                                            16,
-                                        ),
-                                    ],
-                                    resume: StateId(
-                                        15,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            PureSet(
-                                LoadConst {
-                                    dst: RegisterId(
-                                        5,
-                                    ),
-                                    value: Int(
-                                        1,
-                                    ),
-                                },
-                            ),
-                            PureSet(
-                                Binary {
-                                    kind: Add,
-                                    op: BinaryOp {
-                                        dst: RegisterId(
-                                            14,
-                                        ),
-                                        a: RegisterId(
-                                            14,
-                                        ),
-                                        b: RegisterId(
-                                            5,
-                                        ),
-                                    },
-                                },
-                            ),
-                            CoreSet(
-                                Jump {
-                                    target_state: StateId(
-                                        11,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            PureSet(
-                                MakeList {
-                                    dst: RegisterId(
-                                        7,
-                                    ),
-                                    items: [],
-                                },
-                            ),
-                            PureSet(
-                                LoadConst {
-                                    dst: RegisterId(
-                                        19,
-                                    ),
-                                    value: Int(
-                                        0,
-                                    ),
-                                },
-                            ),
-                            PureSet(
-                                Length {
-                                    dst: RegisterId(
-                                        20,
-                                    ),
-                                    src: RegisterId(
-                                        13,
-                                    ),
-                                },
-                            ),
-                            CoreSet(
-                                Jump {
-                                    target_state: StateId(
-                                        16,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            PureSet(
-                                MakeList {
-                                    dst: RegisterId(
-                                        18,
-                                    ),
-                                    items: [
-                                        RegisterId(
-                                            17,
-                                        ),
-                                    ],
-                                },
-                            ),
-                            PureSet(
-                                Binary {
-                                    kind: Add,
-                                    op: BinaryOp {
-                                        dst: RegisterId(
-                                            13,
-                                        ),
-                                        a: RegisterId(
-                                            13,
-                                        ),
-                                        b: RegisterId(
-                                            18,
-                                        ),
-                                    },
-                                },
-                            ),
-                            CoreSet(
-                                Jump {
-                                    target_state: StateId(
-                                        13,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            PureSet(
-                                Binary {
-                                    kind: Lt,
-                                    op: BinaryOp {
-                                        dst: RegisterId(
-                                            5,
-                                        ),
-                                        a: RegisterId(
-                                            19,
-                                        ),
-                                        b: RegisterId(
-                                            20,
-                                        ),
-                                    },
-                                },
-                            ),
-                            CoreSet(
-                                JumpIf {
-                                    target_state: StateId(
-                                        17,
-                                    ),
-                                    cond: RegisterId(
-                                        5,
-                                    ),
-                                },
-                            ),
-                            CoreSet(
-                                Jump {
-                                    target_state: StateId(
-                                        19,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            PureSet(
-                                Index {
-                                    dst: RegisterId(
-                                        5,
-                                    ),
-                                    object: RegisterId(
-                                        13,
-                                    ),
-                                    index: RegisterId(
-                                        19,
-                                    ),
-                                },
-                            ),
                             CoreSet(
                                 Await {
                                     dst: RegisterId(
-                                        17,
+                                        16,
                                     ),
                                     src: RegisterId(
                                         5,
                                     ),
                                     resume: StateId(
-                                        20,
+                                        16,
                                     ),
                                 },
                             ),
@@ -740,10 +555,10 @@ Ok(
                                     kind: Add,
                                     op: BinaryOp {
                                         dst: RegisterId(
-                                            19,
+                                            14,
                                         ),
                                         a: RegisterId(
-                                            19,
+                                            14,
                                         ),
                                         b: RegisterId(
                                             5,
@@ -754,7 +569,7 @@ Ok(
                             CoreSet(
                                 Jump {
                                     target_state: StateId(
-                                        16,
+                                        12,
                                     ),
                                 },
                             ),
@@ -776,11 +591,11 @@ Ok(
                             PureSet(
                                 MakeList {
                                     dst: RegisterId(
-                                        18,
+                                        12,
                                     ),
                                     items: [
                                         RegisterId(
-                                            17,
+                                            16,
                                         ),
                                     ],
                                 },
@@ -796,7 +611,7 @@ Ok(
                                             7,
                                         ),
                                         b: RegisterId(
-                                            18,
+                                            12,
                                         ),
                                     },
                                 },
@@ -804,14 +619,14 @@ Ok(
                             CoreSet(
                                 Jump {
                                     target_state: StateId(
-                                        18,
+                                        14,
                                     ),
                                 },
                             ),
                         ],
                     },
                 ],
-                num_regs: 21,
+                num_regs: 17,
             },
         ],
     },

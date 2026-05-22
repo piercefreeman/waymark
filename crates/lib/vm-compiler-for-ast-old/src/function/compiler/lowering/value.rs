@@ -110,6 +110,15 @@ where
         self.compile_literal(&Literal::None, ResultTarget::Allocate)
     }
 
+    /// Compiles a literal value into the selected target register.
+    pub(crate) fn compile_literal_value(
+        &mut self,
+        literal: &Literal,
+        target: ResultTarget,
+    ) -> Result<RegisterHandle, ErrorFor<Spec, Lowering>> {
+        self.compile_literal(literal, target)
+    }
+
     /// Compiles an action call used as a statement.
     pub fn compile_action_statement(
         &mut self,
