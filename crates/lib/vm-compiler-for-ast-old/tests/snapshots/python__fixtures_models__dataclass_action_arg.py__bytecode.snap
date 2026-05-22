@@ -2,12 +2,137 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_models/dataclass_action_arg.py
 ---
-Err(
-    FunctionCompiler(
-        Unsupported(
-            Expression {
-                kind: Dot,
+Ok(
+    Executable {
+        functions: [
+            Function {
+                states: [
+                    State {
+                        instructions: [
+                            ExtCallSet(
+                                ActionCall {
+                                    dst: RegisterId(
+                                        0,
+                                    ),
+                                    action_ref: TestActionRef(
+                                        "get_data_items",
+                                    ),
+                                    args: [],
+                                    resume: StateId(
+                                        1,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                Await {
+                                    dst: RegisterId(
+                                        0,
+                                    ),
+                                    src: RegisterId(
+                                        0,
+                                    ),
+                                    resume: StateId(
+                                        2,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            PureSet(
+                                LoadConst {
+                                    dst: RegisterId(
+                                        2,
+                                    ),
+                                    value: String(
+                                        "items",
+                                    ),
+                                },
+                            ),
+                            PureSet(
+                                MakeDict {
+                                    dst: RegisterId(
+                                        3,
+                                    ),
+                                    entries: [
+                                        DictEntry {
+                                            key: RegisterId(
+                                                2,
+                                            ),
+                                            value: RegisterId(
+                                                0,
+                                            ),
+                                        },
+                                    ],
+                                },
+                            ),
+                            ExtCallSet(
+                                ActionCall {
+                                    dst: RegisterId(
+                                        1,
+                                    ),
+                                    action_ref: TestActionRef(
+                                        "process_data",
+                                    ),
+                                    args: [
+                                        RegisterId(
+                                            3,
+                                        ),
+                                    ],
+                                    resume: StateId(
+                                        3,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                Await {
+                                    dst: RegisterId(
+                                        1,
+                                    ),
+                                    src: RegisterId(
+                                        1,
+                                    ),
+                                    resume: StateId(
+                                        4,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            PureSet(
+                                Dot {
+                                    dst: RegisterId(
+                                        3,
+                                    ),
+                                    object: RegisterId(
+                                        1,
+                                    ),
+                                    attribute: "count",
+                                },
+                            ),
+                            CoreSet(
+                                Return {
+                                    src: RegisterId(
+                                        3,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                ],
+                num_regs: 4,
             },
-        ),
-    ),
+        ],
+    },
 )

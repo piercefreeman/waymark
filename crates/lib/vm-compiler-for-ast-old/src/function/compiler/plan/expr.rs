@@ -58,6 +58,24 @@ pub enum ExpressionPlan<'a> {
         entries: &'a [DictEntry],
     },
 
+    /// Indexed access such as `items[0]`.
+    Index {
+        /// Expression that produces the indexed object.
+        object: &'a Spanned<Expr>,
+
+        /// Expression that produces the index value.
+        index: &'a Spanned<Expr>,
+    },
+
+    /// Attribute access such as `record.field`.
+    Dot {
+        /// Expression that produces the accessed object.
+        object: &'a Spanned<Expr>,
+
+        /// Attribute name to look up.
+        attribute: &'a str,
+    },
+
     /// A call to another in-VM function.
     FunctionCall {
         /// Function-call payload from the AST.
@@ -74,12 +92,6 @@ pub enum ExpressionPlan<'a> {
 /// Expression variants that the generic value-lowering path rejects.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnsupportedExpressionKind {
-    /// Indexing expressions such as `items[0]`.
-    Index,
-
-    /// Attribute access such as `record.field`.
-    Dot,
-
     /// Spread expressions.
     SpreadExpr,
 }
@@ -107,12 +119,8 @@ impl<'a> ExpressionPlan<'a> {
             }),
             Expr::List { elements } => Ok(Self::List { elements }),
             Expr::Dict { entries } => Ok(Self::Dict { entries }),
-            Expr::Index { .. } => Err(Unsupported::Expression {
-                kind: UnsupportedExpressionKind::Index,
-            }),
-            Expr::Dot { .. } => Err(Unsupported::Expression {
-                kind: UnsupportedExpressionKind::Dot,
-            }),
+            Expr::Index { object, index } => Ok(Self::Index { object, index }),
+            Expr::Dot { object, attribute } => Ok(Self::Dot { object, attribute }),
             Expr::ParallelExpr { .. } => Err(Unsupported::ParallelExprOutsideAssignment),
             Expr::SpreadExpr { .. } => Err(Unsupported::Expression {
                 kind: UnsupportedExpressionKind::SpreadExpr,
@@ -124,8 +132,6 @@ impl<'a> ExpressionPlan<'a> {
 impl core::fmt::Display for UnsupportedExpressionKind {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         formatter.write_str(match self {
-            Self::Index => "Index",
-            Self::Dot => "Dot",
             Self::SpreadExpr => "SpreadExpr",
         })
     }
@@ -194,7 +200,7 @@ mod tests {
     }
 
     #[test]
-    fn builds_variable_and_call_plans() {
+    fn builds_variable_call_collection_and_access_plans() {
         let variable_expr = variable("value");
         let function_expr = function_expr("child", vec![int(1)]);
         let action_expr = action_expr("fetch", vec![("value", int(2))]);
@@ -206,6 +212,14 @@ mod tests {
                 key: int(1),
                 value: int(2),
             }],
+        });
+        let index_expr = spanned(Expr::Index {
+            object: Box::new(variable("items")),
+            index: Box::new(int(0)),
+        });
+        let dot_expr = spanned(Expr::Dot {
+            object: Box::new(variable("record")),
+            attribute: "field".to_owned(),
         });
 
         assert!(matches!(
@@ -228,34 +242,26 @@ mod tests {
             ExpressionPlan::build(&dict_expr).expect("dicts should build"),
             ExpressionPlan::Dict { entries } if entries.len() == 1
         ));
+        assert!(matches!(
+            ExpressionPlan::build(&index_expr).expect("indexes should build"),
+            ExpressionPlan::Index { .. }
+        ));
+        assert!(matches!(
+            ExpressionPlan::build(&dot_expr).expect("dots should build"),
+            ExpressionPlan::Dot { attribute, .. } if attribute == "field"
+        ));
     }
 
     #[test]
-    fn rejects_unsupported_expression_variants() {
-        let unsupported = [
-            (
-                spanned(Expr::Index {
-                    object: Box::new(variable("items")),
-                    index: Box::new(int(0)),
-                }),
-                UnsupportedExpressionKind::Index,
-            ),
-            (
-                spanned(Expr::Dot {
-                    object: Box::new(variable("record")),
-                    attribute: "field".to_owned(),
-                }),
-                UnsupportedExpressionKind::Dot,
-            ),
-            (
-                spanned(Expr::SpreadExpr {
-                    collection: Box::new(variable("items")),
-                    loop_var: "item".to_owned(),
-                    action: action_call("notify", vec![("value", variable("item"))]),
-                }),
-                UnsupportedExpressionKind::SpreadExpr,
-            ),
-        ];
+    fn rejects_currently_unsupported_expression_variants() {
+        let unsupported = [(
+            spanned(Expr::SpreadExpr {
+                collection: Box::new(variable("items")),
+                loop_var: "item".to_owned(),
+                action: action_call("notify", vec![("value", variable("item"))]),
+            }),
+            UnsupportedExpressionKind::SpreadExpr,
+        )];
 
         for (expr, kind) in unsupported {
             let error =

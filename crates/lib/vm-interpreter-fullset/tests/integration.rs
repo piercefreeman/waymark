@@ -153,6 +153,10 @@ impl waymark_vm_interpreter_pureset::value::Length for TestValue {
     }
 }
 
+impl waymark_vm_interpreter_pureset::value::IndexOp for TestValue {}
+
+impl waymark_vm_interpreter_pureset::value::DotOp for TestValue {}
+
 impl waymark_vm_interpreter_extcallset::value::SleepDuration for TestValue {
     type Error = TestSleepDurationError;
 

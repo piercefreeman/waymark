@@ -478,6 +478,105 @@ fn compiles_global_len_calls_to_completion() {
 }
 
 #[test]
+fn compiles_index_expressions_to_completion() {
+    struct IndexCase {
+        name: &'static str,
+        inputs: Vec<&'static str>,
+        expr: Spanned<Expr>,
+        args: Vec<TestValue>,
+        expected: TestValue,
+    }
+
+    let cases = vec![
+        IndexCase {
+            name: "list index",
+            inputs: vec!["items"],
+            expr: spanned(Expr::Index {
+                object: Box::new(variable("items")),
+                index: Box::new(int(1)),
+            }),
+            args: vec![TestValue::List(vec![TestValue::Int(3), TestValue::Int(8)])],
+            expected: TestValue::Int(8),
+        },
+        IndexCase {
+            name: "list negative index",
+            inputs: vec!["items"],
+            expr: spanned(Expr::Index {
+                object: Box::new(variable("items")),
+                index: Box::new(int(-1)),
+            }),
+            args: vec![TestValue::List(vec![TestValue::Int(3), TestValue::Int(8)])],
+            expected: TestValue::Int(8),
+        },
+        IndexCase {
+            name: "dict string key",
+            inputs: vec!["record"],
+            expr: spanned(Expr::Index {
+                object: Box::new(variable("record")),
+                index: Box::new(string("field")),
+            }),
+            args: vec![TestValue::Dict(
+                [("field".to_owned(), TestValue::Int(7))]
+                    .into_iter()
+                    .collect(),
+            )],
+            expected: TestValue::Int(7),
+        },
+        IndexCase {
+            name: "string index",
+            inputs: vec!["text"],
+            expr: spanned(Expr::Index {
+                object: Box::new(variable("text")),
+                index: Box::new(int(1)),
+            }),
+            args: vec![TestValue::String("hello".to_owned())],
+            expected: TestValue::String("e".to_owned()),
+        },
+    ];
+
+    for case in cases {
+        let program = program(vec![function(
+            "main",
+            case.inputs.as_slice(),
+            vec![return_stmt(Some(case.expr.clone()))],
+        )]);
+
+        let effect = runtime_with_args(compile_program(&program), case.args.clone())
+            .run()
+            .unwrap_or_else(|error| panic!("{} should complete: {error:?}", case.name));
+
+        assert_eq!(completed_value(effect), case.expected, "{}", case.name);
+    }
+}
+
+#[test]
+fn compiles_dot_expressions_to_completion() {
+    let program = program(vec![function(
+        "main",
+        &["record"],
+        vec![return_stmt(Some(spanned(Expr::Dot {
+            object: Box::new(variable("record")),
+            attribute: "field".to_owned(),
+        })))],
+    )]);
+
+    let executable = compile_program(&program);
+    let mut runtime = runtime_with_args(
+        executable,
+        vec![TestValue::Dict(
+            [("field".to_owned(), TestValue::Int(11))]
+                .into_iter()
+                .collect(),
+        )],
+    );
+
+    assert_eq!(
+        completed_value(runtime.run().expect("program should complete")),
+        TestValue::Int(11)
+    );
+}
+
+#[test]
 fn compiles_sleep_statements_into_resumable_sleep_effects() {
     let program = program(vec![function(
         "main",

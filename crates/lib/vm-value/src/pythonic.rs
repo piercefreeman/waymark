@@ -49,3 +49,30 @@ pub(crate) fn checked_modulo_float(
 
     remainder.try_into().ok()
 }
+
+pub(crate) fn normalized_index(index: i64, len: usize) -> Option<usize> {
+    if index >= 0 {
+        let index = usize::try_from(index).ok()?;
+        return (index < len).then_some(index);
+    }
+
+    let distance_from_end = usize::try_from(index.unsigned_abs()).ok()?;
+    len.checked_sub(distance_from_end)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalized_index;
+
+    #[test]
+    fn normalized_index_matches_python_style_indexing() {
+        assert_eq!(normalized_index(0, 3), Some(0));
+        assert_eq!(normalized_index(2, 3), Some(2));
+        assert_eq!(normalized_index(3, 3), None);
+        assert_eq!(normalized_index(-1, 3), Some(2));
+        assert_eq!(normalized_index(-3, 3), Some(0));
+        assert_eq!(normalized_index(-4, 3), None);
+        assert_eq!(normalized_index(0, 0), None);
+        assert_eq!(normalized_index(i64::MIN, 3), None);
+    }
+}

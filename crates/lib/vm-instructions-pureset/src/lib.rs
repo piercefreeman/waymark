@@ -162,6 +162,30 @@ pub enum PureSet<Spec: self::Spec> {
         src: Spec::RegisterId,
     },
 
+    /// Resolve an indexed access from an object and index value.
+    Index {
+        /// The register to store the result at.
+        dst: Spec::RegisterId,
+
+        /// The register containing the indexed object.
+        object: Spec::RegisterId,
+
+        /// The register containing the index value.
+        index: Spec::RegisterId,
+    },
+
+    /// Resolve an attribute access from an object and attribute name.
+    Dot {
+        /// The register to store the result at.
+        dst: Spec::RegisterId,
+
+        /// The register containing the accessed object.
+        object: Spec::RegisterId,
+
+        /// The attribute name to read from the object.
+        attribute: String,
+    },
+
     /// Build a list value from resolved registers.
     MakeList {
         /// The register to store the resulting list at.

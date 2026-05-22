@@ -68,6 +68,16 @@ fn dict_key(
     }
 }
 
+fn normalized_index(index: i64, len: usize) -> Option<usize> {
+    if index >= 0 {
+        let index = usize::try_from(index).ok()?;
+        return (index < len).then_some(index);
+    }
+
+    let distance_from_end = usize::try_from(index.unsigned_abs()).ok()?;
+    (distance_from_end <= len).then_some(len - distance_from_end)
+}
+
 impl waymark_vm_interpreter_pureset::value::BinaryOps for TestValue {
     fn add(
         a: &Self,
@@ -170,6 +180,47 @@ impl waymark_vm_interpreter_pureset::value::Length for TestValue {
             TestLength::Valid(value) => Ok(Self::Int(value)),
             TestLength::Overflow => {
                 Err(waymark_vm_interpreter_pureset::value::FromLengthError::ResultOutOfBounds)
+            }
+        }
+    }
+}
+
+impl waymark_vm_interpreter_pureset::value::IndexOp for TestValue {
+    fn index(
+        object: &Self,
+        index: &Self,
+    ) -> Result<Self, waymark_vm_interpreter_pureset::value::IndexOperationError> {
+        match (object, index) {
+            (Self::List(items), Self::Int(index)) => {
+                let index = normalized_index(*index, items.len()).ok_or(
+                    waymark_vm_interpreter_pureset::value::IndexOperationError::IndexOutOfBounds,
+                )?;
+
+                Ok(items[index].clone())
+            }
+            (Self::Dict(entries), Self::Text(key)) => entries
+                .get(*key)
+                .cloned()
+                .ok_or(waymark_vm_interpreter_pureset::value::IndexOperationError::MissingKey),
+            _ => Err(
+                waymark_vm_interpreter_pureset::value::IndexOperationError::UnsupportedOperation,
+            ),
+        }
+    }
+}
+
+impl waymark_vm_interpreter_pureset::value::DotOp for TestValue {
+    fn dot(
+        object: &Self,
+        attribute: &str,
+    ) -> Result<Self, waymark_vm_interpreter_pureset::value::DotOperationError> {
+        match object {
+            Self::Dict(entries) => entries
+                .get(attribute)
+                .cloned()
+                .ok_or(waymark_vm_interpreter_pureset::value::DotOperationError::MissingAttribute),
+            _ => {
+                Err(waymark_vm_interpreter_pureset::value::DotOperationError::UnsupportedOperation)
             }
         }
     }
@@ -686,6 +737,93 @@ fn runtime_executes_make_dict_to_a_terminal_effect() {
 }
 
 #[test]
+fn runtime_executes_index_to_a_terminal_effect() {
+    let executable = executable(vec![function::<RuntimeInstruction>(
+        4,
+        vec![vec![
+            PureSet::LoadConst {
+                dst: RegisterId(0),
+                value: TestConstValue::Int(2),
+            }
+            .into(),
+            PureSet::MakeList {
+                dst: RegisterId(1),
+                items: vec![RegisterId(0)],
+            }
+            .into(),
+            PureSet::LoadConst {
+                dst: RegisterId(2),
+                value: TestConstValue::Int(-1),
+            }
+            .into(),
+            PureSet::Index {
+                dst: RegisterId(3),
+                object: RegisterId(1),
+                index: RegisterId(2),
+            }
+            .into(),
+            RuntimeInstruction::EmitRegister(RegisterId(3)),
+        ]],
+    )]);
+
+    let mut runtime =
+        Runtime::with_conventional_entrypoint(RuntimeInterpreter::default(), executable)
+            .expect("function 0 should exist");
+
+    assert_eq!(
+        runtime
+            .run()
+            .expect("runtime should emit the indexed result"),
+        TestValue::Int(2)
+    );
+}
+
+#[test]
+fn runtime_executes_dot_to_a_terminal_effect() {
+    let executable = executable(vec![function::<RuntimeInstruction>(
+        4,
+        vec![vec![
+            PureSet::LoadConst {
+                dst: RegisterId(0),
+                value: TestConstValue::Text("field"),
+            }
+            .into(),
+            PureSet::LoadConst {
+                dst: RegisterId(1),
+                value: TestConstValue::Int(9),
+            }
+            .into(),
+            PureSet::MakeDict {
+                dst: RegisterId(2),
+                entries: vec![waymark_vm_instructions_pureset::DictEntry {
+                    key: RegisterId(0),
+                    value: RegisterId(1),
+                }],
+            }
+            .into(),
+            PureSet::Dot {
+                dst: RegisterId(3),
+                object: RegisterId(2),
+                attribute: "field".to_owned(),
+            }
+            .into(),
+            RuntimeInstruction::EmitRegister(RegisterId(3)),
+        ]],
+    )]);
+
+    let mut runtime =
+        Runtime::with_conventional_entrypoint(RuntimeInterpreter::default(), executable)
+            .expect("function 0 should exist");
+
+    assert_eq!(
+        runtime
+            .run()
+            .expect("runtime should emit the dotted result"),
+        TestValue::Int(9)
+    );
+}
+
+#[test]
 fn runtime_surfaces_make_dict_key_type_errors_from_the_pureset_interpreter() {
     let executable = executable(vec![function::<RuntimeInstruction>(
         4,
@@ -723,6 +861,98 @@ fn runtime_surfaces_make_dict_key_type_errors_from_the_pureset_interpreter() {
                 waymark_vm_interpreter_pureset::value::MakeDictError::UnsupportedKeyType
             )
         )))
+    ));
+}
+
+#[test]
+fn runtime_surfaces_unresolved_index_operand_errors_from_the_pureset_interpreter() {
+    let executable = executable(vec![function::<RuntimeInstruction>(
+        4,
+        vec![vec![
+            PureSet::LoadConst {
+                dst: RegisterId(0),
+                value: TestConstValue::Int(2),
+            }
+            .into(),
+            PureSet::MakeList {
+                dst: RegisterId(1),
+                items: vec![RegisterId(0)],
+            }
+            .into(),
+            RuntimeInstruction::SetPending {
+                dst: RegisterId(2),
+                promise_state_id: PromiseStateId(7),
+            },
+            PureSet::Index {
+                dst: RegisterId(3),
+                object: RegisterId(1),
+                index: RegisterId(2),
+            }
+            .into(),
+            RuntimeInstruction::EmitRegister(RegisterId(3)),
+        ]],
+    )]);
+
+    let mut runtime =
+        Runtime::with_conventional_entrypoint(RuntimeInterpreter::default(), executable)
+            .expect("function 0 should exist");
+
+    assert!(matches!(
+        runtime.run(),
+        Err(RunError::Step(waymark_vm_runtime::step::Error::Execution(
+            Error::UnresolvedIndexOperand {
+                source: waymark_vm_runtime_core::UnresolvedPromiseError { promise_state_id },
+            }
+        ))) if promise_state_id == PromiseStateId(7)
+    ));
+}
+
+#[test]
+fn runtime_surfaces_missing_dot_attribute_errors_from_the_pureset_interpreter() {
+    let executable = executable(vec![function::<RuntimeInstruction>(
+        4,
+        vec![vec![
+            PureSet::LoadConst {
+                dst: RegisterId(0),
+                value: TestConstValue::Text("present"),
+            }
+            .into(),
+            PureSet::LoadConst {
+                dst: RegisterId(1),
+                value: TestConstValue::Int(9),
+            }
+            .into(),
+            PureSet::MakeDict {
+                dst: RegisterId(2),
+                entries: vec![waymark_vm_instructions_pureset::DictEntry {
+                    key: RegisterId(0),
+                    value: RegisterId(1),
+                }],
+            }
+            .into(),
+            PureSet::Dot {
+                dst: RegisterId(3),
+                object: RegisterId(2),
+                attribute: "missing".to_owned(),
+            }
+            .into(),
+            RuntimeInstruction::EmitRegister(RegisterId(3)),
+        ]],
+    )]);
+
+    let mut runtime =
+        Runtime::with_conventional_entrypoint(RuntimeInterpreter::default(), executable)
+            .expect("function 0 should exist");
+
+    assert!(matches!(
+        runtime.run(),
+        Err(RunError::Step(waymark_vm_runtime::step::Error::Execution(
+            Error::DotOperation {
+                attribute,
+                source:
+                    waymark_vm_interpreter_pureset::value::DotOperationError::MissingAttribute,
+            }
+        ))) if attribute == "missing"
     ));
 }
 
