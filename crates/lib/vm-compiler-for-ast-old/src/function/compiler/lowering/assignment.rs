@@ -9,6 +9,7 @@ use crate::function::compiler::env::LocalSlot;
 use super::CompilerContextMut;
 use super::ErrorFor;
 use super::ParallelCompiler;
+use super::SpreadCompiler;
 use super::ValueCompiler;
 use super::plan::assignment::AssignmentStatementPlan;
 
@@ -61,6 +62,9 @@ where
             AssignmentStatementPlan::Parallel { assignment } => {
                 self.parallel_compiler().compile_assignment(assignment)?;
             }
+            AssignmentStatementPlan::Spread { target, spread } => {
+                self.spread_compiler().compile_assignment(target, spread)?;
+            }
         }
 
         Ok(())
@@ -95,6 +99,11 @@ where
     /// Creates a parallel compiler borrowing the current context mutably.
     fn parallel_compiler(&mut self) -> ParallelCompiler<'_, 'table, Spec, Lowering> {
         ParallelCompiler::new(self.context.reborrow_mut())
+    }
+
+    /// Creates a spread compiler borrowing the current context mutably.
+    fn spread_compiler(&mut self) -> SpreadCompiler<'_, 'table, Spec, Lowering> {
+        SpreadCompiler::new(self.context.reborrow_mut())
     }
 }
 

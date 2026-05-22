@@ -5,6 +5,7 @@ use waymark_vm_ast_old::{Expr, Spanned};
 
 use super::ErrorFor;
 use super::parallel::ParallelAssignmentPlan;
+use super::spread::SpreadPlan;
 
 use crate::Marked;
 use crate::function::compiler::env::{AssignmentTargetMarker, LocalSlot};
@@ -29,6 +30,15 @@ where
     Parallel {
         /// Validated parallel-assignment plan.
         assignment: ParallelAssignmentPlan<'a, Spec>,
+    },
+
+    /// An assignment sourced from a spread expression.
+    Spread {
+        /// Assignment target that will receive the collected spread results.
+        target: Marked<LocalSlot, AssignmentTargetMarker>,
+
+        /// Validated spread plan.
+        spread: SpreadPlan<'a>,
     },
 }
 
@@ -62,6 +72,25 @@ where
             });
         }
 
+        if let Expr::SpreadExpr {
+            collection,
+            loop_var,
+            action,
+        } = &value.value
+        {
+            if targets.len().get() != 1 {
+                return Err(super::plan::Unsupported::AssignmentTargetCount {
+                    count: targets.len(),
+                }
+                .into());
+            }
+
+            return Ok(Self::Spread {
+                target: resolve_target(&targets[0]),
+                spread: SpreadPlan::build(collection, loop_var, action),
+            });
+        }
+
         if targets.len().get() != 1 {
             return Err(super::plan::Unsupported::AssignmentTargetCount {
                 count: targets.len(),
@@ -82,7 +111,7 @@ mod tests {
 
     use nonempty_collections::{IntoNonEmptyIterator as _, NonEmptyIterator as _};
     use waymark_vm_ast_old::Expr;
-    use waymark_vm_ast_old_helpers::{action_call, int, parallel_expr};
+    use waymark_vm_ast_old_helpers::{action_call, int, parallel_expr, spanned, variable};
     use waymark_vm_compiler_for_ast_old_test_support::{TestLowering, TestSpec};
     use waymark_vm_runtime_core::RegisterId;
 
@@ -130,6 +159,9 @@ mod tests {
                         value: waymark_vm_ast_old::Literal::Int(7),
                     }
                 ));
+            }
+            AssignmentStatementPlan::Spread { .. } => {
+                panic!("non-spread assignment should not build a spread plan")
             }
             AssignmentStatementPlan::Parallel { .. } => {
                 panic!("non-parallel assignment should build a direct plan")
@@ -247,9 +279,55 @@ mod tests {
                     second_target_register
                 );
             }
+            AssignmentStatementPlan::Spread { .. } => {
+                panic!("parallel expressions should not build a spread assignment plan")
+            }
             AssignmentStatementPlan::Direct { .. } => {
                 panic!("parallel expressions should build a parallel assignment plan")
             }
+        }
+    }
+
+    #[test]
+    fn spread_assignment_resolves_target_and_preserves_loop_var() {
+        let function_table = build_function_table();
+        let mut local_frame = LocalFrame::new();
+        let mut flow_state = FlowState::new();
+        let value = spanned(Expr::SpreadExpr {
+            collection: Box::new(variable("items")),
+            loop_var: "item".to_owned(),
+            action: action_call("fetch", vec![("value", variable("item"))]),
+        });
+        let target_register = Marked::<LocalSlot, AssignmentTargetMarker>::get_or_declare(
+            &mut local_frame,
+            &mut flow_state,
+            "results",
+        )
+        .register();
+        let targets = ["results".to_owned()];
+
+        let plan = AssignmentStatementPlan::<TestSpec>::build::<TestLowering, _>(
+            &targets,
+            &value,
+            &function_table,
+            |target| {
+                Marked::<LocalSlot, AssignmentTargetMarker>::get_or_declare(
+                    &mut local_frame,
+                    &mut flow_state,
+                    target,
+                )
+            },
+        )
+        .expect("spread assignment should build");
+
+        match plan {
+            AssignmentStatementPlan::Spread { target, spread } => {
+                let (_collection, loop_var, action) = spread.into_parts();
+                assert_eq!(target.register(), target_register);
+                assert_eq!(loop_var, "item");
+                assert_eq!(action.action_name, "fetch");
+            }
+            other => panic!("expected spread assignment plan, got {other:?}"),
         }
     }
 

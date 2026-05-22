@@ -2,12 +2,592 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_gather/gather_generator.py
 ---
-Err(
-    FunctionCompiler(
-        Unsupported(
-            Expression {
-                kind: SpreadExpr,
+Ok(
+    Executable {
+        functions: [
+            Function {
+                states: [
+                    State {
+                        instructions: [
+                            PureSet(
+                                MakeList {
+                                    dst: RegisterId(
+                                        3,
+                                    ),
+                                    items: [],
+                                },
+                            ),
+                            PureSet(
+                                Copy {
+                                    dst: RegisterId(
+                                        4,
+                                    ),
+                                    src: RegisterId(
+                                        0,
+                                    ),
+                                },
+                            ),
+                            PureSet(
+                                LoadConst {
+                                    dst: RegisterId(
+                                        5,
+                                    ),
+                                    value: Int(
+                                        0,
+                                    ),
+                                },
+                            ),
+                            PureSet(
+                                Length {
+                                    dst: RegisterId(
+                                        6,
+                                    ),
+                                    src: RegisterId(
+                                        4,
+                                    ),
+                                },
+                            ),
+                            CoreSet(
+                                Jump {
+                                    target_state: StateId(
+                                        1,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            PureSet(
+                                Binary {
+                                    kind: Lt,
+                                    op: BinaryOp {
+                                        dst: RegisterId(
+                                            7,
+                                        ),
+                                        a: RegisterId(
+                                            5,
+                                        ),
+                                        b: RegisterId(
+                                            6,
+                                        ),
+                                    },
+                                },
+                            ),
+                            CoreSet(
+                                JumpIf {
+                                    target_state: StateId(
+                                        2,
+                                    ),
+                                    cond: RegisterId(
+                                        7,
+                                    ),
+                                },
+                            ),
+                            CoreSet(
+                                Jump {
+                                    target_state: StateId(
+                                        4,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            PureSet(
+                                Index {
+                                    dst: RegisterId(
+                                        7,
+                                    ),
+                                    object: RegisterId(
+                                        4,
+                                    ),
+                                    index: RegisterId(
+                                        5,
+                                    ),
+                                },
+                            ),
+                            PureSet(
+                                Copy {
+                                    dst: RegisterId(
+                                        8,
+                                    ),
+                                    src: RegisterId(
+                                        7,
+                                    ),
+                                },
+                            ),
+                            PureSet(
+                                MakeList {
+                                    dst: RegisterId(
+                                        7,
+                                    ),
+                                    items: [
+                                        RegisterId(
+                                            8,
+                                        ),
+                                    ],
+                                },
+                            ),
+                            PureSet(
+                                Binary {
+                                    kind: Add,
+                                    op: BinaryOp {
+                                        dst: RegisterId(
+                                            3,
+                                        ),
+                                        a: RegisterId(
+                                            3,
+                                        ),
+                                        b: RegisterId(
+                                            7,
+                                        ),
+                                    },
+                                },
+                            ),
+                            CoreSet(
+                                Jump {
+                                    target_state: StateId(
+                                        3,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            PureSet(
+                                LoadConst {
+                                    dst: RegisterId(
+                                        7,
+                                    ),
+                                    value: Int(
+                                        1,
+                                    ),
+                                },
+                            ),
+                            PureSet(
+                                Binary {
+                                    kind: Add,
+                                    op: BinaryOp {
+                                        dst: RegisterId(
+                                            5,
+                                        ),
+                                        a: RegisterId(
+                                            5,
+                                        ),
+                                        b: RegisterId(
+                                            7,
+                                        ),
+                                    },
+                                },
+                            ),
+                            CoreSet(
+                                Jump {
+                                    target_state: StateId(
+                                        1,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            PureSet(
+                                MakeList {
+                                    dst: RegisterId(
+                                        9,
+                                    ),
+                                    items: [],
+                                },
+                            ),
+                            PureSet(
+                                LoadConst {
+                                    dst: RegisterId(
+                                        10,
+                                    ),
+                                    value: Int(
+                                        0,
+                                    ),
+                                },
+                            ),
+                            PureSet(
+                                Length {
+                                    dst: RegisterId(
+                                        11,
+                                    ),
+                                    src: RegisterId(
+                                        3,
+                                    ),
+                                },
+                            ),
+                            CoreSet(
+                                Jump {
+                                    target_state: StateId(
+                                        5,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            PureSet(
+                                Binary {
+                                    kind: Lt,
+                                    op: BinaryOp {
+                                        dst: RegisterId(
+                                            7,
+                                        ),
+                                        a: RegisterId(
+                                            10,
+                                        ),
+                                        b: RegisterId(
+                                            11,
+                                        ),
+                                    },
+                                },
+                            ),
+                            CoreSet(
+                                JumpIf {
+                                    target_state: StateId(
+                                        6,
+                                    ),
+                                    cond: RegisterId(
+                                        7,
+                                    ),
+                                },
+                            ),
+                            CoreSet(
+                                Jump {
+                                    target_state: StateId(
+                                        8,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            PureSet(
+                                Index {
+                                    dst: RegisterId(
+                                        7,
+                                    ),
+                                    object: RegisterId(
+                                        3,
+                                    ),
+                                    index: RegisterId(
+                                        10,
+                                    ),
+                                },
+                            ),
+                            PureSet(
+                                Copy {
+                                    dst: RegisterId(
+                                        12,
+                                    ),
+                                    src: RegisterId(
+                                        7,
+                                    ),
+                                },
+                            ),
+                            ExtCallSet(
+                                ActionCall {
+                                    dst: RegisterId(
+                                        13,
+                                    ),
+                                    action_ref: TestActionRef(
+                                        "process_item",
+                                    ),
+                                    args: [
+                                        RegisterId(
+                                            12,
+                                        ),
+                                        RegisterId(
+                                            1,
+                                        ),
+                                    ],
+                                    resume: StateId(
+                                        9,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            PureSet(
+                                LoadConst {
+                                    dst: RegisterId(
+                                        7,
+                                    ),
+                                    value: Int(
+                                        1,
+                                    ),
+                                },
+                            ),
+                            PureSet(
+                                Binary {
+                                    kind: Add,
+                                    op: BinaryOp {
+                                        dst: RegisterId(
+                                            10,
+                                        ),
+                                        a: RegisterId(
+                                            10,
+                                        ),
+                                        b: RegisterId(
+                                            7,
+                                        ),
+                                    },
+                                },
+                            ),
+                            CoreSet(
+                                Jump {
+                                    target_state: StateId(
+                                        5,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            PureSet(
+                                MakeList {
+                                    dst: RegisterId(
+                                        2,
+                                    ),
+                                    items: [],
+                                },
+                            ),
+                            PureSet(
+                                LoadConst {
+                                    dst: RegisterId(
+                                        15,
+                                    ),
+                                    value: Int(
+                                        0,
+                                    ),
+                                },
+                            ),
+                            PureSet(
+                                Length {
+                                    dst: RegisterId(
+                                        16,
+                                    ),
+                                    src: RegisterId(
+                                        9,
+                                    ),
+                                },
+                            ),
+                            CoreSet(
+                                Jump {
+                                    target_state: StateId(
+                                        10,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            PureSet(
+                                MakeList {
+                                    dst: RegisterId(
+                                        14,
+                                    ),
+                                    items: [
+                                        RegisterId(
+                                            13,
+                                        ),
+                                    ],
+                                },
+                            ),
+                            PureSet(
+                                Binary {
+                                    kind: Add,
+                                    op: BinaryOp {
+                                        dst: RegisterId(
+                                            9,
+                                        ),
+                                        a: RegisterId(
+                                            9,
+                                        ),
+                                        b: RegisterId(
+                                            14,
+                                        ),
+                                    },
+                                },
+                            ),
+                            CoreSet(
+                                Jump {
+                                    target_state: StateId(
+                                        7,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            PureSet(
+                                Binary {
+                                    kind: Lt,
+                                    op: BinaryOp {
+                                        dst: RegisterId(
+                                            7,
+                                        ),
+                                        a: RegisterId(
+                                            15,
+                                        ),
+                                        b: RegisterId(
+                                            16,
+                                        ),
+                                    },
+                                },
+                            ),
+                            CoreSet(
+                                JumpIf {
+                                    target_state: StateId(
+                                        11,
+                                    ),
+                                    cond: RegisterId(
+                                        7,
+                                    ),
+                                },
+                            ),
+                            CoreSet(
+                                Jump {
+                                    target_state: StateId(
+                                        13,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            PureSet(
+                                Index {
+                                    dst: RegisterId(
+                                        7,
+                                    ),
+                                    object: RegisterId(
+                                        9,
+                                    ),
+                                    index: RegisterId(
+                                        15,
+                                    ),
+                                },
+                            ),
+                            CoreSet(
+                                Await {
+                                    dst: RegisterId(
+                                        13,
+                                    ),
+                                    src: RegisterId(
+                                        7,
+                                    ),
+                                    resume: StateId(
+                                        14,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            PureSet(
+                                LoadConst {
+                                    dst: RegisterId(
+                                        7,
+                                    ),
+                                    value: Int(
+                                        1,
+                                    ),
+                                },
+                            ),
+                            PureSet(
+                                Binary {
+                                    kind: Add,
+                                    op: BinaryOp {
+                                        dst: RegisterId(
+                                            15,
+                                        ),
+                                        a: RegisterId(
+                                            15,
+                                        ),
+                                        b: RegisterId(
+                                            7,
+                                        ),
+                                    },
+                                },
+                            ),
+                            CoreSet(
+                                Jump {
+                                    target_state: StateId(
+                                        10,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            CoreSet(
+                                Return {
+                                    src: RegisterId(
+                                        2,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                    State {
+                        instructions: [
+                            PureSet(
+                                MakeList {
+                                    dst: RegisterId(
+                                        14,
+                                    ),
+                                    items: [
+                                        RegisterId(
+                                            13,
+                                        ),
+                                    ],
+                                },
+                            ),
+                            PureSet(
+                                Binary {
+                                    kind: Add,
+                                    op: BinaryOp {
+                                        dst: RegisterId(
+                                            2,
+                                        ),
+                                        a: RegisterId(
+                                            2,
+                                        ),
+                                        b: RegisterId(
+                                            14,
+                                        ),
+                                    },
+                                },
+                            ),
+                            CoreSet(
+                                Jump {
+                                    target_state: StateId(
+                                        12,
+                                    ),
+                                },
+                            ),
+                        ],
+                    },
+                ],
+                num_regs: 17,
             },
-        ),
-    ),
+        ],
+    },
 )

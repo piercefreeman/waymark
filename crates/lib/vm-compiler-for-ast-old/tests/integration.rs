@@ -1082,6 +1082,236 @@ fn compiles_parallel_expressions_into_aggregate_lists() {
 }
 
 #[test]
+fn compiles_spread_expressions_into_aggregate_lists() {
+    let program = program(vec![function(
+        "main",
+        &["items"],
+        vec![
+            assignment(
+                "results",
+                spanned(Expr::SpreadExpr {
+                    collection: Box::new(variable("items")),
+                    loop_var: "item".to_owned(),
+                    action: action_call("fetch", vec![("value", variable("item"))]),
+                }),
+            ),
+            return_stmt(Some(variable("results"))),
+        ],
+    )]);
+
+    let executable = compile_program(&program);
+    let mut runtime = runtime_with_args(
+        executable,
+        vec![TestReadyValue::List(vec![
+            TestValue::Ready(TestReadyValue::Int(1)),
+            TestValue::Ready(TestReadyValue::Int(2)),
+        ])],
+    );
+
+    let first_promise = match runtime
+        .run()
+        .expect("first run should emit the first spread extcall")
+    {
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall {
+            promise_state_id,
+            action_ref,
+            args,
+        }) => {
+            assert!(matches!(&action_ref, TestActionRef(name) if name == "fetch"));
+            assert_eq!(args, vec![TestReadyValue::Int(1)]);
+            promise_state_id
+        }
+        other => panic!("unexpected first runtime effect: {other:?}"),
+    };
+
+    let second_promise = match runtime
+        .run()
+        .expect("second run should emit the second spread extcall")
+    {
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall {
+            promise_state_id,
+            action_ref,
+            args,
+        }) => {
+            assert!(matches!(&action_ref, TestActionRef(name) if name == "fetch"));
+            assert_eq!(args, vec![TestReadyValue::Int(2)]);
+            promise_state_id
+        }
+        other => panic!("unexpected second runtime effect: {other:?}"),
+    };
+
+    runtime
+        .resolve_promise(second_promise, TestReadyValue::Int(20))
+        .expect("second spread promise should resolve");
+    runtime
+        .resolve_promise(first_promise, TestReadyValue::Int(10))
+        .expect("first spread promise should resolve");
+
+    let effect = runtime
+        .run()
+        .expect("program should complete after resolving the spread promises");
+
+    match effect {
+        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(
+            TestReadyValue::List(values),
+        )) => assert_eq!(
+            values,
+            vec![
+                TestValue::Ready(TestReadyValue::Int(10)),
+                TestValue::Ready(TestReadyValue::Int(20))
+            ]
+        ),
+        other => panic!("unexpected final runtime effect: {other:?}"),
+    }
+}
+
+#[test]
+fn compiles_spread_action_statements_for_side_effects() {
+    let program = program(vec![function(
+        "main",
+        &["items"],
+        vec![
+            spanned(waymark_vm_ast_old::Statement::SpreadAction {
+                collection: variable("items"),
+                loop_var: "item".to_owned(),
+                action: action_call("fetch", vec![("value", variable("item"))]),
+            }),
+            return_stmt(Some(int(7))),
+        ],
+    )]);
+
+    let executable = compile_program(&program);
+    let mut runtime = runtime_with_args(
+        executable,
+        vec![TestReadyValue::List(vec![
+            TestValue::Ready(TestReadyValue::Int(1)),
+            TestValue::Ready(TestReadyValue::Int(2)),
+        ])],
+    );
+
+    let first_promise = match runtime
+        .run()
+        .expect("first run should emit the first spread-action extcall")
+    {
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall {
+            promise_state_id,
+            action_ref,
+            args,
+        }) => {
+            assert!(matches!(&action_ref, TestActionRef(name) if name == "fetch"));
+            assert_eq!(args, vec![TestReadyValue::Int(1)]);
+            promise_state_id
+        }
+        other => panic!("unexpected first runtime effect: {other:?}"),
+    };
+
+    let second_promise = match runtime
+        .run()
+        .expect("second run should emit the second spread-action extcall")
+    {
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall {
+            promise_state_id,
+            action_ref,
+            args,
+        }) => {
+            assert!(matches!(&action_ref, TestActionRef(name) if name == "fetch"));
+            assert_eq!(args, vec![TestReadyValue::Int(2)]);
+            promise_state_id
+        }
+        other => panic!("unexpected second runtime effect: {other:?}"),
+    };
+
+    runtime
+        .resolve_promise(second_promise, TestReadyValue::Int(20))
+        .expect("second spread-action promise should resolve");
+    runtime
+        .resolve_promise(first_promise, TestReadyValue::Int(10))
+        .expect("first spread-action promise should resolve");
+
+    let effect = runtime
+        .run()
+        .expect("program should complete after resolving the spread-action promises");
+
+    assert_eq!(completed_int(effect), 7);
+}
+
+#[test]
+fn spread_loop_variables_do_not_clobber_outer_locals() {
+    let program = program(vec![function(
+        "main",
+        &["item", "items"],
+        vec![
+            assignment(
+                "results",
+                spanned(Expr::SpreadExpr {
+                    collection: Box::new(variable("items")),
+                    loop_var: "item".to_owned(),
+                    action: action_call("fetch", vec![("value", variable("item"))]),
+                }),
+            ),
+            return_stmt(Some(variable("item"))),
+        ],
+    )]);
+
+    let executable = compile_program(&program);
+    let mut runtime = runtime_with_args(
+        executable,
+        vec![
+            TestReadyValue::Int(99),
+            TestReadyValue::List(vec![
+                TestValue::Ready(TestReadyValue::Int(1)),
+                TestValue::Ready(TestReadyValue::Int(2)),
+            ]),
+        ],
+    );
+
+    let first_promise = match runtime
+        .run()
+        .expect("first run should emit the first loop-var spread extcall")
+    {
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall {
+            promise_state_id,
+            action_ref,
+            args,
+        }) => {
+            assert!(matches!(&action_ref, TestActionRef(name) if name == "fetch"));
+            assert_eq!(args, vec![TestReadyValue::Int(1)]);
+            promise_state_id
+        }
+        other => panic!("unexpected first runtime effect: {other:?}"),
+    };
+
+    let second_promise = match runtime
+        .run()
+        .expect("second run should emit the second loop-var spread extcall")
+    {
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall {
+            promise_state_id,
+            action_ref,
+            args,
+        }) => {
+            assert!(matches!(&action_ref, TestActionRef(name) if name == "fetch"));
+            assert_eq!(args, vec![TestReadyValue::Int(2)]);
+            promise_state_id
+        }
+        other => panic!("unexpected second runtime effect: {other:?}"),
+    };
+
+    runtime
+        .resolve_promise(second_promise, TestReadyValue::Int(20))
+        .expect("second loop-var spread promise should resolve");
+    runtime
+        .resolve_promise(first_promise, TestReadyValue::Int(10))
+        .expect("first loop-var spread promise should resolve");
+
+    let effect = runtime
+        .run()
+        .expect("program should complete after resolving the loop-var spread promises");
+
+    assert_eq!(completed_int(effect), 99);
+}
+
+#[test]
 fn compiles_parallel_expression_results_by_call_position() {
     let program = program(vec![function(
         "main",

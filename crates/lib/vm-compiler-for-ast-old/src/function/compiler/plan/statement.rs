@@ -9,6 +9,7 @@ use crate::function::table::FunctionTable;
 use super::ErrorFor;
 use super::Unsupported;
 use super::parallel::{ParallelCallPlans, build_parallel_call_plans};
+use super::spread::SpreadPlan;
 
 /// A normalized statement shape that the statement compiler knows how to lower.
 #[derive(Debug)]
@@ -55,6 +56,12 @@ where
         calls: ParallelCallPlans<'a, Spec>,
     },
 
+    /// Execute a spread for side effects only.
+    Spread {
+        /// Spread action to execute and await.
+        spread: SpreadPlan<'a>,
+    },
+
     /// A `while` loop.
     WhileLoop {
         /// Condition evaluated before each iteration.
@@ -98,9 +105,6 @@ where
 /// Statement variants that the current lowering pipeline rejects.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnsupportedStatementKind {
-    /// Spread-action statements.
-    SpreadAction,
-
     /// `try`/`except` blocks.
     TryExcept,
 }
@@ -123,10 +127,16 @@ where
             Statement::Return { value } => Ok(Self::Return {
                 value: value.as_ref(),
             }),
-            Statement::ExprStmt { expr } => Ok(Self::Expr { expr }),
             Statement::Sleep { duration } => Ok(Self::Sleep { duration }),
             Statement::ParallelBlock { calls } => Ok(Self::ParallelBlock {
                 calls: build_parallel_call_plans::<Spec, Lowering>(calls, function_table)?,
+            }),
+            Statement::SpreadAction {
+                collection,
+                loop_var,
+                action,
+            } => Ok(Self::Spread {
+                spread: SpreadPlan::build(collection, loop_var, action),
             }),
             Statement::WhileLoop { condition, body } => Ok(Self::WhileLoop { condition, body }),
             Statement::ForLoop {
@@ -147,12 +157,18 @@ where
                 elif_branches,
                 else_branch: else_branch.as_ref(),
             }),
+            Statement::ExprStmt { expr } => match &expr.value {
+                Expr::SpreadExpr {
+                    collection,
+                    loop_var,
+                    action,
+                } => Ok(Self::Spread {
+                    spread: SpreadPlan::build(collection, loop_var, action),
+                }),
+                _ => Ok(Self::Expr { expr }),
+            },
             Statement::Break => Ok(Self::Break),
             Statement::Continue => Ok(Self::Continue),
-            Statement::SpreadAction { .. } => Err(Unsupported::Statement {
-                kind: UnsupportedStatementKind::SpreadAction,
-            }
-            .into()),
             Statement::TryExcept { .. } => Err(Unsupported::Statement {
                 kind: UnsupportedStatementKind::TryExcept,
             }
@@ -164,7 +180,6 @@ where
 impl core::fmt::Display for UnsupportedStatementKind {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         formatter.write_str(match self {
-            Self::SpreadAction => "SpreadAction",
             Self::TryExcept => "TryExcept",
         })
     }
@@ -231,6 +246,11 @@ mod tests {
             "notify",
             Vec::new(),
         ))]);
+        let spread = spanned(Statement::SpreadAction {
+            collection: variable("items"),
+            loop_var: "item".to_owned(),
+            action: action_call("notify", vec![("value", variable("item"))]),
+        });
 
         assert!(matches!(
             StatementPlan::<TestSpec>::build::<TestLowering>(&conditional.value, &function_table)
@@ -253,6 +273,11 @@ mod tests {
             StatementPlan::ParallelBlock { .. }
         ));
         assert!(matches!(
+            StatementPlan::<TestSpec>::build::<TestLowering>(&spread.value, &function_table)
+                .expect("spread actions should build"),
+            StatementPlan::Spread { .. }
+        ));
+        assert!(matches!(
             StatementPlan::<TestSpec>::build::<TestLowering>(&break_stmt().value, &function_table)
                 .expect("break should build"),
             StatementPlan::<TestSpec>::Break
@@ -270,23 +295,13 @@ mod tests {
     #[test]
     fn rejects_unsupported_statement_variants() {
         let function_table = build_function_table();
-        let unsupported = [
-            (
-                spanned(Statement::SpreadAction {
-                    collection: variable("items"),
-                    loop_var: "item".to_owned(),
-                    action: action_call("notify", Vec::new()),
-                }),
-                UnsupportedStatementKind::SpreadAction,
-            ),
-            (
-                spanned(Statement::TryExcept {
-                    handlers: Vec::<Spanned<waymark_vm_ast_old::ExceptHandler>>::new(),
-                    try_block: block(Vec::new()),
-                }),
-                UnsupportedStatementKind::TryExcept,
-            ),
-        ];
+        let unsupported = [(
+            spanned(Statement::TryExcept {
+                handlers: Vec::<Spanned<waymark_vm_ast_old::ExceptHandler>>::new(),
+                try_block: block(Vec::new()),
+            }),
+            UnsupportedStatementKind::TryExcept,
+        )];
 
         for (statement, kind) in unsupported {
             let error =

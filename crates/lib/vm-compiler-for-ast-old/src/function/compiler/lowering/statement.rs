@@ -6,6 +6,7 @@ use super::AssignmentCompiler;
 use super::CompilerContextMut;
 use super::ForLoopCompiler;
 use super::ParallelCompiler;
+use super::SpreadCompiler;
 use super::ValueCompiler;
 use super::conditional::{ConditionalJoin, ConditionalJoinFinish};
 use super::env::FlowState;
@@ -100,6 +101,9 @@ where
             }
             StatementPlan::ParallelBlock { calls } => {
                 self.parallel_compiler().compile_block(calls)?;
+            }
+            StatementPlan::Spread { spread } => {
+                self.spread_compiler().compile_statement(spread)?;
             }
             StatementPlan::WhileLoop { condition, body } => {
                 self.compile_while_loop(condition, body)?;
@@ -341,6 +345,11 @@ where
     /// Creates a parallel compiler borrowing the current context mutably.
     fn parallel_compiler(&mut self) -> ParallelCompiler<'_, 'table, Spec, Lowering> {
         ParallelCompiler::new(self.context.reborrow_mut())
+    }
+
+    /// Creates a spread compiler borrowing the current context mutably.
+    fn spread_compiler(&mut self) -> SpreadCompiler<'_, 'table, Spec, Lowering> {
+        SpreadCompiler::new(self.context.reborrow_mut())
     }
 
     /// Creates a nested statement compiler with derived loop-control scope.
