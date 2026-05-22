@@ -26,6 +26,18 @@ where
 {
     /// Shared compiler context used for value lowering.
     context: CompilerContextRef<'borrow, 'table, Spec, Lowering>,
+
+    /// Ephemeral register bindings that shadow source locals during lowering.
+    scoped_bindings: Vec<ScopedRegisterBinding>,
+}
+
+/// One compiler-scoped variable binding that resolves directly to a register.
+struct ScopedRegisterBinding {
+    /// Source variable name shadowed by this binding.
+    name: String,
+
+    /// Register exposed for the bound name.
+    register: RegisterId,
 }
 
 /// Where an expression result should be written.
@@ -45,7 +57,19 @@ where
 {
     /// Creates a value compiler over the provided context.
     pub fn new(context: CompilerContextRef<'borrow, 'table, Spec, Lowering>) -> Self {
-        Self { context }
+        Self {
+            context,
+            scoped_bindings: Vec::new(),
+        }
+    }
+
+    /// Returns a compiler that resolves `name` directly to `register`.
+    pub(crate) fn with_scoped_register(mut self, name: &str, register: RegisterId) -> Self {
+        self.scoped_bindings.push(ScopedRegisterBinding {
+            name: name.to_owned(),
+            register,
+        });
+        self
     }
 
     /// Compiles an expression and returns the register containing its result.
@@ -412,6 +436,15 @@ where
 
     /// Resolves an initialized local variable into its register.
     fn resolve_variable(&self, name: &str) -> Result<RegisterHandle, ErrorFor<Spec, Lowering>> {
+        if let Some(binding) = self
+            .scoped_bindings
+            .iter()
+            .rev()
+            .find(|binding| binding.name == name)
+        {
+            return Ok(RegisterHandle::Existing(binding.register));
+        }
+
         let Some(local) = self
             .context
             .local_frame
@@ -519,7 +552,7 @@ mod tests {
     use index_type::IndexType;
     use waymark_vm_ast_old::{BinaryOperator, DictEntry, Expr};
     use waymark_vm_ast_old_helpers::{
-        action_call, binary_expr, function_call, int, len_expr, spanned, string,
+        action_call, binary_expr, function_call, int, len_expr, spanned, string, variable,
     };
     use waymark_vm_bytecode_core::{FunctionId, StateId};
     use waymark_vm_compiler_for_ast_old_test_support::{
@@ -596,6 +629,37 @@ mod tests {
                     && *resume == StateId(1)
         ));
         assert!(instructions.next().is_none());
+    }
+
+    #[test]
+    fn scoped_bindings_override_matching_locals() {
+        let function_table = build_function_table();
+        let mut emitter = FunctionEmitter::<TestSpec>::new();
+        let mut local_frame = LocalFrame::new();
+        let mut flow_state = FlowState::new();
+
+        let Some(local) = local_frame.declare_input(&mut flow_state, "item".to_owned()) else {
+            panic!("input local should declare");
+        };
+        let scoped_register = local_frame.allocate_register();
+
+        let mut values = ValueCompiler::<TestSpec, TestLowering>::new(
+            CompilerContextMut::new(
+                &function_table,
+                &mut emitter,
+                &mut local_frame,
+                &mut flow_state,
+            )
+            .into_ref(),
+        )
+        .with_scoped_register("item", scoped_register);
+
+        let register = values
+            .compile_expr(&variable("item"), ResultTarget::Allocate)
+            .expect("scoped variable should resolve");
+
+        assert_eq!(local.register(), RegisterId(0));
+        assert_eq!(register.register(), scoped_register);
     }
 
     #[test]
