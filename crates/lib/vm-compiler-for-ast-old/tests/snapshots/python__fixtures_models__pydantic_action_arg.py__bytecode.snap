@@ -2,137 +2,17 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_models/pydantic_action_arg.py
 ---
-Ok(
-    Executable {
-        functions: [
-            Function {
-                states: [
-                    State {
-                        instructions: [
-                            ExtCallSet(
-                                ActionCall {
-                                    dst: RegisterId(
-                                        0,
-                                    ),
-                                    action_ref: TestActionRef(
-                                        "get_items",
-                                    ),
-                                    args: [],
-                                    resume: StateId(
-                                        1,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            CoreSet(
-                                Await {
-                                    dst: RegisterId(
-                                        0,
-                                    ),
-                                    src: RegisterId(
-                                        0,
-                                    ),
-                                    resume: StateId(
-                                        2,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            PureSet(
-                                LoadConst {
-                                    dst: RegisterId(
-                                        2,
-                                    ),
-                                    value: String(
-                                        "items",
-                                    ),
-                                },
-                            ),
-                            PureSet(
-                                MakeDict {
-                                    dst: RegisterId(
-                                        3,
-                                    ),
-                                    entries: [
-                                        DictEntry {
-                                            key: RegisterId(
-                                                2,
-                                            ),
-                                            value: RegisterId(
-                                                0,
-                                            ),
-                                        },
-                                    ],
-                                },
-                            ),
-                            ExtCallSet(
-                                ActionCall {
-                                    dst: RegisterId(
-                                        1,
-                                    ),
-                                    action_ref: TestActionRef(
-                                        "process_request",
-                                    ),
-                                    args: [
-                                        RegisterId(
-                                            3,
-                                        ),
-                                    ],
-                                    resume: StateId(
-                                        3,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            CoreSet(
-                                Await {
-                                    dst: RegisterId(
-                                        1,
-                                    ),
-                                    src: RegisterId(
-                                        1,
-                                    ),
-                                    resume: StateId(
-                                        4,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            PureSet(
-                                Dot {
-                                    dst: RegisterId(
-                                        3,
-                                    ),
-                                    object: RegisterId(
-                                        1,
-                                    ),
-                                    attribute: "count",
-                                },
-                            ),
-                            CoreSet(
-                                Return {
-                                    src: RegisterId(
-                                        3,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                ],
-                num_regs: 4,
-            },
-        ],
-    },
-)
+f0: [4 registers]
+  s0:
+    ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("get_items"), args: [], resume: s1 })
+  s1:
+    CoreSet(Await { dst: r0, src: r0, resume: s2 })
+  s2:
+    PureSet(LoadConst { dst: r2, value: String("items") })
+    PureSet(MakeDict { dst: r3, entries: [DictEntry { key: r2, value: r0 }] })
+    ExtCallSet(ActionCall { dst: r1, action_ref: TestActionRef("process_request"), args: [r3], resume: s3 })
+  s3:
+    CoreSet(Await { dst: r1, src: r1, resume: s4 })
+  s4:
+    PureSet(Dot { dst: r3, object: r1, attribute: "count" })
+    CoreSet(Return { src: r3 })

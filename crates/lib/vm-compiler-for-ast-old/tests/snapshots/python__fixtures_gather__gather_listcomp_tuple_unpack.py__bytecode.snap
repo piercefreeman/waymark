@@ -1,13 +1,11 @@
 ---
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
-expression: bytecode for python/tests/fixtures_gather/gather_listcomp_tuple_unpack.py
+expression: "bytecode for python/tests/fixtures_gather/gather_listcomp_tuple_unpack.py [compilation error]"
 ---
-Err(
-    FunctionCompiler(
-        Unsupported(
-            Expression {
-                kind: SpreadExpr,
-            },
-        ),
+FunctionCompiler(
+    Unsupported(
+        Expression {
+            kind: SpreadExpr,
+        },
     ),
 )

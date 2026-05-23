@@ -2,329 +2,38 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_control_flow/if_with_accumulator.py
 ---
-Ok(
-    Executable {
-        functions: [
-            Function {
-                states: [
-                    State {
-                        instructions: [
-                            PureSet(
-                                MakeList {
-                                    dst: RegisterId(
-                                        1,
-                                    ),
-                                    items: [],
-                                },
-                            ),
-                            PureSet(
-                                LoadConst {
-                                    dst: RegisterId(
-                                        2,
-                                    ),
-                                    value: Int(
-                                        50,
-                                    ),
-                                },
-                            ),
-                            PureSet(
-                                Binary {
-                                    kind: Gt,
-                                    op: BinaryOp {
-                                        dst: RegisterId(
-                                            3,
-                                        ),
-                                        a: RegisterId(
-                                            0,
-                                        ),
-                                        b: RegisterId(
-                                            2,
-                                        ),
-                                    },
-                                },
-                            ),
-                            CoreSet(
-                                JumpIf {
-                                    target_state: StateId(
-                                        2,
-                                    ),
-                                    cond: RegisterId(
-                                        3,
-                                    ),
-                                },
-                            ),
-                            ExtCallSet(
-                                ActionCall {
-                                    dst: RegisterId(
-                                        4,
-                                    ),
-                                    action_ref: TestActionRef(
-                                        "if_accum_process_low",
-                                    ),
-                                    args: [
-                                        RegisterId(
-                                            0,
-                                        ),
-                                    ],
-                                    resume: StateId(
-                                        3,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            CoreSet(
-                                JumpIf {
-                                    target_state: StateId(
-                                        10,
-                                    ),
-                                    cond: RegisterId(
-                                        1,
-                                    ),
-                                },
-                            ),
-                            CoreSet(
-                                Jump {
-                                    target_state: StateId(
-                                        9,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            ExtCallSet(
-                                ActionCall {
-                                    dst: RegisterId(
-                                        5,
-                                    ),
-                                    action_ref: TestActionRef(
-                                        "if_accum_process_high",
-                                    ),
-                                    args: [
-                                        RegisterId(
-                                            0,
-                                        ),
-                                    ],
-                                    resume: StateId(
-                                        5,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            CoreSet(
-                                Await {
-                                    dst: RegisterId(
-                                        4,
-                                    ),
-                                    src: RegisterId(
-                                        4,
-                                    ),
-                                    resume: StateId(
-                                        4,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            PureSet(
-                                MakeList {
-                                    dst: RegisterId(
-                                        3,
-                                    ),
-                                    items: [
-                                        RegisterId(
-                                            4,
-                                        ),
-                                    ],
-                                },
-                            ),
-                            PureSet(
-                                Binary {
-                                    kind: Add,
-                                    op: BinaryOp {
-                                        dst: RegisterId(
-                                            1,
-                                        ),
-                                        a: RegisterId(
-                                            1,
-                                        ),
-                                        b: RegisterId(
-                                            3,
-                                        ),
-                                    },
-                                },
-                            ),
-                            CoreSet(
-                                Jump {
-                                    target_state: StateId(
-                                        1,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            CoreSet(
-                                Await {
-                                    dst: RegisterId(
-                                        5,
-                                    ),
-                                    src: RegisterId(
-                                        5,
-                                    ),
-                                    resume: StateId(
-                                        6,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            ExtCallSet(
-                                ActionCall {
-                                    dst: RegisterId(
-                                        6,
-                                    ),
-                                    action_ref: TestActionRef(
-                                        "if_accum_finalize",
-                                    ),
-                                    args: [
-                                        RegisterId(
-                                            5,
-                                        ),
-                                    ],
-                                    resume: StateId(
-                                        7,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            CoreSet(
-                                Await {
-                                    dst: RegisterId(
-                                        6,
-                                    ),
-                                    src: RegisterId(
-                                        6,
-                                    ),
-                                    resume: StateId(
-                                        8,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            PureSet(
-                                MakeList {
-                                    dst: RegisterId(
-                                        3,
-                                    ),
-                                    items: [
-                                        RegisterId(
-                                            6,
-                                        ),
-                                    ],
-                                },
-                            ),
-                            PureSet(
-                                Binary {
-                                    kind: Add,
-                                    op: BinaryOp {
-                                        dst: RegisterId(
-                                            1,
-                                        ),
-                                        a: RegisterId(
-                                            1,
-                                        ),
-                                        b: RegisterId(
-                                            3,
-                                        ),
-                                    },
-                                },
-                            ),
-                            CoreSet(
-                                Jump {
-                                    target_state: StateId(
-                                        1,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            PureSet(
-                                LoadConst {
-                                    dst: RegisterId(
-                                        2,
-                                    ),
-                                    value: String(
-                                        "empty",
-                                    ),
-                                },
-                            ),
-                            CoreSet(
-                                Return {
-                                    src: RegisterId(
-                                        2,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            PureSet(
-                                LoadConst {
-                                    dst: RegisterId(
-                                        3,
-                                    ),
-                                    value: Int(
-                                        0,
-                                    ),
-                                },
-                            ),
-                            PureSet(
-                                Index {
-                                    dst: RegisterId(
-                                        2,
-                                    ),
-                                    object: RegisterId(
-                                        1,
-                                    ),
-                                    index: RegisterId(
-                                        3,
-                                    ),
-                                },
-                            ),
-                            CoreSet(
-                                Return {
-                                    src: RegisterId(
-                                        2,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                ],
-                num_regs: 7,
-            },
-        ],
-    },
-)
+f0: [7 registers]
+  s0:
+    PureSet(MakeList { dst: r1, items: [] })
+    PureSet(LoadConst { dst: r2, value: Int(50) })
+    PureSet(Binary { kind: Gt, op: BinaryOp { dst: r3, a: r0, b: r2 } })
+    CoreSet(JumpIf { target_state: s2, cond: r3 })
+    ExtCallSet(ActionCall { dst: r4, action_ref: TestActionRef("if_accum_process_low"), args: [r0], resume: s3 })
+  s1:
+    CoreSet(JumpIf { target_state: s10, cond: r1 })
+    CoreSet(Jump { target_state: s9 })
+  s2:
+    ExtCallSet(ActionCall { dst: r5, action_ref: TestActionRef("if_accum_process_high"), args: [r0], resume: s5 })
+  s3:
+    CoreSet(Await { dst: r4, src: r4, resume: s4 })
+  s4:
+    PureSet(MakeList { dst: r3, items: [r4] })
+    PureSet(Binary { kind: Add, op: BinaryOp { dst: r1, a: r1, b: r3 } })
+    CoreSet(Jump { target_state: s1 })
+  s5:
+    CoreSet(Await { dst: r5, src: r5, resume: s6 })
+  s6:
+    ExtCallSet(ActionCall { dst: r6, action_ref: TestActionRef("if_accum_finalize"), args: [r5], resume: s7 })
+  s7:
+    CoreSet(Await { dst: r6, src: r6, resume: s8 })
+  s8:
+    PureSet(MakeList { dst: r3, items: [r6] })
+    PureSet(Binary { kind: Add, op: BinaryOp { dst: r1, a: r1, b: r3 } })
+    CoreSet(Jump { target_state: s1 })
+  s9:
+    PureSet(LoadConst { dst: r2, value: String("empty") })
+    CoreSet(Return { src: r2 })
+  s10:
+    PureSet(LoadConst { dst: r3, value: Int(0) })
+    PureSet(Index { dst: r2, object: r1, index: r3 })
+    CoreSet(Return { src: r2 })

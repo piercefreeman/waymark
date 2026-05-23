@@ -2,165 +2,20 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_gather/gather_tuple_unpack.py
 ---
-Ok(
-    Executable {
-        functions: [
-            Function {
-                states: [
-                    State {
-                        instructions: [
-                            PureSet(
-                                LoadConst {
-                                    dst: RegisterId(
-                                        3,
-                                    ),
-                                    value: Int(
-                                        5,
-                                    ),
-                                },
-                            ),
-                            ExtCallSet(
-                                ActionCall {
-                                    dst: RegisterId(
-                                        2,
-                                    ),
-                                    action_ref: TestActionRef(
-                                        "compute_factorial",
-                                    ),
-                                    args: [
-                                        RegisterId(
-                                            3,
-                                        ),
-                                    ],
-                                    resume: StateId(
-                                        1,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            PureSet(
-                                LoadConst {
-                                    dst: RegisterId(
-                                        4,
-                                    ),
-                                    value: Int(
-                                        10,
-                                    ),
-                                },
-                            ),
-                            ExtCallSet(
-                                ActionCall {
-                                    dst: RegisterId(
-                                        3,
-                                    ),
-                                    action_ref: TestActionRef(
-                                        "compute_fibonacci",
-                                    ),
-                                    args: [
-                                        RegisterId(
-                                            4,
-                                        ),
-                                    ],
-                                    resume: StateId(
-                                        2,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            CoreSet(
-                                Await {
-                                    dst: RegisterId(
-                                        0,
-                                    ),
-                                    src: RegisterId(
-                                        2,
-                                    ),
-                                    resume: StateId(
-                                        3,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            CoreSet(
-                                Await {
-                                    dst: RegisterId(
-                                        1,
-                                    ),
-                                    src: RegisterId(
-                                        3,
-                                    ),
-                                    resume: StateId(
-                                        4,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            ExtCallSet(
-                                ActionCall {
-                                    dst: RegisterId(
-                                        5,
-                                    ),
-                                    action_ref: TestActionRef(
-                                        "summarize_math",
-                                    ),
-                                    args: [
-                                        RegisterId(
-                                            0,
-                                        ),
-                                        RegisterId(
-                                            1,
-                                        ),
-                                    ],
-                                    resume: StateId(
-                                        5,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            CoreSet(
-                                Await {
-                                    dst: RegisterId(
-                                        5,
-                                    ),
-                                    src: RegisterId(
-                                        5,
-                                    ),
-                                    resume: StateId(
-                                        6,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            CoreSet(
-                                Return {
-                                    src: RegisterId(
-                                        5,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                ],
-                num_regs: 6,
-            },
-        ],
-    },
-)
+f0: [6 registers]
+  s0:
+    PureSet(LoadConst { dst: r3, value: Int(5) })
+    ExtCallSet(ActionCall { dst: r2, action_ref: TestActionRef("compute_factorial"), args: [r3], resume: s1 })
+  s1:
+    PureSet(LoadConst { dst: r4, value: Int(10) })
+    ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("compute_fibonacci"), args: [r4], resume: s2 })
+  s2:
+    CoreSet(Await { dst: r0, src: r2, resume: s3 })
+  s3:
+    CoreSet(Await { dst: r1, src: r3, resume: s4 })
+  s4:
+    ExtCallSet(ActionCall { dst: r5, action_ref: TestActionRef("summarize_math"), args: [r0, r1], resume: s5 })
+  s5:
+    CoreSet(Await { dst: r5, src: r5, resume: s6 })
+  s6:
+    CoreSet(Return { src: r5 })

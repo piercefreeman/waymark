@@ -33,7 +33,10 @@ fn with_conventional_entrypoint_rejects_missing_default_function() {
 
     assert_eq!(
         err.to_string(),
-        "function FunctionId(0) is not found in the functions table"
+        format!(
+            "function {:?} is not found in the functions table",
+            FunctionId(0)
+        )
     );
 }
 

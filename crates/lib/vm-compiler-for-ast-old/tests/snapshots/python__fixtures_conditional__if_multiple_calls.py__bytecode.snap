@@ -2,163 +2,21 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_conditional/if_multiple_calls.py
 ---
-Ok(
-    Executable {
-        functions: [
-            Function {
-                states: [
-                    State {
-                        instructions: [
-                            PureSet(
-                                LoadConst {
-                                    dst: RegisterId(
-                                        1,
-                                    ),
-                                    value: Int(
-                                        0,
-                                    ),
-                                },
-                            ),
-                            PureSet(
-                                Binary {
-                                    kind: Gt,
-                                    op: BinaryOp {
-                                        dst: RegisterId(
-                                            2,
-                                        ),
-                                        a: RegisterId(
-                                            0,
-                                        ),
-                                        b: RegisterId(
-                                            1,
-                                        ),
-                                    },
-                                },
-                            ),
-                            CoreSet(
-                                JumpIf {
-                                    target_state: StateId(
-                                        2,
-                                    ),
-                                    cond: RegisterId(
-                                        2,
-                                    ),
-                                },
-                            ),
-                            PureSet(
-                                LoadConst {
-                                    dst: RegisterId(
-                                        2,
-                                    ),
-                                    value: Int(
-                                        0,
-                                    ),
-                                },
-                            ),
-                            CoreSet(
-                                Return {
-                                    src: RegisterId(
-                                        2,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [],
-                    },
-                    State {
-                        instructions: [
-                            ExtCallSet(
-                                ActionCall {
-                                    dst: RegisterId(
-                                        3,
-                                    ),
-                                    action_ref: TestActionRef(
-                                        "if_step_one",
-                                    ),
-                                    args: [
-                                        RegisterId(
-                                            0,
-                                        ),
-                                    ],
-                                    resume: StateId(
-                                        3,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            CoreSet(
-                                Await {
-                                    dst: RegisterId(
-                                        3,
-                                    ),
-                                    src: RegisterId(
-                                        3,
-                                    ),
-                                    resume: StateId(
-                                        4,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            ExtCallSet(
-                                ActionCall {
-                                    dst: RegisterId(
-                                        4,
-                                    ),
-                                    action_ref: TestActionRef(
-                                        "if_step_two",
-                                    ),
-                                    args: [
-                                        RegisterId(
-                                            3,
-                                        ),
-                                    ],
-                                    resume: StateId(
-                                        5,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            CoreSet(
-                                Await {
-                                    dst: RegisterId(
-                                        4,
-                                    ),
-                                    src: RegisterId(
-                                        4,
-                                    ),
-                                    resume: StateId(
-                                        6,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            CoreSet(
-                                Return {
-                                    src: RegisterId(
-                                        4,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                ],
-                num_regs: 5,
-            },
-        ],
-    },
-)
+f0: [5 registers]
+  s0:
+    PureSet(LoadConst { dst: r1, value: Int(0) })
+    PureSet(Binary { kind: Gt, op: BinaryOp { dst: r2, a: r0, b: r1 } })
+    CoreSet(JumpIf { target_state: s2, cond: r2 })
+    PureSet(LoadConst { dst: r2, value: Int(0) })
+    CoreSet(Return { src: r2 })
+  s1:
+  s2:
+    ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("if_step_one"), args: [r0], resume: s3 })
+  s3:
+    CoreSet(Await { dst: r3, src: r3, resume: s4 })
+  s4:
+    ExtCallSet(ActionCall { dst: r4, action_ref: TestActionRef("if_step_two"), args: [r3], resume: s5 })
+  s5:
+    CoreSet(Await { dst: r4, src: r4, resume: s6 })
+  s6:
+    CoreSet(Return { src: r4 })

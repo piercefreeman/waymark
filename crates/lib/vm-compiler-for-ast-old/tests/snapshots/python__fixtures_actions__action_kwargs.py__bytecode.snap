@@ -2,87 +2,12 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_actions/action_kwargs.py
 ---
-Ok(
-    Executable {
-        functions: [
-            Function {
-                states: [
-                    State {
-                        instructions: [
-                            PureSet(
-                                LoadConst {
-                                    dst: RegisterId(
-                                        1,
-                                    ),
-                                    value: String(
-                                        "World",
-                                    ),
-                                },
-                            ),
-                            PureSet(
-                                LoadConst {
-                                    dst: RegisterId(
-                                        2,
-                                    ),
-                                    value: String(
-                                        "Hi",
-                                    ),
-                                },
-                            ),
-                            ExtCallSet(
-                                ActionCall {
-                                    dst: RegisterId(
-                                        0,
-                                    ),
-                                    action_ref: TestActionRef(
-                                        "greet_person",
-                                    ),
-                                    args: [
-                                        RegisterId(
-                                            1,
-                                        ),
-                                        RegisterId(
-                                            2,
-                                        ),
-                                    ],
-                                    resume: StateId(
-                                        1,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            CoreSet(
-                                Await {
-                                    dst: RegisterId(
-                                        0,
-                                    ),
-                                    src: RegisterId(
-                                        0,
-                                    ),
-                                    resume: StateId(
-                                        2,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            CoreSet(
-                                Return {
-                                    src: RegisterId(
-                                        0,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                ],
-                num_regs: 3,
-            },
-        ],
-    },
-)
+f0: [3 registers]
+  s0:
+    PureSet(LoadConst { dst: r1, value: String("World") })
+    PureSet(LoadConst { dst: r2, value: String("Hi") })
+    ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("greet_person"), args: [r1, r2], resume: s1 })
+  s1:
+    CoreSet(Await { dst: r0, src: r0, resume: s2 })
+  s2:
+    CoreSet(Return { src: r0 })

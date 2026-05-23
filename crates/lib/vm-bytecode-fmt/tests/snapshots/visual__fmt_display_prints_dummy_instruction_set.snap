@@ -1,0 +1,10 @@
+---
+source: crates/lib/vm-bytecode-fmt/tests/visual.rs
+expression: Fmt(&executable)
+---
+f0: [123 registers]
+  s0:
+    LoadConst7
+    Jump { target: s1 }
+  s1:
+    Return

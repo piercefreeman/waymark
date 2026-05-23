@@ -2,102 +2,14 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_actions/action_variable_args.py
 ---
-Ok(
-    Executable {
-        functions: [
-            Function {
-                states: [
-                    State {
-                        instructions: [
-                            ExtCallSet(
-                                ActionCall {
-                                    dst: RegisterId(
-                                        1,
-                                    ),
-                                    action_ref: TestActionRef(
-                                        "get_base_value",
-                                    ),
-                                    args: [],
-                                    resume: StateId(
-                                        1,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            CoreSet(
-                                Await {
-                                    dst: RegisterId(
-                                        1,
-                                    ),
-                                    src: RegisterId(
-                                        1,
-                                    ),
-                                    resume: StateId(
-                                        2,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            ExtCallSet(
-                                ActionCall {
-                                    dst: RegisterId(
-                                        2,
-                                    ),
-                                    action_ref: TestActionRef(
-                                        "multiply_by",
-                                    ),
-                                    args: [
-                                        RegisterId(
-                                            1,
-                                        ),
-                                        RegisterId(
-                                            0,
-                                        ),
-                                    ],
-                                    resume: StateId(
-                                        3,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            CoreSet(
-                                Await {
-                                    dst: RegisterId(
-                                        2,
-                                    ),
-                                    src: RegisterId(
-                                        2,
-                                    ),
-                                    resume: StateId(
-                                        4,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            CoreSet(
-                                Return {
-                                    src: RegisterId(
-                                        2,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                ],
-                num_regs: 3,
-            },
-        ],
-    },
-)
+f0: [3 registers]
+  s0:
+    ExtCallSet(ActionCall { dst: r1, action_ref: TestActionRef("get_base_value"), args: [], resume: s1 })
+  s1:
+    CoreSet(Await { dst: r1, src: r1, resume: s2 })
+  s2:
+    ExtCallSet(ActionCall { dst: r2, action_ref: TestActionRef("multiply_by"), args: [r1, r0], resume: s3 })
+  s3:
+    CoreSet(Await { dst: r2, src: r2, resume: s4 })
+  s4:
+    CoreSet(Return { src: r2 })

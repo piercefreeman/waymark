@@ -1,13 +1,11 @@
 ---
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
-expression: bytecode for python/tests/fixtures_for_loop/for_multi_accumulator.py
+expression: "bytecode for python/tests/fixtures_for_loop/for_multi_accumulator.py [compilation error]"
 ---
-Err(
-    FunctionCompiler(
-        Unsupported(
-            AssignmentTargetCount {
-                count: 2,
-            },
-        ),
+FunctionCompiler(
+    Unsupported(
+        AssignmentTargetCount {
+            count: 2,
+        },
     ),
 )

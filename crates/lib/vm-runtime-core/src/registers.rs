@@ -6,7 +6,7 @@ use index_type::{IndexTooBigError, IndexType, typed_vec::TypedVec};
 pub struct RegisterIdTooBigError;
 
 /// Index of a register in the [`Registers`] type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, IndexType)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, IndexType)]
 #[index_type(error = RegisterIdTooBigError)]
 pub struct RegisterId(pub usize);
 
@@ -77,6 +77,12 @@ impl<Value> Registers<Value> {
     /// Panics if the register is out of bounds.
     pub fn take(&mut self, index: RegisterId) -> Option<Value> {
         self.0[index].take()
+    }
+}
+
+impl core::fmt::Debug for RegisterId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "r{}", self.0)
     }
 }
 

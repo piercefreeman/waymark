@@ -2,298 +2,34 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_policy/policy_variations.py
 ---
-Ok(
-    Executable {
-        functions: [
-            Function {
-                states: [
-                    State {
-                        instructions: [
-                            ExtCallSet(
-                                ActionCall {
-                                    dst: RegisterId(
-                                        1,
-                                    ),
-                                    action_ref: TestActionRef(
-                                        "action_with_timeout_int",
-                                    ),
-                                    args: [
-                                        RegisterId(
-                                            0,
-                                        ),
-                                    ],
-                                    resume: StateId(
-                                        1,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            CoreSet(
-                                Await {
-                                    dst: RegisterId(
-                                        1,
-                                    ),
-                                    src: RegisterId(
-                                        1,
-                                    ),
-                                    resume: StateId(
-                                        2,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            ExtCallSet(
-                                ActionCall {
-                                    dst: RegisterId(
-                                        2,
-                                    ),
-                                    action_ref: TestActionRef(
-                                        "action_with_timeout_minutes",
-                                    ),
-                                    args: [
-                                        RegisterId(
-                                            1,
-                                        ),
-                                    ],
-                                    resume: StateId(
-                                        3,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            CoreSet(
-                                Await {
-                                    dst: RegisterId(
-                                        2,
-                                    ),
-                                    src: RegisterId(
-                                        2,
-                                    ),
-                                    resume: StateId(
-                                        4,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            ExtCallSet(
-                                ActionCall {
-                                    dst: RegisterId(
-                                        3,
-                                    ),
-                                    action_ref: TestActionRef(
-                                        "action_with_retry_backoff",
-                                    ),
-                                    args: [
-                                        RegisterId(
-                                            2,
-                                        ),
-                                    ],
-                                    resume: StateId(
-                                        5,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            CoreSet(
-                                Await {
-                                    dst: RegisterId(
-                                        3,
-                                    ),
-                                    src: RegisterId(
-                                        3,
-                                    ),
-                                    resume: StateId(
-                                        6,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            ExtCallSet(
-                                ActionCall {
-                                    dst: RegisterId(
-                                        4,
-                                    ),
-                                    action_ref: TestActionRef(
-                                        "action_with_retry_exceptions",
-                                    ),
-                                    args: [
-                                        RegisterId(
-                                            3,
-                                        ),
-                                    ],
-                                    resume: StateId(
-                                        7,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            CoreSet(
-                                Await {
-                                    dst: RegisterId(
-                                        4,
-                                    ),
-                                    src: RegisterId(
-                                        4,
-                                    ),
-                                    resume: StateId(
-                                        8,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            ExtCallSet(
-                                ActionCall {
-                                    dst: RegisterId(
-                                        5,
-                                    ),
-                                    action_ref: TestActionRef(
-                                        "action_with_retry_default",
-                                    ),
-                                    args: [
-                                        RegisterId(
-                                            4,
-                                        ),
-                                    ],
-                                    resume: StateId(
-                                        9,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            CoreSet(
-                                Await {
-                                    dst: RegisterId(
-                                        5,
-                                    ),
-                                    src: RegisterId(
-                                        5,
-                                    ),
-                                    resume: StateId(
-                                        10,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            ExtCallSet(
-                                ActionCall {
-                                    dst: RegisterId(
-                                        6,
-                                    ),
-                                    action_ref: TestActionRef(
-                                        "action_with_timeout_hours",
-                                    ),
-                                    args: [
-                                        RegisterId(
-                                            5,
-                                        ),
-                                    ],
-                                    resume: StateId(
-                                        11,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            CoreSet(
-                                Await {
-                                    dst: RegisterId(
-                                        6,
-                                    ),
-                                    src: RegisterId(
-                                        6,
-                                    ),
-                                    resume: StateId(
-                                        12,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            ExtCallSet(
-                                ActionCall {
-                                    dst: RegisterId(
-                                        7,
-                                    ),
-                                    action_ref: TestActionRef(
-                                        "action_with_timeout_days",
-                                    ),
-                                    args: [
-                                        RegisterId(
-                                            6,
-                                        ),
-                                    ],
-                                    resume: StateId(
-                                        13,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            CoreSet(
-                                Await {
-                                    dst: RegisterId(
-                                        7,
-                                    ),
-                                    src: RegisterId(
-                                        7,
-                                    ),
-                                    resume: StateId(
-                                        14,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            CoreSet(
-                                Return {
-                                    src: RegisterId(
-                                        7,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                ],
-                num_regs: 8,
-            },
-        ],
-    },
-)
+f0: [8 registers]
+  s0:
+    ExtCallSet(ActionCall { dst: r1, action_ref: TestActionRef("action_with_timeout_int"), args: [r0], resume: s1 })
+  s1:
+    CoreSet(Await { dst: r1, src: r1, resume: s2 })
+  s2:
+    ExtCallSet(ActionCall { dst: r2, action_ref: TestActionRef("action_with_timeout_minutes"), args: [r1], resume: s3 })
+  s3:
+    CoreSet(Await { dst: r2, src: r2, resume: s4 })
+  s4:
+    ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("action_with_retry_backoff"), args: [r2], resume: s5 })
+  s5:
+    CoreSet(Await { dst: r3, src: r3, resume: s6 })
+  s6:
+    ExtCallSet(ActionCall { dst: r4, action_ref: TestActionRef("action_with_retry_exceptions"), args: [r3], resume: s7 })
+  s7:
+    CoreSet(Await { dst: r4, src: r4, resume: s8 })
+  s8:
+    ExtCallSet(ActionCall { dst: r5, action_ref: TestActionRef("action_with_retry_default"), args: [r4], resume: s9 })
+  s9:
+    CoreSet(Await { dst: r5, src: r5, resume: s10 })
+  s10:
+    ExtCallSet(ActionCall { dst: r6, action_ref: TestActionRef("action_with_timeout_hours"), args: [r5], resume: s11 })
+  s11:
+    CoreSet(Await { dst: r6, src: r6, resume: s12 })
+  s12:
+    ExtCallSet(ActionCall { dst: r7, action_ref: TestActionRef("action_with_timeout_days"), args: [r6], resume: s13 })
+  s13:
+    CoreSet(Await { dst: r7, src: r7, resume: s14 })
+  s14:
+    CoreSet(Return { src: r7 })
