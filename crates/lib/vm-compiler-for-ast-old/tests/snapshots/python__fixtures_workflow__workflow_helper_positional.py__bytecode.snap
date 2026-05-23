@@ -1,14 +1,12 @@
 ---
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
-expression: bytecode for python/tests/fixtures_workflow/workflow_helper_positional.py
+expression: "bytecode for python/tests/fixtures_workflow/workflow_helper_positional.py [compilation error]"
 ---
-Err(
-    FunctionCompiler(
-        Unsupported(
-            FunctionCall {
-                name: "multiply",
-                reason: KeywordArguments,
-            },
-        ),
+FunctionCompiler(
+    Unsupported(
+        FunctionCall {
+            name: "multiply",
+            reason: KeywordArguments,
+        },
     ),
 )

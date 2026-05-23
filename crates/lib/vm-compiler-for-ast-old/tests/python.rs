@@ -94,7 +94,23 @@ async fn compile_python_tests() {
             waymark_vm_compiler_for_ast_old::compile::<TestSpec, TestLowering>(&program);
 
         let snapshot = format!("{}/bytecode", python_test_file.display());
-        let details = format!("bytecode for python/tests/{}", python_test_file.display());
-        insta::assert_debug_snapshot!(snapshot, bytecode_result, &details);
+
+        match bytecode_result {
+            Ok(bytecode) => {
+                let details = format!("bytecode for python/tests/{}", python_test_file.display());
+                insta::assert_snapshot!(
+                    snapshot,
+                    waymark_vm_bytecode_fmt::display(&bytecode),
+                    &details
+                );
+            }
+            Err(error) => {
+                let details = format!(
+                    "bytecode for python/tests/{} [compilation error]",
+                    python_test_file.display()
+                );
+                insta::assert_debug_snapshot!(snapshot, error, &details)
+            }
+        }
     }
 }

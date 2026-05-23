@@ -2,90 +2,11 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_models/pydantic_return_direct.py
 ---
-Ok(
-    Executable {
-        functions: [
-            Function {
-                states: [
-                    State {
-                        instructions: [
-                            PureSet(
-                                LoadConst {
-                                    dst: RegisterId(
-                                        0,
-                                    ),
-                                    value: String(
-                                        "value",
-                                    ),
-                                },
-                            ),
-                            PureSet(
-                                LoadConst {
-                                    dst: RegisterId(
-                                        1,
-                                    ),
-                                    value: Int(
-                                        1,
-                                    ),
-                                },
-                            ),
-                            PureSet(
-                                LoadConst {
-                                    dst: RegisterId(
-                                        2,
-                                    ),
-                                    value: String(
-                                        "message",
-                                    ),
-                                },
-                            ),
-                            PureSet(
-                                LoadConst {
-                                    dst: RegisterId(
-                                        3,
-                                    ),
-                                    value: String(
-                                        "ok",
-                                    ),
-                                },
-                            ),
-                            PureSet(
-                                MakeDict {
-                                    dst: RegisterId(
-                                        4,
-                                    ),
-                                    entries: [
-                                        DictEntry {
-                                            key: RegisterId(
-                                                0,
-                                            ),
-                                            value: RegisterId(
-                                                1,
-                                            ),
-                                        },
-                                        DictEntry {
-                                            key: RegisterId(
-                                                2,
-                                            ),
-                                            value: RegisterId(
-                                                3,
-                                            ),
-                                        },
-                                    ],
-                                },
-                            ),
-                            CoreSet(
-                                Return {
-                                    src: RegisterId(
-                                        4,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                ],
-                num_regs: 5,
-            },
-        ],
-    },
-)
+f0: [5 registers]
+  s0:
+    PureSet(LoadConst { dst: r0, value: String("value") })
+    PureSet(LoadConst { dst: r1, value: Int(1) })
+    PureSet(LoadConst { dst: r2, value: String("message") })
+    PureSet(LoadConst { dst: r3, value: String("ok") })
+    PureSet(MakeDict { dst: r4, entries: [DictEntry { key: r0, value: r1 }, DictEntry { key: r2, value: r3 }] })
+    CoreSet(Return { src: r4 })

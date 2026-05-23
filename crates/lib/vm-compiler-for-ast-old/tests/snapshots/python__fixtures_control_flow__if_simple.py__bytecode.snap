@@ -2,127 +2,19 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_control_flow/if_simple.py
 ---
-Ok(
-    Executable {
-        functions: [
-            Function {
-                states: [
-                    State {
-                        instructions: [
-                            CoreSet(
-                                JumpIf {
-                                    target_state: StateId(
-                                        2,
-                                    ),
-                                    cond: RegisterId(
-                                        0,
-                                    ),
-                                },
-                            ),
-                            ExtCallSet(
-                                ActionCall {
-                                    dst: RegisterId(
-                                        1,
-                                    ),
-                                    action_ref: TestActionRef(
-                                        "handle_false_case",
-                                    ),
-                                    args: [],
-                                    resume: StateId(
-                                        3,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            CoreSet(
-                                Return {
-                                    src: RegisterId(
-                                        1,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            ExtCallSet(
-                                ActionCall {
-                                    dst: RegisterId(
-                                        1,
-                                    ),
-                                    action_ref: TestActionRef(
-                                        "handle_true_case",
-                                    ),
-                                    args: [],
-                                    resume: StateId(
-                                        5,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            CoreSet(
-                                Await {
-                                    dst: RegisterId(
-                                        1,
-                                    ),
-                                    src: RegisterId(
-                                        1,
-                                    ),
-                                    resume: StateId(
-                                        4,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            CoreSet(
-                                Jump {
-                                    target_state: StateId(
-                                        1,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            CoreSet(
-                                Await {
-                                    dst: RegisterId(
-                                        1,
-                                    ),
-                                    src: RegisterId(
-                                        1,
-                                    ),
-                                    resume: StateId(
-                                        6,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            CoreSet(
-                                Jump {
-                                    target_state: StateId(
-                                        1,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                ],
-                num_regs: 2,
-            },
-        ],
-    },
-)
+f0: [2 registers]
+  s0:
+    CoreSet(JumpIf { target_state: s2, cond: r0 })
+    ExtCallSet(ActionCall { dst: r1, action_ref: TestActionRef("handle_false_case"), args: [], resume: s3 })
+  s1:
+    CoreSet(Return { src: r1 })
+  s2:
+    ExtCallSet(ActionCall { dst: r1, action_ref: TestActionRef("handle_true_case"), args: [], resume: s5 })
+  s3:
+    CoreSet(Await { dst: r1, src: r1, resume: s4 })
+  s4:
+    CoreSet(Jump { target_state: s1 })
+  s5:
+    CoreSet(Await { dst: r1, src: r1, resume: s6 })
+  s6:
+    CoreSet(Jump { target_state: s1 })

@@ -2,143 +2,16 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_models/dataclass_with_defaults.py
 ---
-Ok(
-    Executable {
-        functions: [
-            Function {
-                states: [
-                    State {
-                        instructions: [
-                            ExtCallSet(
-                                ActionCall {
-                                    dst: RegisterId(
-                                        0,
-                                    ),
-                                    action_ref: TestActionRef(
-                                        "get_result",
-                                    ),
-                                    args: [],
-                                    resume: StateId(
-                                        1,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            CoreSet(
-                                Await {
-                                    dst: RegisterId(
-                                        0,
-                                    ),
-                                    src: RegisterId(
-                                        0,
-                                    ),
-                                    resume: StateId(
-                                        2,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            PureSet(
-                                LoadConst {
-                                    dst: RegisterId(
-                                        2,
-                                    ),
-                                    value: String(
-                                        "value",
-                                    ),
-                                },
-                            ),
-                            PureSet(
-                                LoadConst {
-                                    dst: RegisterId(
-                                        3,
-                                    ),
-                                    value: String(
-                                        "status",
-                                    ),
-                                },
-                            ),
-                            PureSet(
-                                LoadConst {
-                                    dst: RegisterId(
-                                        4,
-                                    ),
-                                    value: String(
-                                        "pending",
-                                    ),
-                                },
-                            ),
-                            PureSet(
-                                LoadConst {
-                                    dst: RegisterId(
-                                        5,
-                                    ),
-                                    value: String(
-                                        "retry_count",
-                                    ),
-                                },
-                            ),
-                            PureSet(
-                                LoadConst {
-                                    dst: RegisterId(
-                                        6,
-                                    ),
-                                    value: Int(
-                                        0,
-                                    ),
-                                },
-                            ),
-                            PureSet(
-                                MakeDict {
-                                    dst: RegisterId(
-                                        1,
-                                    ),
-                                    entries: [
-                                        DictEntry {
-                                            key: RegisterId(
-                                                2,
-                                            ),
-                                            value: RegisterId(
-                                                0,
-                                            ),
-                                        },
-                                        DictEntry {
-                                            key: RegisterId(
-                                                3,
-                                            ),
-                                            value: RegisterId(
-                                                4,
-                                            ),
-                                        },
-                                        DictEntry {
-                                            key: RegisterId(
-                                                5,
-                                            ),
-                                            value: RegisterId(
-                                                6,
-                                            ),
-                                        },
-                                    ],
-                                },
-                            ),
-                            CoreSet(
-                                Return {
-                                    src: RegisterId(
-                                        1,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                ],
-                num_regs: 7,
-            },
-        ],
-    },
-)
+f0: [7 registers]
+  s0:
+    ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("get_result"), args: [], resume: s1 })
+  s1:
+    CoreSet(Await { dst: r0, src: r0, resume: s2 })
+  s2:
+    PureSet(LoadConst { dst: r2, value: String("value") })
+    PureSet(LoadConst { dst: r3, value: String("status") })
+    PureSet(LoadConst { dst: r4, value: String("pending") })
+    PureSet(LoadConst { dst: r5, value: String("retry_count") })
+    PureSet(LoadConst { dst: r6, value: Int(0) })
+    PureSet(MakeDict { dst: r1, entries: [DictEntry { key: r2, value: r0 }, DictEntry { key: r3, value: r4 }, DictEntry { key: r5, value: r6 }] })
+    CoreSet(Return { src: r1 })

@@ -2,110 +2,15 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_gather/gather_simple.py
 ---
-Ok(
-    Executable {
-        functions: [
-            Function {
-                states: [
-                    State {
-                        instructions: [
-                            ExtCallSet(
-                                ActionCall {
-                                    dst: RegisterId(
-                                        2,
-                                    ),
-                                    action_ref: TestActionRef(
-                                        "action_a",
-                                    ),
-                                    args: [],
-                                    resume: StateId(
-                                        1,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            ExtCallSet(
-                                ActionCall {
-                                    dst: RegisterId(
-                                        3,
-                                    ),
-                                    action_ref: TestActionRef(
-                                        "action_b",
-                                    ),
-                                    args: [],
-                                    resume: StateId(
-                                        2,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            CoreSet(
-                                Await {
-                                    dst: RegisterId(
-                                        0,
-                                    ),
-                                    src: RegisterId(
-                                        2,
-                                    ),
-                                    resume: StateId(
-                                        3,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            CoreSet(
-                                Await {
-                                    dst: RegisterId(
-                                        1,
-                                    ),
-                                    src: RegisterId(
-                                        3,
-                                    ),
-                                    resume: StateId(
-                                        4,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            PureSet(
-                                MakeList {
-                                    dst: RegisterId(
-                                        3,
-                                    ),
-                                    items: [
-                                        RegisterId(
-                                            0,
-                                        ),
-                                        RegisterId(
-                                            1,
-                                        ),
-                                    ],
-                                },
-                            ),
-                            CoreSet(
-                                Return {
-                                    src: RegisterId(
-                                        3,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                ],
-                num_regs: 4,
-            },
-        ],
-    },
-)
+f0: [4 registers]
+  s0:
+    ExtCallSet(ActionCall { dst: r2, action_ref: TestActionRef("action_a"), args: [], resume: s1 })
+  s1:
+    ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("action_b"), args: [], resume: s2 })
+  s2:
+    CoreSet(Await { dst: r0, src: r2, resume: s3 })
+  s3:
+    CoreSet(Await { dst: r1, src: r3, resume: s4 })
+  s4:
+    PureSet(MakeList { dst: r3, items: [r0, r1] })
+    CoreSet(Return { src: r3 })

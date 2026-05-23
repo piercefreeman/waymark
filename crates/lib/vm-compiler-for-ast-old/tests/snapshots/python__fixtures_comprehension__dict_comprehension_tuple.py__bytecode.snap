@@ -2,228 +2,28 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_comprehension/dict_comprehension_tuple.py
 ---
-Ok(
-    Executable {
-        functions: [
-            Function {
-                states: [
-                    State {
-                        instructions: [
-                            PureSet(
-                                MakeDict {
-                                    dst: RegisterId(
-                                        1,
-                                    ),
-                                    entries: [],
-                                },
-                            ),
-                            PureSet(
-                                Copy {
-                                    dst: RegisterId(
-                                        2,
-                                    ),
-                                    src: RegisterId(
-                                        0,
-                                    ),
-                                },
-                            ),
-                            PureSet(
-                                LoadConst {
-                                    dst: RegisterId(
-                                        3,
-                                    ),
-                                    value: Int(
-                                        0,
-                                    ),
-                                },
-                            ),
-                            PureSet(
-                                Length {
-                                    dst: RegisterId(
-                                        4,
-                                    ),
-                                    src: RegisterId(
-                                        2,
-                                    ),
-                                },
-                            ),
-                            CoreSet(
-                                Jump {
-                                    target_state: StateId(
-                                        1,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            PureSet(
-                                Binary {
-                                    kind: Lt,
-                                    op: BinaryOp {
-                                        dst: RegisterId(
-                                            5,
-                                        ),
-                                        a: RegisterId(
-                                            3,
-                                        ),
-                                        b: RegisterId(
-                                            4,
-                                        ),
-                                    },
-                                },
-                            ),
-                            CoreSet(
-                                JumpIf {
-                                    target_state: StateId(
-                                        2,
-                                    ),
-                                    cond: RegisterId(
-                                        5,
-                                    ),
-                                },
-                            ),
-                            CoreSet(
-                                Jump {
-                                    target_state: StateId(
-                                        4,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            PureSet(
-                                Index {
-                                    dst: RegisterId(
-                                        5,
-                                    ),
-                                    object: RegisterId(
-                                        2,
-                                    ),
-                                    index: RegisterId(
-                                        3,
-                                    ),
-                                },
-                            ),
-                            PureSet(
-                                LoadConst {
-                                    dst: RegisterId(
-                                        6,
-                                    ),
-                                    value: Int(
-                                        0,
-                                    ),
-                                },
-                            ),
-                            PureSet(
-                                Index {
-                                    dst: RegisterId(
-                                        7,
-                                    ),
-                                    object: RegisterId(
-                                        5,
-                                    ),
-                                    index: RegisterId(
-                                        6,
-                                    ),
-                                },
-                            ),
-                            PureSet(
-                                LoadConst {
-                                    dst: RegisterId(
-                                        6,
-                                    ),
-                                    value: Int(
-                                        1,
-                                    ),
-                                },
-                            ),
-                            PureSet(
-                                Index {
-                                    dst: RegisterId(
-                                        8,
-                                    ),
-                                    object: RegisterId(
-                                        5,
-                                    ),
-                                    index: RegisterId(
-                                        6,
-                                    ),
-                                },
-                            ),
-                            PureSet(
-                                Copy {
-                                    dst: RegisterId(
-                                        9,
-                                    ),
-                                    src: RegisterId(
-                                        8,
-                                    ),
-                                },
-                            ),
-                            CoreSet(
-                                Jump {
-                                    target_state: StateId(
-                                        3,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            PureSet(
-                                LoadConst {
-                                    dst: RegisterId(
-                                        5,
-                                    ),
-                                    value: Int(
-                                        1,
-                                    ),
-                                },
-                            ),
-                            PureSet(
-                                Binary {
-                                    kind: Add,
-                                    op: BinaryOp {
-                                        dst: RegisterId(
-                                            3,
-                                        ),
-                                        a: RegisterId(
-                                            3,
-                                        ),
-                                        b: RegisterId(
-                                            5,
-                                        ),
-                                    },
-                                },
-                            ),
-                            CoreSet(
-                                Jump {
-                                    target_state: StateId(
-                                        1,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            CoreSet(
-                                Return {
-                                    src: RegisterId(
-                                        1,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                ],
-                num_regs: 10,
-            },
-        ],
-    },
-)
+f0: [10 registers]
+  s0:
+    PureSet(MakeDict { dst: r1, entries: [] })
+    PureSet(Copy { dst: r2, src: r0 })
+    PureSet(LoadConst { dst: r3, value: Int(0) })
+    PureSet(Length { dst: r4, src: r2 })
+    CoreSet(Jump { target_state: s1 })
+  s1:
+    PureSet(Binary { kind: Lt, op: BinaryOp { dst: r5, a: r3, b: r4 } })
+    CoreSet(JumpIf { target_state: s2, cond: r5 })
+    CoreSet(Jump { target_state: s4 })
+  s2:
+    PureSet(Index { dst: r5, object: r2, index: r3 })
+    PureSet(LoadConst { dst: r6, value: Int(0) })
+    PureSet(Index { dst: r7, object: r5, index: r6 })
+    PureSet(LoadConst { dst: r6, value: Int(1) })
+    PureSet(Index { dst: r8, object: r5, index: r6 })
+    PureSet(Copy { dst: r9, src: r8 })
+    CoreSet(Jump { target_state: s3 })
+  s3:
+    PureSet(LoadConst { dst: r5, value: Int(1) })
+    PureSet(Binary { kind: Add, op: BinaryOp { dst: r3, a: r3, b: r5 } })
+    CoreSet(Jump { target_state: s1 })
+  s4:
+    CoreSet(Return { src: r1 })

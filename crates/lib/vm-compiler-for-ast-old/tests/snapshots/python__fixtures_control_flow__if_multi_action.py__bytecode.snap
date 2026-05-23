@@ -2,225 +2,29 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_control_flow/if_multi_action.py
 ---
-Ok(
-    Executable {
-        functions: [
-            Function {
-                states: [
-                    State {
-                        instructions: [
-                            CoreSet(
-                                JumpIf {
-                                    target_state: StateId(
-                                        2,
-                                    ),
-                                    cond: RegisterId(
-                                        0,
-                                    ),
-                                },
-                            ),
-                            ExtCallSet(
-                                ActionCall {
-                                    dst: RegisterId(
-                                        1,
-                                    ),
-                                    action_ref: TestActionRef(
-                                        "action_else_1",
-                                    ),
-                                    args: [],
-                                    resume: StateId(
-                                        3,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            CoreSet(
-                                Return {
-                                    src: RegisterId(
-                                        3,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            ExtCallSet(
-                                ActionCall {
-                                    dst: RegisterId(
-                                        4,
-                                    ),
-                                    action_ref: TestActionRef(
-                                        "action_if_1",
-                                    ),
-                                    args: [],
-                                    resume: StateId(
-                                        7,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            CoreSet(
-                                Await {
-                                    dst: RegisterId(
-                                        1,
-                                    ),
-                                    src: RegisterId(
-                                        1,
-                                    ),
-                                    resume: StateId(
-                                        4,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            ExtCallSet(
-                                ActionCall {
-                                    dst: RegisterId(
-                                        2,
-                                    ),
-                                    action_ref: TestActionRef(
-                                        "action_else_2",
-                                    ),
-                                    args: [
-                                        RegisterId(
-                                            1,
-                                        ),
-                                    ],
-                                    resume: StateId(
-                                        5,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            CoreSet(
-                                Await {
-                                    dst: RegisterId(
-                                        2,
-                                    ),
-                                    src: RegisterId(
-                                        2,
-                                    ),
-                                    resume: StateId(
-                                        6,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            PureSet(
-                                Copy {
-                                    dst: RegisterId(
-                                        3,
-                                    ),
-                                    src: RegisterId(
-                                        2,
-                                    ),
-                                },
-                            ),
-                            CoreSet(
-                                Jump {
-                                    target_state: StateId(
-                                        1,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            CoreSet(
-                                Await {
-                                    dst: RegisterId(
-                                        4,
-                                    ),
-                                    src: RegisterId(
-                                        4,
-                                    ),
-                                    resume: StateId(
-                                        8,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            ExtCallSet(
-                                ActionCall {
-                                    dst: RegisterId(
-                                        5,
-                                    ),
-                                    action_ref: TestActionRef(
-                                        "action_if_2",
-                                    ),
-                                    args: [
-                                        RegisterId(
-                                            4,
-                                        ),
-                                    ],
-                                    resume: StateId(
-                                        9,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            CoreSet(
-                                Await {
-                                    dst: RegisterId(
-                                        5,
-                                    ),
-                                    src: RegisterId(
-                                        5,
-                                    ),
-                                    resume: StateId(
-                                        10,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                    State {
-                        instructions: [
-                            PureSet(
-                                Copy {
-                                    dst: RegisterId(
-                                        3,
-                                    ),
-                                    src: RegisterId(
-                                        5,
-                                    ),
-                                },
-                            ),
-                            CoreSet(
-                                Jump {
-                                    target_state: StateId(
-                                        1,
-                                    ),
-                                },
-                            ),
-                        ],
-                    },
-                ],
-                num_regs: 6,
-            },
-        ],
-    },
-)
+f0: [6 registers]
+  s0:
+    CoreSet(JumpIf { target_state: s2, cond: r0 })
+    ExtCallSet(ActionCall { dst: r1, action_ref: TestActionRef("action_else_1"), args: [], resume: s3 })
+  s1:
+    CoreSet(Return { src: r3 })
+  s2:
+    ExtCallSet(ActionCall { dst: r4, action_ref: TestActionRef("action_if_1"), args: [], resume: s7 })
+  s3:
+    CoreSet(Await { dst: r1, src: r1, resume: s4 })
+  s4:
+    ExtCallSet(ActionCall { dst: r2, action_ref: TestActionRef("action_else_2"), args: [r1], resume: s5 })
+  s5:
+    CoreSet(Await { dst: r2, src: r2, resume: s6 })
+  s6:
+    PureSet(Copy { dst: r3, src: r2 })
+    CoreSet(Jump { target_state: s1 })
+  s7:
+    CoreSet(Await { dst: r4, src: r4, resume: s8 })
+  s8:
+    ExtCallSet(ActionCall { dst: r5, action_ref: TestActionRef("action_if_2"), args: [r4], resume: s9 })
+  s9:
+    CoreSet(Await { dst: r5, src: r5, resume: s10 })
+  s10:
+    PureSet(Copy { dst: r3, src: r5 })
+    CoreSet(Jump { target_state: s1 })

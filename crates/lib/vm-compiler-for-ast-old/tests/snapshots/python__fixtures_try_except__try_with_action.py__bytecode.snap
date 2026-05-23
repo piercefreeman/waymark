@@ -1,13 +1,11 @@
 ---
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
-expression: bytecode for python/tests/fixtures_try_except/try_with_action.py
+expression: "bytecode for python/tests/fixtures_try_except/try_with_action.py [compilation error]"
 ---
-Err(
-    FunctionCompiler(
-        Unsupported(
-            Statement {
-                kind: TryExcept,
-            },
-        ),
+FunctionCompiler(
+    Unsupported(
+        Statement {
+            kind: TryExcept,
+        },
     ),
 )
