@@ -66,6 +66,7 @@ waymark-tokio-metrics-bringup = { path = "crates/lib/tokio-metrics-bringup" }
 waymark-utils-futures = { path = "crates/lib/utils-futures" }
 waymark-utils-tokio-channel = { path = "crates/lib/utils-tokio-channel" }
 waymark-vm-ast-old = { path = "crates/lib/vm-ast-old" }
+waymark-vm-ast-old-fmt = { path = "crates/lib/vm-ast-old-fmt" }
 waymark-vm-ast-old-helpers = { path = "crates/lib/vm-ast-old-helpers" }
 waymark-vm-ast-old-proto = { path = "crates/lib/vm-ast-old-proto" }
 waymark-vm-bytecode = { path = "crates/lib/vm-bytecode" }

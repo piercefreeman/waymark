@@ -88,7 +88,11 @@ async fn compile_python_tests() {
 
         let snapshot = format!("{}/ast", python_test_file.display());
         let details = format!("ast for python/tests/{}", python_test_file.display());
-        insta::assert_debug_snapshot!(snapshot, program, &details);
+        insta::assert_snapshot!(
+            snapshot,
+            waymark_vm_ast_old_fmt::display(&program),
+            &details
+        );
 
         let bytecode_result =
             waymark_vm_compiler_for_ast_old::compile::<TestSpec, TestLowering>(&program);

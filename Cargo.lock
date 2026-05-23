@@ -5252,6 +5252,7 @@ dependencies = [
  "waymark-nonzero-duration",
  "waymark-support-test-python",
  "waymark-vm-ast-old",
+ "waymark-vm-ast-old-fmt",
  "waymark-vm-ast-old-helpers",
  "waymark-vm-bytecode",
  "waymark-vm-bytecode-core",
