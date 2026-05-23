@@ -2,6 +2,12 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_sleep/sleep_aliased_import.py
 ---
+fn main(input: [], output: []):
+    val = @sleep_aliased_import.get_value_aliased_import()
+    sleep 3
+    _return_tmp = @sleep_aliased_import.format_done_aliased_import(value=val)
+    return _return_tmp
+---
 f0: [4 registers]
   s0:
     ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("get_value_aliased_import"), args: [], resume: s1 })

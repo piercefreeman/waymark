@@ -88,11 +88,7 @@ async fn compile_python_tests() {
 
         let snapshot = format!("{}/ast", python_test_file.display());
         let details = format!("ast for python/tests/{}", python_test_file.display());
-        insta::assert_snapshot!(
-            snapshot,
-            waymark_vm_ast_old_fmt::display(&program),
-            &details
-        );
+        insta::assert_debug_snapshot!(snapshot, program, &details);
 
         let bytecode_result =
             waymark_vm_compiler_for_ast_old::compile::<TestSpec, TestLowering>(&program);
@@ -101,12 +97,20 @@ async fn compile_python_tests() {
 
         match bytecode_result {
             Ok(bytecode) => {
-                let details = format!("bytecode for python/tests/{}", python_test_file.display());
-                insta::assert_snapshot!(
-                    snapshot,
+                let content = format!(
+                    "{}\n---\n{}\n",
+                    // This is a hint-only-level of information, so issues with
+                    // incorrect/incomplete formatting are not critical.
+                    waymark_vm_ast_old_fmt::display(&program),
+                    // This is the actual snapshot playload; issues with
+                    // formatting are critical here, but the imlplementation
+                    // of the bytecode formatting is quite trivial, so it
+                    // is safe to rely on here.
                     waymark_vm_bytecode_fmt::display(&bytecode),
-                    &details
                 );
+
+                let details = format!("bytecode for python/tests/{}", python_test_file.display());
+                insta::assert_snapshot!(snapshot, content, &details);
             }
             Err(error) => {
                 let details = format!(

@@ -2,6 +2,11 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_models/pydantic_action_arg.py
 ---
+fn main(input: [], output: []):
+    items = @pydantic_action_arg.get_items()
+    result = @pydantic_action_arg.process_request(request={"items": items})
+    return result.count
+---
 f0: [4 registers]
   s0:
     ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("get_items"), args: [], resume: s1 })

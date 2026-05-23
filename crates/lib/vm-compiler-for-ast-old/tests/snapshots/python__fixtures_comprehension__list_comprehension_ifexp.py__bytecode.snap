@@ -2,6 +2,15 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_comprehension/list_comprehension_ifexp.py
 ---
+fn main(input: [users], output: []):
+    statuses = []
+    for user in users:
+        if user.active:
+            statuses = statuses + [user.name]
+        else:
+            statuses = statuses + ["inactive"]
+    return statuses
+---
 f0: [8 registers]
   s0:
     PureSet(MakeList { dst: r1, items: [] })

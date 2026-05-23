@@ -2,6 +2,14 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_for_loop/for_multiple_calls.py
 ---
+fn main(input: [items], output: []):
+    results = []
+    for item in items:
+        a = @for_multiple_calls.for_step_one(item=item)
+        b = @for_multiple_calls.for_step_two(value=a)
+        results = results + [b]
+    return results
+---
 f0: [9 registers]
   s0:
     PureSet(MakeList { dst: r1, items: [] })

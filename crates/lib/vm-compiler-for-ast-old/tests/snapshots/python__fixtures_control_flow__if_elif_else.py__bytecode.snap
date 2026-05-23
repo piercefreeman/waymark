@@ -2,6 +2,17 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_control_flow/if_elif_else.py
 ---
+fn main(input: [value], output: []):
+    if value == 1:
+        result = @if_elif_else.handle_case_a()
+    elif value == 2:
+        result = @if_elif_else.handle_case_b()
+    elif value == 3:
+        result = @if_elif_else.handle_case_c()
+    else:
+        result = @if_elif_else.handle_default()
+    return result
+---
 f0: [4 registers]
   s0:
     PureSet(LoadConst { dst: r1, value: Int(1) })

@@ -2,6 +2,10 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_actions/action_mixed_args.py
 ---
+fn main(input: [], output: []):
+    result = @action_mixed_args.compute_value(x=5, y=10, multiplier=2)
+    return result
+---
 f0: [4 registers]
   s0:
     PureSet(LoadConst { dst: r1, value: Int(5) })

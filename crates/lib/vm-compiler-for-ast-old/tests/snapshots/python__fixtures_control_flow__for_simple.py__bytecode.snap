@@ -2,6 +2,14 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_control_flow/for_simple.py
 ---
+fn main(input: [], output: []):
+    items = ["a", "b", "c"]
+    results = []
+    for item in items:
+        processed = @for_simple.process_item_simple(item=item)
+        results = results + [processed]
+    return results
+---
 f0: [10 registers]
   s0:
     PureSet(LoadConst { dst: r1, value: String("a") })

@@ -2,6 +2,13 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_for_loop/for_single_accumulator.py
 ---
+fn main(input: [items], output: []):
+    results = []
+    for item in items:
+        processed = @for_single_accumulator.single_accum_process_value(value=item)
+        results = results + [processed]
+    return results
+---
 f0: [8 registers]
   s0:
     PureSet(MakeList { dst: r1, items: [] })

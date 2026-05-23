@@ -2,6 +2,17 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_control_flow/if_multi_action.py
 ---
+fn main(input: [flag], output: []):
+    if flag:
+        a = @if_multi_action.action_if_1()
+        b = @if_multi_action.action_if_2(x=a)
+        result = b
+    else:
+        c = @if_multi_action.action_else_1()
+        d = @if_multi_action.action_else_2(x=c)
+        result = d
+    return result
+---
 f0: [6 registers]
   s0:
     CoreSet(JumpIf { target_state: s2, cond: r0 })

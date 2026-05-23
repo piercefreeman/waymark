@@ -2,6 +2,12 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_conditional/if_await_action_condition.py
 ---
+fn main(input: [value], output: []):
+    __if_cond_1__ = @if_await_action_condition.is_even(value=value)
+    if __if_cond_1__:
+        return 1
+    return 0
+---
 f0: [3 registers]
   s0:
     ExtCallSet(ActionCall { dst: r1, action_ref: TestActionRef("is_even"), args: [r0], resume: s1 })

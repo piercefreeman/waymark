@@ -2,6 +2,12 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_models/dataclass_positional.py
 ---
+fn main(input: [], output: []):
+    x = @dataclass_positional.get_x()
+    y = @dataclass_positional.get_y()
+    point = {"x": x, "y": y}
+    return point
+---
 f0: [5 registers]
   s0:
     ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("get_x"), args: [], resume: s1 })

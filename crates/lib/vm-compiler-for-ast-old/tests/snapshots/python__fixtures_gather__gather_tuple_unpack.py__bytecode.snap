@@ -2,6 +2,13 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_gather/gather_tuple_unpack.py
 ---
+fn main(input: [], output: []):
+    factorial_value, fib_value = parallel:
+        @gather_tuple_unpack.compute_factorial(n=5)
+        @gather_tuple_unpack.compute_fibonacci(n=10)
+    summary = @gather_tuple_unpack.summarize_math(factorial_value=factorial_value, fib_value=fib_value)
+    return summary
+---
 f0: [6 registers]
   s0:
     PureSet(LoadConst { dst: r3, value: Int(5) })

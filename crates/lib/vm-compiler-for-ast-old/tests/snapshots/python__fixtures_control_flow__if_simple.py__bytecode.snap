@@ -2,6 +2,13 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_control_flow/if_simple.py
 ---
+fn main(input: [flag], output: []):
+    if flag:
+        result = @if_simple.handle_true_case()
+    else:
+        result = @if_simple.handle_false_case()
+    return result
+---
 f0: [2 registers]
   s0:
     CoreSet(JumpIf { target_state: s2, cond: r0 })

@@ -2,6 +2,10 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_actions/action_kwargs.py
 ---
+fn main(input: [], output: []):
+    result = @action_kwargs.greet_person(name="World", greeting="Hi")
+    return result
+---
 f0: [3 registers]
   s0:
     PureSet(LoadConst { dst: r1, value: String("World") })

@@ -2,6 +2,12 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_actions/action_no_assignment.py
 ---
+fn main(input: [], output: []):
+    @action_no_assignment.log_event(message="starting")
+    result = @action_no_assignment.get_final_value()
+    @action_no_assignment.log_event(message="finished")
+    return result
+---
 f0: [3 registers]
   s0:
     PureSet(LoadConst { dst: r1, value: String("starting") })

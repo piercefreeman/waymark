@@ -2,6 +2,12 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_control_flow/while_simple.py
 ---
+fn main(input: [limit], output: []):
+    i = 0
+    while i < limit:
+        i = @while_simple.increment(value=i)
+    return i
+---
 f0: [3 registers]
   s0:
     PureSet(LoadConst { dst: r1, value: Int(0) })

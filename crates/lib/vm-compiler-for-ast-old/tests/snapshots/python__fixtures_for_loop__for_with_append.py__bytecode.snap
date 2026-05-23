@@ -2,6 +2,13 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_for_loop/for_with_append.py
 ---
+fn main(input: [items], output: []):
+    results = []
+    for item in items:
+        processed = @for_with_append.process_value(value=item)
+        results = results + [processed]
+    return results
+---
 f0: [8 registers]
   s0:
     PureSet(MakeList { dst: r1, items: [] })

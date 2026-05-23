@@ -2,6 +2,12 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_policy/instance_attr_policies.py
 ---
+fn main(input: [value], output: []):
+    a = @instance_attr_policies.action_with_instance_retry(value=value) [retry: 2, backoff: 10s]
+    b = @instance_attr_policies.action_with_instance_timeout(value=a) [timeout: 2m]
+    c = @instance_attr_policies.action_with_both_policies(value=b) [retry: 1] [timeout: 2m]
+    return c
+---
 f0: [4 registers]
   s0:
     ExtCallSet(ActionCall { dst: r1, action_ref: TestActionRef("action_with_instance_retry"), args: [r0], resume: s1 })

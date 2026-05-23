@@ -2,6 +2,15 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_control_flow/for_multi_action.py
 ---
+fn main(input: [], output: []):
+    items = [1, 2, 3]
+    results = []
+    for item in items:
+        first = @for_multi_action.step_one_for(x=item)
+        second = @for_multi_action.step_two_for(x=first)
+        results = results + [second]
+    return results
+---
 f0: [11 registers]
   s0:
     PureSet(LoadConst { dst: r1, value: Int(1) })

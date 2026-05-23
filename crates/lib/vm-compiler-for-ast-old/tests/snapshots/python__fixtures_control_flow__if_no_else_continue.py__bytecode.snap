@@ -2,6 +2,14 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_control_flow/if_no_else_continue.py
 ---
+fn main(input: [], output: []):
+    response = @if_no_else_continue.get_items()
+    count = 0
+    if response.items:
+        count = @if_no_else_continue.process_items(items=response.items)
+    result = @if_no_else_continue.finalize(count=count)
+    return result
+---
 f0: [4 registers]
   s0:
     ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("get_items"), args: [], resume: s1 })

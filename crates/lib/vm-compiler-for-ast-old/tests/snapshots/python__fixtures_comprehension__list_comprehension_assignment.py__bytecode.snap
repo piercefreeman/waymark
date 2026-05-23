@@ -2,6 +2,13 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_comprehension/list_comprehension_assignment.py
 ---
+fn main(input: [users], output: []):
+    active_users = []
+    for user in users:
+        if user.active:
+            active_users = active_users + [user]
+    return active_users
+---
 f0: [7 registers]
   s0:
     PureSet(MakeList { dst: r1, items: [] })

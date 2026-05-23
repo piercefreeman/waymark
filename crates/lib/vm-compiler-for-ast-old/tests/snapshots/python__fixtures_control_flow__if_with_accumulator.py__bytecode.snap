@@ -2,6 +2,19 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_control_flow/if_with_accumulator.py
 ---
+fn main(input: [value], output: []):
+    results = []
+    if value > 50:
+        x = @if_with_accumulator.if_accum_process_high(value=value)
+        y = @if_with_accumulator.if_accum_finalize(result=x)
+        results = results + [y]
+    else:
+        z = @if_with_accumulator.if_accum_process_low(value=value)
+        results = results + [z]
+    if results:
+        return results[0]
+    return "empty"
+---
 f0: [7 registers]
   s0:
     PureSet(MakeList { dst: r1, items: [] })

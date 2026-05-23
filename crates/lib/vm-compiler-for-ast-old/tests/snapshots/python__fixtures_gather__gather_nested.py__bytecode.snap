@@ -2,6 +2,13 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_gather/gather_nested.py
 ---
+fn main(input: [], output: []):
+    results = parallel:
+        @gather_nested.fetch_a()
+        @gather_nested.fetch_b()
+    total = @gather_nested.combine(values=results)
+    return total
+---
 f0: [4 registers]
   s0:
     ExtCallSet(ActionCall { dst: r1, action_ref: TestActionRef("fetch_a"), args: [], resume: s1 })

@@ -2,6 +2,10 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_actions/variable_return.py
 ---
+fn main(input: [value], output: []):
+    result = @variable_return.compute_result_for_variable_return(x=value)
+    return result
+---
 f0: [2 registers]
   s0:
     ExtCallSet(ActionCall { dst: r1, action_ref: TestActionRef("compute_result_for_variable_return"), args: [r0], resume: s1 })

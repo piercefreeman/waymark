@@ -2,6 +2,12 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_sleep/sleep_import_asyncio.py
 ---
+fn main(input: [], output: []):
+    val = @sleep_import_asyncio.get_value_asyncio_import()
+    sleep 1
+    _return_tmp = @sleep_import_asyncio.format_done_asyncio_import(value=val)
+    return _return_tmp
+---
 f0: [4 registers]
   s0:
     ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("get_value_asyncio_import"), args: [], resume: s1 })
