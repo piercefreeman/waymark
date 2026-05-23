@@ -2,6 +2,11 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_actions/action_variable_args.py
 ---
+fn main(input: [factor], output: []):
+    base = @action_variable_args.get_base_value()
+    result = @action_variable_args.multiply_by(value=base, factor=factor)
+    return result
+---
 f0: [3 registers]
   s0:
     ExtCallSet(ActionCall { dst: r1, action_ref: TestActionRef("get_base_value"), args: [], resume: s1 })

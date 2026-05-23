@@ -2,6 +2,11 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_models/pydantic_simple.py
 ---
+fn main(input: [], output: []):
+    value = @pydantic_simple.get_value()
+    result = {"value": value, "message": "success"}
+    return result
+---
 f0: [5 registers]
   s0:
     ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("get_value"), args: [], resume: s1 })

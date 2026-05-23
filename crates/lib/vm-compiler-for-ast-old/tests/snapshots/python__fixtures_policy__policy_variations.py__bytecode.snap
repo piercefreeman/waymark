@@ -2,6 +2,16 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_policy/policy_variations.py
 ---
+fn main(input: [value], output: []):
+    a = @policy_variations.action_with_timeout_int(value=value) [timeout: 1m]
+    b = @policy_variations.action_with_timeout_minutes(value=a) [timeout: 2m]
+    c = @policy_variations.action_with_retry_backoff(value=b) [retry: 2, backoff: 5s]
+    d = @policy_variations.action_with_retry_exceptions(value=c) [ValueError, KeyError -> retry: 1]
+    d_retry_default = @policy_variations.action_with_retry_default(value=d) [retry: 100]
+    e = @policy_variations.action_with_timeout_hours(value=d_retry_default) [timeout: 1h]
+    f = @policy_variations.action_with_timeout_days(value=e) [timeout: 24h]
+    return f
+---
 f0: [8 registers]
   s0:
     ExtCallSet(ActionCall { dst: r1, action_ref: TestActionRef("action_with_timeout_int"), args: [r0], resume: s1 })

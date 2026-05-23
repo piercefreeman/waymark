@@ -2,6 +2,10 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_actions/literal_return.py
 ---
+fn main(input: [], output: []):
+    @literal_return.do_something()
+    return 42
+---
 f0: [1 registers]
   s0:
     ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("do_something"), args: [], resume: s1 })

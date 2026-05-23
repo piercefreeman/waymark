@@ -2,6 +2,11 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_models/pydantic_nested.py
 ---
+fn main(input: [], output: []):
+    coords = @pydantic_nested.get_coordinates()
+    result = {"name": "test", "inner": coords}
+    return result
+---
 f0: [5 registers]
   s0:
     ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("get_coordinates"), args: [], resume: s1 })

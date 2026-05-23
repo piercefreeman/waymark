@@ -2,6 +2,15 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_for_loop/for_break.py
 ---
+fn main(input: [items], output: []):
+    result = "not found"
+    for item in items:
+        found = @for_break.check_item(value=item)
+        if found:
+            result = @for_break.process_found(value=item)
+            break
+    return result
+---
 f0: [8 registers]
   s0:
     PureSet(LoadConst { dst: r1, value: String("not found") })

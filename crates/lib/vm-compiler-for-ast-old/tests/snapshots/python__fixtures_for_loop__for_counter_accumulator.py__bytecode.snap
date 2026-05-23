@@ -2,6 +2,14 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_for_loop/for_counter_accumulator.py
 ---
+fn main(input: [items], output: []):
+    count = 0
+    for item in items:
+        is_valid = @for_counter_accumulator.counter_accum_check_valid(item=item)
+        if is_valid:
+            count = count + 1
+    return count
+---
 f0: [8 registers]
   s0:
     PureSet(LoadConst { dst: r1, value: Int(0) })

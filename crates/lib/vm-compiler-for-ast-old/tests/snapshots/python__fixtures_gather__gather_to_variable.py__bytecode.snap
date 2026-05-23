@@ -2,6 +2,13 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_gather/gather_to_variable.py
 ---
+fn main(input: [], output: []):
+    results = parallel:
+        @gather_to_variable.fetch_value_1()
+        @gather_to_variable.fetch_value_2()
+        @gather_to_variable.fetch_value_3()
+    return results
+---
 f0: [4 registers]
   s0:
     ExtCallSet(ActionCall { dst: r1, action_ref: TestActionRef("fetch_value_1"), args: [], resume: s1 })

@@ -2,6 +2,12 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_gather/gather_simple.py
 ---
+fn main(input: [], output: []):
+    a, b = parallel:
+        @gather_simple.action_a()
+        @gather_simple.action_b()
+    return [a, b]
+---
 f0: [4 registers]
   s0:
     ExtCallSet(ActionCall { dst: r2, action_ref: TestActionRef("action_a"), args: [], resume: s1 })

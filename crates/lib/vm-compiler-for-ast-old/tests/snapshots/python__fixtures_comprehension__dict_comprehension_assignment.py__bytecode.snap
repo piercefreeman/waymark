@@ -2,6 +2,13 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_comprehension/dict_comprehension_assignment.py
 ---
+fn main(input: [users], output: []):
+    active_lookup = {}
+    for user in users:
+        if user.active:
+            active_lookup[user.id] = user.name
+    return active_lookup
+---
 f0: [8 registers]
   s0:
     PureSet(MakeDict { dst: r1, entries: [] })

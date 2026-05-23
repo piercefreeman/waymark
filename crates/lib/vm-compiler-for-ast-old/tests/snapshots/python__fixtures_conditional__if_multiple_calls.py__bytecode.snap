@@ -2,6 +2,14 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_conditional/if_multiple_calls.py
 ---
+fn main(input: [value], output: []):
+    if value > 0:
+        a = @if_multiple_calls.if_step_one(value=value)
+        b = @if_multiple_calls.if_step_two(value=a)
+        return b
+    else:
+        return 0
+---
 f0: [5 registers]
   s0:
     PureSet(LoadConst { dst: r1, value: Int(0) })

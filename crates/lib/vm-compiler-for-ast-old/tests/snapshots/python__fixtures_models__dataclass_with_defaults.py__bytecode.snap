@@ -2,6 +2,11 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_models/dataclass_with_defaults.py
 ---
+fn main(input: [], output: []):
+    value = @dataclass_with_defaults.get_result()
+    result = {"value": value, "status": "pending", "retry_count": 0}
+    return result
+---
 f0: [7 registers]
   s0:
     ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("get_result"), args: [], resume: s1 })

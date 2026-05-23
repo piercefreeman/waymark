@@ -2,6 +2,9 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_models/pydantic_return_direct.py
 ---
+fn main(input: [], output: []):
+    return {"value": 1, "message": "ok"}
+---
 f0: [5 registers]
   s0:
     PureSet(LoadConst { dst: r0, value: String("value") })

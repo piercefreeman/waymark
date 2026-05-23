@@ -2,6 +2,11 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_models/dataclass_action_arg.py
 ---
+fn main(input: [], output: []):
+    items = @dataclass_action_arg.get_data_items()
+    result = @dataclass_action_arg.process_data(request={"items": items})
+    return result.count
+---
 f0: [4 registers]
   s0:
     ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("get_data_items"), args: [], resume: s1 })

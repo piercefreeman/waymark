@@ -2,6 +2,12 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_gather/gather_with_args.py
 ---
+fn main(input: [value], output: []):
+    square, cube = parallel:
+        @gather_with_args.compute_square(n=value)
+        @gather_with_args.compute_cube(n=value)
+    return [square, cube]
+---
 f0: [5 registers]
   s0:
     ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("compute_square"), args: [r0], resume: s1 })

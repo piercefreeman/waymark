@@ -2,6 +2,10 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_actions/simple_action.py
 ---
+fn main(input: [value], output: []):
+    result = @simple_action.process(value=value)
+    return result
+---
 f0: [2 registers]
   s0:
     ExtCallSet(ActionCall { dst: r1, action_ref: TestActionRef("process"), args: [r0], resume: s1 })

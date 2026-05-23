@@ -2,6 +2,16 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_for_loop/for_continue.py
 ---
+fn main(input: [items], output: []):
+    total = 0
+    for item in items:
+        skip = @for_continue.should_skip(value=item)
+        if skip:
+            continue
+        result = @for_continue.process_item(value=item)
+        total = total + result
+    return total
+---
 f0: [9 registers]
   s0:
     PureSet(LoadConst { dst: r1, value: Int(0) })

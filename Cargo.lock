@@ -5158,6 +5158,16 @@ name = "waymark-vm-ast-old"
 version = "0.1.0"
 
 [[package]]
+name = "waymark-vm-ast-old-fmt"
+version = "0.1.0"
+dependencies = [
+ "insta",
+ "serde_json",
+ "waymark-vm-ast-old",
+ "waymark-vm-ast-old-helpers",
+]
+
+[[package]]
 name = "waymark-vm-ast-old-helpers"
 version = "0.1.0"
 dependencies = [
@@ -5242,6 +5252,7 @@ dependencies = [
  "waymark-nonzero-duration",
  "waymark-support-test-python",
  "waymark-vm-ast-old",
+ "waymark-vm-ast-old-fmt",
  "waymark-vm-ast-old-helpers",
  "waymark-vm-bytecode",
  "waymark-vm-bytecode-core",

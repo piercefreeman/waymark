@@ -2,6 +2,10 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_side_effects/side_effect_action.py
 ---
+fn main(input: [], output: []):
+    @side_effect_action.side_effect()
+    return
+---
 f0: [1 registers]
   s0:
     ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("side_effect"), args: [], resume: s1 })

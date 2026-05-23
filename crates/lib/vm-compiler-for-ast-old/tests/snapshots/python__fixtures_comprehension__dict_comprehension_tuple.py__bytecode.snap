@@ -2,6 +2,12 @@
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: bytecode for python/tests/fixtures_comprehension/dict_comprehension_tuple.py
 ---
+fn main(input: [pairs], output: []):
+    mapping = {}
+    for key, value in pairs:
+        mapping[key] = value
+    return mapping
+---
 f0: [10 registers]
   s0:
     PureSet(MakeDict { dst: r1, entries: [] })
