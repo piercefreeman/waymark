@@ -64,6 +64,18 @@ where
         body: &'a Spanned<Block>,
     },
 
+    /// A `for` loop.
+    ForLoop {
+        /// Loop variables bound on each iteration.
+        loop_vars: &'a [String],
+
+        /// Iterable expression evaluated by the loop.
+        iterable: &'a Spanned<Expr>,
+
+        /// Loop body.
+        body: &'a Spanned<Block>,
+    },
+
     /// An `if`/`elif`/`else` chain.
     Conditional {
         /// Primary `if` branch.
@@ -88,9 +100,6 @@ where
 pub enum UnsupportedStatementKind {
     /// Spread-action statements.
     SpreadAction,
-
-    /// `for` loops.
-    ForLoop,
 
     /// `try`/`except` blocks.
     TryExcept,
@@ -120,6 +129,15 @@ where
                 calls: build_parallel_call_plans::<Spec, Lowering>(calls, function_table)?,
             }),
             Statement::WhileLoop { condition, body } => Ok(Self::WhileLoop { condition, body }),
+            Statement::ForLoop {
+                loop_vars,
+                iterable,
+                body,
+            } => Ok(Self::ForLoop {
+                loop_vars,
+                iterable,
+                body,
+            }),
             Statement::Conditional {
                 if_branch,
                 elif_branches,
@@ -135,10 +153,6 @@ where
                 kind: UnsupportedStatementKind::SpreadAction,
             }
             .into()),
-            Statement::ForLoop { .. } => Err(Unsupported::Statement {
-                kind: UnsupportedStatementKind::ForLoop,
-            }
-            .into()),
             Statement::TryExcept { .. } => Err(Unsupported::Statement {
                 kind: UnsupportedStatementKind::TryExcept,
             }
@@ -151,7 +165,6 @@ impl core::fmt::Display for UnsupportedStatementKind {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         formatter.write_str(match self {
             Self::SpreadAction => "SpreadAction",
-            Self::ForLoop => "ForLoop",
             Self::TryExcept => "TryExcept",
         })
     }
@@ -164,7 +177,7 @@ mod tests {
     use waymark_vm_ast_old::{Spanned, Statement};
     use waymark_vm_ast_old_helpers::{
         action_call, action_stmt, assignment, block, break_stmt, conditional_stmt, continue_stmt,
-        int, parallel_stmt, return_stmt, sleep_stmt, spanned, variable, while_stmt,
+        for_stmt, int, parallel_stmt, return_stmt, sleep_stmt, spanned, variable, while_stmt,
     };
     use waymark_vm_compiler_for_ast_old_test_support::{TestLowering, TestSpec};
 
@@ -212,6 +225,7 @@ mod tests {
     fn builds_control_flow_statement_plans() {
         let function_table = build_function_table();
         let conditional = conditional_stmt(int(1), vec![return_stmt(None)], Vec::new(), None);
+        let for_loop = for_stmt(&["item"], variable("items"), vec![continue_stmt()]);
         let while_loop = while_stmt(variable("flag"), vec![continue_stmt()]);
         let parallel = parallel_stmt(vec![waymark_vm_ast_old::Call::Action(action_call(
             "notify",
@@ -227,6 +241,11 @@ mod tests {
             StatementPlan::<TestSpec>::build::<TestLowering>(&while_loop.value, &function_table)
                 .expect("while loops should build"),
             StatementPlan::WhileLoop { .. }
+        ));
+        assert!(matches!(
+            StatementPlan::<TestSpec>::build::<TestLowering>(&for_loop.value, &function_table)
+                .expect("for loops should build"),
+            StatementPlan::ForLoop { loop_vars, .. } if loop_vars == ["item".to_owned()]
         ));
         assert!(matches!(
             StatementPlan::<TestSpec>::build::<TestLowering>(&parallel.value, &function_table)
@@ -259,10 +278,6 @@ mod tests {
                     action: action_call("notify", Vec::new()),
                 }),
                 UnsupportedStatementKind::SpreadAction,
-            ),
-            (
-                waymark_vm_ast_old_helpers::for_stmt(&["item"], variable("items"), Vec::new()),
-                UnsupportedStatementKind::ForLoop,
             ),
             (
                 spanned(Statement::TryExcept {
