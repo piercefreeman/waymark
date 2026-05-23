@@ -5158,6 +5158,16 @@ name = "waymark-vm-ast-old"
 version = "0.1.0"
 
 [[package]]
+name = "waymark-vm-ast-old-fmt"
+version = "0.1.0"
+dependencies = [
+ "insta",
+ "serde_json",
+ "waymark-vm-ast-old",
+ "waymark-vm-ast-old-helpers",
+]
+
+[[package]]
 name = "waymark-vm-ast-old-helpers"
 version = "0.1.0"
 dependencies = [

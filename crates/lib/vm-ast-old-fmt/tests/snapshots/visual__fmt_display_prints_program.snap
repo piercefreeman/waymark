@@ -1,0 +1,29 @@
+---
+source: crates/lib/vm-ast-old-fmt/tests/visual.rs
+expression: "waymark_vm_ast_old_fmt::display(&program)"
+---
+fn helper(input: [], output: [answer]):
+    pass
+
+fn main(input: [items, flag], output: [result]):
+    results = []
+    stats = {"count": len(items)}
+    grouped = parallel:
+        @worker.fetch(item=items[0]) [timeout: 30s]
+        len(items)
+    spread items:item -> @worker.process(item=item) [ValueError -> retry: 3, backoff: 1m]
+    if not payload.ready or len(items) == 0:
+        sleep 300
+    elif flag:
+        @worker.audit()
+    else:
+        @worker.notify()
+    for index, item in enumerate(items):
+        results = results + [item]
+    while payload.ready and len(results) < len(items):
+        continue
+    try:
+        result = @worker.finish(value=grouped) [timeout: 30s]
+    except ValueError as err:
+        return err
+    return {"results": results, "stats": stats}

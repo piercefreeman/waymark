@@ -1,7 +1,7 @@
 use waymark_vm_ast_old::{
     ActionCall, BinaryOperator, Block, Call, ElifBranch, ElseBranch, Expr, FunctionCall,
-    FunctionDef, GlobalFunction, IfBranch, IoDecl, Kwarg, Literal, Program, Span, Spanned,
-    Statement,
+    FunctionDef, GlobalFunction, IfBranch, IoDecl, Kwarg, Literal, PolicyBracket, Program, Span,
+    Spanned, Statement,
 };
 
 pub fn span() -> Span {
@@ -234,10 +234,7 @@ pub fn action_call(name: &str, kwargs: Vec<(&str, Spanned<Expr>)>) -> ActionCall
         action_name: name.to_owned(),
         kwargs: kwargs
             .into_iter()
-            .map(|(name, value)| Kwarg {
-                name: name.to_owned(),
-                value,
-            })
+            .map(|(kwarg_name, value)| kwarg(kwarg_name, value))
             .collect(),
         policies: Vec::new(),
         module_name: None,
@@ -248,4 +245,25 @@ pub fn action_expr(name: &str, kwargs: Vec<(&str, Spanned<Expr>)>) -> Spanned<Ex
     spanned(Expr::ActionCall {
         call: action_call(name, kwargs),
     })
+}
+
+pub fn kwarg(name: &str, value: Spanned<Expr>) -> Kwarg {
+    Kwarg {
+        name: name.to_owned(),
+        value,
+    }
+}
+
+pub fn module_action_call(
+    module_name: &str,
+    name: &str,
+    kwargs: Vec<Kwarg>,
+    policies: Vec<PolicyBracket>,
+) -> ActionCall {
+    ActionCall {
+        action_name: name.to_owned(),
+        kwargs,
+        policies,
+        module_name: Some(module_name.to_owned()),
+    }
 }
