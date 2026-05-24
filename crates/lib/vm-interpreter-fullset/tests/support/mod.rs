@@ -183,6 +183,20 @@ impl waymark_vm_interpreter_pureset::value::MakeList for TestReadyValue {
     }
 }
 
+impl waymark_vm_interpreter_pureset::value::ListAppend for TestReadyValue {
+    fn list_append(
+        list: &Self,
+        item: Self::RootValue,
+    ) -> Result<Self, waymark_vm_interpreter_pureset::value::ListAppendError> {
+        let Self::List(existing) = list else {
+            return Err(waymark_vm_interpreter_pureset::value::ListAppendError::NotListable);
+        };
+        let mut grown = existing.clone();
+        grown.push(item);
+        Ok(Self::List(grown))
+    }
+}
+
 impl waymark_vm_interpreter_pureset::value::AsDictKey for TestReadyValue {
     fn as_dict_key(&self) -> Result<&str, waymark_vm_interpreter_pureset::value::AsDictKeyError> {
         Err(waymark_vm_interpreter_pureset::value::AsDictKeyError::UnsupportedKeyType)
@@ -441,6 +455,22 @@ impl waymark_vm_interpreter_pureset::value::MakeList for TestValue {
         Ok(Self::Ready(TestReadyValue::List(
             items.into_iter().collect(),
         )))
+    }
+}
+
+impl waymark_vm_interpreter_pureset::value::ListAppend for TestValue {
+    fn list_append(
+        list: &Self,
+        item: Self::RootValue,
+    ) -> Result<Self, waymark_vm_interpreter_pureset::value::ListAppendError> {
+        let list = list
+            .require_ready_ref()
+            .map_err(|_| waymark_vm_interpreter_pureset::value::ListAppendError::NotListable)?;
+        let grown =
+            <TestReadyValue as waymark_vm_interpreter_pureset::value::ListAppend>::list_append(
+                list, item,
+            )?;
+        Ok(Self::Ready(grown))
     }
 }
 

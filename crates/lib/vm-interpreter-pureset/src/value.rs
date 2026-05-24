@@ -24,6 +24,7 @@ pub trait Value:
     + CaptureCopy
     + AsScalar
     + MakeList
+    + ListAppend
     + AsDictKey
     + MakeDict
     + Length
@@ -37,6 +38,7 @@ impl<T> Value for T where
         + CaptureCopy
         + AsScalar
         + MakeList
+        + ListAppend
         + AsDictKey
         + MakeDict
         + Length

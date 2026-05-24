@@ -69,6 +69,14 @@ where
         self.emit(waymark_vm_instructions_pureset::PureSet::MakeList { dst, items }.into());
     }
 
+    /// Emits a single-item list-append instruction.
+    ///
+    /// Equivalent to `dst = list + [item]` without materializing the
+    /// throwaway one-element list.
+    pub fn emit_list_append(&mut self, dst: RegisterId, list: RegisterId, item: RegisterId) {
+        self.emit(waymark_vm_instructions_pureset::PureSet::ListAppend { dst, list, item }.into());
+    }
+
     /// Emits a dictionary-construction instruction.
     pub fn emit_make_dict(
         &mut self,

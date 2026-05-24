@@ -106,6 +106,20 @@ pub enum Error {
         register: RegisterId,
     },
 
+    /// A `ListAppend` instruction referenced an unset list register.
+    #[error("list append source in register {register:?} is not initialized")]
+    MissingListAppendList {
+        /// The register that was read.
+        register: RegisterId,
+    },
+
+    /// A `ListAppend` instruction referenced an unset item register.
+    #[error("list append item in register {register:?} is not initialized")]
+    MissingListAppendItem {
+        /// The register that was read.
+        register: RegisterId,
+    },
+
     /// A `MakeDict` instruction referenced an unset key register.
     #[error("dict entry {entry_pos} key in register {register:?} is not initialized")]
     MissingDictKey {
@@ -194,6 +208,10 @@ pub enum Error {
     /// Evaluating a `MakeList` instruction failed.
     #[error("make_list: {0}")]
     MakeList(#[source] crate::value::MakeListError),
+
+    /// Evaluating a `ListAppend` instruction failed.
+    #[error("list_append: {0}")]
+    ListAppend(#[source] crate::value::ListAppendError),
 
     /// Evaluating a `MakeDict` instruction failed.
     #[error("make_dict: {0}")]

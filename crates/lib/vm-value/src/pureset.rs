@@ -323,6 +323,21 @@ impl waymark_vm_interpreter_pureset::value::MakeList for ReadyValue {
     }
 }
 
+impl waymark_vm_interpreter_pureset::value::ListAppend for ReadyValue {
+    fn list_append(
+        list: &Self,
+        item: Self::RootValue,
+    ) -> Result<Self, waymark_vm_interpreter_pureset::value::ListAppendError> {
+        let Self::List(existing) = list else {
+            return Err(waymark_vm_interpreter_pureset::value::ListAppendError::NotListable);
+        };
+        let mut grown = Vec::with_capacity(existing.len() + 1);
+        grown.extend(existing.iter().cloned());
+        grown.push(item);
+        Ok(Self::List(grown))
+    }
+}
+
 impl waymark_vm_interpreter_pureset::value::AsDictKey for ReadyValue {
     fn as_dict_key(&self) -> Result<&str, AsDictKeyError> {
         match self {

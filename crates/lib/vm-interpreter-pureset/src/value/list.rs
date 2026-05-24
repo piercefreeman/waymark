@@ -17,3 +17,21 @@ pub trait MakeList: Sized + waymark_vm_runtime_value::RootValueAccess {
     where
         I: IntoIterator<Item = Self::RootValue>;
 }
+
+/// An error from [`ListAppend::list_append`].
+#[derive(Debug, thiserror::Error)]
+pub enum ListAppendError {
+    /// The receiver is not a list value.
+    #[error("appending requires a list receiver")]
+    NotListable,
+
+    /// The grown list could not be represented by the value type.
+    #[error("appended list is out of bounds")]
+    ResultOutOfBounds,
+}
+
+/// Append one item onto a list value, producing a new list.
+pub trait ListAppend: Sized + waymark_vm_runtime_value::RootValueAccess {
+    /// Returns `list` with `item` appended at the end.
+    fn list_append(list: &Self, item: Self::RootValue) -> Result<Self, ListAppendError>;
+}

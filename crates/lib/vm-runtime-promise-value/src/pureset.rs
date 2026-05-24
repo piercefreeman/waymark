@@ -56,6 +56,21 @@ where
     }
 }
 
+impl<T> waymark_vm_interpreter_pureset::value::ListAppend for PromiseValue<T>
+where
+    T: waymark_vm_interpreter_pureset::value::ListAppend,
+{
+    fn list_append(
+        list: &Self,
+        item: Self::RootValue,
+    ) -> Result<Self, waymark_vm_interpreter_pureset::value::ListAppendError> {
+        let list = list
+            .require_ready_ref()
+            .map_err(|_| waymark_vm_interpreter_pureset::value::ListAppendError::NotListable)?;
+        Ok(Self::Ready(T::list_append(list, item)?))
+    }
+}
+
 impl<T> waymark_vm_interpreter_pureset::value::MakeDict for PromiseValue<T>
 where
     T: waymark_vm_interpreter_pureset::value::MakeDict,

@@ -97,6 +97,19 @@ where
                 let list = make_list_result.map_err(Error::MakeList)?;
                 frame.regs.set(*dst, list);
             }
+            waymark_vm_instructions_pureset::PureSet::ListAppend { dst, list, item } => {
+                let list_value = frame
+                    .regs
+                    .get(*list)
+                    .ok_or(Error::MissingListAppendList { register: *list })?;
+                let item_value = frame
+                    .regs
+                    .get(*item)
+                    .ok_or(Error::MissingListAppendItem { register: *item })?;
+                let grown = Value::list_append(list_value, item_value.capture_copy())
+                    .map_err(Error::ListAppend)?;
+                frame.regs.set(*dst, grown);
+            }
             waymark_vm_instructions_pureset::PureSet::MakeDict { dst, entries } => {
                 let mut resolved_entries = Vec::with_capacity(entries.len());
 
