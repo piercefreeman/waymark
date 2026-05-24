@@ -18,10 +18,14 @@
 //! `enumerate(...)` is unwrapped during header classification to keep
 //! iteration mechanics independent of variable-binding shape.
 
-use waymark_vm_ast_old::{Block, Expr, FunctionCall, GlobalFunction, Kwarg, Literal, Spanned};
+use waymark_vm_ast_old::{
+    ActionCall, Block, Expr, FunctionCall, GlobalFunction, Kwarg, Literal, Spanned,
+};
 use waymark_vm_bytecode_core::StateId;
 use waymark_vm_instructions_pureset::BinaryOpKind;
 use waymark_vm_runtime_core::RegisterId;
+
+use crate::Marked;
 
 use super::CompilerContextMut;
 use super::ErrorFor;
@@ -32,6 +36,7 @@ use super::env::{FlowState, RegisterHandle};
 use super::r#loop::LoopControlStack;
 use super::plan::call::UnsupportedFunctionCall;
 use super::plan::r#loop::ForLoopPlan;
+use super::suspend::PromiseMarker;
 use super::{Error, LoopControlKind};
 
 /// Lowers `for` loops into bytecode states and register updates.
@@ -258,6 +263,87 @@ where
         }
     }
 
+    /// Compiles a spread statement as a looped series of action calls.
+    pub fn compile_spread_statement(
+        &mut self,
+        iterable: &Spanned<Expr>,
+        loop_var: &str,
+        action: &ActionCall,
+    ) -> Result<(), ErrorFor<Spec, Lowering>> {
+        let promises_register = self.context.local_frame.allocate_register();
+        self.context
+            .emitter
+            .emit_make_list(promises_register, Vec::new());
+
+        match ResolvedForLoop::build::<Spec, Lowering>(iterable)? {
+            ResolvedForLoop::Indexed { iterable, .. } => {
+                self.compile_indexed_spread(iterable, loop_var, action, promises_register)?
+            }
+            ResolvedForLoop::Range {
+                range: RangeLoop::Positive { start, end },
+                ..
+            } => {
+                self.compile_positive_range_spread(start, end, loop_var, action, promises_register)?
+            }
+            ResolvedForLoop::Range {
+                range: RangeLoop::Stepped { start, end, step },
+                ..
+            } => self.compile_stepped_range_spread(
+                start,
+                end,
+                step,
+                loop_var,
+                action,
+                promises_register,
+            )?,
+        }
+
+        self.compile_spread_join(promises_register, None, iterable)
+    }
+
+    /// Compiles a spread expression into `result_register`.
+    pub fn compile_spread_expr(
+        &mut self,
+        iterable: &Spanned<Expr>,
+        loop_var: &str,
+        action: &ActionCall,
+        result_register: RegisterId,
+    ) -> Result<(), ErrorFor<Spec, Lowering>> {
+        self.context
+            .emitter
+            .emit_make_list(result_register, Vec::new());
+
+        let promises_register = self.context.local_frame.allocate_register();
+        self.context
+            .emitter
+            .emit_make_list(promises_register, Vec::new());
+
+        match ResolvedForLoop::build::<Spec, Lowering>(iterable)? {
+            ResolvedForLoop::Indexed { iterable, .. } => {
+                self.compile_indexed_spread(iterable, loop_var, action, promises_register)?
+            }
+            ResolvedForLoop::Range {
+                range: RangeLoop::Positive { start, end },
+                ..
+            } => {
+                self.compile_positive_range_spread(start, end, loop_var, action, promises_register)?
+            }
+            ResolvedForLoop::Range {
+                range: RangeLoop::Stepped { start, end, step },
+                ..
+            } => self.compile_stepped_range_spread(
+                start,
+                end,
+                step,
+                loop_var,
+                action,
+                promises_register,
+            )?,
+        }
+
+        self.compile_spread_join(promises_register, Some(result_register), iterable)
+    }
+
     /// Compiles a `for` loop that walks an arbitrary indexable iterable
     /// (lists, tuples, strings, etc.) by stepping through `0..len(iterable)`.
     ///
@@ -320,6 +406,57 @@ where
                     binding,
                     item_register.register(),
                     Some(index_register),
+                )
+            },
+            |compiler| compiler.emit_add_assign_immediate(index_register, 1),
+        )
+    }
+
+    /// Compiles a spread over an indexed iterable.
+    fn compile_indexed_spread(
+        &mut self,
+        iterable: &Spanned<Expr>,
+        loop_var: &str,
+        action: &ActionCall,
+        promises_register: RegisterId,
+    ) -> Result<(), ErrorFor<Spec, Lowering>> {
+        let iterable_register = self.context.local_frame.allocate_register();
+        self.compile_expr_into_register(iterable, iterable_register)?;
+
+        let index_register = self.context.local_frame.allocate_register();
+        self.emit_int_literal_into_register(index_register, 0)?;
+
+        let length_register = self.context.local_frame.allocate_register();
+        self.context
+            .emitter
+            .emit_length(length_register, iterable_register);
+
+        let empty_body = self.empty_block(iterable);
+
+        self.compile_loop_skeleton(
+            &empty_body,
+            |compiler, for_loop| {
+                compiler.emit_compare_and_branch(
+                    BinaryOpKind::Lt,
+                    index_register,
+                    length_register,
+                    for_loop.body_state(),
+                    for_loop.loop_scope().target(LoopControlKind::Break),
+                );
+                Ok(())
+            },
+            |compiler| {
+                let item_register = compiler.context.local_frame.allocate_temporary_register();
+                compiler.context.emitter.emit_index(
+                    item_register.register(),
+                    iterable_register,
+                    index_register,
+                );
+                compiler.compile_spread_fanout_iteration(
+                    loop_var,
+                    item_register.register(),
+                    action,
+                    promises_register,
                 )
             },
             |compiler| compiler.emit_add_assign_immediate(index_register, 1),
@@ -389,6 +526,50 @@ where
                 compiler.emit_add_assign_immediate(current_register, 1)?;
                 compiler.emit_enumerate_increment(enumerate_index_register)
             },
+        )
+    }
+
+    /// Compiles a spread over `range(stop)` or `range(start, stop)`.
+    fn compile_positive_range_spread(
+        &mut self,
+        start: Option<&Spanned<Expr>>,
+        end: &Spanned<Expr>,
+        loop_var: &str,
+        action: &ActionCall,
+        promises_register: RegisterId,
+    ) -> Result<(), ErrorFor<Spec, Lowering>> {
+        let current_register = self.context.local_frame.allocate_register();
+        match start {
+            Some(start) => self.compile_expr_into_register(start, current_register)?,
+            None => self.emit_int_literal_into_register(current_register, 0)?,
+        }
+
+        let end_register = self.context.local_frame.allocate_register();
+        self.compile_expr_into_register(end, end_register)?;
+
+        let empty_body = self.empty_block(end);
+
+        self.compile_loop_skeleton(
+            &empty_body,
+            |compiler, for_loop| {
+                compiler.emit_compare_and_branch(
+                    BinaryOpKind::Lt,
+                    current_register,
+                    end_register,
+                    for_loop.body_state(),
+                    for_loop.loop_scope().target(LoopControlKind::Break),
+                );
+                Ok(())
+            },
+            |compiler| {
+                compiler.compile_spread_fanout_iteration(
+                    loop_var,
+                    current_register,
+                    action,
+                    promises_register,
+                )
+            },
+            |compiler| compiler.emit_add_assign_immediate(current_register, 1),
         )
     }
 
@@ -512,6 +693,142 @@ where
                 );
                 compiler.emit_enumerate_increment(enumerate_index_register)
             },
+        )
+    }
+
+    /// Compiles a spread over `range(start, end, step)`.
+    fn compile_stepped_range_spread(
+        &mut self,
+        start: &Spanned<Expr>,
+        end: &Spanned<Expr>,
+        step: &Spanned<Expr>,
+        loop_var: &str,
+        action: &ActionCall,
+        promises_register: RegisterId,
+    ) -> Result<(), ErrorFor<Spec, Lowering>> {
+        let current_register = self.context.local_frame.allocate_register();
+        self.compile_expr_into_register(start, current_register)?;
+
+        let end_register = self.context.local_frame.allocate_register();
+        self.compile_expr_into_register(end, end_register)?;
+
+        let step_register = self.context.local_frame.allocate_register();
+        self.compile_expr_into_register(step, step_register)?;
+
+        let empty_body = self.empty_block(step);
+
+        self.compile_loop_skeleton(
+            &empty_body,
+            |compiler, for_loop| {
+                let break_target = for_loop.loop_scope().target(LoopControlKind::Break);
+                let incoming_flow = for_loop.condition_flow();
+
+                let positive_condition_state = compiler.new_state();
+                let negative_condition_state = compiler.new_state();
+
+                let zero_register = compiler.compile_temporary_int_literal(0)?;
+                let positive_register = compiler.context.local_frame.allocate_temporary_register();
+                compiler.context.emitter.emit_binary(
+                    BinaryOpKind::Gt,
+                    positive_register.register(),
+                    step_register,
+                    zero_register.register(),
+                );
+                compiler
+                    .context
+                    .emitter
+                    .emit_jump_if(positive_condition_state, positive_register.register());
+
+                let negative_register = compiler.context.local_frame.allocate_temporary_register();
+                compiler.context.emitter.emit_binary(
+                    BinaryOpKind::Lt,
+                    negative_register.register(),
+                    step_register,
+                    zero_register.register(),
+                );
+                compiler
+                    .context
+                    .emitter
+                    .emit_jump_if(negative_condition_state, negative_register.register());
+                compiler.context.emitter.emit_jump(break_target);
+
+                compiler.switch_to_with_flow(positive_condition_state, incoming_flow.clone());
+                compiler.emit_compare_and_branch(
+                    BinaryOpKind::Lt,
+                    current_register,
+                    end_register,
+                    for_loop.body_state(),
+                    break_target,
+                );
+
+                compiler.switch_to_with_flow(negative_condition_state, incoming_flow);
+                compiler.emit_compare_and_branch(
+                    BinaryOpKind::Gt,
+                    current_register,
+                    end_register,
+                    for_loop.body_state(),
+                    break_target,
+                );
+
+                Ok(())
+            },
+            |compiler| {
+                compiler.compile_spread_fanout_iteration(
+                    loop_var,
+                    current_register,
+                    action,
+                    promises_register,
+                )
+            },
+            |compiler| {
+                compiler.context.emitter.emit_binary(
+                    BinaryOpKind::Add,
+                    current_register,
+                    current_register,
+                    step_register,
+                );
+                Ok(())
+            },
+        )
+    }
+
+    /// Awaits all fan-out promises after the spread has started them.
+    fn compile_spread_join(
+        &mut self,
+        promises_register: RegisterId,
+        result_register: Option<RegisterId>,
+        template: &Spanned<Expr>,
+    ) -> Result<(), ErrorFor<Spec, Lowering>> {
+        let index_register = self.context.local_frame.allocate_register();
+        self.emit_int_literal_into_register(index_register, 0)?;
+
+        let length_register = self.context.local_frame.allocate_register();
+        self.context
+            .emitter
+            .emit_length(length_register, promises_register);
+
+        let empty_body = self.empty_block(template);
+
+        self.compile_loop_skeleton(
+            &empty_body,
+            |compiler, for_loop| {
+                compiler.emit_compare_and_branch(
+                    BinaryOpKind::Lt,
+                    index_register,
+                    length_register,
+                    for_loop.body_state(),
+                    for_loop.loop_scope().target(LoopControlKind::Break),
+                );
+                Ok(())
+            },
+            |compiler| {
+                compiler.compile_spread_join_iteration(
+                    promises_register,
+                    index_register,
+                    result_register,
+                )
+            },
+            |compiler| compiler.emit_add_assign_immediate(index_register, 1),
         )
     }
 
@@ -789,6 +1106,82 @@ where
                 .emit_copy(target.register(), source_register);
         }
         self.context.flow_state.mark_initialized(target);
+    }
+
+    /// Starts one spread action and appends the pending promise to the list.
+    fn compile_spread_fanout_iteration(
+        &mut self,
+        loop_var: &str,
+        item_register: RegisterId,
+        action: &ActionCall,
+        promises_register: RegisterId,
+    ) -> Result<(), ErrorFor<Spec, Lowering>> {
+        let promise_register = self.start_spread_action(loop_var, item_register, action)?;
+        self.append_list_item(promises_register, promise_register.register());
+
+        Ok(())
+    }
+
+    /// Awaits one previously-started spread promise and optionally collects it.
+    fn compile_spread_join_iteration(
+        &mut self,
+        promises_register: RegisterId,
+        index_register: RegisterId,
+        result_register: Option<RegisterId>,
+    ) -> Result<(), ErrorFor<Spec, Lowering>> {
+        let promise_register = Marked::mark(RegisterHandle::Temporary(
+            self.context.local_frame.allocate_temporary_register(),
+        ));
+        self.context.emitter.emit_index(
+            promise_register.register(),
+            promises_register,
+            index_register,
+        );
+        self.value_compiler()
+            .compile_await(promise_register.register(), &promise_register);
+
+        if let Some(result_register) = result_register {
+            self.append_list_item(result_register, promise_register.register());
+        }
+
+        Ok(())
+    }
+
+    /// Starts the spread action call with the current loop item bound.
+    fn start_spread_action(
+        &mut self,
+        loop_var: &str,
+        item_register: RegisterId,
+        action: &ActionCall,
+    ) -> Result<Marked<RegisterHandle, PromiseMarker>, ErrorFor<Spec, Lowering>> {
+        let mut value_compiler = self
+            .value_compiler()
+            .with_scoped_binding(loop_var, item_register);
+        value_compiler.compile_action_start(action, super::value::ResultTarget::Allocate)
+    }
+
+    /// Appends one item register into a list accumulator.
+    fn append_list_item(&mut self, list_register: RegisterId, item_register: RegisterId) {
+        let single_item_register = self.context.local_frame.allocate_temporary_register();
+        self.context
+            .emitter
+            .emit_make_list(single_item_register.register(), vec![item_register]);
+        self.context.emitter.emit_binary(
+            BinaryOpKind::Add,
+            list_register,
+            list_register,
+            single_item_register.register(),
+        );
+    }
+
+    /// Builds an empty block that lets spread lowering reuse the shared loop skeleton.
+    fn empty_block(&self, template: &Spanned<Expr>) -> Spanned<Block> {
+        Spanned {
+            value: Block {
+                statements: Vec::new(),
+            },
+            span: template.span,
+        }
     }
 
     /// Switches the emitter and flow state to a reserved state id.

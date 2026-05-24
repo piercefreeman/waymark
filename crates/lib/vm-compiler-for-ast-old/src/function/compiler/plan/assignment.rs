@@ -1,7 +1,7 @@
 //! Assignment planning.
 
 use nonempty_collections::NESlice;
-use waymark_vm_ast_old::{Expr, Spanned};
+use waymark_vm_ast_old::{ActionCall, Expr, Spanned};
 
 use super::ErrorFor;
 use super::parallel::ParallelAssignmentPlan;
@@ -23,6 +23,21 @@ where
 
         /// Expression to evaluate and assign.
         value: &'a Spanned<Expr>,
+    },
+
+    /// A spread expression assignment lowered through looped action fan-out.
+    Spread {
+        /// Assignment target that will receive the collected list.
+        target: Marked<LocalSlot, AssignmentTargetMarker>,
+
+        /// Collection expression evaluated by the spread.
+        collection: &'a Spanned<Expr>,
+
+        /// Loop variable bound for each spread item.
+        loop_var: &'a str,
+
+        /// Action invoked per collection item.
+        action: &'a ActionCall,
     },
 
     /// An assignment sourced from a parallel expression.
@@ -69,6 +84,20 @@ where
             .into());
         }
 
+        if let Expr::SpreadExpr {
+            collection,
+            loop_var,
+            action,
+        } = &value.value
+        {
+            return Ok(Self::Spread {
+                target: resolve_target(&targets[0]),
+                collection,
+                loop_var,
+                action,
+            });
+        }
+
         Ok(Self::Direct {
             target: resolve_target(&targets[0]),
             value,
@@ -82,7 +111,7 @@ mod tests {
 
     use nonempty_collections::{IntoNonEmptyIterator as _, NonEmptyIterator as _};
     use waymark_vm_ast_old::Expr;
-    use waymark_vm_ast_old_helpers::{action_call, int, parallel_expr};
+    use waymark_vm_ast_old_helpers::{action_call, int, parallel_expr, spread_expr, variable};
     use waymark_vm_compiler_for_ast_old_test_support::{TestLowering, TestSpec};
     use waymark_vm_runtime_core::RegisterId;
 
@@ -133,6 +162,9 @@ mod tests {
             }
             AssignmentStatementPlan::Parallel { .. } => {
                 panic!("non-parallel assignment should build a direct plan")
+            }
+            AssignmentStatementPlan::Spread { .. } => {
+                panic!("literal assignments should not build spread plans")
             }
         }
     }
@@ -250,6 +282,9 @@ mod tests {
             AssignmentStatementPlan::Direct { .. } => {
                 panic!("parallel expressions should build a parallel assignment plan")
             }
+            AssignmentStatementPlan::Spread { .. } => {
+                panic!("parallel expressions should not build spread plans")
+            }
         }
     }
 
@@ -268,6 +303,53 @@ mod tests {
             error,
             Error::Unsupported(crate::function::compiler::plan::Unsupported::AssignmentNoTargets)
         ));
+    }
+
+    #[test]
+    fn spread_assignment_resolves_single_target_and_preserves_payload() {
+        let function_table = build_function_table();
+        let mut local_frame = LocalFrame::new();
+        let mut flow_state = FlowState::new();
+        let targets = vec!["results".to_owned()];
+        let value = spread_expr(
+            variable("items"),
+            "item",
+            action_call("double", vec![("value", variable("item"))]),
+        );
+
+        let plan = AssignmentStatementPlan::<TestSpec>::build::<TestLowering, _>(
+            &targets,
+            &value,
+            &function_table,
+            |target| {
+                Marked::<LocalSlot, AssignmentTargetMarker>::get_or_declare(
+                    &mut local_frame,
+                    &mut flow_state,
+                    target,
+                )
+            },
+        )
+        .expect("spread assignment should build");
+
+        match plan {
+            AssignmentStatementPlan::Spread {
+                target,
+                collection,
+                loop_var,
+                action,
+            } => {
+                assert_eq!(target.register(), RegisterId(0));
+                assert!(matches!(collection.value, Expr::Variable { ref name } if name == "items"));
+                assert_eq!(loop_var, "item");
+                assert_eq!(action.action_name, "double");
+            }
+            AssignmentStatementPlan::Direct { .. } => {
+                panic!("spread expressions should build spread plans")
+            }
+            AssignmentStatementPlan::Parallel { .. } => {
+                panic!("spread expressions should not build parallel plans")
+            }
+        }
     }
 
     #[test]

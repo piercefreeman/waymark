@@ -12,6 +12,7 @@ mod function_table;
 mod loops;
 mod lowering_errors;
 mod parallel;
+mod spreads;
 mod variables;
 
 /// Distinguishable error variant raised by [`ActionFailingLowering`] so tests

@@ -9,8 +9,8 @@ use waymark_vm_ast_old::{
 use waymark_vm_ast_old_helpers::{
     action_call, action_expr, assignment, assignment_targets, binary_expr, break_stmt,
     conditional_stmt, continue_stmt, float, function, function_call, function_expr, int,
-    parallel_expr, parallel_stmt, program, return_stmt, sleep_stmt, spanned, string, unary_expr,
-    variable, while_stmt,
+    parallel_expr, parallel_stmt, program, return_stmt, sleep_stmt, spanned, spread_expr, string,
+    unary_expr, variable, while_stmt,
 };
 use waymark_vm_bytecode_core::{FunctionId, InstructionId, StateId};
 use waymark_vm_compiler_for_ast_old_test_support::{TestActionRef, TestReadyValue, TestValue};
@@ -765,6 +765,79 @@ fn compiles_parallel_action_blocks_with_multiple_outstanding_extcalls() {
         ))) => assert_eq!(value, 7),
         other => panic!("unexpected final runtime effect: {other:?}"),
     }
+}
+
+#[test]
+fn compiles_spread_expressions_to_completion() {
+    let program = program(vec![function(
+        "main",
+        &["items"],
+        vec![
+            assignment(
+                "results",
+                spread_expr(
+                    variable("items"),
+                    "item",
+                    action_call("double", vec![("value", variable("item"))]),
+                ),
+            ),
+            return_stmt(Some(variable("results"))),
+        ],
+    )]);
+
+    let executable = compile_program(&program);
+    let mut runtime = runtime_with_args(
+        executable,
+        vec![TestReadyValue::List(vec![
+            TestValue::Ready(TestReadyValue::Int(1)),
+            TestValue::Ready(TestReadyValue::Int(2)),
+            TestValue::Ready(TestReadyValue::Int(3)),
+        ])],
+    );
+
+    let mut pending_promises = Vec::new();
+
+    for input in [1, 2, 3] {
+        let promise = match runtime.run().unwrap_or_else(|error| {
+            panic!(
+                "spread action for {input} should start before earlier promises resolve: {error:?}"
+            )
+        }) {
+            Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall {
+                promise_state_id,
+                action_ref,
+                args,
+            }) => {
+                assert!(matches!(&action_ref, TestActionRef(name) if name == "double"));
+                assert_eq!(args, vec![TestReadyValue::Int(input)]);
+                promise_state_id
+            }
+            other => panic!("unexpected runtime effect for spread item {input}: {other:?}"),
+        };
+
+        pending_promises.push(promise);
+    }
+
+    for (promise, output) in pending_promises.into_iter().zip([2, 4, 6]) {
+        runtime
+            .resolve_promise(promise, TestReadyValue::Int(output))
+            .unwrap_or_else(|error| {
+                panic!("spread promise producing {output} should resolve: {error:?}")
+            });
+    }
+
+    assert_eq!(
+        completed_value(
+            runtime
+                .run()
+                .expect("spread program should complete after all promises resolve")
+        ),
+        TestReadyValue::List(vec![
+            TestValue::Ready(TestReadyValue::Int(2)),
+            TestValue::Ready(TestReadyValue::Int(4)),
+            TestValue::Ready(TestReadyValue::Int(6)),
+        ])
+    );
 }
 
 #[test]

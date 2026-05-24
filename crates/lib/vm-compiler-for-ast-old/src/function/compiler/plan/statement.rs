@@ -31,6 +31,18 @@ where
         call: &'a ActionCall,
     },
 
+    /// Fan out one action call across a collection.
+    SpreadAction {
+        /// Collection expression evaluated by the spread.
+        collection: &'a Spanned<Expr>,
+
+        /// Loop variable bound for each collection item.
+        loop_var: &'a str,
+
+        /// Action invoked for every item.
+        action: &'a ActionCall,
+    },
+
     /// Return from the current function.
     Return {
         /// Optional expression whose value should be returned.
@@ -98,9 +110,6 @@ where
 /// Statement variants that the current lowering pipeline rejects.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnsupportedStatementKind {
-    /// Spread-action statements.
-    SpreadAction,
-
     /// `try`/`except` blocks.
     TryExcept,
 }
@@ -120,6 +129,15 @@ where
         match statement {
             Statement::Assignment { targets, value } => Ok(Self::Assignment { targets, value }),
             Statement::ActionCall { call } => Ok(Self::ActionCall { call }),
+            Statement::SpreadAction {
+                collection,
+                loop_var,
+                action,
+            } => Ok(Self::SpreadAction {
+                collection,
+                loop_var,
+                action,
+            }),
             Statement::Return { value } => Ok(Self::Return {
                 value: value.as_ref(),
             }),
@@ -149,10 +167,6 @@ where
             }),
             Statement::Break => Ok(Self::Break),
             Statement::Continue => Ok(Self::Continue),
-            Statement::SpreadAction { .. } => Err(Unsupported::Statement {
-                kind: UnsupportedStatementKind::SpreadAction,
-            }
-            .into()),
             Statement::TryExcept { .. } => Err(Unsupported::Statement {
                 kind: UnsupportedStatementKind::TryExcept,
             }
@@ -164,7 +178,6 @@ where
 impl core::fmt::Display for UnsupportedStatementKind {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         formatter.write_str(match self {
-            Self::SpreadAction => "SpreadAction",
             Self::TryExcept => "TryExcept",
         })
     }
@@ -231,6 +244,11 @@ mod tests {
             "notify",
             Vec::new(),
         ))]);
+        let spread = spanned(Statement::SpreadAction {
+            collection: variable("items"),
+            loop_var: "item".to_owned(),
+            action: action_call("notify", vec![("value", variable("item"))]),
+        });
 
         assert!(matches!(
             StatementPlan::<TestSpec>::build::<TestLowering>(&conditional.value, &function_table)
@@ -253,6 +271,15 @@ mod tests {
             StatementPlan::ParallelBlock { .. }
         ));
         assert!(matches!(
+            StatementPlan::<TestSpec>::build::<TestLowering>(&spread.value, &function_table)
+                .expect("spread actions should build"),
+            StatementPlan::SpreadAction {
+                loop_var,
+                action,
+                ..
+            } if loop_var == "item" && action.action_name == "notify"
+        ));
+        assert!(matches!(
             StatementPlan::<TestSpec>::build::<TestLowering>(&break_stmt().value, &function_table)
                 .expect("break should build"),
             StatementPlan::<TestSpec>::Break
@@ -270,23 +297,13 @@ mod tests {
     #[test]
     fn rejects_unsupported_statement_variants() {
         let function_table = build_function_table();
-        let unsupported = [
-            (
-                spanned(Statement::SpreadAction {
-                    collection: variable("items"),
-                    loop_var: "item".to_owned(),
-                    action: action_call("notify", Vec::new()),
-                }),
-                UnsupportedStatementKind::SpreadAction,
-            ),
-            (
-                spanned(Statement::TryExcept {
-                    handlers: Vec::<Spanned<waymark_vm_ast_old::ExceptHandler>>::new(),
-                    try_block: block(Vec::new()),
-                }),
-                UnsupportedStatementKind::TryExcept,
-            ),
-        ];
+        let unsupported = [(
+            spanned(Statement::TryExcept {
+                handlers: Vec::<Spanned<waymark_vm_ast_old::ExceptHandler>>::new(),
+                try_block: block(Vec::new()),
+            }),
+            UnsupportedStatementKind::TryExcept,
+        )];
 
         for (statement, kind) in unsupported {
             let error =

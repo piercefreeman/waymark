@@ -1,6 +1,8 @@
 //! Statement lowering.
 
-use waymark_vm_ast_old::{Block, ElifBranch, ElseBranch, Expr, IfBranch, Spanned, Statement};
+use waymark_vm_ast_old::{
+    ActionCall, Block, ElifBranch, ElseBranch, Expr, IfBranch, Spanned, Statement,
+};
 
 use super::AssignmentCompiler;
 use super::CompilerContextMut;
@@ -88,6 +90,13 @@ where
             }
             StatementPlan::ActionCall { call } => {
                 self.value_compiler().compile_action_statement(call)?;
+            }
+            StatementPlan::SpreadAction {
+                collection,
+                loop_var,
+                action,
+            } => {
+                self.compile_spread_action(collection, loop_var, action)?;
             }
             StatementPlan::Return { value } => {
                 self.value_compiler().compile_return_statement(value)?;
@@ -272,6 +281,17 @@ where
         body: &Spanned<Block>,
     ) -> Result<(), ErrorFor<Spec, Lowering>> {
         self.for_loop_compiler().compile(loop_vars, iterable, body)
+    }
+
+    /// Compiles a spread statement as an internal loop over action calls.
+    fn compile_spread_action(
+        &mut self,
+        collection: &Spanned<Expr>,
+        loop_var: &str,
+        action: &ActionCall,
+    ) -> Result<(), ErrorFor<Spec, Lowering>> {
+        self.for_loop_compiler()
+            .compile_spread_statement(collection, loop_var, action)
     }
 
     /// Compiles a `break` statement.
