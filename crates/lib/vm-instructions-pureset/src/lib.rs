@@ -195,6 +195,24 @@ pub enum PureSet<Spec: self::Spec> {
         items: Vec<Spec::RegisterId>,
     },
 
+    /// Append a single item onto an existing list value.
+    ///
+    /// Equivalent to `dst = list + [item]`, but emitted as a single
+    /// instruction so per-iteration list growth (spreads, comprehensions)
+    /// does not pay the cost of a throwaway one-element `MakeList` plus a
+    /// `Binary(Add)`. Callers commonly pass `dst == list` to grow a list in
+    /// place, but the variant accepts any destination register.
+    ListAppend {
+        /// The register to store the grown list at.
+        dst: Spec::RegisterId,
+
+        /// The register containing the existing list value.
+        list: Spec::RegisterId,
+
+        /// The register containing the item to append.
+        item: Spec::RegisterId,
+    },
+
     /// Build a dictionary value from resolved key and value registers.
     MakeDict {
         /// The register to store the resulting dictionary at.

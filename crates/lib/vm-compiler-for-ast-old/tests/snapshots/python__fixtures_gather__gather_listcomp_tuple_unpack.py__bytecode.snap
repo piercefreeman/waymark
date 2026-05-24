@@ -34,8 +34,7 @@ f0: [14 registers]
     PureSet(Length { dst: r13, src: r3 })
     CoreSet(Jump { target_state: s6 })
   s5:
-    PureSet(MakeList { dst: r11, items: [r8] })
-    PureSet(Binary { kind: Add, op: BinaryOp { dst: r3, a: r3, b: r11 } })
+    PureSet(ListAppend { dst: r3, list: r3, item: r8 })
     CoreSet(Jump { target_state: s3 })
   s6:
     PureSet(Binary { kind: Lt, op: BinaryOp { dst: r7, a: r12, b: r13 } })
@@ -52,6 +51,5 @@ f0: [14 registers]
     PureSet(Copy { dst: r1, src: r2 })
     CoreSet(Return { src: r1 })
   s10:
-    PureSet(MakeList { dst: r8, items: [r7] })
-    PureSet(Binary { kind: Add, op: BinaryOp { dst: r2, a: r2, b: r8 } })
+    PureSet(ListAppend { dst: r2, list: r2, item: r7 })
     CoreSet(Jump { target_state: s8 })

@@ -1160,18 +1160,11 @@ where
         value_compiler.compile_action_start(action, super::value::ResultTarget::Allocate)
     }
 
-    /// Appends one item register into a list accumulator.
+    /// Appends one item register into a list accumulator in place.
     fn append_list_item(&mut self, list_register: RegisterId, item_register: RegisterId) {
-        let single_item_register = self.context.local_frame.allocate_temporary_register();
         self.context
             .emitter
-            .emit_make_list(single_item_register.register(), vec![item_register]);
-        self.context.emitter.emit_binary(
-            BinaryOpKind::Add,
-            list_register,
-            list_register,
-            single_item_register.register(),
-        );
+            .emit_list_append(list_register, list_register, item_register);
     }
 
     /// Builds an empty block that lets spread lowering reuse the shared loop skeleton.

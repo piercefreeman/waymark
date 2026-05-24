@@ -162,6 +162,20 @@ impl waymark_vm_interpreter_pureset::value::MakeList for TestValue {
     }
 }
 
+impl waymark_vm_interpreter_pureset::value::ListAppend for TestValue {
+    fn list_append(
+        list: &Self,
+        item: Self,
+    ) -> Result<Self, waymark_vm_interpreter_pureset::value::ListAppendError> {
+        let Self::List(existing) = list else {
+            return Err(waymark_vm_interpreter_pureset::value::ListAppendError::NotListable);
+        };
+        let mut grown = existing.clone();
+        grown.push(item);
+        Ok(Self::List(grown))
+    }
+}
+
 impl waymark_vm_interpreter_pureset::value::AsDictKey for TestValue {
     fn as_dict_key(&self) -> Result<&str, waymark_vm_interpreter_pureset::value::AsDictKeyError> {
         match self {

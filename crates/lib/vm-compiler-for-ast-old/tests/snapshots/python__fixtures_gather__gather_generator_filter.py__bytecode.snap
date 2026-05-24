@@ -10,7 +10,7 @@ fn main(input: [users], output: []):
     results = spread __spread_items_1__:user -> @gather_generator_filter.process_user(user=user)
     return results
 ---
-f0: [17 registers]
+f0: [16 registers]
   s0:
     PureSet(MakeList { dst: r1, items: [] })
     PureSet(Copy { dst: r2, src: r0 })
@@ -56,28 +56,26 @@ f0: [17 registers]
     PureSet(Binary { kind: Add, op: BinaryOp { dst: r11, a: r11, b: r5 } })
     CoreSet(Jump { target_state: s7 })
   s10:
-    PureSet(LoadConst { dst: r15, value: Int(0) })
-    PureSet(Length { dst: r16, src: r9 })
+    PureSet(LoadConst { dst: r14, value: Int(0) })
+    PureSet(Length { dst: r15, src: r9 })
     CoreSet(Jump { target_state: s12 })
   s11:
-    PureSet(MakeList { dst: r14, items: [r13] })
-    PureSet(Binary { kind: Add, op: BinaryOp { dst: r9, a: r9, b: r14 } })
+    PureSet(ListAppend { dst: r9, list: r9, item: r13 })
     CoreSet(Jump { target_state: s9 })
   s12:
-    PureSet(Binary { kind: Lt, op: BinaryOp { dst: r5, a: r15, b: r16 } })
+    PureSet(Binary { kind: Lt, op: BinaryOp { dst: r5, a: r14, b: r15 } })
     CoreSet(JumpIf { target_state: s13, cond: r5 })
     CoreSet(Jump { target_state: s15 })
   s13:
-    PureSet(Index { dst: r5, object: r9, index: r15 })
+    PureSet(Index { dst: r5, object: r9, index: r14 })
     CoreSet(Await { dst: r5, src: r5, resume: s16 })
   s14:
     PureSet(LoadConst { dst: r5, value: Int(1) })
-    PureSet(Binary { kind: Add, op: BinaryOp { dst: r15, a: r15, b: r5 } })
+    PureSet(Binary { kind: Add, op: BinaryOp { dst: r14, a: r14, b: r5 } })
     CoreSet(Jump { target_state: s12 })
   s15:
     PureSet(Copy { dst: r7, src: r8 })
     CoreSet(Return { src: r7 })
   s16:
-    PureSet(MakeList { dst: r13, items: [r5] })
-    PureSet(Binary { kind: Add, op: BinaryOp { dst: r8, a: r8, b: r13 } })
+    PureSet(ListAppend { dst: r8, list: r8, item: r5 })
     CoreSet(Jump { target_state: s14 })
