@@ -86,6 +86,26 @@ pub fn parallel_expr(calls: Vec<Call>) -> Spanned<Expr> {
     spanned(Expr::ParallelExpr { calls })
 }
 
+pub fn spread_stmt(
+    collection: Spanned<Expr>,
+    loop_var: &str,
+    action: ActionCall,
+) -> Spanned<Statement> {
+    spanned(Statement::SpreadAction {
+        collection,
+        loop_var: loop_var.to_owned(),
+        action,
+    })
+}
+
+pub fn spread_expr(collection: Spanned<Expr>, loop_var: &str, action: ActionCall) -> Spanned<Expr> {
+    spanned(Expr::SpreadExpr {
+        collection: Box::new(collection),
+        loop_var: loop_var.to_owned(),
+        action,
+    })
+}
+
 pub fn conditional_stmt(
     if_condition: Spanned<Expr>,
     if_body: Vec<Spanned<Statement>>,

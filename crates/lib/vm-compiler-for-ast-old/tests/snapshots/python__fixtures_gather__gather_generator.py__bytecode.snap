@@ -1,11 +1,53 @@
 ---
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
-expression: "bytecode for python/tests/fixtures_gather/gather_generator.py [compilation error]"
+expression: bytecode for python/tests/fixtures_gather/gather_generator.py
 ---
-FunctionCompiler(
-    Unsupported(
-        Expression {
-            kind: SpreadExpr,
-        },
-    ),
-)
+fn main(input: [items, multiplier], output: []):
+    results = spread items:item -> @gather_generator.process_item(item=item, multiplier=multiplier)
+    return results
+---
+f0: [13 registers]
+  s0:
+    PureSet(MakeList { dst: r3, items: [] })
+    PureSet(MakeList { dst: r4, items: [] })
+    PureSet(Copy { dst: r5, src: r0 })
+    PureSet(LoadConst { dst: r6, value: Int(0) })
+    PureSet(Length { dst: r7, src: r5 })
+    CoreSet(Jump { target_state: s1 })
+  s1:
+    PureSet(Binary { kind: Lt, op: BinaryOp { dst: r8, a: r6, b: r7 } })
+    CoreSet(JumpIf { target_state: s2, cond: r8 })
+    CoreSet(Jump { target_state: s4 })
+  s2:
+    PureSet(Index { dst: r8, object: r5, index: r6 })
+    ExtCallSet(ActionCall { dst: r9, action_ref: TestActionRef("process_item"), args: [r8, r1], resume: s5 })
+  s3:
+    PureSet(LoadConst { dst: r8, value: Int(1) })
+    PureSet(Binary { kind: Add, op: BinaryOp { dst: r6, a: r6, b: r8 } })
+    CoreSet(Jump { target_state: s1 })
+  s4:
+    PureSet(LoadConst { dst: r11, value: Int(0) })
+    PureSet(Length { dst: r12, src: r4 })
+    CoreSet(Jump { target_state: s6 })
+  s5:
+    PureSet(MakeList { dst: r10, items: [r9] })
+    PureSet(Binary { kind: Add, op: BinaryOp { dst: r4, a: r4, b: r10 } })
+    CoreSet(Jump { target_state: s3 })
+  s6:
+    PureSet(Binary { kind: Lt, op: BinaryOp { dst: r8, a: r11, b: r12 } })
+    CoreSet(JumpIf { target_state: s7, cond: r8 })
+    CoreSet(Jump { target_state: s9 })
+  s7:
+    PureSet(Index { dst: r8, object: r4, index: r11 })
+    CoreSet(Await { dst: r8, src: r8, resume: s10 })
+  s8:
+    PureSet(LoadConst { dst: r8, value: Int(1) })
+    PureSet(Binary { kind: Add, op: BinaryOp { dst: r11, a: r11, b: r8 } })
+    CoreSet(Jump { target_state: s6 })
+  s9:
+    PureSet(Copy { dst: r2, src: r3 })
+    CoreSet(Return { src: r2 })
+  s10:
+    PureSet(MakeList { dst: r9, items: [r8] })
+    PureSet(Binary { kind: Add, op: BinaryOp { dst: r3, a: r3, b: r9 } })
+    CoreSet(Jump { target_state: s8 })

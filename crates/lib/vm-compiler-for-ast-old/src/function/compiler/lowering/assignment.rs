@@ -1,6 +1,6 @@
 //! Assignment lowering.
 
-use waymark_vm_ast_old::{Expr, Spanned};
+use waymark_vm_ast_old::{ActionCall, Expr, Spanned};
 
 use crate::Marked;
 use crate::function::compiler::env::AssignmentTargetMarker;
@@ -8,8 +8,10 @@ use crate::function::compiler::env::LocalSlot;
 
 use super::CompilerContextMut;
 use super::ErrorFor;
+use super::ForLoopCompiler;
 use super::ParallelCompiler;
 use super::ValueCompiler;
+use super::r#loop::LoopControlStack;
 use super::plan::assignment::AssignmentStatementPlan;
 
 /// Lowers assignment statements into bytecode.
@@ -58,6 +60,14 @@ where
             AssignmentStatementPlan::Direct { target, value } => {
                 self.compile_direct_assignment(target, value)?;
             }
+            AssignmentStatementPlan::Spread {
+                target,
+                collection,
+                loop_var,
+                action,
+            } => {
+                self.compile_spread_assignment(target, collection, loop_var, action)?;
+            }
             AssignmentStatementPlan::Parallel { assignment } => {
                 self.parallel_compiler().compile_assignment(assignment)?;
             }
@@ -87,6 +97,32 @@ where
         Ok(())
     }
 
+    /// Compiles one spread-expression assignment into a collected result list.
+    fn compile_spread_assignment(
+        &mut self,
+        target: Marked<LocalSlot, AssignmentTargetMarker>,
+        collection: &Spanned<Expr>,
+        loop_var: &str,
+        action: &ActionCall,
+    ) -> Result<(), ErrorFor<Spec, Lowering>> {
+        let accumulator_register = self.context.local_frame.allocate_register();
+        self.for_loop_compiler().compile_spread_expr(
+            collection,
+            loop_var,
+            action,
+            accumulator_register,
+        )?;
+
+        if accumulator_register != target.register() {
+            self.context
+                .emitter
+                .emit_copy(target.register(), accumulator_register);
+        }
+
+        target.mark_initialized(self.context.flow_state);
+        Ok(())
+    }
+
     /// Creates a value compiler borrowing the current context.
     fn value_compiler(&mut self) -> ValueCompiler<'_, 'table, Spec, Lowering> {
         ValueCompiler::new(self.context.reborrow_ref())
@@ -95,6 +131,11 @@ where
     /// Creates a parallel compiler borrowing the current context mutably.
     fn parallel_compiler(&mut self) -> ParallelCompiler<'_, 'table, Spec, Lowering> {
         ParallelCompiler::new(self.context.reborrow_mut())
+    }
+
+    /// Creates a for-loop compiler for internal spread lowering.
+    fn for_loop_compiler(&mut self) -> ForLoopCompiler<'_, 'table, Spec, Lowering> {
+        ForLoopCompiler::new(self.context.reborrow_mut(), LoopControlStack::new())
     }
 }
 

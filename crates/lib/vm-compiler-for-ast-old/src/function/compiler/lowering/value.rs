@@ -26,6 +26,9 @@ where
 {
     /// Shared compiler context used for value lowering.
     context: CompilerContextRef<'borrow, 'table, Spec, Lowering>,
+
+    /// Optional register binding that shadows one local variable name.
+    scoped_binding: Option<ScopedVariableBinding>,
 }
 
 /// Where an expression result should be written.
@@ -38,6 +41,16 @@ pub enum ResultTarget {
     Existing(RegisterId),
 }
 
+/// One temporary variable binding injected by a higher-level lowering helper.
+#[derive(Debug, Clone)]
+struct ScopedVariableBinding {
+    /// Variable name to shadow during value compilation.
+    name: String,
+
+    /// Register that should satisfy reads of `name`.
+    register: RegisterId,
+}
+
 impl<'borrow, 'table, Spec, Lowering> ValueCompiler<'borrow, 'table, Spec, Lowering>
 where
     Spec: waymark_vm_compiler_for_ast_old_core::SpecRequirements,
@@ -45,7 +58,19 @@ where
 {
     /// Creates a value compiler over the provided context.
     pub fn new(context: CompilerContextRef<'borrow, 'table, Spec, Lowering>) -> Self {
-        Self { context }
+        Self {
+            context,
+            scoped_binding: None,
+        }
+    }
+
+    /// Returns a compiler view where reads of `name` resolve to `register`.
+    pub fn with_scoped_binding(mut self, name: impl Into<String>, register: RegisterId) -> Self {
+        self.scoped_binding = Some(ScopedVariableBinding {
+            name: name.into(),
+            register,
+        });
+        self
     }
 
     /// Compiles an expression and returns the register containing its result.
@@ -86,12 +111,30 @@ where
         self.compile_literal(&Literal::None, ResultTarget::Allocate)
     }
 
+    /// Compiles an action call used as a value expression.
+    pub fn compile_action_expr(
+        &mut self,
+        call: &ActionCall,
+        target: ResultTarget,
+    ) -> Result<RegisterHandle, ErrorFor<Spec, Lowering>> {
+        self.compile_call(self.plan_action_call(call)?, target)
+    }
+
+    /// Starts an action call and returns the promise register that holds it.
+    pub fn compile_action_start(
+        &mut self,
+        call: &ActionCall,
+        target: ResultTarget,
+    ) -> Result<Marked<RegisterHandle, PromiseMarker>, ErrorFor<Spec, Lowering>> {
+        self.compile_call_start(self.plan_action_call(call)?, target)
+    }
+
     /// Compiles an action call used as a statement.
     pub fn compile_action_statement(
         &mut self,
         call: &ActionCall,
     ) -> Result<(), ErrorFor<Spec, Lowering>> {
-        let _ = self.compile_call(self.plan_action_call(call)?, ResultTarget::Allocate)?;
+        let _ = self.compile_action_expr(call, ResultTarget::Allocate)?;
         Ok(())
     }
 
@@ -412,6 +455,12 @@ where
 
     /// Resolves an initialized local variable into its register.
     fn resolve_variable(&self, name: &str) -> Result<RegisterHandle, ErrorFor<Spec, Lowering>> {
+        if let Some(binding) = &self.scoped_binding
+            && binding.name == name
+        {
+            return Ok(RegisterHandle::Existing(binding.register));
+        }
+
         let Some(local) = self
             .context
             .local_frame
