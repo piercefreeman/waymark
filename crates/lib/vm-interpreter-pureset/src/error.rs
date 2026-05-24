@@ -1,4 +1,4 @@
-use waymark_vm_runtime_core::{RegisterId, UnresolvedPromiseError};
+use waymark_vm_runtime_core::RegisterId;
 
 use waymark_vm_instructions_pureset::{BinaryOpKind, UnaryOpKind};
 
@@ -33,7 +33,7 @@ pub enum Error {
         register: RegisterId,
     },
 
-    /// A binary scalar instruction referenced an unset register.
+    /// A binary instruction referenced an unset register.
     #[error("{operand_pos} {operation} operand in register {register:?} is not initialized")]
     MissingBinaryOperand {
         /// The binary operation being evaluated.
@@ -46,21 +46,21 @@ pub enum Error {
         register: RegisterId,
     },
 
-    /// A binary scalar instruction referenced an unresolved promise.
-    #[error("{operand_pos} {operation} operand is unresolved: {source}")]
-    UnresolvedBinaryOperand {
+    /// A binary instruction referenced an unusable value.
+    #[error("{operand_pos} {operation} operand is unusable: {source}")]
+    UnusableBinaryOperand {
         /// The binary operation being evaluated.
         operation: BinaryOpKind,
 
         /// The operand position.
         operand_pos: BinaryOperandPosition,
 
-        /// The underlying unresolved promise error.
+        /// The underlying error.
         #[source]
-        source: UnresolvedPromiseError,
+        source: crate::AsScalarError,
     },
 
-    /// A unary scalar instruction referenced an unset register.
+    /// A unary instruction referenced an unset register.
     #[error("{operation} operand in register {register:?} is not initialized")]
     MissingUnaryOperand {
         /// The unary operation being evaluated.
@@ -70,30 +70,30 @@ pub enum Error {
         register: RegisterId,
     },
 
-    /// A unary scalar instruction referenced an unresolved promise.
-    #[error("{operation} operand is unresolved: {source}")]
-    UnresolvedUnaryOperand {
+    /// A unary instruction referenced an unusable value.
+    #[error("{operation} operand is unusable: {source}")]
+    UnusableUnaryOperand {
         /// The unary operation being evaluated.
         operation: UnaryOpKind,
 
-        /// The underlying unresolved promise error.
+        /// The underlying error.
         #[source]
-        source: UnresolvedPromiseError,
+        source: crate::value::AsScalarError,
     },
 
     /// A `Length` instruction referenced an unset register.
-    #[error("length operand in register {register:?} is not initialized")]
-    MissingLengthOperand {
+    #[error("length value in register {register:?} is not initialized")]
+    MissingLengthValue {
         /// The register that was read.
         register: RegisterId,
     },
 
-    /// A `Length` instruction referenced an unresolved promise.
-    #[error("length operand is unresolved: {source}")]
-    UnresolvedLengthOperand {
-        /// The underlying unresolved promise error.
+    /// A `Length` instruction referenced an unrepresentable promise.
+    #[error("length value is unusable: {source}")]
+    UnusableLengthValue {
+        /// The underlying error.
         #[source]
-        source: UnresolvedPromiseError,
+        source: crate::LengthError,
     },
 
     /// A `MakeList` instruction referenced an unset register.
@@ -106,17 +106,6 @@ pub enum Error {
         register: RegisterId,
     },
 
-    /// A `MakeList` instruction referenced an unresolved promise.
-    #[error("list item {item_pos} is unresolved: {source}")]
-    UnresolvedListItem {
-        /// The zero-based item position.
-        item_pos: usize,
-
-        /// The underlying unresolved promise error.
-        #[source]
-        source: UnresolvedPromiseError,
-    },
-
     /// A `MakeDict` instruction referenced an unset key register.
     #[error("dict entry {entry_pos} key in register {register:?} is not initialized")]
     MissingDictKey {
@@ -127,15 +116,15 @@ pub enum Error {
         register: RegisterId,
     },
 
-    /// A `MakeDict` instruction referenced an unresolved key promise.
-    #[error("dict entry {entry_pos} key is unresolved: {source}")]
-    UnresolvedDictKey {
+    /// A `MakeDict` instruction referenced an unrepresentable key promise.
+    #[error("dict entry {entry_pos} key is unusable: {source}")]
+    UnusableDictKey {
         /// The zero-based dictionary entry position.
         entry_pos: usize,
 
-        /// The underlying unresolved promise error.
+        /// The underlying representation error.
         #[source]
-        source: UnresolvedPromiseError,
+        source: crate::value::AsDictKeyError,
     },
 
     /// A `MakeDict` instruction referenced an unset value register.
@@ -148,17 +137,6 @@ pub enum Error {
         register: RegisterId,
     },
 
-    /// A `MakeDict` instruction referenced an unresolved value promise.
-    #[error("dict entry {entry_pos} value is unresolved: {source}")]
-    UnresolvedDictValue {
-        /// The zero-based dictionary entry position.
-        entry_pos: usize,
-
-        /// The underlying unresolved promise error.
-        #[source]
-        source: UnresolvedPromiseError,
-    },
-
     /// An `Index` instruction referenced an unset object register.
     #[error("index object in register {register:?} is not initialized")]
     MissingIndexObject {
@@ -166,27 +144,11 @@ pub enum Error {
         register: RegisterId,
     },
 
-    /// An `Index` instruction referenced an unresolved object promise.
-    #[error("index object is unresolved: {source}")]
-    UnresolvedIndexObject {
-        /// The underlying unresolved promise error.
-        #[source]
-        source: UnresolvedPromiseError,
-    },
-
     /// An `Index` instruction referenced an unset index register.
     #[error("index operand in register {register:?} is not initialized")]
     MissingIndexOperand {
         /// The register that was read.
         register: RegisterId,
-    },
-
-    /// An `Index` instruction referenced an unresolved index promise.
-    #[error("index operand is unresolved: {source}")]
-    UnresolvedIndexOperand {
-        /// The underlying unresolved promise error.
-        #[source]
-        source: UnresolvedPromiseError,
     },
 
     /// A `Dot` instruction referenced an unset object register.
@@ -199,18 +161,7 @@ pub enum Error {
         register: RegisterId,
     },
 
-    /// A `Dot` instruction referenced an unresolved object promise.
-    #[error("dot object for attribute {attribute:?} is unresolved: {source}")]
-    UnresolvedDotObject {
-        /// The accessed attribute name.
-        attribute: String,
-
-        /// The underlying unresolved promise error.
-        #[source]
-        source: UnresolvedPromiseError,
-    },
-
-    /// Evaluating a binary scalar instruction failed.
+    /// Evaluating a binary instruction failed.
     #[error("{operation}: {source}")]
     BinaryOperation {
         /// The binary operation that failed.
@@ -221,7 +172,7 @@ pub enum Error {
         source: crate::value::BinaryOperationError,
     },
 
-    /// Evaluating a unary scalar instruction failed.
+    /// Evaluating a unary instruction failed.
     #[error("{operation}: {source}")]
     UnaryOperation {
         /// The unary operation that failed.

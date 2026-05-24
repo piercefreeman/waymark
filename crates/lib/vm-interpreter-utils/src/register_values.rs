@@ -98,7 +98,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::with_register_values;
-    use waymark_vm_runtime_core::{Promise, PromiseStateId, RegisterId, Registers};
+    use waymark_vm_runtime_core::{RegisterId, Registers};
+    use waymark_vm_runtime_promise_core::{PromiseStateId, Resolvable as _};
+    use waymark_vm_runtime_promise_value::PromiseValue;
 
     #[derive(Debug)]
     enum TestError {
@@ -115,9 +117,9 @@ mod tests {
     #[test]
     fn validates_remaining_items_after_early_stop() {
         let mut registers = Registers::new(3);
-        registers.set(RegisterId(0), Promise::Resolved(10));
-        registers.set(RegisterId(1), Promise::Resolved(20));
-        registers.set(RegisterId(2), Promise::Resolved(30));
+        registers.set(RegisterId(0), PromiseValue::Ready(10));
+        registers.set(RegisterId(1), PromiseValue::Ready(20));
+        registers.set(RegisterId(2), PromiseValue::Ready(30));
 
         let values = with_register_values(
             [RegisterId(0), RegisterId(1), RegisterId(2)],
@@ -125,12 +127,12 @@ mod tests {
                 let value = registers
                     .get(register)
                     .ok_or(TestError::MissingListItem { item_pos, register })?;
-                let value = value.require_resolved_ref().map_err(|source| {
-                    TestError::UnresolvedListItem {
+                let value = value
+                    .as_ready()
+                    .map_err(|source| TestError::UnresolvedListItem {
                         item_pos,
                         promise_state_id: source.promise_state_id,
-                    }
-                })?;
+                    })?;
 
                 Ok::<_, TestError>(*value)
             },
@@ -144,9 +146,9 @@ mod tests {
     #[test]
     fn reports_unresolved_items_after_early_stop() {
         let mut registers = Registers::new(3);
-        registers.set(RegisterId(0), Promise::Resolved(10));
-        registers.set(RegisterId(1), Promise::Resolved(20));
-        registers.set(RegisterId(2), Promise::Pending(PromiseStateId(7)));
+        registers.set(RegisterId(0), PromiseValue::Ready(10));
+        registers.set(RegisterId(1), PromiseValue::Ready(20));
+        registers.set(RegisterId(2), PromiseValue::Pending(PromiseStateId(7)));
 
         let err = with_register_values(
             [RegisterId(0), RegisterId(1), RegisterId(2)],
@@ -154,12 +156,12 @@ mod tests {
                 let value = registers
                     .get(register)
                     .ok_or(TestError::MissingListItem { item_pos, register })?;
-                let value = value.require_resolved_ref().map_err(|source| {
-                    TestError::UnresolvedListItem {
+                let value = value
+                    .as_ready()
+                    .map_err(|source| TestError::UnresolvedListItem {
                         item_pos,
                         promise_state_id: source.promise_state_id,
-                    }
-                })?;
+                    })?;
 
                 Ok::<_, TestError>(*value)
             },
@@ -182,7 +184,7 @@ mod tests {
     #[test]
     fn reports_missing_items() {
         let mut registers = Registers::new(2);
-        registers.set(RegisterId(0), Promise::Resolved(10));
+        registers.set(RegisterId(0), PromiseValue::Ready(10));
 
         let err = with_register_values(
             [RegisterId(0), RegisterId(1)],
@@ -190,12 +192,12 @@ mod tests {
                 let value = registers
                     .get(register)
                     .ok_or(TestError::MissingListItem { item_pos, register })?;
-                let value = value.require_resolved_ref().map_err(|source| {
-                    TestError::UnresolvedListItem {
+                let value = value
+                    .as_ready()
+                    .map_err(|source| TestError::UnresolvedListItem {
                         item_pos,
                         promise_state_id: source.promise_state_id,
-                    }
-                })?;
+                    })?;
 
                 Ok::<_, TestError>(*value)
             },

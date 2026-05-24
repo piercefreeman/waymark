@@ -1,4 +1,8 @@
 pub type SampleValue = waymark_vm_value::Value;
+pub type SampleReadyValue = waymark_vm_value::ReadyValue;
+
+#[cfg(test)]
+static_assertions::assert_impl_all!(SampleValue: waymark_vm_interpreter_fullset::Value);
 
 pub type InstructionSet = waymark_vm_instructions_fullset::FullSet<SampleSpec>;
 
@@ -31,13 +35,13 @@ pub enum SampleConstValue {
     Usize(usize),
 }
 
-impl From<SampleConstValue> for SampleValue {
-    fn from(value: SampleConstValue) -> Self {
+impl From<&SampleConstValue> for SampleReadyValue {
+    fn from(value: &SampleConstValue) -> Self {
         let SampleConstValue::Usize(value) = value;
-        let value: i64 = value
+        let value: i64 = (*value)
             .try_into()
             .expect("sample const values should fit in i64");
-        SampleValue::Int(value)
+        SampleReadyValue::Int(value)
     }
 }
 

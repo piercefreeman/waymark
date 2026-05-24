@@ -10,10 +10,13 @@ waymark-vm-instructions-pureset = { workspace = true }
 waymark-vm-interpreter-coreset = { workspace = true }
 waymark-vm-interpreter-extcallset = { workspace = true }
 waymark-vm-interpreter-pureset = { workspace = true }
+waymark-vm-runtime-promise-value = { workspace = true }
+waymark-vm-runtime-value = { workspace = true }
 
 indexmap = { workspace = true }
 thiserror = { workspace = true }
 typed_floats = { workspace = true }
 
 [dev-dependencies]
+static_assertions = { workspace = true }
 waymark-vm-interpreter-fullset = { workspace = true }

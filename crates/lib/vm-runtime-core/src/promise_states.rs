@@ -1,16 +1,7 @@
-use index_type::{IndexTooBigError, IndexType, typed_vec::TypedVec};
+use index_type::typed_vec::TypedVec;
+use waymark_vm_runtime_promise_core::PromiseStateId;
 
 use crate::{Continuation, PromiseState, ResolvingAlreadyResolvedPromiseError};
-
-/// Error returned when a raw index cannot be represented as a [`PromiseStateId`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, IndexTooBigError)]
-#[index_too_big_error(msg = "promise state id")]
-pub struct PromiseStateIdTooBigError;
-
-/// Index of a [`PromiseState`] in the [`PromiseStates`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, IndexType)]
-#[index_type(error = PromiseStateIdTooBigError)]
-pub struct PromiseStateId(pub usize);
 
 /// A list of promise states.
 pub struct PromiseStates<FunctionId, StateId, Value>(

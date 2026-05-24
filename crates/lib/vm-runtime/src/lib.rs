@@ -10,9 +10,10 @@ pub mod step;
 use std::collections::VecDeque;
 
 use waymark_vm_runtime_core::{
-    Frame, FrameKind, Promise, PromiseStateId, PromiseStates, Registers, ResolvePromiseError,
+    Frame, FrameKind, PromiseStates, Registers, ResolvePromiseError,
     ResolvingAlreadyResolvedPromiseError, RuntimeState,
 };
+use waymark_vm_runtime_promise_core::PromiseStateId;
 
 /// VM runtime.
 ///
@@ -30,12 +31,12 @@ where
 }
 
 /// A specification of a VM function call.
-pub struct CallSpec<FunctionId, Value> {
+pub struct CallSpec<FunctionId, Arg> {
     /// A function to call.
     pub func: FunctionId,
 
     /// A list of arguments to pass to the function.
-    pub args: Vec<Value>,
+    pub args: Vec<Arg>,
 }
 
 /// An error returned when to such function id is defined in the executable.
@@ -50,7 +51,7 @@ where
     Interpreter: waymark_vm_interpreter::Interpreter,
     Executable: waymark_vm_executable::FunctionStates,
     Executable: waymark_vm_executable::FunctionInfo,
-    Executable::FunctionId: Copy + Default,
+    Executable::FunctionId: Copy,
     Executable::StateId: Default,
 {
     /// Create a new runtime with a conventional entrypoint.
@@ -60,36 +61,34 @@ where
     pub fn with_conventional_entrypoint(
         interpreter: Interpreter,
         executable: Executable,
-    ) -> Result<Self, FunctionNotFoundError<Executable::FunctionId>> {
+    ) -> Result<Self, FunctionNotFoundError<Executable::FunctionId>>
+    where
+        Executable::FunctionId: Default,
+    {
         Self::with_custom_entrypoint(
             interpreter,
             executable,
-            CallSpec {
+            CallSpec::<_, Value> {
                 func: Executable::FunctionId::default(),
                 args: Vec::new(),
             },
         )
     }
-}
 
-impl<Executable, Interpreter, Value> Runtime<Executable, Interpreter, Value>
-where
-    Interpreter: waymark_vm_interpreter::Interpreter,
-    Executable: waymark_vm_executable::FunctionStates,
-    Executable: waymark_vm_executable::FunctionInfo,
-    Executable::FunctionId: Copy + Default,
-    Executable::StateId: Default,
-{
     /// Create a new runtime with a custom entrypoint.
     ///
     /// Initialized the top-level frame with a call to the `func` specified
     /// in the `call` and the list of arguments as specified by the `args`
-    /// in the `call`.
-    pub fn with_custom_entrypoint(
+    /// in the `call`. Each argument is converted into the runtime value
+    /// type via [`Into`].
+    pub fn with_custom_entrypoint<Arg>(
         interpreter: Interpreter,
         executable: Executable,
-        call: CallSpec<Executable::FunctionId, Value>,
-    ) -> Result<Self, FunctionNotFoundError<Executable::FunctionId>> {
+        call: CallSpec<Executable::FunctionId, Arg>,
+    ) -> Result<Self, FunctionNotFoundError<Executable::FunctionId>>
+    where
+        Arg: Into<Value>,
+    {
         let mut ready = VecDeque::new();
 
         let CallSpec { func, args } = call;
@@ -98,7 +97,7 @@ where
             .function_num_regs(func)
             .ok_or(FunctionNotFoundError { function_id: func })?;
 
-        let regs = Registers::new_for_fn_call(num_regs, args.into_iter().map(Promise::Resolved));
+        let regs = Registers::new_for_fn_call(num_regs, args.into_iter().map(Arg::into));
 
         ready.push_back(Frame {
             func,
@@ -136,11 +135,11 @@ pub enum RunError<InterpreterError> {
 }
 
 /// A type alias shorthand for specifying runtime frames from and executable
-/// and an promise-value.
+/// and a value.
 pub type FrameFor<Executable, Value> = Frame<
     <Executable as waymark_vm_executable::Functions>::FunctionId,
     <Executable as waymark_vm_executable::FunctionStates>::StateId,
-    Promise<Value>,
+    Value,
 >;
 
 impl<Executable, Interpreter, Value> Runtime<Executable, Interpreter, Value>
@@ -188,6 +187,7 @@ where
 impl<Executable, Interpreter, Value> Runtime<Executable, Interpreter, Value>
 where
     Executable: waymark_vm_executable::FunctionStates,
+    Value: waymark_vm_runtime_promise_core::Resolvable,
     Value: Clone,
 {
     /// Provide an async computation value for a given promise.
@@ -196,22 +196,21 @@ where
     pub fn resolve_promise(
         &mut self,
         promise_state_id: PromiseStateId,
-        val: Value,
-    ) -> Result<(), ResolvePromiseError<Value>> {
+        value: Value::ReadyValue,
+    ) -> Result<(), ResolvePromiseError<Value::ReadyValue>> {
         self.state
-            .resolve_promise(promise_state_id, Promise::Resolved(val))
+            .resolve_promise(promise_state_id, Value::from_ready(value))
             .map_err(|error| match error {
                 ResolvePromiseError::PromiseStateNotFound(error) => {
                     ResolvePromiseError::PromiseStateNotFound(error)
                 }
                 ResolvePromiseError::AlreadyResolved(error) => {
                     let ResolvingAlreadyResolvedPromiseError { new_value } = error;
-                    let new_value = match new_value {
-                        // We've wrapped this value with `Promise::Resolved`
+                    let Ok(new_value) = new_value.into_ready() else {
+                        // We've wrapped this value with `Value::from_ready`
                         // ourselves just a couple lines above.
-                        // It is guaranteed to be `Promise::Resolved` here.
-                        Promise::Pending(_) => unreachable!(),
-                        Promise::Resolved(val) => val,
+                        // It is guaranteed to be resolved here.
+                        unreachable!();
                     };
                     ResolvePromiseError::AlreadyResolved(ResolvingAlreadyResolvedPromiseError {
                         new_value,

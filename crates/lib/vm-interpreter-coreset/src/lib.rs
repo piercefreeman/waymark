@@ -8,7 +8,7 @@ pub mod value;
 use derive_where::derive_where;
 use waymark_vm_interpreter::ExecutionOutcome;
 use waymark_vm_runtime_core::{
-    Continuation, Frame, FrameKind, Promise, PromiseState, Registers, RuntimeState,
+    Continuation, Frame, FrameKind, PromiseState, Registers, RuntimeState,
 };
 
 pub use self::error::*;
@@ -46,21 +46,24 @@ where
     Spec::StateId: Copy + Default,
     Value: self::Value,
     Value: Clone,
+    Value: waymark_vm_runtime_promise_core::Suspendable,
+    Value: waymark_vm_runtime_promise_core::Resolvable,
+    Value::ReadyValue: Clone,
     Value: 'static,
 {
     type RuntimeView<'r> = RuntimeView<'r, Executable, Spec::FunctionId, Spec::StateId, Value>;
-    type Frame = Frame<Spec::FunctionId, Spec::StateId, Promise<Value>>;
+    type Frame = Frame<Spec::FunctionId, Spec::StateId, Value>;
     type Instruction = waymark_vm_instructions_coreset::CoreSet<Spec>;
     type Error = Error<Spec>;
-    type Effect = Effect<Value>;
+    type Effect = Effect<Value::ReadyValue>;
 
     fn execute<'r>(
         &self,
         runtime_view: Self::RuntimeView<'r>,
-        mut frame: Frame<Spec::FunctionId, Spec::StateId, Promise<Value>>,
+        mut frame: Frame<Spec::FunctionId, Spec::StateId, Value>,
         instruction: &Self::Instruction,
     ) -> Result<
-        ExecutionOutcome<Frame<Spec::FunctionId, Spec::StateId, Promise<Value>>, Self::Effect>,
+        ExecutionOutcome<Frame<Spec::FunctionId, Spec::StateId, Value>, Self::Effect>,
         Self::Error,
     > {
         let Self::RuntimeView { executable, state } = runtime_view;
@@ -80,11 +83,11 @@ where
 
                 let args = args
                     .iter()
-                    .map(|arg| frame.regs[*arg].clone())
+                    .map(|arg| frame.regs[*arg].capture_call_argument())
                     .collect::<Vec<_>>();
 
-                let promise_id = state.promise_states.prepare();
-                frame.regs.set(*dst, Promise::Pending(promise_id));
+                let promise_state_id = state.promise_states.prepare();
+                frame.regs.set(*dst, Value::from_pending(promise_state_id));
 
                 let regs = Registers::new_for_fn_call(num_regs, args);
 
@@ -92,17 +95,22 @@ where
                     func: *function_id,
                     state: Spec::StateId::default(),
                     regs,
-                    kind: FrameKind::FnCall { ret: promise_id },
+                    kind: FrameKind::FnCall {
+                        ret: promise_state_id,
+                    },
                 };
 
                 state.ready.push_back(new_frame);
             }
             waymark_vm_instructions_coreset::CoreSet::Await { dst, src, resume } => {
-                match &frame.regs[*src] {
-                    Promise::Pending(promise_state_id) => {
+                let value = &frame.regs[*src];
+                match value.as_ready() {
+                    Err(waymark_vm_runtime_promise_core::UnresolvedPromiseError {
+                        promise_state_id,
+                    }) => {
                         let promise_state = state
                             .promise_states
-                            .get_mut(*promise_state_id)
+                            .get_mut(promise_state_id)
                             .map_err(AwaitError::SourcePromiseStateNotFound)
                             .map_err(Error::Await)?;
                         return Ok(match promise_state {
@@ -122,9 +130,7 @@ where
                             }
                         });
                     }
-                    Promise::Resolved(value) => {
-                        frame.regs.set(*dst, Promise::Resolved(value.clone()));
-                    }
+                    Ok(value) => frame.regs.set(*dst, Value::from_ready(value.clone())),
                 }
             }
             waymark_vm_instructions_coreset::CoreSet::Jump { target_state } => {
@@ -132,10 +138,6 @@ where
             }
             waymark_vm_instructions_coreset::CoreSet::JumpIf { target_state, cond } => {
                 let value = &frame.regs[*cond];
-                let value = value
-                    .require_resolved_ref()
-                    .map_err(JumpIfError::UnresolvedConditionPromise)
-                    .map_err(Error::JumpIf)?;
 
                 let should_jump = value
                     .should_jump()
@@ -169,8 +171,8 @@ where
                     }
                     FrameKind::TopLevel => {
                         let val = val
-                            .require_resolved()
-                            .map_err(ReturnError::TopLevel)
+                            .into_ready()
+                            .map_err(|(error, _)| ReturnError::TopLevel(error))
                             .map_err(Error::Return)?;
                         ExecutionOutcome::ExitFrameWithEffect(Effect::Complete(val))
                     }

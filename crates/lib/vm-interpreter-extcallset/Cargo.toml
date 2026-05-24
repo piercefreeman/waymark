@@ -9,10 +9,14 @@ waymark-nonzero-duration = { workspace = true }
 waymark-vm-instructions-extcallset = { workspace = true }
 waymark-vm-interpreter = { workspace = true }
 waymark-vm-runtime-core = { workspace = true }
+waymark-vm-runtime-promise-core = { workspace = true }
 
 derive-where = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
+waymark-vm-bytecode = { workspace = true }
+waymark-vm-interpreter-coreset = { workspace = true }
 waymark-vm-runtime = { workspace = true }
 waymark-vm-runtime-test = { workspace = true }
+waymark-vm-runtime-value = { workspace = true }

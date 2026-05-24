@@ -4,11 +4,18 @@ use std::time::{Duration, TryFromFloatSecsError};
 
 use waymark_nonzero_duration::{NonZeroDuration, ZeroDurationError};
 
-use crate::Value;
+use crate::ReadyValue;
+
+#[cfg(test)]
+static_assertions::assert_impl_all!(crate::Value: waymark_vm_interpreter_extcallset::Value);
 
 /// Errors returned while converting a value into a sleep duration.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum SleepDurationError {
+    /// The pending promise value cannot be used as a sleep duration.
+    #[error("a pending promise value cannot be used as a sleep duration")]
+    UnresolvedValue,
+
     /// The value type cannot be used as a sleep duration.
     #[error("the value cannot be used as a sleep duration")]
     UnsupportedValue,
@@ -26,7 +33,7 @@ pub enum SleepDurationError {
     FloatConversion(#[source] TryFromFloatSecsError),
 }
 
-impl waymark_vm_interpreter_extcallset::value::SleepDuration for Value {
+impl waymark_vm_interpreter_extcallset::value::SleepDuration for ReadyValue {
     type Error = SleepDurationError;
 
     fn to_sleep_duration(&self) -> Result<NonZeroDuration, Self::Error> {
@@ -47,5 +54,14 @@ impl waymark_vm_interpreter_extcallset::value::SleepDuration for Value {
                 Err(Self::Error::UnsupportedValue)
             }
         }
+    }
+}
+
+impl waymark_vm_interpreter_extcallset::value::CaptureActionCallArgument for ReadyValue {
+    type Error = core::convert::Infallible;
+    type ActionCallArgument = ReadyValue;
+
+    fn capture_action_call_argument(&self) -> Result<Self::ActionCallArgument, Self::Error> {
+        Ok(self.clone())
     }
 }
