@@ -18,9 +18,7 @@
 //! `enumerate(...)` is unwrapped during header classification to keep
 //! iteration mechanics independent of variable-binding shape.
 
-use waymark_vm_ast_old::{
-    Block, Expr, FunctionCall, GlobalFunction, Kwarg, Literal, Span, Spanned,
-};
+use waymark_vm_ast_old::{Block, Expr, FunctionCall, GlobalFunction, Kwarg, Literal, Spanned};
 use waymark_vm_bytecode_core::StateId;
 use waymark_vm_instructions_pureset::BinaryOpKind;
 use waymark_vm_runtime_core::RegisterId;
@@ -833,7 +831,11 @@ where
         target_register: RegisterId,
         value: i64,
     ) -> Result<(), ErrorFor<Spec, Lowering>> {
-        self.compile_expr_into_register(&synthetic_int_expr(value), target_register)
+        let literal = self.lower_int_literal(value)?;
+        self.context
+            .emitter
+            .emit_load_const(target_register, literal);
+        Ok(())
     }
 
     /// Compiles an integer literal into a temporary register.
@@ -841,10 +843,19 @@ where
         &mut self,
         value: i64,
     ) -> Result<RegisterHandle, ErrorFor<Spec, Lowering>> {
-        self.value_compiler().compile_expr(
-            &synthetic_int_expr(value),
-            super::value::ResultTarget::Allocate,
-        )
+        let register =
+            RegisterHandle::Temporary(self.context.local_frame.allocate_temporary_register());
+        self.emit_int_literal_into_register(register.register(), value)?;
+        Ok(register)
+    }
+
+    /// Lowers an integer literal into the target VM constant representation.
+    fn lower_int_literal(
+        &self,
+        value: i64,
+    ) -> Result<<Spec as waymark_vm_instructions_pureset::Spec>::ConstValue, ErrorFor<Spec, Lowering>>
+    {
+        Lowering::lower_literal(&Literal::Int(value)).map_err(Error::LiteralLowering)
     }
 
     /// Emits `target_register = target_register + immediate`.
@@ -890,19 +901,4 @@ fn builtin_call_name(call: &FunctionCall, fallback: &str) -> String {
     }
 
     call.name.clone()
-}
-
-/// Creates a synthetic integer literal expression for compiler-internal lowering.
-fn synthetic_int_expr(value: i64) -> Spanned<Expr> {
-    Spanned {
-        value: Expr::Literal {
-            value: Literal::Int(value),
-        },
-        span: Span {
-            start_line: 0,
-            start_col: 0,
-            end_line: 0,
-            end_col: 0,
-        },
-    }
 }
