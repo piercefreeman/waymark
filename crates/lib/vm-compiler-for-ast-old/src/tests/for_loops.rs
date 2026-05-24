@@ -174,7 +174,31 @@ fn compiles_for_loops_over_single_arg_range() {
         ],
     )]);
 
-    compile::<TestSpec, TestLowering>(&program).expect("range(stop) for loops should compile");
+    let executable =
+        compile::<TestSpec, TestLowering>(&program).expect("range(stop) for loops should compile");
+
+    insta::assert_snapshot!(waymark_vm_bytecode_fmt::display(&executable), @r#"
+    f0: [5 registers]
+      s0:
+        PureSet(LoadConst { dst: r0, value: Int(0) })
+        PureSet(LoadConst { dst: r1, value: Int(0) })
+        PureSet(LoadConst { dst: r2, value: Int(4) })
+        CoreSet(Jump { target_state: s1 })
+      s1:
+        PureSet(Binary { kind: Lt, op: BinaryOp { dst: r3, a: r1, b: r2 } })
+        CoreSet(JumpIf { target_state: s2, cond: r3 })
+        CoreSet(Jump { target_state: s4 })
+      s2:
+        PureSet(Copy { dst: r4, src: r1 })
+        PureSet(Binary { kind: Add, op: BinaryOp { dst: r0, a: r0, b: r4 } })
+        CoreSet(Jump { target_state: s3 })
+      s3:
+        PureSet(LoadConst { dst: r3, value: Int(1) })
+        PureSet(Binary { kind: Add, op: BinaryOp { dst: r1, a: r1, b: r3 } })
+        CoreSet(Jump { target_state: s1 })
+      s4:
+        CoreSet(Return { src: r0 })
+    "#);
 }
 
 #[test]
