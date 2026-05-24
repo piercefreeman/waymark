@@ -6,7 +6,7 @@ fn main(input: [items, multiplier], output: []):
     results = spread items:item -> @gather_generator.process_item(item=item, multiplier=multiplier)
     return results
 ---
-f0: [12 registers]
+f0: [10 registers]
   s0:
     PureSet(MakeList { dst: r3, items: [] })
     PureSet(MakeList { dst: r4, items: [] })
@@ -26,22 +26,21 @@ f0: [12 registers]
     PureSet(Binary { kind: Add, op: BinaryOp { dst: r6, a: r6, b: r8 } })
     CoreSet(Jump { target_state: s1 })
   s4:
-    PureSet(LoadConst { dst: r10, value: Int(0) })
-    PureSet(Length { dst: r11, src: r4 })
+    PureSet(LoadConst { dst: r6, value: Int(0) })
     CoreSet(Jump { target_state: s6 })
   s5:
     PureSet(ListAppend { dst: r4, list: r4, item: r9 })
     CoreSet(Jump { target_state: s3 })
   s6:
-    PureSet(Binary { kind: Lt, op: BinaryOp { dst: r8, a: r10, b: r11 } })
+    PureSet(Binary { kind: Lt, op: BinaryOp { dst: r8, a: r6, b: r7 } })
     CoreSet(JumpIf { target_state: s7, cond: r8 })
     CoreSet(Jump { target_state: s9 })
   s7:
-    PureSet(Index { dst: r8, object: r4, index: r10 })
+    PureSet(Index { dst: r8, object: r4, index: r6 })
     CoreSet(Await { dst: r8, src: r8, resume: s10 })
   s8:
     PureSet(LoadConst { dst: r8, value: Int(1) })
-    PureSet(Binary { kind: Add, op: BinaryOp { dst: r10, a: r10, b: r8 } })
+    PureSet(Binary { kind: Add, op: BinaryOp { dst: r6, a: r6, b: r8 } })
     CoreSet(Jump { target_state: s6 })
   s9:
     PureSet(Copy { dst: r2, src: r3 })
