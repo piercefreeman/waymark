@@ -68,6 +68,13 @@ where
             } => {
                 self.compile_spread_assignment(target, collection, loop_var, action)?;
             }
+            AssignmentStatementPlan::SpreadDiscard {
+                collection,
+                loop_var,
+                action,
+            } => {
+                self.compile_spread_discard(collection, loop_var, action)?;
+            }
             AssignmentStatementPlan::Parallel { assignment } => {
                 self.parallel_compiler().compile_assignment(assignment)?;
             }
@@ -121,6 +128,17 @@ where
 
         target.mark_initialized(self.context.flow_state);
         Ok(())
+    }
+
+    /// Compiles a side-effect-only spread assignment emitted by the frontend.
+    fn compile_spread_discard(
+        &mut self,
+        collection: &Spanned<Expr>,
+        loop_var: &str,
+        action: &ActionCall,
+    ) -> Result<(), ErrorFor<Spec, Lowering>> {
+        self.for_loop_compiler()
+            .compile_spread_statement(collection, loop_var, action)
     }
 
     /// Creates a value compiler borrowing the current context.

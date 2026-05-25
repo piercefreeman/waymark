@@ -3,8 +3,8 @@
 use std::num::NonZeroUsize;
 
 pub use super::{
-    call::UnsupportedFunctionCall, expr::UnsupportedExpressionKind,
-    parallel::UnsupportedParallelExprAssignment, statement::UnsupportedStatementKind,
+    call::UnsupportedFunctionCall, parallel::UnsupportedParallelExprAssignment,
+    statement::UnsupportedStatementKind,
 };
 
 /// Unsupported AST constructs or VM capabilities encountered during
@@ -18,16 +18,13 @@ pub enum Unsupported {
         kind: UnsupportedStatementKind,
     },
 
-    /// An expression variant is not compiled yet.
-    #[error("expression `{kind}` is not supported by the compiler yet")]
-    Expression {
-        /// The unsupported expression kind.
-        kind: UnsupportedExpressionKind,
-    },
-
     /// A parallel expression appeared outside the assignment planner.
     #[error("parallel expressions are only supported on the right-hand side of assignments")]
     ParallelExprOutsideAssignment,
+
+    /// A spread expression appeared outside the assignment planner.
+    #[error("spread expressions are only supported on the right-hand side of assignments")]
+    SpreadExprOutsideAssignment,
 
     /// A function call shape cannot be represented by the current VM.
     #[error("function call `{name}` is not supported: {reason}")]
@@ -39,8 +36,8 @@ pub enum Unsupported {
         reason: UnsupportedFunctionCall,
     },
 
-    /// assignment with no targets are not supported by the current VM subset.
-    #[error("assignment with no targets is not supported by the compiler yet")]
+    /// Zero-target assignments are only supported for side-effect spread forms.
+    #[error("assignment with no targets is only supported for spread expressions")]
     AssignmentNoTargets,
 
     /// Multiple assignment targets are not supported by the current VM subset.

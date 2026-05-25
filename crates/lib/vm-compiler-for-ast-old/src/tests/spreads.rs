@@ -1,7 +1,8 @@
 //! Tests for spread-statement and spread-expression lowering.
 
 use waymark_vm_ast_old_helpers::{
-    action_call, assignment, function, program, return_stmt, spread_expr, spread_stmt, variable,
+    action_call, assignment, assignment_targets, function, program, return_stmt, spread_expr,
+    spread_stmt, variable,
 };
 use waymark_vm_compiler_for_ast_old_test_support::{TestLowering, TestSpec};
 
@@ -88,6 +89,71 @@ fn spread_expression_assignments_lower_to_looped_action_collection() {
         CoreSet(Return { src: r1 })
       s10:
         PureSet(ListAppend { dst: r2, list: r2, item: r7 })
+        CoreSet(Jump { target_state: s8 })
+    "#);
+}
+
+#[test]
+fn zero_target_spread_assignments_compile_as_side_effect_spreads() {
+    let program = program(vec![function(
+        "main",
+        &["items"],
+        vec![
+            assignment_targets(
+                &[],
+                spread_expr(
+                    variable("items"),
+                    "item",
+                    action_call("notify", vec![("value", variable("item"))]),
+                ),
+            ),
+            return_stmt(None),
+        ],
+    )]);
+
+    let executable = compile::<TestSpec, TestLowering>(&program)
+        .expect("zero-target spread assignments should compile as side-effect spreads");
+
+    insta::assert_snapshot!(waymark_vm_bytecode_fmt::display(&executable), @r#"
+    f0: [7 registers]
+      s0:
+        PureSet(MakeList { dst: r1, items: [] })
+        PureSet(Copy { dst: r2, src: r0 })
+        PureSet(LoadConst { dst: r3, value: Int(0) })
+        PureSet(Length { dst: r4, src: r2 })
+        CoreSet(Jump { target_state: s1 })
+      s1:
+        PureSet(Binary { kind: Lt, op: BinaryOp { dst: r5, a: r3, b: r4 } })
+        CoreSet(JumpIf { target_state: s2, cond: r5 })
+        CoreSet(Jump { target_state: s4 })
+      s2:
+        PureSet(Index { dst: r5, object: r2, index: r3 })
+        ExtCallSet(ActionCall { dst: r6, action_ref: TestActionRef("notify"), args: [r5], resume: s5 })
+      s3:
+        PureSet(LoadConst { dst: r5, value: Int(1) })
+        PureSet(Binary { kind: Add, op: BinaryOp { dst: r3, a: r3, b: r5 } })
+        CoreSet(Jump { target_state: s1 })
+      s4:
+        PureSet(LoadConst { dst: r3, value: Int(0) })
+        CoreSet(Jump { target_state: s6 })
+      s5:
+        PureSet(ListAppend { dst: r1, list: r1, item: r6 })
+        CoreSet(Jump { target_state: s3 })
+      s6:
+        PureSet(Binary { kind: Lt, op: BinaryOp { dst: r5, a: r3, b: r4 } })
+        CoreSet(JumpIf { target_state: s7, cond: r5 })
+        CoreSet(Jump { target_state: s9 })
+      s7:
+        PureSet(Index { dst: r5, object: r1, index: r3 })
+        CoreSet(Await { dst: r5, src: r5, resume: s10 })
+      s8:
+        PureSet(LoadConst { dst: r5, value: Int(1) })
+        PureSet(Binary { kind: Add, op: BinaryOp { dst: r3, a: r3, b: r5 } })
+        CoreSet(Jump { target_state: s6 })
+      s9:
+        PureSet(LoadConst { dst: r5, value: None })
+        CoreSet(Return { src: r5 })
+      s10:
         CoreSet(Jump { target_state: s8 })
     "#);
 }
