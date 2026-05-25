@@ -37,6 +37,10 @@ impl waymark_vm_instructions_coreset::Spec for TestSpec {
     type StateId = waymark_vm_bytecode_core::StateId;
 }
 
+impl waymark_vm_instructions_excset::Spec for TestSpec {
+    type RegisterId = waymark_vm_runtime_core::RegisterId;
+}
+
 impl waymark_vm_instructions_extcallset::Spec for TestSpec {
     type RegisterId = waymark_vm_runtime_core::RegisterId;
     type StateId = waymark_vm_bytecode_core::StateId;

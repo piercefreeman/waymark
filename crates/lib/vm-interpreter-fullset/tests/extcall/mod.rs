@@ -73,6 +73,7 @@ fn runtime_resumes_extcalls_and_finishes_with_pure_work() {
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(_)) => {
             panic!("program should suspend on the action call before completion")
         }
+        Effect::ExcSet(effect) => match effect {},
         Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::Sleep { .. }) => {
             panic!("program should suspend on an extcall, not a sleep effect")
         }
@@ -91,6 +92,7 @@ fn runtime_resumes_extcalls_and_finishes_with_pure_work() {
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(value)) => {
             assert_eq!(value, TestReadyValue::Int(42));
         }
+        Effect::ExcSet(effect) => match effect {},
         Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall { .. }) => {
             panic!("resolved action call should not emit another action call")
         }

@@ -45,6 +45,7 @@ pub async fn run(
                             break;
                         }
                     },
+                    waymark_vm_interpreter_fullset::Effect::ExcSet(effect) => match effect {},
                     waymark_vm_interpreter_fullset::Effect::ExtCallSet(effect) => match effect {
                         waymark_vm_interpreter_extcallset::Effect::ActionCall {
                             promise_state_id,
@@ -99,6 +100,7 @@ pub async fn run(
                             });
                         }
                     },
+                    waymark_vm_interpreter_fullset::Effect::PureSet(effect) => match effect {},
                 }
             }
         }

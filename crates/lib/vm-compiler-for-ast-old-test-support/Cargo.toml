@@ -10,6 +10,7 @@ waymark-vm-bytecode-core = { workspace = true }
 waymark-vm-compiler-for-ast-old-const-value = { workspace = true }
 waymark-vm-compiler-for-ast-old-core = { workspace = true }
 waymark-vm-instructions-coreset = { workspace = true }
+waymark-vm-instructions-excset = { workspace = true }
 waymark-vm-instructions-extcallset = { workspace = true }
 waymark-vm-instructions-pureset = { workspace = true }
 waymark-vm-runtime-core = { workspace = true }

@@ -47,6 +47,7 @@ fn normalized_index(index: &ReadyValue, len: usize) -> Result<usize, IndexOperat
         | ReadyValue::Bool(_)
         | ReadyValue::String(_)
         | ReadyValue::None
+        | ReadyValue::Exception(_)
         | ReadyValue::List(_)
         | RV::Dict(_) => Err(IndexOperationError::UnsupportedOperation),
     }
@@ -346,6 +347,7 @@ impl waymark_vm_interpreter_pureset::value::AsDictKey for ReadyValue {
             | Self::Float(_)
             | Self::Bool(_)
             | Self::None
+            | Self::Exception(_)
             | Self::List(_)
             | Self::Dict(_) => Err(AsDictKeyError::UnsupportedKeyType),
         }
@@ -375,7 +377,7 @@ impl waymark_vm_interpreter_pureset::value::Length for ReadyValue {
             Self::String(value) => Ok(value.len()),
             Self::List(items) => Ok(items.len()),
             Self::Dict(entries) => Ok(entries.len()),
-            Self::Int(_) | Self::Float(_) | Self::Bool(_) | Self::None => {
+            Self::Int(_) | Self::Float(_) | Self::Bool(_) | Self::None | Self::Exception(_) => {
                 Err(LengthError::UnsupportedValue)
             }
         }
@@ -411,10 +413,11 @@ impl waymark_vm_interpreter_pureset::value::IndexOp for ReadyValue {
                 | Self::Float(_)
                 | Self::Bool(_)
                 | Self::None
+                | Self::Exception(_)
                 | Self::List(_)
                 | Self::Dict(_) => Err(IndexOperationError::UnsupportedOperation),
             },
-            Self::Int(_) | Self::Float(_) | Self::Bool(_) | Self::None => {
+            Self::Int(_) | Self::Float(_) | Self::Bool(_) | Self::None | Self::Exception(_) => {
                 Err(IndexOperationError::UnsupportedOperation)
             }
         }
@@ -433,6 +436,7 @@ impl waymark_vm_interpreter_pureset::value::DotOp for ReadyValue {
             | Self::Bool(_)
             | Self::String(_)
             | Self::None
+            | Self::Exception(_)
             | Self::List(_) => Err(DotOperationError::UnsupportedOperation),
         }
     }

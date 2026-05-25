@@ -6,6 +6,7 @@ publish.workspace = true
 
 [dependencies]
 waymark-vm-instructions-coreset = { workspace = true }
+waymark-vm-instructions-excset = { workspace = true }
 waymark-vm-instructions-extcallset = { workspace = true }
 waymark-vm-instructions-pureset = { workspace = true }
 

@@ -5234,6 +5234,7 @@ dependencies = [
  "waymark-vm-compiler-for-ast-old-core",
  "waymark-vm-driver",
  "waymark-vm-instructions-coreset",
+ "waymark-vm-instructions-excset",
  "waymark-vm-instructions-extcallset",
  "waymark-vm-instructions-fullset",
  "waymark-vm-instructions-pureset",
@@ -5310,6 +5311,7 @@ dependencies = [
  "waymark-vm-compiler-for-ast-old-const-value",
  "waymark-vm-compiler-for-ast-old-core",
  "waymark-vm-instructions-coreset",
+ "waymark-vm-instructions-excset",
  "waymark-vm-instructions-extcallset",
  "waymark-vm-instructions-pureset",
  "waymark-vm-runtime-core",
@@ -5342,6 +5344,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-vm-instructions-excset"
+version = "0.1.0"
+dependencies = [
+ "derive-where",
+]
+
+[[package]]
 name = "waymark-vm-instructions-extcallset"
 version = "0.1.0"
 dependencies = [
@@ -5354,6 +5363,7 @@ version = "0.1.0"
 dependencies = [
  "derive-where",
  "waymark-vm-instructions-coreset",
+ "waymark-vm-instructions-excset",
  "waymark-vm-instructions-extcallset",
  "waymark-vm-instructions-pureset",
 ]
@@ -5387,6 +5397,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-vm-interpreter-excset"
+version = "0.1.0"
+dependencies = [
+ "derive-where",
+ "static_assertions",
+ "thiserror",
+ "waymark-vm-instructions-excset",
+ "waymark-vm-interpreter",
+ "waymark-vm-runtime",
+ "waymark-vm-runtime-core",
+ "waymark-vm-runtime-exception",
+ "waymark-vm-runtime-test",
+ "waymark-vm-runtime-value",
+]
+
+[[package]]
 name = "waymark-vm-interpreter-extcallset"
 version = "0.1.0"
 dependencies = [
@@ -5414,15 +5440,18 @@ dependencies = [
  "waymark-vm-bytecode",
  "waymark-vm-executable",
  "waymark-vm-instructions-coreset",
+ "waymark-vm-instructions-excset",
  "waymark-vm-instructions-extcallset",
  "waymark-vm-instructions-fullset",
  "waymark-vm-instructions-pureset",
  "waymark-vm-interpreter",
  "waymark-vm-interpreter-coreset",
+ "waymark-vm-interpreter-excset",
  "waymark-vm-interpreter-extcallset",
  "waymark-vm-interpreter-pureset",
  "waymark-vm-runtime",
  "waymark-vm-runtime-core",
+ "waymark-vm-runtime-exception",
  "waymark-vm-runtime-promise-core",
  "waymark-vm-runtime-test",
  "waymark-vm-runtime-value",
@@ -5478,6 +5507,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-vm-runtime-exception"
+version = "0.1.0"
+
+[[package]]
 name = "waymark-vm-runtime-promise-core"
 version = "0.1.0"
 dependencies = [
@@ -5492,8 +5525,10 @@ dependencies = [
  "thiserror",
  "waymark-nonzero-duration",
  "waymark-vm-interpreter-coreset",
+ "waymark-vm-interpreter-excset",
  "waymark-vm-interpreter-extcallset",
  "waymark-vm-interpreter-pureset",
+ "waymark-vm-runtime-exception",
  "waymark-vm-runtime-promise-core",
  "waymark-vm-runtime-value",
 ]
@@ -5528,9 +5563,11 @@ dependencies = [
  "waymark-nonzero-duration",
  "waymark-vm-instructions-pureset",
  "waymark-vm-interpreter-coreset",
+ "waymark-vm-interpreter-excset",
  "waymark-vm-interpreter-extcallset",
  "waymark-vm-interpreter-fullset",
  "waymark-vm-interpreter-pureset",
+ "waymark-vm-runtime-exception",
  "waymark-vm-runtime-promise-value",
  "waymark-vm-runtime-value",
 ]

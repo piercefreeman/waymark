@@ -8,9 +8,9 @@ use waymark_vm_ast_old::{
 };
 use waymark_vm_ast_old_helpers::{
     action_call, action_expr, assignment, assignment_targets, binary_expr, break_stmt,
-    conditional_stmt, continue_stmt, float, function, function_call, function_expr, int,
-    parallel_expr, parallel_stmt, program, return_stmt, sleep_stmt, spanned, spread_expr, string,
-    unary_expr, variable, while_stmt,
+    conditional_stmt, continue_stmt, except_handler, float, function, function_call, function_expr,
+    int, is_exception_expr, parallel_expr, parallel_stmt, program, return_stmt, sleep_stmt,
+    spanned, spread_expr, string, try_except_stmt, unary_expr, variable, while_stmt,
 };
 use waymark_vm_bytecode_core::{FunctionId, InstructionId, StateId};
 use waymark_vm_compiler_for_ast_old_test_support::{TestActionRef, TestReadyValue, TestValue};
