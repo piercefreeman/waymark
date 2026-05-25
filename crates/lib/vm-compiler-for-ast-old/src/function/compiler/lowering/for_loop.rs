@@ -107,6 +107,16 @@ enum RangeLoop<'expr> {
     },
 }
 
+/// Persistent registers from indexed spread fan-out that the join can reuse.
+#[derive(Clone, Copy)]
+struct IndexedSpreadJoinRegisters {
+    /// Loop counter register from fan-out, reset to `0` before join.
+    index_register: RegisterId,
+
+    /// Cached `len(iterable)` register from fan-out, reused as join bound.
+    length_register: RegisterId,
+}
+
 impl<'expr> ResolvedForLoop<'expr> {
     /// Classifies the `for` loop header into one lowering strategy.
     fn build<Spec, Lowering>(
@@ -275,30 +285,32 @@ where
             .emitter
             .emit_make_list(promises_register, Vec::new());
 
-        match ResolvedForLoop::build::<Spec, Lowering>(iterable)? {
+        let join_registers = match ResolvedForLoop::build::<Spec, Lowering>(iterable)? {
             ResolvedForLoop::Indexed { iterable, .. } => {
-                self.compile_indexed_spread(iterable, loop_var, action, promises_register)?
+                Some(self.compile_indexed_spread(iterable, loop_var, action, promises_register)?)
             }
             ResolvedForLoop::Range {
                 range: RangeLoop::Positive { start, end },
                 ..
             } => {
-                self.compile_positive_range_spread(start, end, loop_var, action, promises_register)?
+                self.compile_positive_range_spread(
+                    start,
+                    end,
+                    loop_var,
+                    action,
+                    promises_register,
+                )?;
+                None
             }
             ResolvedForLoop::Range {
                 range: RangeLoop::Stepped { start, end, step },
                 ..
-            } => self.compile_stepped_range_spread(
-                start,
-                end,
-                step,
-                loop_var,
-                action,
-                promises_register,
-            )?,
-        }
+            } => self
+                .compile_stepped_range_spread(start, end, step, loop_var, action, promises_register)
+                .map(|()| None)?,
+        };
 
-        self.compile_spread_join(promises_register, None, iterable)
+        self.compile_spread_join(promises_register, None, iterable, join_registers)
     }
 
     /// Compiles a spread expression into `result_register`.
@@ -318,30 +330,37 @@ where
             .emitter
             .emit_make_list(promises_register, Vec::new());
 
-        match ResolvedForLoop::build::<Spec, Lowering>(iterable)? {
+        let join_registers = match ResolvedForLoop::build::<Spec, Lowering>(iterable)? {
             ResolvedForLoop::Indexed { iterable, .. } => {
-                self.compile_indexed_spread(iterable, loop_var, action, promises_register)?
+                Some(self.compile_indexed_spread(iterable, loop_var, action, promises_register)?)
             }
             ResolvedForLoop::Range {
                 range: RangeLoop::Positive { start, end },
                 ..
             } => {
-                self.compile_positive_range_spread(start, end, loop_var, action, promises_register)?
+                self.compile_positive_range_spread(
+                    start,
+                    end,
+                    loop_var,
+                    action,
+                    promises_register,
+                )?;
+                None
             }
             ResolvedForLoop::Range {
                 range: RangeLoop::Stepped { start, end, step },
                 ..
-            } => self.compile_stepped_range_spread(
-                start,
-                end,
-                step,
-                loop_var,
-                action,
-                promises_register,
-            )?,
-        }
+            } => self
+                .compile_stepped_range_spread(start, end, step, loop_var, action, promises_register)
+                .map(|()| None)?,
+        };
 
-        self.compile_spread_join(promises_register, Some(result_register), iterable)
+        self.compile_spread_join(
+            promises_register,
+            Some(result_register),
+            iterable,
+            join_registers,
+        )
     }
 
     /// Compiles a `for` loop that walks an arbitrary indexable iterable
@@ -419,7 +438,7 @@ where
         loop_var: &str,
         action: &ActionCall,
         promises_register: RegisterId,
-    ) -> Result<(), ErrorFor<Spec, Lowering>> {
+    ) -> Result<IndexedSpreadJoinRegisters, ErrorFor<Spec, Lowering>> {
         let iterable_register = self.context.local_frame.allocate_register();
         self.compile_expr_into_register(iterable, iterable_register)?;
 
@@ -460,7 +479,12 @@ where
                 )
             },
             |compiler| compiler.emit_add_assign_immediate(index_register, 1),
-        )
+        )?;
+
+        Ok(IndexedSpreadJoinRegisters {
+            index_register,
+            length_register,
+        })
     }
 
     /// Compiles `range(stop)` and `range(start, stop)` loops with implicit
@@ -798,14 +822,28 @@ where
         promises_register: RegisterId,
         result_register: Option<RegisterId>,
         template: &Spanned<Expr>,
+        join_registers: Option<IndexedSpreadJoinRegisters>,
     ) -> Result<(), ErrorFor<Spec, Lowering>> {
-        let index_register = self.context.local_frame.allocate_register();
-        self.emit_int_literal_into_register(index_register, 0)?;
+        let (index_register, length_register) = match join_registers {
+            Some(join_registers) => {
+                self.emit_int_literal_into_register(join_registers.index_register, 0)?;
+                (
+                    join_registers.index_register,
+                    join_registers.length_register,
+                )
+            }
+            None => {
+                let index_register = self.context.local_frame.allocate_register();
+                self.emit_int_literal_into_register(index_register, 0)?;
 
-        let length_register = self.context.local_frame.allocate_register();
-        self.context
-            .emitter
-            .emit_length(length_register, promises_register);
+                let length_register = self.context.local_frame.allocate_register();
+                self.context
+                    .emitter
+                    .emit_length(length_register, promises_register);
+
+                (index_register, length_register)
+            }
+        };
 
         let empty_body = self.empty_block(template);
 
