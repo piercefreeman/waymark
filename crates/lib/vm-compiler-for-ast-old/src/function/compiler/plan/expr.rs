@@ -89,19 +89,12 @@ pub enum ExpressionPlan<'a> {
     },
 }
 
-/// Expression variants that the generic value-lowering path rejects.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum UnsupportedExpressionKind {
-    /// Spread expressions.
-    SpreadExpr,
-}
-
 impl<'a> ExpressionPlan<'a> {
     /// Builds an expression plan for an AST expression used as a generic value.
     ///
-    /// Parallel expressions are excluded from this path because the compiler
-    /// only lowers them through the dedicated assignment planner, which needs
-    /// access to the assignment targets.
+    /// Parallel and spread expressions are excluded from this path because the
+    /// compiler only lowers them through dedicated assignment planners, which
+    /// need surrounding statement context.
     pub fn build(expr: &'a Spanned<Expr>) -> Result<Self, Unsupported> {
         match &expr.value {
             Expr::Literal { value } => Ok(Self::Literal { value }),
@@ -121,19 +114,9 @@ impl<'a> ExpressionPlan<'a> {
             Expr::Dict { entries } => Ok(Self::Dict { entries }),
             Expr::Index { object, index } => Ok(Self::Index { object, index }),
             Expr::Dot { object, attribute } => Ok(Self::Dot { object, attribute }),
+            Expr::SpreadExpr { .. } => Err(Unsupported::SpreadExprOutsideAssignment),
             Expr::ParallelExpr { .. } => Err(Unsupported::ParallelExprOutsideAssignment),
-            Expr::SpreadExpr { .. } => Err(Unsupported::Expression {
-                kind: UnsupportedExpressionKind::SpreadExpr,
-            }),
         }
-    }
-}
-
-impl core::fmt::Display for UnsupportedExpressionKind {
-    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        formatter.write_str(match self {
-            Self::SpreadExpr => "SpreadExpr",
-        })
     }
 }
 
@@ -253,25 +236,21 @@ mod tests {
     }
 
     #[test]
-    fn rejects_currently_unsupported_expression_variants() {
-        let unsupported = [(
-            spanned(Expr::SpreadExpr {
-                collection: Box::new(variable("items")),
-                loop_var: "item".to_owned(),
-                action: action_call("notify", vec![("value", variable("item"))]),
-            }),
-            UnsupportedExpressionKind::SpreadExpr,
-        )];
+    fn rejects_spread_expressions_outside_assignment_context() {
+        let expr = spanned(Expr::SpreadExpr {
+            collection: Box::new(variable("items")),
+            loop_var: "item".to_owned(),
+            action: action_call("notify", vec![("value", variable("item"))]),
+        });
 
-        for (expr, kind) in unsupported {
-            let error =
-                ExpressionPlan::build(&expr).expect_err("unsupported expressions should fail");
+        let error = ExpressionPlan::build(&expr)
+            .expect_err("spread expressions should stay assignment-specific");
 
-            assert!(matches!(
-                error,
-                Unsupported::Expression { kind: actual } if actual == kind
-            ));
-        }
+        assert!(matches!(error, Unsupported::SpreadExprOutsideAssignment));
+        assert_eq!(
+            error.to_string(),
+            "spread expressions are only supported on the right-hand side of assignments"
+        );
     }
 
     #[test]

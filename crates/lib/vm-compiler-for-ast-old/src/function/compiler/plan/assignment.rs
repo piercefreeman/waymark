@@ -40,6 +40,18 @@ where
         action: &'a ActionCall,
     },
 
+    /// A spread expression evaluated only for its side effects.
+    SpreadDiscard {
+        /// Collection expression evaluated by the spread.
+        collection: &'a Spanned<Expr>,
+
+        /// Loop variable bound for each spread item.
+        loop_var: &'a str,
+
+        /// Action invoked per collection item.
+        action: &'a ActionCall,
+    },
+
     /// An assignment sourced from a parallel expression.
     Parallel {
         /// Validated parallel-assignment plan.
@@ -63,6 +75,19 @@ where
         F: FnMut(&str) -> Marked<LocalSlot, AssignmentTargetMarker>,
     {
         let Some(targets) = NESlice::try_from_slice(targets) else {
+            if let Expr::SpreadExpr {
+                collection,
+                loop_var,
+                action,
+            } = &value.value
+            {
+                return Ok(Self::SpreadDiscard {
+                    collection,
+                    loop_var,
+                    action,
+                });
+            }
+
             return Err(super::plan::Unsupported::AssignmentNoTargets.into());
         };
 
@@ -165,6 +190,9 @@ mod tests {
             }
             AssignmentStatementPlan::Spread { .. } => {
                 panic!("literal assignments should not build spread plans")
+            }
+            AssignmentStatementPlan::SpreadDiscard { .. } => {
+                panic!("literal assignments should not build discard spread plans")
             }
         }
     }
@@ -285,11 +313,14 @@ mod tests {
             AssignmentStatementPlan::Spread { .. } => {
                 panic!("parallel expressions should not build spread plans")
             }
+            AssignmentStatementPlan::SpreadDiscard { .. } => {
+                panic!("parallel expressions should not build discard spread plans")
+            }
         }
     }
 
     #[test]
-    fn assignments_reject_zero_targets_before_parallel_planning() {
+    fn non_spread_assignments_reject_zero_targets_before_parallel_planning() {
         let function_table = build_function_table();
         let error = AssignmentStatementPlan::<TestSpec>::build::<TestLowering, _>(
             &[],
@@ -303,6 +334,45 @@ mod tests {
             error,
             Error::Unsupported(crate::function::compiler::plan::Unsupported::AssignmentNoTargets)
         ));
+    }
+
+    #[test]
+    fn zero_target_spread_assignments_build_discard_plan() {
+        let function_table = build_function_table();
+        let value = spread_expr(
+            variable("items"),
+            "item",
+            action_call("double", vec![("value", variable("item"))]),
+        );
+
+        let plan = AssignmentStatementPlan::<TestSpec>::build::<TestLowering, _>(
+            &[],
+            &value,
+            &function_table,
+            |_| panic!("discard spreads should not resolve assignment targets"),
+        )
+        .expect("zero-target spread assignment should build");
+
+        match plan {
+            AssignmentStatementPlan::SpreadDiscard {
+                collection,
+                loop_var,
+                action,
+            } => {
+                assert!(matches!(collection.value, Expr::Variable { ref name } if name == "items"));
+                assert_eq!(loop_var, "item");
+                assert_eq!(action.action_name, "double");
+            }
+            AssignmentStatementPlan::Direct { .. } => {
+                panic!("discard spread should not build a direct plan")
+            }
+            AssignmentStatementPlan::Spread { .. } => {
+                panic!("discard spread should not build a targeted spread plan")
+            }
+            AssignmentStatementPlan::Parallel { .. } => {
+                panic!("discard spread should not build a parallel plan")
+            }
+        }
     }
 
     #[test]
@@ -348,6 +418,9 @@ mod tests {
             }
             AssignmentStatementPlan::Parallel { .. } => {
                 panic!("spread expressions should not build parallel plans")
+            }
+            AssignmentStatementPlan::SpreadDiscard { .. } => {
+                panic!("targeted spread expressions should not build discard plans")
             }
         }
     }
