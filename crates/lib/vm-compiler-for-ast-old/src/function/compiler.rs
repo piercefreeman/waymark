@@ -38,6 +38,7 @@ mod lowering {
     pub mod for_loop;
     pub mod parallel;
     pub mod statement;
+    pub mod try_except;
     pub mod value;
 }
 
