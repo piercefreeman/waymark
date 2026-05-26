@@ -1,7 +1,7 @@
 use waymark_vm_ast_old::{
-    ActionCall, BinaryOperator, Block, Call, ElifBranch, ElseBranch, Expr, FunctionCall,
-    FunctionDef, GlobalFunction, IfBranch, IoDecl, Kwarg, Literal, PolicyBracket, Program, Span,
-    Spanned, Statement,
+    ActionCall, BinaryOperator, Block, Call, ElifBranch, ElseBranch, ExceptHandler, Expr,
+    FunctionCall, FunctionDef, GlobalFunction, IfBranch, IoDecl, Kwarg, Literal, PolicyBracket,
+    Program, Span, Spanned, Statement,
 };
 
 pub fn span() -> Span {
@@ -153,6 +153,31 @@ pub fn sleep_stmt(duration: Spanned<Expr>) -> Spanned<Statement> {
     spanned(Statement::Sleep { duration })
 }
 
+pub fn except_handler(
+    exception_types: &[&str],
+    exception_var: Option<&str>,
+    body: Vec<Spanned<Statement>>,
+) -> Spanned<ExceptHandler> {
+    spanned(ExceptHandler {
+        exception_types: exception_types
+            .iter()
+            .map(|exception_type| (*exception_type).to_owned())
+            .collect(),
+        exception_var: exception_var.map(str::to_owned),
+        body: block(body),
+    })
+}
+
+pub fn try_except_stmt(
+    try_body: Vec<Spanned<Statement>>,
+    handlers: Vec<Spanned<ExceptHandler>>,
+) -> Spanned<Statement> {
+    spanned(Statement::TryExcept {
+        handlers,
+        try_block: block(try_body),
+    })
+}
+
 pub fn for_stmt(
     loop_vars: &[&str],
     iterable: Spanned<Expr>,
@@ -247,6 +272,10 @@ pub fn len_expr(arg: Spanned<Expr>) -> Spanned<Expr> {
 
 pub fn enumerate_expr(iterable: Spanned<Expr>) -> Spanned<Expr> {
     builtin_function_expr(GlobalFunction::Enumerate, vec![iterable])
+}
+
+pub fn is_exception_expr(value: Spanned<Expr>, exception_type: Spanned<Expr>) -> Spanned<Expr> {
+    builtin_function_expr(GlobalFunction::IsException, vec![value, exception_type])
 }
 
 pub fn action_call(name: &str, kwargs: Vec<(&str, Spanned<Expr>)>) -> ActionCall {

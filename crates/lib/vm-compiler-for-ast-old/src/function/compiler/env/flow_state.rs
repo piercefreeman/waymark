@@ -43,8 +43,8 @@ impl FlowState {
         self.initialized_by_local[local] = true;
     }
 
-    /// Merges branch flow states by intersecting initialization information.
-    pub fn merge_branches(branches: NEVec<Self>) -> Self {
+    /// Intersects branch flow states to keep only definitely initialized locals.
+    pub fn intersect_branches(branches: NEVec<Self>) -> Self {
         let (mut merged, branches) = branches.into_nonempty_iter().next();
 
         for branch in branches {
@@ -52,6 +52,33 @@ impl FlowState {
         }
 
         merged
+    }
+
+    /// Unions branch flow states to keep any local initialized by any branch.
+    pub fn union_branches(branches: NEVec<Self>) -> Self {
+        let (mut merged, branches) = branches.into_nonempty_iter().next();
+
+        for branch in branches {
+            merged.union_with(&branch);
+        }
+
+        merged
+    }
+
+    /// Unions this flow state with another branch flow state.
+    fn union_with(&mut self, other: &Self) {
+        let merged_len = self
+            .initialized_by_local
+            .len()
+            .to_scalar()
+            .max(other.initialized_by_local.len().to_scalar());
+        self.extend_to_len(merged_len);
+
+        for index in 0..merged_len {
+            let local = LocalId(index);
+            let is_initialized = self.is_initialized(local) || other.is_initialized(local);
+            self.initialized_by_local[local] = is_initialized;
+        }
     }
 
     /// Intersects this flow state with another branch flow state.

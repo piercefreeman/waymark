@@ -108,6 +108,28 @@ where
         self.emit(waymark_vm_instructions_pureset::PureSet::Length { dst, src }.into());
     }
 
+    /// Emits an exception-type check instruction.
+    pub fn emit_is_exception(
+        &mut self,
+        dst: RegisterId,
+        src: RegisterId,
+        exception_type_id: Option<RegisterId>,
+    ) {
+        self.emit(
+            waymark_vm_instructions_excset::ExcSet::IsException {
+                dst,
+                src,
+                exception_type_id,
+            }
+            .into(),
+        );
+    }
+
+    /// Emits an exception-details extraction instruction.
+    pub fn emit_exception_details(&mut self, dst: RegisterId, src: RegisterId) {
+        self.emit(waymark_vm_instructions_excset::ExcSet::ExceptionDetails { dst, src }.into());
+    }
+
     /// Emits a user-function call that writes a promise register.
     pub fn emit_call(
         &mut self,

@@ -1,11 +1,55 @@
 ---
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
-expression: "bytecode for python/tests/fixtures_control_flow/try_multi_except.py [compilation error]"
+expression: bytecode for python/tests/fixtures_control_flow/try_multi_except.py
 ---
-FunctionCompiler(
-    Unsupported(
-        Statement {
-            kind: TryExcept,
-        },
-    ),
-)
+fn main(input: [], output: []):
+    try:
+        result = @try_multi_except.risky_action_multi_except()
+    except ValueError:
+        result = @try_multi_except.handle_value_error()
+    except TypeError:
+        result = @try_multi_except.handle_type_error()
+    except Exception:
+        result = @try_multi_except.handle_generic_error()
+    return result
+---
+f0: [6 registers]
+  s0:
+    PureSet(LoadConst { dst: r1, value: String("ValueError") })
+    PureSet(LoadConst { dst: r2, value: String("TypeError") })
+    ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("risky_action_multi_except"), args: [], resume: s5 })
+  s1:
+    CoreSet(Return { src: r3 })
+  s2:
+    ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("handle_value_error"), args: [], resume: s9 })
+  s3:
+    ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("handle_type_error"), args: [], resume: s11 })
+  s4:
+    ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("handle_generic_error"), args: [], resume: s13 })
+  s5:
+    CoreSet(Await { dst: r3, src: r3, resume: s6 })
+  s6:
+    ExcSet(IsException { dst: r4, src: r3, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s8, cond: r4 })
+    CoreSet(Jump { target_state: s7 })
+  s7:
+    CoreSet(Jump { target_state: s1 })
+  s8:
+    PureSet(Copy { dst: r0, src: r3 })
+    ExcSet(IsException { dst: r5, src: r0, exception_type_id: Some(r1) })
+    CoreSet(JumpIf { target_state: s2, cond: r5 })
+    ExcSet(IsException { dst: r5, src: r0, exception_type_id: Some(r2) })
+    CoreSet(JumpIf { target_state: s3, cond: r5 })
+    CoreSet(Jump { target_state: s4 })
+  s9:
+    CoreSet(Await { dst: r3, src: r3, resume: s10 })
+  s10:
+    CoreSet(Jump { target_state: s1 })
+  s11:
+    CoreSet(Await { dst: r3, src: r3, resume: s12 })
+  s12:
+    CoreSet(Jump { target_state: s1 })
+  s13:
+    CoreSet(Await { dst: r3, src: r3, resume: s14 })
+  s14:
+    CoreSet(Jump { target_state: s1 })

@@ -1,11 +1,33 @@
 ---
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
-expression: "bytecode for python/tests/fixtures_try_except/try_with_action.py [compilation error]"
+expression: bytecode for python/tests/fixtures_try_except/try_with_action.py
 ---
-FunctionCompiler(
-    Unsupported(
-        Statement {
-            kind: TryExcept,
-        },
-    ),
-)
+fn main(input: [], output: []):
+    try:
+        result = @try_with_action.try_action()
+    except ValueError:
+        result = 0
+    return result
+---
+f0: [5 registers]
+  s0:
+    PureSet(LoadConst { dst: r1, value: String("ValueError") })
+    ExtCallSet(ActionCall { dst: r2, action_ref: TestActionRef("try_action"), args: [], resume: s3 })
+  s1:
+    CoreSet(Return { src: r2 })
+  s2:
+    PureSet(LoadConst { dst: r2, value: Int(0) })
+    CoreSet(Jump { target_state: s1 })
+  s3:
+    CoreSet(Await { dst: r2, src: r2, resume: s4 })
+  s4:
+    ExcSet(IsException { dst: r3, src: r2, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s6, cond: r3 })
+    CoreSet(Jump { target_state: s5 })
+  s5:
+    CoreSet(Jump { target_state: s1 })
+  s6:
+    PureSet(Copy { dst: r0, src: r2 })
+    ExcSet(IsException { dst: r4, src: r0, exception_type_id: Some(r1) })
+    CoreSet(JumpIf { target_state: s2, cond: r4 })
+    CoreSet(Return { src: r0 })

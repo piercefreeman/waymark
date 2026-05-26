@@ -10,6 +10,7 @@ use crate::Marked;
 
 use super::CompilerContextRef;
 use super::env::RegisterHandle;
+use super::exception::ExceptionScopeStack;
 use super::plan::call::{
     ActionCallPlanFor, CallPlan, CallPlanFor, FunctionCallPlan, UnsupportedFunctionCall,
     compile_expr_registers,
@@ -98,6 +99,7 @@ where
             }
             ExpressionPlan::FunctionCall { call } => match call.global_function {
                 Some(GlobalFunction::Len) => self.compile_length_call(call, target),
+                Some(GlobalFunction::IsException) => self.compile_is_exception_call(call, target),
                 Some(_) | None => self.compile_call(self.plan_function_call(call)?, target),
             },
             ExpressionPlan::ActionCall { call } => {
@@ -388,6 +390,102 @@ where
         Ok(dst)
     }
 
+    /// Compiles the built-in `isexception(...)` function through excset.
+    fn compile_is_exception_call(
+        &mut self,
+        call: &FunctionCall,
+        target: ResultTarget,
+    ) -> Result<RegisterHandle, ErrorFor<Spec, Lowering>> {
+        if !call.kwargs.is_empty() {
+            return Err(Unsupported::FunctionCall {
+                name: call.name.clone(),
+                reason: UnsupportedFunctionCall::KeywordArguments,
+            }
+            .into());
+        }
+
+        match call.args.as_slice() {
+            [] => Err(Error::FunctionArityMismatch {
+                function: call.name.clone(),
+                expected: 1,
+                actual: 0,
+            }),
+            [value] => self.compile_any_exception_check(value, target),
+            [value, exception_types] => {
+                self.compile_typed_exception_check(value, exception_types, target)
+            }
+            _ => Err(Error::FunctionArityMismatch {
+                function: call.name.clone(),
+                expected: 2,
+                actual: call.args.len(),
+            }),
+        }
+    }
+
+    /// Compiles a wildcard exception check against `value`.
+    fn compile_any_exception_check(
+        &mut self,
+        value: &Spanned<Expr>,
+        target: ResultTarget,
+    ) -> Result<RegisterHandle, ErrorFor<Spec, Lowering>> {
+        let value_register = self.compile_expr(value, ResultTarget::Allocate)?;
+        let dst = self.allocate_result_register(target);
+
+        self.context
+            .emitter
+            .emit_is_exception(dst.register(), value_register.register(), None);
+
+        Ok(dst)
+    }
+
+    /// Compiles a typed exception check against one type id or a list of them.
+    fn compile_typed_exception_check(
+        &mut self,
+        value: &Spanned<Expr>,
+        exception_types: &Spanned<Expr>,
+        target: ResultTarget,
+    ) -> Result<RegisterHandle, ErrorFor<Spec, Lowering>> {
+        let value_register = self.compile_expr(value, ResultTarget::Allocate)?;
+
+        let type_exprs: Vec<&Spanned<Expr>> = match &exception_types.value {
+            Expr::List { elements } => elements.iter().collect(),
+            _ => vec![exception_types],
+        };
+
+        let Some((first_type, remaining_types)) = type_exprs.split_first() else {
+            let false_literal = Literal::Bool(false);
+            return self.compile_literal(&false_literal, target);
+        };
+
+        let dst = self.allocate_result_register(target);
+        let first_type_register = self.compile_expr(first_type, ResultTarget::Allocate)?;
+        self.context.emitter.emit_is_exception(
+            dst.register(),
+            value_register.register(),
+            Some(first_type_register.register()),
+        );
+
+        for exception_type in remaining_types {
+            let exception_type_register =
+                self.compile_expr(exception_type, ResultTarget::Allocate)?;
+            let matches = self.allocate_result_register(ResultTarget::Allocate);
+
+            self.context.emitter.emit_is_exception(
+                matches.register(),
+                value_register.register(),
+                Some(exception_type_register.register()),
+            );
+            self.context.emitter.emit_binary(
+                waymark_vm_instructions_pureset::BinaryOpKind::Or,
+                dst.register(),
+                dst.register(),
+                matches.register(),
+            );
+        }
+
+        Ok(dst)
+    }
+
     /// Compiles an indexed-access expression from recursively evaluated operands.
     fn compile_index_expr(
         &mut self,
@@ -553,6 +651,88 @@ where
             .emit_await(target_register, promise_register.marked(), resume_state);
 
         self.context.emitter.switch_to(resume_state);
+        self.compile_exception_dispatch_if_needed(target_register);
+    }
+
+    /// Emits exception dispatch after an awaited result if a try-scope is active.
+    fn compile_exception_dispatch_if_needed(&mut self, result_register: RegisterId) {
+        let Some(scope) = self.context.exception_scope.current_scope() else {
+            return;
+        };
+
+        let continue_state = self.reserve_state();
+        let exception_state = self.reserve_state();
+        let is_exception = self.allocate_result_register(ResultTarget::Allocate);
+
+        self.context
+            .emitter
+            .emit_is_exception(is_exception.register(), result_register, None);
+        self.context
+            .emitter
+            .emit_jump_if(exception_state, is_exception.register());
+        self.context.emitter.emit_jump(continue_state);
+
+        self.context.emitter.switch_to(exception_state);
+        if scope.exception_register() != result_register {
+            self.context
+                .emitter
+                .emit_copy(scope.exception_register(), result_register);
+        }
+        let exception_scope = self.context.exception_scope.clone();
+        self.emit_known_exception_dispatch(&exception_scope, scope.exception_register());
+        self.context.emitter.switch_to(continue_state);
+    }
+
+    /// Emits handler dispatch for a value already known to be an exception.
+    fn emit_known_exception_dispatch(
+        &mut self,
+        exception_scope: &ExceptionScopeStack,
+        exception_register: RegisterId,
+    ) {
+        let Some(scope) = exception_scope.current_scope() else {
+            self.context.emitter.emit_return(exception_register);
+            return;
+        };
+
+        let entry_flow = self.context.flow_state.clone();
+
+        for (handler_index, handler) in scope.handlers().iter().enumerate() {
+            scope.record_handler_flow(handler_index, &entry_flow);
+
+            if handler.is_catch_all() {
+                self.context.emitter.emit_jump(handler.entry_state());
+                return;
+            }
+
+            for &exception_type_register in handler.exception_type_registers() {
+                let matches = self.allocate_result_register(ResultTarget::Allocate);
+                self.context.emitter.emit_is_exception(
+                    matches.register(),
+                    exception_register,
+                    Some(exception_type_register),
+                );
+                self.context
+                    .emitter
+                    .emit_jump_if(handler.entry_state(), matches.register());
+            }
+        }
+
+        let outer_scope = scope.outer();
+        if outer_scope.is_empty() {
+            self.context.emitter.emit_return(exception_register);
+            return;
+        }
+
+        let outer = outer_scope
+            .current_scope()
+            .expect("non-empty outer exception scope should exist");
+        if outer.exception_register() != exception_register {
+            self.context
+                .emitter
+                .emit_copy(outer.exception_register(), exception_register);
+        }
+
+        self.emit_known_exception_dispatch(&outer_scope, outer.exception_register());
     }
 
     /// Reserves a new bytecode state for a future resume point.

@@ -1,5 +1,7 @@
 //! Shared compiler state bundles passed between lowering helpers.
 
+use super::exception::ExceptionScopeStack;
+
 use crate::function::{
     compiler::{FlowState, FunctionEmitter, LocalFrame},
     table::FunctionTable,
@@ -24,6 +26,9 @@ where
 
     /// Current definite-initialization state.
     pub flow_state: FlowStateRef,
+
+    /// Active exception scopes visible while lowering nested statements.
+    pub exception_scope: ExceptionScopeStack,
 }
 
 /// Mutable view capturing compiler context with mutable access to flow state.
@@ -33,6 +38,18 @@ pub type CompilerContextMut<'borrow, 'table, Spec, Lowering> =
 /// Mutable view capturing compiler context with read-only access to flow state.
 pub type CompilerContextRef<'borrow, 'table, Spec, Lowering> =
     CompilerContext<'borrow, 'table, Spec, Lowering, &'borrow FlowState>;
+
+impl<'borrow, 'table, Spec, Lowering, FlowStateRef>
+    CompilerContext<'borrow, 'table, Spec, Lowering, FlowStateRef>
+where
+    Spec: waymark_vm_compiler_for_ast_old_core::SpecRequirements,
+{
+    /// Returns the same context view with an overridden exception-scope stack.
+    pub fn with_exception_scope(mut self, exception_scope: ExceptionScopeStack) -> Self {
+        self.exception_scope = exception_scope;
+        self
+    }
+}
 
 impl<'borrow, 'table, Spec, Lowering>
     CompilerContext<'borrow, 'table, Spec, Lowering, &'borrow mut FlowState>
@@ -52,6 +69,7 @@ where
             emitter,
             local_frame,
             flow_state,
+            exception_scope: ExceptionScopeStack::default(),
         }
     }
 
@@ -63,6 +81,7 @@ where
             emitter: &mut *self.emitter,
             local_frame: &mut *self.local_frame,
             flow_state: &mut *self.flow_state,
+            exception_scope: self.exception_scope.clone(),
         }
     }
 
@@ -74,6 +93,7 @@ where
             emitter: &mut *self.emitter,
             local_frame: &mut *self.local_frame,
             flow_state: &*self.flow_state,
+            exception_scope: self.exception_scope.clone(),
         }
     }
 
@@ -86,6 +106,7 @@ where
             emitter: self.emitter,
             local_frame: self.local_frame,
             flow_state: &*self.flow_state,
+            exception_scope: self.exception_scope,
         }
     }
 }

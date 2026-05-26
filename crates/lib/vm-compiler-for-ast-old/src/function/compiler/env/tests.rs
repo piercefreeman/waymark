@@ -23,14 +23,14 @@ fn flow_state_merges_by_intersection() {
     let mut branches = NEVec::new(left_branch);
     branches.push(right_branch);
 
-    let merged = FlowState::merge_branches(branches);
+    let merged = FlowState::intersect_branches(branches);
 
     assert!(merged.is_initialized(always));
     assert!(!merged.is_initialized(branch_only));
 }
 
 #[test]
-fn flow_state_merge_of_single_branch_is_identity() {
+fn flow_state_intersection_of_single_branch_is_identity() {
     let mut locals = Locals::new();
     let only = locals
         .declare("only".to_owned(), RegisterId(0))
@@ -39,9 +39,34 @@ fn flow_state_merge_of_single_branch_is_identity() {
     let mut branch = FlowState::new();
     branch.mark_initialized(only);
 
-    let merged = FlowState::merge_branches(NEVec::new(branch));
+    let merged = FlowState::intersect_branches(NEVec::new(branch));
 
     assert!(merged.is_initialized(only));
+}
+
+#[test]
+fn flow_state_unions_branches() {
+    let mut locals = Locals::new();
+    let left_only = locals
+        .declare("left_only".to_owned(), RegisterId(0))
+        .expect("left_only local should declare");
+    let right_only = locals
+        .declare("right_only".to_owned(), RegisterId(1))
+        .expect("right_only local should declare");
+
+    let mut left_branch = FlowState::new();
+    left_branch.mark_initialized(left_only);
+
+    let mut right_branch = FlowState::new();
+    right_branch.mark_initialized(right_only);
+
+    let mut branches = NEVec::new(left_branch);
+    branches.push(right_branch);
+
+    let merged = FlowState::union_branches(branches);
+
+    assert!(merged.is_initialized(left_only));
+    assert!(merged.is_initialized(right_only));
 }
 
 #[test]

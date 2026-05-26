@@ -8,6 +8,7 @@ mod conditional;
 mod context;
 mod env;
 mod error;
+mod exception;
 mod r#loop;
 mod suspend;
 

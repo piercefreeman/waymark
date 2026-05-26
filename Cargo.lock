@@ -5268,6 +5268,7 @@ dependencies = [
  "waymark-vm-compiler-for-ast-old-core",
  "waymark-vm-compiler-for-ast-old-test-support",
  "waymark-vm-instructions-coreset",
+ "waymark-vm-instructions-excset",
  "waymark-vm-instructions-extcallset",
  "waymark-vm-instructions-fullset",
  "waymark-vm-instructions-pureset",
@@ -5276,6 +5277,7 @@ dependencies = [
  "waymark-vm-interpreter-fullset",
  "waymark-vm-runtime",
  "waymark-vm-runtime-core",
+ "waymark-vm-runtime-exception",
 ]
 
 [[package]]

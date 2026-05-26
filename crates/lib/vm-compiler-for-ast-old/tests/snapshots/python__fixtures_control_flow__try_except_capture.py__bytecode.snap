@@ -1,11 +1,37 @@
 ---
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
-expression: "bytecode for python/tests/fixtures_control_flow/try_except_capture.py [compilation error]"
+expression: bytecode for python/tests/fixtures_control_flow/try_except_capture.py
 ---
-FunctionCompiler(
-    Unsupported(
-        Statement {
-            kind: TryExcept,
-        },
-    ),
-)
+fn main(input: [], output: []):
+    try:
+        result = @try_except_capture.risky_action_capture()
+    except ValueError as err:
+        result = @try_except_capture.handle_error_capture(error=err)
+    return result
+---
+f0: [6 registers]
+  s0:
+    PureSet(LoadConst { dst: r1, value: String("ValueError") })
+    ExtCallSet(ActionCall { dst: r2, action_ref: TestActionRef("risky_action_capture"), args: [], resume: s3 })
+  s1:
+    CoreSet(Return { src: r2 })
+  s2:
+    ExcSet(ExceptionDetails { dst: r5, src: r0 })
+    ExtCallSet(ActionCall { dst: r2, action_ref: TestActionRef("handle_error_capture"), args: [r5], resume: s7 })
+  s3:
+    CoreSet(Await { dst: r2, src: r2, resume: s4 })
+  s4:
+    ExcSet(IsException { dst: r3, src: r2, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s6, cond: r3 })
+    CoreSet(Jump { target_state: s5 })
+  s5:
+    CoreSet(Jump { target_state: s1 })
+  s6:
+    PureSet(Copy { dst: r0, src: r2 })
+    ExcSet(IsException { dst: r4, src: r0, exception_type_id: Some(r1) })
+    CoreSet(JumpIf { target_state: s2, cond: r4 })
+    CoreSet(Return { src: r0 })
+  s7:
+    CoreSet(Await { dst: r2, src: r2, resume: s8 })
+  s8:
+    CoreSet(Jump { target_state: s1 })
