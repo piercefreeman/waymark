@@ -439,8 +439,7 @@ where
         action: &ActionCall,
         promises_register: RegisterId,
     ) -> Result<IndexedSpreadJoinRegisters, ErrorFor<Spec, Lowering>> {
-        let iterable_register = self.context.local_frame.allocate_register();
-        self.compile_expr_into_register(iterable, iterable_register)?;
+        let iterable_register = self.resolve_indexed_spread_iterable_register(iterable)?;
 
         let index_register = self.context.local_frame.allocate_register();
         self.emit_int_literal_into_register(index_register, 0)?;
@@ -485,6 +484,29 @@ where
             index_register,
             length_register,
         })
+    }
+
+    /// Resolves the iterable register for indexed spread fan-out.
+    ///
+    /// A spread has no user-authored loop body, so reusing a bare
+    /// local/parameter register is safe: nothing in the fan-out path can
+    /// rebind that local before the loop finishes. Plain `for` loops keep the
+    /// explicit copy because their body or loop bindings can overwrite the
+    /// source local (for example `for items in items:`).
+    fn resolve_indexed_spread_iterable_register(
+        &mut self,
+        iterable: &Spanned<Expr>,
+    ) -> Result<RegisterId, ErrorFor<Spec, Lowering>> {
+        if matches!(&iterable.value, Expr::Variable { .. }) {
+            return Ok(self
+                .value_compiler()
+                .compile_expr(iterable, super::value::ResultTarget::Allocate)?
+                .register());
+        }
+
+        let iterable_register = self.context.local_frame.allocate_register();
+        self.compile_expr_into_register(iterable, iterable_register)?;
+        Ok(iterable_register)
     }
 
     /// Compiles `range(stop)` and `range(start, stop)` loops with implicit
