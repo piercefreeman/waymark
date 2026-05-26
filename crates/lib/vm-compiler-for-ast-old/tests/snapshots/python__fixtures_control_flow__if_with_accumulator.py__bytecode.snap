@@ -23,30 +23,48 @@ f0: [7 registers]
     CoreSet(JumpIf { target_state: s2, cond: r3 })
     ExtCallSet(ActionCall { dst: r4, action_ref: TestActionRef("if_accum_process_low"), args: [r0], resume: s3 })
   s1:
-    CoreSet(JumpIf { target_state: s10, cond: r1 })
-    CoreSet(Jump { target_state: s9 })
+    CoreSet(JumpIf { target_state: s16, cond: r1 })
+    CoreSet(Jump { target_state: s15 })
   s2:
-    ExtCallSet(ActionCall { dst: r5, action_ref: TestActionRef("if_accum_process_high"), args: [r0], resume: s5 })
+    ExtCallSet(ActionCall { dst: r5, action_ref: TestActionRef("if_accum_process_high"), args: [r0], resume: s7 })
   s3:
     CoreSet(Await { dst: r4, src: r4, resume: s4 })
   s4:
+    ExcSet(IsException { dst: r3, src: r4, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s6, cond: r3 })
+    CoreSet(Jump { target_state: s5 })
+  s5:
     PureSet(MakeList { dst: r3, items: [r4] })
     PureSet(Binary { kind: Add, op: BinaryOp { dst: r1, a: r1, b: r3 } })
     CoreSet(Jump { target_state: s1 })
-  s5:
-    CoreSet(Await { dst: r5, src: r5, resume: s6 })
   s6:
-    ExtCallSet(ActionCall { dst: r6, action_ref: TestActionRef("if_accum_finalize"), args: [r5], resume: s7 })
+    CoreSet(Return { src: r4 })
   s7:
-    CoreSet(Await { dst: r6, src: r6, resume: s8 })
+    CoreSet(Await { dst: r5, src: r5, resume: s8 })
   s8:
+    ExcSet(IsException { dst: r3, src: r5, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s10, cond: r3 })
+    CoreSet(Jump { target_state: s9 })
+  s9:
+    ExtCallSet(ActionCall { dst: r6, action_ref: TestActionRef("if_accum_finalize"), args: [r5], resume: s11 })
+  s10:
+    CoreSet(Return { src: r5 })
+  s11:
+    CoreSet(Await { dst: r6, src: r6, resume: s12 })
+  s12:
+    ExcSet(IsException { dst: r3, src: r6, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s14, cond: r3 })
+    CoreSet(Jump { target_state: s13 })
+  s13:
     PureSet(MakeList { dst: r3, items: [r6] })
     PureSet(Binary { kind: Add, op: BinaryOp { dst: r1, a: r1, b: r3 } })
     CoreSet(Jump { target_state: s1 })
-  s9:
+  s14:
+    CoreSet(Return { src: r6 })
+  s15:
     PureSet(LoadConst { dst: r2, value: String("empty") })
     CoreSet(Return { src: r2 })
-  s10:
+  s16:
     PureSet(LoadConst { dst: r3, value: Int(0) })
     PureSet(Index { dst: r2, object: r1, index: r3 })
     CoreSet(Return { src: r2 })

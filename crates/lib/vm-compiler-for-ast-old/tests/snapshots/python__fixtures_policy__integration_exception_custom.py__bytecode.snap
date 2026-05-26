@@ -1,11 +1,57 @@
 ---
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
-expression: "bytecode for python/tests/fixtures_policy/integration_exception_custom.py [compilation error]"
+expression: bytecode for python/tests/fixtures_policy/integration_exception_custom.py
 ---
-FunctionCompiler(
-    Unsupported(
-        Statement {
-            kind: TryExcept,
-        },
-    ),
-)
+fn main(input: [], output: []):
+    try:
+        number = @integration_exception_custom.provide_value()
+        @integration_exception_custom.explode_custom(value=number) [retry: 0]
+    except CustomError:
+        result = @integration_exception_custom.cleanup(label="custom_fallback")
+    return result
+---
+f0: [7 registers]
+  s0:
+    PureSet(LoadConst { dst: r1, value: String("CustomError") })
+    ExtCallSet(ActionCall { dst: r2, action_ref: TestActionRef("provide_value"), args: [], resume: s3 })
+  s1:
+    CoreSet(Return { src: r6 })
+  s2:
+    PureSet(LoadConst { dst: r3, value: String("custom_fallback") })
+    ExtCallSet(ActionCall { dst: r6, action_ref: TestActionRef("cleanup"), args: [r3], resume: s11 })
+  s3:
+    CoreSet(Await { dst: r2, src: r2, resume: s4 })
+  s4:
+    ExcSet(IsException { dst: r3, src: r2, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s6, cond: r3 })
+    CoreSet(Jump { target_state: s5 })
+  s5:
+    ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("explode_custom"), args: [r2], resume: s7 })
+  s6:
+    PureSet(Copy { dst: r0, src: r2 })
+    ExcSet(IsException { dst: r4, src: r0, exception_type_id: Some(r1) })
+    CoreSet(JumpIf { target_state: s2, cond: r4 })
+    CoreSet(Return { src: r0 })
+  s7:
+    CoreSet(Await { dst: r3, src: r3, resume: s8 })
+  s8:
+    ExcSet(IsException { dst: r4, src: r3, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s10, cond: r4 })
+    CoreSet(Jump { target_state: s9 })
+  s9:
+    CoreSet(Jump { target_state: s1 })
+  s10:
+    PureSet(Copy { dst: r0, src: r3 })
+    ExcSet(IsException { dst: r5, src: r0, exception_type_id: Some(r1) })
+    CoreSet(JumpIf { target_state: s2, cond: r5 })
+    CoreSet(Return { src: r0 })
+  s11:
+    CoreSet(Await { dst: r6, src: r6, resume: s12 })
+  s12:
+    ExcSet(IsException { dst: r3, src: r6, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s14, cond: r3 })
+    CoreSet(Jump { target_state: s13 })
+  s13:
+    CoreSet(Jump { target_state: s1 })
+  s14:
+    CoreSet(Return { src: r6 })

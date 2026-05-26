@@ -13,10 +13,16 @@ f0: [7 registers]
   s1:
     CoreSet(Await { dst: r0, src: r0, resume: s2 })
   s2:
-    PureSet(LoadConst { dst: r2, value: String("value") })
+    ExcSet(IsException { dst: r1, src: r0, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s4, cond: r1 })
+    CoreSet(Jump { target_state: s3 })
+  s3:
+    PureSet(LoadConst { dst: r1, value: String("value") })
     PureSet(LoadConst { dst: r3, value: String("status") })
     PureSet(LoadConst { dst: r4, value: String("ok") })
     PureSet(LoadConst { dst: r5, value: String("count") })
     PureSet(LoadConst { dst: r6, value: Int(0) })
-    PureSet(MakeDict { dst: r1, entries: [DictEntry { key: r2, value: r0 }, DictEntry { key: r3, value: r4 }, DictEntry { key: r5, value: r6 }] })
-    CoreSet(Return { src: r1 })
+    PureSet(MakeDict { dst: r2, entries: [DictEntry { key: r1, value: r0 }, DictEntry { key: r3, value: r4 }, DictEntry { key: r5, value: r6 }] })
+    CoreSet(Return { src: r2 })
+  s4:
+    CoreSet(Return { src: r0 })

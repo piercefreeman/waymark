@@ -1,11 +1,39 @@
 ---
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
-expression: "bytecode for python/tests/fixtures_control_flow/try_simple.py [compilation error]"
+expression: bytecode for python/tests/fixtures_control_flow/try_simple.py
 ---
-FunctionCompiler(
-    Unsupported(
-        Statement {
-            kind: TryExcept,
-        },
-    ),
-)
+fn main(input: [], output: []):
+    try:
+        result = @try_simple.risky_action_simple()
+    except Exception:
+        result = @try_simple.handle_error_simple()
+    return result
+---
+f0: [3 registers]
+  s0:
+    ExtCallSet(ActionCall { dst: r1, action_ref: TestActionRef("risky_action_simple"), args: [], resume: s3 })
+  s1:
+    CoreSet(Return { src: r1 })
+  s2:
+    ExtCallSet(ActionCall { dst: r1, action_ref: TestActionRef("handle_error_simple"), args: [], resume: s7 })
+  s3:
+    CoreSet(Await { dst: r1, src: r1, resume: s4 })
+  s4:
+    ExcSet(IsException { dst: r2, src: r1, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s6, cond: r2 })
+    CoreSet(Jump { target_state: s5 })
+  s5:
+    CoreSet(Jump { target_state: s1 })
+  s6:
+    PureSet(Copy { dst: r0, src: r1 })
+    CoreSet(Jump { target_state: s2 })
+  s7:
+    CoreSet(Await { dst: r1, src: r1, resume: s8 })
+  s8:
+    ExcSet(IsException { dst: r2, src: r1, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s10, cond: r2 })
+    CoreSet(Jump { target_state: s9 })
+  s9:
+    CoreSet(Jump { target_state: s1 })
+  s10:
+    CoreSet(Return { src: r1 })

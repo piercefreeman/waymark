@@ -13,11 +13,23 @@ f0: [4 registers]
   s1:
     CoreSet(Await { dst: r0, src: r0, resume: s2 })
   s2:
-    PureSet(LoadConst { dst: r2, value: String("items") })
-    PureSet(MakeDict { dst: r3, entries: [DictEntry { key: r2, value: r0 }] })
-    ExtCallSet(ActionCall { dst: r1, action_ref: TestActionRef("process_data"), args: [r3], resume: s3 })
+    ExcSet(IsException { dst: r1, src: r0, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s4, cond: r1 })
+    CoreSet(Jump { target_state: s3 })
   s3:
-    CoreSet(Await { dst: r1, src: r1, resume: s4 })
+    PureSet(LoadConst { dst: r1, value: String("items") })
+    PureSet(MakeDict { dst: r3, entries: [DictEntry { key: r1, value: r0 }] })
+    ExtCallSet(ActionCall { dst: r2, action_ref: TestActionRef("process_data"), args: [r3], resume: s5 })
   s4:
-    PureSet(Dot { dst: r3, object: r1, attribute: "count" })
+    CoreSet(Return { src: r0 })
+  s5:
+    CoreSet(Await { dst: r2, src: r2, resume: s6 })
+  s6:
+    ExcSet(IsException { dst: r3, src: r2, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s8, cond: r3 })
+    CoreSet(Jump { target_state: s7 })
+  s7:
+    PureSet(Dot { dst: r3, object: r2, attribute: "count" })
     CoreSet(Return { src: r3 })
+  s8:
+    CoreSet(Return { src: r2 })

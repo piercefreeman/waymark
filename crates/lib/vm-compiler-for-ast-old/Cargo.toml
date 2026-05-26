@@ -10,6 +10,7 @@ waymark-vm-bytecode = { workspace = true }
 waymark-vm-bytecode-core = { workspace = true }
 waymark-vm-compiler-for-ast-old-core = { workspace = true }
 waymark-vm-instructions-coreset = { workspace = true }
+waymark-vm-instructions-excset = { workspace = true }
 waymark-vm-instructions-extcallset = { workspace = true }
 waymark-vm-instructions-fullset = { workspace = true }
 waymark-vm-instructions-pureset = { workspace = true }
@@ -30,6 +31,7 @@ waymark-vm-interpreter-coreset = { workspace = true }
 waymark-vm-interpreter-extcallset = { workspace = true }
 waymark-vm-interpreter-fullset = { workspace = true }
 waymark-vm-runtime = { workspace = true }
+waymark-vm-runtime-exception = { workspace = true }
 
 async-walkdir = { workspace = true }
 futures-util = { workspace = true }

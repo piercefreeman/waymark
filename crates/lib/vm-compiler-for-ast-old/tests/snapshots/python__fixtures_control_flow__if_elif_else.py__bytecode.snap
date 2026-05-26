@@ -28,24 +28,48 @@ f0: [4 registers]
   s1:
     CoreSet(Return { src: r3 })
   s2:
-    ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("handle_case_a"), args: [], resume: s7 })
+    ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("handle_case_a"), args: [], resume: s9 })
   s3:
-    ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("handle_case_b"), args: [], resume: s9 })
+    ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("handle_case_b"), args: [], resume: s13 })
   s4:
-    ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("handle_case_c"), args: [], resume: s11 })
+    ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("handle_case_c"), args: [], resume: s17 })
   s5:
     CoreSet(Await { dst: r3, src: r3, resume: s6 })
   s6:
-    CoreSet(Jump { target_state: s1 })
+    ExcSet(IsException { dst: r2, src: r3, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s8, cond: r2 })
+    CoreSet(Jump { target_state: s7 })
   s7:
-    CoreSet(Await { dst: r3, src: r3, resume: s8 })
-  s8:
     CoreSet(Jump { target_state: s1 })
+  s8:
+    CoreSet(Return { src: r3 })
   s9:
     CoreSet(Await { dst: r3, src: r3, resume: s10 })
   s10:
-    CoreSet(Jump { target_state: s1 })
+    ExcSet(IsException { dst: r2, src: r3, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s12, cond: r2 })
+    CoreSet(Jump { target_state: s11 })
   s11:
-    CoreSet(Await { dst: r3, src: r3, resume: s12 })
-  s12:
     CoreSet(Jump { target_state: s1 })
+  s12:
+    CoreSet(Return { src: r3 })
+  s13:
+    CoreSet(Await { dst: r3, src: r3, resume: s14 })
+  s14:
+    ExcSet(IsException { dst: r2, src: r3, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s16, cond: r2 })
+    CoreSet(Jump { target_state: s15 })
+  s15:
+    CoreSet(Jump { target_state: s1 })
+  s16:
+    CoreSet(Return { src: r3 })
+  s17:
+    CoreSet(Await { dst: r3, src: r3, resume: s18 })
+  s18:
+    ExcSet(IsException { dst: r2, src: r3, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s20, cond: r2 })
+    CoreSet(Jump { target_state: s19 })
+  s19:
+    CoreSet(Jump { target_state: s1 })
+  s20:
+    CoreSet(Return { src: r3 })

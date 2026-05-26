@@ -9,7 +9,7 @@ fn main(input: [], output: []):
     total = @gather_nested.combine(values=results)
     return total
 ---
-f0: [4 registers]
+f0: [5 registers]
   s0:
     ExtCallSet(ActionCall { dst: r1, action_ref: TestActionRef("fetch_a"), args: [], resume: s1 })
   s1:
@@ -17,11 +17,29 @@ f0: [4 registers]
   s2:
     CoreSet(Await { dst: r1, src: r1, resume: s3 })
   s3:
-    CoreSet(Await { dst: r2, src: r2, resume: s4 })
+    ExcSet(IsException { dst: r3, src: r1, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s5, cond: r3 })
+    CoreSet(Jump { target_state: s4 })
   s4:
-    PureSet(MakeList { dst: r0, items: [r1, r2] })
-    ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("combine"), args: [r0], resume: s5 })
+    CoreSet(Await { dst: r2, src: r2, resume: s6 })
   s5:
-    CoreSet(Await { dst: r3, src: r3, resume: s6 })
+    CoreSet(Return { src: r1 })
   s6:
-    CoreSet(Return { src: r3 })
+    ExcSet(IsException { dst: r3, src: r2, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s8, cond: r3 })
+    CoreSet(Jump { target_state: s7 })
+  s7:
+    PureSet(MakeList { dst: r0, items: [r1, r2] })
+    ExtCallSet(ActionCall { dst: r4, action_ref: TestActionRef("combine"), args: [r0], resume: s9 })
+  s8:
+    CoreSet(Return { src: r2 })
+  s9:
+    CoreSet(Await { dst: r4, src: r4, resume: s10 })
+  s10:
+    ExcSet(IsException { dst: r2, src: r4, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s12, cond: r2 })
+    CoreSet(Jump { target_state: s11 })
+  s11:
+    CoreSet(Return { src: r4 })
+  s12:
+    CoreSet(Return { src: r4 })

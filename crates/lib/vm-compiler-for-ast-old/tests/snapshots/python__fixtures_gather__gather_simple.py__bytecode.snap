@@ -8,7 +8,7 @@ fn main(input: [], output: []):
         @gather_simple.action_b()
     return [a, b]
 ---
-f0: [4 registers]
+f0: [5 registers]
   s0:
     ExtCallSet(ActionCall { dst: r2, action_ref: TestActionRef("action_a"), args: [], resume: s1 })
   s1:
@@ -16,7 +16,19 @@ f0: [4 registers]
   s2:
     CoreSet(Await { dst: r0, src: r2, resume: s3 })
   s3:
-    CoreSet(Await { dst: r1, src: r3, resume: s4 })
+    ExcSet(IsException { dst: r4, src: r0, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s5, cond: r4 })
+    CoreSet(Jump { target_state: s4 })
   s4:
+    CoreSet(Await { dst: r1, src: r3, resume: s6 })
+  s5:
+    CoreSet(Return { src: r0 })
+  s6:
+    ExcSet(IsException { dst: r4, src: r1, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s8, cond: r4 })
+    CoreSet(Jump { target_state: s7 })
+  s7:
     PureSet(MakeList { dst: r3, items: [r0, r1] })
     CoreSet(Return { src: r3 })
+  s8:
+    CoreSet(Return { src: r1 })

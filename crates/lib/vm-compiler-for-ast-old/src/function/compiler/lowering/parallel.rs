@@ -142,9 +142,8 @@ mod tests {
     use index_type::IndexType;
     use waymark_vm_ast_old::Call;
     use waymark_vm_ast_old_helpers::{function_call, int};
-    use waymark_vm_bytecode_core::{FunctionId, StateId};
-    use waymark_vm_compiler_for_ast_old_test_support::{TestConstValue, TestLowering, TestSpec};
-    use waymark_vm_instructions_coreset::CoreSet;
+    use waymark_vm_bytecode_core::StateId;
+    use waymark_vm_compiler_for_ast_old_test_support::{TestLowering, TestSpec};
     use waymark_vm_instructions_fullset::FullSet as InstructionSet;
     use waymark_vm_instructions_pureset::PureSet;
     use waymark_vm_runtime_core::RegisterId;
@@ -252,68 +251,29 @@ mod tests {
         assert_eq!(results_local.register(), RegisterId(0));
 
         let states = emitter.finish();
-        assert_eq!(states.len().to_scalar(), 3);
-
-        let mut start_instructions = states[StateId(0)].instructions.iter();
-        assert!(matches!(
-            start_instructions.next(),
-            Some(InstructionSet::PureSet(PureSet::LoadConst {
-                dst,
-                value: TestConstValue::Int(1),
-            })) if *dst == RegisterId(2)
-        ));
-        assert!(matches!(
-            start_instructions.next(),
-            Some(InstructionSet::CoreSet(CoreSet::Call {
-                dst,
-                function_id,
-                args,
-            })) if *dst == RegisterId(1)
-                && *function_id == FunctionId(0)
-                && args == &[RegisterId(2)]
-        ));
-        assert!(matches!(
-            start_instructions.next(),
-            Some(InstructionSet::PureSet(PureSet::LoadConst {
-                dst,
-                value: TestConstValue::Int(2),
-            })) if *dst == RegisterId(3)
-        ));
-        assert!(matches!(
-            start_instructions.next(),
-            Some(InstructionSet::CoreSet(CoreSet::Call {
-                dst,
-                function_id,
-                args,
-            })) if *dst == RegisterId(2)
-                && *function_id == FunctionId(0)
-                && args == &[RegisterId(3)]
-        ));
-        assert!(matches!(
-            start_instructions.next(),
-            Some(InstructionSet::CoreSet(CoreSet::Await { dst, src, resume }))
-                if *dst == RegisterId(1)
-                    && *src == RegisterId(1)
-                    && *resume == StateId(1)
-        ));
-        assert!(start_instructions.next().is_none());
-
-        let mut middle_instructions = states[StateId(1)].instructions.iter();
-        assert!(matches!(
-            middle_instructions.next(),
-            Some(InstructionSet::CoreSet(CoreSet::Await { dst, src, resume }))
-                if *dst == RegisterId(2)
-                    && *src == RegisterId(2)
-                    && *resume == StateId(2)
-        ));
-        assert!(middle_instructions.next().is_none());
-
-        let mut final_instructions = states[StateId(2)].instructions.iter();
-        assert!(matches!(
-            final_instructions.next(),
-            Some(InstructionSet::PureSet(PureSet::MakeList { dst, items }))
-                if *dst == RegisterId(0) && items == &[RegisterId(1), RegisterId(2)]
-        ));
-        assert!(final_instructions.next().is_none());
+        insta::assert_snapshot!(waymark_vm_bytecode_fmt::display(&states), @"
+        s0:
+          PureSet(LoadConst { dst: r2, value: Int(1) })
+          CoreSet(Call { dst: r1, function_id: f0, args: [r2] })
+          PureSet(LoadConst { dst: r3, value: Int(2) })
+          CoreSet(Call { dst: r2, function_id: f0, args: [r3] })
+          CoreSet(Await { dst: r1, src: r1, resume: s1 })
+        s1:
+          ExcSet(IsException { dst: r3, src: r1, exception_type_id: None })
+          CoreSet(JumpIf { target_state: s3, cond: r3 })
+          CoreSet(Jump { target_state: s2 })
+        s2:
+          CoreSet(Await { dst: r2, src: r2, resume: s4 })
+        s3:
+          CoreSet(Return { src: r1 })
+        s4:
+          ExcSet(IsException { dst: r3, src: r2, exception_type_id: None })
+          CoreSet(JumpIf { target_state: s6, cond: r3 })
+          CoreSet(Jump { target_state: s5 })
+        s5:
+          PureSet(MakeList { dst: r0, items: [r1, r2] })
+        s6:
+          CoreSet(Return { src: r2 })
+        ");
     }
 }

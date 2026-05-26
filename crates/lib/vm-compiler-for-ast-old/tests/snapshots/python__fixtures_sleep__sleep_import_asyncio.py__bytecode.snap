@@ -14,13 +14,31 @@ f0: [4 registers]
   s1:
     CoreSet(Await { dst: r0, src: r0, resume: s2 })
   s2:
-    PureSet(LoadConst { dst: r2, value: Int(1) })
-    ExtCallSet(Sleep { dst: r1, duration: r2, resume: s3 })
+    ExcSet(IsException { dst: r1, src: r0, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s4, cond: r1 })
+    CoreSet(Jump { target_state: s3 })
   s3:
-    CoreSet(Await { dst: r1, src: r1, resume: s4 })
+    PureSet(LoadConst { dst: r2, value: Int(1) })
+    ExtCallSet(Sleep { dst: r1, duration: r2, resume: s5 })
   s4:
-    ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("format_done_asyncio_import"), args: [r0], resume: s5 })
+    CoreSet(Return { src: r0 })
   s5:
-    CoreSet(Await { dst: r3, src: r3, resume: s6 })
+    CoreSet(Await { dst: r1, src: r1, resume: s6 })
   s6:
+    ExcSet(IsException { dst: r2, src: r1, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s8, cond: r2 })
+    CoreSet(Jump { target_state: s7 })
+  s7:
+    ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("format_done_asyncio_import"), args: [r0], resume: s9 })
+  s8:
+    CoreSet(Return { src: r1 })
+  s9:
+    CoreSet(Await { dst: r3, src: r3, resume: s10 })
+  s10:
+    ExcSet(IsException { dst: r1, src: r3, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s12, cond: r1 })
+    CoreSet(Jump { target_state: s11 })
+  s11:
+    CoreSet(Return { src: r3 })
+  s12:
     CoreSet(Return { src: r3 })

@@ -36,14 +36,26 @@ f0: [9 registers]
   s5:
     CoreSet(Await { dst: r7, src: r7, resume: s6 })
   s6:
-    CoreSet(JumpIf { target_state: s8, cond: r7 })
+    ExcSet(IsException { dst: r5, src: r7, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s8, cond: r5 })
     CoreSet(Jump { target_state: s7 })
   s7:
-    ExtCallSet(ActionCall { dst: r8, action_ref: TestActionRef("process_item"), args: [r6], resume: s9 })
+    CoreSet(JumpIf { target_state: s10, cond: r7 })
+    CoreSet(Jump { target_state: s9 })
   s8:
-    CoreSet(Jump { target_state: s3 })
+    CoreSet(Return { src: r7 })
   s9:
-    CoreSet(Await { dst: r8, src: r8, resume: s10 })
+    ExtCallSet(ActionCall { dst: r8, action_ref: TestActionRef("process_item"), args: [r6], resume: s11 })
   s10:
+    CoreSet(Jump { target_state: s3 })
+  s11:
+    CoreSet(Await { dst: r8, src: r8, resume: s12 })
+  s12:
+    ExcSet(IsException { dst: r5, src: r8, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s14, cond: r5 })
+    CoreSet(Jump { target_state: s13 })
+  s13:
     PureSet(Binary { kind: Add, op: BinaryOp { dst: r1, a: r1, b: r8 } })
     CoreSet(Jump { target_state: s3 })
+  s14:
+    CoreSet(Return { src: r8 })

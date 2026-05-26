@@ -19,10 +19,28 @@ f0: [6 registers]
   s2:
     CoreSet(Await { dst: r0, src: r2, resume: s3 })
   s3:
-    CoreSet(Await { dst: r1, src: r3, resume: s4 })
+    ExcSet(IsException { dst: r4, src: r0, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s5, cond: r4 })
+    CoreSet(Jump { target_state: s4 })
   s4:
-    ExtCallSet(ActionCall { dst: r5, action_ref: TestActionRef("summarize_math"), args: [r0, r1], resume: s5 })
+    CoreSet(Await { dst: r1, src: r3, resume: s6 })
   s5:
-    CoreSet(Await { dst: r5, src: r5, resume: s6 })
+    CoreSet(Return { src: r0 })
   s6:
+    ExcSet(IsException { dst: r4, src: r1, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s8, cond: r4 })
+    CoreSet(Jump { target_state: s7 })
+  s7:
+    ExtCallSet(ActionCall { dst: r5, action_ref: TestActionRef("summarize_math"), args: [r0, r1], resume: s9 })
+  s8:
+    CoreSet(Return { src: r1 })
+  s9:
+    CoreSet(Await { dst: r5, src: r5, resume: s10 })
+  s10:
+    ExcSet(IsException { dst: r3, src: r5, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s12, cond: r3 })
+    CoreSet(Jump { target_state: s11 })
+  s11:
+    CoreSet(Return { src: r5 })
+  s12:
     CoreSet(Return { src: r5 })

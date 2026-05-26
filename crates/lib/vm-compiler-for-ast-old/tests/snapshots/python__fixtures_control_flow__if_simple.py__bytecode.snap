@@ -9,19 +9,31 @@ fn main(input: [flag], output: []):
         result = @if_simple.handle_false_case()
     return result
 ---
-f0: [2 registers]
+f0: [3 registers]
   s0:
     CoreSet(JumpIf { target_state: s2, cond: r0 })
     ExtCallSet(ActionCall { dst: r1, action_ref: TestActionRef("handle_false_case"), args: [], resume: s3 })
   s1:
     CoreSet(Return { src: r1 })
   s2:
-    ExtCallSet(ActionCall { dst: r1, action_ref: TestActionRef("handle_true_case"), args: [], resume: s5 })
+    ExtCallSet(ActionCall { dst: r1, action_ref: TestActionRef("handle_true_case"), args: [], resume: s7 })
   s3:
     CoreSet(Await { dst: r1, src: r1, resume: s4 })
   s4:
-    CoreSet(Jump { target_state: s1 })
+    ExcSet(IsException { dst: r2, src: r1, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s6, cond: r2 })
+    CoreSet(Jump { target_state: s5 })
   s5:
-    CoreSet(Await { dst: r1, src: r1, resume: s6 })
-  s6:
     CoreSet(Jump { target_state: s1 })
+  s6:
+    CoreSet(Return { src: r1 })
+  s7:
+    CoreSet(Await { dst: r1, src: r1, resume: s8 })
+  s8:
+    ExcSet(IsException { dst: r2, src: r1, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s10, cond: r2 })
+    CoreSet(Jump { target_state: s9 })
+  s9:
+    CoreSet(Jump { target_state: s1 })
+  s10:
+    CoreSet(Return { src: r1 })

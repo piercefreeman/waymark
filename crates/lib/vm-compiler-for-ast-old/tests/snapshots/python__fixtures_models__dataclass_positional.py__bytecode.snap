@@ -14,11 +14,23 @@ f0: [5 registers]
   s1:
     CoreSet(Await { dst: r0, src: r0, resume: s2 })
   s2:
-    ExtCallSet(ActionCall { dst: r1, action_ref: TestActionRef("get_y"), args: [], resume: s3 })
+    ExcSet(IsException { dst: r1, src: r0, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s4, cond: r1 })
+    CoreSet(Jump { target_state: s3 })
   s3:
-    CoreSet(Await { dst: r1, src: r1, resume: s4 })
+    ExtCallSet(ActionCall { dst: r2, action_ref: TestActionRef("get_y"), args: [], resume: s5 })
   s4:
-    PureSet(LoadConst { dst: r3, value: String("x") })
+    CoreSet(Return { src: r0 })
+  s5:
+    CoreSet(Await { dst: r2, src: r2, resume: s6 })
+  s6:
+    ExcSet(IsException { dst: r1, src: r2, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s8, cond: r1 })
+    CoreSet(Jump { target_state: s7 })
+  s7:
+    PureSet(LoadConst { dst: r1, value: String("x") })
     PureSet(LoadConst { dst: r4, value: String("y") })
-    PureSet(MakeDict { dst: r2, entries: [DictEntry { key: r3, value: r0 }, DictEntry { key: r4, value: r1 }] })
+    PureSet(MakeDict { dst: r3, entries: [DictEntry { key: r1, value: r0 }, DictEntry { key: r4, value: r2 }] })
+    CoreSet(Return { src: r3 })
+  s8:
     CoreSet(Return { src: r2 })

@@ -7,7 +7,7 @@ use waymark_vm_ast_old::{
     BinaryOperator, Call, Expr, FunctionCall, GlobalFunction, Literal, Spanned, UnaryOperator,
 };
 use waymark_vm_ast_old_helpers::{
-    action_call, action_expr, assignment, assignment_targets, binary_expr, break_stmt,
+    action_call, action_expr, action_stmt, assignment, assignment_targets, binary_expr, break_stmt,
     conditional_stmt, continue_stmt, except_handler, float, function, function_call, function_expr,
     int, is_exception_expr, parallel_expr, parallel_stmt, program, return_stmt, sleep_stmt,
     spanned, spread_expr, string, try_except_stmt, unary_expr, variable, while_stmt,
@@ -30,6 +30,13 @@ fn completed_value(
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(value)) => value,
         other => panic!("unexpected runtime effect: {other:?}"),
     }
+}
+
+fn exception_value(type_id: &str, details: TestValue) -> TestReadyValue {
+    TestReadyValue::Exception(Box::new(waymark_vm_runtime_exception::Exception {
+        type_id: type_id.to_owned(),
+        details,
+    }))
 }
 
 #[test]
@@ -486,6 +493,356 @@ fn compiles_global_len_calls_to_completion() {
     );
 
     assert_eq!(result, 3);
+}
+
+#[test]
+fn compiles_global_isexception_calls_to_completion() {
+    struct IsExceptionCase {
+        name: &'static str,
+        arg: TestReadyValue,
+        exception_type: Spanned<Expr>,
+        expected: bool,
+    }
+
+    let cases = vec![
+        IsExceptionCase {
+            name: "matching type id",
+            arg: exception_value(
+                "ValueError",
+                TestValue::Ready(TestReadyValue::String("boom".to_owned())),
+            ),
+            exception_type: string("ValueError"),
+            expected: true,
+        },
+        IsExceptionCase {
+            name: "type list",
+            arg: exception_value(
+                "TypeError",
+                TestValue::Ready(TestReadyValue::String("boom".to_owned())),
+            ),
+            exception_type: spanned(Expr::List {
+                elements: vec![string("ValueError"), string("TypeError")],
+            }),
+            expected: true,
+        },
+        IsExceptionCase {
+            name: "non-exception value",
+            arg: TestReadyValue::Int(7),
+            exception_type: string("ValueError"),
+            expected: false,
+        },
+    ];
+
+    for case in cases {
+        let program = program(vec![function(
+            "main",
+            &["err"],
+            vec![return_stmt(Some(is_exception_expr(
+                variable("err"),
+                case.exception_type.clone(),
+            )))],
+        )]);
+
+        let result = completed_value(
+            runtime_with_args(compile_program(&program), vec![case.arg.clone()])
+                .run()
+                .unwrap_or_else(|error| panic!("{} should complete: {error:?}", case.name)),
+        );
+
+        assert_eq!(result, TestReadyValue::Bool(case.expected), "{}", case.name);
+    }
+}
+
+#[test]
+fn compiles_try_except_handlers_and_captures_exception_details() {
+    let program = program(vec![function(
+        "main",
+        &[],
+        vec![try_except_stmt(
+            vec![return_stmt(Some(action_expr("boom", Vec::new())))],
+            vec![except_handler(
+                &["ValueError"],
+                Some("err"),
+                vec![return_stmt(Some(variable("err")))],
+            )],
+        )],
+    )]);
+
+    let mut runtime = runtime(compile_program(&program));
+
+    let promise_state_id = match runtime.run().expect("program should emit an extcall") {
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall {
+            promise_state_id,
+            action_ref,
+            args,
+        }) => {
+            assert!(matches!(&action_ref, TestActionRef(name) if name == "boom"));
+            assert!(args.is_empty());
+            promise_state_id
+        }
+        other => panic!("unexpected first runtime effect: {other:?}"),
+    };
+
+    runtime
+        .resolve_promise(
+            promise_state_id,
+            exception_value(
+                "ValueError",
+                TestValue::Ready(TestReadyValue::String("boom".to_owned())),
+            ),
+        )
+        .expect("exception promise should resolve");
+
+    assert_eq!(
+        completed_value(
+            runtime
+                .run()
+                .expect("handler should complete after resolving the exception")
+        ),
+        TestReadyValue::String("boom".to_owned())
+    );
+}
+
+#[test]
+fn compiles_try_except_with_ordered_handlers_and_catch_all() {
+    let program = program(vec![function(
+        "main",
+        &[],
+        vec![try_except_stmt(
+            vec![return_stmt(Some(action_expr("boom", Vec::new())))],
+            vec![
+                except_handler(&["TypeError"], None, vec![return_stmt(Some(int(1)))]),
+                except_handler(&["Exception"], None, vec![return_stmt(Some(int(2)))]),
+            ],
+        )],
+    )]);
+
+    let mut runtime = runtime(compile_program(&program));
+    let promise_state_id = match runtime.run().expect("program should emit an extcall") {
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall {
+            promise_state_id,
+            ..
+        }) => promise_state_id,
+        other => panic!("unexpected first runtime effect: {other:?}"),
+    };
+
+    runtime
+        .resolve_promise(
+            promise_state_id,
+            exception_value(
+                "ValueError",
+                TestValue::Ready(TestReadyValue::String("boom".to_owned())),
+            ),
+        )
+        .expect("exception promise should resolve");
+
+    assert_eq!(
+        completed_int(
+            runtime
+                .run()
+                .expect("catch-all handler should complete after resolving the exception")
+        ),
+        2
+    );
+}
+
+#[test]
+fn compiles_nested_try_except_propagation_to_outer_scope() {
+    let program = program(vec![function(
+        "main",
+        &[],
+        vec![try_except_stmt(
+            vec![try_except_stmt(
+                vec![return_stmt(Some(action_expr("boom", Vec::new())))],
+                vec![except_handler(
+                    &["TypeError"],
+                    None,
+                    vec![return_stmt(Some(int(1)))],
+                )],
+            )],
+            vec![except_handler(
+                &["ValueError"],
+                None,
+                vec![return_stmt(Some(int(2)))],
+            )],
+        )],
+    )]);
+
+    let mut runtime = runtime(compile_program(&program));
+    let promise_state_id = match runtime.run().expect("program should emit an extcall") {
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall {
+            promise_state_id,
+            ..
+        }) => promise_state_id,
+        other => panic!("unexpected first runtime effect: {other:?}"),
+    };
+
+    runtime
+        .resolve_promise(
+            promise_state_id,
+            exception_value(
+                "ValueError",
+                TestValue::Ready(TestReadyValue::String("boom".to_owned())),
+            ),
+        )
+        .expect("exception promise should resolve");
+
+    assert_eq!(
+        completed_int(
+            runtime
+                .run()
+                .expect("outer handler should complete after propagation")
+        ),
+        2
+    );
+}
+
+#[test]
+fn compiles_try_except_handler_only_assignments_after_join() {
+    let program = program(vec![function(
+        "main",
+        &[],
+        vec![
+            try_except_stmt(
+                vec![action_stmt("boom")],
+                vec![except_handler(
+                    &["ValueError"],
+                    None,
+                    vec![assignment("result", int(2))],
+                )],
+            ),
+            return_stmt(Some(variable("result"))),
+        ],
+    )]);
+
+    let mut runtime = runtime(compile_program(&program));
+    let promise_state_id = match runtime.run().expect("program should emit an extcall") {
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall {
+            promise_state_id,
+            ..
+        }) => promise_state_id,
+        other => panic!("unexpected first runtime effect: {other:?}"),
+    };
+
+    runtime
+        .resolve_promise(
+            promise_state_id,
+            exception_value(
+                "ValueError",
+                TestValue::Ready(TestReadyValue::String("boom".to_owned())),
+            ),
+        )
+        .expect("exception promise should resolve");
+
+    assert_eq!(
+        completed_int(
+            runtime
+                .run()
+                .expect("handler assignment should remain available after the join")
+        ),
+        2
+    );
+}
+
+#[test]
+fn compiles_try_except_handler_capture_then_returns_after_join() {
+    let program = program(vec![function(
+        "main",
+        &[],
+        vec![
+            try_except_stmt(
+                vec![assignment("result", action_expr("boom", Vec::new()))],
+                vec![except_handler(
+                    &["ValueError"],
+                    Some("err"),
+                    vec![assignment("result", variable("err"))],
+                )],
+            ),
+            return_stmt(Some(variable("result"))),
+        ],
+    )]);
+
+    let mut runtime = runtime(compile_program(&program));
+
+    let promise_state_id = match runtime.run().expect("program should emit an extcall") {
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall {
+            promise_state_id,
+            action_ref,
+            args,
+        }) => {
+            assert!(matches!(&action_ref, TestActionRef(name) if name == "boom"));
+            assert!(args.is_empty());
+            promise_state_id
+        }
+        other => panic!("unexpected first runtime effect: {other:?}"),
+    };
+
+    runtime
+        .resolve_promise(
+            promise_state_id,
+            exception_value(
+                "ValueError",
+                TestValue::Ready(TestReadyValue::String("boom".to_owned())),
+            ),
+        )
+        .expect("exception promise should resolve");
+
+    assert_eq!(
+        completed_value(
+            runtime
+                .run()
+                .expect("captured handler value should remain available after the join")
+        ),
+        TestReadyValue::String("boom".to_owned())
+    );
+}
+
+#[test]
+fn compiles_try_except_handler_only_assignments_after_join_when_try_returns() {
+    let program = program(vec![function(
+        "main",
+        &[],
+        vec![
+            try_except_stmt(
+                vec![return_stmt(Some(action_expr("boom", Vec::new())))],
+                vec![except_handler(
+                    &["ValueError"],
+                    None,
+                    vec![assignment("result", int(2))],
+                )],
+            ),
+            return_stmt(Some(variable("result"))),
+        ],
+    )]);
+
+    let mut runtime = runtime(compile_program(&program));
+
+    let promise_state_id = match runtime.run().expect("program should emit an extcall") {
+        Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall {
+            promise_state_id,
+            ..
+        }) => promise_state_id,
+        other => panic!("unexpected first runtime effect: {other:?}"),
+    };
+
+    runtime
+        .resolve_promise(
+            promise_state_id,
+            exception_value(
+                "ValueError",
+                TestValue::Ready(TestReadyValue::String("boom".to_owned())),
+            ),
+        )
+        .expect("exception promise should resolve");
+
+    assert_eq!(
+        completed_int(
+            runtime
+                .run()
+                .expect("handler assignment should remain available when the try path terminates")
+        ),
+        2
+    );
 }
 
 #[test]

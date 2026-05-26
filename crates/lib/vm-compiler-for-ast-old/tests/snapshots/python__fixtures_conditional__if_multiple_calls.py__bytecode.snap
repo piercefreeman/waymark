@@ -23,8 +23,20 @@ f0: [5 registers]
   s3:
     CoreSet(Await { dst: r3, src: r3, resume: s4 })
   s4:
-    ExtCallSet(ActionCall { dst: r4, action_ref: TestActionRef("if_step_two"), args: [r3], resume: s5 })
+    ExcSet(IsException { dst: r2, src: r3, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s6, cond: r2 })
+    CoreSet(Jump { target_state: s5 })
   s5:
-    CoreSet(Await { dst: r4, src: r4, resume: s6 })
+    ExtCallSet(ActionCall { dst: r4, action_ref: TestActionRef("if_step_two"), args: [r3], resume: s7 })
   s6:
+    CoreSet(Return { src: r3 })
+  s7:
+    CoreSet(Await { dst: r4, src: r4, resume: s8 })
+  s8:
+    ExcSet(IsException { dst: r2, src: r4, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s10, cond: r2 })
+    CoreSet(Jump { target_state: s9 })
+  s9:
+    CoreSet(Return { src: r4 })
+  s10:
     CoreSet(Return { src: r4 })

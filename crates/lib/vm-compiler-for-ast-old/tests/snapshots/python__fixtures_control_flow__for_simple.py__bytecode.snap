@@ -38,6 +38,12 @@ f0: [10 registers]
   s5:
     CoreSet(Await { dst: r9, src: r9, resume: s6 })
   s6:
+    ExcSet(IsException { dst: r3, src: r9, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s8, cond: r3 })
+    CoreSet(Jump { target_state: s7 })
+  s7:
     PureSet(MakeList { dst: r3, items: [r9] })
     PureSet(Binary { kind: Add, op: BinaryOp { dst: r4, a: r4, b: r3 } })
     CoreSet(Jump { target_state: s3 })
+  s8:
+    CoreSet(Return { src: r9 })

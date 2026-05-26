@@ -1,13 +1,12 @@
 //! Statement planning.
 
 use waymark_vm_ast_old::{
-    ActionCall, Block, ElifBranch, ElseBranch, Expr, IfBranch, Spanned, Statement,
+    ActionCall, Block, ElifBranch, ElseBranch, ExceptHandler, Expr, IfBranch, Spanned, Statement,
 };
 
 use crate::function::table::FunctionTable;
 
 use super::ErrorFor;
-use super::Unsupported;
 use super::parallel::{ParallelCallPlans, build_parallel_call_plans};
 
 /// A normalized statement shape that the statement compiler knows how to lower.
@@ -100,18 +99,20 @@ where
         else_branch: Option<&'a Spanned<ElseBranch>>,
     },
 
+    /// A `try`/`except` block.
+    TryExcept {
+        /// Statements compiled in the protected region.
+        try_block: &'a Spanned<Block>,
+
+        /// Exception handlers compiled in source order.
+        handlers: &'a [Spanned<ExceptHandler>],
+    },
+
     /// Exit the innermost loop.
     Break,
 
     /// Continue the innermost loop.
     Continue,
-}
-
-/// Statement variants that the current lowering pipeline rejects.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum UnsupportedStatementKind {
-    /// `try`/`except` blocks.
-    TryExcept,
 }
 
 impl<'a, Spec> StatementPlan<'a, Spec>
@@ -165,21 +166,16 @@ where
                 elif_branches,
                 else_branch: else_branch.as_ref(),
             }),
+            Statement::TryExcept {
+                handlers,
+                try_block,
+            } => Ok(Self::TryExcept {
+                try_block,
+                handlers,
+            }),
             Statement::Break => Ok(Self::Break),
             Statement::Continue => Ok(Self::Continue),
-            Statement::TryExcept { .. } => Err(Unsupported::Statement {
-                kind: UnsupportedStatementKind::TryExcept,
-            }
-            .into()),
         }
-    }
-}
-
-impl core::fmt::Display for UnsupportedStatementKind {
-    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        formatter.write_str(match self {
-            Self::TryExcept => "TryExcept",
-        })
     }
 }
 
@@ -187,14 +183,14 @@ impl core::fmt::Display for UnsupportedStatementKind {
 mod tests {
     use super::*;
 
-    use waymark_vm_ast_old::{Spanned, Statement};
+    use waymark_vm_ast_old::Statement;
     use waymark_vm_ast_old_helpers::{
         action_call, action_stmt, assignment, block, break_stmt, conditional_stmt, continue_stmt,
         for_stmt, int, parallel_stmt, return_stmt, sleep_stmt, spanned, variable, while_stmt,
     };
     use waymark_vm_compiler_for_ast_old_test_support::{TestLowering, TestSpec};
 
-    use crate::function::compiler::{Error, test_helpers::build_function_table};
+    use crate::function::compiler::test_helpers::build_function_table;
 
     #[test]
     fn builds_simple_statement_plans() {
@@ -295,24 +291,23 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unsupported_statement_variants() {
+    fn builds_try_except_statement_plans() {
         let function_table = build_function_table();
-        let unsupported = [(
-            spanned(Statement::TryExcept {
-                handlers: Vec::<Spanned<waymark_vm_ast_old::ExceptHandler>>::new(),
-                try_block: block(Vec::new()),
-            }),
-            UnsupportedStatementKind::TryExcept,
-        )];
+        let statement = spanned(Statement::TryExcept {
+            handlers: vec![spanned(waymark_vm_ast_old::ExceptHandler {
+                exception_types: vec!["ValueError".to_owned()],
+                exception_var: Some("err".to_owned()),
+                body: block(vec![return_stmt(Some(variable("err")))]),
+            })],
+            try_block: block(vec![return_stmt(Some(variable("value")))]),
+        });
 
-        for (statement, kind) in unsupported {
-            let error =
-                StatementPlan::<TestSpec>::build::<TestLowering>(&statement.value, &function_table)
-                    .expect_err("unsupported statements should fail");
-
-            assert!(
-                matches!(error, Error::Unsupported(Unsupported::Statement { kind: actual }) if actual == kind)
-            );
-        }
+        assert!(matches!(
+            StatementPlan::<TestSpec>::build::<TestLowering>(&statement.value, &function_table)
+                .expect("try/except should build"),
+            StatementPlan::TryExcept { handlers, .. }
+                if handlers.len() == 1
+                    && handlers[0].value.exception_var.as_deref() == Some("err")
+        ));
     }
 }

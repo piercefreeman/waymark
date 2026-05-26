@@ -10,6 +10,7 @@ use crate::Marked;
 
 use super::CompilerContextRef;
 use super::env::RegisterHandle;
+use super::exception::{ExceptionMarker, ExceptionScopeStack};
 use super::plan::call::{
     ActionCallPlanFor, CallPlan, CallPlanFor, FunctionCallPlan, UnsupportedFunctionCall,
     compile_expr_registers,
@@ -98,6 +99,7 @@ where
             }
             ExpressionPlan::FunctionCall { call } => match call.global_function {
                 Some(GlobalFunction::Len) => self.compile_length_call(call, target),
+                Some(GlobalFunction::IsException) => self.compile_is_exception_call(call, target),
                 Some(_) | None => self.compile_call(self.plan_function_call(call)?, target),
             },
             ExpressionPlan::ActionCall { call } => {
@@ -388,6 +390,102 @@ where
         Ok(dst)
     }
 
+    /// Compiles the built-in `isexception(...)` function through excset.
+    fn compile_is_exception_call(
+        &mut self,
+        call: &FunctionCall,
+        target: ResultTarget,
+    ) -> Result<RegisterHandle, ErrorFor<Spec, Lowering>> {
+        if !call.kwargs.is_empty() {
+            return Err(Unsupported::FunctionCall {
+                name: call.name.clone(),
+                reason: UnsupportedFunctionCall::KeywordArguments,
+            }
+            .into());
+        }
+
+        match call.args.as_slice() {
+            [] => Err(Error::FunctionArityMismatch {
+                function: call.name.clone(),
+                expected: 1,
+                actual: 0,
+            }),
+            [value] => self.compile_any_exception_check(value, target),
+            [value, exception_types] => {
+                self.compile_typed_exception_check(value, exception_types, target)
+            }
+            _ => Err(Error::FunctionArityMismatch {
+                function: call.name.clone(),
+                expected: 2,
+                actual: call.args.len(),
+            }),
+        }
+    }
+
+    /// Compiles a wildcard exception check against `value`.
+    fn compile_any_exception_check(
+        &mut self,
+        value: &Spanned<Expr>,
+        target: ResultTarget,
+    ) -> Result<RegisterHandle, ErrorFor<Spec, Lowering>> {
+        let value_register = self.compile_expr(value, ResultTarget::Allocate)?;
+        let dst = self.allocate_result_register(target);
+
+        self.context
+            .emitter
+            .emit_is_exception(dst.register(), value_register.register(), None);
+
+        Ok(dst)
+    }
+
+    /// Compiles a typed exception check against one type id or a list of them.
+    fn compile_typed_exception_check(
+        &mut self,
+        value: &Spanned<Expr>,
+        exception_types: &Spanned<Expr>,
+        target: ResultTarget,
+    ) -> Result<RegisterHandle, ErrorFor<Spec, Lowering>> {
+        let value_register = self.compile_expr(value, ResultTarget::Allocate)?;
+
+        let type_exprs: Vec<&Spanned<Expr>> = match &exception_types.value {
+            Expr::List { elements } => elements.iter().collect(),
+            _ => vec![exception_types],
+        };
+
+        let Some((first_type, remaining_types)) = type_exprs.split_first() else {
+            let false_literal = Literal::Bool(false);
+            return self.compile_literal(&false_literal, target);
+        };
+
+        let dst = self.allocate_result_register(target);
+        let first_type_register = self.compile_expr(first_type, ResultTarget::Allocate)?;
+        self.context.emitter.emit_is_exception(
+            dst.register(),
+            value_register.register(),
+            Some(first_type_register.register()),
+        );
+
+        for exception_type in remaining_types {
+            let exception_type_register =
+                self.compile_expr(exception_type, ResultTarget::Allocate)?;
+            let matches = self.allocate_result_register(ResultTarget::Allocate);
+
+            self.context.emitter.emit_is_exception(
+                matches.register(),
+                value_register.register(),
+                Some(exception_type_register.register()),
+            );
+            self.context.emitter.emit_binary(
+                waymark_vm_instructions_pureset::BinaryOpKind::Or,
+                dst.register(),
+                dst.register(),
+                matches.register(),
+            );
+        }
+
+        Ok(dst)
+    }
+
     /// Compiles an indexed-access expression from recursively evaluated operands.
     fn compile_index_expr(
         &mut self,
@@ -553,6 +651,96 @@ where
             .emit_await(target_register, promise_register.marked(), resume_state);
 
         self.context.emitter.switch_to(resume_state);
+        self.compile_exception_dispatch_if_needed(target_register);
+    }
+
+    /// Emits exception dispatch after an awaited result.
+    ///
+    /// When a `try`/`except` scope is active, routes the exception value into
+    /// the scope's handler dispatch. Otherwise bubbles the exception out of
+    /// the current frame by returning it so the caller's own dispatch (or its
+    /// caller's, transitively) can observe it.
+    fn compile_exception_dispatch_if_needed(&mut self, result_register: RegisterId) {
+        let continue_state = self.reserve_state();
+        let exception_state = self.reserve_state();
+        let is_exception = self.allocate_result_register(ResultTarget::Allocate);
+
+        self.context
+            .emitter
+            .emit_is_exception(is_exception.register(), result_register, None);
+        self.context
+            .emitter
+            .emit_jump_if(exception_state, is_exception.register());
+        self.context.emitter.emit_jump(continue_state);
+
+        self.context.emitter.switch_to(exception_state);
+        match self.context.exception_scope.current_scope() {
+            Some(scope) => {
+                if *scope.exception_register() != result_register {
+                    self.context
+                        .emitter
+                        .emit_copy(*scope.exception_register(), result_register);
+                }
+                let exception_scope = self.context.exception_scope.clone();
+                self.emit_known_exception_dispatch(&exception_scope, scope.exception_register());
+            }
+            None => {
+                self.context.emitter.emit_return(result_register);
+            }
+        }
+        self.context.emitter.switch_to(continue_state);
+    }
+
+    /// Emits handler dispatch for a value already known to be an exception.
+    fn emit_known_exception_dispatch(
+        &mut self,
+        exception_scope: &ExceptionScopeStack,
+        exception_register: Marked<RegisterId, ExceptionMarker>,
+    ) {
+        let Some(scope) = exception_scope.current_scope() else {
+            self.context.emitter.emit_return(*exception_register);
+            return;
+        };
+
+        let entry_flow = self.context.flow_state.clone();
+
+        for (handler_index, handler) in scope.handlers().iter().enumerate() {
+            scope.record_handler_flow(handler_index, &entry_flow);
+
+            if handler.is_catch_all() {
+                self.context.emitter.emit_jump(handler.entry_state());
+                return;
+            }
+
+            for &exception_type_register in handler.exception_type_registers() {
+                let matches = self.allocate_result_register(ResultTarget::Allocate);
+                self.context.emitter.emit_is_exception(
+                    matches.register(),
+                    *exception_register,
+                    Some(exception_type_register),
+                );
+                self.context
+                    .emitter
+                    .emit_jump_if(handler.entry_state(), matches.register());
+            }
+        }
+
+        let outer_scope = scope.outer();
+        if outer_scope.is_empty() {
+            self.context.emitter.emit_return(*exception_register);
+            return;
+        }
+
+        let outer = outer_scope
+            .current_scope()
+            .expect("non-empty outer exception scope should exist");
+        if outer.exception_register() != exception_register {
+            self.context
+                .emitter
+                .emit_copy(*outer.exception_register(), *exception_register);
+        }
+
+        self.emit_known_exception_dispatch(&outer_scope, outer.exception_register());
     }
 
     /// Reserves a new bytecode state for a future resume point.
@@ -617,34 +805,19 @@ mod tests {
 
         let states = emitter.finish();
         assert_eq!(dst.register(), RegisterId(0));
-        assert_eq!(states.len().to_scalar(), 2);
-
-        let mut instructions = states[StateId(0)].instructions.iter();
-        assert!(matches!(
-            instructions.next(),
-            Some(InstructionSet::PureSet(PureSet::LoadConst {
-                dst,
-                value: TestConstValue::Int(1),
-            })) if *dst == RegisterId(1)
-        ));
-        assert!(matches!(
-            instructions.next(),
-            Some(InstructionSet::CoreSet(CoreSet::Call {
-                dst,
-                function_id,
-                args,
-            })) if *dst == RegisterId(0)
-                && *function_id == FunctionId(0)
-                && args == &[RegisterId(1)]
-        ));
-        assert!(matches!(
-            instructions.next(),
-            Some(InstructionSet::CoreSet(CoreSet::Await { dst, src, resume }))
-                if *dst == RegisterId(0)
-                    && *src == RegisterId(0)
-                    && *resume == StateId(1)
-        ));
-        assert!(instructions.next().is_none());
+        insta::assert_snapshot!(waymark_vm_bytecode_fmt::display(&states), @"
+        s0:
+          PureSet(LoadConst { dst: r1, value: Int(1) })
+          CoreSet(Call { dst: r0, function_id: f0, args: [r1] })
+          CoreSet(Await { dst: r0, src: r0, resume: s1 })
+        s1:
+          ExcSet(IsException { dst: r1, src: r0, exception_type_id: None })
+          CoreSet(JumpIf { target_state: s3, cond: r1 })
+          CoreSet(Jump { target_state: s2 })
+        s2:
+        s3:
+          CoreSet(Return { src: r0 })
+        ");
     }
 
     #[test]
@@ -677,39 +850,20 @@ mod tests {
 
         let states = emitter.finish();
         assert_eq!(dst.register(), RegisterId(0));
-        assert_eq!(states.len().to_scalar(), 3);
-
-        let mut start_instructions = states[StateId(0)].instructions.iter();
-        assert!(matches!(
-            start_instructions.next(),
-            Some(InstructionSet::PureSet(PureSet::LoadConst {
-                dst,
-                value: TestConstValue::Int(2),
-            })) if *dst == RegisterId(1)
-        ));
-        assert!(matches!(
-            start_instructions.next(),
-            Some(InstructionSet::ExtCallSet(ExtCallSet::ActionCall {
-                dst,
-                action_ref: TestActionRef(action_ref),
-                args,
-                resume,
-            })) if *dst == RegisterId(0)
-                && action_ref == "fetch"
-                && args == &[RegisterId(1)]
-                && *resume == StateId(1)
-        ));
-        assert!(start_instructions.next().is_none());
-
-        let mut resume_instructions = states[StateId(1)].instructions.iter();
-        assert!(matches!(
-            resume_instructions.next(),
-            Some(InstructionSet::CoreSet(CoreSet::Await { dst, src, resume }))
-                if *dst == RegisterId(0)
-                    && *src == RegisterId(0)
-                    && *resume == StateId(2)
-        ));
-        assert!(resume_instructions.next().is_none());
+        insta::assert_snapshot!(waymark_vm_bytecode_fmt::display(&states), @r#"
+        s0:
+          PureSet(LoadConst { dst: r1, value: Int(2) })
+          ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("fetch"), args: [r1], resume: s1 })
+        s1:
+          CoreSet(Await { dst: r0, src: r0, resume: s2 })
+        s2:
+          ExcSet(IsException { dst: r1, src: r0, exception_type_id: None })
+          CoreSet(JumpIf { target_state: s4, cond: r1 })
+          CoreSet(Jump { target_state: s3 })
+        s3:
+        s4:
+          CoreSet(Return { src: r0 })
+        "#);
     }
 
     #[test]
@@ -737,37 +891,20 @@ mod tests {
         }
 
         let states = emitter.finish();
-        assert_eq!(states.len().to_scalar(), 3);
-
-        let mut start_instructions = states[StateId(0)].instructions.iter();
-        assert!(matches!(
-            start_instructions.next(),
-            Some(InstructionSet::PureSet(PureSet::LoadConst {
-                dst,
-                value: TestConstValue::Int(2),
-            })) if *dst == RegisterId(1)
-        ));
-        assert!(matches!(
-            start_instructions.next(),
-            Some(InstructionSet::ExtCallSet(ExtCallSet::Sleep {
-                dst,
-                duration,
-                resume,
-            })) if *dst == RegisterId(0)
-                && *duration == RegisterId(1)
-                && *resume == StateId(1)
-        ));
-        assert!(start_instructions.next().is_none());
-
-        let mut resume_instructions = states[StateId(1)].instructions.iter();
-        assert!(matches!(
-            resume_instructions.next(),
-            Some(InstructionSet::CoreSet(CoreSet::Await { dst, src, resume }))
-                if *dst == RegisterId(0)
-                    && *src == RegisterId(0)
-                    && *resume == StateId(2)
-        ));
-        assert!(resume_instructions.next().is_none());
+        insta::assert_snapshot!(waymark_vm_bytecode_fmt::display(&states), @"
+        s0:
+          PureSet(LoadConst { dst: r1, value: Int(2) })
+          ExtCallSet(Sleep { dst: r0, duration: r1, resume: s1 })
+        s1:
+          CoreSet(Await { dst: r0, src: r0, resume: s2 })
+        s2:
+          ExcSet(IsException { dst: r1, src: r0, exception_type_id: None })
+          CoreSet(JumpIf { target_state: s4, cond: r1 })
+          CoreSet(Jump { target_state: s3 })
+        s3:
+        s4:
+          CoreSet(Return { src: r0 })
+        ");
     }
 
     #[test]
@@ -1110,37 +1247,31 @@ mod tests {
         }
 
         let states = emitter.finish();
-        assert_eq!(local_frame.num_registers(), 1);
-
-        let mut first_state_instructions = states[StateId(0)].instructions.iter();
-        assert!(matches!(
-            first_state_instructions.next(),
-            Some(InstructionSet::ExtCallSet(ExtCallSet::ActionCall {
-                dst,
-                action_ref: TestActionRef(action_ref),
-                args,
-                resume,
-            })) if *dst == RegisterId(0)
-                && *action_ref == "fetch_first"
-                && args.is_empty()
-                && *resume == StateId(1)
-        ));
-        assert!(first_state_instructions.next().is_none());
-
-        let mut third_state_instructions = states[StateId(2)].instructions.iter();
-        assert!(matches!(
-            third_state_instructions.next(),
-            Some(InstructionSet::ExtCallSet(ExtCallSet::ActionCall {
-                dst,
-                action_ref: TestActionRef(action_ref),
-                args,
-                resume,
-            })) if *dst == RegisterId(0)
-                && *action_ref == "fetch_second"
-                && args.is_empty()
-                && *resume == StateId(3)
-        ));
-        assert!(third_state_instructions.next().is_none());
+        // r0 is the reused call result; r1 is the reused is_exception temp.
+        assert_eq!(local_frame.num_registers(), 2);
+        insta::assert_snapshot!(waymark_vm_bytecode_fmt::display(&states), @r#"
+        s0:
+          ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("fetch_first"), args: [], resume: s1 })
+        s1:
+          CoreSet(Await { dst: r0, src: r0, resume: s2 })
+        s2:
+          ExcSet(IsException { dst: r1, src: r0, exception_type_id: None })
+          CoreSet(JumpIf { target_state: s4, cond: r1 })
+          CoreSet(Jump { target_state: s3 })
+        s3:
+          ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("fetch_second"), args: [], resume: s5 })
+        s4:
+          CoreSet(Return { src: r0 })
+        s5:
+          CoreSet(Await { dst: r0, src: r0, resume: s6 })
+        s6:
+          ExcSet(IsException { dst: r1, src: r0, exception_type_id: None })
+          CoreSet(JumpIf { target_state: s8, cond: r1 })
+          CoreSet(Jump { target_state: s7 })
+        s7:
+        s8:
+          CoreSet(Return { src: r0 })
+        "#);
     }
 
     #[test]
@@ -1170,51 +1301,33 @@ mod tests {
         }
 
         let states = emitter.finish();
+        // r0 reused call result, r1 reused for both arguments and is_exception temp.
         assert_eq!(local_frame.num_registers(), 2);
-
-        let mut first_state_instructions = states[StateId(0)].instructions.iter();
-        assert!(matches!(
-            first_state_instructions.next(),
-            Some(InstructionSet::PureSet(PureSet::LoadConst {
-                dst,
-                value: TestConstValue::Int(1),
-            })) if *dst == RegisterId(1)
-        ));
-        assert!(matches!(
-            first_state_instructions.next(),
-            Some(InstructionSet::ExtCallSet(ExtCallSet::ActionCall {
-                dst,
-                action_ref: TestActionRef(action_ref),
-                args,
-                resume,
-            })) if *dst == RegisterId(0)
-                && *action_ref == "fetch_first"
-                && args == &[RegisterId(1)]
-                && *resume == StateId(1)
-        ));
-        assert!(first_state_instructions.next().is_none());
-
-        let mut third_state_instructions = states[StateId(2)].instructions.iter();
-        assert!(matches!(
-            third_state_instructions.next(),
-            Some(InstructionSet::PureSet(PureSet::LoadConst {
-                dst,
-                value: TestConstValue::Int(2),
-            })) if *dst == RegisterId(1)
-        ));
-        assert!(matches!(
-            third_state_instructions.next(),
-            Some(InstructionSet::ExtCallSet(ExtCallSet::ActionCall {
-                dst,
-                action_ref: TestActionRef(action_ref),
-                args,
-                resume,
-            })) if *dst == RegisterId(0)
-                && *action_ref == "fetch_second"
-                && args == &[RegisterId(1)]
-                && *resume == StateId(3)
-        ));
-        assert!(third_state_instructions.next().is_none());
+        insta::assert_snapshot!(waymark_vm_bytecode_fmt::display(&states), @r#"
+        s0:
+          PureSet(LoadConst { dst: r1, value: Int(1) })
+          ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("fetch_first"), args: [r1], resume: s1 })
+        s1:
+          CoreSet(Await { dst: r0, src: r0, resume: s2 })
+        s2:
+          ExcSet(IsException { dst: r1, src: r0, exception_type_id: None })
+          CoreSet(JumpIf { target_state: s4, cond: r1 })
+          CoreSet(Jump { target_state: s3 })
+        s3:
+          PureSet(LoadConst { dst: r1, value: Int(2) })
+          ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("fetch_second"), args: [r1], resume: s5 })
+        s4:
+          CoreSet(Return { src: r0 })
+        s5:
+          CoreSet(Await { dst: r0, src: r0, resume: s6 })
+        s6:
+          ExcSet(IsException { dst: r1, src: r0, exception_type_id: None })
+          CoreSet(JumpIf { target_state: s8, cond: r1 })
+          CoreSet(Jump { target_state: s7 })
+        s7:
+        s8:
+          CoreSet(Return { src: r0 })
+        "#);
     }
 
     #[test]

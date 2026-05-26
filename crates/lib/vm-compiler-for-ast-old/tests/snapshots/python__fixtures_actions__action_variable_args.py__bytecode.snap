@@ -7,14 +7,26 @@ fn main(input: [factor], output: []):
     result = @action_variable_args.multiply_by(value=base, factor=factor)
     return result
 ---
-f0: [3 registers]
+f0: [4 registers]
   s0:
     ExtCallSet(ActionCall { dst: r1, action_ref: TestActionRef("get_base_value"), args: [], resume: s1 })
   s1:
     CoreSet(Await { dst: r1, src: r1, resume: s2 })
   s2:
-    ExtCallSet(ActionCall { dst: r2, action_ref: TestActionRef("multiply_by"), args: [r1, r0], resume: s3 })
+    ExcSet(IsException { dst: r2, src: r1, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s4, cond: r2 })
+    CoreSet(Jump { target_state: s3 })
   s3:
-    CoreSet(Await { dst: r2, src: r2, resume: s4 })
+    ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("multiply_by"), args: [r1, r0], resume: s5 })
   s4:
-    CoreSet(Return { src: r2 })
+    CoreSet(Return { src: r1 })
+  s5:
+    CoreSet(Await { dst: r3, src: r3, resume: s6 })
+  s6:
+    ExcSet(IsException { dst: r2, src: r3, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s8, cond: r2 })
+    CoreSet(Jump { target_state: s7 })
+  s7:
+    CoreSet(Return { src: r3 })
+  s8:
+    CoreSet(Return { src: r3 })

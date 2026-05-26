@@ -44,11 +44,23 @@ f0: [9 registers]
     CoreSet(Jump { target_state: s6 })
   s9:
     PureSet(Copy { dst: r1, src: r2 })
-    ExtCallSet(ActionCall { dst: r8, action_ref: TestActionRef("combine_results"), args: [r1], resume: s11 })
+    ExtCallSet(ActionCall { dst: r8, action_ref: TestActionRef("combine_results"), args: [r1], resume: s13 })
   s10:
+    ExcSet(IsException { dst: r7, src: r6, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s12, cond: r7 })
+    CoreSet(Jump { target_state: s11 })
+  s11:
     PureSet(ListAppend { dst: r2, list: r2, item: r6 })
     CoreSet(Jump { target_state: s8 })
-  s11:
-    CoreSet(Await { dst: r8, src: r8, resume: s12 })
   s12:
+    CoreSet(Return { src: r6 })
+  s13:
+    CoreSet(Await { dst: r8, src: r8, resume: s14 })
+  s14:
+    ExcSet(IsException { dst: r6, src: r8, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s16, cond: r6 })
+    CoreSet(Jump { target_state: s15 })
+  s15:
+    CoreSet(Return { src: r8 })
+  s16:
     CoreSet(Return { src: r8 })

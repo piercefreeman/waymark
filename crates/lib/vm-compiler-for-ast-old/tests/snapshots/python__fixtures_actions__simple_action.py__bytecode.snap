@@ -6,10 +6,16 @@ fn main(input: [value], output: []):
     result = @simple_action.process(value=value)
     return result
 ---
-f0: [2 registers]
+f0: [3 registers]
   s0:
     ExtCallSet(ActionCall { dst: r1, action_ref: TestActionRef("process"), args: [r0], resume: s1 })
   s1:
     CoreSet(Await { dst: r1, src: r1, resume: s2 })
   s2:
+    ExcSet(IsException { dst: r2, src: r1, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s4, cond: r2 })
+    CoreSet(Jump { target_state: s3 })
+  s3:
+    CoreSet(Return { src: r1 })
+  s4:
     CoreSet(Return { src: r1 })

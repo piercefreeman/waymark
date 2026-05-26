@@ -43,19 +43,34 @@ impl FlowState {
         self.initialized_by_local[local] = true;
     }
 
-    /// Merges branch flow states by intersecting initialization information.
-    pub fn merge_branches(branches: NEVec<Self>) -> Self {
+    /// Intersects branch flow states to keep only definitely initialized locals.
+    pub fn intersect_branches(branches: NEVec<Self>) -> Self {
+        Self::merge_branches(branches, |current_initialized, other_initialized| {
+            current_initialized && other_initialized
+        })
+    }
+
+    /// Unions branch flow states to keep any local initialized by any branch.
+    pub fn union_branches(branches: NEVec<Self>) -> Self {
+        Self::merge_branches(branches, |current_initialized, other_initialized| {
+            current_initialized || other_initialized
+        })
+    }
+
+    /// Merges branch flow states with the specified predicate.
+    fn merge_branches(branches: NEVec<Self>, is_initialized: impl Fn(bool, bool) -> bool) -> Self {
         let (mut merged, branches) = branches.into_nonempty_iter().next();
 
         for branch in branches {
-            merged.intersect_with(&branch);
+            merged.merge_with(&branch, &is_initialized);
         }
 
         merged
     }
 
-    /// Intersects this flow state with another branch flow state.
-    fn intersect_with(&mut self, other: &Self) {
+    /// Merges this flow state with another branch flow state using
+    /// the initialization check predicate.
+    fn merge_with(&mut self, other: &Self, is_initialized: impl Fn(bool, bool) -> bool) {
         let merged_len = self
             .initialized_by_local
             .len()
@@ -65,8 +80,10 @@ impl FlowState {
 
         for index in 0..merged_len {
             let local = LocalId(index);
-            let is_initialized = self.is_initialized(local) && other.is_initialized(local);
-            self.initialized_by_local[local] = is_initialized;
+            let is_self_initialized = self.is_initialized(local);
+            let is_other_initialized = other.is_initialized(local);
+            self.initialized_by_local[local] =
+                is_initialized(is_self_initialized, is_other_initialized);
         }
     }
 

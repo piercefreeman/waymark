@@ -75,5 +75,11 @@ f0: [13 registers]
     PureSet(Copy { dst: r7, src: r8 })
     CoreSet(Return { src: r7 })
   s16:
+    ExcSet(IsException { dst: r12, src: r5, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s18, cond: r12 })
+    CoreSet(Jump { target_state: s17 })
+  s17:
     PureSet(ListAppend { dst: r8, list: r8, item: r5 })
     CoreSet(Jump { target_state: s14 })
+  s18:
+    CoreSet(Return { src: r5 })

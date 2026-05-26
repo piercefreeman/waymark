@@ -8,18 +8,36 @@ fn main(input: [value], output: []):
     c = @instance_attr_policies.action_with_both_policies(value=b) [retry: 1] [timeout: 2m]
     return c
 ---
-f0: [4 registers]
+f0: [5 registers]
   s0:
     ExtCallSet(ActionCall { dst: r1, action_ref: TestActionRef("action_with_instance_retry"), args: [r0], resume: s1 })
   s1:
     CoreSet(Await { dst: r1, src: r1, resume: s2 })
   s2:
-    ExtCallSet(ActionCall { dst: r2, action_ref: TestActionRef("action_with_instance_timeout"), args: [r1], resume: s3 })
+    ExcSet(IsException { dst: r2, src: r1, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s4, cond: r2 })
+    CoreSet(Jump { target_state: s3 })
   s3:
-    CoreSet(Await { dst: r2, src: r2, resume: s4 })
+    ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("action_with_instance_timeout"), args: [r1], resume: s5 })
   s4:
-    ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("action_with_both_policies"), args: [r2], resume: s5 })
+    CoreSet(Return { src: r1 })
   s5:
     CoreSet(Await { dst: r3, src: r3, resume: s6 })
   s6:
+    ExcSet(IsException { dst: r2, src: r3, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s8, cond: r2 })
+    CoreSet(Jump { target_state: s7 })
+  s7:
+    ExtCallSet(ActionCall { dst: r4, action_ref: TestActionRef("action_with_both_policies"), args: [r3], resume: s9 })
+  s8:
     CoreSet(Return { src: r3 })
+  s9:
+    CoreSet(Await { dst: r4, src: r4, resume: s10 })
+  s10:
+    ExcSet(IsException { dst: r2, src: r4, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s12, cond: r2 })
+    CoreSet(Jump { target_state: s11 })
+  s11:
+    CoreSet(Return { src: r4 })
+  s12:
+    CoreSet(Return { src: r4 })

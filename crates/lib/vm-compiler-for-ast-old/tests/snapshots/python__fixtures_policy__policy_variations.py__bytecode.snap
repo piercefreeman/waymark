@@ -12,34 +12,76 @@ fn main(input: [value], output: []):
     f = @policy_variations.action_with_timeout_days(value=e) [timeout: 24h]
     return f
 ---
-f0: [8 registers]
+f0: [9 registers]
   s0:
     ExtCallSet(ActionCall { dst: r1, action_ref: TestActionRef("action_with_timeout_int"), args: [r0], resume: s1 })
   s1:
     CoreSet(Await { dst: r1, src: r1, resume: s2 })
   s2:
-    ExtCallSet(ActionCall { dst: r2, action_ref: TestActionRef("action_with_timeout_minutes"), args: [r1], resume: s3 })
+    ExcSet(IsException { dst: r2, src: r1, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s4, cond: r2 })
+    CoreSet(Jump { target_state: s3 })
   s3:
-    CoreSet(Await { dst: r2, src: r2, resume: s4 })
+    ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("action_with_timeout_minutes"), args: [r1], resume: s5 })
   s4:
-    ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("action_with_retry_backoff"), args: [r2], resume: s5 })
+    CoreSet(Return { src: r1 })
   s5:
     CoreSet(Await { dst: r3, src: r3, resume: s6 })
   s6:
-    ExtCallSet(ActionCall { dst: r4, action_ref: TestActionRef("action_with_retry_exceptions"), args: [r3], resume: s7 })
+    ExcSet(IsException { dst: r2, src: r3, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s8, cond: r2 })
+    CoreSet(Jump { target_state: s7 })
   s7:
-    CoreSet(Await { dst: r4, src: r4, resume: s8 })
+    ExtCallSet(ActionCall { dst: r4, action_ref: TestActionRef("action_with_retry_backoff"), args: [r3], resume: s9 })
   s8:
-    ExtCallSet(ActionCall { dst: r5, action_ref: TestActionRef("action_with_retry_default"), args: [r4], resume: s9 })
+    CoreSet(Return { src: r3 })
   s9:
-    CoreSet(Await { dst: r5, src: r5, resume: s10 })
+    CoreSet(Await { dst: r4, src: r4, resume: s10 })
   s10:
-    ExtCallSet(ActionCall { dst: r6, action_ref: TestActionRef("action_with_timeout_hours"), args: [r5], resume: s11 })
+    ExcSet(IsException { dst: r2, src: r4, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s12, cond: r2 })
+    CoreSet(Jump { target_state: s11 })
   s11:
-    CoreSet(Await { dst: r6, src: r6, resume: s12 })
+    ExtCallSet(ActionCall { dst: r5, action_ref: TestActionRef("action_with_retry_exceptions"), args: [r4], resume: s13 })
   s12:
-    ExtCallSet(ActionCall { dst: r7, action_ref: TestActionRef("action_with_timeout_days"), args: [r6], resume: s13 })
+    CoreSet(Return { src: r4 })
   s13:
-    CoreSet(Await { dst: r7, src: r7, resume: s14 })
+    CoreSet(Await { dst: r5, src: r5, resume: s14 })
   s14:
+    ExcSet(IsException { dst: r2, src: r5, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s16, cond: r2 })
+    CoreSet(Jump { target_state: s15 })
+  s15:
+    ExtCallSet(ActionCall { dst: r6, action_ref: TestActionRef("action_with_retry_default"), args: [r5], resume: s17 })
+  s16:
+    CoreSet(Return { src: r5 })
+  s17:
+    CoreSet(Await { dst: r6, src: r6, resume: s18 })
+  s18:
+    ExcSet(IsException { dst: r2, src: r6, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s20, cond: r2 })
+    CoreSet(Jump { target_state: s19 })
+  s19:
+    ExtCallSet(ActionCall { dst: r7, action_ref: TestActionRef("action_with_timeout_hours"), args: [r6], resume: s21 })
+  s20:
+    CoreSet(Return { src: r6 })
+  s21:
+    CoreSet(Await { dst: r7, src: r7, resume: s22 })
+  s22:
+    ExcSet(IsException { dst: r2, src: r7, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s24, cond: r2 })
+    CoreSet(Jump { target_state: s23 })
+  s23:
+    ExtCallSet(ActionCall { dst: r8, action_ref: TestActionRef("action_with_timeout_days"), args: [r7], resume: s25 })
+  s24:
     CoreSet(Return { src: r7 })
+  s25:
+    CoreSet(Await { dst: r8, src: r8, resume: s26 })
+  s26:
+    ExcSet(IsException { dst: r2, src: r8, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s28, cond: r2 })
+    CoreSet(Jump { target_state: s27 })
+  s27:
+    CoreSet(Return { src: r8 })
+  s28:
+    CoreSet(Return { src: r8 })

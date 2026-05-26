@@ -6,11 +6,17 @@ fn main(input: [], output: []):
     @literal_return.do_something()
     return 42
 ---
-f0: [1 registers]
+f0: [2 registers]
   s0:
     ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("do_something"), args: [], resume: s1 })
   s1:
     CoreSet(Await { dst: r0, src: r0, resume: s2 })
   s2:
+    ExcSet(IsException { dst: r1, src: r0, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s4, cond: r1 })
+    CoreSet(Jump { target_state: s3 })
+  s3:
     PureSet(LoadConst { dst: r0, value: Int(42) })
+    CoreSet(Return { src: r0 })
+  s4:
     CoreSet(Return { src: r0 })

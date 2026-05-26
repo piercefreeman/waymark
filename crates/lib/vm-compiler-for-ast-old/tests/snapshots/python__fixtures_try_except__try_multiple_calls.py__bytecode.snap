@@ -1,11 +1,46 @@
 ---
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
-expression: "bytecode for python/tests/fixtures_try_except/try_multiple_calls.py [compilation error]"
+expression: bytecode for python/tests/fixtures_try_except/try_multiple_calls.py
 ---
-FunctionCompiler(
-    Unsupported(
-        Statement {
-            kind: TryExcept,
-        },
-    ),
-)
+fn main(input: [value], output: []):
+    try:
+        a = @try_multiple_calls.risky_step_one(value=value)
+        b = @try_multiple_calls.risky_step_two(value=a)
+        return b
+    except ValueError:
+        return "error"
+---
+f0: [7 registers]
+  s0:
+    PureSet(LoadConst { dst: r2, value: String("ValueError") })
+    ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("risky_step_one"), args: [r0], resume: s3 })
+  s1:
+  s2:
+    PureSet(LoadConst { dst: r4, value: String("error") })
+    CoreSet(Return { src: r4 })
+  s3:
+    CoreSet(Await { dst: r3, src: r3, resume: s4 })
+  s4:
+    ExcSet(IsException { dst: r4, src: r3, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s6, cond: r4 })
+    CoreSet(Jump { target_state: s5 })
+  s5:
+    ExtCallSet(ActionCall { dst: r6, action_ref: TestActionRef("risky_step_two"), args: [r3], resume: s7 })
+  s6:
+    PureSet(Copy { dst: r1, src: r3 })
+    ExcSet(IsException { dst: r5, src: r1, exception_type_id: Some(r2) })
+    CoreSet(JumpIf { target_state: s2, cond: r5 })
+    CoreSet(Return { src: r1 })
+  s7:
+    CoreSet(Await { dst: r6, src: r6, resume: s8 })
+  s8:
+    ExcSet(IsException { dst: r4, src: r6, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s10, cond: r4 })
+    CoreSet(Jump { target_state: s9 })
+  s9:
+    CoreSet(Return { src: r6 })
+  s10:
+    PureSet(Copy { dst: r1, src: r6 })
+    ExcSet(IsException { dst: r5, src: r1, exception_type_id: Some(r2) })
+    CoreSet(JumpIf { target_state: s2, cond: r5 })
+    CoreSet(Return { src: r1 })

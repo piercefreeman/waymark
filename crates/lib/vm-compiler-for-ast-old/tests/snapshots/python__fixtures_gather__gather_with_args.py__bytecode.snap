@@ -8,7 +8,7 @@ fn main(input: [value], output: []):
         @gather_with_args.compute_cube(n=value)
     return [square, cube]
 ---
-f0: [5 registers]
+f0: [6 registers]
   s0:
     ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("compute_square"), args: [r0], resume: s1 })
   s1:
@@ -16,7 +16,19 @@ f0: [5 registers]
   s2:
     CoreSet(Await { dst: r1, src: r3, resume: s3 })
   s3:
-    CoreSet(Await { dst: r2, src: r4, resume: s4 })
+    ExcSet(IsException { dst: r5, src: r1, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s5, cond: r5 })
+    CoreSet(Jump { target_state: s4 })
   s4:
+    CoreSet(Await { dst: r2, src: r4, resume: s6 })
+  s5:
+    CoreSet(Return { src: r1 })
+  s6:
+    ExcSet(IsException { dst: r5, src: r2, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s8, cond: r5 })
+    CoreSet(Jump { target_state: s7 })
+  s7:
     PureSet(MakeList { dst: r4, items: [r1, r2] })
     CoreSet(Return { src: r4 })
+  s8:
+    CoreSet(Return { src: r2 })

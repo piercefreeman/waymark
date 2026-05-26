@@ -2,22 +2,12 @@
 
 use std::num::NonZeroUsize;
 
-pub use super::{
-    call::UnsupportedFunctionCall, parallel::UnsupportedParallelExprAssignment,
-    statement::UnsupportedStatementKind,
-};
+pub use super::{call::UnsupportedFunctionCall, parallel::UnsupportedParallelExprAssignment};
 
 /// Unsupported AST constructs or VM capabilities encountered during
 /// function compilation.
 #[derive(Debug, thiserror::Error)]
 pub enum Unsupported {
-    /// A statement variant is not compiled yet.
-    #[error("statement `{kind}` is not supported by the compiler yet")]
-    Statement {
-        /// The unsupported statement kind.
-        kind: UnsupportedStatementKind,
-    },
-
     /// A parallel expression appeared outside the assignment planner.
     #[error("parallel expressions are only supported on the right-hand side of assignments")]
     ParallelExprOutsideAssignment,

@@ -23,4 +23,10 @@ f0: [3 registers]
   s4:
     CoreSet(Await { dst: r1, src: r1, resume: s5 })
   s5:
+    ExcSet(IsException { dst: r2, src: r1, exception_type_id: None })
+    CoreSet(JumpIf { target_state: s7, cond: r2 })
+    CoreSet(Jump { target_state: s6 })
+  s6:
     CoreSet(Jump { target_state: s1 })
+  s7:
+    CoreSet(Return { src: r1 })
