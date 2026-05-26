@@ -29,9 +29,7 @@ use crate::Marked;
 
 use super::CompilerContextMut;
 use super::ErrorFor;
-use super::StatementCompiler;
 use super::Unsupported;
-use super::ValueCompiler;
 use super::env::{FlowState, RegisterHandle};
 use super::r#loop::LoopControlStack;
 use super::plan::call::UnsupportedFunctionCall;
@@ -50,6 +48,28 @@ where
 
     /// Active loop scopes visible to nested statements.
     loop_control: LoopControlStack,
+}
+
+impl<'borrow, 'table, Spec, Lowering> CompilerContextMut<'borrow, 'table, Spec, Lowering>
+where
+    Spec: waymark_vm_compiler_for_ast_old_core::SpecRequirements,
+    Lowering: waymark_vm_compiler_for_ast_old_core::lowering::FullSet<Spec>,
+{
+    /// Reborrows the context for for-loop lowering.
+    pub fn for_loop_compiler(
+        &mut self,
+        loop_control: LoopControlStack,
+    ) -> ForLoopCompiler<'_, 'table, Spec, Lowering> {
+        self.reborrow_mut().into_for_loop_compiler(loop_control)
+    }
+
+    /// Converts this context into a for-loop compiler.
+    pub fn into_for_loop_compiler(
+        self,
+        loop_control: LoopControlStack,
+    ) -> ForLoopCompiler<'borrow, 'table, Spec, Lowering> {
+        ForLoopCompiler::new(self, loop_control)
+    }
 }
 
 /// How a `for` loop binds values into its loop variables.
@@ -977,7 +997,7 @@ where
         self.switch_to_with_flow(for_loop.body_state(), for_loop.body_flow());
         prepare_body(self)?;
 
-        let mut body_compiler = self.nested_statement_compiler(body_loop_control);
+        let mut body_compiler = self.context.statement_compiler(body_loop_control);
         body_compiler.compile_block(body)?;
 
         if self.context.emitter.is_active() {
@@ -1175,7 +1195,8 @@ where
             promises_register,
             index_register,
         );
-        self.value_compiler()
+        self.context
+            .value_compiler()
             .compile_await(promise_register.register(), &promise_register);
 
         if let Some(result_register) = result_register {
@@ -1193,6 +1214,7 @@ where
         action: &ActionCall,
     ) -> Result<Marked<RegisterHandle, PromiseMarker>, ErrorFor<Spec, Lowering>> {
         let mut value_compiler = self
+            .context
             .value_compiler()
             .with_scoped_binding(loop_var, item_register);
         value_compiler.compile_action_start(action, super::value::ResultTarget::Allocate)
@@ -1239,6 +1261,7 @@ where
         target_register: RegisterId,
     ) -> Result<(), ErrorFor<Spec, Lowering>> {
         let value_register = self
+            .context
             .value_compiler()
             .compile_expr(expr, super::value::ResultTarget::Existing(target_register))?;
         if value_register.register() != target_register {
@@ -1302,19 +1325,6 @@ where
             immediate_register.register(),
         );
         Ok(())
-    }
-
-    /// Creates a value compiler borrowing the current context.
-    fn value_compiler(&mut self) -> ValueCompiler<'_, 'table, Spec, Lowering> {
-        ValueCompiler::new(self.context.reborrow_ref())
-    }
-
-    /// Creates a nested statement compiler with derived loop-control scope.
-    fn nested_statement_compiler(
-        &mut self,
-        loop_control: LoopControlStack,
-    ) -> StatementCompiler<'_, 'table, Spec, Lowering> {
-        StatementCompiler::new(self.context.reborrow_mut(), loop_control)
     }
 }
 

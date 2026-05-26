@@ -8,9 +8,6 @@ use crate::function::compiler::env::LocalSlot;
 
 use super::CompilerContextMut;
 use super::ErrorFor;
-use super::ForLoopCompiler;
-use super::ParallelCompiler;
-use super::ValueCompiler;
 use super::r#loop::LoopControlStack;
 use super::plan::assignment::AssignmentStatementPlan;
 
@@ -22,6 +19,22 @@ where
 {
     /// Mutable compiler context for assignment lowering.
     context: CompilerContextMut<'borrow, 'table, Spec, Lowering>,
+}
+
+impl<'borrow, 'table, Spec, Lowering> CompilerContextMut<'borrow, 'table, Spec, Lowering>
+where
+    Spec: waymark_vm_compiler_for_ast_old_core::SpecRequirements,
+    Lowering: waymark_vm_compiler_for_ast_old_core::lowering::FullSet<Spec>,
+{
+    /// Reborrows the context for assignment lowering.
+    pub fn assignment_compiler(&mut self) -> AssignmentCompiler<'_, 'table, Spec, Lowering> {
+        self.reborrow_mut().into_assignment_compiler()
+    }
+
+    /// Converts this context into an assignment compiler.
+    pub fn into_assignment_compiler(self) -> AssignmentCompiler<'borrow, 'table, Spec, Lowering> {
+        AssignmentCompiler::new(self)
+    }
 }
 
 impl<'borrow, 'table, Spec, Lowering> AssignmentCompiler<'borrow, 'table, Spec, Lowering>
@@ -76,7 +89,9 @@ where
                 self.compile_spread_discard(collection, loop_var, action)?;
             }
             AssignmentStatementPlan::Parallel { assignment } => {
-                self.parallel_compiler().compile_assignment(assignment)?;
+                self.context
+                    .parallel_compiler()
+                    .compile_assignment(assignment)?;
             }
         }
 
@@ -89,7 +104,7 @@ where
         target: Marked<LocalSlot, AssignmentTargetMarker>,
         value: &Spanned<Expr>,
     ) -> Result<(), ErrorFor<Spec, Lowering>> {
-        let value_register = self.value_compiler().compile_expr(
+        let value_register = self.context.value_compiler().compile_expr(
             value,
             super::value::ResultTarget::Existing(target.register()),
         )?;
@@ -113,12 +128,9 @@ where
         action: &ActionCall,
     ) -> Result<(), ErrorFor<Spec, Lowering>> {
         let accumulator_register = self.context.local_frame.allocate_register();
-        self.for_loop_compiler().compile_spread_expr(
-            collection,
-            loop_var,
-            action,
-            accumulator_register,
-        )?;
+        self.context
+            .for_loop_compiler(LoopControlStack::new())
+            .compile_spread_expr(collection, loop_var, action, accumulator_register)?;
 
         if accumulator_register != target.register() {
             self.context
@@ -137,23 +149,9 @@ where
         loop_var: &str,
         action: &ActionCall,
     ) -> Result<(), ErrorFor<Spec, Lowering>> {
-        self.for_loop_compiler()
+        self.context
+            .for_loop_compiler(LoopControlStack::new())
             .compile_spread_statement(collection, loop_var, action)
-    }
-
-    /// Creates a value compiler borrowing the current context.
-    fn value_compiler(&mut self) -> ValueCompiler<'_, 'table, Spec, Lowering> {
-        ValueCompiler::new(self.context.reborrow_ref())
-    }
-
-    /// Creates a parallel compiler borrowing the current context mutably.
-    fn parallel_compiler(&mut self) -> ParallelCompiler<'_, 'table, Spec, Lowering> {
-        ParallelCompiler::new(self.context.reborrow_mut())
-    }
-
-    /// Creates a for-loop compiler for internal spread lowering.
-    fn for_loop_compiler(&mut self) -> ForLoopCompiler<'_, 'table, Spec, Lowering> {
-        ForLoopCompiler::new(self.context.reborrow_mut(), LoopControlStack::new())
     }
 }
 
@@ -239,13 +237,13 @@ mod tests {
             .expect("source input should declare");
 
         {
-            let mut assignments =
-                AssignmentCompiler::<TestSpec, TestLowering>::new(CompilerContextMut::new(
-                    &function_table,
-                    &mut emitter,
-                    &mut local_frame,
-                    &mut flow_state,
-                ));
+            let mut assignments = CompilerContextMut::<TestSpec, TestLowering>::new(
+                &function_table,
+                &mut emitter,
+                &mut local_frame,
+                &mut flow_state,
+            )
+            .into_assignment_compiler();
 
             assignments
                 .compile_statement(&["target".to_owned()], &variable("source"))

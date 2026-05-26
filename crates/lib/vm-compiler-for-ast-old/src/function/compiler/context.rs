@@ -51,8 +51,7 @@ where
     }
 }
 
-impl<'borrow, 'table, Spec, Lowering>
-    CompilerContext<'borrow, 'table, Spec, Lowering, &'borrow mut FlowState>
+impl<'borrow, 'table, Spec, Lowering> CompilerContextMut<'borrow, 'table, Spec, Lowering>
 where
     Spec: waymark_vm_compiler_for_ast_old_core::SpecRequirements,
 {

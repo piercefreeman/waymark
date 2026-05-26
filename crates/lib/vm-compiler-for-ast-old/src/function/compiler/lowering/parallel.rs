@@ -6,7 +6,6 @@ use crate::Marked;
 
 use super::CompilerContextMut;
 use super::ErrorFor;
-use super::ValueCompiler;
 use super::env::RegisterHandle;
 use super::plan::call::CallPlanFor;
 use super::plan::parallel::*;
@@ -20,6 +19,22 @@ where
 {
     /// Mutable compiler context for parallel lowering.
     context: CompilerContextMut<'borrow, 'table, Spec, Lowering>,
+}
+
+impl<'borrow, 'table, Spec, Lowering> CompilerContextMut<'borrow, 'table, Spec, Lowering>
+where
+    Spec: waymark_vm_compiler_for_ast_old_core::SpecRequirements,
+    Lowering: waymark_vm_compiler_for_ast_old_core::lowering::FullSet<Spec>,
+{
+    /// Reborrows the context for parallel lowering.
+    pub fn parallel_compiler(&mut self) -> ParallelCompiler<'_, 'table, Spec, Lowering> {
+        self.reborrow_mut().into_parallel_compiler()
+    }
+
+    /// Converts this context into a parallel compiler.
+    pub fn into_parallel_compiler(self) -> ParallelCompiler<'borrow, 'table, Spec, Lowering> {
+        ParallelCompiler::new(self)
+    }
 }
 
 impl<'borrow, 'table, Spec, Lowering> ParallelCompiler<'borrow, 'table, Spec, Lowering>
@@ -101,13 +116,9 @@ where
         &mut self,
         call: CallPlanFor<'_, Spec>,
     ) -> Result<Marked<RegisterHandle, PromiseMarker>, ErrorFor<Spec, Lowering>> {
-        self.value_compiler()
+        self.context
+            .value_compiler()
             .compile_call_start(call, super::value::ResultTarget::Allocate)
-    }
-
-    /// Creates a value compiler borrowing the current context.
-    fn value_compiler(&mut self) -> ValueCompiler<'_, 'table, Spec, Lowering> {
-        ValueCompiler::new(self.context.reborrow_ref())
     }
 
     /// Awaits each promise register in order.
@@ -116,7 +127,8 @@ where
         promise_registers: &[Marked<RegisterHandle, PromiseMarker>],
     ) {
         for promise_register in promise_registers {
-            self.value_compiler()
+            self.context
+                .value_compiler()
                 .compile_await(promise_register.register(), promise_register);
         }
     }
@@ -127,7 +139,7 @@ where
         awaited_targets: &NEVec<ParallelTargeted<Marked<RegisterHandle, PromiseMarker>>>,
     ) {
         for awaited_target in awaited_targets {
-            self.value_compiler().compile_await(
+            self.context.value_compiler().compile_await(
                 awaited_target.target().register(),
                 awaited_target.promise_register(),
             );
@@ -178,13 +190,13 @@ mod tests {
         .expect("empty single target should build aggregate plan");
 
         {
-            let mut parallel =
-                ParallelCompiler::<TestSpec, TestLowering>::new(CompilerContextMut::new(
-                    &function_table,
-                    &mut emitter,
-                    &mut local_frame,
-                    &mut flow_state,
-                ));
+            let mut parallel = CompilerContextMut::<TestSpec, TestLowering>::new(
+                &function_table,
+                &mut emitter,
+                &mut local_frame,
+                &mut flow_state,
+            )
+            .into_parallel_compiler();
 
             parallel
                 .compile_assignment(assignment)
@@ -233,13 +245,13 @@ mod tests {
         .expect("single target should build aggregate plan");
 
         {
-            let mut parallel =
-                ParallelCompiler::<TestSpec, TestLowering>::new(CompilerContextMut::new(
-                    &function_table,
-                    &mut emitter,
-                    &mut local_frame,
-                    &mut flow_state,
-                ));
+            let mut parallel = CompilerContextMut::<TestSpec, TestLowering>::new(
+                &function_table,
+                &mut emitter,
+                &mut local_frame,
+                &mut flow_state,
+            )
+            .into_parallel_compiler();
 
             parallel
                 .compile_assignment(assignment)

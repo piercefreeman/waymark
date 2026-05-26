@@ -7,11 +7,7 @@ use waymark_vm_ast_old::{
 
 use nonempty_collections::NEVec;
 
-use super::AssignmentCompiler;
 use super::CompilerContextMut;
-use super::ForLoopCompiler;
-use super::ParallelCompiler;
-use super::ValueCompiler;
 use super::conditional::{ConditionalJoin, ConditionalJoinFinish};
 use super::env::FlowState;
 use super::exception::{ExceptionHandlerDispatch, ExceptionScope, ExceptionScopeStack};
@@ -46,6 +42,48 @@ enum BranchBodyOutcome {
         /// Flow state observed when the branch reaches the continuation point.
         flow_state: FlowState,
     },
+}
+
+impl<'borrow, 'table, Spec, Lowering> CompilerContextMut<'borrow, 'table, Spec, Lowering>
+where
+    Spec: waymark_vm_compiler_for_ast_old_core::SpecRequirements,
+    Lowering: waymark_vm_compiler_for_ast_old_core::lowering::FullSet<Spec>,
+{
+    /// Reborrows the context for statement lowering.
+    pub fn statement_compiler(
+        &mut self,
+        loop_control: LoopControlStack,
+    ) -> StatementCompiler<'_, 'table, Spec, Lowering> {
+        self.reborrow_mut().into_statement_compiler(loop_control)
+    }
+
+    /// Reborrows the context for statement lowering with an exception-scope override.
+    pub fn statement_compiler_with_exception_scope(
+        &mut self,
+        loop_control: LoopControlStack,
+        exception_scope: ExceptionScopeStack,
+    ) -> StatementCompiler<'_, 'table, Spec, Lowering> {
+        self.reborrow_mut()
+            .into_statement_compiler_with_exception_scope(loop_control, exception_scope)
+    }
+
+    /// Converts this context into a statement compiler.
+    pub fn into_statement_compiler(
+        self,
+        loop_control: LoopControlStack,
+    ) -> StatementCompiler<'borrow, 'table, Spec, Lowering> {
+        StatementCompiler::new(self, loop_control)
+    }
+
+    /// Converts this context into a statement compiler with an exception-scope override.
+    pub fn into_statement_compiler_with_exception_scope(
+        self,
+        loop_control: LoopControlStack,
+        exception_scope: ExceptionScopeStack,
+    ) -> StatementCompiler<'borrow, 'table, Spec, Lowering> {
+        self.with_exception_scope(exception_scope)
+            .into_statement_compiler(loop_control)
+    }
 }
 
 impl<'borrow, 'table, Spec, Lowering> StatementCompiler<'borrow, 'table, Spec, Lowering>
@@ -90,11 +128,14 @@ where
             self.context.function_table,
         )? {
             StatementPlan::Assignment { targets, value } => {
-                self.assignment_compiler()
+                self.context
+                    .assignment_compiler()
                     .compile_statement(targets, value)?;
             }
             StatementPlan::ActionCall { call } => {
-                self.value_compiler().compile_action_statement(call)?;
+                self.context
+                    .value_compiler()
+                    .compile_action_statement(call)?;
             }
             StatementPlan::SpreadAction {
                 collection,
@@ -104,16 +145,22 @@ where
                 self.compile_spread_action(collection, loop_var, action)?;
             }
             StatementPlan::Return { value } => {
-                self.value_compiler().compile_return_statement(value)?;
+                self.context
+                    .value_compiler()
+                    .compile_return_statement(value)?;
             }
             StatementPlan::Expr { expr } => {
-                self.value_compiler().compile_expression_statement(expr)?;
+                self.context
+                    .value_compiler()
+                    .compile_expression_statement(expr)?;
             }
             StatementPlan::Sleep { duration } => {
-                self.value_compiler().compile_sleep_statement(duration)?;
+                self.context
+                    .value_compiler()
+                    .compile_sleep_statement(duration)?;
             }
             StatementPlan::ParallelBlock { calls } => {
-                self.parallel_compiler().compile_block(calls)?;
+                self.context.parallel_compiler().compile_block(calls)?;
             }
             StatementPlan::WhileLoop { condition, body } => {
                 self.compile_while_loop(condition, body)?;
@@ -248,7 +295,7 @@ where
         let mut handler_continuations: Vec<FlowState> = Vec::new();
 
         {
-            let mut try_compiler = self.nested_statement_compiler_with_exception_scope(
+            let mut try_compiler = self.context.statement_compiler_with_exception_scope(
                 self.loop_control.clone(),
                 scoped_exceptions.clone(),
             );
@@ -354,7 +401,7 @@ where
             self.context.flow_state.mark_initialized(exception_local);
         }
 
-        let mut handler_compiler = self.nested_statement_compiler(self.loop_control.clone());
+        let mut handler_compiler = self.context.statement_compiler(self.loop_control.clone());
         handler_compiler.compile_block(&handler.value.body)
     }
 
@@ -404,7 +451,7 @@ where
 
         self.switch_to_with_flow(while_loop.body_state(), while_loop.body_flow());
         {
-            let mut body_compiler = self.nested_statement_compiler(body_loop_control);
+            let mut body_compiler = self.context.statement_compiler(body_loop_control);
             body_compiler.compile_block(body)?;
         }
 
@@ -428,7 +475,10 @@ where
         iterable: &Spanned<Expr>,
         body: &Spanned<Block>,
     ) -> Result<(), ErrorFor<Spec, Lowering>> {
-        self.for_loop_compiler().compile(loop_vars, iterable, body)
+        let loop_control = self.loop_control.clone();
+        self.context
+            .for_loop_compiler(loop_control)
+            .compile(loop_vars, iterable, body)
     }
 
     /// Compiles a spread statement as an internal loop over action calls.
@@ -438,7 +488,9 @@ where
         loop_var: &str,
         action: &ActionCall,
     ) -> Result<(), ErrorFor<Spec, Lowering>> {
-        self.for_loop_compiler()
+        let loop_control = self.loop_control.clone();
+        self.context
+            .for_loop_compiler(loop_control)
             .compile_spread_statement(collection, loop_var, action)
     }
 
@@ -470,6 +522,7 @@ where
         target_state: StateId,
     ) -> Result<(), ErrorFor<Spec, Lowering>> {
         let condition_register = self
+            .context
             .value_compiler()
             .compile_expr(condition, super::value::ResultTarget::Allocate)?;
         self.context
@@ -489,48 +542,6 @@ where
 
         self.context.emitter.emit_jump(loop_scope.target(kind));
         Ok(())
-    }
-
-    /// Creates a value compiler borrowing the current context.
-    fn value_compiler(&mut self) -> ValueCompiler<'_, 'table, Spec, Lowering> {
-        ValueCompiler::new(self.context.reborrow_ref())
-    }
-
-    /// Creates a for-loop compiler borrowing the current context mutably.
-    fn for_loop_compiler(&mut self) -> ForLoopCompiler<'_, 'table, Spec, Lowering> {
-        ForLoopCompiler::new(self.context.reborrow_mut(), self.loop_control.clone())
-    }
-
-    /// Creates an assignment compiler borrowing the current context mutably.
-    fn assignment_compiler(&mut self) -> AssignmentCompiler<'_, 'table, Spec, Lowering> {
-        AssignmentCompiler::new(self.context.reborrow_mut())
-    }
-
-    /// Creates a parallel compiler borrowing the current context mutably.
-    fn parallel_compiler(&mut self) -> ParallelCompiler<'_, 'table, Spec, Lowering> {
-        ParallelCompiler::new(self.context.reborrow_mut())
-    }
-
-    /// Creates a nested statement compiler with derived loop-control scope.
-    fn nested_statement_compiler(
-        &mut self,
-        loop_control: LoopControlStack,
-    ) -> StatementCompiler<'_, 'table, Spec, Lowering> {
-        StatementCompiler::new(self.context.reborrow_mut(), loop_control)
-    }
-
-    /// Creates a nested statement compiler with a scoped exception-stack override.
-    fn nested_statement_compiler_with_exception_scope(
-        &mut self,
-        loop_control: LoopControlStack,
-        exception_scope: ExceptionScopeStack,
-    ) -> StatementCompiler<'_, 'table, Spec, Lowering> {
-        StatementCompiler::new(
-            self.context
-                .reborrow_mut()
-                .with_exception_scope(exception_scope),
-            loop_control,
-        )
     }
 
     /// Materializes one exception type-id literal into a stable register.
@@ -588,8 +599,6 @@ fn merge_flow_with_handlers(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     use index_type::IndexType;
     use waymark_vm_ast_old_helpers::{assignment, block, conditional_stmt, variable};
     use waymark_vm_bytecode_core::StateId;
@@ -619,15 +628,13 @@ mod tests {
         let loop_control = LoopControlStack::new();
 
         {
-            let mut control = StatementCompiler::<TestSpec, TestLowering>::new(
-                CompilerContextMut::new(
-                    &function_table,
-                    &mut emitter,
-                    &mut local_frame,
-                    &mut flow_state,
-                ),
-                loop_control,
-            );
+            let mut control = CompilerContextMut::<TestSpec, TestLowering>::new(
+                &function_table,
+                &mut emitter,
+                &mut local_frame,
+                &mut flow_state,
+            )
+            .into_statement_compiler(loop_control);
 
             control
                 .compile_block(&block(vec![conditional_stmt(

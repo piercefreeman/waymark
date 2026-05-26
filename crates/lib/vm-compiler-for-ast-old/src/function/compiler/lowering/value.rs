@@ -8,7 +8,6 @@ use waymark_vm_runtime_core::RegisterId;
 
 use crate::Marked;
 
-use super::CompilerContextRef;
 use super::env::RegisterHandle;
 use super::exception::ExceptionScopeStack;
 use super::plan::call::{
@@ -17,6 +16,7 @@ use super::plan::call::{
 };
 use super::plan::expr::ExpressionPlan;
 use super::suspend::PromiseMarker;
+use super::{CompilerContextMut, CompilerContextRef};
 use super::{Error, ErrorFor, Unsupported};
 
 /// Lowers expressions and calls into bytecode values and control flow.
@@ -50,6 +50,33 @@ struct ScopedVariableBinding {
 
     /// Register that should satisfy reads of `name`.
     register: RegisterId,
+}
+
+impl<'borrow, 'table, Spec, Lowering> CompilerContextRef<'borrow, 'table, Spec, Lowering>
+where
+    Spec: waymark_vm_compiler_for_ast_old_core::SpecRequirements,
+    Lowering: waymark_vm_compiler_for_ast_old_core::lowering::FullSet<Spec>,
+{
+    /// Converts this shared context into a value compiler.
+    pub fn into_value_compiler(self) -> ValueCompiler<'borrow, 'table, Spec, Lowering> {
+        ValueCompiler::new(self)
+    }
+}
+
+impl<'borrow, 'table, Spec, Lowering> CompilerContextMut<'borrow, 'table, Spec, Lowering>
+where
+    Spec: waymark_vm_compiler_for_ast_old_core::SpecRequirements,
+    Lowering: waymark_vm_compiler_for_ast_old_core::lowering::FullSet<Spec>,
+{
+    /// Reborrows the context for value lowering.
+    pub fn value_compiler(&mut self) -> ValueCompiler<'_, 'table, Spec, Lowering> {
+        self.reborrow_ref().into_value_compiler()
+    }
+
+    /// Converts this context into a value compiler.
+    pub fn into_value_compiler(self) -> ValueCompiler<'borrow, 'table, Spec, Lowering> {
+        self.into_ref().into_value_compiler()
+    }
 }
 
 impl<'borrow, 'table, Spec, Lowering> ValueCompiler<'borrow, 'table, Spec, Lowering>

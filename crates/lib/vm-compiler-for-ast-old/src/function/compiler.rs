@@ -39,12 +39,6 @@ mod lowering {
     pub mod parallel;
     pub mod statement;
     pub mod value;
-
-    pub use self::assignment::AssignmentCompiler;
-    pub use self::for_loop::ForLoopCompiler;
-    pub use self::parallel::ParallelCompiler;
-    pub use self::statement::StatementCompiler;
-    pub use self::value::ValueCompiler;
 }
 
 mod bytecode {
@@ -63,8 +57,6 @@ use self::bytecode::emitter::FunctionEmitter;
 use self::context::*;
 use self::env::{FlowState, LocalFrame};
 use self::r#loop::LoopControlStack;
-use self::lowering::StatementCompiler;
-use self::lowering::ValueCompiler;
 
 pub use self::error::*;
 
@@ -135,27 +127,18 @@ where
         mut self,
         function: &Spanned<FunctionDef>,
     ) -> Result<waymark_vm_bytecode::Function<InstructionFor<Spec>>, ErrorFor<Spec, Lowering>> {
-        self.statement_compiler()
+        self.context()
+            .into_statement_compiler(LoopControlStack::new())
             .compile_block(&function.value.body)?;
 
         if self.emitter.is_active() {
-            self.value_compiler().emit_return_none()?;
+            self.context().into_value_compiler().emit_return_none()?;
         }
 
         Ok(waymark_vm_bytecode::Function {
             states: self.emitter.finish(),
             num_regs: self.local_frame.num_registers(),
         })
-    }
-
-    /// Creates a value compiler over the current compiler context.
-    fn value_compiler(&mut self) -> ValueCompiler<'_, 'a, Spec, Lowering> {
-        ValueCompiler::new(self.context().into_ref())
-    }
-
-    /// Creates a statement compiler over the current compiler context.
-    fn statement_compiler(&mut self) -> StatementCompiler<'_, 'a, Spec, Lowering> {
-        StatementCompiler::new(self.context(), LoopControlStack::new())
     }
 
     /// Bundles the mutable compiler state needed by lowering helpers.
