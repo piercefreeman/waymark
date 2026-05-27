@@ -1,22 +1,23 @@
 //! Value lowering.
 
+mod access;
 mod async_value;
+mod builtins;
+mod collections;
+mod operators;
 
-use waymark_vm_ast_old::{
-    ActionCall, BinaryOperator, DictEntry, Expr, FunctionCall, GlobalFunction, Literal, Spanned,
-    UnaryOperator,
-};
+use waymark_vm_ast_old::{ActionCall, Expr, FunctionCall, GlobalFunction, Literal, Spanned};
 use waymark_vm_runtime_core::RegisterId;
 
 use crate::Marked;
 
 use self::async_value::AsyncValueCompiler;
 use super::env::RegisterHandle;
-use super::plan::call::{CallPlan, CallPlanFor, UnsupportedFunctionCall, compile_expr_registers};
+use super::plan::call::{CallPlan, CallPlanFor};
 use super::plan::expr::ExpressionPlan;
 use super::suspend::PromiseMarker;
 use super::{CompilerContextMut, CompilerContextRef};
-use super::{Error, ErrorFor, Unsupported};
+use super::{Error, ErrorFor};
 
 /// Lowers expressions and calls into bytecode values and control flow.
 pub struct ValueCompiler<'borrow, 'table, Spec, Lowering>
@@ -219,257 +220,6 @@ where
         AsyncValueCompiler::new(self).compile_call_start(call, target)
     }
 
-    /// Compiles a scalar binary expression and releases any temporary operands.
-    fn compile_binary_expr(
-        &mut self,
-        left: &Spanned<Expr>,
-        op: &BinaryOperator,
-        right: &Spanned<Expr>,
-        target: ResultTarget,
-    ) -> Result<RegisterHandle, ErrorFor<Spec, Lowering>> {
-        let left_register = self.compile_expr(left, ResultTarget::Allocate)?;
-        let right_register = self.compile_expr(right, ResultTarget::Allocate)?;
-        let dst = self.allocate_result_register(target);
-        self.emit_binary_instruction(
-            op,
-            dst.register(),
-            left_register.register(),
-            right_register.register(),
-        );
-        Ok(dst)
-    }
-
-    /// Compiles a scalar unary expression and releases its temporary operand.
-    fn compile_unary_expr(
-        &mut self,
-        op: &UnaryOperator,
-        operand: &Spanned<Expr>,
-        target: ResultTarget,
-    ) -> Result<RegisterHandle, ErrorFor<Spec, Lowering>> {
-        let operand_register = self.compile_expr(operand, ResultTarget::Allocate)?;
-        let dst = self.allocate_result_register(target);
-        self.emit_unary_instruction(op, dst.register(), operand_register.register());
-        Ok(dst)
-    }
-
-    /// Compiles a list literal from recursively evaluated items.
-    fn compile_list_expr(
-        &mut self,
-        elements: &[Spanned<Expr>],
-        target: ResultTarget,
-    ) -> Result<RegisterHandle, ErrorFor<Spec, Lowering>> {
-        let item_registers = compile_expr_registers(
-            elements,
-            |element| element,
-            |element| self.compile_expr(element, ResultTarget::Allocate),
-        )?;
-        let dst = self.allocate_result_register(target);
-
-        self.context.emitter.emit_make_list(
-            dst.register(),
-            item_registers
-                .iter()
-                .map(RegisterHandle::register)
-                .collect(),
-        );
-
-        Ok(dst)
-    }
-
-    /// Compiles a dictionary literal from recursively evaluated key-value pairs.
-    fn compile_dict_expr(
-        &mut self,
-        entries: &[DictEntry],
-        target: ResultTarget,
-    ) -> Result<RegisterHandle, ErrorFor<Spec, Lowering>> {
-        let mut entry_registers = Vec::with_capacity(entries.len());
-        let mut compiled_entries = Vec::with_capacity(entries.len());
-
-        for entry in entries {
-            let key = self.compile_expr(&entry.key, ResultTarget::Allocate)?;
-            let value = self.compile_expr(&entry.value, ResultTarget::Allocate)?;
-
-            compiled_entries.push(waymark_vm_instructions_pureset::DictEntry {
-                key: key.register(),
-                value: value.register(),
-            });
-            entry_registers.push((key, value));
-        }
-
-        let dst = self.allocate_result_register(target);
-        self.context
-            .emitter
-            .emit_make_dict(dst.register(), compiled_entries);
-
-        Ok(dst)
-    }
-
-    /// Compiles the built-in `len(...)` function into a dedicated pure opcode.
-    fn compile_length_call(
-        &mut self,
-        call: &FunctionCall,
-        target: ResultTarget,
-    ) -> Result<RegisterHandle, ErrorFor<Spec, Lowering>> {
-        if !call.kwargs.is_empty() {
-            return Err(Unsupported::FunctionCall {
-                name: call.name.clone(),
-                reason: UnsupportedFunctionCall::KeywordArguments,
-            }
-            .into());
-        }
-
-        if call.args.len() != 1 {
-            return Err(Error::FunctionArityMismatch {
-                function: call.name.clone(),
-                expected: 1,
-                actual: call.args.len(),
-            });
-        }
-
-        let src = self.compile_expr(&call.args[0], ResultTarget::Allocate)?;
-        let dst = self.allocate_result_register(target);
-        self.context
-            .emitter
-            .emit_length(dst.register(), src.register());
-
-        Ok(dst)
-    }
-
-    /// Compiles the built-in `isexception(...)` function through excset.
-    fn compile_is_exception_call(
-        &mut self,
-        call: &FunctionCall,
-        target: ResultTarget,
-    ) -> Result<RegisterHandle, ErrorFor<Spec, Lowering>> {
-        if !call.kwargs.is_empty() {
-            return Err(Unsupported::FunctionCall {
-                name: call.name.clone(),
-                reason: UnsupportedFunctionCall::KeywordArguments,
-            }
-            .into());
-        }
-
-        match call.args.as_slice() {
-            [] => Err(Error::FunctionArityMismatch {
-                function: call.name.clone(),
-                expected: 1,
-                actual: 0,
-            }),
-            [value] => self.compile_any_exception_check(value, target),
-            [value, exception_types] => {
-                self.compile_typed_exception_check(value, exception_types, target)
-            }
-            _ => Err(Error::FunctionArityMismatch {
-                function: call.name.clone(),
-                expected: 2,
-                actual: call.args.len(),
-            }),
-        }
-    }
-
-    /// Compiles a wildcard exception check against `value`.
-    fn compile_any_exception_check(
-        &mut self,
-        value: &Spanned<Expr>,
-        target: ResultTarget,
-    ) -> Result<RegisterHandle, ErrorFor<Spec, Lowering>> {
-        let value_register = self.compile_expr(value, ResultTarget::Allocate)?;
-        let dst = self.allocate_result_register(target);
-
-        self.context
-            .emitter
-            .emit_is_exception(dst.register(), value_register.register(), None);
-
-        Ok(dst)
-    }
-
-    /// Compiles a typed exception check against one type id or a list of them.
-    fn compile_typed_exception_check(
-        &mut self,
-        value: &Spanned<Expr>,
-        exception_types: &Spanned<Expr>,
-        target: ResultTarget,
-    ) -> Result<RegisterHandle, ErrorFor<Spec, Lowering>> {
-        let value_register = self.compile_expr(value, ResultTarget::Allocate)?;
-
-        let type_exprs: Vec<&Spanned<Expr>> = match &exception_types.value {
-            Expr::List { elements } => elements.iter().collect(),
-            _ => vec![exception_types],
-        };
-
-        let Some((first_type, remaining_types)) = type_exprs.split_first() else {
-            let false_literal = Literal::Bool(false);
-            return self.compile_literal(&false_literal, target);
-        };
-
-        let dst = self.allocate_result_register(target);
-        let first_type_register = self.compile_expr(first_type, ResultTarget::Allocate)?;
-        self.context.emitter.emit_is_exception(
-            dst.register(),
-            value_register.register(),
-            Some(first_type_register.register()),
-        );
-
-        for exception_type in remaining_types {
-            let exception_type_register =
-                self.compile_expr(exception_type, ResultTarget::Allocate)?;
-            let matches = self.allocate_result_register(ResultTarget::Allocate);
-
-            self.context.emitter.emit_is_exception(
-                matches.register(),
-                value_register.register(),
-                Some(exception_type_register.register()),
-            );
-            self.context.emitter.emit_binary(
-                waymark_vm_instructions_pureset::BinaryOpKind::Or,
-                dst.register(),
-                dst.register(),
-                matches.register(),
-            );
-        }
-
-        Ok(dst)
-    }
-
-    /// Compiles an indexed-access expression from recursively evaluated operands.
-    fn compile_index_expr(
-        &mut self,
-        object: &Spanned<Expr>,
-        index: &Spanned<Expr>,
-        target: ResultTarget,
-    ) -> Result<RegisterHandle, ErrorFor<Spec, Lowering>> {
-        let object_register = self.compile_expr(object, ResultTarget::Allocate)?;
-        let index_register = self.compile_expr(index, ResultTarget::Allocate)?;
-        let dst = self.allocate_result_register(target);
-
-        self.context.emitter.emit_index(
-            dst.register(),
-            object_register.register(),
-            index_register.register(),
-        );
-
-        Ok(dst)
-    }
-
-    /// Compiles an attribute-access expression from a recursively evaluated object.
-    fn compile_dot_expr(
-        &mut self,
-        object: &Spanned<Expr>,
-        attribute: &str,
-        target: ResultTarget,
-    ) -> Result<RegisterHandle, ErrorFor<Spec, Lowering>> {
-        let object_register = self.compile_expr(object, ResultTarget::Allocate)?;
-        let dst = self.allocate_result_register(target);
-
-        self.context.emitter.emit_dot(
-            dst.register(),
-            object_register.register(),
-            attribute.to_owned(),
-        );
-
-        Ok(dst)
-    }
-
     /// Compiles a call and awaits its result.
     fn compile_call(
         &mut self,
@@ -536,46 +286,6 @@ where
             }
             ResultTarget::Existing(register) => RegisterHandle::Existing(register),
         }
-    }
-
-    /// Emits a scalar binary instruction for the selected operator.
-    fn emit_binary_instruction(
-        &mut self,
-        op: &BinaryOperator,
-        dst: RegisterId,
-        left: RegisterId,
-        right: RegisterId,
-    ) {
-        let kind = match op {
-            BinaryOperator::Add => waymark_vm_instructions_pureset::BinaryOpKind::Add,
-            BinaryOperator::Sub => waymark_vm_instructions_pureset::BinaryOpKind::Sub,
-            BinaryOperator::Mul => waymark_vm_instructions_pureset::BinaryOpKind::Mul,
-            BinaryOperator::Div => waymark_vm_instructions_pureset::BinaryOpKind::Div,
-            BinaryOperator::FloorDiv => waymark_vm_instructions_pureset::BinaryOpKind::FloorDiv,
-            BinaryOperator::Mod => waymark_vm_instructions_pureset::BinaryOpKind::Mod,
-            BinaryOperator::Eq => waymark_vm_instructions_pureset::BinaryOpKind::Eq,
-            BinaryOperator::Ne => waymark_vm_instructions_pureset::BinaryOpKind::Ne,
-            BinaryOperator::Lt => waymark_vm_instructions_pureset::BinaryOpKind::Lt,
-            BinaryOperator::Le => waymark_vm_instructions_pureset::BinaryOpKind::Le,
-            BinaryOperator::Gt => waymark_vm_instructions_pureset::BinaryOpKind::Gt,
-            BinaryOperator::Ge => waymark_vm_instructions_pureset::BinaryOpKind::Ge,
-            BinaryOperator::In => waymark_vm_instructions_pureset::BinaryOpKind::In,
-            BinaryOperator::NotIn => waymark_vm_instructions_pureset::BinaryOpKind::NotIn,
-            BinaryOperator::And => waymark_vm_instructions_pureset::BinaryOpKind::And,
-            BinaryOperator::Or => waymark_vm_instructions_pureset::BinaryOpKind::Or,
-        };
-
-        self.context.emitter.emit_binary(kind, dst, left, right);
-    }
-
-    /// Emits a scalar unary instruction for the selected operator.
-    fn emit_unary_instruction(&mut self, op: &UnaryOperator, dst: RegisterId, src: RegisterId) {
-        let kind = match op {
-            UnaryOperator::Neg => waymark_vm_instructions_pureset::UnaryOpKind::Neg,
-            UnaryOperator::Not => waymark_vm_instructions_pureset::UnaryOpKind::Not,
-        };
-
-        self.context.emitter.emit_unary(kind, dst, src);
     }
 
     /// Emits an await into `target_register` and advances to the resume state.
