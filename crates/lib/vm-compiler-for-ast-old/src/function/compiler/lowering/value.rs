@@ -1,5 +1,7 @@
 //! Value lowering.
 
+mod async_value;
+
 use waymark_vm_ast_old::{
     ActionCall, BinaryOperator, DictEntry, Expr, FunctionCall, GlobalFunction, Literal, Spanned,
     UnaryOperator,
@@ -8,12 +10,9 @@ use waymark_vm_runtime_core::RegisterId;
 
 use crate::Marked;
 
+use self::async_value::AsyncValueCompiler;
 use super::env::RegisterHandle;
-use super::exception::ExceptionScopeStack;
-use super::plan::call::{
-    ActionCallPlanFor, CallPlan, CallPlanFor, FunctionCallPlan, UnsupportedFunctionCall,
-    compile_expr_registers,
-};
+use super::plan::call::{CallPlan, CallPlanFor, UnsupportedFunctionCall, compile_expr_registers};
 use super::plan::expr::ExpressionPlan;
 use super::suspend::PromiseMarker;
 use super::{CompilerContextMut, CompilerContextRef};
@@ -155,7 +154,8 @@ where
         call: &ActionCall,
         target: ResultTarget,
     ) -> Result<Marked<RegisterHandle, PromiseMarker>, ErrorFor<Spec, Lowering>> {
-        self.compile_call_start(self.plan_action_call(call)?, target)
+        let call = self.plan_action_call(call)?;
+        AsyncValueCompiler::new(self).compile_call_start(call, target)
     }
 
     /// Compiles an action call used as a statement.
@@ -172,13 +172,7 @@ where
         &mut self,
         duration: &Spanned<Expr>,
     ) -> Result<(), ErrorFor<Spec, Lowering>> {
-        let promise_register = Marked::mark(self.allocate_result_register(ResultTarget::Allocate));
-        let result_register = promise_register.register();
-
-        self.compile_sleep_start(duration, &promise_register)?;
-        self.compile_await(result_register, &promise_register);
-
-        Ok(())
+        AsyncValueCompiler::new(self).compile_sleep_statement(duration)
     }
 
     /// Compiles a return statement.
@@ -216,89 +210,13 @@ where
         Ok(())
     }
 
-    /// Starts a user-function call into the given promise register.
-    pub fn compile_function_call_start(
-        &mut self,
-        call: FunctionCallPlan<'_>,
-        dst: &Marked<RegisterHandle, PromiseMarker>,
-    ) -> Result<(), ErrorFor<Spec, Lowering>> {
-        let args = compile_expr_registers(
-            call.args(),
-            |arg| arg,
-            |arg| self.compile_expr(arg, ResultTarget::Allocate),
-        )?;
-        let arg_registers = args.iter().map(RegisterHandle::register).collect();
-        self.context
-            .emitter
-            .emit_call(dst.marked(), call.function_id(), arg_registers);
-        drop(args);
-        Ok(())
-    }
-
-    /// Starts an action call into the given promise register.
-    pub fn compile_action_call_start(
-        &mut self,
-        call: ActionCallPlanFor<'_, Spec>,
-        dst: &Marked<RegisterHandle, PromiseMarker>,
-    ) -> Result<(), ErrorFor<Spec, Lowering>> {
-        let (action_ref, kwargs) = call.into_parts();
-        let args = compile_expr_registers(
-            kwargs,
-            |kwarg| &kwarg.value,
-            |arg| self.compile_expr(arg, ResultTarget::Allocate),
-        )?;
-        let arg_registers = args.iter().map(RegisterHandle::register).collect();
-
-        let resume_state = self.reserve_state();
-
-        self.context
-            .emitter
-            .emit_extcall(dst.marked(), action_ref, arg_registers, resume_state);
-
-        drop(args);
-
-        self.context.emitter.switch_to(resume_state);
-
-        Ok(())
-    }
-
-    /// Starts a sleep suspension into the given promise register.
-    pub fn compile_sleep_start(
-        &mut self,
-        duration: &Spanned<Expr>,
-        dst: &Marked<RegisterHandle, PromiseMarker>,
-    ) -> Result<(), ErrorFor<Spec, Lowering>> {
-        let duration_register = self.compile_expr(duration, ResultTarget::Allocate)?;
-
-        let resume_state = self.reserve_state();
-
-        self.context
-            .emitter
-            .emit_sleep(dst.marked(), duration_register.register(), resume_state);
-
-        self.context.emitter.switch_to(resume_state);
-
-        Ok(())
-    }
-
     /// Starts a call and returns the promise register that holds its result.
     pub fn compile_call_start(
         &mut self,
         call: CallPlanFor<'_, Spec>,
         target: ResultTarget,
     ) -> Result<Marked<RegisterHandle, PromiseMarker>, ErrorFor<Spec, Lowering>> {
-        let dst = Marked::mark(self.allocate_result_register(target));
-
-        match call {
-            CallPlan::Function(call) => {
-                self.compile_function_call_start(call, &dst)?;
-            }
-            CallPlan::Action(call) => {
-                self.compile_action_call_start(call, &dst)?;
-            }
-        }
-
-        Ok(dst)
+        AsyncValueCompiler::new(self).compile_call_start(call, target)
     }
 
     /// Compiles a scalar binary expression and releases any temporary operands.
@@ -558,12 +476,7 @@ where
         call: CallPlanFor<'_, Spec>,
         target: ResultTarget,
     ) -> Result<RegisterHandle, ErrorFor<Spec, Lowering>> {
-        let promise_register = self.compile_call_start(call, target)?;
-        let result_register = promise_register.register();
-
-        self.compile_await(result_register, &promise_register);
-
-        Ok(promise_register.into_register())
+        AsyncValueCompiler::new(self).compile_call(call, target)
     }
 
     /// Compiles a lowered literal into the target register.
@@ -671,100 +584,7 @@ where
         target_register: RegisterId,
         promise_register: &Marked<RegisterHandle, PromiseMarker>,
     ) {
-        let resume_state = self.reserve_state();
-
-        self.context
-            .emitter
-            .emit_await(target_register, promise_register.marked(), resume_state);
-
-        self.context.emitter.switch_to(resume_state);
-        self.compile_exception_dispatch_if_needed(target_register);
-    }
-
-    /// Emits exception dispatch after an awaited result if a try-scope is active.
-    fn compile_exception_dispatch_if_needed(&mut self, result_register: RegisterId) {
-        let Some(scope) = self.context.exception_scope.current_scope() else {
-            return;
-        };
-
-        let continue_state = self.reserve_state();
-        let exception_state = self.reserve_state();
-        let is_exception = self.allocate_result_register(ResultTarget::Allocate);
-
-        self.context
-            .emitter
-            .emit_is_exception(is_exception.register(), result_register, None);
-        self.context
-            .emitter
-            .emit_jump_if(exception_state, is_exception.register());
-        self.context.emitter.emit_jump(continue_state);
-
-        self.context.emitter.switch_to(exception_state);
-        if scope.exception_register() != result_register {
-            self.context
-                .emitter
-                .emit_copy(scope.exception_register(), result_register);
-        }
-        let exception_scope = self.context.exception_scope.clone();
-        self.emit_known_exception_dispatch(&exception_scope, scope.exception_register());
-        self.context.emitter.switch_to(continue_state);
-    }
-
-    /// Emits handler dispatch for a value already known to be an exception.
-    fn emit_known_exception_dispatch(
-        &mut self,
-        exception_scope: &ExceptionScopeStack,
-        exception_register: RegisterId,
-    ) {
-        let Some(scope) = exception_scope.current_scope() else {
-            self.context.emitter.emit_return(exception_register);
-            return;
-        };
-
-        let entry_flow = self.context.flow_state.clone();
-
-        for (handler_index, handler) in scope.handlers().iter().enumerate() {
-            scope.record_handler_flow(handler_index, &entry_flow);
-
-            if handler.is_catch_all() {
-                self.context.emitter.emit_jump(handler.entry_state());
-                return;
-            }
-
-            for &exception_type_register in handler.exception_type_registers() {
-                let matches = self.allocate_result_register(ResultTarget::Allocate);
-                self.context.emitter.emit_is_exception(
-                    matches.register(),
-                    exception_register,
-                    Some(exception_type_register),
-                );
-                self.context
-                    .emitter
-                    .emit_jump_if(handler.entry_state(), matches.register());
-            }
-        }
-
-        let outer_scope = scope.outer();
-        if outer_scope.is_empty() {
-            self.context.emitter.emit_return(exception_register);
-            return;
-        }
-
-        let outer = outer_scope
-            .current_scope()
-            .expect("non-empty outer exception scope should exist");
-        if outer.exception_register() != exception_register {
-            self.context
-                .emitter
-                .emit_copy(outer.exception_register(), exception_register);
-        }
-
-        self.emit_known_exception_dispatch(&outer_scope, outer.exception_register());
-    }
-
-    /// Reserves a new bytecode state for a future resume point.
-    fn reserve_state(&mut self) -> waymark_vm_bytecode_core::StateId {
-        self.context.emitter.reserve_state()
+        AsyncValueCompiler::new(self).compile_await(target_register, promise_register)
     }
 }
 
