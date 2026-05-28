@@ -5478,6 +5478,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-vm-runtime-exception"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+ "waymark-vm-runtime-value",
+]
+
+[[package]]
 name = "waymark-vm-runtime-promise-core"
 version = "0.1.0"
 dependencies = [
