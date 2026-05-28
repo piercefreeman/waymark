@@ -25,6 +25,7 @@ pub struct FullSetInterpreter<Spec: waymark_vm_instructions_fullset::Spec, Execu
     /// The excset interpreter used for exception instructions.
     pub exc_set: waymark_vm_interpreter_excset::ExcSetInterpreter<
         Spec,
+        Executable,
         FunctionIdFor<Spec>,
         StateIdFor<Spec>,
         Value,
@@ -64,6 +65,14 @@ pub enum Effect<Value, ActionRef, ActionCallArgument> {
 
     /// An impossible effect produced while executing a pureset instruction.
     PureSet(core::convert::Infallible),
+}
+
+impl<Value, ActionRef, ActionCallArgument> From<Result<Value, Value>>
+    for Effect<Value, ActionRef, ActionCallArgument>
+{
+    fn from(value: Result<Value, Value>) -> Self {
+        Self::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(value))
+    }
 }
 
 impl<Spec, Executable, Value> waymark_vm_interpreter::Interpreter
@@ -121,16 +130,20 @@ where
                     .map_effect(Effect::CoreSet)
             }
             waymark_vm_instructions_fullset::FullSet::ExcSet(instruction) => {
-                #[allow(clippy::let_unit_value)]
                 let runtime_view = waymark_vm_interpreter_excset::ExcSetInterpreter::<
                     Spec,
+                    Executable,
                     FunctionIdFor<Spec>,
                     StateIdFor<Spec>,
                     Value,
                 >::capture_runtime_view(runtime_view);
                 self.exc_set
                     .execute(runtime_view, frame, instruction)?
-                    .map_effect(Effect::ExcSet)
+                    .map_effect(|effect| match effect {
+                        waymark_vm_interpreter_excset::Effect::Complete(result) => Effect::CoreSet(
+                            waymark_vm_interpreter_coreset::Effect::Complete(result),
+                        ),
+                    })
             }
             waymark_vm_instructions_fullset::FullSet::ExtCallSet(instruction) => {
                 let runtime_view = waymark_vm_interpreter_extcallset::ExtCallSetInterpreter::<

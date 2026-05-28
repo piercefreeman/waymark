@@ -60,4 +60,4 @@ f0: [5 registers]
   s17:
     CoreSet(Jump { target_state: s1 })
   s18:
-    CoreSet(Return { src: r4 })
+    ExcSet(Raise { src: r4 })

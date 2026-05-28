@@ -22,7 +22,7 @@ f0: [5 registers]
   s3:
     ExtCallSet(ActionCall { dst: r2, action_ref: TestActionRef("step_two"), args: [r0], resume: s5 })
   s4:
-    CoreSet(Return { src: r0 })
+    ExcSet(Raise { src: r0 })
   s5:
     CoreSet(Await { dst: r2, src: r2, resume: s6 })
   s6:
@@ -32,7 +32,7 @@ f0: [5 registers]
   s7:
     ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("step_three"), args: [r2], resume: s9 })
   s8:
-    CoreSet(Return { src: r2 })
+    ExcSet(Raise { src: r2 })
   s9:
     CoreSet(Await { dst: r3, src: r3, resume: s10 })
   s10:
@@ -42,7 +42,7 @@ f0: [5 registers]
   s11:
     ExtCallSet(ActionCall { dst: r4, action_ref: TestActionRef("step_four"), args: [r3], resume: s13 })
   s12:
-    CoreSet(Return { src: r3 })
+    ExcSet(Raise { src: r3 })
   s13:
     CoreSet(Await { dst: r4, src: r4, resume: s14 })
   s14:
@@ -52,4 +52,4 @@ f0: [5 registers]
   s15:
     CoreSet(Return { src: r4 })
   s16:
-    CoreSet(Return { src: r4 })
+    ExcSet(Raise { src: r4 })

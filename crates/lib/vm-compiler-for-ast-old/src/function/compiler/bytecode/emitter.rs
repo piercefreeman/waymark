@@ -130,6 +130,12 @@ where
         self.emit(waymark_vm_instructions_excset::ExcSet::ExceptionDetails { dst, src }.into());
     }
 
+    /// Emits an exception raise and terminates the current state.
+    pub fn emit_raise(&mut self, src: RegisterId) {
+        self.emit(waymark_vm_instructions_excset::ExcSet::Raise { src }.into());
+        self.function_states.terminate();
+    }
+
     /// Emits a user-function call that writes a promise register.
     pub fn emit_call(
         &mut self,

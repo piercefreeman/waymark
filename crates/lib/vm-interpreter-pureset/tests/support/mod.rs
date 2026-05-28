@@ -53,6 +53,47 @@ impl waymark_vm_runtime_value::RootValueAccess for TestValue {
     type RootValue = TestValue;
 }
 
+impl waymark_vm_runtime_promise_core::Resolvable for TestValue {
+    type ReadyValue = Self;
+
+    fn from_ready(value: Self::ReadyValue) -> Self {
+        value
+    }
+
+    fn into_ready(
+        self,
+    ) -> Result<
+        Self::ReadyValue,
+        (
+            waymark_vm_runtime_promise_core::UnresolvedPromiseError,
+            Self,
+        ),
+    > {
+        Ok(self)
+    }
+
+    fn as_ready(
+        &self,
+    ) -> Result<&Self::ReadyValue, waymark_vm_runtime_promise_core::UnresolvedPromiseError> {
+        Ok(self)
+    }
+
+    fn as_ready_mut(
+        &mut self,
+    ) -> Result<&mut Self::ReadyValue, waymark_vm_runtime_promise_core::UnresolvedPromiseError>
+    {
+        Ok(self)
+    }
+}
+
+impl From<Result<TestValue, TestValue>> for TestValue {
+    fn from(value: Result<TestValue, TestValue>) -> Self {
+        match value {
+            Ok(value) | Err(value) => value,
+        }
+    }
+}
+
 static_assertions::assert_impl_all!(TestValue: waymark_vm_interpreter_pureset::Value);
 
 impl waymark_vm_interpreter_coreset::value::CaptureCallArgument for TestValue {

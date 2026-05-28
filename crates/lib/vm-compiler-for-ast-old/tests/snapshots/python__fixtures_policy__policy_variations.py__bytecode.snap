@@ -24,7 +24,7 @@ f0: [9 registers]
   s3:
     ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("action_with_timeout_minutes"), args: [r1], resume: s5 })
   s4:
-    CoreSet(Return { src: r1 })
+    ExcSet(Raise { src: r1 })
   s5:
     CoreSet(Await { dst: r3, src: r3, resume: s6 })
   s6:
@@ -34,7 +34,7 @@ f0: [9 registers]
   s7:
     ExtCallSet(ActionCall { dst: r4, action_ref: TestActionRef("action_with_retry_backoff"), args: [r3], resume: s9 })
   s8:
-    CoreSet(Return { src: r3 })
+    ExcSet(Raise { src: r3 })
   s9:
     CoreSet(Await { dst: r4, src: r4, resume: s10 })
   s10:
@@ -44,7 +44,7 @@ f0: [9 registers]
   s11:
     ExtCallSet(ActionCall { dst: r5, action_ref: TestActionRef("action_with_retry_exceptions"), args: [r4], resume: s13 })
   s12:
-    CoreSet(Return { src: r4 })
+    ExcSet(Raise { src: r4 })
   s13:
     CoreSet(Await { dst: r5, src: r5, resume: s14 })
   s14:
@@ -54,7 +54,7 @@ f0: [9 registers]
   s15:
     ExtCallSet(ActionCall { dst: r6, action_ref: TestActionRef("action_with_retry_default"), args: [r5], resume: s17 })
   s16:
-    CoreSet(Return { src: r5 })
+    ExcSet(Raise { src: r5 })
   s17:
     CoreSet(Await { dst: r6, src: r6, resume: s18 })
   s18:
@@ -64,7 +64,7 @@ f0: [9 registers]
   s19:
     ExtCallSet(ActionCall { dst: r7, action_ref: TestActionRef("action_with_timeout_hours"), args: [r6], resume: s21 })
   s20:
-    CoreSet(Return { src: r6 })
+    ExcSet(Raise { src: r6 })
   s21:
     CoreSet(Await { dst: r7, src: r7, resume: s22 })
   s22:
@@ -74,7 +74,7 @@ f0: [9 registers]
   s23:
     ExtCallSet(ActionCall { dst: r8, action_ref: TestActionRef("action_with_timeout_days"), args: [r7], resume: s25 })
   s24:
-    CoreSet(Return { src: r7 })
+    ExcSet(Raise { src: r7 })
   s25:
     CoreSet(Await { dst: r8, src: r8, resume: s26 })
   s26:
@@ -84,4 +84,4 @@ f0: [9 registers]
   s27:
     CoreSet(Return { src: r8 })
   s28:
-    CoreSet(Return { src: r8 })
+    ExcSet(Raise { src: r8 })

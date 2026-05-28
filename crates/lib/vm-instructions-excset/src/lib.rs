@@ -38,4 +38,18 @@ pub enum ExcSet<Spec: self::Spec> {
         /// Register holding the exception value.
         src: Spec::RegisterId,
     },
+
+    /// Raises an exception value, transferring control to the current state's
+    /// handler slot if one is active, or unwinding the frame otherwise.
+    ///
+    /// The runtime consults the *current state's* handler slot (set by the
+    /// compiler when lowering try/except). If a slot is present, the runtime
+    /// copies `src` into the slot's exception register and jumps to the
+    /// dispatcher state. If no slot is present, the frame unwinds with `src`
+    /// as the propagated exception value, and the caller's awaiting state
+    /// observes it via auto-raise on `Await` resume.
+    Raise {
+        /// Register holding the exception value to raise.
+        src: Spec::RegisterId,
+    },
 }

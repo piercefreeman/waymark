@@ -51,7 +51,7 @@ fn allows_variables_initialized_on_try_and_except_paths() {
         PureSet(Copy { dst: r0, src: r2 })
         ExcSet(IsException { dst: r4, src: r0, exception_type_id: Some(r1) })
         CoreSet(JumpIf { target_state: s2, cond: r4 })
-        CoreSet(Return { src: r0 })
+        ExcSet(Raise { src: r0 })
     "#);
 }
 
@@ -100,7 +100,7 @@ fn reuses_function_scope_locals_after_except_only_declarations() {
         PureSet(Copy { dst: r0, src: r2 })
         ExcSet(IsException { dst: r4, src: r0, exception_type_id: Some(r1) })
         CoreSet(JumpIf { target_state: s2, cond: r4 })
-        CoreSet(Return { src: r0 })
+        ExcSet(Raise { src: r0 })
     "#);
 }
 
@@ -152,6 +152,6 @@ fn allows_post_join_handler_assignments_when_try_success_path_terminates() {
         CoreSet(JumpIf { target_state: s2, cond: r5 })
         ExcSet(IsException { dst: r5, src: r0, exception_type_id: Some(r2) })
         CoreSet(JumpIf { target_state: s3, cond: r5 })
-        CoreSet(Return { src: r0 })
+        ExcSet(Raise { src: r0 })
     "#);
 }

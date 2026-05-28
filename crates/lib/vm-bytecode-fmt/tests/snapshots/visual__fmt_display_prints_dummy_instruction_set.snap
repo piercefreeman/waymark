@@ -1,6 +1,6 @@
 ---
 source: crates/lib/vm-bytecode-fmt/tests/visual.rs
-expression: Fmt(&executable)
+expression: "waymark_vm_bytecode_fmt::display(&executable)"
 ---
 f0: [123 registers]
   s0:

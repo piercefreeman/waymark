@@ -21,7 +21,7 @@ f0: [4 registers]
     PureSet(LoadConst { dst: r2, value: Int(1) })
     ExtCallSet(Sleep { dst: r1, duration: r2, resume: s5 })
   s4:
-    CoreSet(Return { src: r0 })
+    ExcSet(Raise { src: r0 })
   s5:
     CoreSet(Await { dst: r1, src: r1, resume: s6 })
   s6:
@@ -31,7 +31,7 @@ f0: [4 registers]
   s7:
     ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("format_done_asyncio_import"), args: [r0], resume: s9 })
   s8:
-    CoreSet(Return { src: r1 })
+    ExcSet(Raise { src: r1 })
   s9:
     CoreSet(Await { dst: r3, src: r3, resume: s10 })
   s10:
@@ -41,4 +41,4 @@ f0: [4 registers]
   s11:
     CoreSet(Return { src: r3 })
   s12:
-    CoreSet(Return { src: r3 })
+    ExcSet(Raise { src: r3 })

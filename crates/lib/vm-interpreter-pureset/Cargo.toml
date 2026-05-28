@@ -17,6 +17,7 @@ thiserror = { workspace = true }
 [dev-dependencies]
 waymark-vm-interpreter-coreset = { workspace = true }
 waymark-vm-runtime = { workspace = true }
+waymark-vm-runtime-promise-core = { workspace = true }
 waymark-vm-runtime-test = { workspace = true }
 
 static_assertions = { workspace = true }

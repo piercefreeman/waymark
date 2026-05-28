@@ -18,4 +18,4 @@ f0: [3 registers]
   s3:
     CoreSet(Return { src: r1 })
   s4:
-    CoreSet(Return { src: r1 })
+    ExcSet(Raise { src: r1 })

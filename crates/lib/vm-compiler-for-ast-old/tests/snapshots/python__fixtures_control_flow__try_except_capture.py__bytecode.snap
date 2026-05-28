@@ -30,7 +30,7 @@ f0: [6 registers]
     PureSet(Copy { dst: r0, src: r2 })
     ExcSet(IsException { dst: r4, src: r0, exception_type_id: Some(r1) })
     CoreSet(JumpIf { target_state: s2, cond: r4 })
-    CoreSet(Return { src: r0 })
+    ExcSet(Raise { src: r0 })
   s7:
     CoreSet(Await { dst: r2, src: r2, resume: s8 })
   s8:
@@ -40,4 +40,4 @@ f0: [6 registers]
   s9:
     CoreSet(Jump { target_state: s1 })
   s10:
-    CoreSet(Return { src: r2 })
+    ExcSet(Raise { src: r2 })

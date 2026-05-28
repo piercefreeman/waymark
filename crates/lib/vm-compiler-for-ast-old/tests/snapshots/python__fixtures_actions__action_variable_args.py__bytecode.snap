@@ -19,7 +19,7 @@ f0: [4 registers]
   s3:
     ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("multiply_by"), args: [r1, r0], resume: s5 })
   s4:
-    CoreSet(Return { src: r1 })
+    ExcSet(Raise { src: r1 })
   s5:
     CoreSet(Await { dst: r3, src: r3, resume: s6 })
   s6:
@@ -29,4 +29,4 @@ f0: [4 registers]
   s7:
     CoreSet(Return { src: r3 })
   s8:
-    CoreSet(Return { src: r3 })
+    ExcSet(Raise { src: r3 })

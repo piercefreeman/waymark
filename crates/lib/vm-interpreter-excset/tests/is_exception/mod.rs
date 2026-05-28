@@ -5,7 +5,7 @@ use waymark_vm_interpreter_excset::Error;
 use waymark_vm_runtime::RunError;
 use waymark_vm_runtime_core::RegisterId;
 
-use crate::support::{RuntimeInstruction, TestValue, run};
+use crate::support::{RuntimeEffect, RuntimeInstruction, TestValue, run};
 
 #[test]
 fn runtime_executes_is_exception_to_true_for_matching_exception_types() {
@@ -31,7 +31,7 @@ fn runtime_executes_is_exception_to_true_for_matching_exception_types() {
     )
     .expect("runtime should emit true for matching exception types");
 
-    assert_eq!(value, TestValue::Bool(true));
+    assert_eq!(value, RuntimeEffect::Register(TestValue::Bool(true)));
 }
 
 #[test]
@@ -58,7 +58,7 @@ fn runtime_executes_is_exception_to_false_for_non_matching_exception_types() {
     )
     .expect("runtime should emit false for non-matching exception types");
 
-    assert_eq!(value, TestValue::Bool(false));
+    assert_eq!(value, RuntimeEffect::Register(TestValue::Bool(false)));
 }
 
 #[test]
@@ -85,7 +85,7 @@ fn runtime_executes_is_exception_to_false_for_non_exception_values() {
     )
     .expect("runtime should emit false for non-exception values");
 
-    assert_eq!(value, TestValue::Bool(false));
+    assert_eq!(value, RuntimeEffect::Register(TestValue::Bool(false)));
 }
 
 #[test]
@@ -108,7 +108,7 @@ fn runtime_executes_is_exception_to_true_for_exception_wildcard() {
     )
     .expect("runtime should treat a missing type id as a catch-all exception check");
 
-    assert_eq!(value, TestValue::Bool(true));
+    assert_eq!(value, RuntimeEffect::Register(TestValue::Bool(true)));
 }
 
 #[test]

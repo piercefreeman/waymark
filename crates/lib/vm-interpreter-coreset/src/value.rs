@@ -22,7 +22,10 @@ pub trait CaptureCallArgument {
 
 /// A unifying trait for all value requirements.
 pub trait Value:
-    waymark_vm_runtime_value::RootValueAccess<RootValue = Self> + CaptureCallArgument + ShouldJump
+    waymark_vm_runtime_value::RootValueAccess<RootValue = Self>
+    + CaptureCallArgument
+    + ShouldJump
+    + waymark_vm_runtime_exception::AsException
 {
 }
 
@@ -30,5 +33,6 @@ impl<T> Value for T where
     T: waymark_vm_runtime_value::RootValueAccess<RootValue = Self>
         + CaptureCallArgument
         + ShouldJump
+        + waymark_vm_runtime_exception::AsException
 {
 }

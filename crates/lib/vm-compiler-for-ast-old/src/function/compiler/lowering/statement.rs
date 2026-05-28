@@ -225,8 +225,8 @@ where
         Ok(())
     }
 
-    /// Compiles a `try`/`except` block by routing awaited exception values into
-    /// handler entry states.
+    /// Compiles a `try`/`except` block by routing explicit await-side exception
+    /// checks into shared handler entry states.
     fn compile_try_except(
         &mut self,
         try_block: &Spanned<Block>,

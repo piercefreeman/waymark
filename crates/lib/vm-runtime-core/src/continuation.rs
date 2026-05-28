@@ -1,5 +1,15 @@
 use crate::{Frame, RegisterId};
 
+/// A frame resumed from a continuation, together with the destination register
+/// that received the resumed value.
+pub struct ResumedFrame<FunctionId, StateId, Value> {
+    /// The resumed frame.
+    pub frame: Frame<FunctionId, StateId, Value>,
+
+    /// The register populated during resume.
+    pub dst: RegisterId,
+}
+
 /// Captures the ability to resume the execution from the given state when
 /// after a certain async value is resolved.
 ///
@@ -45,6 +55,11 @@ impl<FunctionId, StateId, Value> Continuation<FunctionId, StateId, Value, Resume
 
     /// Resume the continuation with the provided value.
     pub fn resume(self, value: Value) -> Frame<FunctionId, StateId, Value> {
+        self.resume_with_destination(value).frame
+    }
+
+    /// Resume the continuation and report the destination register.
+    pub fn resume_with_destination(self, value: Value) -> ResumedFrame<FunctionId, StateId, Value> {
         let Self {
             mut prepared_resume_frame,
             resumer: ResumeWithValue { dst },
@@ -53,7 +68,10 @@ impl<FunctionId, StateId, Value> Continuation<FunctionId, StateId, Value, Resume
         // Assign the value to the register where it belongs.
         prepared_resume_frame.regs.set(dst, value);
 
-        prepared_resume_frame
+        ResumedFrame {
+            frame: prepared_resume_frame,
+            dst,
+        }
     }
 
     /// Resume the continuation with the provided value immediately.

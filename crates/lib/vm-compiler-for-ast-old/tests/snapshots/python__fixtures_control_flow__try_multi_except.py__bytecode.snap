@@ -50,7 +50,7 @@ f0: [6 registers]
   s11:
     CoreSet(Jump { target_state: s1 })
   s12:
-    CoreSet(Return { src: r3 })
+    ExcSet(Raise { src: r3 })
   s13:
     CoreSet(Await { dst: r3, src: r3, resume: s14 })
   s14:
@@ -60,7 +60,7 @@ f0: [6 registers]
   s15:
     CoreSet(Jump { target_state: s1 })
   s16:
-    CoreSet(Return { src: r3 })
+    ExcSet(Raise { src: r3 })
   s17:
     CoreSet(Await { dst: r3, src: r3, resume: s18 })
   s18:
@@ -70,4 +70,4 @@ f0: [6 registers]
   s19:
     CoreSet(Jump { target_state: s1 })
   s20:
-    CoreSet(Return { src: r3 })
+    ExcSet(Raise { src: r3 })

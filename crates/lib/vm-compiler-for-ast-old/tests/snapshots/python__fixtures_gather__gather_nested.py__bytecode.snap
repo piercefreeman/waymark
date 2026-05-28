@@ -23,7 +23,7 @@ f0: [5 registers]
   s4:
     CoreSet(Await { dst: r2, src: r2, resume: s6 })
   s5:
-    CoreSet(Return { src: r1 })
+    ExcSet(Raise { src: r1 })
   s6:
     ExcSet(IsException { dst: r3, src: r2, exception_type_id: None })
     CoreSet(JumpIf { target_state: s8, cond: r3 })
@@ -32,7 +32,7 @@ f0: [5 registers]
     PureSet(MakeList { dst: r0, items: [r1, r2] })
     ExtCallSet(ActionCall { dst: r4, action_ref: TestActionRef("combine"), args: [r0], resume: s9 })
   s8:
-    CoreSet(Return { src: r2 })
+    ExcSet(Raise { src: r2 })
   s9:
     CoreSet(Await { dst: r4, src: r4, resume: s10 })
   s10:
@@ -42,4 +42,4 @@ f0: [5 registers]
   s11:
     CoreSet(Return { src: r4 })
   s12:
-    CoreSet(Return { src: r4 })
+    ExcSet(Raise { src: r4 })

@@ -90,7 +90,7 @@ fn runtime_resumes_extcalls_and_finishes_with_pure_work() {
 
     match effect {
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(value)) => {
-            assert_eq!(value, TestReadyValue::Int(42));
+            assert_eq!(value, Ok(TestReadyValue::Int(42)));
         }
         Effect::ExcSet(effect) => match effect {},
         Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall { .. }) => {

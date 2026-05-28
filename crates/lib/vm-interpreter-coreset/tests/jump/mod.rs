@@ -28,6 +28,6 @@ fn runtime_follows_jump_and_jump_if_before_returning() {
     let effect = runtime.run().expect("jump program should complete");
 
     match effect {
-        Effect::Complete(value) => assert_eq!(value, TestReadyValue(9)),
+        Effect::Complete(value) => assert_eq!(value, Ok(TestReadyValue(9))),
     }
 }

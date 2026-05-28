@@ -135,7 +135,7 @@ fn whole_program_async_indexed_for_loops_match_the_documented_lowering_shape() {
         PureSet(Binary { kind: Add, op: BinaryOp { dst: r1, a: r1, b: r5 } })
         CoreSet(Jump { target_state: s3 })
       s8:
-        CoreSet(Return { src: r7 })
+        ExcSet(Raise { src: r7 })
     "#);
 }
 

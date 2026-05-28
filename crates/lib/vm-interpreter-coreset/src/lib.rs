@@ -33,7 +33,76 @@ pub struct RuntimeView<'r, Executable, FunctionId, StateId, Value> {
 #[derive(Debug)]
 pub enum Effect<Value> {
     /// Program execution is complete.
-    Complete(Value),
+    Complete(Result<Value, Value>),
+}
+
+impl<Value> From<Result<Value, Value>> for Effect<Value> {
+    fn from(value: Result<Value, Value>) -> Self {
+        Self::Complete(value)
+    }
+}
+
+type FrameFor<Spec, Value> = Frame<
+    <Spec as waymark_vm_instructions_coreset::Spec>::FunctionId,
+    <Spec as waymark_vm_instructions_coreset::Spec>::StateId,
+    Value,
+>;
+
+type RuntimeStateFor<Spec, Value> = RuntimeState<
+    <Spec as waymark_vm_instructions_coreset::Spec>::FunctionId,
+    <Spec as waymark_vm_instructions_coreset::Spec>::StateId,
+    Value,
+>;
+
+type OutcomeFor<Spec, Value> = ExecutionOutcome<
+    FrameFor<Spec, Value>,
+    Effect<<Value as waymark_vm_runtime_promise_core::Resolvable>::ReadyValue>,
+>;
+
+impl<Spec, Executable, Value> CoreSetInterpreter<Spec, Executable, Value>
+where
+    Executable: 'static,
+    Executable: waymark_vm_executable::FunctionInfo<FunctionId = Spec::FunctionId>,
+    Spec: waymark_vm_instructions_coreset::Spec<RegisterId = waymark_vm_runtime_core::RegisterId>,
+    Spec::FunctionId: Copy,
+    Spec::StateId: Copy + Default,
+    Value: self::Value,
+    Value: Clone,
+    Value: waymark_vm_runtime_promise_core::Suspendable,
+    Value: waymark_vm_runtime_promise_core::Resolvable,
+    Value::ReadyValue: Clone,
+    Value: 'static,
+{
+    fn return_from_register(
+        state: &mut RuntimeStateFor<Spec, Value>,
+        frame: FrameFor<Spec, Value>,
+        src: waymark_vm_runtime_core::RegisterId,
+    ) -> Result<OutcomeFor<Spec, Value>, ReturnError> {
+        let val = frame.regs[src].clone();
+
+        Ok(match frame.kind {
+            FrameKind::FnCall { ret } => {
+                state
+                    .resolve_promise(ret, val)
+                    .map_err(|error| match error {
+                        waymark_vm_runtime_core::ResolvePromiseError::PromiseStateNotFound(_) => {
+                            ReturnFnCallError::ReturnPromiseNotFound
+                        }
+                        waymark_vm_runtime_core::ResolvePromiseError::AlreadyResolved(_) => {
+                            ReturnFnCallError::ReturnPromiseAlreadyResolved
+                        }
+                    })
+                    .map_err(ReturnError::FnCall)?;
+                ExecutionOutcome::ExitFrame
+            }
+            FrameKind::TopLevel => {
+                let val = val
+                    .into_ready()
+                    .map_err(|(error, _)| ReturnError::TopLevel(error))?;
+                ExecutionOutcome::ExitFrameWithEffect(Effect::Complete(Ok(val)))
+            }
+        })
+    }
 }
 
 impl<Spec, Executable, Value> waymark_vm_interpreter::Interpreter
@@ -103,8 +172,7 @@ where
                 state.ready.push_back(new_frame);
             }
             waymark_vm_instructions_coreset::CoreSet::Await { dst, src, resume } => {
-                let value = &frame.regs[*src];
-                match value.as_ready() {
+                match frame.regs[*src].as_ready().cloned() {
                     Err(waymark_vm_runtime_promise_core::UnresolvedPromiseError {
                         promise_state_id,
                     }) => {
@@ -121,6 +189,7 @@ where
                                     *dst,
                                     value.clone(),
                                 );
+
                                 state.ready.push_back(frame);
                                 ExecutionOutcome::ExitFrame
                             }
@@ -130,7 +199,14 @@ where
                             }
                         });
                     }
-                    Ok(value) => frame.regs.set(*dst, Value::from_ready(value.clone())),
+                    Ok(value) => {
+                        Continuation::immediate_resume(
+                            &mut frame,
+                            *resume,
+                            *dst,
+                            Value::from_ready(value.clone()),
+                        );
+                    }
                 }
             }
             waymark_vm_instructions_coreset::CoreSet::Jump { target_state } => {
@@ -149,34 +225,7 @@ where
                 }
             }
             waymark_vm_instructions_coreset::CoreSet::Return { src } => {
-                let val = frame.regs[*src].clone();
-
-                return Ok(match frame.kind {
-                    FrameKind::FnCall { ret } => {
-                        state
-                            .resolve_promise(ret, val)
-                            .map_err(|error| {
-                                match error {
-                                waymark_vm_runtime_core::ResolvePromiseError::PromiseStateNotFound(
-                                    _,
-                                ) => ReturnFnCallError::ReturnPromiseNotFound,
-                                waymark_vm_runtime_core::ResolvePromiseError::AlreadyResolved(
-                                    _,
-                                ) => ReturnFnCallError::ReturnPromiseAlreadyResolved,
-                            }
-                            })
-                            .map_err(ReturnError::FnCall)
-                            .map_err(Error::Return)?;
-                        ExecutionOutcome::ExitFrame
-                    }
-                    FrameKind::TopLevel => {
-                        let val = val
-                            .into_ready()
-                            .map_err(|(error, _)| ReturnError::TopLevel(error))
-                            .map_err(Error::Return)?;
-                        ExecutionOutcome::ExitFrameWithEffect(Effect::Complete(val))
-                    }
-                });
+                return Self::return_from_register(state, frame, *src).map_err(Error::Return);
             }
         }
 

@@ -62,9 +62,13 @@ impl ExceptionScopeStack {
         self.current.clone()
     }
 
-    /// Returns whether there is no active exception scope.
-    pub(super) fn is_empty(&self) -> bool {
-        self.current.is_none()
+    /// Records potential handler-entry flows for an exception raised here.
+    pub(super) fn record_dispatch_flows(&self, flow_state: &FlowState) {
+        let Some(scope) = self.current_scope() else {
+            return;
+        };
+
+        scope.record_dispatch_flows(flow_state);
     }
 }
 
@@ -115,14 +119,14 @@ impl ExceptionScope {
         }
     }
 
-    /// Returns the outer exception scope used for propagation.
-    pub(super) fn outer(&self) -> ExceptionScopeStack {
-        self.outer.clone()
-    }
-
     /// Returns the scope-local register that stores the active exception.
     pub(super) fn exception_register(&self) -> Marked<RegisterId, ExceptionMarker> {
         self.exception_register
+    }
+
+    /// Returns the next outer scope visible from this one.
+    pub(super) fn outer_scope(&self) -> Option<Rc<ExceptionScope>> {
+        self.outer.current_scope()
     }
 
     /// Returns the handlers in source order.
@@ -149,5 +153,18 @@ impl ExceptionScope {
             .iter()
             .map(|flows| flows.clone().map(FlowState::intersect_branches))
             .collect()
+    }
+
+    /// Records all handler entries and outer scopes that might see this raise.
+    fn record_dispatch_flows(&self, flow_state: &FlowState) {
+        for (handler_index, handler) in self.handlers.iter().enumerate() {
+            self.record_handler_flow(handler_index, flow_state);
+
+            if handler.is_catch_all() {
+                return;
+            }
+        }
+
+        self.outer.record_dispatch_flows(flow_state);
     }
 }

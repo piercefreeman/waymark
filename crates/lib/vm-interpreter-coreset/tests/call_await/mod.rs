@@ -38,6 +38,6 @@ fn runtime_executes_call_await_and_return_to_completion() {
         .expect("call/await/return program should complete");
 
     match effect {
-        Effect::Complete(value) => assert_eq!(value, TestReadyValue(7)),
+        Effect::Complete(value) => assert_eq!(value, Ok(TestReadyValue(7))),
     }
 }

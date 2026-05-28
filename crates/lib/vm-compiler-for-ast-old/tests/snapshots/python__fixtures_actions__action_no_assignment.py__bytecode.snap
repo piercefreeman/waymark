@@ -21,7 +21,7 @@ f0: [3 registers]
   s3:
     ExtCallSet(ActionCall { dst: r2, action_ref: TestActionRef("get_final_value"), args: [], resume: s5 })
   s4:
-    CoreSet(Return { src: r0 })
+    ExcSet(Raise { src: r0 })
   s5:
     CoreSet(Await { dst: r2, src: r2, resume: s6 })
   s6:
@@ -32,7 +32,7 @@ f0: [3 registers]
     PureSet(LoadConst { dst: r1, value: String("finished") })
     ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("log_event"), args: [r1], resume: s9 })
   s8:
-    CoreSet(Return { src: r2 })
+    ExcSet(Raise { src: r2 })
   s9:
     CoreSet(Await { dst: r0, src: r0, resume: s10 })
   s10:
@@ -42,4 +42,4 @@ f0: [3 registers]
   s11:
     CoreSet(Return { src: r2 })
   s12:
-    CoreSet(Return { src: r0 })
+    ExcSet(Raise { src: r0 })

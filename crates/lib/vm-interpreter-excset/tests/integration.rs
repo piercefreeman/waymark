@@ -5,4 +5,5 @@
 
 mod exception_details;
 mod is_exception;
+mod raise;
 mod support;

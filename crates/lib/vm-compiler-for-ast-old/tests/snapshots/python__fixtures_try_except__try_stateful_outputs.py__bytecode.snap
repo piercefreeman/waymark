@@ -38,7 +38,7 @@ f0: [9 registers]
     PureSet(Copy { dst: r3, src: r5 })
     ExcSet(IsException { dst: r7, src: r3, exception_type_id: Some(r4) })
     CoreSet(JumpIf { target_state: s2, cond: r7 })
-    CoreSet(Return { src: r3 })
+    ExcSet(Raise { src: r3 })
   s7:
     CoreSet(Await { dst: r2, src: r2, resume: s8 })
   s8:
@@ -51,7 +51,7 @@ f0: [9 registers]
     PureSet(Copy { dst: r3, src: r2 })
     ExcSet(IsException { dst: r7, src: r3, exception_type_id: Some(r4) })
     CoreSet(JumpIf { target_state: s2, cond: r7 })
-    CoreSet(Return { src: r3 })
+    ExcSet(Raise { src: r3 })
   s11:
     CoreSet(Await { dst: r2, src: r2, resume: s12 })
   s12:
@@ -62,7 +62,7 @@ f0: [9 registers]
     PureSet(LoadConst { dst: r1, value: Bool(true) })
     CoreSet(Jump { target_state: s1 })
   s14:
-    CoreSet(Return { src: r2 })
+    ExcSet(Raise { src: r2 })
   s15:
     CoreSet(Await { dst: r8, src: r8, resume: s16 })
   s16:
@@ -72,4 +72,4 @@ f0: [9 registers]
   s17:
     CoreSet(Return { src: r8 })
   s18:
-    CoreSet(Return { src: r8 })
+    ExcSet(Raise { src: r8 })

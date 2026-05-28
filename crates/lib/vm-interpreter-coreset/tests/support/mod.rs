@@ -43,6 +43,21 @@ impl waymark_vm_instructions_coreset::Spec for TestSpec {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TestReadyValue(pub i64);
 
+impl waymark_vm_runtime_value::RootValueAccess for TestReadyValue {
+    type RootValue = TestValue;
+}
+
+impl waymark_vm_runtime_exception::AsException for TestReadyValue {
+    fn as_exception(
+        &self,
+    ) -> Result<
+        &waymark_vm_runtime_exception::Exception<TestValue>,
+        waymark_vm_runtime_exception::AsExceptionError,
+    > {
+        Err(waymark_vm_runtime_exception::AsExceptionError::NotAnException)
+    }
+}
+
 /// Minimal promise-aware value: ready holds a [`TestReadyValue`], pending
 /// holds a promise state id.
 ///
@@ -71,6 +86,21 @@ impl waymark_vm_interpreter_coreset::value::ShouldJump for TestValue {
         match self {
             Self::Ready(TestReadyValue(value)) => Ok(*value != 0),
             Self::Pending(_) => Err(waymark_vm_interpreter_coreset::value::NotAConditionalError),
+        }
+    }
+}
+
+impl waymark_vm_runtime_exception::AsException for TestValue {
+    fn as_exception(
+        &self,
+    ) -> Result<
+        &waymark_vm_runtime_exception::Exception<Self::RootValue>,
+        waymark_vm_runtime_exception::AsExceptionError,
+    > {
+        match self {
+            Self::Ready(_) | Self::Pending(_) => {
+                Err(waymark_vm_runtime_exception::AsExceptionError::NotAnException)
+            }
         }
     }
 }

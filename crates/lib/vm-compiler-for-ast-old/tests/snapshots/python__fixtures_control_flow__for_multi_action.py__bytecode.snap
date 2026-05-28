@@ -45,7 +45,7 @@ f0: [11 registers]
   s7:
     ExtCallSet(ActionCall { dst: r10, action_ref: TestActionRef("step_two_for"), args: [r9], resume: s9 })
   s8:
-    CoreSet(Return { src: r9 })
+    ExcSet(Raise { src: r9 })
   s9:
     CoreSet(Await { dst: r10, src: r10, resume: s10 })
   s10:
@@ -57,4 +57,4 @@ f0: [11 registers]
     PureSet(Binary { kind: Add, op: BinaryOp { dst: r4, a: r4, b: r3 } })
     CoreSet(Jump { target_state: s3 })
   s12:
-    CoreSet(Return { src: r10 })
+    ExcSet(Raise { src: r10 })

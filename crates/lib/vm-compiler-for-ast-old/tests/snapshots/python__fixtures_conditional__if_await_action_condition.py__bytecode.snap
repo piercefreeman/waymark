@@ -21,7 +21,7 @@ f0: [3 registers]
     CoreSet(JumpIf { target_state: s6, cond: r1 })
     CoreSet(Jump { target_state: s5 })
   s4:
-    CoreSet(Return { src: r1 })
+    ExcSet(Raise { src: r1 })
   s5:
     PureSet(LoadConst { dst: r2, value: Int(0) })
     CoreSet(Return { src: r2 })

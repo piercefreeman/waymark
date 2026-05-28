@@ -27,7 +27,7 @@ fn completed_value(
     effect: Effect<TestReadyValue, TestActionRef, TestReadyValue>,
 ) -> TestReadyValue {
     match effect {
-        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(value)) => value,
+        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(Ok(value))) => value,
         other => panic!("unexpected runtime effect: {other:?}"),
     }
 }
@@ -61,8 +61,8 @@ fn compiles_assignments_and_addition_to_completion() {
     let effect = runtime.run().expect("program should complete");
 
     match effect {
-        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(TestReadyValue::Int(
-            value,
+        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(Ok(
+            TestReadyValue::Int(value),
         ))) => assert_eq!(value, 5),
         other => panic!("unexpected runtime effect: {other:?}"),
     }
@@ -378,8 +378,8 @@ fn compiles_user_function_calls() {
     let effect = runtime.run().expect("program should complete");
 
     match effect {
-        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(TestReadyValue::Int(
-            value,
+        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(Ok(
+            TestReadyValue::Int(value),
         ))) => assert_eq!(value, 42),
         other => panic!("unexpected runtime effect: {other:?}"),
     }
@@ -423,8 +423,8 @@ fn compiles_action_calls_into_extcalls() {
         .expect("program should complete after resolution");
 
     match effect {
-        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(TestReadyValue::Int(
-            value,
+        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(Ok(
+            TestReadyValue::Int(value),
         ))) => assert_eq!(value, 42),
         other => panic!("unexpected second runtime effect: {other:?}"),
     }
@@ -1117,8 +1117,8 @@ fn compiles_parallel_action_blocks_with_multiple_outstanding_extcalls() {
         .expect("program should complete after resolving both extcalls");
 
     match effect {
-        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(TestReadyValue::Int(
-            value,
+        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(Ok(
+            TestReadyValue::Int(value),
         ))) => assert_eq!(value, 7),
         other => panic!("unexpected final runtime effect: {other:?}"),
     }
@@ -1266,8 +1266,8 @@ fn compiles_mixed_parallel_blocks_with_leading_action_before_awaiting() {
         .expect("program should complete after resolving both extcalls");
 
     match effect {
-        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(TestReadyValue::Int(
-            value,
+        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(Ok(
+            TestReadyValue::Int(value),
         ))) => assert_eq!(value, 7),
         other => panic!("unexpected final runtime effect: {other:?}"),
     }
@@ -1287,8 +1287,8 @@ fn compiles_empty_parallel_blocks_as_noops() {
     let effect = runtime.run().expect("program should complete");
 
     match effect {
-        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(TestReadyValue::Int(
-            value,
+        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(Ok(
+            TestReadyValue::Int(value),
         ))) => assert_eq!(value, 5),
         other => panic!("unexpected runtime effect: {other:?}"),
     }
@@ -1351,8 +1351,8 @@ fn compiles_parallel_expressions_into_positional_assignments() {
         .expect("program should complete after resolving the parallel expression");
 
     match effect {
-        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(TestReadyValue::Int(
-            value,
+        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(Ok(
+            TestReadyValue::Int(value),
         ))) => assert_eq!(value, 9),
         other => panic!("unexpected second runtime effect: {other:?}"),
     }
@@ -1438,8 +1438,8 @@ fn compiles_mixed_parallel_expressions_with_leading_action_before_awaiting() {
         .expect("program should complete after resolving both extcalls");
 
     match effect {
-        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(TestReadyValue::Int(
-            value,
+        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(Ok(
+            TestReadyValue::Int(value),
         ))) => assert_eq!(value, 43),
         other => panic!("unexpected final runtime effect: {other:?}"),
     }
@@ -1498,9 +1498,9 @@ fn compiles_parallel_expressions_into_aggregate_lists() {
         .expect("program should complete after resolving the parallel expression");
 
     match effect {
-        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(
+        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(Ok(
             TestReadyValue::List(values),
-        )) => assert_eq!(
+        ))) => assert_eq!(
             values,
             vec![
                 TestValue::Ready(TestReadyValue::Int(4)),
@@ -1579,8 +1579,8 @@ fn compiles_parallel_expression_results_by_call_position() {
         .expect("program should complete after resolving both parallel expression calls");
 
     match effect {
-        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(TestReadyValue::Int(
-            value,
+        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(Ok(
+            TestReadyValue::Int(value),
         ))) => assert_eq!(value, 30),
         other => panic!("unexpected final runtime effect: {other:?}"),
     }

@@ -106,7 +106,10 @@ pub async fn run(
         }
     });
 
-    let value = completion_rx.await?;
-
-    Ok(value)
+    match completion_rx.await? {
+        Ok(value) => Ok(value),
+        Err(exception) => Err(waymark_fn_main_common::Error::msg(format!(
+            "VM completed with an exception: {exception:?}"
+        ))),
+    }
 }

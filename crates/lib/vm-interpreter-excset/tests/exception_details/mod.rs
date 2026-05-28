@@ -5,7 +5,7 @@ use waymark_vm_interpreter_excset::Error;
 use waymark_vm_runtime::RunError;
 use waymark_vm_runtime_core::RegisterId;
 
-use crate::support::{RuntimeInstruction, TestValue, run};
+use crate::support::{RuntimeEffect, RuntimeInstruction, TestValue, run};
 
 #[test]
 fn runtime_executes_exception_details_to_a_terminal_effect() {
@@ -26,7 +26,7 @@ fn runtime_executes_exception_details_to_a_terminal_effect() {
     )
     .expect("runtime should emit the captured exception details");
 
-    assert_eq!(value, TestValue::Text("payload"));
+    assert_eq!(value, RuntimeEffect::Register(TestValue::Text("payload")));
 }
 
 #[test]

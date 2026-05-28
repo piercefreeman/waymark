@@ -44,7 +44,7 @@ fn runtime_executes_pure_and_core_instructions_to_completion() {
 
     match effect {
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(value)) => {
-            assert_eq!(value, TestReadyValue::Int(5));
+            assert_eq!(value, Ok(TestReadyValue::Int(5)));
         }
         Effect::ExcSet(effect) => match effect {},
         Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall { .. }) => {

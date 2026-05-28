@@ -25,4 +25,4 @@ f0: [7 registers]
     PureSet(MakeDict { dst: r2, entries: [DictEntry { key: r1, value: r0 }, DictEntry { key: r3, value: r4 }, DictEntry { key: r5, value: r6 }] })
     CoreSet(Return { src: r2 })
   s4:
-    CoreSet(Return { src: r0 })
+    ExcSet(Raise { src: r0 })

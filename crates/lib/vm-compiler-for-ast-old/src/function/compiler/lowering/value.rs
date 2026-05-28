@@ -10,7 +10,7 @@ use crate::Marked;
 
 use super::CompilerContextRef;
 use super::env::RegisterHandle;
-use super::exception::{ExceptionMarker, ExceptionScopeStack};
+use super::exception::{ExceptionMarker, ExceptionScope};
 use super::plan::call::{
     ActionCallPlanFor, CallPlan, CallPlanFor, FunctionCallPlan, UnsupportedFunctionCall,
     compile_expr_registers,
@@ -230,7 +230,7 @@ where
 
         drop(args);
 
-        self.context.emitter.switch_to(resume_state);
+        self.switch_to_state(resume_state);
 
         Ok(())
     }
@@ -249,7 +249,7 @@ where
             .emitter
             .emit_sleep(dst.marked(), duration_register.register(), resume_state);
 
-        self.context.emitter.switch_to(resume_state);
+        self.switch_to_state(resume_state);
 
         Ok(())
     }
@@ -650,63 +650,53 @@ where
             .emitter
             .emit_await(target_register, promise_register.marked(), resume_state);
 
-        self.context.emitter.switch_to(resume_state);
+        self.switch_to_state(resume_state);
+
+        self.context
+            .exception_scope
+            .record_dispatch_flows(self.context.flow_state);
         self.compile_exception_dispatch_if_needed(target_register);
     }
 
-    /// Emits exception dispatch after an awaited result.
-    ///
-    /// When a `try`/`except` scope is active, routes the exception value into
-    /// the scope's handler dispatch. Otherwise bubbles the exception out of
-    /// the current frame by returning it so the caller's own dispatch (or its
-    /// caller's, transitively) can observe it.
-    fn compile_exception_dispatch_if_needed(&mut self, result_register: RegisterId) {
+    /// Emits an explicit post-`await` exception check for `target_register`.
+    fn compile_exception_dispatch_if_needed(&mut self, target_register: RegisterId) {
         let continue_state = self.reserve_state();
         let exception_state = self.reserve_state();
         let is_exception = self.allocate_result_register(ResultTarget::Allocate);
 
         self.context
             .emitter
-            .emit_is_exception(is_exception.register(), result_register, None);
+            .emit_is_exception(is_exception.register(), target_register, None);
         self.context
             .emitter
             .emit_jump_if(exception_state, is_exception.register());
         self.context.emitter.emit_jump(continue_state);
 
-        self.context.emitter.switch_to(exception_state);
+        self.switch_to_state(exception_state);
+
         match self.context.exception_scope.current_scope() {
             Some(scope) => {
-                if *scope.exception_register() != result_register {
+                let exception_register = scope.exception_register();
+                if *exception_register != target_register {
                     self.context
                         .emitter
-                        .emit_copy(*scope.exception_register(), result_register);
+                        .emit_copy(*exception_register, target_register);
                 }
-                let exception_scope = self.context.exception_scope.clone();
-                self.emit_known_exception_dispatch(&exception_scope, scope.exception_register());
+                self.emit_known_exception_dispatch(scope.as_ref(), exception_register);
             }
-            None => {
-                self.context.emitter.emit_return(result_register);
-            }
+            None => self.context.emitter.emit_raise(target_register),
         }
-        self.context.emitter.switch_to(continue_state);
+
+        self.switch_to_state(continue_state);
     }
 
     /// Emits handler dispatch for a value already known to be an exception.
     fn emit_known_exception_dispatch(
         &mut self,
-        exception_scope: &ExceptionScopeStack,
+        scope: &ExceptionScope,
         exception_register: Marked<RegisterId, ExceptionMarker>,
     ) {
-        let Some(scope) = exception_scope.current_scope() else {
-            self.context.emitter.emit_return(*exception_register);
-            return;
-        };
-
-        let entry_flow = self.context.flow_state.clone();
-
-        for (handler_index, handler) in scope.handlers().iter().enumerate() {
-            scope.record_handler_flow(handler_index, &entry_flow);
-
+        for handler in scope.handlers() {
             if handler.is_catch_all() {
                 self.context.emitter.emit_jump(handler.entry_state());
                 return;
@@ -725,27 +715,28 @@ where
             }
         }
 
-        let outer_scope = scope.outer();
-        if outer_scope.is_empty() {
-            self.context.emitter.emit_return(*exception_register);
-            return;
+        match scope.outer_scope() {
+            Some(outer_scope) => {
+                let outer_register = outer_scope.exception_register();
+                if outer_register != exception_register {
+                    self.context
+                        .emitter
+                        .emit_copy(*outer_register, *exception_register);
+                }
+                self.emit_known_exception_dispatch(outer_scope.as_ref(), outer_register);
+            }
+            None => self.context.emitter.emit_raise(*exception_register),
         }
-
-        let outer = outer_scope
-            .current_scope()
-            .expect("non-empty outer exception scope should exist");
-        if outer.exception_register() != exception_register {
-            self.context
-                .emitter
-                .emit_copy(*outer.exception_register(), *exception_register);
-        }
-
-        self.emit_known_exception_dispatch(&outer_scope, outer.exception_register());
     }
 
     /// Reserves a new bytecode state for a future resume point.
     fn reserve_state(&mut self) -> waymark_vm_bytecode_core::StateId {
         self.context.emitter.reserve_state()
+    }
+
+    /// Switches emission to the target state.
+    fn switch_to_state(&mut self, state_id: waymark_vm_bytecode_core::StateId) {
+        self.context.emitter.switch_to(state_id);
     }
 }
 
@@ -816,7 +807,7 @@ mod tests {
           CoreSet(Jump { target_state: s2 })
         s2:
         s3:
-          CoreSet(Return { src: r0 })
+          ExcSet(Raise { src: r0 })
         ");
     }
 
@@ -862,7 +853,7 @@ mod tests {
           CoreSet(Jump { target_state: s3 })
         s3:
         s4:
-          CoreSet(Return { src: r0 })
+          ExcSet(Raise { src: r0 })
         "#);
     }
 
@@ -903,7 +894,7 @@ mod tests {
           CoreSet(Jump { target_state: s3 })
         s3:
         s4:
-          CoreSet(Return { src: r0 })
+          ExcSet(Raise { src: r0 })
         ");
     }
 
@@ -1247,31 +1238,31 @@ mod tests {
         }
 
         let states = emitter.finish();
-        // r0 is the reused call result; r1 is the reused is_exception temp.
+        // r0 is the reused call result register; r1 is the reused exception-check temporary.
         assert_eq!(local_frame.num_registers(), 2);
         insta::assert_snapshot!(waymark_vm_bytecode_fmt::display(&states), @r#"
-        s0:
-          ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("fetch_first"), args: [], resume: s1 })
-        s1:
-          CoreSet(Await { dst: r0, src: r0, resume: s2 })
-        s2:
-          ExcSet(IsException { dst: r1, src: r0, exception_type_id: None })
-          CoreSet(JumpIf { target_state: s4, cond: r1 })
-          CoreSet(Jump { target_state: s3 })
-        s3:
-          ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("fetch_second"), args: [], resume: s5 })
-        s4:
-          CoreSet(Return { src: r0 })
-        s5:
-          CoreSet(Await { dst: r0, src: r0, resume: s6 })
-        s6:
-          ExcSet(IsException { dst: r1, src: r0, exception_type_id: None })
-          CoreSet(JumpIf { target_state: s8, cond: r1 })
-          CoreSet(Jump { target_state: s7 })
-        s7:
-        s8:
-          CoreSet(Return { src: r0 })
-        "#);
+                s0:
+                  ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("fetch_first"), args: [], resume: s1 })
+                s1:
+                  CoreSet(Await { dst: r0, src: r0, resume: s2 })
+                s2:
+                  ExcSet(IsException { dst: r1, src: r0, exception_type_id: None })
+                  CoreSet(JumpIf { target_state: s4, cond: r1 })
+                  CoreSet(Jump { target_state: s3 })
+                s3:
+                  ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("fetch_second"), args: [], resume: s5 })
+                s4:
+                  ExcSet(Raise { src: r0 })
+                s5:
+                  CoreSet(Await { dst: r0, src: r0, resume: s6 })
+                s6:
+                  ExcSet(IsException { dst: r1, src: r0, exception_type_id: None })
+                  CoreSet(JumpIf { target_state: s8, cond: r1 })
+                  CoreSet(Jump { target_state: s7 })
+                s7:
+                s8:
+                  ExcSet(Raise { src: r0 })
+                "#);
     }
 
     #[test]
@@ -1301,7 +1292,7 @@ mod tests {
         }
 
         let states = emitter.finish();
-        // r0 reused call result, r1 reused for both arguments and is_exception temp.
+        // r0 is the reused call result and r1 is reused for both arguments.
         assert_eq!(local_frame.num_registers(), 2);
         insta::assert_snapshot!(waymark_vm_bytecode_fmt::display(&states), @r#"
         s0:
@@ -1317,7 +1308,7 @@ mod tests {
           PureSet(LoadConst { dst: r1, value: Int(2) })
           ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("fetch_second"), args: [r1], resume: s5 })
         s4:
-          CoreSet(Return { src: r0 })
+          ExcSet(Raise { src: r0 })
         s5:
           CoreSet(Await { dst: r0, src: r0, resume: s6 })
         s6:
@@ -1326,7 +1317,7 @@ mod tests {
           CoreSet(Jump { target_state: s7 })
         s7:
         s8:
-          CoreSet(Return { src: r0 })
+          ExcSet(Raise { src: r0 })
         "#);
     }
 

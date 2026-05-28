@@ -41,7 +41,7 @@ f0: [8 registers]
     CoreSet(JumpIf { target_state: s10, cond: r7 })
     CoreSet(Jump { target_state: s9 })
   s8:
-    CoreSet(Return { src: r7 })
+    ExcSet(Raise { src: r7 })
   s9:
     CoreSet(Jump { target_state: s3 })
   s10:

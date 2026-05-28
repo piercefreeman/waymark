@@ -22,7 +22,7 @@ f0: [5 registers]
   s4:
     CoreSet(Await { dst: r1, src: r3, resume: s6 })
   s5:
-    CoreSet(Return { src: r0 })
+    ExcSet(Raise { src: r0 })
   s6:
     ExcSet(IsException { dst: r4, src: r1, exception_type_id: None })
     CoreSet(JumpIf { target_state: s8, cond: r4 })
@@ -31,4 +31,4 @@ f0: [5 registers]
     PureSet(MakeList { dst: r3, items: [r0, r1] })
     CoreSet(Return { src: r3 })
   s8:
-    CoreSet(Return { src: r1 })
+    ExcSet(Raise { src: r1 })

@@ -187,8 +187,8 @@ where
 impl<Executable, Interpreter, Value> Runtime<Executable, Interpreter, Value>
 where
     Executable: waymark_vm_executable::FunctionStates,
-    Value: waymark_vm_runtime_promise_core::Resolvable,
-    Value: Clone,
+    Executable::FunctionId: Copy,
+    Value: Clone + waymark_vm_runtime_promise_core::Resolvable,
 {
     /// Provide an async computation value for a given promise.
     ///

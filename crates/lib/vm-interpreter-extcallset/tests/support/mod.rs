@@ -44,6 +44,21 @@ impl waymark_vm_instructions_extcallset::Spec for TestSpec {
 #[derive(Debug, Clone)]
 pub struct TestReadyValue(pub i32);
 
+impl waymark_vm_runtime_value::RootValueAccess for TestReadyValue {
+    type RootValue = TestValue;
+}
+
+impl waymark_vm_runtime_exception::AsException for TestReadyValue {
+    fn as_exception(
+        &self,
+    ) -> Result<
+        &waymark_vm_runtime_exception::Exception<TestValue>,
+        waymark_vm_runtime_exception::AsExceptionError,
+    > {
+        Err(waymark_vm_runtime_exception::AsExceptionError::NotAnException)
+    }
+}
+
 /// Minimal promise-aware value: ready holds a [`TestReadyValue`], pending
 /// holds a promise state id.
 ///
@@ -170,6 +185,13 @@ impl From<ExtCallSet<TestSpec>> for RuntimeInstruction {
 pub enum TestEffect {
     ExtCallSet(Effect<usize, i32>),
     PendingPromiseStateId(PromiseStateId),
+    Complete,
+}
+
+impl From<Result<TestReadyValue, TestReadyValue>> for TestEffect {
+    fn from(_: Result<TestReadyValue, TestReadyValue>) -> Self {
+        Self::Complete
+    }
 }
 
 #[derive(Default)]

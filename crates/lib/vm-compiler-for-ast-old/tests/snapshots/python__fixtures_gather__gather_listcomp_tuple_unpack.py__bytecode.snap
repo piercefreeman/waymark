@@ -56,4 +56,4 @@ f0: [11 registers]
     PureSet(ListAppend { dst: r2, list: r2, item: r6 })
     CoreSet(Jump { target_state: s8 })
   s12:
-    CoreSet(Return { src: r6 })
+    ExcSet(Raise { src: r6 })

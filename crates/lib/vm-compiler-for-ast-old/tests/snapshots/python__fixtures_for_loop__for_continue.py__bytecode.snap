@@ -43,7 +43,7 @@ f0: [9 registers]
     CoreSet(JumpIf { target_state: s10, cond: r7 })
     CoreSet(Jump { target_state: s9 })
   s8:
-    CoreSet(Return { src: r7 })
+    ExcSet(Raise { src: r7 })
   s9:
     ExtCallSet(ActionCall { dst: r8, action_ref: TestActionRef("process_item"), args: [r6], resume: s11 })
   s10:
@@ -58,4 +58,4 @@ f0: [9 registers]
     PureSet(Binary { kind: Add, op: BinaryOp { dst: r1, a: r1, b: r8 } })
     CoreSet(Jump { target_state: s3 })
   s14:
-    CoreSet(Return { src: r8 })
+    ExcSet(Raise { src: r8 })

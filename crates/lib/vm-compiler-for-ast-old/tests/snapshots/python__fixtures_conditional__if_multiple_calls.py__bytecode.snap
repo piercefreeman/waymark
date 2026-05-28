@@ -29,7 +29,7 @@ f0: [5 registers]
   s5:
     ExtCallSet(ActionCall { dst: r4, action_ref: TestActionRef("if_step_two"), args: [r3], resume: s7 })
   s6:
-    CoreSet(Return { src: r3 })
+    ExcSet(Raise { src: r3 })
   s7:
     CoreSet(Await { dst: r4, src: r4, resume: s8 })
   s8:
@@ -39,4 +39,4 @@ f0: [5 registers]
   s9:
     CoreSet(Return { src: r4 })
   s10:
-    CoreSet(Return { src: r4 })
+    ExcSet(Raise { src: r4 })

@@ -81,6 +81,25 @@ impl waymark_vm_runtime_value::RootValueAccess for TestReadyValue {
     type RootValue = TestValue;
 }
 
+impl waymark_vm_runtime_exception::AsException for TestReadyValue {
+    fn as_exception(
+        &self,
+    ) -> Result<
+        &waymark_vm_runtime_exception::Exception<TestValue>,
+        waymark_vm_runtime_exception::NotAnExceptionError,
+    > {
+        Err(waymark_vm_runtime_exception::NotAnExceptionError)
+    }
+}
+
+impl From<Result<TestReadyValue, TestReadyValue>> for TestEffect {
+    fn from(value: Result<TestReadyValue, TestReadyValue>) -> Self {
+        match value {
+            Ok(value) | Err(value) => Self::Value(value),
+        }
+    }
+}
+
 impl waymark_vm_interpreter_coreset::value::CaptureCallArgument for TestReadyValue {
     fn capture_call_argument(&self) -> Self {
         self.clone()

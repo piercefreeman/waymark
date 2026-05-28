@@ -19,4 +19,4 @@ f0: [2 registers]
     PureSet(LoadConst { dst: r0, value: None })
     CoreSet(Return { src: r0 })
   s4:
-    CoreSet(Return { src: r0 })
+    ExcSet(Raise { src: r0 })

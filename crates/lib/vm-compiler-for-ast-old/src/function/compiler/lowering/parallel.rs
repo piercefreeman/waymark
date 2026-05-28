@@ -265,7 +265,7 @@ mod tests {
         s2:
           CoreSet(Await { dst: r2, src: r2, resume: s4 })
         s3:
-          CoreSet(Return { src: r1 })
+          ExcSet(Raise { src: r1 })
         s4:
           ExcSet(IsException { dst: r3, src: r2, exception_type_id: None })
           CoreSet(JumpIf { target_state: s6, cond: r3 })
@@ -273,7 +273,7 @@ mod tests {
         s5:
           PureSet(MakeList { dst: r0, items: [r1, r2] })
         s6:
-          CoreSet(Return { src: r2 })
+          ExcSet(Raise { src: r2 })
         ");
     }
 }

@@ -20,7 +20,7 @@ f0: [5 registers]
   s3:
     ExtCallSet(ActionCall { dst: r2, action_ref: TestActionRef("get_y"), args: [], resume: s5 })
   s4:
-    CoreSet(Return { src: r0 })
+    ExcSet(Raise { src: r0 })
   s5:
     CoreSet(Await { dst: r2, src: r2, resume: s6 })
   s6:
@@ -33,4 +33,4 @@ f0: [5 registers]
     PureSet(MakeDict { dst: r3, entries: [DictEntry { key: r1, value: r0 }, DictEntry { key: r4, value: r2 }] })
     CoreSet(Return { src: r3 })
   s8:
-    CoreSet(Return { src: r2 })
+    ExcSet(Raise { src: r2 })

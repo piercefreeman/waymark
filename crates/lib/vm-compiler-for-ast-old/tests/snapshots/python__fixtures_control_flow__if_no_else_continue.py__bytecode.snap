@@ -25,7 +25,7 @@ f0: [4 registers]
     CoreSet(JumpIf { target_state: s6, cond: r1 })
     CoreSet(Jump { target_state: s5 })
   s4:
-    CoreSet(Return { src: r0 })
+    ExcSet(Raise { src: r0 })
   s5:
     ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("finalize"), args: [r2], resume: s11 })
   s6:
@@ -40,7 +40,7 @@ f0: [4 registers]
   s9:
     CoreSet(Jump { target_state: s5 })
   s10:
-    CoreSet(Return { src: r2 })
+    ExcSet(Raise { src: r2 })
   s11:
     CoreSet(Await { dst: r3, src: r3, resume: s12 })
   s12:
@@ -50,4 +50,4 @@ f0: [4 registers]
   s13:
     CoreSet(Return { src: r3 })
   s14:
-    CoreSet(Return { src: r3 })
+    ExcSet(Raise { src: r3 })

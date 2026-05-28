@@ -46,4 +46,4 @@ f0: [10 registers]
     PureSet(Binary { kind: Add, op: BinaryOp { dst: r4, a: r4, b: r3 } })
     CoreSet(Jump { target_state: s3 })
   s8:
-    CoreSet(Return { src: r9 })
+    ExcSet(Raise { src: r9 })

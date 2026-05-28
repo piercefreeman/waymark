@@ -6,10 +6,15 @@
 
 use waymark_vm_instructions_excset::ExcSet;
 use waymark_vm_interpreter::ExecutionOutcome;
-use waymark_vm_interpreter_excset::{Error as InterpreterError, ExcSetInterpreter};
+use waymark_vm_interpreter_excset::{
+    Effect as ExcEffect, Error as InterpreterError, ExcSetInterpreter,
+};
 use waymark_vm_runtime::{RunError, Runtime};
-use waymark_vm_runtime_core::{Frame, RegisterId};
+use waymark_vm_runtime_core::{CaptureRuntimeView as _, Frame, FullRuntimeView, RegisterId};
+use waymark_vm_runtime_promise_core::{PromiseStateId, Resolvable, UnresolvedPromiseError};
 use waymark_vm_runtime_test::{FunctionId, StateId, executable, function};
+
+type RuntimeExecutable = waymark_vm_bytecode::Executable<RuntimeInstruction>;
 
 #[derive(Debug)]
 pub struct TestSpec;
@@ -24,6 +29,7 @@ pub enum TestValue {
     Int(i64),
     Text(&'static str),
     Exception(Box<waymark_vm_runtime_exception::Exception<TestValue>>),
+    Pending(PromiseStateId),
 }
 
 impl TestValue {
@@ -44,6 +50,7 @@ impl PartialEq for TestValue {
             (Self::Exception(a), Self::Exception(b)) => {
                 a.type_id == b.type_id && a.details == b.details
             }
+            (Self::Pending(a), Self::Pending(b)) => a == b,
             _ => false,
         }
     }
@@ -53,6 +60,42 @@ impl Eq for TestValue {}
 
 impl waymark_vm_runtime_value::RootValueAccess for TestValue {
     type RootValue = Self;
+}
+
+impl Resolvable for TestValue {
+    type ReadyValue = Self;
+
+    fn from_ready(value: Self::ReadyValue) -> Self {
+        value
+    }
+
+    fn into_ready(self) -> Result<Self::ReadyValue, (UnresolvedPromiseError, Self)> {
+        match self {
+            Self::Pending(promise_state_id) => Err((
+                UnresolvedPromiseError { promise_state_id },
+                Self::Pending(promise_state_id),
+            )),
+            value => Ok(value),
+        }
+    }
+
+    fn as_ready(&self) -> Result<&Self::ReadyValue, UnresolvedPromiseError> {
+        match self {
+            Self::Pending(promise_state_id) => Err(UnresolvedPromiseError {
+                promise_state_id: *promise_state_id,
+            }),
+            value => Ok(value),
+        }
+    }
+
+    fn as_ready_mut(&mut self) -> Result<&mut Self::ReadyValue, UnresolvedPromiseError> {
+        match self {
+            Self::Pending(promise_state_id) => Err(UnresolvedPromiseError {
+                promise_state_id: *promise_state_id,
+            }),
+            value => Ok(value),
+        }
+    }
 }
 
 static_assertions::assert_impl_all!(TestValue: waymark_vm_interpreter_excset::Value);
@@ -66,7 +109,7 @@ impl waymark_vm_runtime_exception::AsException for TestValue {
     > {
         match self {
             Self::Exception(exception) => Ok(exception.as_ref()),
-            Self::Bool(_) | Self::Int(_) | Self::Text(_) => {
+            Self::Bool(_) | Self::Int(_) | Self::Text(_) | Self::Pending(_) => {
                 Err(waymark_vm_runtime_exception::NotAnExceptionError)
             }
         }
@@ -79,7 +122,7 @@ impl waymark_vm_interpreter_excset::value::AsExceptionTypeId for TestValue {
     ) -> Result<&str, waymark_vm_interpreter_excset::value::NotAnExceptionTypeIdError> {
         match self {
             Self::Text(value) => Ok(value),
-            Self::Bool(_) | Self::Int(_) | Self::Exception(_) => {
+            Self::Bool(_) | Self::Int(_) | Self::Exception(_) | Self::Pending(_) => {
                 Err(waymark_vm_interpreter_excset::value::NotAnExceptionTypeIdError)
             }
         }
@@ -105,6 +148,18 @@ pub enum RuntimeInstruction {
     EmitRegister(RegisterId),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RuntimeEffect {
+    Register(TestValue),
+    Complete(Result<TestValue, TestValue>),
+}
+
+impl From<Result<TestValue, TestValue>> for RuntimeEffect {
+    fn from(value: Result<TestValue, TestValue>) -> Self {
+        Self::Complete(value)
+    }
+}
+
 impl From<ExcSet<TestSpec>> for RuntimeInstruction {
     fn from(value: ExcSet<TestSpec>) -> Self {
         Self::Exc(value)
@@ -113,7 +168,7 @@ impl From<ExcSet<TestSpec>> for RuntimeInstruction {
 
 #[derive(Default)]
 pub struct RuntimeInterpreter {
-    exc: ExcSetInterpreter<TestSpec, FunctionId, StateId, TestValue>,
+    exc: ExcSetInterpreter<TestSpec, RuntimeExecutable, FunctionId, StateId, TestValue>,
 }
 
 impl<Executable>
@@ -121,7 +176,7 @@ impl<Executable>
     for RuntimeInterpreter
 {
     type RuntimeView<'v>
-        = ()
+        = FullRuntimeView<'v, Executable, FunctionId, StateId, TestValue>
     where
         Executable: 'v,
         FunctionId: 'v,
@@ -129,7 +184,7 @@ impl<Executable>
         TestValue: 'v;
 
     fn capture_runtime_view<'r>(
-        _view: waymark_vm_runtime_core::FullRuntimeView<
+        view: waymark_vm_runtime_core::FullRuntimeView<
             'r,
             Executable,
             FunctionId,
@@ -137,34 +192,50 @@ impl<Executable>
             TestValue,
         >,
     ) -> Self::RuntimeView<'r> {
+        view
     }
 }
 
 impl waymark_vm_interpreter::Interpreter for RuntimeInterpreter {
-    type RuntimeView<'r> = ();
+    type RuntimeView<'r> = FullRuntimeView<'r, RuntimeExecutable, FunctionId, StateId, TestValue>;
     type Frame = Frame<FunctionId, StateId, TestValue>;
     type Instruction = RuntimeInstruction;
     type Error = InterpreterError;
-    type Effect = TestValue;
+    type Effect = RuntimeEffect;
 
     fn execute<'r>(
         &self,
-        _runtime_view: Self::RuntimeView<'r>,
+        runtime_view: Self::RuntimeView<'r>,
         mut frame: Self::Frame,
         instruction: &Self::Instruction,
     ) -> Result<ExecutionOutcome<Self::Frame, Self::Effect>, Self::Error> {
         match instruction {
-            RuntimeInstruction::Exc(instruction) => {
-                waymark_vm_interpreter::Interpreter::execute(&self.exc, (), frame, instruction)
-                    .map(|outcome| outcome.map_effect(|effect| match effect {}))
-            }
+            RuntimeInstruction::Exc(instruction) => waymark_vm_interpreter::Interpreter::execute(
+                &self.exc,
+                waymark_vm_interpreter_excset::ExcSetInterpreter::<
+                    TestSpec,
+                    RuntimeExecutable,
+                    FunctionId,
+                    StateId,
+                    TestValue,
+                >::capture_runtime_view(runtime_view),
+                frame,
+                instruction,
+            )
+            .map(|outcome| {
+                outcome.map_effect(|effect| match effect {
+                    ExcEffect::Complete(result) => RuntimeEffect::Complete(result),
+                })
+            }),
             RuntimeInstruction::SetValue { dst, value } => {
                 frame.regs.set(*dst, value.clone());
                 Ok(ExecutionOutcome::Continue(frame))
             }
             RuntimeInstruction::EmitRegister(register) => {
                 let value = frame.regs[*register].clone();
-                Ok(ExecutionOutcome::ExitFrameWithEffect(value))
+                Ok(ExecutionOutcome::ExitFrameWithEffect(
+                    RuntimeEffect::Register(value),
+                ))
             }
         }
     }
@@ -173,8 +244,14 @@ impl waymark_vm_interpreter::Interpreter for RuntimeInterpreter {
 pub fn run(
     regs: usize,
     instrs: Vec<RuntimeInstruction>,
-) -> Result<TestValue, RunError<InterpreterError>> {
+) -> Result<RuntimeEffect, RunError<InterpreterError>> {
     let exec = executable(vec![function::<RuntimeInstruction>(regs, vec![instrs])]);
+    run_executable(exec)
+}
+
+pub fn run_executable(
+    exec: RuntimeExecutable,
+) -> Result<RuntimeEffect, RunError<InterpreterError>> {
     let mut runtime = Runtime::with_conventional_entrypoint(RuntimeInterpreter::default(), exec)
         .expect("function 0 should exist");
     runtime.run()

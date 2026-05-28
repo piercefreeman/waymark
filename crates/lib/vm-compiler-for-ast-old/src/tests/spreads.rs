@@ -94,7 +94,7 @@ fn spread_expression_assignments_lower_to_looped_action_collection() {
         PureSet(ListAppend { dst: r2, list: r2, item: r6 })
         CoreSet(Jump { target_state: s8 })
       s12:
-        CoreSet(Return { src: r6 })
+        ExcSet(Raise { src: r6 })
     "#);
 }
 
@@ -164,6 +164,6 @@ fn zero_target_spread_assignments_compile_as_side_effect_spreads() {
       s11:
         CoreSet(Jump { target_state: s8 })
       s12:
-        CoreSet(Return { src: r4 })
+        ExcSet(Raise { src: r4 })
     "#);
 }
