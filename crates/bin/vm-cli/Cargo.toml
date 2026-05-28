@@ -22,6 +22,7 @@ waymark-vm-interpreter-extcallset = { workspace = true }
 waymark-vm-interpreter-fullset = { workspace = true }
 waymark-vm-runtime = { workspace = true }
 waymark-vm-runtime-core = { workspace = true }
+waymark-vm-runtime-exception = { workspace = true }
 waymark-vm-value = { workspace = true }
 
 clap = { workspace = true, features = ["derive"] }

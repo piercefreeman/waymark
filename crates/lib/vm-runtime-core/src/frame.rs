@@ -1,3 +1,4 @@
+use waymark_vm_runtime_exception::Exception;
 use waymark_vm_runtime_promise_core::PromiseStateId;
 
 use crate::Registers;
@@ -12,6 +13,9 @@ pub struct Frame<FunctionId, StateId, Value> {
 
     /// Registers that hold values for this frame.
     pub regs: Registers<Value>,
+
+    /// Raised exception associated with this frame.
+    pub exception: Option<Exception<Value>>,
 
     /// The kind of the frame.
     pub kind: FrameKind,

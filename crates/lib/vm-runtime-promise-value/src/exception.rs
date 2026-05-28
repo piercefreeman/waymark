@@ -1,7 +1,8 @@
 //! [`waymark_vm_runtime_exception`] trait implementations.
 
 use waymark_vm_runtime_exception::{
-    AsException, Exception, IntoException, NotAnExceptionError, NotAnOwnedExceptionError,
+    AsException, Exception, FromException, IntoException, NotAnExceptionError,
+    NotAnOwnedExceptionError,
 };
 
 use crate::PromiseValue;
@@ -31,5 +32,14 @@ where
                 value: Self::Pending(promise_state_id),
             }),
         }
+    }
+}
+
+impl<T> FromException for PromiseValue<T>
+where
+    T: FromException,
+{
+    fn from_exception(exception: Exception<Self::RootValue>) -> Self {
+        Self::Ready(T::from_exception(exception))
     }
 }

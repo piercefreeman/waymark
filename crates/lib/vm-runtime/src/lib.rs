@@ -10,7 +10,7 @@ pub mod step;
 use std::collections::VecDeque;
 
 use waymark_vm_runtime_core::{
-    Frame, FrameKind, PromiseStates, Registers, ResolvePromiseError,
+    Frame, FrameKind, PromiseStates, Registers, RejectPromiseError, ResolvePromiseError,
     ResolvingAlreadyResolvedPromiseError, RuntimeState,
 };
 use waymark_vm_runtime_promise_core::PromiseStateId;
@@ -103,6 +103,7 @@ where
             func,
             state: Executable::StateId::default(),
             regs,
+            exception: None,
             kind: FrameKind::TopLevel,
         });
 
@@ -187,9 +188,33 @@ where
 impl<Executable, Interpreter, Value> Runtime<Executable, Interpreter, Value>
 where
     Executable: waymark_vm_executable::FunctionStates,
+    Executable::StateId: Copy,
     Value: waymark_vm_runtime_promise_core::Resolvable,
     Value: Clone,
 {
+    fn map_rejection_error(
+        error: RejectPromiseError<Value>,
+    ) -> RejectPromiseError<Value::ReadyValue> {
+        match error {
+            ResolvePromiseError::PromiseStateNotFound(error) => {
+                ResolvePromiseError::PromiseStateNotFound(error)
+            }
+            ResolvePromiseError::AlreadyResolved(error) => {
+                let ResolvingAlreadyResolvedPromiseError { new_value } = error;
+                ResolvePromiseError::AlreadyResolved(ResolvingAlreadyResolvedPromiseError {
+                    new_value: {
+                        let waymark_vm_runtime_exception::Exception { type_id, details } =
+                            new_value;
+                        let Ok(details) = details.into_ready() else {
+                            unreachable!("raised exception details are stored as ready values")
+                        };
+                        waymark_vm_runtime_exception::Exception { type_id, details }
+                    },
+                })
+            }
+        }
+    }
+
     /// Provide an async computation value for a given promise.
     ///
     /// Notifies all continuations that wait on it.
@@ -217,5 +242,21 @@ where
                     })
                 }
             })
+    }
+
+    /// Reject an async computation for a given promise.
+    pub fn reject_promise(
+        &mut self,
+        promise_state_id: PromiseStateId,
+        exception: waymark_vm_runtime_exception::Exception<Value::ReadyValue>,
+    ) -> Result<(), RejectPromiseError<Value::ReadyValue>> {
+        let exception = waymark_vm_runtime_exception::Exception {
+            type_id: exception.type_id,
+            details: Value::from_ready(exception.details),
+        };
+
+        self.state
+            .reject_promise(promise_state_id, exception)
+            .map_err(Self::map_rejection_error)
     }
 }
