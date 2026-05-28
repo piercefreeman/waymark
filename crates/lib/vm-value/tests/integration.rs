@@ -2,12 +2,15 @@ use indexmap::IndexMap;
 use typed_floats::NonNaNFinite;
 use waymark_vm_instructions_pureset::BinaryOpKind;
 use waymark_vm_interpreter_coreset::value::ShouldJump as _;
-use waymark_vm_interpreter_extcallset::value::SleepDuration as _;
+use waymark_vm_interpreter_extcallset::value::{
+    CaptureActionCallArgument as _, SleepDuration as _,
+};
 use waymark_vm_interpreter_pureset::value::{
     AsDictKey as _, AsDictKeyError, BinaryOperationError, BinaryOps as _, DotOp as _,
     DotOperationError, FromLengthError, IndexOp as _, IndexOperationError, Length as _,
     LengthError, MakeDict as _, MakeList as _, UnaryOps as _,
 };
+use waymark_vm_runtime_exception::{AsException as _, Exception, IntoException as _};
 use waymark_vm_value::{ReadyValue, Value, extcallset};
 
 #[test]
@@ -508,4 +511,48 @@ fn float_operations_follow_non_nan_finite_semantics() {
 
     assert!(infinity.is_err());
     assert!(negative_infinity.is_err());
+}
+
+#[test]
+fn exception_values_round_trip_through_exception_traits() {
+    let details = Value::Ready(ReadyValue::String("boom".to_owned()));
+    let value = ReadyValue::Exception(Box::new(Exception {
+        type_id: "ValueError".to_owned(),
+        details: details.clone(),
+    }));
+
+    let exception = value
+        .as_exception()
+        .expect("ready value should be an exception");
+    assert_eq!(exception.type_id, "ValueError");
+    assert_eq!(exception.details, details);
+    assert_eq!(value.capture_action_call_argument().unwrap(), value.clone());
+    assert!(value.should_jump().unwrap());
+    assert!(matches!(
+        value.to_sleep_duration().unwrap_err(),
+        extcallset::SleepDurationError::UnsupportedValue
+    ));
+
+    let owned = value
+        .clone()
+        .into_exception()
+        .expect("owned ready exception");
+    assert_eq!(owned.type_id, "ValueError");
+    assert_eq!(owned.details, details);
+
+    let wrapped = Value::Ready(value);
+    let exception = wrapped
+        .as_exception()
+        .expect("promise value should forward exception refs");
+    assert_eq!(exception.type_id, "ValueError");
+    assert_eq!(exception.details, details);
+
+    let owned = wrapped
+        .into_exception()
+        .expect("promise value should forward owned exceptions");
+    assert_eq!(owned.type_id, "ValueError");
+    assert_eq!(owned.details, details);
+
+    assert!(ReadyValue::Int(1).as_exception().is_err());
+    assert!(Value::Ready(ReadyValue::Int(1)).into_exception().is_err());
 }

@@ -50,9 +50,12 @@ impl waymark_vm_interpreter_extcallset::value::SleepDuration for ReadyValue {
 
                 duration.try_into().map_err(Self::Error::Zero)
             }
-            Self::Bool(_) | Self::String(_) | Self::None | Self::List(_) | Self::Dict(_) => {
-                Err(Self::Error::UnsupportedValue)
-            }
+            Self::Bool(_)
+            | Self::String(_)
+            | Self::None
+            | Self::List(_)
+            | Self::Dict(_)
+            | Self::Exception(_) => Err(Self::Error::UnsupportedValue),
         }
     }
 }

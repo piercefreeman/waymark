@@ -6,6 +6,7 @@ use indexmap::IndexMap;
 use typed_floats::NonNaNFinite;
 
 pub mod coreset;
+mod exception;
 pub mod extcallset;
 pub mod pureset;
 mod pythonic;
@@ -36,6 +37,9 @@ pub enum ReadyValue {
 
     /// Dictionary value stored as an insertion-ordered string-keyed map.
     Dict(IndexMap<String, Value>),
+
+    /// Runtime exception value.
+    Exception(Box<waymark_vm_runtime_exception::Exception<Value>>),
 }
 
 impl ReadyValue {
@@ -49,6 +53,7 @@ impl ReadyValue {
             Self::None => false,
             Self::List(items) => !items.is_empty(),
             Self::Dict(entries) => !entries.is_empty(),
+            Self::Exception(_) => true,
         }
     }
 }

@@ -5502,6 +5502,7 @@ dependencies = [
  "waymark-vm-interpreter-coreset",
  "waymark-vm-interpreter-extcallset",
  "waymark-vm-interpreter-pureset",
+ "waymark-vm-runtime-exception",
  "waymark-vm-runtime-promise-core",
  "waymark-vm-runtime-value",
 ]
@@ -5534,12 +5535,20 @@ dependencies = [
  "thiserror",
  "typed_floats",
  "waymark-nonzero-duration",
+ "waymark-vm-bytecode",
+ "waymark-vm-instructions-coreset",
+ "waymark-vm-instructions-extcallset",
  "waymark-vm-instructions-pureset",
+ "waymark-vm-interpreter",
  "waymark-vm-interpreter-coreset",
  "waymark-vm-interpreter-extcallset",
  "waymark-vm-interpreter-fullset",
  "waymark-vm-interpreter-pureset",
+ "waymark-vm-runtime",
+ "waymark-vm-runtime-core",
+ "waymark-vm-runtime-exception",
  "waymark-vm-runtime-promise-value",
+ "waymark-vm-runtime-test",
  "waymark-vm-runtime-value",
 ]
 
