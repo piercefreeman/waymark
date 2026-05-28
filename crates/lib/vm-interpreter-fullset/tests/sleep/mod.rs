@@ -65,6 +65,7 @@ fn runtime_resumes_sleep_effects_and_finishes_with_pure_work() {
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(_)) => {
             panic!("program should suspend on sleep before completion")
         }
+        Effect::ExcSet(effect) => match effect {},
         Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall { .. }) => {
             panic!("program should emit a sleep effect, not an action call")
         }
@@ -83,6 +84,7 @@ fn runtime_resumes_sleep_effects_and_finishes_with_pure_work() {
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(value)) => {
             assert_eq!(value, TestReadyValue::Int(7));
         }
+        Effect::ExcSet(effect) => match effect {},
         Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall { .. }) => {
             panic!("resolved sleep should not emit an action call")
         }

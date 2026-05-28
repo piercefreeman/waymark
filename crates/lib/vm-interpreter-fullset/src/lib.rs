@@ -22,6 +22,14 @@ pub struct FullSetInterpreter<Spec: waymark_vm_instructions_fullset::Spec, Execu
     /// The coreset interpreter used for core instructions.
     pub core_set: waymark_vm_interpreter_coreset::CoreSetInterpreter<Spec, Executable, Value>,
 
+    /// The excset interpreter used for exception instructions.
+    pub exc_set: waymark_vm_interpreter_excset::ExcSetInterpreter<
+        Spec,
+        FunctionIdFor<Spec>,
+        StateIdFor<Spec>,
+        Value,
+    >,
+
     /// The extcallset interpreter used for extcall instructions.
     pub extcall_set: waymark_vm_interpreter_extcallset::ExtCallSetInterpreter<
         Spec,
@@ -48,6 +56,9 @@ pub enum Effect<Value, ActionRef, ActionCallArgument> {
     /// An effect produced while executing a coreset instruction.
     CoreSet(waymark_vm_interpreter_coreset::Effect<Value>),
 
+    /// An impossible effect produced while executing an excset instruction.
+    ExcSet(core::convert::Infallible),
+
     /// An effect produced while executing an extcallset instruction.
     ExtCallSet(waymark_vm_interpreter_extcallset::Effect<ActionRef, ActionCallArgument>),
 
@@ -62,6 +73,7 @@ where
     Executable: 'static,
     Executable: waymark_vm_executable::FunctionInfo<FunctionId = FunctionIdFor<Spec>>,
     Spec: waymark_vm_instructions_coreset::Spec<RegisterId = waymark_vm_runtime_core::RegisterId>,
+    Spec: waymark_vm_instructions_excset::Spec<RegisterId = waymark_vm_runtime_core::RegisterId>,
     Spec: waymark_vm_instructions_extcallset::Spec<
             RegisterId = waymark_vm_runtime_core::RegisterId,
             StateId = StateIdFor<Spec>,
@@ -73,6 +85,7 @@ where
     ActionRefFor<Spec>: Clone,
     Value: Clone + 'static,
     Value: waymark_vm_interpreter_coreset::Value,
+    Value: waymark_vm_interpreter_excset::Value,
     Value: waymark_vm_interpreter_extcallset::Value,
     Value: waymark_vm_interpreter_pureset::Value,
     Value: for<'a> waymark_vm_interpreter_pureset::value::LoadConst<&'a Spec::ConstValue>,
@@ -106,6 +119,18 @@ where
                 self.core_set
                     .execute(runtime_view, frame, instruction)?
                     .map_effect(Effect::CoreSet)
+            }
+            waymark_vm_instructions_fullset::FullSet::ExcSet(instruction) => {
+                #[allow(clippy::let_unit_value)]
+                let runtime_view = waymark_vm_interpreter_excset::ExcSetInterpreter::<
+                    Spec,
+                    FunctionIdFor<Spec>,
+                    StateIdFor<Spec>,
+                    Value,
+                >::capture_runtime_view(runtime_view);
+                self.exc_set
+                    .execute(runtime_view, frame, instruction)?
+                    .map_effect(Effect::ExcSet)
             }
             waymark_vm_instructions_fullset::FullSet::ExtCallSet(instruction) => {
                 let runtime_view = waymark_vm_interpreter_extcallset::ExtCallSetInterpreter::<

@@ -2,6 +2,9 @@ use indexmap::IndexMap;
 use typed_floats::NonNaNFinite;
 use waymark_vm_instructions_pureset::BinaryOpKind;
 use waymark_vm_interpreter_coreset::value::ShouldJump as _;
+use waymark_vm_interpreter_excset::value::{
+    AsException as _, AsExceptionTypeId as _, CaptureExceptionDetails as _, FromIsException as _,
+};
 use waymark_vm_interpreter_extcallset::value::SleepDuration as _;
 use waymark_vm_interpreter_pureset::value::{
     AsDictKey as _, AsDictKeyError, BinaryOperationError, BinaryOps as _, DotOp as _,
@@ -37,6 +40,43 @@ fn values_follow_truthiness() {
         )]))
         .should_jump()
         .unwrap()
+    );
+    assert!(
+        ReadyValue::Exception(Box::new(waymark_vm_runtime_exception::Exception {
+            type_id: "synthetic.failure".to_owned(),
+            details: Value::Ready(ReadyValue::Int(7)),
+        }))
+        .should_jump()
+        .unwrap()
+    );
+}
+
+#[test]
+fn exception_values_support_excset_queries() {
+    let exception = Value::Ready(ReadyValue::Exception(Box::new(
+        waymark_vm_runtime_exception::Exception {
+            type_id: "synthetic.failure".to_owned(),
+            details: Value::Ready(ReadyValue::Int(7)),
+        },
+    )));
+
+    let exception_ref = exception.as_exception().unwrap();
+    assert_eq!(exception_ref.type_id, "synthetic.failure");
+    assert_eq!(exception_ref.details, Value::Ready(ReadyValue::Int(7)));
+
+    assert_eq!(
+        Value::Ready(ReadyValue::String("synthetic.failure".to_owned()))
+            .as_exception_type_id()
+            .unwrap(),
+        "synthetic.failure"
+    );
+    assert_eq!(
+        Value::from_is_exception(true),
+        Value::Ready(ReadyValue::Bool(true))
+    );
+    assert_eq!(
+        Value::from_exception_details(&exception_ref.details),
+        Value::Ready(ReadyValue::Int(7))
     );
 }
 

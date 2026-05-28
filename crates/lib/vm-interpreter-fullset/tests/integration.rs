@@ -5,6 +5,7 @@
 
 mod support;
 
+mod exc;
 mod extcall;
 mod sleep;
 mod synchronous;

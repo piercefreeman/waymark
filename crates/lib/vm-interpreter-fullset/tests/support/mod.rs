@@ -1,6 +1,6 @@
 //! Test harness for the fullset interpreter integration tests.
 //!
-//! Defines a [`TestSpec`] that wires the pure, core, and extcall instruction
+//! Defines a [`TestSpec`] that wires the pure, core, exc, and extcall instruction
 //! sets onto common id types, a hand-rolled promise-aware [`TestValue`] that
 //! implements every trait the interpreter requires, and helpers for building
 //! a [`Runtime`] from a single-function `Executable`.
@@ -37,6 +37,10 @@ impl waymark_vm_instructions_coreset::Spec for TestSpec {
     type RegisterId = RegisterId;
     type FunctionId = FunctionId;
     type StateId = StateId;
+}
+
+impl waymark_vm_instructions_excset::Spec for TestSpec {
+    type RegisterId = RegisterId;
 }
 
 impl waymark_vm_instructions_extcallset::Spec for TestSpec {
@@ -80,7 +84,18 @@ pub enum TestSleepDurationError {
 pub enum TestReadyValue {
     Int(i64),
     Bool(bool),
+    Text(&'static str),
+    Exception(Box<waymark_vm_runtime_exception::Exception<TestValue>>),
     List(Vec<TestValue>),
+}
+
+impl TestReadyValue {
+    pub fn exception(type_id: &'static str, details: TestValue) -> Self {
+        Self::Exception(Box::new(waymark_vm_runtime_exception::Exception {
+            type_id: type_id.to_owned(),
+            details,
+        }))
+    }
 }
 
 impl waymark_vm_runtime_value::RootValueAccess for TestReadyValue {
@@ -91,6 +106,8 @@ fn is_truthy(value: &TestReadyValue) -> bool {
     match value {
         TestReadyValue::Int(value) => *value != 0,
         TestReadyValue::Bool(value) => *value,
+        TestReadyValue::Text(value) => !value.is_empty(),
+        TestReadyValue::Exception(_) => true,
         TestReadyValue::List(items) => !items.is_empty(),
     }
 }
@@ -221,7 +238,7 @@ impl waymark_vm_interpreter_pureset::value::Length for TestReadyValue {
     fn length(&self) -> Result<usize, waymark_vm_interpreter_pureset::value::LengthError> {
         match self {
             Self::List(items) => Ok(items.len()),
-            Self::Int(_) | Self::Bool(_) => {
+            Self::Int(_) | Self::Bool(_) | Self::Text(_) | Self::Exception(_) => {
                 Err(waymark_vm_interpreter_pureset::value::LengthError::UnsupportedValue)
             }
         }
@@ -250,7 +267,9 @@ impl waymark_vm_interpreter_extcallset::value::SleepDuration for TestReadyValue 
                 let seconds: u64 = (*value).try_into().map_err(|_| Self::Error::Negative)?;
                 NonZeroDuration::from_secs(seconds).ok_or(Self::Error::Zero)
             }
-            Self::Bool(_) | Self::List(_) => Err(Self::Error::UnsupportedValue),
+            Self::Bool(_) | Self::Text(_) | Self::Exception(_) | Self::List(_) => {
+                Err(Self::Error::UnsupportedValue)
+            }
         }
     }
 }
@@ -262,6 +281,47 @@ impl waymark_vm_interpreter_extcallset::value::CaptureActionCallArgument for Tes
 
     fn capture_action_call_argument(&self) -> Result<Self::ActionCallArgument, Self::Error> {
         Ok(self.clone())
+    }
+}
+
+impl waymark_vm_runtime_exception::AsException for TestReadyValue {
+    fn as_exception(
+        &self,
+    ) -> Result<
+        &waymark_vm_runtime_exception::Exception<Self::RootValue>,
+        waymark_vm_runtime_exception::NotAnExceptionError,
+    > {
+        match self {
+            Self::Exception(exception) => Ok(exception.as_ref()),
+            Self::Int(_) | Self::Bool(_) | Self::Text(_) | Self::List(_) => {
+                Err(waymark_vm_runtime_exception::NotAnExceptionError)
+            }
+        }
+    }
+}
+
+impl waymark_vm_interpreter_excset::value::AsExceptionTypeId for TestReadyValue {
+    fn as_exception_type_id(
+        &self,
+    ) -> Result<&str, waymark_vm_interpreter_excset::value::NotAnExceptionTypeIdError> {
+        match self {
+            Self::Text(value) => Ok(value),
+            Self::Int(_) | Self::Bool(_) | Self::Exception(_) | Self::List(_) => {
+                Err(waymark_vm_interpreter_excset::value::NotAnExceptionTypeIdError)
+            }
+        }
+    }
+}
+
+impl waymark_vm_interpreter_excset::value::FromIsException for TestReadyValue {
+    fn from_is_exception(is_exception: bool) -> Self::RootValue {
+        TestValue::Ready(Self::Bool(is_exception))
+    }
+}
+
+impl waymark_vm_interpreter_excset::value::CaptureExceptionDetails for TestReadyValue {
+    fn from_exception_details(value: &Self::RootValue) -> Self::RootValue {
+        value.clone()
     }
 }
 
@@ -534,6 +594,43 @@ impl waymark_vm_interpreter_extcallset::value::CaptureActionCallArgument for Tes
         value
             .capture_action_call_argument()
             .map_err(TestValueError::Ready)
+    }
+}
+
+impl waymark_vm_runtime_exception::AsException for TestValue {
+    fn as_exception(
+        &self,
+    ) -> Result<
+        &waymark_vm_runtime_exception::Exception<Self::RootValue>,
+        waymark_vm_runtime_exception::NotAnExceptionError,
+    > {
+        let value = self
+            .require_ready_ref()
+            .map_err(|_| waymark_vm_runtime_exception::NotAnExceptionError)?;
+        value.as_exception()
+    }
+}
+
+impl waymark_vm_interpreter_excset::value::AsExceptionTypeId for TestValue {
+    fn as_exception_type_id(
+        &self,
+    ) -> Result<&str, waymark_vm_interpreter_excset::value::NotAnExceptionTypeIdError> {
+        let value = self
+            .require_ready_ref()
+            .map_err(|_| waymark_vm_interpreter_excset::value::NotAnExceptionTypeIdError)?;
+        value.as_exception_type_id()
+    }
+}
+
+impl waymark_vm_interpreter_excset::value::FromIsException for TestValue {
+    fn from_is_exception(is_exception: bool) -> Self::RootValue {
+        Self::Ready(TestReadyValue::Bool(is_exception))
+    }
+}
+
+impl waymark_vm_interpreter_excset::value::CaptureExceptionDetails for TestValue {
+    fn from_exception_details(value: &Self::RootValue) -> Self::RootValue {
+        value.clone()
     }
 }
 

@@ -6,6 +6,7 @@ use indexmap::IndexMap;
 use typed_floats::NonNaNFinite;
 
 pub mod coreset;
+pub mod excset;
 pub mod extcallset;
 pub mod pureset;
 mod pythonic;
@@ -31,6 +32,9 @@ pub enum ReadyValue {
     /// in semantics.
     None,
 
+    /// Exception value.
+    Exception(Box<waymark_vm_runtime_exception::Exception<Value>>),
+
     /// Ordered list value.
     List(Vec<Value>),
 
@@ -47,6 +51,7 @@ impl ReadyValue {
             Self::Bool(value) => *value,
             Self::String(value) => !value.is_empty(),
             Self::None => false,
+            Self::Exception(_) => true,
             Self::List(items) => !items.is_empty(),
             Self::Dict(entries) => !entries.is_empty(),
         }
