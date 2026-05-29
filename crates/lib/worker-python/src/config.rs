@@ -1,31 +1,24 @@
 use std::path::{Path, PathBuf};
+use waymark_worker_process::Timeouts;
 
 /// Configuration for spawning Python workers.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Config {
-    /// Path to the script/executable to run (e.g., "uv" or "waymark-worker")
-    pub script_path: PathBuf,
+    /// Explicit path to the script/executable to run (e.g. "uv" or
+    /// "waymark-worker"). `None` means auto-detect during `Config::prepare`.
+    pub script_path: Option<PathBuf>,
 
-    /// Arguments to pass before the worker-specific args
+    /// Arguments to pass before the worker-specific args.
     pub script_args: Vec<String>,
 
-    /// Python module(s) to preload (contains @action definitions)
+    /// Python module(s) to preload (contains @action definitions).
     pub user_modules: Vec<String>,
 
-    /// Additional paths to add to PYTHONPATH
+    /// Additional paths to add to PYTHONPATH.
     pub extra_python_paths: Vec<PathBuf>,
-}
 
-impl Default for Config {
-    fn default() -> Self {
-        let (script_path, script_args) = default_runner();
-        Self {
-            script_path,
-            script_args,
-            user_modules: vec![],
-            extra_python_paths: vec![],
-        }
-    }
+    /// Startup/shutdown lifecycle timeouts for the worker process.
+    pub timeouts: Timeouts,
 }
 
 impl Config {
@@ -51,11 +44,22 @@ impl Config {
         self.extra_python_paths = paths;
         self
     }
+
+    /// Set an explicit script/executable and its leading arguments, bypassing
+    /// auto-detection.
+    pub fn with_script(mut self, script_path: PathBuf, script_args: Vec<String>) -> Self {
+        self.script_path = Some(script_path);
+        self.script_args = script_args;
+        self
+    }
 }
 
 /// Find the default Python runner.
 /// Prefers `waymark-worker` if in PATH, otherwise uses `uv run`.
-fn default_runner() -> (PathBuf, Vec<String>) {
+///
+/// Performs blocking filesystem lookups; only call from a blocking context
+/// (invoked from `Config::prepare` inside `spawn_blocking`).
+pub(crate) fn default_runner() -> (PathBuf, Vec<String>) {
     if let Some(path) = find_executable("waymark-worker") {
         return (path, Vec::new());
     }
@@ -163,10 +167,8 @@ mod tests {
     }
 
     #[test]
-    fn test_default_runner_detection() {
-        // Should return uv as fallback if waymark-worker not in PATH
+    fn default_runner_detection() {
         let (path, args) = default_runner();
-        // Either waymark-worker was found, or we get uv with args
         if args.is_empty() {
             assert!(path.to_string_lossy().contains("waymark-worker"));
         } else {

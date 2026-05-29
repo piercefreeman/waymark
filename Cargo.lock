@@ -5686,6 +5686,7 @@ dependencies = [
 name = "waymark-worker-python"
 version = "0.1.0"
 dependencies = [
+ "thiserror",
  "tokio",
  "tracing",
  "waymark-worker-process",

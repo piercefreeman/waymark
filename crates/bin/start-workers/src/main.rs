@@ -134,10 +134,11 @@ async fn main() -> Result<()> {
     if !config.user_modules.is_empty() {
         worker_config = worker_config.with_user_modules(config.user_modules.clone());
     }
+    let prepared_worker_config = worker_config.prepare().await?;
 
-    let worker_process_spec_builder = |bridge_server_addr| waymark_worker_python::Spec {
+    let worker_process_spec_builder = move |bridge_server_addr| waymark_worker_python::Spec {
         bridge_server_addr,
-        config: worker_config,
+        prepared: prepared_worker_config,
     };
 
     let (process_pool, bridge_task) = waymark_worker_remote_bringup::start(
