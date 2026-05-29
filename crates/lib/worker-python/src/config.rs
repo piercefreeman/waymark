@@ -7,13 +7,13 @@ pub struct Config {
     /// "waymark-worker"). `None` means auto-detect during `Config::prepare`.
     pub script_path: Option<PathBuf>,
 
-    /// Arguments to pass before the worker-specific args.
+    /// Arguments to pass before the worker-specific args
     pub script_args: Vec<String>,
 
-    /// Python module(s) to preload (contains @action definitions).
+    /// Python module(s) to preload (contains @action definitions)
     pub user_modules: Vec<String>,
 
-    /// Additional paths to add to PYTHONPATH.
+    /// Additional paths to add to PYTHONPATH
     pub extra_python_paths: Vec<PathBuf>,
 }
 

@@ -2,6 +2,8 @@
 
 #![warn(missing_docs)]
 
+use std::time::Duration;
+
 mod config;
 mod prepared;
 
@@ -10,10 +12,7 @@ pub use prepared::{PrepareError, PreparedConfig};
 
 /// Python worker process spec.
 ///
-/// Holds a fully [`PreparedConfig`] plus the late-bound bridge address. All
-/// fallible/blocking setup already happened in [`Config::prepare`], so
-/// `prepare_spawn_params` is pure: it only assembles a command from cached
-/// values and never performs I/O or panics.
+/// Holds a resolved [`PreparedConfig`] plus the late-bound bridge address.
 #[derive(Clone, Debug)]
 pub struct Spec {
     /// The address of the bridge server to connect the worker to.
@@ -52,16 +51,14 @@ impl waymark_worker_process_spec::Spec for Spec {
             "prepared python worker spawn params"
         );
 
-        // Timeouts are left as the existing hardcoded defaults; reworking the
-        // worker-process timeout structure is intentionally out of scope here.
-        // TODO: move to config.
         waymark_worker_process::SpawnParams {
             command,
-            wait_for_playload_timeout: std::time::Duration::from_secs(15),
+            // TODO: move to config
+            wait_for_playload_timeout: Duration::from_secs(15),
             shutdown_params: waymark_worker_process::ShutdownParams {
-                tasks_graceful_shutdown_timeout: std::time::Duration::from_secs(5),
-                process_graceful_shutdown_timeout: std::time::Duration::from_secs(5),
-                process_kill_timeout: std::time::Duration::from_secs(10),
+                tasks_graceful_shutdown_timeout: Duration::from_secs(5),
+                process_graceful_shutdown_timeout: Duration::from_secs(5),
+                process_kill_timeout: Duration::from_secs(10),
             },
         }
     }
@@ -102,9 +99,6 @@ mod tests {
         assert!(args.contains(&"mod_a".to_string()));
 
         // Default lifecycle timeouts flow through unchanged.
-        assert_eq!(
-            params.wait_for_playload_timeout,
-            std::time::Duration::from_secs(15)
-        );
+        assert_eq!(params.wait_for_playload_timeout, Duration::from_secs(15));
     }
 }
