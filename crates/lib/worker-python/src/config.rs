@@ -1,5 +1,4 @@
 use std::path::{Path, PathBuf};
-use waymark_worker_process::Timeouts;
 
 /// Configuration for spawning Python workers.
 #[derive(Clone, Debug, Default)]
@@ -16,9 +15,6 @@ pub struct Config {
 
     /// Additional paths to add to PYTHONPATH.
     pub extra_python_paths: Vec<PathBuf>,
-
-    /// Startup/shutdown lifecycle timeouts for the worker process.
-    pub timeouts: Timeouts,
 }
 
 impl Config {

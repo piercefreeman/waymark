@@ -23,7 +23,6 @@ pub struct PreparedConfig {
     pub(crate) working_dir: PathBuf,
     pub(crate) python_path: String,
     pub(crate) user_modules: Vec<String>,
-    pub(crate) timeouts: waymark_worker_process::Timeouts,
 }
 
 /// Errors that can occur while resolving a [`Config`] into a [`PreparedConfig`].
@@ -116,7 +115,6 @@ impl Config {
             working_dir,
             python_path,
             user_modules: self.user_modules,
-            timeouts: self.timeouts,
         })
     }
 }

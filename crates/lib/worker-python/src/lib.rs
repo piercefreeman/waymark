@@ -52,9 +52,17 @@ impl waymark_worker_process_spec::Spec for Spec {
             "prepared python worker spawn params"
         );
 
+        // Timeouts are left as the existing hardcoded defaults; reworking the
+        // worker-process timeout structure is intentionally out of scope here.
+        // TODO: move to config.
         waymark_worker_process::SpawnParams {
             command,
-            timeouts: prepared.timeouts,
+            wait_for_playload_timeout: std::time::Duration::from_secs(15),
+            shutdown_params: waymark_worker_process::ShutdownParams {
+                tasks_graceful_shutdown_timeout: std::time::Duration::from_secs(5),
+                process_graceful_shutdown_timeout: std::time::Duration::from_secs(5),
+                process_kill_timeout: std::time::Duration::from_secs(10),
+            },
         }
     }
 }
@@ -95,7 +103,7 @@ mod tests {
 
         // Default lifecycle timeouts flow through unchanged.
         assert_eq!(
-            params.timeouts.wait_for_payload,
+            params.wait_for_playload_timeout,
             std::time::Duration::from_secs(15)
         );
     }

@@ -500,11 +500,11 @@ mod tests {
         ) -> waymark_worker_process::SpawnParams {
             waymark_worker_process::SpawnParams {
                 command: tokio::process::Command::new("false"),
-                timeouts: waymark_worker_process::Timeouts {
-                    wait_for_payload: Duration::from_millis(1),
-                    tasks_graceful_shutdown: Duration::from_millis(1),
-                    process_graceful_shutdown: Duration::from_millis(1),
-                    process_kill: Duration::from_millis(1),
+                wait_for_playload_timeout: Duration::from_millis(1),
+                shutdown_params: waymark_worker_process::ShutdownParams {
+                    tasks_graceful_shutdown_timeout: Duration::from_millis(1),
+                    process_graceful_shutdown_timeout: Duration::from_millis(1),
+                    process_kill_timeout: Duration::from_millis(1),
                 },
             }
         }

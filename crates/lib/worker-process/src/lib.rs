@@ -18,8 +18,11 @@ pub struct SpawnParams {
     /// Process command used to spawn the worker binary.
     pub command: tokio::process::Command,
 
-    /// Lifecycle timeouts for this worker (startup attach + shutdown).
-    pub timeouts: Timeouts,
+    /// Maximum time to wait for the worker to attach to the reservation.
+    pub wait_for_playload_timeout: Duration,
+
+    /// Shutdown behavior used when startup or later teardown occurs.
+    pub shutdown_params: ShutdownParams,
 }
 
 /// Errors returned by [`spawn`].
@@ -46,7 +49,7 @@ pub enum SpawnError {
 /// This function:
 /// - starts the configured child process,
 /// - waits for message channels from `reservation` up to
-///   [`Timeouts::wait_for_payload`],
+///   [`SpawnParams::wait_for_playload_timeout`],
 /// - starts the worker message protocol loop as an associated task,
 /// - and returns a [`Handle`] plus a [`waymark_worker_message_protocol::Sender`].
 ///
@@ -56,19 +59,30 @@ pub async fn spawn(
     reservation: Reservation,
     params: SpawnParams,
 ) -> Result<(Handle, waymark_worker_message_protocol::Sender), SpawnError> {
-    let SpawnParams { command, timeouts } = params;
+    let SpawnParams {
+        wait_for_playload_timeout,
+        command,
+        shutdown_params,
+    } = params;
 
     // Spawn the process.
     let child = waymark_managed_process::spawn(command).map_err(SpawnError::Spawn)?;
 
     // Wait for the worker to connect (with timeout).
-    let result = timeouts.await_payload(reservation).await;
+    let result = tokio::time::timeout(wait_for_playload_timeout, reservation.wait()).await;
+    let result = match result {
+        Ok(Ok(channels)) => Ok(channels),
+        Ok(Err(err)) => Err(SpawnError::ReservationWaitError(err)),
+        Err(tokio::time::error::Elapsed { .. }) => Err(SpawnError::ReservationWaitTimeout {
+            timeout: wait_for_playload_timeout,
+        }),
+    };
 
     // Pass the payload or terminate the process gracefully.
     let channels = match result {
         Ok(channels) => channels,
         Err(error) => {
-            let shutdown_result = timeouts.shutdown_child_process(child).await;
+            let shutdown_result = shutdown_params.shutdown_child_process(child).await;
             tracing::debug!(
                 ?error,
                 ?shutdown_result,
@@ -112,37 +126,22 @@ pub async fn spawn(
         tasks,
         task_shutdown_token,
         task_shutdown_guard,
-        timeouts,
+        shutdown_params,
     };
 
     Ok((handle, sender))
 }
 
-/// Timeouts governing a worker process's startup and shutdown lifecycle.
-#[derive(Clone, Copy, Debug)]
-pub struct Timeouts {
-    /// Maximum time to wait for a freshly spawned worker to attach.
-    pub wait_for_payload: Duration,
-
+/// Parameters controlling graceful worker shutdown.
+pub struct ShutdownParams {
     /// Maximum time to wait for spawned worker tasks to finish gracefully.
-    pub tasks_graceful_shutdown: Duration,
+    pub tasks_graceful_shutdown_timeout: Duration,
 
     /// Grace period to allow the process to exit after termination is requested.
-    pub process_graceful_shutdown: Duration,
+    pub process_graceful_shutdown_timeout: Duration,
 
     /// Maximum time to wait after sending a force-kill signal.
-    pub process_kill: Duration,
-}
-
-impl Default for Timeouts {
-    fn default() -> Self {
-        Self {
-            wait_for_payload: Duration::from_secs(15),
-            tasks_graceful_shutdown: Duration::from_secs(5),
-            process_graceful_shutdown: Duration::from_secs(5),
-            process_kill: Duration::from_secs(10),
-        }
-    }
+    pub process_kill_timeout: Duration,
 }
 
 /// Handle to a spawned worker process and its associated tasks.
@@ -159,8 +158,8 @@ pub struct Handle {
     /// The task shutdown drop guard.
     task_shutdown_guard: tokio_util::sync::DropGuard,
 
-    /// The lifecycle timeouts used for shutdown.
-    timeouts: Timeouts,
+    /// The params used for shutdown.
+    shutdown_params: ShutdownParams,
 }
 
 impl Handle {
@@ -182,11 +181,11 @@ impl Handle {
         drop(self.task_shutdown_guard);
 
         // Wait for graceful shutdown of the tasks.
-        self.timeouts.shutdown_tasks(&mut self.tasks).await;
+        self.shutdown_params.shutdown_tasks(&mut self.tasks).await;
 
         // Shutdown the managed process gracefully.
         if let Some(child) = self.child.take() {
-            let exit_status = self.timeouts.shutdown_child_process(child).await?;
+            let exit_status = self.shutdown_params.shutdown_child_process(child).await?;
             tracing::debug!(?exit_status, "worker child process exited");
         }
 
@@ -218,28 +217,16 @@ impl Handle {
     }
 }
 
-impl Timeouts {
-    /// Wait for the worker to attach to `reservation`, up to
-    /// [`Timeouts::wait_for_payload`], mapping the outcome to a [`SpawnError`].
-    async fn await_payload(
-        &self,
-        reservation: Reservation,
-    ) -> Result<waymark_worker_message_protocol::Channels, SpawnError> {
-        match tokio::time::timeout(self.wait_for_payload, reservation.wait()).await {
-            Ok(Ok(channels)) => Ok(channels),
-            Ok(Err(err)) => Err(SpawnError::ReservationWaitError(err)),
-            Err(tokio::time::error::Elapsed { .. }) => Err(SpawnError::ReservationWaitTimeout {
-                timeout: self.wait_for_payload,
-            }),
-        }
-    }
-
+impl ShutdownParams {
     async fn shutdown_child_process(
         &self,
         child: waymark_managed_process::Child,
     ) -> Result<std::process::ExitStatus, waymark_managed_process::ShutdownError> {
         child
-            .shutdown(self.process_graceful_shutdown, self.process_kill)
+            .shutdown(
+                self.process_graceful_shutdown_timeout,
+                self.process_kill_timeout,
+            )
             .await
     }
 
@@ -259,14 +246,16 @@ impl Timeouts {
         };
 
         // Attempt to wait for graceful task shutdown first.
-        let task_shutdown_result =
-            tokio::time::timeout(self.tasks_graceful_shutdown, gracefully_terminate_tasks_fut)
-                .await;
+        let task_shutdown_result = tokio::time::timeout(
+            self.tasks_graceful_shutdown_timeout,
+            gracefully_terminate_tasks_fut,
+        )
+        .await;
 
         // Abort the tasks forcefully if they didn't finish in time.
         if task_shutdown_result.is_err() {
             tracing::debug!(
-                tasks_graceful_shutdown = ?self.tasks_graceful_shutdown,
+                tasks_graceful_shutdown_timeout = ?self.tasks_graceful_shutdown_timeout,
                 "worker tasks didn't shut down gracefully in time"
             );
             tasks.shutdown().await;
