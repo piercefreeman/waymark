@@ -62,14 +62,7 @@ pub async fn spawn(
     let child = waymark_managed_process::spawn(command).map_err(SpawnError::Spawn)?;
 
     // Wait for the worker to connect (with timeout).
-    let result = tokio::time::timeout(timeouts.wait_for_payload, reservation.wait()).await;
-    let result = match result {
-        Ok(Ok(channels)) => Ok(channels),
-        Ok(Err(err)) => Err(SpawnError::ReservationWaitError(err)),
-        Err(tokio::time::error::Elapsed { .. }) => Err(SpawnError::ReservationWaitTimeout {
-            timeout: timeouts.wait_for_payload,
-        }),
-    };
+    let result = timeouts.await_payload(reservation).await;
 
     // Pass the payload or terminate the process gracefully.
     let channels = match result {
@@ -226,6 +219,21 @@ impl Handle {
 }
 
 impl Timeouts {
+    /// Wait for the worker to attach to `reservation`, up to
+    /// [`Timeouts::wait_for_payload`], mapping the outcome to a [`SpawnError`].
+    async fn await_payload(
+        &self,
+        reservation: Reservation,
+    ) -> Result<waymark_worker_message_protocol::Channels, SpawnError> {
+        match tokio::time::timeout(self.wait_for_payload, reservation.wait()).await {
+            Ok(Ok(channels)) => Ok(channels),
+            Ok(Err(err)) => Err(SpawnError::ReservationWaitError(err)),
+            Err(tokio::time::error::Elapsed { .. }) => Err(SpawnError::ReservationWaitTimeout {
+                timeout: self.wait_for_payload,
+            }),
+        }
+    }
+
     async fn shutdown_child_process(
         &self,
         child: waymark_managed_process::Child,

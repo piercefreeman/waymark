@@ -102,21 +102,28 @@ fn find_executable(bin: impl AsRef<Path>) -> Option<PathBuf> {
 /// is executable.
 fn is_executable_file(path: &Path) -> bool {
     // `std::fs::metadata` follows symlinks (unlike `symlink_metadata`).
-    let Ok(metadata) = std::fs::metadata(path) else {
-        return false;
-    };
-    if !metadata.is_file() {
-        return false;
+    match std::fs::metadata(path) {
+        Ok(metadata) if metadata.is_file() => is_executable(&metadata),
+        _ => false,
     }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        metadata.permissions().mode() & 0o111 != 0
-    }
-    #[cfg(not(unix))]
-    {
-        true
-    }
+}
+
+/// Whether `metadata` grants execute permission to anyone (owner/group/other).
+///
+/// `std` has no `is_executable`, so on unix we test the mode bits directly; on
+/// other platforms executability is governed by file extension/ACLs rather than
+/// a permission bit, so any regular file is treated as runnable.
+#[cfg(unix)]
+fn is_executable(metadata: &std::fs::Metadata) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    // Execute bits for owner, group, and other (`--x--x--x`).
+    const EXECUTABLE_BITS: u32 = 0o111;
+    metadata.permissions().mode() & EXECUTABLE_BITS != 0
+}
+
+#[cfg(not(unix))]
+fn is_executable(_metadata: &std::fs::Metadata) -> bool {
+    true
 }
 
 #[cfg(test)]
