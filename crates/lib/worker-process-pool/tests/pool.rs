@@ -26,11 +26,11 @@ impl waymark_worker_process_spec::Spec for DummySpec {
 
         waymark_worker_process::SpawnParams {
             command: make_stub_command(),
-            wait_for_playload_timeout: Duration::from_secs(5),
-            shutdown_params: waymark_worker_process::ShutdownParams {
-                tasks_graceful_shutdown_timeout: Duration::from_secs(1),
-                process_graceful_shutdown_timeout: Duration::from_secs(1),
-                process_kill_timeout: Duration::from_secs(1),
+            timeouts: waymark_worker_process::Timeouts {
+                wait_for_payload: Duration::from_secs(5),
+                tasks_graceful_shutdown: Duration::from_secs(1),
+                process_graceful_shutdown: Duration::from_secs(1),
+                process_kill: Duration::from_secs(1),
             },
         }
     }

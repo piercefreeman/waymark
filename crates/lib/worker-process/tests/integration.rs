@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use waymark_worker_message_protocol::Channels;
-use waymark_worker_process::{Handle, ShutdownParams, SpawnError, SpawnParams, spawn};
+use waymark_worker_process::{Handle, SpawnError, SpawnParams, Timeouts, spawn};
 use waymark_worker_reservation::Registry;
 
 fn sleeping_command() -> tokio::process::Command {
@@ -12,7 +12,7 @@ fn sleeping_command() -> tokio::process::Command {
 
 async fn spawn_test_worker(
     command: tokio::process::Command,
-    tasks_graceful_shutdown_timeout: Duration,
+    tasks_graceful_shutdown: Duration,
 ) -> Handle {
     let registry = Arc::new(Registry::<Channels>::default());
     let reservation = registry.reserve();
@@ -22,11 +22,11 @@ async fn spawn_test_worker(
         reservation,
         SpawnParams {
             command,
-            wait_for_playload_timeout: Duration::from_secs(1),
-            shutdown_params: ShutdownParams {
-                tasks_graceful_shutdown_timeout,
-                process_graceful_shutdown_timeout: Duration::from_millis(50),
-                process_kill_timeout: Duration::from_secs(1),
+            timeouts: Timeouts {
+                wait_for_payload: Duration::from_secs(1),
+                tasks_graceful_shutdown,
+                process_graceful_shutdown: Duration::from_millis(50),
+                process_kill: Duration::from_secs(1),
             },
         },
     ));
@@ -65,11 +65,11 @@ async fn spawn_returns_spawn_error_for_missing_command() {
         reservation,
         SpawnParams {
             command,
-            wait_for_playload_timeout: Duration::from_millis(25),
-            shutdown_params: ShutdownParams {
-                tasks_graceful_shutdown_timeout: Duration::from_millis(25),
-                process_graceful_shutdown_timeout: Duration::from_millis(25),
-                process_kill_timeout: Duration::from_millis(25),
+            timeouts: Timeouts {
+                wait_for_payload: Duration::from_millis(25),
+                tasks_graceful_shutdown: Duration::from_millis(25),
+                process_graceful_shutdown: Duration::from_millis(25),
+                process_kill: Duration::from_millis(25),
             },
         },
     )
@@ -92,11 +92,11 @@ async fn spawn_returns_timeout_when_worker_never_registers() {
             reservation,
             SpawnParams {
                 command: sleeping_command(),
-                wait_for_playload_timeout: Duration::from_millis(25),
-                shutdown_params: ShutdownParams {
-                    tasks_graceful_shutdown_timeout: Duration::from_millis(25),
-                    process_graceful_shutdown_timeout: Duration::from_millis(25),
-                    process_kill_timeout: Duration::from_secs(1),
+                timeouts: Timeouts {
+                    wait_for_payload: Duration::from_millis(25),
+                    tasks_graceful_shutdown: Duration::from_millis(25),
+                    process_graceful_shutdown: Duration::from_millis(25),
+                    process_kill: Duration::from_secs(1),
                 },
             },
         ),

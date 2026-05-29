@@ -2,7 +2,7 @@
 
 #![warn(missing_docs)]
 
-use std::{path::PathBuf, time::Duration};
+use std::path::PathBuf;
 
 mod config;
 
@@ -90,13 +90,7 @@ impl waymark_worker_process_spec::Spec for Spec {
 
         waymark_worker_process::SpawnParams {
             command,
-            // TODO: move to config
-            wait_for_playload_timeout: Duration::from_secs(15),
-            shutdown_params: waymark_worker_process::ShutdownParams {
-                tasks_graceful_shutdown_timeout: Duration::from_secs(5),
-                process_graceful_shutdown_timeout: Duration::from_secs(5),
-                process_kill_timeout: Duration::from_secs(10),
-            },
+            timeouts: waymark_worker_process::Timeouts::default(),
         }
     }
 }
