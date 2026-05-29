@@ -11,6 +11,12 @@ use crate::config::{Config, default_runner};
 
 /// A fully resolved worker configuration, ready to assemble launch commands
 /// from without any further I/O.
+///
+/// The environment (`PYTHONPATH`, current working directory, and the
+/// `<crate>/python` package-root probe) is snapshotted once at
+/// [`Config::prepare`] time and frozen here; it is *not* re-read when
+/// `prepare_spawn_params` runs on a later worker recycle.
+#[derive(Clone, Debug)]
 pub struct PreparedConfig {
     pub(crate) program: PathBuf,
     pub(crate) args: Vec<String>,
@@ -39,6 +45,10 @@ impl Config {
     /// [`tokio::task::spawn_blocking`]) so the async runtime is never blocked,
     /// and returns errors instead of panicking.
     pub async fn prepare(self) -> Result<PreparedConfig, PrepareError> {
+        // A panic inside `prepare_blocking` is surfaced as `PrepareError::Join`
+        // (via `JoinError`) rather than resumed: config resolution holds no
+        // partial state to corrupt, so a clean error is preferable to aborting.
+        // (Contrast worker-process, which `resume_unwind`s associated-task panics.)
         tokio::task::spawn_blocking(move || self.prepare_blocking())
             .await
             .map_err(PrepareError::Join)?
@@ -88,6 +98,17 @@ impl Config {
             Ok(existing) if !existing.is_empty() => format!("{existing}:{joined_python_path}"),
             _ => joined_python_path,
         };
+
+        // Logged once, here, at resolution time (not per spawn): records the
+        // effective PYTHONPATH and whether we ran from the bundled package root
+        // or fell back to the cwd — the usual culprits when a worker can't
+        // import its user modules.
+        tracing::info!(
+            working_dir = %working_dir.display(),
+            python_path = %python_path,
+            package_root_used = package_root_is_dir,
+            "resolved python worker environment"
+        );
 
         Ok(PreparedConfig {
             program,

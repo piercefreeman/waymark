@@ -14,6 +14,7 @@ pub use prepared::{PrepareError, PreparedConfig};
 /// fallible/blocking setup already happened in [`Config::prepare`], so
 /// `prepare_spawn_params` is pure: it only assembles a command from cached
 /// values and never performs I/O or panics.
+#[derive(Clone, Debug)]
 pub struct Spec {
     /// The address of the bridge server to connect the worker to.
     pub bridge_server_addr: std::net::SocketAddr,
@@ -47,6 +48,7 @@ impl waymark_worker_process_spec::Spec for Spec {
         tracing::info!(
             ?reservation_id,
             working_dir = %prepared.working_dir.display(),
+            python_path = %prepared.python_path,
             "prepared python worker spawn params"
         );
 
