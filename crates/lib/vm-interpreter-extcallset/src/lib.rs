@@ -62,12 +62,9 @@ where
     Value: waymark_vm_runtime_promise_core::Suspendable,
 {
     let promise_state_id = state.promise_states.prepare();
-    waymark_vm_runtime_core::Continuation::immediate_resume(
-        &mut frame,
-        resume,
-        dst,
-        Value::from_pending(promise_state_id),
-    );
+    frame.state = resume;
+    frame.exception = None;
+    frame.regs.set(dst, Value::from_pending(promise_state_id));
     state.ready.push_front(frame);
     promise_state_id
 }

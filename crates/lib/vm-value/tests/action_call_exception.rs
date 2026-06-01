@@ -8,7 +8,7 @@ use waymark_vm_interpreter_coreset::CoreSetInterpreter;
 use waymark_vm_interpreter_extcallset::ExtCallSetInterpreter;
 use waymark_vm_runtime::{CallSpec, Runtime};
 use waymark_vm_runtime_core::{CaptureRuntimeView, Frame, FullRuntimeView, RegisterId};
-use waymark_vm_runtime_exception::{AsException as _, Exception};
+use waymark_vm_runtime_exception::Exception;
 use waymark_vm_runtime_test::{FunctionId, StateId, executable, function};
 use waymark_vm_value::{ReadyValue, Value};
 
@@ -66,6 +66,17 @@ struct RuntimeInterpreter {
     extcall_set: ExtCallSetInterpreter<TestSpec, FunctionId, StateId, Value>,
 }
 
+fn finish_state_entry<Effect>(
+    state_before: StateId,
+    state_after: StateId,
+    outcome: waymark_vm_interpreter::StateEntryOutcome<Effect>,
+) -> Option<waymark_vm_interpreter::StateEntryOutcome<Effect>> {
+    match outcome {
+        waymark_vm_interpreter::StateEntryOutcome::Continue if state_after == state_before => None,
+        outcome => Some(outcome),
+    }
+}
+
 impl CaptureRuntimeView<Executable<Instruction>, FunctionId, StateId, Value>
     for RuntimeInterpreter
 {
@@ -90,6 +101,51 @@ impl waymark_vm_interpreter::Interpreter for RuntimeInterpreter {
     type Instruction = Instruction;
     type Error = TestError;
     type Effect = TestEffect;
+
+    fn enter_state<'r>(
+        &self,
+        runtime_view: Self::RuntimeView<'r>,
+        frame: &mut Self::Frame,
+    ) -> Result<waymark_vm_interpreter::StateEntryOutcome<Self::Effect>, Self::Error> {
+        let FullRuntimeView { executable, state } = runtime_view;
+
+        let state_before = frame.state;
+        let runtime_view =
+            CoreSetInterpreter::<TestSpec, Executable<Instruction>, Value>::capture_runtime_view(
+                FullRuntimeView {
+                    executable,
+                    state: &mut *state,
+                },
+            );
+        let outcome =
+            waymark_vm_interpreter::Interpreter::enter_state(&self.core_set, runtime_view, frame)
+                .map_err(TestError::from)?
+                .map_effect(TestEffect::CoreSet);
+        if let Some(outcome) = finish_state_entry(state_before, frame.state, outcome) {
+            return Ok(outcome);
+        }
+
+        let state_before = frame.state;
+        let runtime_view =
+            ExtCallSetInterpreter::<TestSpec, FunctionId, StateId, Value>::capture_runtime_view(
+                FullRuntimeView {
+                    executable,
+                    state: &mut *state,
+                },
+            );
+        let outcome = waymark_vm_interpreter::Interpreter::enter_state(
+            &self.extcall_set,
+            runtime_view,
+            frame,
+        )
+        .map_err(TestError::from)?
+        .map_effect(TestEffect::ExtCallSet);
+        if let Some(outcome) = finish_state_entry(state_before, frame.state, outcome) {
+            return Ok(outcome);
+        }
+
+        Ok(waymark_vm_interpreter::StateEntryOutcome::Continue)
+    }
 
     fn execute<'r>(
         &self,
@@ -180,19 +236,13 @@ fn action_call_can_resume_with_an_exception_error() {
         )
         .expect("action call promise should reject cleanly");
 
-    let TestEffect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(value)) = runtime
-        .run()
-        .expect("second run should complete with the exception value")
-    else {
-        panic!("second run should complete the resumed action call");
-    };
-
-    let exception = value
-        .as_exception()
-        .expect("completed value should remain an exception");
-    assert_eq!(exception.type_id, "ValueError");
-    assert_eq!(
-        exception.details,
-        Value::Ready(ReadyValue::String("boom".to_owned()))
-    );
+    assert!(matches!(
+        runtime.run(),
+        Ok(TestEffect::CoreSet(
+            waymark_vm_interpreter_coreset::Effect::UnhandledException(Exception {
+                type_id,
+                details: ReadyValue::String(details),
+            })
+        )) if type_id == "ValueError" && details == "boom"
+    ));
 }

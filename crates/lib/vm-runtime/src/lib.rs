@@ -104,6 +104,7 @@ where
             state: Executable::StateId::default(),
             regs,
             exception: None,
+            exception_handler_blocks: Vec::new(),
             kind: FrameKind::TopLevel,
         });
 

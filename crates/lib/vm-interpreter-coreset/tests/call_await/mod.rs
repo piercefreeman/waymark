@@ -31,13 +31,16 @@ fn runtime_executes_call_await_and_return_to_completion() {
         function::<Instruction>(1, vec![vec![CoreSet::Return { src: RegisterId(0) }]]),
     ]);
 
-    let mut runtime = new_runtime_with_args(executable, vec![TestReadyValue(7)]);
+    let mut runtime = new_runtime_with_args(executable, vec![TestReadyValue::Int(7)]);
 
     let effect = runtime
         .run()
         .expect("call/await/return program should complete");
 
     match effect {
-        Effect::Complete(value) => assert_eq!(value, TestReadyValue(7)),
+        Effect::Complete(value) => assert_eq!(value, TestReadyValue::Int(7)),
+        Effect::UnhandledException(exception) => {
+            panic!("program should complete successfully, got {exception:?}")
+        }
     }
 }

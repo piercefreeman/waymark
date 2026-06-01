@@ -52,6 +52,18 @@ pub enum CoreSet<Spec: self::Spec> {
         resume: Spec::StateId,
     },
 
+    /// Push one exception-handler block as the new innermost active scope.
+    PushExceptionHandlers {
+        /// Handlers to activate for subsequent execution in this frame.
+        handlers: Vec<waymark_vm_runtime_core::ExceptionHandler<Spec::StateId>>,
+    },
+
+    /// Pop `count` innermost exception-handler blocks.
+    PopExceptionHandlers {
+        /// Number of blocks to remove.
+        count: usize,
+    },
+
     /// Jump to the specified state.
     Jump {
         /// The state to jump to.
@@ -66,6 +78,12 @@ pub enum CoreSet<Spec: self::Spec> {
         /// The register containing the value that will be evaluated as the
         /// condition for the jump.
         cond: Spec::RegisterId,
+    },
+
+    /// Raise the exception value stored in a register.
+    Raise {
+        /// The register that stores the exception value to raise.
+        src: Spec::RegisterId,
     },
 
     /// Return the value at the given registry.

@@ -192,6 +192,7 @@ impl Interpreter for TestInterpreter {
                     state: next_state,
                     regs: Registers::new(num_regs),
                     exception: None,
+                    exception_handler_blocks: Vec::new(),
                     kind: FrameKind::TopLevel,
                 });
                 Ok(ExecutionOutcome::ExitFrame)

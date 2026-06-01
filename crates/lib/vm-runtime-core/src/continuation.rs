@@ -118,6 +118,7 @@ mod tests {
             state,
             regs: Registers::new(2),
             exception: None,
+            exception_handler_blocks: Vec::new(),
             kind: FrameKind::TopLevel,
         }
     }

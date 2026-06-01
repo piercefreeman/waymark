@@ -133,7 +133,7 @@ mod tests {
     fn continuation(
         dst: RegisterId,
         resume_state: usize,
-    ) -> Continuation<&'static str, usize, TestValue, crate::ResumeWithAwait<usize>> {
+    ) -> Continuation<&'static str, usize, TestValue, crate::ResumeWithValue> {
         Continuation::capture(frame(0), resume_state, dst)
     }
 

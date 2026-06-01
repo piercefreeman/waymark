@@ -5341,6 +5341,7 @@ name = "waymark-vm-instructions-coreset"
 version = "0.1.0"
 dependencies = [
  "derive-where",
+ "waymark-vm-runtime-core",
 ]
 
 [[package]]
@@ -5383,6 +5384,7 @@ dependencies = [
  "waymark-vm-interpreter",
  "waymark-vm-runtime",
  "waymark-vm-runtime-core",
+ "waymark-vm-runtime-exception",
  "waymark-vm-runtime-promise-core",
  "waymark-vm-runtime-test",
  "waymark-vm-runtime-value",
@@ -5425,6 +5427,7 @@ dependencies = [
  "waymark-vm-interpreter-pureset",
  "waymark-vm-runtime",
  "waymark-vm-runtime-core",
+ "waymark-vm-runtime-exception",
  "waymark-vm-runtime-promise-core",
  "waymark-vm-runtime-test",
  "waymark-vm-runtime-value",

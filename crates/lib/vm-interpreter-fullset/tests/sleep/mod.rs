@@ -65,6 +65,9 @@ fn runtime_resumes_sleep_effects_and_finishes_with_pure_work() {
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(_)) => {
             panic!("program should suspend on sleep before completion")
         }
+        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::UnhandledException(exception)) => {
+            panic!("program should not raise an exception before suspension: {exception:?}")
+        }
         Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall { .. }) => {
             panic!("program should emit a sleep effect, not an action call")
         }
@@ -88,6 +91,9 @@ fn runtime_resumes_sleep_effects_and_finishes_with_pure_work() {
         }
         Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::Sleep { .. }) => {
             panic!("resolved sleep should not emit another sleep effect")
+        }
+        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::UnhandledException(exception)) => {
+            panic!("resolved sleep should not raise an exception: {exception:?}")
         }
         Effect::PureSet(effect) => match effect {},
     }

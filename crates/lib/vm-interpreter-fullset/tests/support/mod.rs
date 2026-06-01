@@ -21,6 +21,9 @@ use waymark_vm_instructions_pureset::{BinaryOpKind, UnaryOpKind};
 use waymark_vm_interpreter_fullset::FullSetInterpreter;
 use waymark_vm_runtime::{CallSpec, Runtime};
 use waymark_vm_runtime_core::RegisterId;
+use waymark_vm_runtime_exception::{
+    Exception, FromException, IntoException, NotAnOwnedExceptionError,
+};
 use waymark_vm_runtime_promise_core::{PromiseStateId, UnresolvedPromiseError};
 use waymark_vm_runtime_test::{FunctionId, StateId};
 
@@ -81,6 +84,7 @@ pub enum TestReadyValue {
     Int(i64),
     Bool(bool),
     List(Vec<TestValue>),
+    Exception(Box<Exception<TestValue>>),
 }
 
 impl waymark_vm_runtime_value::RootValueAccess for TestReadyValue {
@@ -92,6 +96,7 @@ fn is_truthy(value: &TestReadyValue) -> bool {
         TestReadyValue::Int(value) => *value != 0,
         TestReadyValue::Bool(value) => *value,
         TestReadyValue::List(items) => !items.is_empty(),
+        TestReadyValue::Exception(_) => true,
     }
 }
 
@@ -221,7 +226,7 @@ impl waymark_vm_interpreter_pureset::value::Length for TestReadyValue {
     fn length(&self) -> Result<usize, waymark_vm_interpreter_pureset::value::LengthError> {
         match self {
             Self::List(items) => Ok(items.len()),
-            Self::Int(_) | Self::Bool(_) => {
+            Self::Int(_) | Self::Bool(_) | Self::Exception(_) => {
                 Err(waymark_vm_interpreter_pureset::value::LengthError::UnsupportedValue)
             }
         }
@@ -250,7 +255,9 @@ impl waymark_vm_interpreter_extcallset::value::SleepDuration for TestReadyValue 
                 let seconds: u64 = (*value).try_into().map_err(|_| Self::Error::Negative)?;
                 NonZeroDuration::from_secs(seconds).ok_or(Self::Error::Zero)
             }
-            Self::Bool(_) | Self::List(_) => Err(Self::Error::UnsupportedValue),
+            Self::Bool(_) | Self::List(_) | Self::Exception(_) => {
+                Err(Self::Error::UnsupportedValue)
+            }
         }
     }
 }
@@ -350,6 +357,21 @@ impl waymark_vm_runtime_promise_core::Resolvable for TestValue {
             Self::Pending(promise_state_id) => Err(UnresolvedPromiseError {
                 promise_state_id: *promise_state_id,
             }),
+        }
+    }
+}
+
+impl FromException for TestValue {
+    fn from_exception(exception: Exception<Self::RootValue>) -> Self {
+        Self::Ready(TestReadyValue::Exception(Box::new(exception)))
+    }
+}
+
+impl IntoException for TestValue {
+    fn into_exception(self) -> Result<Exception<Self::RootValue>, NotAnOwnedExceptionError<Self>> {
+        match self {
+            Self::Ready(TestReadyValue::Exception(exception)) => Ok(*exception),
+            value => Err(NotAnOwnedExceptionError { value }),
         }
     }
 }

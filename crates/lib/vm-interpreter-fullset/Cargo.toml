@@ -15,6 +15,7 @@ waymark-vm-interpreter-coreset = { workspace = true }
 waymark-vm-interpreter-extcallset = { workspace = true }
 waymark-vm-interpreter-pureset = { workspace = true }
 waymark-vm-runtime-core = { workspace = true }
+waymark-vm-runtime-exception = { workspace = true }
 waymark-vm-runtime-promise-core = { workspace = true }
 
 derive-where = { workspace = true }

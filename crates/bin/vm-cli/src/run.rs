@@ -64,6 +64,10 @@ pub async fn run(
                             completion_tx.send(Ok(value)).unwrap();
                             break;
                         }
+                        waymark_vm_interpreter_coreset::Effect::UnhandledException(exception) => {
+                            completion_tx.send(Err(exception)).unwrap();
+                            break;
+                        }
                     },
                     waymark_vm_interpreter_fullset::Effect::ExtCallSet(effect) => match effect {
                         waymark_vm_interpreter_extcallset::Effect::ActionCall {
