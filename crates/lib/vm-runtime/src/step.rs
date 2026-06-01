@@ -61,6 +61,28 @@ where
         } = self;
 
         'state_loop: loop {
+            let current_state = frame.state;
+            let full_runtime_view = waymark_vm_runtime_core::FullRuntimeView { executable, state };
+            let runtime_view = Interpreter::capture_runtime_view(full_runtime_view);
+            let outcome = interpreter
+                .enter_state(runtime_view, frame)
+                .map_err(Error::Execution)?;
+
+            match outcome {
+                waymark_vm_interpreter::ExecutionOutcome::Continue(next_frame) => {
+                    frame = next_frame;
+                    if frame.state != current_state {
+                        continue 'state_loop;
+                    }
+                }
+                waymark_vm_interpreter::ExecutionOutcome::ExitFrame => {
+                    return Ok(StepOutcome::Yield);
+                }
+                waymark_vm_interpreter::ExecutionOutcome::ExitFrameWithEffect(effect) => {
+                    return Ok(StepOutcome::Effect(effect));
+                }
+            }
+
             let instructions = executable
                 .function_state_instructions(frame.func, frame.state)
                 .ok_or(Error::InvalidState)?;

@@ -32,6 +32,22 @@ pub trait Interpreter {
     /// interpreter can trigger.
     type Effect;
 
+    /// Enter the current frame state before instruction dispatch.
+    ///
+    /// Runtime calls this hook before it starts executing the instructions of
+    /// the current frame state. Interpreters can use it for any state-entry
+    /// behavior, including but not limited to pending-exception handling.
+    /// Implementations that do not need state-entry behavior can rely on the
+    /// default implementation, which continues with ordinary instruction
+    /// execution.
+    fn enter_state<'r>(
+        &self,
+        _runtime: Self::RuntimeView<'r>,
+        frame: Self::Frame,
+    ) -> Result<ExecutionOutcome<Self::Frame, Self::Effect>, Self::Error> {
+        Ok(ExecutionOutcome::Continue(frame))
+    }
+
     /// Execute the instruction on a given frame.
     fn execute<'r>(
         &self,
@@ -41,7 +57,7 @@ pub trait Interpreter {
     ) -> Result<ExecutionOutcome<Self::Frame, Self::Effect>, Self::Error>;
 }
 
-/// The outcome of an execution of a single instruction.
+/// The outcome of an execution of a single instruction or hook.
 pub enum ExecutionOutcome<Frame, Effect> {
     /// Continue executing this frame.
     Continue(Frame),
