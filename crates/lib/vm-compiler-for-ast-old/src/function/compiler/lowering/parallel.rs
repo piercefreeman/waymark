@@ -291,7 +291,11 @@ mod tests {
         ));
         assert!(matches!(
             start_instructions.next(),
-            Some(InstructionSet::CoreSet(CoreSet::Await { dst, src, resume }))
+            Some(InstructionSet::CoreSet(CoreSet::Await {
+                dst,
+                src,
+                resume,
+            }))
                 if *dst == RegisterId(1)
                     && *src == RegisterId(1)
                     && *resume == StateId(1)
@@ -301,7 +305,11 @@ mod tests {
         let mut middle_instructions = states[StateId(1)].instructions.iter();
         assert!(matches!(
             middle_instructions.next(),
-            Some(InstructionSet::CoreSet(CoreSet::Await { dst, src, resume }))
+            Some(InstructionSet::CoreSet(CoreSet::Await {
+                dst,
+                src,
+                resume,
+            }))
                 if *dst == RegisterId(2)
                     && *src == RegisterId(2)
                     && *resume == StateId(2)

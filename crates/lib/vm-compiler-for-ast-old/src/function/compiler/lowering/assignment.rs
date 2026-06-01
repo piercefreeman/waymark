@@ -8,6 +8,7 @@ use crate::function::compiler::env::LocalSlot;
 
 use super::CompilerContextMut;
 use super::ErrorFor;
+use super::ExceptionHandlerBlocks;
 use super::ForLoopCompiler;
 use super::ParallelCompiler;
 use super::ValueCompiler;
@@ -22,6 +23,9 @@ where
 {
     /// Mutable compiler context for assignment lowering.
     context: CompilerContextMut<'borrow, 'table, Spec, Lowering>,
+
+    /// Exception-handler blocks active for this assignment context.
+    exception_handler_blocks: ExceptionHandlerBlocks<waymark_vm_bytecode_core::StateId>,
 }
 
 impl<'borrow, 'table, Spec, Lowering> AssignmentCompiler<'borrow, 'table, Spec, Lowering>
@@ -30,8 +34,14 @@ where
     Lowering: waymark_vm_compiler_for_ast_old_core::lowering::FullSet<Spec>,
 {
     /// Creates an assignment compiler over the provided context.
-    pub fn new(context: CompilerContextMut<'borrow, 'table, Spec, Lowering>) -> Self {
-        Self { context }
+    pub fn new(
+        context: CompilerContextMut<'borrow, 'table, Spec, Lowering>,
+        exception_handler_blocks: ExceptionHandlerBlocks<waymark_vm_bytecode_core::StateId>,
+    ) -> Self {
+        Self {
+            context,
+            exception_handler_blocks,
+        }
     }
 
     /// Compiles one assignment statement.
@@ -153,7 +163,11 @@ where
 
     /// Creates a for-loop compiler for internal spread lowering.
     fn for_loop_compiler(&mut self) -> ForLoopCompiler<'_, 'table, Spec, Lowering> {
-        ForLoopCompiler::new(self.context.reborrow_mut(), LoopControlStack::new())
+        ForLoopCompiler::new(
+            self.context.reborrow_mut(),
+            LoopControlStack::new(),
+            self.exception_handler_blocks.clone(),
+        )
     }
 }
 
@@ -239,13 +253,15 @@ mod tests {
             .expect("source input should declare");
 
         {
-            let mut assignments =
-                AssignmentCompiler::<TestSpec, TestLowering>::new(CompilerContextMut::new(
+            let mut assignments = AssignmentCompiler::<TestSpec, TestLowering>::new(
+                CompilerContextMut::new(
                     &function_table,
                     &mut emitter,
                     &mut local_frame,
                     &mut flow_state,
-                ));
+                ),
+                Vec::new(),
+            );
 
             assignments
                 .compile_statement(&["target".to_owned()], &variable("source"))

@@ -10,6 +10,9 @@ pub(super) struct LoopScope {
 
     /// State reached by a `continue`.
     continue_state: StateId,
+
+    /// Exception-handler block depth that should remain active at loop targets.
+    exception_handler_depth: usize,
 }
 
 /// Stack of loop scopes active during statement lowering.
@@ -31,10 +34,15 @@ pub enum LoopControlKind {
 
 impl LoopScope {
     /// Creates a loop scope with its `break` and `continue` targets.
-    pub(super) fn new(break_state: StateId, continue_state: StateId) -> Self {
+    pub(super) fn new(
+        break_state: StateId,
+        continue_state: StateId,
+        exception_handler_depth: usize,
+    ) -> Self {
         Self {
             break_state,
             continue_state,
+            exception_handler_depth,
         }
     }
 
@@ -44,6 +52,11 @@ impl LoopScope {
             LoopControlKind::Break => self.break_state,
             LoopControlKind::Continue => self.continue_state,
         }
+    }
+
+    /// Returns the exception-handler block depth expected at loop targets.
+    pub(super) fn exception_handler_depth(self) -> usize {
+        self.exception_handler_depth
     }
 }
 
@@ -85,8 +98,8 @@ mod tests {
     #[test]
     fn innermost_loop_targets_win() {
         let loop_control = LoopControlStack::new()
-            .with_loop(LoopScope::new(StateId(1), StateId(2)))
-            .with_loop(LoopScope::new(StateId(3), StateId(4)));
+            .with_loop(LoopScope::new(StateId(1), StateId(2), 0))
+            .with_loop(LoopScope::new(StateId(3), StateId(4), 1));
 
         let Some(loop_scope) = loop_control.current() else {
             panic!("loop control should expose an innermost loop scope");
@@ -105,8 +118,8 @@ mod tests {
 
     #[test]
     fn entering_loop_returns_extended_scope_without_mutating_parent() {
-        let outer = LoopControlStack::new().with_loop(LoopScope::new(StateId(1), StateId(2)));
-        let inner = outer.with_loop(LoopScope::new(StateId(3), StateId(4)));
+        let outer = LoopControlStack::new().with_loop(LoopScope::new(StateId(1), StateId(2), 0));
+        let inner = outer.with_loop(LoopScope::new(StateId(3), StateId(4), 1));
 
         let Some(outer_scope) = outer.current() else {
             panic!("outer loop control should expose a loop scope");
@@ -117,7 +130,9 @@ mod tests {
 
         assert_eq!(outer_scope.target(LoopControlKind::Break), StateId(1));
         assert_eq!(outer_scope.target(LoopControlKind::Continue), StateId(2));
+        assert_eq!(outer_scope.exception_handler_depth(), 0);
         assert_eq!(inner_scope.target(LoopControlKind::Break), StateId(3));
         assert_eq!(inner_scope.target(LoopControlKind::Continue), StateId(4));
+        assert_eq!(inner_scope.exception_handler_depth(), 1);
     }
 }

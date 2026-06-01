@@ -33,6 +33,12 @@ mod lowering {
 
     use super::*;
 
+    /// One pushed exception-handler block in lowering order.
+    pub(super) type ExceptionHandlerBlock<StateId> =
+        Vec<waymark_vm_runtime_core::ExceptionHandler<StateId>>;
+    /// Active exception-handler blocks from outermost to innermost.
+    pub(super) type ExceptionHandlerBlocks<StateId> = Vec<ExceptionHandlerBlock<StateId>>;
+
     pub mod assignment;
     pub mod for_loop;
     pub mod parallel;

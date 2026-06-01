@@ -1,11 +1,13 @@
 //! Statement lowering.
 
 use waymark_vm_ast_old::{
-    ActionCall, Block, ElifBranch, ElseBranch, Expr, IfBranch, Spanned, Statement,
+    ActionCall, Block, ElifBranch, ElseBranch, ExceptHandler, Expr, IfBranch, Spanned, Statement,
 };
 
 use super::AssignmentCompiler;
 use super::CompilerContextMut;
+use super::ExceptionHandlerBlock;
+use super::ExceptionHandlerBlocks;
 use super::ForLoopCompiler;
 use super::ParallelCompiler;
 use super::ValueCompiler;
@@ -16,6 +18,7 @@ use super::plan::r#loop::WhileLoopPlan;
 use super::plan::statement::StatementPlan;
 use super::{Error, ErrorFor, LoopControlKind};
 
+use nonempty_collections::NEVec;
 use waymark_vm_bytecode_core::StateId;
 
 /// Lowers statements and control flow into bytecode states.
@@ -29,6 +32,9 @@ where
 
     /// Active loop scopes available to nested statements.
     loop_control: LoopControlStack,
+
+    /// Exception-handler blocks active in this block from outermost to innermost.
+    exception_handler_blocks: ExceptionHandlerBlocks<StateId>,
 }
 
 /// Whether a compiled branch terminates or continues with a flow state.
@@ -56,7 +62,17 @@ where
         Self {
             context,
             loop_control,
+            exception_handler_blocks: Vec::new(),
         }
+    }
+
+    /// Returns a compiler configured with the provided active handler blocks.
+    pub fn with_exception_handler_blocks(
+        mut self,
+        exception_handler_blocks: ExceptionHandlerBlocks<StateId>,
+    ) -> Self {
+        self.exception_handler_blocks = exception_handler_blocks;
+        self
     }
 
     /// Compiles a block until control flow terminates or statements are exhausted.
@@ -127,12 +143,110 @@ where
             } => {
                 self.compile_conditional(if_branch, elif_branches, else_branch)?;
             }
+            StatementPlan::TryExcept {
+                handlers,
+                try_block,
+            } => {
+                self.compile_try_except(handlers, try_block)?;
+            }
             StatementPlan::Break => {
                 self.compile_break()?;
             }
             StatementPlan::Continue => {
                 self.compile_continue()?;
             }
+        }
+
+        Ok(())
+    }
+
+    /// Compiles a `try`/`except` block by pushing one protected handler block.
+    fn compile_try_except(
+        &mut self,
+        handlers: &[Spanned<ExceptHandler>],
+        try_block: &Spanned<Block>,
+    ) -> Result<(), ErrorFor<Spec, Lowering>> {
+        let incoming_flow = self.context.flow_state.clone();
+        let join_state = self.new_state();
+        let handler_states = handlers
+            .iter()
+            .map(|_| self.new_state())
+            .collect::<Vec<_>>();
+        let mut try_handlers = ExceptionHandlerBlock::with_capacity(handlers.len());
+
+        for (handler, handler_state) in handlers.iter().zip(handler_states.iter().copied()) {
+            let exception_types = if handler.value.exception_types.len() == 1
+                && handler.value.exception_types[0] == "Exception"
+            {
+                Vec::new()
+            } else {
+                handler.value.exception_types.clone()
+            };
+            let exception_dst = handler.value.exception_var.as_ref().map(|exception_var| {
+                self.context
+                    .local_frame
+                    .get_or_declare_local(exception_var, self.context.flow_state)
+                    .register()
+            });
+
+            try_handlers.push(waymark_vm_runtime_core::ExceptionHandler {
+                handler_state,
+                exception_types,
+                exception_dst,
+            });
+        }
+        let mut try_exception_handler_blocks = self.exception_handler_blocks.clone();
+        try_exception_handler_blocks.push(try_handlers.clone());
+        let mut continuation_flows: Option<NEVec<FlowState>> = None;
+
+        self.context
+            .emitter
+            .emit_push_exception_handlers(try_handlers);
+
+        {
+            let mut try_compiler = self
+                .nested_statement_compiler(self.loop_control.clone())
+                .with_exception_handler_blocks(try_exception_handler_blocks);
+            try_compiler.compile_block(try_block)?;
+        }
+
+        if self.context.emitter.is_active() {
+            let flow_state = self.context.flow_state.clone();
+            self.context.emitter.emit_pop_exception_handlers(1);
+            self.context.emitter.emit_jump(join_state);
+            continuation_flows = Some(NEVec::new(flow_state));
+        }
+
+        for (handler, handler_state) in handlers.iter().zip(handler_states) {
+            self.switch_to_with_flow(handler_state, incoming_flow.clone());
+
+            if let Some(exception_var) = &handler.value.exception_var {
+                let local = self
+                    .context
+                    .local_frame
+                    .get_or_declare_local(exception_var, self.context.flow_state);
+                self.context.flow_state.mark_initialized(local);
+            }
+
+            {
+                let mut handler_compiler =
+                    self.nested_statement_compiler(self.loop_control.clone());
+                handler_compiler.compile_block(&handler.value.body)?;
+            }
+
+            if self.context.emitter.is_active() {
+                let flow_state = self.context.flow_state.clone();
+                self.context.emitter.emit_jump(join_state);
+
+                match &mut continuation_flows {
+                    Some(flows) => flows.push(flow_state),
+                    None => continuation_flows = Some(NEVec::new(flow_state)),
+                }
+            }
+        }
+
+        if let Some(continuation_flows) = continuation_flows {
+            self.switch_to_with_flow(join_state, FlowState::merge_branches(continuation_flows));
         }
 
         Ok(())
@@ -242,7 +356,7 @@ where
         let exit_state = self.new_state();
         let while_loop =
             WhileLoopPlan::new(&incoming_flow, condition_state, body_state, exit_state);
-        let body_loop_scope = while_loop.loop_scope();
+        let body_loop_scope = while_loop.loop_scope(self.exception_handler_blocks.len());
 
         self.context.emitter.emit_jump(while_loop.condition_state());
 
@@ -339,8 +453,19 @@ where
             return Err(Error::LoopControlOutsideLoop { kind });
         };
 
+        self.emit_pop_exception_handlers_to(loop_scope.exception_handler_depth());
         self.context.emitter.emit_jump(loop_scope.target(kind));
         Ok(())
+    }
+
+    /// Pops any handler blocks deeper than `target_depth`.
+    fn emit_pop_exception_handlers_to(&mut self, target_depth: usize) {
+        let active_depth = self.exception_handler_blocks.len();
+        if active_depth > target_depth {
+            self.context
+                .emitter
+                .emit_pop_exception_handlers(active_depth - target_depth);
+        }
     }
 
     /// Creates a value compiler borrowing the current context.
@@ -350,12 +475,19 @@ where
 
     /// Creates a for-loop compiler borrowing the current context mutably.
     fn for_loop_compiler(&mut self) -> ForLoopCompiler<'_, 'table, Spec, Lowering> {
-        ForLoopCompiler::new(self.context.reborrow_mut(), self.loop_control.clone())
+        ForLoopCompiler::new(
+            self.context.reborrow_mut(),
+            self.loop_control.clone(),
+            self.exception_handler_blocks.clone(),
+        )
     }
 
     /// Creates an assignment compiler borrowing the current context mutably.
     fn assignment_compiler(&mut self) -> AssignmentCompiler<'_, 'table, Spec, Lowering> {
-        AssignmentCompiler::new(self.context.reborrow_mut())
+        AssignmentCompiler::new(
+            self.context.reborrow_mut(),
+            self.exception_handler_blocks.clone(),
+        )
     }
 
     /// Creates a parallel compiler borrowing the current context mutably.
@@ -369,6 +501,7 @@ where
         loop_control: LoopControlStack,
     ) -> StatementCompiler<'_, 'table, Spec, Lowering> {
         StatementCompiler::new(self.context.reborrow_mut(), loop_control)
+            .with_exception_handler_blocks(self.exception_handler_blocks.clone())
     }
 }
 

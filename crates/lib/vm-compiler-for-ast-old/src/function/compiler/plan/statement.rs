@@ -1,13 +1,12 @@
 //! Statement planning.
 
 use waymark_vm_ast_old::{
-    ActionCall, Block, ElifBranch, ElseBranch, Expr, IfBranch, Spanned, Statement,
+    ActionCall, Block, ElifBranch, ElseBranch, ExceptHandler, Expr, IfBranch, Spanned, Statement,
 };
 
 use crate::function::table::FunctionTable;
 
 use super::ErrorFor;
-use super::Unsupported;
 use super::parallel::{ParallelCallPlans, build_parallel_call_plans};
 
 /// A normalized statement shape that the statement compiler knows how to lower.
@@ -100,6 +99,15 @@ where
         else_branch: Option<&'a Spanned<ElseBranch>>,
     },
 
+    /// A `try`/`except` block.
+    TryExcept {
+        /// Exception handlers in source order.
+        handlers: &'a [Spanned<ExceptHandler>],
+
+        /// Protected block.
+        try_block: &'a Spanned<Block>,
+    },
+
     /// Exit the innermost loop.
     Break,
 
@@ -107,11 +115,19 @@ where
     Continue,
 }
 
-/// Statement variants that the current lowering pipeline rejects.
+/// Statement variants that the current lowering pipeline still rejects.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnsupportedStatementKind {
-    /// `try`/`except` blocks.
+    /// Placeholder for future unsupported statement reporting.
     TryExcept,
+}
+
+impl core::fmt::Display for UnsupportedStatementKind {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        formatter.write_str(match self {
+            Self::TryExcept => "TryExcept",
+        })
+    }
 }
 
 impl<'a, Spec> StatementPlan<'a, Spec>
@@ -165,21 +181,16 @@ where
                 elif_branches,
                 else_branch: else_branch.as_ref(),
             }),
+            Statement::TryExcept {
+                handlers,
+                try_block,
+            } => Ok(Self::TryExcept {
+                handlers,
+                try_block,
+            }),
             Statement::Break => Ok(Self::Break),
             Statement::Continue => Ok(Self::Continue),
-            Statement::TryExcept { .. } => Err(Unsupported::Statement {
-                kind: UnsupportedStatementKind::TryExcept,
-            }
-            .into()),
         }
-    }
-}
-
-impl core::fmt::Display for UnsupportedStatementKind {
-    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        formatter.write_str(match self {
-            Self::TryExcept => "TryExcept",
-        })
     }
 }
 
@@ -194,7 +205,7 @@ mod tests {
     };
     use waymark_vm_compiler_for_ast_old_test_support::{TestLowering, TestSpec};
 
-    use crate::function::compiler::{Error, test_helpers::build_function_table};
+    use crate::function::compiler::test_helpers::build_function_table;
 
     #[test]
     fn builds_simple_statement_plans() {
@@ -295,24 +306,17 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unsupported_statement_variants() {
+    fn builds_try_except_statement_plans() {
         let function_table = build_function_table();
-        let unsupported = [(
-            spanned(Statement::TryExcept {
-                handlers: Vec::<Spanned<waymark_vm_ast_old::ExceptHandler>>::new(),
-                try_block: block(Vec::new()),
-            }),
-            UnsupportedStatementKind::TryExcept,
-        )];
+        let try_except = spanned(Statement::TryExcept {
+            handlers: Vec::<Spanned<waymark_vm_ast_old::ExceptHandler>>::new(),
+            try_block: block(Vec::new()),
+        });
 
-        for (statement, kind) in unsupported {
-            let error =
-                StatementPlan::<TestSpec>::build::<TestLowering>(&statement.value, &function_table)
-                    .expect_err("unsupported statements should fail");
-
-            assert!(
-                matches!(error, Error::Unsupported(Unsupported::Statement { kind: actual }) if actual == kind)
-            );
-        }
+        assert!(matches!(
+            StatementPlan::<TestSpec>::build::<TestLowering>(&try_except.value, &function_table)
+                .expect("try/except should build"),
+            StatementPlan::TryExcept { .. }
+        ));
     }
 }

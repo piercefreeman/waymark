@@ -3,9 +3,7 @@ source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
 expression: "bytecode for python/tests/fixtures_policy/integration_exception_custom.py [compilation error]"
 ---
 FunctionCompiler(
-    Unsupported(
-        Statement {
-            kind: TryExcept,
-        },
-    ),
+    UnknownVariable {
+        name: "result",
+    },
 )
