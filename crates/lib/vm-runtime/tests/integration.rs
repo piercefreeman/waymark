@@ -1,11 +1,72 @@
 use waymark_vm_runtime::{CallSpec, RunError};
-use waymark_vm_runtime_core::{RegisterId, ResolvePromiseError};
+use waymark_vm_runtime_core::{
+    CaptureRuntimeView, FullRuntimeView, RegisterId, ResolvePromiseError,
+};
 use waymark_vm_runtime_exception::Exception;
 use waymark_vm_runtime_promise_core::PromiseStateId;
 use waymark_vm_runtime_test::{
-    FunctionId, StateId, TestEffect, TestInstruction, TestReadyValue, executable, function,
-    runtime, runtime_with_entrypoint, try_runtime,
+    FunctionId, StateId, TestEffect, TestExecutable, TestExecutionError, TestInstruction,
+    TestInterpreter, TestReadyValue, TestValue, executable, function, runtime,
+    runtime_with_entrypoint, try_runtime,
 };
+
+struct HookInterpreter {
+    mode: HookMode,
+}
+
+enum HookMode {
+    ExitWithEffect(&'static str),
+    RedirectExceptionToState(StateId),
+}
+
+impl CaptureRuntimeView<TestExecutable, FunctionId, StateId, TestValue> for HookInterpreter {
+    type RuntimeView<'r> = FullRuntimeView<'r, TestExecutable, FunctionId, StateId, TestValue>;
+
+    fn capture_runtime_view<'r>(
+        view: FullRuntimeView<'r, TestExecutable, FunctionId, StateId, TestValue>,
+    ) -> Self::RuntimeView<'r> {
+        view
+    }
+}
+
+impl waymark_vm_interpreter::Interpreter for HookInterpreter {
+    type RuntimeView<'r> = FullRuntimeView<'r, TestExecutable, FunctionId, StateId, TestValue>;
+    type Frame = waymark_vm_runtime::FrameFor<TestExecutable, TestValue>;
+    type Instruction = TestInstruction;
+    type Error = TestExecutionError;
+    type Effect = TestEffect;
+
+    fn enter_state<'r>(
+        &self,
+        _runtime: Self::RuntimeView<'r>,
+        frame: &mut Self::Frame,
+    ) -> Result<waymark_vm_interpreter::StateEntryOutcome<Self::Effect>, Self::Error> {
+        match self.mode {
+            HookMode::ExitWithEffect(message) => Ok(
+                waymark_vm_interpreter::StateEntryOutcome::ExitFrameWithEffect(
+                    TestEffect::Message(message),
+                ),
+            ),
+            HookMode::RedirectExceptionToState(handler_state) => {
+                if frame.exception.is_some() {
+                    frame.exception = None;
+                    frame.state = handler_state;
+                }
+                Ok(waymark_vm_interpreter::StateEntryOutcome::Continue)
+            }
+        }
+    }
+
+    fn execute<'r>(
+        &self,
+        runtime: Self::RuntimeView<'r>,
+        frame: Self::Frame,
+        instruction: &Self::Instruction,
+    ) -> Result<waymark_vm_interpreter::ExecutionOutcome<Self::Frame, Self::Effect>, Self::Error>
+    {
+        waymark_vm_interpreter::Interpreter::execute(&TestInterpreter, runtime, frame, instruction)
+    }
+}
 
 #[test]
 fn with_custom_entrypoint_uses_requested_function_and_ready_arguments() {
@@ -227,5 +288,74 @@ fn reject_promise_bubbles_uncaught_exceptions() {
             type_id: "ValueError".to_owned(),
             details: TestReadyValue::Int(41),
         })
+    );
+}
+
+#[test]
+fn state_entry_hook_can_exit_before_instruction_dispatch() {
+    let executable = executable(vec![function(
+        0,
+        vec![vec![TestInstruction::Fail(
+            "instruction dispatch should be skipped",
+        )]],
+    )]);
+
+    let mut runtime = waymark_vm_runtime::Runtime::with_conventional_entrypoint(
+        HookInterpreter {
+            mode: HookMode::ExitWithEffect("hook"),
+        },
+        executable,
+    )
+    .expect("entrypoint should exist");
+
+    assert_eq!(
+        runtime
+            .run()
+            .expect("state-entry hook should emit before dispatch"),
+        TestEffect::Message("hook")
+    );
+}
+
+#[test]
+fn state_entry_hook_can_redirect_exceptional_resumes_when_the_interpreter_wants() {
+    let executable = executable(vec![function(
+        1,
+        vec![
+            vec![TestInstruction::Suspend {
+                dst: RegisterId(0),
+                resume: StateId(1),
+            }],
+            vec![TestInstruction::Fail(
+                "resumed state should be skipped after redirect",
+            )],
+            vec![TestInstruction::Emit("handled")],
+        ],
+    )]);
+
+    let mut runtime = waymark_vm_runtime::Runtime::with_conventional_entrypoint(
+        HookInterpreter {
+            mode: HookMode::RedirectExceptionToState(StateId(2)),
+        },
+        executable,
+    )
+    .expect("entrypoint should exist");
+
+    assert!(matches!(runtime.run(), Err(RunError::NoReadyFrame)));
+
+    runtime
+        .reject_promise(
+            PromiseStateId(0),
+            Exception {
+                type_id: "ValueError".to_owned(),
+                details: TestReadyValue::Int(41),
+            },
+        )
+        .expect("exceptional promise result should resolve");
+
+    assert_eq!(
+        runtime
+            .run()
+            .expect("state-entry hook should redirect into the handler state"),
+        TestEffect::Message("handled")
     );
 }

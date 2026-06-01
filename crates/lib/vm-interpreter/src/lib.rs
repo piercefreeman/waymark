@@ -32,6 +32,22 @@ pub trait Interpreter {
     /// interpreter can trigger.
     type Effect;
 
+    /// Enter the current frame state before instruction dispatch.
+    ///
+    /// Runtime calls this hook before it starts executing the instructions of
+    /// the current frame state. Interpreters can use it for any state-entry
+    /// behavior, including but not limited to pending-exception handling.
+    /// Implementations that do not need state-entry behavior can rely on the
+    /// default implementation, which continues with ordinary instruction
+    /// execution.
+    fn enter_state<'r>(
+        &self,
+        _runtime: Self::RuntimeView<'r>,
+        _frame: &mut Self::Frame,
+    ) -> Result<StateEntryOutcome<Self::Effect>, Self::Error> {
+        Ok(StateEntryOutcome::Continue)
+    }
+
     /// Execute the instruction on a given frame.
     fn execute<'r>(
         &self,
@@ -39,6 +55,34 @@ pub trait Interpreter {
         frame: Self::Frame,
         instruction: &Self::Instruction,
     ) -> Result<ExecutionOutcome<Self::Frame, Self::Effect>, Self::Error>;
+}
+
+/// The outcome of entering a frame state before instruction dispatch.
+pub enum StateEntryOutcome<Effect> {
+    /// Continue executing the current frame.
+    Continue,
+
+    /// Exit the frame, and continue with the next one.
+    ExitFrame,
+
+    /// Exit the frame and emit a side-effect.
+    ExitFrameWithEffect(Effect),
+}
+
+impl<Effect> StateEntryOutcome<Effect> {
+    /// Map one effect to another while preserving the control-flow shape.
+    pub fn map_effect<OtherEffect>(
+        self,
+        f: impl FnOnce(Effect) -> OtherEffect,
+    ) -> StateEntryOutcome<OtherEffect> {
+        match self {
+            StateEntryOutcome::Continue => StateEntryOutcome::Continue,
+            StateEntryOutcome::ExitFrame => StateEntryOutcome::ExitFrame,
+            StateEntryOutcome::ExitFrameWithEffect(effect) => {
+                StateEntryOutcome::ExitFrameWithEffect(f(effect))
+            }
+        }
+    }
 }
 
 /// The outcome of an execution of a single instruction.
