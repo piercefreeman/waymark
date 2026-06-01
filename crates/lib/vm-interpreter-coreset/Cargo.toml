@@ -9,6 +9,7 @@ waymark-vm-executable = { workspace = true }
 waymark-vm-instructions-coreset = { workspace = true }
 waymark-vm-interpreter = { workspace = true }
 waymark-vm-runtime-core = { workspace = true }
+waymark-vm-runtime-exception = { workspace = true }
 waymark-vm-runtime-promise-core = { workspace = true }
 waymark-vm-runtime-value = { workspace = true }
 
@@ -17,5 +18,6 @@ thiserror = { workspace = true }
 
 [dev-dependencies]
 waymark-vm-bytecode = { workspace = true }
+waymark-vm-exception-handler = { workspace = true }
 waymark-vm-runtime = { workspace = true }
 waymark-vm-runtime-test = { workspace = true }

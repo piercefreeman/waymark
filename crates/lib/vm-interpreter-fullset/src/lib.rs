@@ -75,6 +75,8 @@ where
     Value: waymark_vm_interpreter_coreset::Value,
     Value: waymark_vm_interpreter_extcallset::Value,
     Value: waymark_vm_interpreter_pureset::Value,
+    Value: waymark_vm_runtime_exception::FromException<RootValue = Value>,
+    Value: waymark_vm_runtime_exception::IntoException<RootValue = Value>,
     Value: for<'a> waymark_vm_interpreter_pureset::value::LoadConst<&'a Spec::ConstValue>,
     Value: waymark_vm_runtime_promise_core::Resolvable,
     Value: waymark_vm_runtime_promise_core::Suspendable,

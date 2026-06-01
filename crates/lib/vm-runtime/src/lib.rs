@@ -10,8 +10,8 @@ pub mod step;
 use std::collections::VecDeque;
 
 use waymark_vm_runtime_core::{
-    Frame, FrameKind, PromiseStates, Registers, RejectPromiseError, ResolvePromiseError,
-    RuntimeState,
+    ExceptionHandlers, Frame, FrameKind, PromiseStates, Registers, RejectPromiseError,
+    ResolvePromiseError, RuntimeState,
 };
 use waymark_vm_runtime_promise_core::PromiseStateId;
 
@@ -104,6 +104,7 @@ where
             state: Executable::StateId::default(),
             regs,
             exception: None,
+            exception_handler_blocks: ExceptionHandlers::new(),
             kind: FrameKind::TopLevel,
         });
 

@@ -137,7 +137,9 @@ mod tests {
     use waymark_vm_runtime_exception::Exception;
 
     use super::{PromiseStateId, PromiseStateNotFoundError, PromiseStates, ResolvePromiseError};
-    use crate::{Continuation, Frame, FrameKind, PromiseState, RegisterId, Registers};
+    use crate::{
+        Continuation, ExceptionHandlers, Frame, FrameKind, PromiseState, RegisterId, Registers,
+    };
 
     fn continuation(
         dst: RegisterId,
@@ -149,6 +151,7 @@ mod tests {
                 state: 0,
                 regs: Registers::new(2),
                 exception: None,
+                exception_handler_blocks: ExceptionHandlers::new(),
                 kind: FrameKind::TopLevel,
             },
             resume_state,

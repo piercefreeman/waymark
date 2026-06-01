@@ -7,4 +7,5 @@ mod support;
 
 mod extcall;
 mod sleep;
+mod state_entry;
 mod synchronous;

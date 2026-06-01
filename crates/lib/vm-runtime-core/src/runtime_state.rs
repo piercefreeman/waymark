@@ -83,8 +83,8 @@ mod tests {
 
     use super::RuntimeState;
     use crate::{
-        Continuation, Frame, FrameKind, PromiseState, PromiseStates, RegisterId, Registers,
-        ResolvePromiseError,
+        Continuation, ExceptionHandlers, Frame, FrameKind, PromiseState, PromiseStates, RegisterId,
+        Registers, ResolvePromiseError,
     };
 
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -104,6 +104,7 @@ mod tests {
             state,
             regs: Registers::new(2),
             exception: None,
+            exception_handler_blocks: ExceptionHandlers::new(),
             kind: FrameKind::TopLevel,
         }
     }

@@ -77,6 +77,7 @@ waymark-vm-compiler-for-ast-old-const-value = { path = "crates/lib/vm-compiler-f
 waymark-vm-compiler-for-ast-old-core = { path = "crates/lib/vm-compiler-for-ast-old-core" }
 waymark-vm-compiler-for-ast-old-test-support = { path = "crates/lib/vm-compiler-for-ast-old-test-support" }
 waymark-vm-driver = { path = "crates/lib/vm-driver" }
+waymark-vm-exception-handler = { path = "crates/lib/vm-exception-handler" }
 waymark-vm-executable = { path = "crates/lib/vm-executable" }
 waymark-vm-instructions-coreset = { path = "crates/lib/vm-instructions-coreset" }
 waymark-vm-instructions-extcallset = { path = "crates/lib/vm-instructions-extcallset" }
