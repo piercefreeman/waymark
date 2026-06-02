@@ -5,9 +5,9 @@
 //! (executable lookup, working directory, `PYTHONPATH`). All fallible and
 //! blocking work happens once, here, in [`Config::prepare`].
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use crate::config::{Config, default_runner};
+use crate::config::Config;
 
 /// A fully resolved worker configuration, ready to assemble launch commands
 /// from without any further I/O.
@@ -119,10 +119,81 @@ impl Config {
     }
 }
 
+/// Find the default Python runner.
+/// Prefers `waymark-worker` if in PATH, otherwise uses `uv run`.
+///
+/// Performs blocking filesystem lookups; only call from a blocking context
+/// (invoked from `Config::prepare` inside `spawn_blocking`).
+fn default_runner() -> (PathBuf, Vec<String>) {
+    if let Some(path) = find_executable("waymark-worker") {
+        return (path, Vec::new());
+    }
+    (
+        PathBuf::from("uv"),
+        vec![
+            "run".to_string(),
+            "python".to_string(),
+            "-m".to_string(),
+            "waymark.worker".to_string(),
+        ],
+    )
+}
+
+/// Search PATH for an executable file.
+///
+/// Follows symlinks (so a symlinked binary on PATH is found) and, on unix,
+/// requires the execute bit to be set so we don't return a non-executable
+/// file that merely shares the name.
+fn find_executable(bin: impl AsRef<Path>) -> Option<PathBuf> {
+    let bin = bin.as_ref();
+    let path_var = std::env::var_os("PATH")?;
+    for dir in std::env::split_paths(&path_var) {
+        let candidate = dir.join(bin);
+        if is_executable_file(&candidate) {
+            return Some(candidate);
+        }
+        #[cfg(windows)]
+        {
+            let exe_candidate = dir.join(bin.with_added_extension("exe"));
+            if is_executable_file(&exe_candidate) {
+                return Some(exe_candidate);
+            }
+        }
+    }
+    None
+}
+
+/// Returns true if `path` resolves (following symlinks) to a regular file that
+/// is executable.
+fn is_executable_file(path: &Path) -> bool {
+    // `std::fs::metadata` follows symlinks (unlike `symlink_metadata`).
+    match std::fs::metadata(path) {
+        Ok(metadata) if metadata.is_file() => is_executable(&metadata),
+        _ => false,
+    }
+}
+
+/// Whether `metadata` grants execute permission to anyone (owner/group/other).
+///
+/// `std` has no `is_executable`, so on unix we test the mode bits directly; on
+/// other platforms executability is governed by file extension/ACLs rather than
+/// a permission bit, so any regular file is treated as runnable.
+#[cfg(unix)]
+fn is_executable(metadata: &std::fs::Metadata) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    // Execute bits for owner, group, and other (`--x--x--x`).
+    const EXECUTABLE_BITS: u32 = 0o111;
+    metadata.permissions().mode() & EXECUTABLE_BITS != 0
+}
+
+#[cfg(not(unix))]
+fn is_executable(_metadata: &std::fs::Metadata) -> bool {
+    true
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::Config;
-    use std::path::PathBuf;
+    use super::*;
 
     #[tokio::test]
     async fn prepare_resolves_an_explicit_script() {
@@ -136,5 +207,38 @@ mod tests {
         assert_eq!(prepared.program, PathBuf::from("/usr/bin/python3"));
         assert_eq!(prepared.args, vec!["-u".to_string()]);
         assert_eq!(prepared.user_modules, vec!["my_module".to_string()]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn is_executable_file_accepts_real_executable_via_symlink() {
+        // /bin/sh is an executable file and is a symlink on many systems,
+        // which exercises the symlink-following path.
+        assert!(is_executable_file(Path::new("/bin/sh")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn is_executable_file_rejects_missing_path() {
+        assert!(!is_executable_file(Path::new(
+            "/definitely/not/a/real/binary/xyzzy"
+        )));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn find_executable_locates_sh_on_path() {
+        assert!(find_executable("sh").is_some());
+    }
+
+    #[test]
+    fn default_runner_detection() {
+        let (path, args) = default_runner();
+        if args.is_empty() {
+            assert!(path.to_string_lossy().contains("waymark-worker"));
+        } else {
+            assert_eq!(path, PathBuf::from("uv"));
+            assert_eq!(args, vec!["run", "python", "-m", "waymark.worker"]);
+        }
     }
 }
