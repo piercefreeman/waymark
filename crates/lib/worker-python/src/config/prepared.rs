@@ -7,7 +7,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::config::Config;
+use super::Config;
 
 /// A fully resolved worker configuration, ready to assemble launch commands
 /// from without any further I/O.

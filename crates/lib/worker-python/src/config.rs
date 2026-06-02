@@ -1,5 +1,9 @@
 use std::path::PathBuf;
 
+mod prepared;
+
+pub use prepared::{PrepareError, PreparedConfig};
+
 /// Configuration for spawning Python workers.
 #[derive(Clone, Debug, Default)]
 pub struct Config {

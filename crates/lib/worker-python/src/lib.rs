@@ -5,10 +5,8 @@
 use std::time::Duration;
 
 mod config;
-mod prepared;
 
-pub use config::Config;
-pub use prepared::{PrepareError, PreparedConfig};
+pub use config::{Config, PrepareError, PreparedConfig};
 
 /// Python worker process spec.
 ///
