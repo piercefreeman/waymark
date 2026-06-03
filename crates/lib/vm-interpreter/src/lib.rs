@@ -48,6 +48,20 @@ pub trait Interpreter {
         Ok(ExecutionOutcome::Continue(frame))
     }
 
+    /// Run before each instruction execution.
+    ///
+    /// Runtime calls this hook before dispatching each instruction. Interpreters
+    /// can use it for any pre-instruction behavior. Implementations that do not
+    /// need pre-instruction behavior can rely on the default implementation,
+    /// which continues with ordinary instruction execution.
+    fn before_execute<'r>(
+        &self,
+        _runtime: Self::RuntimeView<'r>,
+        frame: Self::Frame,
+    ) -> Result<ExecutionOutcome<Self::Frame, Self::Effect>, Self::Error> {
+        Ok(ExecutionOutcome::Continue(frame))
+    }
+
     /// Run after each instruction execution that continued in the same state.
     ///
     /// Runtime calls this hook after an instruction executes and returns
