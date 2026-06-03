@@ -178,6 +178,21 @@ where
         );
     }
 
+    /// Emits a push of one exception-handler block.
+    pub fn emit_push_exception_handlers(
+        &mut self,
+        handlers: Vec<waymark_vm_exception_handler::ExceptionHandler<StateId, RegisterId>>,
+    ) {
+        self.emit(
+            waymark_vm_instructions_coreset::CoreSet::PushExceptionHandlers { handlers }.into(),
+        );
+    }
+
+    /// Emits a pop of `count` exception-handler blocks.
+    pub fn emit_pop_exception_handlers(&mut self, count: usize) {
+        self.emit(waymark_vm_instructions_coreset::CoreSet::PopExceptionHandlers { count }.into());
+    }
+
     /// Emits a conditional jump.
     pub fn emit_jump_if(&mut self, target_state: StateId, cond: RegisterId) {
         self.emit(waymark_vm_instructions_coreset::CoreSet::JumpIf { target_state, cond }.into());

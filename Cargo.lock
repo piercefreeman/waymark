@@ -5267,6 +5267,7 @@ dependencies = [
  "waymark-vm-bytecode-fmt",
  "waymark-vm-compiler-for-ast-old-core",
  "waymark-vm-compiler-for-ast-old-test-support",
+ "waymark-vm-exception-handler",
  "waymark-vm-instructions-coreset",
  "waymark-vm-instructions-extcallset",
  "waymark-vm-instructions-fullset",

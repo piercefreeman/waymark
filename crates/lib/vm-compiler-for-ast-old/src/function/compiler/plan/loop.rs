@@ -64,8 +64,15 @@ impl WhileLoopPlan {
     }
 
     /// Returns the loop-control scope used for `break` and `continue`.
-    pub fn loop_scope(&self) -> crate::function::compiler::r#loop::LoopScope {
-        crate::function::compiler::r#loop::LoopScope::new(self.exit_state, self.condition_state)
+    pub fn loop_scope(
+        &self,
+        exception_handler_depth: usize,
+    ) -> crate::function::compiler::r#loop::LoopScope {
+        crate::function::compiler::r#loop::LoopScope::new(
+            self.exit_state,
+            self.condition_state,
+            exception_handler_depth,
+        )
     }
 
     /// Returns the flow state to use when evaluating the condition.
@@ -119,8 +126,15 @@ impl ForLoopPlan {
     }
 
     /// Returns the loop-control scope used for `break` and `continue`.
-    pub fn loop_scope(&self) -> crate::function::compiler::r#loop::LoopScope {
-        crate::function::compiler::r#loop::LoopScope::new(self.exit_state, self.continue_state)
+    pub fn loop_scope(
+        &self,
+        exception_handler_depth: usize,
+    ) -> crate::function::compiler::r#loop::LoopScope {
+        crate::function::compiler::r#loop::LoopScope::new(
+            self.exit_state,
+            self.continue_state,
+            exception_handler_depth,
+        )
     }
 
     /// Returns the flow state to use when evaluating the condition.
@@ -167,7 +181,7 @@ mod tests {
         incoming_flow.mark_initialized(shared);
 
         let while_loop = WhileLoopPlan::new(&incoming_flow, StateId(4), StateId(5), StateId(6));
-        let loop_scope = while_loop.loop_scope();
+        let loop_scope = while_loop.loop_scope(0);
 
         assert_eq!(while_loop.condition_state(), StateId(4));
         assert_eq!(while_loop.body_state(), StateId(5));
@@ -198,7 +212,7 @@ mod tests {
             StateId(6),
             StateId(7),
         );
-        let loop_scope = for_loop.loop_scope();
+        let loop_scope = for_loop.loop_scope(0);
 
         assert_eq!(for_loop.condition_state(), StateId(4));
         assert_eq!(for_loop.body_state(), StateId(5));
