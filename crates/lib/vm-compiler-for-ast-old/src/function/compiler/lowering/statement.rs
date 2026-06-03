@@ -238,7 +238,10 @@ where
         }
 
         if let Some(continuation_flows) = continuation_flows {
-            self.switch_to_with_flow(join_state, FlowState::merge_branches(continuation_flows));
+            self.switch_to_with_flow(
+                join_state,
+                FlowState::intersect_branches(continuation_flows),
+            );
         }
 
         Ok(())
