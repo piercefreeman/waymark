@@ -360,3 +360,136 @@ fn state_entry_hook_can_redirect_exceptional_resumes_when_the_interpreter_wants(
         TestEffect::Message("handled")
     );
 }
+
+#[test]
+fn snapshot_suspended_and_from_snapshot_preserves_suspended_promises() {
+    let make_executable = || {
+        executable(vec![function(
+            1,
+            vec![
+                vec![TestInstruction::Suspend {
+                    dst: RegisterId(0),
+                    resume: StateId(1),
+                }],
+                vec![TestInstruction::EmitRegister(RegisterId(0))],
+            ],
+        )])
+    };
+
+    // Create runtime and run until it suspends.
+    let mut runtime = waymark_vm_runtime::Runtime::with_conventional_entrypoint(
+        TestInterpreter,
+        make_executable(),
+    )
+    .expect("entrypoint should exist");
+
+    assert!(matches!(runtime.run(), Err(RunError::NoReadyFrame)));
+
+    // Snapshot the suspended runtime.
+    let mut buf = Vec::new();
+    runtime
+        .snapshot(&mut rmp_serde::Serializer::new(&mut buf))
+        .expect("suspended runtime should snapshot");
+
+    // Restore into a new runtime with a fresh executable.
+    let mut de = rmp_serde::Deserializer::new(&buf[..]);
+    let mut restored =
+        waymark_vm_runtime::Runtime::from_snapshot(TestInterpreter, make_executable(), &mut de)
+            .expect("snapshotted bytes should restore");
+
+    // Resolve the promise in the restored runtime.
+    restored
+        .resolve_promise(PromiseStateId(0), TestReadyValue::Int(42))
+        .expect("promise should resolve after restore");
+
+    assert_eq!(
+        restored.run().expect("restored runtime should emit"),
+        TestEffect::Value(TestReadyValue::Int(42))
+    );
+}
+
+#[test]
+fn snapshot_suspended_and_from_snapshot_preserves_rejected_promises() {
+    let make_executable = || {
+        executable(vec![function(
+            1,
+            vec![
+                vec![TestInstruction::Suspend {
+                    dst: RegisterId(0),
+                    resume: StateId(1),
+                }],
+                vec![TestInstruction::EmitException],
+            ],
+        )])
+    };
+
+    let mut runtime = waymark_vm_runtime::Runtime::with_conventional_entrypoint(
+        TestInterpreter,
+        make_executable(),
+    )
+    .expect("entrypoint should exist");
+
+    assert!(matches!(runtime.run(), Err(RunError::NoReadyFrame)));
+
+    // Snapshot.
+    let mut buf = Vec::new();
+    runtime
+        .snapshot(&mut rmp_serde::Serializer::new(&mut buf))
+        .expect("suspended runtime should snapshot");
+
+    // Restore.
+    let mut de = rmp_serde::Deserializer::new(&buf[..]);
+    let mut restored =
+        waymark_vm_runtime::Runtime::from_snapshot(TestInterpreter, make_executable(), &mut de)
+            .expect("snapshotted bytes should restore");
+
+    // Reject the promise.
+    restored
+        .reject_promise(
+            PromiseStateId(0),
+            Exception {
+                type_id: "ValueError".to_owned(),
+                details: TestReadyValue::Int(41),
+            },
+        )
+        .expect("promise should reject after restore");
+
+    assert_eq!(
+        restored
+            .run()
+            .expect("restored runtime should emit exception"),
+        TestEffect::UnhandledException(Exception {
+            type_id: "ValueError".to_owned(),
+            details: TestReadyValue::Int(41),
+        })
+    );
+}
+
+#[test]
+fn allow_live_snapshots_runtime_with_ready_frames() {
+    let runtime = runtime(executable(vec![function(
+        0,
+        vec![vec![TestInstruction::Emit("still-alive")]],
+    )]));
+
+    let mut buf = Vec::new();
+    runtime
+        .snapshot(&mut rmp_serde::Serializer::new(&mut buf))
+        .expect("snapshot_active should snapshot with ready frames");
+
+    let mut de = rmp_serde::Deserializer::new(&buf[..]);
+    let mut restored = waymark_vm_runtime::Runtime::from_snapshot(
+        TestInterpreter,
+        executable(vec![function(
+            0,
+            vec![vec![TestInstruction::Emit("still-alive")]],
+        )]),
+        &mut de,
+    )
+    .expect("live snapshot should restore");
+
+    assert_eq!(
+        restored.run().expect("restored runtime should emit"),
+        TestEffect::Message("still-alive")
+    );
+}

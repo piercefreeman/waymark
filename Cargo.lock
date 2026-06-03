@@ -5203,6 +5203,7 @@ name = "waymark-vm-bytecode-core"
 version = "0.1.0"
 dependencies = [
  "index_type",
+ "serde",
 ]
 
 [[package]]
@@ -5336,6 +5337,9 @@ dependencies = [
 [[package]]
 name = "waymark-vm-exception-handler"
 version = "0.1.0"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "waymark-vm-executable"
@@ -5469,6 +5473,8 @@ dependencies = [
 name = "waymark-vm-runtime"
 version = "0.1.0"
 dependencies = [
+ "rmp-serde",
+ "serde",
  "thiserror",
  "tracing",
  "waymark-vm-executable",
@@ -5484,6 +5490,7 @@ name = "waymark-vm-runtime-core"
 version = "0.1.0"
 dependencies = [
  "index_type",
+ "serde",
  "thiserror",
  "waymark-vm-exception-handler",
  "waymark-vm-runtime-exception",
@@ -5496,6 +5503,7 @@ dependencies = [
 name = "waymark-vm-runtime-exception"
 version = "0.1.0"
 dependencies = [
+ "serde",
  "thiserror",
  "waymark-vm-runtime-value",
 ]
@@ -5505,6 +5513,7 @@ name = "waymark-vm-runtime-promise-core"
 version = "0.1.0"
 dependencies = [
  "index_type",
+ "serde",
  "thiserror",
 ]
 
@@ -5512,6 +5521,7 @@ dependencies = [
 name = "waymark-vm-runtime-promise-value"
 version = "0.1.0"
 dependencies = [
+ "serde",
  "thiserror",
  "waymark-nonzero-duration",
  "waymark-vm-interpreter-coreset",
@@ -5526,6 +5536,7 @@ dependencies = [
 name = "waymark-vm-runtime-test"
 version = "0.1.0"
 dependencies = [
+ "serde",
  "thiserror",
  "waymark-vm-bytecode",
  "waymark-vm-bytecode-core",

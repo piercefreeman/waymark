@@ -8,6 +8,8 @@ use crate::RegisterId;
 pub struct PopExceptionHandlersError;
 
 /// Frame-local stack of active exception-handler blocks.
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ExceptionHandlers<StateId>(Vec<ExceptionHandlerBlock<StateId, RegisterId>>);
 
 impl<StateId> Default for ExceptionHandlers<StateId> {

@@ -6,16 +6,19 @@ use index_type::{IndexTooBigError, IndexType};
 
 /// Identifies a function within a VM executable.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, IndexType, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[index_type(error = FunctionIdTooBigError)]
 pub struct FunctionId(pub usize);
 
 /// Identifies a state-machine state within a function.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, IndexType, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[index_type(error = StateIdTooBigError)]
 pub struct StateId(pub usize);
 
 /// Identifies an instruction within a state.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, IndexType, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[index_type(error = InstructionIdTooBigError)]
 pub struct InstructionId(pub usize);
 

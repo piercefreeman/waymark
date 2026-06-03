@@ -10,7 +10,17 @@ waymark-vm-runtime-exception = { workspace = true }
 waymark-vm-runtime-promise-core = { workspace = true }
 
 index_type = { workspace = true }
+serde = { workspace = true, optional = true }
 thiserror = { workspace = true }
+
+[features]
+default = []
+serde = [
+  "dep:serde",
+  "waymark-vm-exception-handler/serde",
+  "waymark-vm-runtime-exception/serde",
+  "waymark-vm-runtime-promise-core/serde",
+]
 
 [dev-dependencies]
 waymark-vm-runtime-promise-value = { workspace = true }

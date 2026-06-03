@@ -5,6 +5,7 @@
 
 #![warn(missing_docs)]
 
+pub mod snapshot;
 pub mod step;
 
 use std::collections::VecDeque;
@@ -242,5 +243,15 @@ where
                     waymark_vm_runtime_exception::Exception { type_id, details }
                 })
             })
+    }
+}
+
+impl<Executable, Interpreter, Value> Runtime<Executable, Interpreter, Value>
+where
+    Executable: waymark_vm_executable::FunctionStates,
+{
+    /// Returns `true` if the runtime has ready frames to execute.
+    pub fn has_ready_frames(&self) -> bool {
+        !self.state.ready.is_empty()
     }
 }
