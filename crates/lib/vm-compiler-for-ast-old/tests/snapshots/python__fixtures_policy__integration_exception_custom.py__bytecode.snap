@@ -1,9 +1,35 @@
 ---
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
-expression: "bytecode for python/tests/fixtures_policy/integration_exception_custom.py [compilation error]"
+assertion_line: 113
+expression: bytecode for python/tests/fixtures_policy/integration_exception_custom.py
 ---
-FunctionCompiler(
-    UnknownVariable {
-        name: "result",
-    },
-)
+fn main(input: [], output: []):
+    try:
+        number = @integration_exception_custom.provide_value()
+        @integration_exception_custom.explode_custom(value=number) [retry: 0]
+    except CustomError:
+        result = @integration_exception_custom.cleanup(label="custom_fallback")
+    return result
+---
+f0: [3 registers]
+  s0:
+    CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: ["CustomError"], exception_dst: None }] })
+    ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("provide_value"), args: [], resume: s3 })
+  s1:
+    CoreSet(Return { src: r2 })
+  s2:
+    PureSet(LoadConst { dst: r1, value: String("custom_fallback") })
+    ExtCallSet(ActionCall { dst: r2, action_ref: TestActionRef("cleanup"), args: [r1], resume: s7 })
+  s3:
+    CoreSet(Await { dst: r0, src: r0, resume: s4 })
+  s4:
+    ExtCallSet(ActionCall { dst: r1, action_ref: TestActionRef("explode_custom"), args: [r0], resume: s5 })
+  s5:
+    CoreSet(Await { dst: r1, src: r1, resume: s6 })
+  s6:
+    CoreSet(PopExceptionHandlers { count: 1 })
+    CoreSet(Jump { target_state: s1 })
+  s7:
+    CoreSet(Await { dst: r2, src: r2, resume: s8 })
+  s8:
+    CoreSet(Jump { target_state: s1 })
