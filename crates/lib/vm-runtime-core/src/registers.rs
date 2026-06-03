@@ -7,6 +7,7 @@ pub struct RegisterIdTooBigError;
 
 /// Index of a register in the [`Registers`] type.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, IndexType)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[index_type(error = RegisterIdTooBigError)]
 pub struct RegisterId(pub usize);
 
@@ -15,6 +16,12 @@ pub struct RegisterId(pub usize);
 /// Used to store values per frame.
 #[derive(Debug)]
 pub struct Registers<Value>(TypedVec<RegisterId, Option<Value>>);
+
+impl<Value: Clone> Clone for Registers<Value> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
 
 impl<Value> std::ops::Index<RegisterId> for Registers<Value> {
     type Output = Value;
@@ -83,6 +90,31 @@ impl<Value> Registers<Value> {
 impl core::fmt::Debug for RegisterId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "r{}", self.0)
+    }
+}
+
+#[cfg(feature = "serde")]
+mod serde_impls {
+    use super::Registers;
+    use index_type::IndexType;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    impl<Value: Serialize> Serialize for Registers<Value> {
+        fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            use serde::ser::SerializeSeq;
+            let mut seq = serializer.serialize_seq(Some(self.0.len().to_scalar()))?;
+            for element in &self.0 {
+                seq.serialize_element(element)?;
+            }
+            seq.end()
+        }
+    }
+
+    impl<'de, Value: Deserialize<'de>> Deserialize<'de> for Registers<Value> {
+        fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+            let inner: Vec<Option<Value>> = Vec::deserialize(deserializer)?;
+            Ok(Self(inner.into_iter().collect()))
+        }
     }
 }
 

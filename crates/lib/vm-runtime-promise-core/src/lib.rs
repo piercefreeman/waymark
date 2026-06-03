@@ -14,6 +14,7 @@ pub struct PromiseStateIdTooBigError;
 
 /// Index of a [`PromiseState`] in the promise states store.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, IndexType, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[index_type(error = PromiseStateIdTooBigError)]
 pub struct PromiseStateId(pub usize);
 

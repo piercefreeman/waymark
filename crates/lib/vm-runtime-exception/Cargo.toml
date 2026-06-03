@@ -7,4 +7,10 @@ publish.workspace = true
 [dependencies]
 waymark-vm-runtime-value = { workspace = true }
 
+serde = { workspace = true, optional = true, features = ["derive"] }
 thiserror = { workspace = true }
+
+[features]
+default = []
+
+serde = ["dep:serde", "serde/derive"]

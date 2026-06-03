@@ -7,12 +7,15 @@ publish.workspace = true
 [dependencies]
 waymark-vm-executable = { workspace = true }
 waymark-vm-interpreter = { workspace = true }
-waymark-vm-runtime-core = { workspace = true }
+waymark-vm-runtime-core = { workspace = true, features = ["serde"] }
 waymark-vm-runtime-exception = { workspace = true }
 waymark-vm-runtime-promise-core = { workspace = true }
 
+serde = { workspace = true, features = ["derive"] }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
 waymark-vm-runtime-test = { workspace = true }
+
+rmp-serde = { workspace = true }

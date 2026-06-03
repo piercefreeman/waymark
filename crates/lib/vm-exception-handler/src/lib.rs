@@ -11,6 +11,7 @@ pub type ExceptionHandlerBlocks<StateId, RegisterId> =
 
 /// A catch target for a raised VM exception.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ExceptionHandler<StateId, RegisterId> {
     /// State to transfer control to when this handler matches.
     pub handler_state: StateId,

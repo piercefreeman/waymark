@@ -8,6 +8,7 @@ pub type RejectPromiseError<Value> =
     ResolvePromiseError<waymark_vm_runtime_exception::Exception<Value>>;
 
 /// A list of promise states.
+#[derive(Debug, Clone)]
 pub struct PromiseStates<FunctionId, StateId, Value>(
     TypedVec<PromiseStateId, PromiseState<FunctionId, StateId, Value>>,
 );
@@ -128,6 +129,35 @@ impl<Value> ResolvePromiseError<Value> {
                     new_value,
                 })
             }
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+mod serde_impls {
+    use super::PromiseStates;
+    use index_type::IndexType;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    impl<FunctionId: Serialize, StateId: Serialize, Value: Serialize> Serialize
+        for PromiseStates<FunctionId, StateId, Value>
+    {
+        fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            use serde::ser::SerializeSeq;
+            let mut seq = serializer.serialize_seq(Some(self.0.len().to_scalar()))?;
+            for element in &self.0 {
+                seq.serialize_element(element)?;
+            }
+            seq.end()
+        }
+    }
+
+    impl<'de, FunctionId: Deserialize<'de>, StateId: Deserialize<'de>, Value: Deserialize<'de>>
+        Deserialize<'de> for PromiseStates<FunctionId, StateId, Value>
+    {
+        fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+            let inner: Vec<_> = Vec::deserialize(deserializer)?;
+            Ok(Self(inner.into_iter().collect()))
         }
     }
 }

@@ -7,6 +7,7 @@ mod pureset;
 use waymark_vm_runtime_promise_core::{PromiseStateId, UnresolvedPromiseError};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum PromiseValue<T> {
     Ready(T),
     Pending(PromiseStateId),
