@@ -39,8 +39,26 @@ pub enum ExcSet<Spec: self::Spec> {
         src: Spec::RegisterId,
     },
 
+    /// Checks whether a value is an exception that should bubble.
+    ShouldBubble {
+        /// Destination register for the bubbling flag.
+        dst: Spec::RegisterId,
+
+        /// Register holding the value to inspect.
+        src: Spec::RegisterId,
+    },
+
+    /// Marks an exception as handled so it no longer bubbles automatically.
+    CatchException {
+        /// Register holding the exception value to mark as caught.
+        src: Spec::RegisterId,
+    },
+
     /// Raises an exception value, transferring control to the current state's
     /// handler slot if one is active, or unwinding the frame otherwise.
+    ///
+    /// Raise forces the exception value's bubbling flag to `true` before
+    /// propagation, so explicit re-raise always bubbles.
     ///
     /// The runtime consults the *current state's* handler slot (set by the
     /// compiler when lowering try/except). If a slot is present, the runtime

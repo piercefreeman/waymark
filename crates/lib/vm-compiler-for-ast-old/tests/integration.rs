@@ -36,6 +36,7 @@ fn exception_value(type_id: &str, details: TestValue) -> TestReadyValue {
     TestReadyValue::Exception(Box::new(waymark_vm_runtime_exception::Exception {
         type_id: type_id.to_owned(),
         details,
+        bubble: true,
     }))
 }
 

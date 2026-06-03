@@ -666,7 +666,7 @@ where
 
         self.context
             .emitter
-            .emit_is_exception(is_exception.register(), target_register, None);
+            .emit_should_bubble(is_exception.register(), target_register);
         self.context
             .emitter
             .emit_jump_if(exception_state, is_exception.register());
@@ -802,7 +802,7 @@ mod tests {
           CoreSet(Call { dst: r0, function_id: f0, args: [r1] })
           CoreSet(Await { dst: r0, src: r0, resume: s1 })
         s1:
-          ExcSet(IsException { dst: r1, src: r0, exception_type_id: None })
+          ExcSet(ShouldBubble { dst: r1, src: r0 })
           CoreSet(JumpIf { target_state: s3, cond: r1 })
           CoreSet(Jump { target_state: s2 })
         s2:
@@ -848,7 +848,7 @@ mod tests {
         s1:
           CoreSet(Await { dst: r0, src: r0, resume: s2 })
         s2:
-          ExcSet(IsException { dst: r1, src: r0, exception_type_id: None })
+          ExcSet(ShouldBubble { dst: r1, src: r0 })
           CoreSet(JumpIf { target_state: s4, cond: r1 })
           CoreSet(Jump { target_state: s3 })
         s3:
@@ -889,7 +889,7 @@ mod tests {
         s1:
           CoreSet(Await { dst: r0, src: r0, resume: s2 })
         s2:
-          ExcSet(IsException { dst: r1, src: r0, exception_type_id: None })
+          ExcSet(ShouldBubble { dst: r1, src: r0 })
           CoreSet(JumpIf { target_state: s4, cond: r1 })
           CoreSet(Jump { target_state: s3 })
         s3:
@@ -1241,28 +1241,28 @@ mod tests {
         // r0 is the reused call result register; r1 is the reused exception-check temporary.
         assert_eq!(local_frame.num_registers(), 2);
         insta::assert_snapshot!(waymark_vm_bytecode_fmt::display(&states), @r#"
-                s0:
-                  ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("fetch_first"), args: [], resume: s1 })
-                s1:
-                  CoreSet(Await { dst: r0, src: r0, resume: s2 })
-                s2:
-                  ExcSet(IsException { dst: r1, src: r0, exception_type_id: None })
-                  CoreSet(JumpIf { target_state: s4, cond: r1 })
-                  CoreSet(Jump { target_state: s3 })
-                s3:
-                  ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("fetch_second"), args: [], resume: s5 })
-                s4:
-                  ExcSet(Raise { src: r0 })
-                s5:
-                  CoreSet(Await { dst: r0, src: r0, resume: s6 })
-                s6:
-                  ExcSet(IsException { dst: r1, src: r0, exception_type_id: None })
-                  CoreSet(JumpIf { target_state: s8, cond: r1 })
-                  CoreSet(Jump { target_state: s7 })
-                s7:
-                s8:
-                  ExcSet(Raise { src: r0 })
-                "#);
+        s0:
+          ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("fetch_first"), args: [], resume: s1 })
+        s1:
+          CoreSet(Await { dst: r0, src: r0, resume: s2 })
+        s2:
+          ExcSet(ShouldBubble { dst: r1, src: r0 })
+          CoreSet(JumpIf { target_state: s4, cond: r1 })
+          CoreSet(Jump { target_state: s3 })
+        s3:
+          ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("fetch_second"), args: [], resume: s5 })
+        s4:
+          ExcSet(Raise { src: r0 })
+        s5:
+          CoreSet(Await { dst: r0, src: r0, resume: s6 })
+        s6:
+          ExcSet(ShouldBubble { dst: r1, src: r0 })
+          CoreSet(JumpIf { target_state: s8, cond: r1 })
+          CoreSet(Jump { target_state: s7 })
+        s7:
+        s8:
+          ExcSet(Raise { src: r0 })
+        "#);
     }
 
     #[test]
@@ -1301,7 +1301,7 @@ mod tests {
         s1:
           CoreSet(Await { dst: r0, src: r0, resume: s2 })
         s2:
-          ExcSet(IsException { dst: r1, src: r0, exception_type_id: None })
+          ExcSet(ShouldBubble { dst: r1, src: r0 })
           CoreSet(JumpIf { target_state: s4, cond: r1 })
           CoreSet(Jump { target_state: s3 })
         s3:
@@ -1312,7 +1312,7 @@ mod tests {
         s5:
           CoreSet(Await { dst: r0, src: r0, resume: s6 })
         s6:
-          ExcSet(IsException { dst: r1, src: r0, exception_type_id: None })
+          ExcSet(ShouldBubble { dst: r1, src: r0 })
           CoreSet(JumpIf { target_state: s8, cond: r1 })
           CoreSet(Jump { target_state: s7 })
         s7:

@@ -37,12 +37,13 @@ fn allows_variables_initialized_on_try_and_except_paths() {
       s1:
         CoreSet(Return { src: r2 })
       s2:
+        ExcSet(CatchException { src: r0 })
         PureSet(LoadConst { dst: r2, value: Int(2) })
         CoreSet(Jump { target_state: s1 })
       s3:
         CoreSet(Await { dst: r2, src: r2, resume: s4 })
       s4:
-        ExcSet(IsException { dst: r3, src: r2, exception_type_id: None })
+        ExcSet(ShouldBubble { dst: r3, src: r2 })
         CoreSet(JumpIf { target_state: s6, cond: r3 })
         CoreSet(Jump { target_state: s5 })
       s5:
@@ -86,12 +87,13 @@ fn reuses_function_scope_locals_after_except_only_declarations() {
         PureSet(LoadConst { dst: r5, value: Int(2) })
         CoreSet(Return { src: r5 })
       s2:
+        ExcSet(CatchException { src: r0 })
         PureSet(LoadConst { dst: r5, value: Int(1) })
         CoreSet(Jump { target_state: s1 })
       s3:
         CoreSet(Await { dst: r2, src: r2, resume: s4 })
       s4:
-        ExcSet(IsException { dst: r3, src: r2, exception_type_id: None })
+        ExcSet(ShouldBubble { dst: r3, src: r2 })
         CoreSet(JumpIf { target_state: s6, cond: r3 })
         CoreSet(Jump { target_state: s5 })
       s5:
@@ -133,15 +135,17 @@ fn allows_post_join_handler_assignments_when_try_success_path_terminates() {
       s1:
         CoreSet(Return { src: r6 })
       s2:
+        ExcSet(CatchException { src: r0 })
         PureSet(LoadConst { dst: r6, value: Int(1) })
         CoreSet(Jump { target_state: s1 })
       s3:
+        ExcSet(CatchException { src: r0 })
         PureSet(LoadConst { dst: r6, value: Int(2) })
         CoreSet(Jump { target_state: s1 })
       s4:
         CoreSet(Await { dst: r3, src: r3, resume: s5 })
       s5:
-        ExcSet(IsException { dst: r4, src: r3, exception_type_id: None })
+        ExcSet(ShouldBubble { dst: r4, src: r3 })
         CoreSet(JumpIf { target_state: s7, cond: r4 })
         CoreSet(Jump { target_state: s6 })
       s6:

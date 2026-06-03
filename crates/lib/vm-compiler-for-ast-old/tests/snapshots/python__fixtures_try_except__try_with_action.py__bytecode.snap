@@ -16,12 +16,13 @@ f0: [5 registers]
   s1:
     CoreSet(Return { src: r2 })
   s2:
+    ExcSet(CatchException { src: r0 })
     PureSet(LoadConst { dst: r2, value: Int(0) })
     CoreSet(Jump { target_state: s1 })
   s3:
     CoreSet(Await { dst: r2, src: r2, resume: s4 })
   s4:
-    ExcSet(IsException { dst: r3, src: r2, exception_type_id: None })
+    ExcSet(ShouldBubble { dst: r3, src: r2 })
     CoreSet(JumpIf { target_state: s6, cond: r3 })
     CoreSet(Jump { target_state: s5 })
   s5:

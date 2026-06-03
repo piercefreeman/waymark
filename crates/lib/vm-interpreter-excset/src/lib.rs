@@ -67,7 +67,10 @@ where
         frame: Frame<FunctionId, StateId, Value>,
         src: waymark_vm_runtime_core::RegisterId,
     ) -> Result<Outcome<Value, FunctionId, StateId>, RaiseError> {
-        let val = frame.regs[src].clone();
+        let mut val = frame.regs[src].clone();
+        if let Ok(exception) = val.as_exception_mut() {
+            exception.bubble = true;
+        }
 
         Ok(match frame.kind {
             FrameKind::FnCall { ret } => {
@@ -155,6 +158,28 @@ where
                 frame
                     .regs
                     .set(*dst, Value::from_exception_details(&exception.details))
+            }
+
+            waymark_vm_instructions_excset::ExcSet::ShouldBubble { dst, src } => {
+                let val = &frame.regs[*src];
+                let should_bubble = match val.as_exception() {
+                    Err(waymark_vm_runtime_exception::NotAnExceptionError) => false,
+                    Ok(exception) => exception.bubble,
+                };
+
+                frame
+                    .regs
+                    .set(*dst, Value::from_should_bubble(should_bubble));
+            }
+
+            waymark_vm_instructions_excset::ExcSet::CatchException { src } => {
+                let mut val = frame
+                    .regs
+                    .take(*src)
+                    .expect("catch exception source register should be initialized");
+                let exception = val.as_exception_mut().map_err(Error::CatchException)?;
+                exception.bubble = false;
+                frame.regs.set(*src, val);
             }
 
             waymark_vm_instructions_excset::ExcSet::Raise { src } => {

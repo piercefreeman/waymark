@@ -21,15 +21,18 @@ f0: [6 registers]
   s1:
     CoreSet(Return { src: r3 })
   s2:
+    ExcSet(CatchException { src: r0 })
     ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("handle_value_error"), args: [], resume: s9 })
   s3:
+    ExcSet(CatchException { src: r0 })
     ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("handle_type_error"), args: [], resume: s13 })
   s4:
+    ExcSet(CatchException { src: r0 })
     ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("handle_generic_error"), args: [], resume: s17 })
   s5:
     CoreSet(Await { dst: r3, src: r3, resume: s6 })
   s6:
-    ExcSet(IsException { dst: r4, src: r3, exception_type_id: None })
+    ExcSet(ShouldBubble { dst: r4, src: r3 })
     CoreSet(JumpIf { target_state: s8, cond: r4 })
     CoreSet(Jump { target_state: s7 })
   s7:
@@ -44,7 +47,7 @@ f0: [6 registers]
   s9:
     CoreSet(Await { dst: r3, src: r3, resume: s10 })
   s10:
-    ExcSet(IsException { dst: r4, src: r3, exception_type_id: None })
+    ExcSet(ShouldBubble { dst: r4, src: r3 })
     CoreSet(JumpIf { target_state: s12, cond: r4 })
     CoreSet(Jump { target_state: s11 })
   s11:
@@ -54,7 +57,7 @@ f0: [6 registers]
   s13:
     CoreSet(Await { dst: r3, src: r3, resume: s14 })
   s14:
-    ExcSet(IsException { dst: r4, src: r3, exception_type_id: None })
+    ExcSet(ShouldBubble { dst: r4, src: r3 })
     CoreSet(JumpIf { target_state: s16, cond: r4 })
     CoreSet(Jump { target_state: s15 })
   s15:
@@ -64,7 +67,7 @@ f0: [6 registers]
   s17:
     CoreSet(Await { dst: r3, src: r3, resume: s18 })
   s18:
-    ExcSet(IsException { dst: r4, src: r3, exception_type_id: None })
+    ExcSet(ShouldBubble { dst: r4, src: r3 })
     CoreSet(JumpIf { target_state: s20, cond: r4 })
     CoreSet(Jump { target_state: s19 })
   s19:

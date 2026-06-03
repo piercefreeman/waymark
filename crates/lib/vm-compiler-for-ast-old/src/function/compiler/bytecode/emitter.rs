@@ -130,6 +130,16 @@ where
         self.emit(waymark_vm_instructions_excset::ExcSet::ExceptionDetails { dst, src }.into());
     }
 
+    /// Emits an exception-bubbling check instruction.
+    pub fn emit_should_bubble(&mut self, dst: RegisterId, src: RegisterId) {
+        self.emit(waymark_vm_instructions_excset::ExcSet::ShouldBubble { dst, src }.into());
+    }
+
+    /// Emits an exception catch instruction that disables bubbling.
+    pub fn emit_catch_exception(&mut self, src: RegisterId) {
+        self.emit(waymark_vm_instructions_excset::ExcSet::CatchException { src }.into());
+    }
+
     /// Emits an exception raise and terminates the current state.
     pub fn emit_raise(&mut self, src: RegisterId) {
         self.emit(waymark_vm_instructions_excset::ExcSet::Raise { src }.into());

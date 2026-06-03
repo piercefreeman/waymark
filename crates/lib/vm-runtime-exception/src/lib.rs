@@ -10,6 +10,9 @@ pub struct Exception<Value> {
 
     /// The exception's details payload.
     pub details: Value,
+
+    /// Whether this exception should bubble through handlers.
+    pub bubble: bool,
 }
 
 /// Error returned by [`AsException::as_exception`].
@@ -37,6 +40,14 @@ impl<Value> From<NotAnOwnedExceptionError<Value>> for NotAnExceptionError {
 pub trait AsException: waymark_vm_runtime_value::RootValueAccess {
     /// Returns this value as a runtime exception ref.
     fn as_exception(&self) -> Result<&Exception<Self::RootValue>, NotAnExceptionError>;
+}
+
+/// Mutably borrows the value as an exception.
+///
+/// If the value is not an exception, returns an error.
+pub trait AsExceptionMut: waymark_vm_runtime_value::RootValueAccess {
+    /// Returns this value as a mutable runtime exception ref.
+    fn as_exception_mut(&mut self) -> Result<&mut Exception<Self::RootValue>, NotAnExceptionError>;
 }
 
 /// Consumes and returns the value as an exception.

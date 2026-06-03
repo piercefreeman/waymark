@@ -3,7 +3,7 @@ use typed_floats::NonNaNFinite;
 use waymark_vm_instructions_pureset::BinaryOpKind;
 use waymark_vm_interpreter_coreset::value::ShouldJump as _;
 use waymark_vm_interpreter_excset::value::{
-    AsException as _, AsExceptionTypeId as _, CaptureExceptionDetails as _, FromIsException as _,
+    AsExceptionTypeId as _, CaptureExceptionDetails as _, FromIsException as _,
 };
 use waymark_vm_interpreter_extcallset::value::SleepDuration as _;
 use waymark_vm_interpreter_pureset::value::{
@@ -11,6 +11,7 @@ use waymark_vm_interpreter_pureset::value::{
     DotOperationError, FromLengthError, IndexOp as _, IndexOperationError, Length as _,
     LengthError, MakeDict as _, MakeList as _, UnaryOps as _,
 };
+use waymark_vm_runtime_exception::AsException as _;
 use waymark_vm_value::{ReadyValue, Value, extcallset};
 
 #[test]
@@ -45,6 +46,7 @@ fn values_follow_truthiness() {
         ReadyValue::Exception(Box::new(waymark_vm_runtime_exception::Exception {
             type_id: "synthetic.failure".to_owned(),
             details: Value::Ready(ReadyValue::Int(7)),
+            bubble: true,
         }))
         .should_jump()
         .unwrap()
@@ -57,6 +59,7 @@ fn exception_values_support_excset_queries() {
         waymark_vm_runtime_exception::Exception {
             type_id: "synthetic.failure".to_owned(),
             details: Value::Ready(ReadyValue::Int(7)),
+            bubble: true,
         },
     )));
 

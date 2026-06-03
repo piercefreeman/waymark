@@ -16,12 +16,13 @@ f0: [7 registers]
     ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("risky_step_one"), args: [r0], resume: s3 })
   s1:
   s2:
+    ExcSet(CatchException { src: r1 })
     PureSet(LoadConst { dst: r4, value: String("error") })
     CoreSet(Return { src: r4 })
   s3:
     CoreSet(Await { dst: r3, src: r3, resume: s4 })
   s4:
-    ExcSet(IsException { dst: r4, src: r3, exception_type_id: None })
+    ExcSet(ShouldBubble { dst: r4, src: r3 })
     CoreSet(JumpIf { target_state: s6, cond: r4 })
     CoreSet(Jump { target_state: s5 })
   s5:
@@ -34,7 +35,7 @@ f0: [7 registers]
   s7:
     CoreSet(Await { dst: r6, src: r6, resume: s8 })
   s8:
-    ExcSet(IsException { dst: r4, src: r6, exception_type_id: None })
+    ExcSet(ShouldBubble { dst: r4, src: r6 })
     CoreSet(JumpIf { target_state: s10, cond: r4 })
     CoreSet(Jump { target_state: s9 })
   s9:

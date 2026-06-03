@@ -17,7 +17,7 @@ f0: [5 registers]
   s2:
     CoreSet(Await { dst: r1, src: r1, resume: s3 })
   s3:
-    ExcSet(IsException { dst: r3, src: r1, exception_type_id: None })
+    ExcSet(ShouldBubble { dst: r3, src: r1 })
     CoreSet(JumpIf { target_state: s5, cond: r3 })
     CoreSet(Jump { target_state: s4 })
   s4:
@@ -25,7 +25,7 @@ f0: [5 registers]
   s5:
     ExcSet(Raise { src: r1 })
   s6:
-    ExcSet(IsException { dst: r3, src: r2, exception_type_id: None })
+    ExcSet(ShouldBubble { dst: r3, src: r2 })
     CoreSet(JumpIf { target_state: s8, cond: r3 })
     CoreSet(Jump { target_state: s7 })
   s7:
@@ -36,7 +36,7 @@ f0: [5 registers]
   s9:
     CoreSet(Await { dst: r4, src: r4, resume: s10 })
   s10:
-    ExcSet(IsException { dst: r2, src: r4, exception_type_id: None })
+    ExcSet(ShouldBubble { dst: r2, src: r4 })
     CoreSet(JumpIf { target_state: s12, cond: r2 })
     CoreSet(Jump { target_state: s11 })
   s11:

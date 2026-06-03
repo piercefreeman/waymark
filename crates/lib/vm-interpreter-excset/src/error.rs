@@ -11,6 +11,10 @@ pub enum Error {
     #[error("exception details: {0}")]
     ExceptionDetails(#[source] waymark_vm_runtime_exception::NotAnExceptionError),
 
+    /// Evaluating a `CatchException` instruction failed.
+    #[error("catch exception: {0}")]
+    CatchException(#[source] waymark_vm_runtime_exception::NotAnExceptionError),
+
     /// Raising or propagating an exception failed.
     #[error("raise: {0}")]
     Raise(#[source] RaiseError),

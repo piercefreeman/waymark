@@ -346,6 +346,9 @@ where
         exception_register: Marked<RegisterId, ExceptionMarker>,
     ) -> Result<(), ErrorFor<Spec, Lowering>> {
         self.switch_to_with_flow(entry_state, entry_flow);
+        self.context
+            .emitter
+            .emit_catch_exception(*exception_register);
 
         if let Some(exception_var) = handler.value.exception_var.as_deref() {
             let exception_local = self

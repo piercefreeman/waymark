@@ -14,7 +14,7 @@ f0: [3 registers]
   s1:
     CoreSet(Await { dst: r0, src: r0, resume: s2 })
   s2:
-    ExcSet(IsException { dst: r2, src: r0, exception_type_id: None })
+    ExcSet(ShouldBubble { dst: r2, src: r0 })
     CoreSet(JumpIf { target_state: s4, cond: r2 })
     CoreSet(Jump { target_state: s3 })
   s3:

@@ -25,6 +25,26 @@ impl waymark_vm_runtime_exception::AsException for ReadyValue {
     }
 }
 
+impl waymark_vm_runtime_exception::AsExceptionMut for ReadyValue {
+    fn as_exception_mut(
+        &mut self,
+    ) -> Result<
+        &mut waymark_vm_runtime_exception::Exception<Self::RootValue>,
+        waymark_vm_runtime_exception::NotAnExceptionError,
+    > {
+        match self {
+            Self::Exception(exception) => Ok(exception.as_mut()),
+            Self::Int(_)
+            | Self::Float(_)
+            | Self::Bool(_)
+            | Self::String(_)
+            | Self::None
+            | Self::List(_)
+            | Self::Dict(_) => Err(waymark_vm_runtime_exception::NotAnExceptionError),
+        }
+    }
+}
+
 impl waymark_vm_interpreter_excset::value::AsExceptionTypeId for ReadyValue {
     fn as_exception_type_id(
         &self,
@@ -37,9 +57,7 @@ impl waymark_vm_interpreter_excset::value::AsExceptionTypeId for ReadyValue {
             | Self::None
             | Self::Exception(_)
             | Self::List(_)
-            | Self::Dict(_) => Err(
-                waymark_vm_interpreter_excset::value::NotAnExceptionTypeIdError,
-            ),
+            | Self::Dict(_) => Err(waymark_vm_interpreter_excset::value::NotAnExceptionTypeIdError),
         }
     }
 }
@@ -47,6 +65,12 @@ impl waymark_vm_interpreter_excset::value::AsExceptionTypeId for ReadyValue {
 impl waymark_vm_interpreter_excset::value::FromIsException for ReadyValue {
     fn from_is_exception(is_exception: bool) -> Self::RootValue {
         crate::Value::Ready(Self::Bool(is_exception))
+    }
+}
+
+impl waymark_vm_interpreter_excset::value::FromShouldBubble for ReadyValue {
+    fn from_should_bubble(should_bubble: bool) -> Self::RootValue {
+        crate::Value::Ready(Self::Bool(should_bubble))
     }
 }
 

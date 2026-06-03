@@ -52,9 +52,9 @@ impl waymark_vm_runtime_exception::AsException for TestReadyValue {
         &self,
     ) -> Result<
         &waymark_vm_runtime_exception::Exception<TestValue>,
-        waymark_vm_runtime_exception::AsExceptionError,
+        waymark_vm_runtime_exception::NotAnExceptionError,
     > {
-        Err(waymark_vm_runtime_exception::AsExceptionError::NotAnException)
+        Err(waymark_vm_runtime_exception::NotAnExceptionError)
     }
 }
 
@@ -95,11 +95,11 @@ impl waymark_vm_runtime_exception::AsException for TestValue {
         &self,
     ) -> Result<
         &waymark_vm_runtime_exception::Exception<Self::RootValue>,
-        waymark_vm_runtime_exception::AsExceptionError,
+        waymark_vm_runtime_exception::NotAnExceptionError,
     > {
         match self {
             Self::Ready(_) | Self::Pending(_) => {
-                Err(waymark_vm_runtime_exception::AsExceptionError::NotAnException)
+                Err(waymark_vm_runtime_exception::NotAnExceptionError)
             }
         }
     }

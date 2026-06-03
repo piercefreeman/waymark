@@ -24,12 +24,13 @@ f0: [9 registers]
     PureSet(LoadConst { dst: r6, value: Bool(true) })
     ExtCallSet(ActionCall { dst: r8, action_ref: TestActionRef("finalize_result"), args: [r6, r1, r2], resume: s15 })
   s2:
+    ExcSet(CatchException { src: r3 })
     PureSet(LoadConst { dst: r6, value: String("fail") })
     ExtCallSet(ActionCall { dst: r2, action_ref: TestActionRef("annotate_recovery"), args: [r6, r2], resume: s11 })
   s3:
     CoreSet(Await { dst: r5, src: r5, resume: s4 })
   s4:
-    ExcSet(IsException { dst: r6, src: r5, exception_type_id: None })
+    ExcSet(ShouldBubble { dst: r6, src: r5 })
     CoreSet(JumpIf { target_state: s6, cond: r6 })
     CoreSet(Jump { target_state: s5 })
   s5:
@@ -42,7 +43,7 @@ f0: [9 registers]
   s7:
     CoreSet(Await { dst: r2, src: r2, resume: s8 })
   s8:
-    ExcSet(IsException { dst: r6, src: r2, exception_type_id: None })
+    ExcSet(ShouldBubble { dst: r6, src: r2 })
     CoreSet(JumpIf { target_state: s10, cond: r6 })
     CoreSet(Jump { target_state: s9 })
   s9:
@@ -55,7 +56,7 @@ f0: [9 registers]
   s11:
     CoreSet(Await { dst: r2, src: r2, resume: s12 })
   s12:
-    ExcSet(IsException { dst: r6, src: r2, exception_type_id: None })
+    ExcSet(ShouldBubble { dst: r6, src: r2 })
     CoreSet(JumpIf { target_state: s14, cond: r6 })
     CoreSet(Jump { target_state: s13 })
   s13:
@@ -66,7 +67,7 @@ f0: [9 registers]
   s15:
     CoreSet(Await { dst: r8, src: r8, resume: s16 })
   s16:
-    ExcSet(IsException { dst: r6, src: r8, exception_type_id: None })
+    ExcSet(ShouldBubble { dst: r6, src: r8 })
     CoreSet(JumpIf { target_state: s18, cond: r6 })
     CoreSet(Jump { target_state: s17 })
   s17:

@@ -18,7 +18,7 @@ f0: [9 registers]
   s1:
     CoreSet(Await { dst: r1, src: r1, resume: s2 })
   s2:
-    ExcSet(IsException { dst: r2, src: r1, exception_type_id: None })
+    ExcSet(ShouldBubble { dst: r2, src: r1 })
     CoreSet(JumpIf { target_state: s4, cond: r2 })
     CoreSet(Jump { target_state: s3 })
   s3:
@@ -28,7 +28,7 @@ f0: [9 registers]
   s5:
     CoreSet(Await { dst: r3, src: r3, resume: s6 })
   s6:
-    ExcSet(IsException { dst: r2, src: r3, exception_type_id: None })
+    ExcSet(ShouldBubble { dst: r2, src: r3 })
     CoreSet(JumpIf { target_state: s8, cond: r2 })
     CoreSet(Jump { target_state: s7 })
   s7:
@@ -38,7 +38,7 @@ f0: [9 registers]
   s9:
     CoreSet(Await { dst: r4, src: r4, resume: s10 })
   s10:
-    ExcSet(IsException { dst: r2, src: r4, exception_type_id: None })
+    ExcSet(ShouldBubble { dst: r2, src: r4 })
     CoreSet(JumpIf { target_state: s12, cond: r2 })
     CoreSet(Jump { target_state: s11 })
   s11:
@@ -48,7 +48,7 @@ f0: [9 registers]
   s13:
     CoreSet(Await { dst: r5, src: r5, resume: s14 })
   s14:
-    ExcSet(IsException { dst: r2, src: r5, exception_type_id: None })
+    ExcSet(ShouldBubble { dst: r2, src: r5 })
     CoreSet(JumpIf { target_state: s16, cond: r2 })
     CoreSet(Jump { target_state: s15 })
   s15:
@@ -58,7 +58,7 @@ f0: [9 registers]
   s17:
     CoreSet(Await { dst: r6, src: r6, resume: s18 })
   s18:
-    ExcSet(IsException { dst: r2, src: r6, exception_type_id: None })
+    ExcSet(ShouldBubble { dst: r2, src: r6 })
     CoreSet(JumpIf { target_state: s20, cond: r2 })
     CoreSet(Jump { target_state: s19 })
   s19:
@@ -68,7 +68,7 @@ f0: [9 registers]
   s21:
     CoreSet(Await { dst: r7, src: r7, resume: s22 })
   s22:
-    ExcSet(IsException { dst: r2, src: r7, exception_type_id: None })
+    ExcSet(ShouldBubble { dst: r2, src: r7 })
     CoreSet(JumpIf { target_state: s24, cond: r2 })
     CoreSet(Jump { target_state: s23 })
   s23:
@@ -78,7 +78,7 @@ f0: [9 registers]
   s25:
     CoreSet(Await { dst: r8, src: r8, resume: s26 })
   s26:
-    ExcSet(IsException { dst: r2, src: r8, exception_type_id: None })
+    ExcSet(ShouldBubble { dst: r2, src: r8 })
     CoreSet(JumpIf { target_state: s28, cond: r2 })
     CoreSet(Jump { target_state: s27 })
   s27:

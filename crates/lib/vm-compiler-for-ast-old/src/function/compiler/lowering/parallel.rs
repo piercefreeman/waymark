@@ -259,7 +259,7 @@ mod tests {
           CoreSet(Call { dst: r2, function_id: f0, args: [r3] })
           CoreSet(Await { dst: r1, src: r1, resume: s1 })
         s1:
-          ExcSet(IsException { dst: r3, src: r1, exception_type_id: None })
+          ExcSet(ShouldBubble { dst: r3, src: r1 })
           CoreSet(JumpIf { target_state: s3, cond: r3 })
           CoreSet(Jump { target_state: s2 })
         s2:
@@ -267,7 +267,7 @@ mod tests {
         s3:
           ExcSet(Raise { src: r1 })
         s4:
-          ExcSet(IsException { dst: r3, src: r2, exception_type_id: None })
+          ExcSet(ShouldBubble { dst: r3, src: r2 })
           CoreSet(JumpIf { target_state: s6, cond: r3 })
           CoreSet(Jump { target_state: s5 })
         s5:

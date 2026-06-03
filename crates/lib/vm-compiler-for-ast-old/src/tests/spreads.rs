@@ -87,7 +87,7 @@ fn spread_expression_assignments_lower_to_looped_action_collection() {
         PureSet(Copy { dst: r1, src: r2 })
         CoreSet(Return { src: r1 })
       s10:
-        ExcSet(IsException { dst: r7, src: r6, exception_type_id: None })
+        ExcSet(ShouldBubble { dst: r7, src: r6 })
         CoreSet(JumpIf { target_state: s12, cond: r7 })
         CoreSet(Jump { target_state: s11 })
       s11:
@@ -158,7 +158,7 @@ fn zero_target_spread_assignments_compile_as_side_effect_spreads() {
         PureSet(LoadConst { dst: r4, value: None })
         CoreSet(Return { src: r4 })
       s10:
-        ExcSet(IsException { dst: r5, src: r4, exception_type_id: None })
+        ExcSet(ShouldBubble { dst: r5, src: r4 })
         CoreSet(JumpIf { target_state: s12, cond: r5 })
         CoreSet(Jump { target_state: s11 })
       s11:

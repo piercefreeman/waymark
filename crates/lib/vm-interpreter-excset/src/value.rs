@@ -20,6 +20,12 @@ pub trait FromIsException: waymark_vm_runtime_value::RootValueAccess {
     fn from_is_exception(is_exception: bool) -> Self::RootValue;
 }
 
+/// Builds a value from the result of a bubbling check.
+pub trait FromShouldBubble: waymark_vm_runtime_value::RootValueAccess {
+    /// Converts the boolean bubbling status into a root value.
+    fn from_should_bubble(should_bubble: bool) -> Self::RootValue;
+}
+
 /// Produces a value from an exception's details payload.
 pub trait CaptureExceptionDetails: waymark_vm_runtime_value::RootValueAccess {
     /// Copies or re-materializes an exception's details payload as a root value.
@@ -42,8 +48,10 @@ impl<T: waymark_vm_runtime_exception::AsException> IsException for T {
 pub trait Value:
     waymark_vm_runtime_value::RootValueAccess<RootValue = Self>
     + waymark_vm_runtime_exception::AsException
+    + waymark_vm_runtime_exception::AsExceptionMut
     + AsExceptionTypeId
     + FromIsException
+    + FromShouldBubble
     + CaptureExceptionDetails
 {
 }
@@ -51,8 +59,10 @@ pub trait Value:
 impl<T> Value for T where
     T: waymark_vm_runtime_value::RootValueAccess<RootValue = Self>
         + waymark_vm_runtime_exception::AsException
+        + waymark_vm_runtime_exception::AsExceptionMut
         + AsExceptionTypeId
         + FromIsException
+        + FromShouldBubble
         + CaptureExceptionDetails
 {
 }

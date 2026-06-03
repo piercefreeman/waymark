@@ -127,7 +127,7 @@ fn whole_program_async_indexed_for_loops_match_the_documented_lowering_shape() {
       s5:
         CoreSet(Await { dst: r7, src: r7, resume: s6 })
       s6:
-        ExcSet(IsException { dst: r5, src: r7, exception_type_id: None })
+        ExcSet(ShouldBubble { dst: r5, src: r7 })
         CoreSet(JumpIf { target_state: s8, cond: r5 })
         CoreSet(Jump { target_state: s7 })
       s7:

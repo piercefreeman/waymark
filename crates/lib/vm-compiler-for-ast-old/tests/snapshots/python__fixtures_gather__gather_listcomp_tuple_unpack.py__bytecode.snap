@@ -49,7 +49,7 @@ f0: [11 registers]
     PureSet(Copy { dst: r1, src: r2 })
     CoreSet(Return { src: r1 })
   s10:
-    ExcSet(IsException { dst: r7, src: r6, exception_type_id: None })
+    ExcSet(ShouldBubble { dst: r7, src: r6 })
     CoreSet(JumpIf { target_state: s12, cond: r7 })
     CoreSet(Jump { target_state: s11 })
   s11:

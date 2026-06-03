@@ -37,6 +37,7 @@ impl TestValue {
         Self::Exception(Box::new(waymark_vm_runtime_exception::Exception {
             type_id: type_id.to_owned(),
             details,
+            bubble: true,
         }))
     }
 }
@@ -48,7 +49,7 @@ impl PartialEq for TestValue {
             (Self::Int(a), Self::Int(b)) => a == b,
             (Self::Text(a), Self::Text(b)) => a == b,
             (Self::Exception(a), Self::Exception(b)) => {
-                a.type_id == b.type_id && a.details == b.details
+                a.type_id == b.type_id && a.details == b.details && a.bubble == b.bubble
             }
             (Self::Pending(a), Self::Pending(b)) => a == b,
             _ => false,
@@ -116,6 +117,22 @@ impl waymark_vm_runtime_exception::AsException for TestValue {
     }
 }
 
+impl waymark_vm_runtime_exception::AsExceptionMut for TestValue {
+    fn as_exception_mut(
+        &mut self,
+    ) -> Result<
+        &mut waymark_vm_runtime_exception::Exception<Self::RootValue>,
+        waymark_vm_runtime_exception::NotAnExceptionError,
+    > {
+        match self {
+            Self::Exception(exception) => Ok(exception.as_mut()),
+            Self::Bool(_) | Self::Int(_) | Self::Text(_) | Self::Pending(_) => {
+                Err(waymark_vm_runtime_exception::NotAnExceptionError)
+            }
+        }
+    }
+}
+
 impl waymark_vm_interpreter_excset::value::AsExceptionTypeId for TestValue {
     fn as_exception_type_id(
         &self,
@@ -132,6 +149,12 @@ impl waymark_vm_interpreter_excset::value::AsExceptionTypeId for TestValue {
 impl waymark_vm_interpreter_excset::value::FromIsException for TestValue {
     fn from_is_exception(is_exception: bool) -> Self::RootValue {
         Self::Bool(is_exception)
+    }
+}
+
+impl waymark_vm_interpreter_excset::value::FromShouldBubble for TestValue {
+    fn from_should_bubble(should_bubble: bool) -> Self::RootValue {
+        Self::Bool(should_bubble)
     }
 }
 
