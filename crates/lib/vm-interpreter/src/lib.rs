@@ -48,6 +48,23 @@ pub trait Interpreter {
         Ok(ExecutionOutcome::Continue(frame))
     }
 
+    /// Run after each instruction execution that continued in the same state.
+    ///
+    /// Runtime calls this hook after an instruction executes and returns
+    /// [`ExecutionOutcome::Continue`] without a state transition. Interpreters
+    /// can use it to react to side-effects that an instruction may have placed
+    /// on the frame without returning early — for example, raising an exception
+    /// via register mutation. Implementations that do not need post-instruction
+    /// behavior can rely on the default implementation, which continues with
+    /// ordinary instruction execution.
+    fn after_execute<'r>(
+        &self,
+        _runtime: Self::RuntimeView<'r>,
+        frame: Self::Frame,
+    ) -> Result<ExecutionOutcome<Self::Frame, Self::Effect>, Self::Error> {
+        Ok(ExecutionOutcome::Continue(frame))
+    }
+
     /// Execute the instruction on a given frame.
     fn execute<'r>(
         &self,
