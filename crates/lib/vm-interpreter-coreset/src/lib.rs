@@ -145,6 +145,20 @@ where
         Self::bubble_exception(state, frame).map_err(Error::BubbleException)
     }
 
+    fn after_execute<'r>(
+        &self,
+        runtime_view: Self::RuntimeView<'r>,
+        frame: Frame<Spec::FunctionId, Spec::StateId, Value>,
+    ) -> Result<ExecutionOutcome<Self::Frame, Self::Effect>, Self::Error> {
+        let Self::RuntimeView { state, .. } = runtime_view;
+
+        if frame.exception.is_none() {
+            return Ok(ExecutionOutcome::Continue(frame));
+        }
+
+        Self::bubble_exception(state, frame).map_err(Error::BubbleException)
+    }
+
     fn execute<'r>(
         &self,
         runtime_view: Self::RuntimeView<'r>,
