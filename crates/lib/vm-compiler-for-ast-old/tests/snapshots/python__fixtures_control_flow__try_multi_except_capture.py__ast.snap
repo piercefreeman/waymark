@@ -1,0 +1,343 @@
+---
+source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
+expression: ast for python/tests/fixtures_control_flow/try_multi_except_capture.py
+---
+Program {
+    functions: [
+        Spanned {
+            value: FunctionDef {
+                name: "main",
+                io: Spanned {
+                    value: IoDecl {
+                        inputs: [],
+                        outputs: [],
+                    },
+                    span: Span {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    },
+                },
+                body: Spanned {
+                    value: Block {
+                        statements: [
+                            Spanned {
+                                value: TryExcept {
+                                    handlers: [
+                                        Spanned {
+                                            value: ExceptHandler {
+                                                exception_types: [
+                                                    "ValueError",
+                                                ],
+                                                exception_var: Some(
+                                                    "verr",
+                                                ),
+                                                body: Spanned {
+                                                    value: Block {
+                                                        statements: [
+                                                            Spanned {
+                                                                value: Assignment {
+                                                                    targets: [
+                                                                        "result",
+                                                                    ],
+                                                                    value: Spanned {
+                                                                        value: ActionCall {
+                                                                            call: ActionCall {
+                                                                                action_name: "handle_value_err",
+                                                                                kwargs: [
+                                                                                    Kwarg {
+                                                                                        name: "error",
+                                                                                        value: Spanned {
+                                                                                            value: Variable {
+                                                                                                name: "verr",
+                                                                                            },
+                                                                                            span: Span {
+                                                                                                start_line: 5,
+                                                                                                start_col: 46,
+                                                                                                end_line: 5,
+                                                                                                end_col: 50,
+                                                                                            },
+                                                                                        },
+                                                                                    },
+                                                                                ],
+                                                                                policies: [],
+                                                                                module_name: Some(
+                                                                                    "try_multi_except_capture",
+                                                                                ),
+                                                                            },
+                                                                        },
+                                                                        span: Span {
+                                                                            start_line: 5,
+                                                                            start_col: 8,
+                                                                            end_line: 5,
+                                                                            end_col: 51,
+                                                                        },
+                                                                    },
+                                                                },
+                                                                span: Span {
+                                                                    start_line: 5,
+                                                                    start_col: 8,
+                                                                    end_line: 5,
+                                                                    end_col: 51,
+                                                                },
+                                                            },
+                                                        ],
+                                                    },
+                                                    span: Span {
+                                                        start_line: 4,
+                                                        start_col: 4,
+                                                        end_line: 5,
+                                                        end_col: 51,
+                                                    },
+                                                },
+                                            },
+                                            span: Span {
+                                                start_line: 4,
+                                                start_col: 4,
+                                                end_line: 5,
+                                                end_col: 51,
+                                            },
+                                        },
+                                        Spanned {
+                                            value: ExceptHandler {
+                                                exception_types: [
+                                                    "TypeError",
+                                                ],
+                                                exception_var: Some(
+                                                    "terr",
+                                                ),
+                                                body: Spanned {
+                                                    value: Block {
+                                                        statements: [
+                                                            Spanned {
+                                                                value: Assignment {
+                                                                    targets: [
+                                                                        "result",
+                                                                    ],
+                                                                    value: Spanned {
+                                                                        value: ActionCall {
+                                                                            call: ActionCall {
+                                                                                action_name: "handle_type_err",
+                                                                                kwargs: [
+                                                                                    Kwarg {
+                                                                                        name: "error",
+                                                                                        value: Spanned {
+                                                                                            value: Variable {
+                                                                                                name: "terr",
+                                                                                            },
+                                                                                            span: Span {
+                                                                                                start_line: 7,
+                                                                                                start_col: 45,
+                                                                                                end_line: 7,
+                                                                                                end_col: 49,
+                                                                                            },
+                                                                                        },
+                                                                                    },
+                                                                                ],
+                                                                                policies: [],
+                                                                                module_name: Some(
+                                                                                    "try_multi_except_capture",
+                                                                                ),
+                                                                            },
+                                                                        },
+                                                                        span: Span {
+                                                                            start_line: 7,
+                                                                            start_col: 8,
+                                                                            end_line: 7,
+                                                                            end_col: 50,
+                                                                        },
+                                                                    },
+                                                                },
+                                                                span: Span {
+                                                                    start_line: 7,
+                                                                    start_col: 8,
+                                                                    end_line: 7,
+                                                                    end_col: 50,
+                                                                },
+                                                            },
+                                                        ],
+                                                    },
+                                                    span: Span {
+                                                        start_line: 6,
+                                                        start_col: 4,
+                                                        end_line: 7,
+                                                        end_col: 50,
+                                                    },
+                                                },
+                                            },
+                                            span: Span {
+                                                start_line: 6,
+                                                start_col: 4,
+                                                end_line: 7,
+                                                end_col: 50,
+                                            },
+                                        },
+                                        Spanned {
+                                            value: ExceptHandler {
+                                                exception_types: [
+                                                    "Exception",
+                                                ],
+                                                exception_var: Some(
+                                                    "err",
+                                                ),
+                                                body: Spanned {
+                                                    value: Block {
+                                                        statements: [
+                                                            Spanned {
+                                                                value: Assignment {
+                                                                    targets: [
+                                                                        "result",
+                                                                    ],
+                                                                    value: Spanned {
+                                                                        value: ActionCall {
+                                                                            call: ActionCall {
+                                                                                action_name: "handle_generic_err",
+                                                                                kwargs: [
+                                                                                    Kwarg {
+                                                                                        name: "error",
+                                                                                        value: Spanned {
+                                                                                            value: Variable {
+                                                                                                name: "err",
+                                                                                            },
+                                                                                            span: Span {
+                                                                                                start_line: 9,
+                                                                                                start_col: 48,
+                                                                                                end_line: 9,
+                                                                                                end_col: 51,
+                                                                                            },
+                                                                                        },
+                                                                                    },
+                                                                                ],
+                                                                                policies: [],
+                                                                                module_name: Some(
+                                                                                    "try_multi_except_capture",
+                                                                                ),
+                                                                            },
+                                                                        },
+                                                                        span: Span {
+                                                                            start_line: 9,
+                                                                            start_col: 8,
+                                                                            end_line: 9,
+                                                                            end_col: 52,
+                                                                        },
+                                                                    },
+                                                                },
+                                                                span: Span {
+                                                                    start_line: 9,
+                                                                    start_col: 8,
+                                                                    end_line: 9,
+                                                                    end_col: 52,
+                                                                },
+                                                            },
+                                                        ],
+                                                    },
+                                                    span: Span {
+                                                        start_line: 8,
+                                                        start_col: 4,
+                                                        end_line: 9,
+                                                        end_col: 52,
+                                                    },
+                                                },
+                                            },
+                                            span: Span {
+                                                start_line: 8,
+                                                start_col: 4,
+                                                end_line: 9,
+                                                end_col: 52,
+                                            },
+                                        },
+                                    ],
+                                    try_block: Spanned {
+                                        value: Block {
+                                            statements: [
+                                                Spanned {
+                                                    value: Assignment {
+                                                        targets: [
+                                                            "result",
+                                                        ],
+                                                        value: Spanned {
+                                                            value: ActionCall {
+                                                                call: ActionCall {
+                                                                    action_name: "risky_action_multi_capture",
+                                                                    kwargs: [],
+                                                                    policies: [],
+                                                                    module_name: Some(
+                                                                        "try_multi_except_capture",
+                                                                    ),
+                                                                },
+                                                            },
+                                                            span: Span {
+                                                                start_line: 3,
+                                                                start_col: 8,
+                                                                end_line: 3,
+                                                                end_col: 51,
+                                                            },
+                                                        },
+                                                    },
+                                                    span: Span {
+                                                        start_line: 3,
+                                                        start_col: 8,
+                                                        end_line: 3,
+                                                        end_col: 51,
+                                                    },
+                                                },
+                                            ],
+                                        },
+                                        span: Span {
+                                            start_line: 2,
+                                            start_col: 4,
+                                            end_line: 9,
+                                            end_col: 52,
+                                        },
+                                    },
+                                },
+                                span: Span {
+                                    start_line: 2,
+                                    start_col: 4,
+                                    end_line: 9,
+                                    end_col: 52,
+                                },
+                            },
+                            Spanned {
+                                value: Return {
+                                    value: Some(
+                                        Spanned {
+                                            value: Variable {
+                                                name: "result",
+                                            },
+                                            span: Span {
+                                                start_line: 10,
+                                                start_col: 11,
+                                                end_line: 10,
+                                                end_col: 17,
+                                            },
+                                        },
+                                    ),
+                                },
+                                span: Span {
+                                    start_line: 10,
+                                    start_col: 4,
+                                    end_line: 10,
+                                    end_col: 17,
+                                },
+                            },
+                        ],
+                    },
+                    span: Span {
+                        start_line: 0,
+                        start_col: 0,
+                        end_line: 0,
+                        end_col: 0,
+                    },
+                },
+            },
+            span: Span {
+                start_line: 1,
+                start_col: 0,
+                end_line: 10,
+                end_col: 17,
+            },
+        },
+    ],
+}
