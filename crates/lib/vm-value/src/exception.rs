@@ -1,7 +1,8 @@
 //! [`waymark_vm_runtime_exception`] trait implementations for [`crate::Value`].
 
 use waymark_vm_runtime_exception::{
-    AsException, Exception, IntoException, NotAnExceptionError, NotAnOwnedExceptionError,
+    AsException, Exception, FromException, IntoException, NotAnExceptionError,
+    NotAnOwnedExceptionError,
 };
 
 use crate::ReadyValue;
@@ -21,5 +22,11 @@ impl IntoException for ReadyValue {
             Self::Exception(exception) => Ok(*exception),
             value => Err(NotAnOwnedExceptionError { value }),
         }
+    }
+}
+
+impl FromException for ReadyValue {
+    fn from_exception(exception: Exception<Self::RootValue>) -> Self {
+        Self::Exception(Box::new(exception))
     }
 }

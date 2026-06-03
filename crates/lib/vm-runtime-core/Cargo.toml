@@ -5,6 +5,7 @@ version.workspace = true
 publish.workspace = true
 
 [dependencies]
+waymark-vm-runtime-exception = { workspace = true }
 waymark-vm-runtime-promise-core = { workspace = true }
 
 index_type = { workspace = true }
@@ -12,3 +13,4 @@ thiserror = { workspace = true }
 
 [dev-dependencies]
 waymark-vm-runtime-promise-value = { workspace = true }
+waymark-vm-runtime-value = { workspace = true }

@@ -9,6 +9,15 @@
 use waymark_vm_runtime::{FrameFor, Runtime};
 use waymark_vm_runtime_promise_core::PromiseStateId;
 
+/// A promise settlement received by the driver.
+pub enum PromiseResolution<Value> {
+    /// Resolve the promise successfully.
+    Resolved(Value),
+
+    /// Reject the promise with an exception.
+    Rejected(waymark_vm_runtime_exception::Exception<Value>),
+}
+
 /// Errors returned by the driver loop.
 #[derive(Debug)]
 pub enum Error<ExecutionError, Value> {
@@ -23,6 +32,9 @@ pub enum Error<ExecutionError, Value> {
 
     /// Resolving a promise failed.
     ResolvingPromise(waymark_vm_runtime_core::ResolvePromiseError<Value>),
+
+    /// Rejecting a promise failed.
+    RejectingPromise(waymark_vm_runtime_core::RejectPromiseError<Value>),
 }
 
 /// Inputs required to run the driver loop.
@@ -39,13 +51,14 @@ where
     pub effects_tx: tokio::sync::mpsc::Sender<Interpreter::Effect>,
 
     /// Channel used to receive promise resolutions for pending promises.
-    pub promise_resolutions_rx: tokio::sync::mpsc::Receiver<(PromiseStateId, Value::ReadyValue)>,
+    pub promise_resolutions_rx:
+        tokio::sync::mpsc::Receiver<(PromiseStateId, PromiseResolution<Value::ReadyValue>)>,
 }
 
 /// Drive the runtime until the loop terminates with an error.
 ///
 /// The driver repeatedly executes the runtime, forwards emitted effects to
-/// [`Params::effects_tx`], and resolves pending promises with values received
+/// [`Params::effects_tx`], and settles pending promises with values received
 /// from [`Params::promise_resolutions_rx`]. The function only returns when one
 /// of those operations fails.
 pub async fn run<Executable, Interpreter, Value>(
@@ -91,14 +104,25 @@ where
                 }
             }
             Err(waymark_vm_runtime::RunError::NoReadyFrame) => {
-                let (promise_state_id, value) = promise_resolutions_rx
+                let (promise_state_id, resolution) = promise_resolutions_rx
                     .recv()
                     .await
                     .ok_or(Error::PromiseResolutionReceiverClosed)?;
-                tracing::info!(?promise_state_id, ?value, "promise resolution");
-                runtime
-                    .resolve_promise(promise_state_id, value)
-                    .map_err(Error::ResolvingPromise)?;
+
+                match resolution {
+                    PromiseResolution::Resolved(value) => {
+                        tracing::info!(?promise_state_id, ?value, "promise resolution");
+                        runtime
+                            .resolve_promise(promise_state_id, value)
+                            .map_err(Error::ResolvingPromise)?;
+                    }
+                    PromiseResolution::Rejected(exception) => {
+                        tracing::info!(?promise_state_id, ?exception, "promise rejection");
+                        runtime
+                            .reject_promise(promise_state_id, exception)
+                            .map_err(Error::RejectingPromise)?;
+                    }
+                }
             }
             Err(waymark_vm_runtime::RunError::Step(error)) => return Err(Error::Step(error)),
         };

@@ -1,8 +1,22 @@
 use crate::integration;
 
+#[derive(Debug, thiserror::Error)]
+pub enum RunError {
+    #[error("the program entrypoint is invalid: {0}")]
+    InvalidEntryPoint(
+        waymark_vm_runtime::FunctionNotFoundError<waymark_vm_bytecode_core::FunctionId>,
+    ),
+
+    #[error("the runtime task has crashed before completing")]
+    RuntimeTaskCrashed,
+
+    #[error("execution completed with an unhandled exception: {}", .0.type_id)]
+    UnhandledException(waymark_vm_runtime_exception::Exception<integration::SampleReadyValue>),
+}
+
 pub async fn run(
     executable: integration::Executable,
-) -> Result<integration::SampleReadyValue, waymark_fn_main_common::Error> {
+) -> Result<integration::SampleReadyValue, RunError> {
     let interpreter = waymark_vm_interpreter_fullset::FullSetInterpreter::<
         integration::SampleSpec,
         integration::Executable,
@@ -10,7 +24,8 @@ pub async fn run(
     >::default();
 
     let runtime =
-        waymark_vm_runtime::Runtime::with_conventional_entrypoint(interpreter, executable)?;
+        waymark_vm_runtime::Runtime::with_conventional_entrypoint(interpreter, executable)
+            .map_err(RunError::InvalidEntryPoint)?;
 
     let (effects_tx, mut effects_rx) = tokio::sync::mpsc::channel(1);
     let (promise_resolutions_tx, promise_resolutions_rx) = tokio::sync::mpsc::channel(1);
@@ -29,7 +44,12 @@ pub async fn run(
         }
     });
 
-    let (completion_tx, completion_rx) = tokio::sync::oneshot::channel();
+    let (completion_tx, completion_rx) = tokio::sync::oneshot::channel::<
+        Result<
+            integration::SampleReadyValue,
+            waymark_vm_runtime_exception::Exception<integration::SampleReadyValue>,
+        >,
+    >();
 
     tasks.spawn({
         async move {
@@ -41,7 +61,7 @@ pub async fn run(
                 match effect {
                     waymark_vm_interpreter_fullset::Effect::CoreSet(effect) => match effect {
                         waymark_vm_interpreter_coreset::Effect::Complete(value) => {
-                            completion_tx.send(value).unwrap();
+                            completion_tx.send(Ok(value)).unwrap();
                             break;
                         }
                     },
@@ -72,7 +92,10 @@ pub async fn run(
                                         "resolving extcall"
                                     );
                                     promise_resolutions_tx
-                                        .send((promise_state_id, value))
+                                        .send((
+                                            promise_state_id,
+                                            waymark_vm_driver::PromiseResolution::Resolved(value),
+                                        ))
                                         .await
                                         .unwrap();
                                 }
@@ -92,7 +115,10 @@ pub async fn run(
                                     let value = integration::SampleReadyValue::None;
                                     tracing::info!(?promise_state_id, ?value, "resolving sleep");
                                     promise_resolutions_tx
-                                        .send((promise_state_id, value))
+                                        .send((
+                                            promise_state_id,
+                                            waymark_vm_driver::PromiseResolution::Resolved(value),
+                                        ))
                                         .await
                                         .unwrap();
                                 }
@@ -104,7 +130,10 @@ pub async fn run(
         }
     });
 
-    let value = completion_rx.await?;
+    let result = completion_rx
+        .await
+        .map_err(|_| RunError::RuntimeTaskCrashed)?;
+    let value = result.map_err(RunError::UnhandledException)?;
 
     Ok(value)
 }

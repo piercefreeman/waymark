@@ -4,12 +4,12 @@
 
 /// The exception type.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Exception<Value> {
+pub struct Exception<Details> {
     /// The exception's type identifier.
     pub type_id: String,
 
     /// The exception's details payload.
-    pub details: Value,
+    pub details: Details,
 }
 
 /// Error returned by [`AsException::as_exception`].
@@ -46,4 +46,10 @@ pub trait AsException: waymark_vm_runtime_value::RootValueAccess {
 pub trait IntoException: Sized + waymark_vm_runtime_value::RootValueAccess {
     /// Return this value as an owned a runtime exception.
     fn into_exception(self) -> Result<Exception<Self::RootValue>, NotAnOwnedExceptionError<Self>>;
+}
+
+/// Constructs a value from a runtime exception.
+pub trait FromException: Sized + waymark_vm_runtime_value::RootValueAccess {
+    /// Wrap the provided exception as `Self`.
+    fn from_exception(exception: Exception<Self::RootValue>) -> Self;
 }

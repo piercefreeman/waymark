@@ -3,6 +3,10 @@ use waymark_vm_runtime_promise_core::PromiseStateId;
 
 use crate::{Continuation, PromiseState, ResolvingAlreadyResolvedPromiseError};
 
+/// Errors returned when rejecting a promise state.
+pub type RejectPromiseError<Value> =
+    ResolvePromiseError<waymark_vm_runtime_exception::Exception<Value>>;
+
 /// A list of promise states.
 pub struct PromiseStates<FunctionId, StateId, Value>(
     TypedVec<PromiseStateId, PromiseState<FunctionId, StateId, Value>>,
@@ -80,7 +84,7 @@ impl<FunctionId, StateId, Value> PromiseStates<FunctionId, StateId, Value> {
         promise_state_id: PromiseStateId,
         value: Value,
     ) -> Result<
-        Vec<Continuation<FunctionId, StateId, Value, crate::ResumeWithValue>>,
+        Vec<crate::Continuation<FunctionId, StateId, Value, crate::ResumeWithValue>>,
         ResolvePromiseError<Value>,
     > {
         let promise_state = self.get_mut(promise_state_id)?;
@@ -89,10 +93,49 @@ impl<FunctionId, StateId, Value> PromiseStates<FunctionId, StateId, Value> {
             .resolve(value)
             .map_err(ResolvePromiseError::AlreadyResolved)
     }
+
+    /// Idempotently reject a promise at a given `promise_state_id`.
+    #[allow(clippy::type_complexity)]
+    pub fn reject(
+        &mut self,
+        promise_state_id: PromiseStateId,
+        exception: waymark_vm_runtime_exception::Exception<Value>,
+    ) -> Result<
+        Vec<Continuation<FunctionId, StateId, Value, crate::ResumeWithValue>>,
+        RejectPromiseError<Value>,
+    > {
+        let promise_state = self.get_mut(promise_state_id)?;
+
+        promise_state
+            .reject(exception)
+            .map_err(ResolvePromiseError::AlreadyResolved)
+    }
+}
+
+impl<Value> ResolvePromiseError<Value> {
+    /// Map the `Value` of this [`ResolvePromiseError`] into `OtherValue` using
+    /// function `f`.
+    pub fn map<OtherValue>(
+        self,
+        f: impl FnOnce(Value) -> OtherValue,
+    ) -> ResolvePromiseError<OtherValue> {
+        match self {
+            Self::PromiseStateNotFound(error) => ResolvePromiseError::PromiseStateNotFound(error),
+            Self::AlreadyResolved(error) => {
+                let ResolvingAlreadyResolvedPromiseError { new_value } = error;
+                let new_value = f(new_value);
+                ResolvePromiseError::AlreadyResolved(ResolvingAlreadyResolvedPromiseError {
+                    new_value,
+                })
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use waymark_vm_runtime_exception::Exception;
+
     use super::{PromiseStateId, PromiseStateNotFoundError, PromiseStates, ResolvePromiseError};
     use crate::{Continuation, Frame, FrameKind, PromiseState, RegisterId, Registers};
 
@@ -105,6 +148,7 @@ mod tests {
                 func: "example",
                 state: 0,
                 regs: Registers::new(2),
+                exception: None,
                 kind: FrameKind::TopLevel,
             },
             resume_state,
@@ -147,7 +191,7 @@ mod tests {
         assert_eq!(continuations.len(), 1);
         assert!(matches!(
             states.get(promise_state_id).expect("promise state exists"),
-            PromiseState::Ready(value) if *value == 23
+            PromiseState::Resolved(value) if *value == 23
         ));
     }
 
@@ -163,5 +207,28 @@ mod tests {
         };
 
         assert_eq!(promise_state_id, PromiseStateId(4));
+    }
+
+    #[test]
+    fn reject_preserves_exceptional_results() {
+        let mut states = PromiseStates::<&'static str, usize, i32>::new();
+        let promise_state_id = states.prepare();
+
+        let continuations = states
+            .reject(
+                promise_state_id,
+                Exception {
+                    type_id: "ValueError".to_owned(),
+                    details: 23,
+                },
+            )
+            .expect("prepared promise should resolve exceptionally");
+
+        assert!(continuations.is_empty());
+        assert!(matches!(
+            states.get(promise_state_id).expect("promise state exists"),
+            PromiseState::Rejected(Exception { type_id, details })
+                if type_id == "ValueError" && *details == 23
+        ));
     }
 }

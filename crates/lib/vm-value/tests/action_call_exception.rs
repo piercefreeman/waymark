@@ -1,4 +1,4 @@
-//! Integration test for resolving extcall action calls with exception values.
+//! Integration test for completing extcall action calls with exception errors.
 
 use waymark_vm_bytecode::Executable;
 use waymark_vm_instructions_coreset::CoreSet;
@@ -121,7 +121,7 @@ impl waymark_vm_interpreter::Interpreter for RuntimeInterpreter {
 }
 
 #[test]
-fn action_call_can_resume_with_an_exception_value() {
+fn action_call_can_resume_with_an_exception_error() {
     let executable = executable(vec![function::<Instruction>(
         3,
         vec![
@@ -171,14 +171,14 @@ fn action_call_can_resume_with_an_exception_value() {
     assert_eq!(args, vec![ReadyValue::Int(41)]);
 
     runtime
-        .resolve_promise(
+        .reject_promise(
             promise_state_id,
-            ReadyValue::Exception(Box::new(Exception {
+            Exception {
                 type_id: "ValueError".to_owned(),
-                details: Value::Ready(ReadyValue::String("boom".to_owned())),
-            })),
+                details: ReadyValue::String("boom".to_owned()),
+            },
         )
-        .expect("action call promise should resolve cleanly");
+        .expect("action call promise should reject cleanly");
 
     let TestEffect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(value)) = runtime
         .run()

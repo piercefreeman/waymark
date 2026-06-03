@@ -95,6 +95,7 @@ where
                     func: *function_id,
                     state: Spec::StateId::default(),
                     regs,
+                    exception: None,
                     kind: FrameKind::FnCall {
                         ret: promise_state_id,
                     },
@@ -114,12 +115,21 @@ where
                             .map_err(AwaitError::SourcePromiseStateNotFound)
                             .map_err(Error::Await)?;
                         return Ok(match promise_state {
-                            PromiseState::Ready(value) => {
+                            PromiseState::Resolved(value) => {
                                 Continuation::immediate_resume(
                                     &mut frame,
                                     *resume,
                                     *dst,
                                     value.clone(),
+                                );
+                                state.ready.push_back(frame);
+                                ExecutionOutcome::ExitFrame
+                            }
+                            PromiseState::Rejected(exception) => {
+                                Continuation::<_, _, _, ()>::immediate_raise_exception(
+                                    &mut frame,
+                                    *resume,
+                                    exception.clone(),
                                 );
                                 state.ready.push_back(frame);
                                 ExecutionOutcome::ExitFrame
