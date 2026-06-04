@@ -5470,6 +5470,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-vm-lifecycle"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+]
+
+[[package]]
 name = "waymark-vm-managed-runtime"
 version = "0.1.0"
 dependencies = [
