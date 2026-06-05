@@ -5574,6 +5574,40 @@ name = "waymark-vm-runtime-value"
 version = "0.1.0"
 
 [[package]]
+name = "waymark-vm-runtimes-manager"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "rmp-serde",
+ "serde",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "waymark-vm-executable",
+ "waymark-vm-interpreter",
+ "waymark-vm-lifecycle",
+ "waymark-vm-managed-runtime",
+ "waymark-vm-runtime",
+ "waymark-vm-runtime-core",
+ "waymark-vm-runtime-promise-core",
+ "waymark-vm-runtimes-manager-backend",
+ "waymark-vm-runtimes-manager-core",
+]
+
+[[package]]
+name = "waymark-vm-runtimes-manager-backend"
+version = "0.1.0"
+
+[[package]]
+name = "waymark-vm-runtimes-manager-core"
+version = "0.1.0"
+dependencies = [
+ "waymark-vm-runtime-exception",
+ "waymark-vm-runtime-promise-core",
+]
+
+[[package]]
 name = "waymark-vm-value"
 version = "0.1.0"
 dependencies = [

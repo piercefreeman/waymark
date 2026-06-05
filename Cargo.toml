@@ -90,6 +90,8 @@ waymark-vm-interpreter-extcallset = { path = "crates/lib/vm-interpreter-extcalls
 waymark-vm-interpreter-fullset = { path = "crates/lib/vm-interpreter-fullset" }
 waymark-vm-interpreter-pureset = { path = "crates/lib/vm-interpreter-pureset" }
 waymark-vm-interpreter-utils = { path = "crates/lib/vm-interpreter-utils" }
+waymark-vm-lifecycle = { path = "crates/lib/vm-lifecycle" }
+waymark-vm-managed-runtime = { path = "crates/lib/vm-managed-runtime" }
 waymark-vm-runtime = { path = "crates/lib/vm-runtime" }
 waymark-vm-runtime-core = { path = "crates/lib/vm-runtime-core" }
 waymark-vm-runtime-exception = { path = "crates/lib/vm-runtime-exception" }
@@ -97,6 +99,8 @@ waymark-vm-runtime-promise-core = { path = "crates/lib/vm-runtime-promise-core" 
 waymark-vm-runtime-promise-value = { path = "crates/lib/vm-runtime-promise-value" }
 waymark-vm-runtime-test = { path = "crates/lib/vm-runtime-test" }
 waymark-vm-runtime-value = { path = "crates/lib/vm-runtime-value" }
+waymark-vm-runtimes-manager-backend = { path = "crates/lib/vm-runtimes-manager-backend" }
+waymark-vm-runtimes-manager-core = { path = "crates/lib/vm-runtimes-manager-core" }
 waymark-vm-value = { path = "crates/lib/vm-value" }
 waymark-webapp-backend = { path = "crates/lib/webapp-backend" }
 waymark-webapp-bringup = { path = "crates/lib/webapp-bringup" }
