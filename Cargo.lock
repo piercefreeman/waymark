@@ -5470,6 +5470,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-vm-managed-runtime"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "waymark-vm-executable",
+ "waymark-vm-interpreter",
+ "waymark-vm-runtime",
+ "waymark-vm-runtime-core",
+ "waymark-vm-runtime-exception",
+ "waymark-vm-runtime-promise-core",
+]
+
+[[package]]
 name = "waymark-vm-runtime"
 version = "0.1.0"
 dependencies = [
