@@ -62,7 +62,10 @@ waymark-scheduler-loop-core = { path = "crates/lib/scheduler-loop-core" }
 waymark-secret-string = { path = "crates/lib/secret-string" }
 waymark-sleep-reconciler = { path = "crates/lib/sleep-reconciler" }
 waymark-smoke-sources = { path = "crates/lib/smoke-sources" }
+waymark-state-manager = { path = "crates/lib/state-manager" }
 waymark-state-manager-core = { path = "crates/lib/state-manager-core" }
+waymark-state-vm-runtimes-backend = { path = "crates/lib/state-vm-runtimes-backend" }
+waymark-state-vm-runtimes-core = { path = "crates/lib/state-vm-runtimes-core" }
 waymark-support-integration = { path = "crates/lib/support-integration" }
 waymark-support-test = { path = "crates/lib/support-test" }
 waymark-support-test-python = { path = "crates/lib/support-test-python" }
@@ -90,6 +93,7 @@ waymark-vm-compiler-for-ast-old-core = { path = "crates/lib/vm-compiler-for-ast-
 waymark-vm-compiler-for-ast-old-test-support = { path = "crates/lib/vm-compiler-for-ast-old-test-support" }
 waymark-vm-driver = { path = "crates/lib/vm-driver" }
 waymark-vm-driver-core = { path = "crates/lib/vm-driver-core" }
+waymark-vm-driver-thread = { path = "crates/lib/vm-driver-thread" }
 waymark-vm-exception-handler = { path = "crates/lib/vm-exception-handler" }
 waymark-vm-executable = { path = "crates/lib/vm-executable" }
 waymark-vm-instructions-coreset = { path = "crates/lib/vm-instructions-coreset" }
