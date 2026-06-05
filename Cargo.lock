@@ -5613,6 +5613,31 @@ name = "waymark-vm-runtime-value"
 version = "0.1.0"
 
 [[package]]
+name = "waymark-vm-runtimes-manager"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "waymark-vm-codec-core",
+ "waymark-vm-driver",
+ "waymark-vm-driver-core",
+ "waymark-vm-driver-thread",
+ "waymark-vm-executable",
+ "waymark-vm-interpreter",
+ "waymark-vm-runtime",
+ "waymark-vm-runtime-core",
+ "waymark-vm-runtime-promise-core",
+ "waymark-vm-runtimes-manager-backend",
+]
+
+[[package]]
+name = "waymark-vm-runtimes-manager-backend"
+version = "0.1.0"
+
+[[package]]
 name = "waymark-vm-value"
 version = "0.1.0"
 dependencies = [
