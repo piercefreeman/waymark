@@ -1,4 +1,5 @@
-use waymark_vm_driver::{Error, Params, PromiseResolution, run};
+use waymark_vm_driver::{Error, Params, run};
+use waymark_vm_driver_core::{PromiseResolution, PromiseSettlement};
 use waymark_vm_runtime_core::{RegisterId, ResolvePromiseError};
 use waymark_vm_runtime_exception::Exception;
 use waymark_vm_runtime_promise_core::PromiseStateId;
@@ -7,33 +8,46 @@ use waymark_vm_runtime_test::{
     runtime,
 };
 
+type TestEffector = (
+    tokio::sync::mpsc::Sender<TestEffect>,
+    tokio::sync::mpsc::Receiver<PromiseSettlement<TestReadyValue, ()>>,
+);
+
+fn effector() -> (
+    TestEffector,
+    tokio::sync::mpsc::Receiver<TestEffect>,
+    tokio::sync::mpsc::Sender<PromiseSettlement<TestReadyValue, ()>>,
+) {
+    let (effects_tx, effects_rx) = tokio::sync::mpsc::channel(1);
+    let (settlements_tx, settlements_rx) = tokio::sync::mpsc::channel(1);
+    ((effects_tx, settlements_rx), effects_rx, settlements_tx)
+}
+
 #[tokio::test]
-async fn forwards_emitted_effects_to_the_effect_channel() {
-    let (effects_tx, mut effects_rx) = tokio::sync::mpsc::channel(1);
-    let (promise_resolutions_tx, promise_resolutions_rx) = tokio::sync::mpsc::channel(1);
+async fn forwards_emitted_effects() {
+    let (effector, mut effects_rx, settlements_tx) = effector();
 
     let task = tokio::spawn(run(Params {
         runtime: runtime(executable(vec![function(
             0,
             vec![vec![TestInstruction::Emit("tick")]],
         )])),
-        effects_tx,
-        promise_resolutions_rx,
+        effector,
+        persister: (),
     }));
 
     assert_eq!(effects_rx.recv().await, Some(TestEffect::Message("tick")));
-    drop(promise_resolutions_tx);
+    drop(settlements_tx);
 
     assert!(matches!(
         task.await.expect("driver task should join"),
-        Err(Error::PromiseResolutionReceiverClosed)
+        Err(Error::GettingPromiseSettlements(()))
     ));
 }
 
 #[tokio::test]
-async fn resumes_waiting_promises_and_forwards_the_resolved_effect() {
-    let (effects_tx, mut effects_rx) = tokio::sync::mpsc::channel(1);
-    let (promise_resolutions_tx, promise_resolutions_rx) = tokio::sync::mpsc::channel(1);
+async fn resumes_promises_and_forwards_resolved_effect() {
+    let (effector, mut effects_rx, settlements_tx) = effector();
 
     let task = tokio::spawn(run(Params {
         runtime: runtime(executable(vec![function(
@@ -46,15 +60,16 @@ async fn resumes_waiting_promises_and_forwards_the_resolved_effect() {
                 vec![TestInstruction::EmitRegister(RegisterId(0))],
             ],
         )])),
-        effects_tx,
-        promise_resolutions_rx,
+        effector,
+        persister: (),
     }));
 
-    promise_resolutions_tx
-        .send((
-            PromiseStateId(0),
-            PromiseResolution::Resolved(TestReadyValue::Int(41)),
-        ))
+    settlements_tx
+        .send(PromiseSettlement {
+            promise_state_id: PromiseStateId(0),
+            resolution: PromiseResolution::Resolved(TestReadyValue::Int(41)),
+            ack: (),
+        })
         .await
         .expect("driver should accept the promise resolution");
 
@@ -62,18 +77,19 @@ async fn resumes_waiting_promises_and_forwards_the_resolved_effect() {
         effects_rx.recv().await,
         Some(TestEffect::Value(TestReadyValue::Int(41)))
     );
-    drop(promise_resolutions_tx);
+    drop(settlements_tx);
 
     assert!(matches!(
         task.await.expect("driver task should join"),
-        Err(Error::PromiseResolutionReceiverClosed)
+        Err(Error::GettingPromiseSettlements(()))
     ));
 }
 
 #[tokio::test]
-async fn returns_effect_sender_closed_when_the_effect_receiver_is_dropped() {
-    let (effects_tx, effects_rx) = tokio::sync::mpsc::channel(1);
-    let (_promise_resolutions_tx, promise_resolutions_rx) = tokio::sync::mpsc::channel(1);
+async fn effect_handling_error_when_receiver_dropped() {
+    let (effects_tx, effects_rx) = tokio::sync::mpsc::channel::<TestEffect>(1);
+    let (_settlements_tx, settlements_rx) =
+        tokio::sync::mpsc::channel::<PromiseSettlement<TestReadyValue, ()>>(1);
     drop(effects_rx);
 
     let result = run(Params {
@@ -81,19 +97,20 @@ async fn returns_effect_sender_closed_when_the_effect_receiver_is_dropped() {
             0,
             vec![vec![TestInstruction::Emit("tick")]],
         )])),
-        effects_tx,
-        promise_resolutions_rx,
+        effector: (effects_tx, settlements_rx),
+        persister: (),
     })
     .await;
 
-    assert!(matches!(result, Err(Error::EffectSenderClosed)));
+    assert!(matches!(result, Err(Error::EffectHandling(_))));
 }
 
 #[tokio::test]
-async fn returns_promise_resolution_receiver_closed_when_waiting_runtime_cannot_resume() {
-    let (effects_tx, _effects_rx) = tokio::sync::mpsc::channel(1);
-    let (promise_resolutions_tx, promise_resolutions_rx) = tokio::sync::mpsc::channel(1);
-    drop(promise_resolutions_tx);
+async fn getting_settlements_error_when_sender_dropped() {
+    let (effects_tx, _effects_rx) = tokio::sync::mpsc::channel::<TestEffect>(1);
+    let (settlements_tx, settlements_rx) =
+        tokio::sync::mpsc::channel::<PromiseSettlement<TestReadyValue, ()>>(1);
+    drop(settlements_tx);
 
     let result = run(Params {
         runtime: runtime(executable(vec![function(
@@ -103,29 +120,27 @@ async fn returns_promise_resolution_receiver_closed_when_waiting_runtime_cannot_
                 resume: StateId(1),
             }]],
         )])),
-        effects_tx,
-        promise_resolutions_rx,
+        effector: (effects_tx, settlements_rx),
+        persister: (),
     })
     .await;
 
-    assert!(matches!(
-        result,
-        Err(Error::PromiseResolutionReceiverClosed)
-    ));
+    assert!(matches!(result, Err(Error::GettingPromiseSettlements(()))));
 }
 
 #[tokio::test]
-async fn returns_step_errors_from_the_runtime() {
-    let (effects_tx, _effects_rx) = tokio::sync::mpsc::channel(1);
-    let (_promise_resolutions_tx, promise_resolutions_rx) = tokio::sync::mpsc::channel(1);
+async fn returns_step_errors() {
+    let (effects_tx, _effects_rx) = tokio::sync::mpsc::channel::<TestEffect>(1);
+    let (_settlements_tx, settlements_rx) =
+        tokio::sync::mpsc::channel::<PromiseSettlement<TestReadyValue, ()>>(1);
 
     let result = run(Params {
         runtime: runtime(executable(vec![function(
             0,
             vec![vec![TestInstruction::Fail("boom")]],
         )])),
-        effects_tx,
-        promise_resolutions_rx,
+        effector: (effects_tx, settlements_rx),
+        persister: (),
     })
     .await;
 
@@ -138,24 +153,27 @@ async fn returns_step_errors_from_the_runtime() {
 }
 
 #[tokio::test]
-async fn returns_resolving_promise_errors_for_duplicate_resolutions() {
-    let (effects_tx, _effects_rx) = tokio::sync::mpsc::channel(1);
-    let (promise_resolutions_tx, promise_resolutions_rx) = tokio::sync::mpsc::channel(2);
+async fn duplicate_resolutions_error() {
+    let (effects_tx, _effects_rx) = tokio::sync::mpsc::channel::<TestEffect>(1);
+    let (settlements_tx, settlements_rx) =
+        tokio::sync::mpsc::channel::<PromiseSettlement<TestReadyValue, ()>>(2);
 
-    promise_resolutions_tx
-        .send((
-            PromiseStateId(0),
-            PromiseResolution::Resolved(TestReadyValue::Int(10)),
-        ))
+    settlements_tx
+        .send(PromiseSettlement {
+            promise_state_id: PromiseStateId(0),
+            resolution: PromiseResolution::Resolved(TestReadyValue::Int(10)),
+            ack: (),
+        })
         .await
-        .expect("first resolution should enqueue");
-    promise_resolutions_tx
-        .send((
-            PromiseStateId(0),
-            PromiseResolution::Resolved(TestReadyValue::Int(11)),
-        ))
+        .unwrap();
+    settlements_tx
+        .send(PromiseSettlement {
+            promise_state_id: PromiseStateId(0),
+            resolution: PromiseResolution::Resolved(TestReadyValue::Int(11)),
+            ack: (),
+        })
         .await
-        .expect("second resolution should enqueue");
+        .unwrap();
 
     let result = run(Params {
         runtime: runtime(executable(vec![function(
@@ -168,34 +186,31 @@ async fn returns_resolving_promise_errors_for_duplicate_resolutions() {
                 vec![TestInstruction::Exit],
             ],
         )])),
-        effects_tx,
-        promise_resolutions_rx,
+        effector: (effects_tx, settlements_rx),
+        persister: (),
     })
     .await;
 
-    let Err(Error::ResolvingPromise(err)) = result else {
-        panic!("duplicate promise resolution should surface as a driver error");
+    let Err(Error::ResolvingPromise(ResolvePromiseError::AlreadyResolved(err))) = result else {
+        panic!("expected AlreadyResolved");
     };
-
-    let ResolvePromiseError::AlreadyResolved(err) = err else {
-        panic!("duplicate promise resolution should report already-resolved errors");
-    };
-
     assert_eq!(err.new_value, TestReadyValue::Int(11));
 }
 
 #[tokio::test]
-async fn returns_not_found_errors_for_unknown_promise_ids() {
-    let (effects_tx, _effects_rx) = tokio::sync::mpsc::channel(1);
-    let (promise_resolutions_tx, promise_resolutions_rx) = tokio::sync::mpsc::channel(1);
+async fn unknown_promise_id_error() {
+    let (effects_tx, _effects_rx) = tokio::sync::mpsc::channel::<TestEffect>(1);
+    let (settlements_tx, settlements_rx) =
+        tokio::sync::mpsc::channel::<PromiseSettlement<TestReadyValue, ()>>(1);
 
-    promise_resolutions_tx
-        .send((
-            PromiseStateId(9),
-            PromiseResolution::Resolved(TestReadyValue::Int(41)),
-        ))
+    settlements_tx
+        .send(PromiseSettlement {
+            promise_state_id: PromiseStateId(9),
+            resolution: PromiseResolution::Resolved(TestReadyValue::Int(41)),
+            ack: (),
+        })
         .await
-        .expect("invalid resolution should still enqueue");
+        .unwrap();
 
     let result = run(Params {
         runtime: runtime(executable(vec![function(
@@ -205,23 +220,21 @@ async fn returns_not_found_errors_for_unknown_promise_ids() {
                 resume: StateId(1),
             }]],
         )])),
-        effects_tx,
-        promise_resolutions_rx,
+        effector: (effects_tx, settlements_rx),
+        persister: (),
     })
     .await;
 
     let Err(Error::ResolvingPromise(ResolvePromiseError::PromiseStateNotFound(err))) = result
     else {
-        panic!("unknown promise IDs should surface a not-found error");
+        panic!("expected PromiseStateNotFound");
     };
-
     assert_eq!(err.promise_state_id, PromiseStateId(9));
 }
 
 #[tokio::test]
-async fn resumes_waiting_promises_with_exception_errors() {
-    let (effects_tx, mut effects_rx) = tokio::sync::mpsc::channel(1);
-    let (promise_resolutions_tx, promise_resolutions_rx) = tokio::sync::mpsc::channel(1);
+async fn promise_rejection_forwards_exception() {
+    let (effector, mut effects_rx, settlements_tx) = effector();
 
     let task = tokio::spawn(run(Params {
         runtime: runtime(executable(vec![function(
@@ -234,20 +247,21 @@ async fn resumes_waiting_promises_with_exception_errors() {
                 vec![TestInstruction::EmitException],
             ],
         )])),
-        effects_tx,
-        promise_resolutions_rx,
+        effector,
+        persister: (),
     }));
 
-    promise_resolutions_tx
-        .send((
-            PromiseStateId(0),
-            PromiseResolution::Rejected(Exception {
+    settlements_tx
+        .send(PromiseSettlement {
+            promise_state_id: PromiseStateId(0),
+            resolution: PromiseResolution::Rejected(Exception {
                 type_id: "ValueError".to_owned(),
                 details: TestReadyValue::Int(41),
             }),
-        ))
+            ack: (),
+        })
         .await
-        .expect("driver should accept the promise exception");
+        .unwrap();
 
     assert_eq!(
         effects_rx.recv().await,
@@ -256,10 +270,10 @@ async fn resumes_waiting_promises_with_exception_errors() {
             details: TestReadyValue::Int(41),
         }))
     );
-    drop(promise_resolutions_tx);
+    drop(settlements_tx);
 
     assert!(matches!(
         task.await.expect("driver task should join"),
-        Err(Error::PromiseResolutionReceiverClosed)
+        Err(Error::GettingPromiseSettlements(()))
     ));
 }
