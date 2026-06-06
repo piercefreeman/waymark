@@ -5,18 +5,24 @@ version.workspace = true
 publish.workspace = true
 
 [dependencies]
+waymark-vm-codec-core = { workspace = true }
+waymark-vm-driver-core = { workspace = true }
 waymark-vm-executable = { workspace = true }
 waymark-vm-interpreter = { workspace = true }
 waymark-vm-runtime = { workspace = true }
 waymark-vm-runtime-core = { workspace = true }
-waymark-vm-runtime-effect = { workspace = true }
-waymark-vm-runtime-exception = { workspace = true }
 waymark-vm-runtime-promise-core = { workspace = true }
 
-tokio = { workspace = true, features = ["sync"] }
+nonempty-collections = { workspace = true }
+serde = { workspace = true }
+tokio-util = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
+waymark-vm-codec-rmp = { workspace = true }
+waymark-vm-driver-core = { workspace = true, features = ["tokio"] }
+waymark-vm-runtime-effect = { workspace = true }
+waymark-vm-runtime-exception = { workspace = true }
 waymark-vm-runtime-test = { workspace = true }
 
 tokio = { workspace = true, features = ["macros", "rt", "sync"] }

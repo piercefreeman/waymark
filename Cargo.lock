@@ -5351,8 +5351,14 @@ dependencies = [
 name = "waymark-vm-driver"
 version = "0.1.0"
 dependencies = [
+ "nonempty-collections",
+ "serde",
  "tokio",
+ "tokio-util",
  "tracing",
+ "waymark-vm-codec-core",
+ "waymark-vm-codec-rmp",
+ "waymark-vm-driver-core",
  "waymark-vm-executable",
  "waymark-vm-interpreter",
  "waymark-vm-runtime",
@@ -5361,6 +5367,17 @@ dependencies = [
  "waymark-vm-runtime-exception",
  "waymark-vm-runtime-promise-core",
  "waymark-vm-runtime-test",
+]
+
+[[package]]
+name = "waymark-vm-driver-core"
+version = "0.1.0"
+dependencies = [
+ "nonempty-collections",
+ "tokio",
+ "waymark-vm-runtime-effect",
+ "waymark-vm-runtime-exception",
+ "waymark-vm-runtime-promise-core",
 ]
 
 [[package]]
