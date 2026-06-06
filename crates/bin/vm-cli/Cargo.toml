@@ -9,10 +9,11 @@ waymark-fn-main-common = { workspace = true }
 waymark-vm-ast-old = { workspace = true }
 waymark-vm-ast-old-helpers = { workspace = true }
 waymark-vm-bytecode = { workspace = true }
-waymark-vm-bytecode-core = { workspace = true }
+waymark-vm-bytecode-core = { workspace = true, features = ["serde"] }
 waymark-vm-compiler-for-ast-old = { workspace = true }
 waymark-vm-compiler-for-ast-old-core = { workspace = true }
 waymark-vm-driver = { workspace = true }
+waymark-vm-driver-core = { workspace = true, features = ["tokio"] }
 waymark-vm-instructions-coreset = { workspace = true }
 waymark-vm-instructions-extcallset = { workspace = true }
 waymark-vm-instructions-fullset = { workspace = true }
@@ -22,8 +23,8 @@ waymark-vm-interpreter-extcallset = { workspace = true }
 waymark-vm-interpreter-fullset = { workspace = true }
 waymark-vm-runtime = { workspace = true }
 waymark-vm-runtime-core = { workspace = true }
-waymark-vm-runtime-exception = { workspace = true }
-waymark-vm-value = { workspace = true }
+waymark-vm-runtime-exception = { workspace = true, features = ["serde"] }
+waymark-vm-value = { workspace = true, features = ["serde"] }
 
 clap = { workspace = true, features = ["derive"] }
 index_type = { workspace = true }

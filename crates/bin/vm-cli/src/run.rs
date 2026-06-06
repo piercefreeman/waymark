@@ -1,4 +1,5 @@
 use crate::integration;
+use waymark_vm_driver_core::{PromiseResolution, PromiseSettlement};
 
 #[derive(Debug, thiserror::Error)]
 pub enum RunError {
@@ -28,15 +29,16 @@ pub async fn run(
             .map_err(RunError::InvalidEntryPoint)?;
 
     let (effects_tx, mut effects_rx) = tokio::sync::mpsc::channel(1);
-    let (promise_resolutions_tx, promise_resolutions_rx) = tokio::sync::mpsc::channel(1);
+    let (promise_resolutions_tx, promise_resolutions_rx) =
+        tokio::sync::mpsc::channel::<PromiseSettlement<integration::SampleReadyValue, ()>>(1);
 
     let mut tasks = tokio::task::JoinSet::new();
 
     tasks.spawn({
         let params = waymark_vm_driver::Params {
             runtime,
-            effects_tx,
-            promise_resolutions_rx,
+            effector: (effects_tx, promise_resolutions_rx),
+            persister: (),
         };
         async move {
             let Err(error) = waymark_vm_driver::run(params).await;
@@ -96,10 +98,11 @@ pub async fn run(
                                         "resolving extcall"
                                     );
                                     promise_resolutions_tx
-                                        .send((
+                                        .send(PromiseSettlement {
                                             promise_state_id,
-                                            waymark_vm_driver::PromiseResolution::Resolved(value),
-                                        ))
+                                            resolution: PromiseResolution::Resolved(value),
+                                            ack: (),
+                                        })
                                         .await
                                         .unwrap();
                                 }
@@ -119,10 +122,11 @@ pub async fn run(
                                     let value = integration::SampleReadyValue::None;
                                     tracing::info!(?promise_state_id, ?value, "resolving sleep");
                                     promise_resolutions_tx
-                                        .send((
+                                        .send(PromiseSettlement {
                                             promise_state_id,
-                                            waymark_vm_driver::PromiseResolution::Resolved(value),
-                                        ))
+                                            resolution: PromiseResolution::Resolved(value),
+                                            ack: (),
+                                        })
                                         .await
                                         .unwrap();
                                 }

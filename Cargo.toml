@@ -100,7 +100,6 @@ waymark-vm-runtime-promise-value = { path = "crates/lib/vm-runtime-promise-value
 waymark-vm-runtime-test = { path = "crates/lib/vm-runtime-test" }
 waymark-vm-runtime-value = { path = "crates/lib/vm-runtime-value" }
 waymark-vm-runtimes-manager-backend = { path = "crates/lib/vm-runtimes-manager-backend" }
-waymark-vm-runtimes-manager-core = { path = "crates/lib/vm-runtimes-manager-core" }
 waymark-vm-value = { path = "crates/lib/vm-value" }
 waymark-webapp-backend = { path = "crates/lib/webapp-backend" }
 waymark-webapp-bringup = { path = "crates/lib/webapp-bringup" }

@@ -3957,6 +3957,7 @@ checksum = "436de2fdc42c0f07890f4b51dcc90a468b0b12280f49caff1cf57ce2e646817c"
 dependencies = [
  "const_fn",
  "rustversion",
+ "serde",
  "typed_floats_macros",
 ]
 
@@ -5234,6 +5235,7 @@ dependencies = [
  "waymark-vm-compiler-for-ast-old",
  "waymark-vm-compiler-for-ast-old-core",
  "waymark-vm-driver",
+ "waymark-vm-driver-core",
  "waymark-vm-instructions-coreset",
  "waymark-vm-instructions-extcallset",
  "waymark-vm-instructions-fullset",
@@ -5323,8 +5325,11 @@ dependencies = [
 name = "waymark-vm-driver"
 version = "0.1.0"
 dependencies = [
+ "rmp-serde",
+ "serde",
  "tokio",
  "tracing",
+ "waymark-vm-driver-core",
  "waymark-vm-executable",
  "waymark-vm-interpreter",
  "waymark-vm-runtime",
@@ -5332,6 +5337,16 @@ dependencies = [
  "waymark-vm-runtime-exception",
  "waymark-vm-runtime-promise-core",
  "waymark-vm-runtime-test",
+]
+
+[[package]]
+name = "waymark-vm-driver-core"
+version = "0.1.0"
+dependencies = [
+ "nonempty-collections",
+ "tokio",
+ "waymark-vm-runtime-exception",
+ "waymark-vm-runtime-promise-core",
 ]
 
 [[package]]
@@ -5577,13 +5592,14 @@ version = "0.1.0"
 name = "waymark-vm-runtimes-manager"
 version = "0.1.0"
 dependencies = [
- "chrono",
  "rmp-serde",
  "serde",
  "thiserror",
  "tokio",
  "tokio-util",
  "tracing",
+ "waymark-vm-driver",
+ "waymark-vm-driver-core",
  "waymark-vm-executable",
  "waymark-vm-interpreter",
  "waymark-vm-lifecycle",
@@ -5592,7 +5608,6 @@ dependencies = [
  "waymark-vm-runtime-core",
  "waymark-vm-runtime-promise-core",
  "waymark-vm-runtimes-manager-backend",
- "waymark-vm-runtimes-manager-core",
 ]
 
 [[package]]
@@ -5600,18 +5615,11 @@ name = "waymark-vm-runtimes-manager-backend"
 version = "0.1.0"
 
 [[package]]
-name = "waymark-vm-runtimes-manager-core"
-version = "0.1.0"
-dependencies = [
- "waymark-vm-runtime-exception",
- "waymark-vm-runtime-promise-core",
-]
-
-[[package]]
 name = "waymark-vm-value"
 version = "0.1.0"
 dependencies = [
  "indexmap 2.13.0",
+ "serde",
  "static_assertions",
  "thiserror",
  "typed_floats",
