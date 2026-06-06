@@ -4369,6 +4369,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-blocking-future"
+version = "0.1.0"
+dependencies = [
+ "tokio",
+]
+
+[[package]]
 name = "waymark-boot-singleton"
 version = "0.1.0"
 dependencies = [
