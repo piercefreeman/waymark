@@ -1,11 +1,46 @@
 ---
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
-expression: "bytecode for python/tests/fixtures_try_except/try_stateful_outputs.py [compilation error]"
+expression: bytecode for python/tests/fixtures_try_except/try_stateful_outputs.py
 ---
-FunctionCompiler(
-    Unsupported(
-        Statement {
-            kind: TryExcept,
-        },
-    ),
-)
+fn main(input: [should_fail], output: []):
+    recovered = False
+    message = "start"
+    try:
+        value = @try_stateful_outputs.risky_action(should_fail=should_fail)
+        message = @try_stateful_outputs.annotate_success(value=value, previous=message)
+    except ValueError:
+        message = @try_stateful_outputs.annotate_recovery(reason="fail", previous=message)
+        recovered = True
+    _return_tmp = @try_stateful_outputs.finalize_result(attempted=True, recovered=recovered, message=message)
+    return _return_tmp
+---
+f0: [6 registers]
+  s0:
+    PureSet(LoadConst { dst: r1, value: Bool(false) })
+    PureSet(LoadConst { dst: r2, value: String("start") })
+    CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: ["ValueError"], exception_dst: None }] })
+    ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("risky_action"), args: [r0], resume: s3 })
+  s1:
+    PureSet(LoadConst { dst: r4, value: Bool(true) })
+    ExtCallSet(ActionCall { dst: r5, action_ref: TestActionRef("finalize_result"), args: [r4, r1, r2], resume: s9 })
+  s2:
+    PureSet(LoadConst { dst: r4, value: String("fail") })
+    ExtCallSet(ActionCall { dst: r2, action_ref: TestActionRef("annotate_recovery"), args: [r4, r2], resume: s7 })
+  s3:
+    CoreSet(Await { dst: r3, src: r3, resume: s4 })
+  s4:
+    ExtCallSet(ActionCall { dst: r2, action_ref: TestActionRef("annotate_success"), args: [r3, r2], resume: s5 })
+  s5:
+    CoreSet(Await { dst: r2, src: r2, resume: s6 })
+  s6:
+    CoreSet(PopExceptionHandlers { count: 1 })
+    CoreSet(Jump { target_state: s1 })
+  s7:
+    CoreSet(Await { dst: r2, src: r2, resume: s8 })
+  s8:
+    PureSet(LoadConst { dst: r1, value: Bool(true) })
+    CoreSet(Jump { target_state: s1 })
+  s9:
+    CoreSet(Await { dst: r5, src: r5, resume: s10 })
+  s10:
+    CoreSet(Return { src: r5 })

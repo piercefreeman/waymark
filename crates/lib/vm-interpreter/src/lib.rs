@@ -32,6 +32,53 @@ pub trait Interpreter {
     /// interpreter can trigger.
     type Effect;
 
+    /// Enter the current frame state before instruction dispatch.
+    ///
+    /// Runtime calls this hook before it starts executing the instructions of
+    /// the current frame state. Interpreters can use it for any state-entry
+    /// behavior, including but not limited to pending-exception handling.
+    /// Implementations that do not need state-entry behavior can rely on the
+    /// default implementation, which continues with ordinary instruction
+    /// execution.
+    fn enter_state<'r>(
+        &self,
+        _runtime: Self::RuntimeView<'r>,
+        frame: Self::Frame,
+    ) -> Result<ExecutionOutcome<Self::Frame, Self::Effect>, Self::Error> {
+        Ok(ExecutionOutcome::Continue(frame))
+    }
+
+    /// Run before each instruction execution.
+    ///
+    /// Runtime calls this hook before dispatching each instruction. Interpreters
+    /// can use it for any pre-instruction behavior. Implementations that do not
+    /// need pre-instruction behavior can rely on the default implementation,
+    /// which continues with ordinary instruction execution.
+    fn before_execute<'r>(
+        &self,
+        _runtime: Self::RuntimeView<'r>,
+        frame: Self::Frame,
+    ) -> Result<ExecutionOutcome<Self::Frame, Self::Effect>, Self::Error> {
+        Ok(ExecutionOutcome::Continue(frame))
+    }
+
+    /// Run after each instruction execution that continued in the same state.
+    ///
+    /// Runtime calls this hook after an instruction executes and returns
+    /// [`ExecutionOutcome::Continue`] without a state transition. Interpreters
+    /// can use it to react to side-effects that an instruction may have placed
+    /// on the frame without returning early — for example, raising an exception
+    /// via register mutation. Implementations that do not need post-instruction
+    /// behavior can rely on the default implementation, which continues with
+    /// ordinary instruction execution.
+    fn after_execute<'r>(
+        &self,
+        _runtime: Self::RuntimeView<'r>,
+        frame: Self::Frame,
+    ) -> Result<ExecutionOutcome<Self::Frame, Self::Effect>, Self::Error> {
+        Ok(ExecutionOutcome::Continue(frame))
+    }
+
     /// Execute the instruction on a given frame.
     fn execute<'r>(
         &self,
@@ -41,7 +88,7 @@ pub trait Interpreter {
     ) -> Result<ExecutionOutcome<Self::Frame, Self::Effect>, Self::Error>;
 }
 
-/// The outcome of an execution of a single instruction.
+/// The outcome of an execution of a single instruction or hook.
 pub enum ExecutionOutcome<Frame, Effect> {
     /// Continue executing this frame.
     Continue(Frame),

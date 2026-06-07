@@ -77,6 +77,7 @@ waymark-vm-compiler-for-ast-old-const-value = { path = "crates/lib/vm-compiler-f
 waymark-vm-compiler-for-ast-old-core = { path = "crates/lib/vm-compiler-for-ast-old-core" }
 waymark-vm-compiler-for-ast-old-test-support = { path = "crates/lib/vm-compiler-for-ast-old-test-support" }
 waymark-vm-driver = { path = "crates/lib/vm-driver" }
+waymark-vm-exception-handler = { path = "crates/lib/vm-exception-handler" }
 waymark-vm-executable = { path = "crates/lib/vm-executable" }
 waymark-vm-instructions-coreset = { path = "crates/lib/vm-instructions-coreset" }
 waymark-vm-instructions-extcallset = { path = "crates/lib/vm-instructions-extcallset" }
@@ -90,6 +91,7 @@ waymark-vm-interpreter-pureset = { path = "crates/lib/vm-interpreter-pureset" }
 waymark-vm-interpreter-utils = { path = "crates/lib/vm-interpreter-utils" }
 waymark-vm-runtime = { path = "crates/lib/vm-runtime" }
 waymark-vm-runtime-core = { path = "crates/lib/vm-runtime-core" }
+waymark-vm-runtime-exception = { path = "crates/lib/vm-runtime-exception" }
 waymark-vm-runtime-promise-core = { path = "crates/lib/vm-runtime-promise-core" }
 waymark-vm-runtime-promise-value = { path = "crates/lib/vm-runtime-promise-value" }
 waymark-vm-runtime-test = { path = "crates/lib/vm-runtime-test" }

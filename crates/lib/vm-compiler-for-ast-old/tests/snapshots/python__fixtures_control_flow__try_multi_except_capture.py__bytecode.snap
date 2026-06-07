@@ -1,0 +1,44 @@
+---
+source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
+expression: bytecode for python/tests/fixtures_control_flow/try_multi_except_capture.py
+---
+fn main(input: [], output: []):
+    try:
+        result = @try_multi_except_capture.risky_action_multi_capture()
+    except ValueError as verr:
+        result = @try_multi_except_capture.handle_value_err(error=verr)
+    except TypeError as terr:
+        result = @try_multi_except_capture.handle_type_err(error=terr)
+    except Exception as err:
+        result = @try_multi_except_capture.handle_generic_err(error=err)
+    return result
+---
+f0: [4 registers]
+  s0:
+    CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: ["ValueError"], exception_dst: Some(r0) }, ExceptionHandler { handler_state: s3, exception_types: ["TypeError"], exception_dst: Some(r1) }, ExceptionHandler { handler_state: s4, exception_types: [], exception_dst: Some(r2) }] })
+    ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("risky_action_multi_capture"), args: [], resume: s5 })
+  s1:
+    CoreSet(Return { src: r3 })
+  s2:
+    ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("handle_value_err"), args: [r0], resume: s7 })
+  s3:
+    ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("handle_type_err"), args: [r1], resume: s9 })
+  s4:
+    ExtCallSet(ActionCall { dst: r3, action_ref: TestActionRef("handle_generic_err"), args: [r2], resume: s11 })
+  s5:
+    CoreSet(Await { dst: r3, src: r3, resume: s6 })
+  s6:
+    CoreSet(PopExceptionHandlers { count: 1 })
+    CoreSet(Jump { target_state: s1 })
+  s7:
+    CoreSet(Await { dst: r3, src: r3, resume: s8 })
+  s8:
+    CoreSet(Jump { target_state: s1 })
+  s9:
+    CoreSet(Await { dst: r3, src: r3, resume: s10 })
+  s10:
+    CoreSet(Jump { target_state: s1 })
+  s11:
+    CoreSet(Await { dst: r3, src: r3, resume: s12 })
+  s12:
+    CoreSet(Jump { target_state: s1 })

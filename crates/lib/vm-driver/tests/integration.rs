@@ -1,5 +1,6 @@
-use waymark_vm_driver::{Error, Params, run};
+use waymark_vm_driver::{Error, Params, PromiseResolution, run};
 use waymark_vm_runtime_core::{RegisterId, ResolvePromiseError};
+use waymark_vm_runtime_exception::Exception;
 use waymark_vm_runtime_promise_core::PromiseStateId;
 use waymark_vm_runtime_test::{
     StateId, TestEffect, TestExecutionError, TestInstruction, TestReadyValue, executable, function,
@@ -50,13 +51,16 @@ async fn resumes_waiting_promises_and_forwards_the_resolved_effect() {
     }));
 
     promise_resolutions_tx
-        .send((PromiseStateId(0), TestReadyValue(41)))
+        .send((
+            PromiseStateId(0),
+            PromiseResolution::Resolved(TestReadyValue::Int(41)),
+        ))
         .await
         .expect("driver should accept the promise resolution");
 
     assert_eq!(
         effects_rx.recv().await,
-        Some(TestEffect::Value(TestReadyValue(41)))
+        Some(TestEffect::Value(TestReadyValue::Int(41)))
     );
     drop(promise_resolutions_tx);
 
@@ -139,11 +143,17 @@ async fn returns_resolving_promise_errors_for_duplicate_resolutions() {
     let (promise_resolutions_tx, promise_resolutions_rx) = tokio::sync::mpsc::channel(2);
 
     promise_resolutions_tx
-        .send((PromiseStateId(0), TestReadyValue(10)))
+        .send((
+            PromiseStateId(0),
+            PromiseResolution::Resolved(TestReadyValue::Int(10)),
+        ))
         .await
         .expect("first resolution should enqueue");
     promise_resolutions_tx
-        .send((PromiseStateId(0), TestReadyValue(11)))
+        .send((
+            PromiseStateId(0),
+            PromiseResolution::Resolved(TestReadyValue::Int(11)),
+        ))
         .await
         .expect("second resolution should enqueue");
 
@@ -171,7 +181,7 @@ async fn returns_resolving_promise_errors_for_duplicate_resolutions() {
         panic!("duplicate promise resolution should report already-resolved errors");
     };
 
-    assert_eq!(err.new_value, TestReadyValue(11));
+    assert_eq!(err.new_value, TestReadyValue::Int(11));
 }
 
 #[tokio::test]
@@ -180,7 +190,10 @@ async fn returns_not_found_errors_for_unknown_promise_ids() {
     let (promise_resolutions_tx, promise_resolutions_rx) = tokio::sync::mpsc::channel(1);
 
     promise_resolutions_tx
-        .send((PromiseStateId(9), TestReadyValue(41)))
+        .send((
+            PromiseStateId(9),
+            PromiseResolution::Resolved(TestReadyValue::Int(41)),
+        ))
         .await
         .expect("invalid resolution should still enqueue");
 
@@ -203,4 +216,50 @@ async fn returns_not_found_errors_for_unknown_promise_ids() {
     };
 
     assert_eq!(err.promise_state_id, PromiseStateId(9));
+}
+
+#[tokio::test]
+async fn resumes_waiting_promises_with_exception_errors() {
+    let (effects_tx, mut effects_rx) = tokio::sync::mpsc::channel(1);
+    let (promise_resolutions_tx, promise_resolutions_rx) = tokio::sync::mpsc::channel(1);
+
+    let task = tokio::spawn(run(Params {
+        runtime: runtime(executable(vec![function(
+            1,
+            vec![
+                vec![TestInstruction::Suspend {
+                    dst: RegisterId(0),
+                    resume: StateId(1),
+                }],
+                vec![TestInstruction::EmitException],
+            ],
+        )])),
+        effects_tx,
+        promise_resolutions_rx,
+    }));
+
+    promise_resolutions_tx
+        .send((
+            PromiseStateId(0),
+            PromiseResolution::Rejected(Exception {
+                type_id: "ValueError".to_owned(),
+                details: TestReadyValue::Int(41),
+            }),
+        ))
+        .await
+        .expect("driver should accept the promise exception");
+
+    assert_eq!(
+        effects_rx.recv().await,
+        Some(TestEffect::UnhandledException(Exception {
+            type_id: "ValueError".to_owned(),
+            details: TestReadyValue::Int(41),
+        }))
+    );
+    drop(promise_resolutions_tx);
+
+    assert!(matches!(
+        task.await.expect("driver task should join"),
+        Err(Error::PromiseResolutionReceiverClosed)
+    ));
 }

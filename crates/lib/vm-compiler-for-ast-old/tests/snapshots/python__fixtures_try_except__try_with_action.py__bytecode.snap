@@ -1,11 +1,25 @@
 ---
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
-expression: "bytecode for python/tests/fixtures_try_except/try_with_action.py [compilation error]"
+expression: bytecode for python/tests/fixtures_try_except/try_with_action.py
 ---
-FunctionCompiler(
-    Unsupported(
-        Statement {
-            kind: TryExcept,
-        },
-    ),
-)
+fn main(input: [], output: []):
+    try:
+        result = @try_with_action.try_action()
+    except ValueError:
+        result = 0
+    return result
+---
+f0: [1 registers]
+  s0:
+    CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: ["ValueError"], exception_dst: None }] })
+    ExtCallSet(ActionCall { dst: r0, action_ref: TestActionRef("try_action"), args: [], resume: s3 })
+  s1:
+    CoreSet(Return { src: r0 })
+  s2:
+    PureSet(LoadConst { dst: r0, value: Int(0) })
+    CoreSet(Jump { target_state: s1 })
+  s3:
+    CoreSet(Await { dst: r0, src: r0, resume: s4 })
+  s4:
+    CoreSet(PopExceptionHandlers { count: 1 })
+    CoreSet(Jump { target_state: s1 })

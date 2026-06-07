@@ -1,11 +1,28 @@
 ---
 source: crates/lib/vm-compiler-for-ast-old/tests/python.rs
-expression: "bytecode for python/tests/fixtures_try_except/try_multiple_calls.py [compilation error]"
+expression: bytecode for python/tests/fixtures_try_except/try_multiple_calls.py
 ---
-FunctionCompiler(
-    Unsupported(
-        Statement {
-            kind: TryExcept,
-        },
-    ),
-)
+fn main(input: [value], output: []):
+    try:
+        a = @try_multiple_calls.risky_step_one(value=value)
+        b = @try_multiple_calls.risky_step_two(value=a)
+        return b
+    except ValueError:
+        return "error"
+---
+f0: [4 registers]
+  s0:
+    CoreSet(PushExceptionHandlers { handlers: [ExceptionHandler { handler_state: s2, exception_types: ["ValueError"], exception_dst: None }] })
+    ExtCallSet(ActionCall { dst: r1, action_ref: TestActionRef("risky_step_one"), args: [r0], resume: s3 })
+  s1:
+  s2:
+    PureSet(LoadConst { dst: r3, value: String("error") })
+    CoreSet(Return { src: r3 })
+  s3:
+    CoreSet(Await { dst: r1, src: r1, resume: s4 })
+  s4:
+    ExtCallSet(ActionCall { dst: r2, action_ref: TestActionRef("risky_step_two"), args: [r1], resume: s5 })
+  s5:
+    CoreSet(Await { dst: r2, src: r2, resume: s6 })
+  s6:
+    CoreSet(Return { src: r2 })

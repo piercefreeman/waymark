@@ -46,6 +46,9 @@ fn runtime_executes_pure_and_core_instructions_to_completion() {
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(value)) => {
             assert_eq!(value, TestReadyValue::Int(5));
         }
+        Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::UnhandledException(exception)) => {
+            panic!("program should not raise an exception: {exception:?}")
+        }
         Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall { .. }) => {
             panic!("program should not emit an action call")
         }

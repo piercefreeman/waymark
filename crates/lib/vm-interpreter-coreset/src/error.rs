@@ -10,11 +10,23 @@ pub enum Error<Spec: waymark_vm_instructions_coreset::Spec> {
 
     /// Returning from a function failed.
     #[error("return: {0}")]
-    Return(#[source] ReturnError),
+    Return(#[source] FnExitError),
 
     /// JumpIf failed.
     #[error("jump if: {0}")]
     JumpIf(#[source] JumpIfError),
+
+    /// Managing exception-handler blocks failed.
+    #[error("exception handlers: {0}")]
+    ExceptionHandlers(#[source] ExceptionHandlersError),
+
+    /// Bubbling a raised exception failed.
+    #[error("bubble exception: {0}")]
+    BubbleException(#[source] FnExitError),
+
+    /// Raising an exception failed.
+    #[error("raise: {0}")]
+    Raise(#[source] RaiseError),
 
     /// A function call failed.
     #[error("function call: {0}")]
@@ -48,14 +60,30 @@ pub enum JumpIfError {
     ConditionCheck(#[source] crate::value::NotAConditionalError),
 }
 
-/// Errors produced while returning from a frame.
+/// Errors produced while managing exception-handler blocks.
 #[derive(Debug, thiserror::Error)]
-pub enum ReturnError {
-    /// Returning from a function-call frame failed.
+pub enum ExceptionHandlersError {
+    /// A pop tried to remove more blocks than were active.
+    #[error("pop: {0}")]
+    Pop(#[source] waymark_vm_runtime_core::PopExceptionHandlersError),
+}
+
+/// Errors produced while evaluating a `Raise` instruction.
+#[derive(Debug, thiserror::Error)]
+pub enum RaiseError {
+    /// The source register did not contain an exception value.
+    #[error("source value is not an exception")]
+    SourceNotException,
+}
+
+/// Errors produced while exiting from a function.
+#[derive(Debug, thiserror::Error)]
+pub enum FnExitError {
+    /// Exiting from a function-call frame failed.
     #[error("from fn call: {0}")]
     FnCall(#[source] ReturnFnCallError),
 
-    /// Returning from the top-level frame encountered an unresolved promise.
+    /// Exiting from the top-level frame encountered an unresolved promise.
     #[error("toplevel: {0}")]
     TopLevel(#[source] UnresolvedPromiseError),
 }

@@ -33,9 +33,10 @@
 use waymark_vm_interpreter::{ExecutionOutcome, Interpreter};
 use waymark_vm_runtime::{CallSpec, FunctionNotFoundError, Runtime};
 use waymark_vm_runtime_core::{
-    CaptureRuntimeView, Continuation, Frame, FrameKind, FullRuntimeView, PromiseState, RegisterId,
-    Registers,
+    CaptureRuntimeView, Continuation, ExceptionHandlers, Frame, FrameKind, FullRuntimeView,
+    PromiseState, RegisterId, Registers,
 };
+use waymark_vm_runtime_exception::{Exception, FromException};
 
 pub use waymark_vm_bytecode_core::{FunctionId, StateId};
 use waymark_vm_runtime_promise_value::PromiseValue;
@@ -49,6 +50,7 @@ pub enum TestInstruction {
         resume: StateId,
     },
     EmitRegister(RegisterId),
+    EmitException,
     EnqueueFrameAndExit {
         func: FunctionId,
         state: StateId,
@@ -61,6 +63,7 @@ pub enum TestInstruction {
 pub enum TestEffect {
     Message(&'static str),
     Value(TestReadyValue),
+    UnhandledException(Exception<TestReadyValue>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -74,11 +77,20 @@ pub type TestExecutable = waymark_vm_bytecode::Executable<TestInstruction>;
 pub type TestFunction = waymark_vm_bytecode::Function<TestInstruction>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TestReadyValue(pub i32);
+pub enum TestReadyValue {
+    Int(i32),
+    Exception(Box<Exception<PromiseValue<TestReadyValue>>>),
+}
 pub type TestValue = PromiseValue<TestReadyValue>;
 
 impl waymark_vm_runtime_value::RootValueAccess for TestReadyValue {
     type RootValue = TestValue;
+}
+
+impl FromException for TestReadyValue {
+    fn from_exception(exception: Exception<Self::RootValue>) -> Self {
+        Self::Exception(Box::new(exception))
+    }
 }
 
 impl waymark_vm_interpreter_coreset::value::CaptureCallArgument for TestReadyValue {
@@ -157,6 +169,18 @@ impl Interpreter for TestInterpreter {
                     value.clone(),
                 )))
             }
+            TestInstruction::EmitException => {
+                let Some(exception) = frame.exception else {
+                    panic!("frame should carry a raised exception before emitting it");
+                };
+                let Exception { type_id, details } = exception;
+                let PromiseValue::Ready(details) = details else {
+                    panic!("raised exception details should be ready values");
+                };
+                Ok(ExecutionOutcome::ExitFrameWithEffect(
+                    TestEffect::UnhandledException(Exception { type_id, details }),
+                ))
+            }
             TestInstruction::EnqueueFrameAndExit {
                 func,
                 state: next_state,
@@ -167,6 +191,8 @@ impl Interpreter for TestInterpreter {
                     func,
                     state: next_state,
                     regs: Registers::new(num_regs),
+                    exception: None,
+                    exception_handler_blocks: ExceptionHandlers::new(),
                     kind: FrameKind::TopLevel,
                 });
                 Ok(ExecutionOutcome::ExitFrame)

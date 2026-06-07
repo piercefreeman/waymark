@@ -8,7 +8,7 @@ pub mod value;
 use derive_where::derive_where;
 use waymark_vm_interpreter::ExecutionOutcome;
 use waymark_vm_runtime_core::{
-    Continuation, Frame, FrameKind, PromiseState, Registers, RuntimeState,
+    Continuation, ExceptionHandlers, Frame, FrameKind, PromiseState, Registers, RuntimeState,
 };
 
 pub use self::error::*;
@@ -34,6 +34,78 @@ pub struct RuntimeView<'r, Executable, FunctionId, StateId, Value> {
 pub enum Effect<Value> {
     /// Program execution is complete.
     Complete(Value),
+
+    /// Program execution terminated with an unhandled exception.
+    UnhandledException(waymark_vm_runtime_exception::Exception<Value>),
+}
+
+type FrameFor<Spec, Value> = Frame<
+    <Spec as waymark_vm_instructions_coreset::Spec>::FunctionId,
+    <Spec as waymark_vm_instructions_coreset::Spec>::StateId,
+    Value,
+>;
+
+type EffectFor<Value> = Effect<<Value as waymark_vm_runtime_promise_core::Resolvable>::ReadyValue>;
+
+impl<Spec, Executable, Value> CoreSetInterpreter<Spec, Executable, Value>
+where
+    Spec: waymark_vm_instructions_coreset::Spec,
+    Spec::StateId: Copy,
+    Value: self::Value,
+    Value: Clone,
+    Value: waymark_vm_runtime_exception::FromException<RootValue = Value>,
+    Value: waymark_vm_runtime_exception::IntoException<RootValue = Value>,
+    Value: waymark_vm_runtime_promise_core::Suspendable,
+    Value: waymark_vm_runtime_promise_core::Resolvable,
+    Value::ReadyValue: Clone,
+{
+    fn bubble_exception(
+        state: &mut RuntimeState<Spec::FunctionId, Spec::StateId, Value>,
+        mut frame: Frame<Spec::FunctionId, Spec::StateId, Value>,
+    ) -> Result<ExecutionOutcome<FrameFor<Spec, Value>, EffectFor<Value>>, FnExitError> {
+        let Some(exception) = frame.exception.take() else {
+            return Ok(ExecutionOutcome::Continue(frame));
+        };
+
+        if let Some(handler) = frame
+            .exception_handler_blocks
+            .take_matching(&exception.type_id)
+        {
+            if let Some(dst) = handler.exception_dst {
+                frame.regs.set(dst, Value::from_exception(exception));
+            }
+            frame.state = handler.handler_state;
+            return Ok(ExecutionOutcome::Continue(frame));
+        }
+
+        Ok(match frame.kind {
+            FrameKind::FnCall { ret } => {
+                state
+                    .reject_promise(ret, exception)
+                    .map_err(|error| match error {
+                        waymark_vm_runtime_core::ResolvePromiseError::PromiseStateNotFound(_) => {
+                            ReturnFnCallError::ReturnPromiseNotFound
+                        }
+                        waymark_vm_runtime_core::ResolvePromiseError::AlreadyResolved(_) => {
+                            ReturnFnCallError::ReturnPromiseAlreadyResolved
+                        }
+                    })
+                    .map_err(FnExitError::FnCall)?;
+                ExecutionOutcome::ExitFrame
+            }
+            FrameKind::TopLevel => {
+                let waymark_vm_runtime_exception::Exception { type_id, details } = exception;
+
+                let details = details
+                    .into_ready()
+                    .map_err(|(error, _)| FnExitError::TopLevel(error))?;
+
+                let exception = waymark_vm_runtime_exception::Exception { type_id, details };
+
+                ExecutionOutcome::ExitFrameWithEffect(Effect::UnhandledException(exception))
+            }
+        })
+    }
 }
 
 impl<Spec, Executable, Value> waymark_vm_interpreter::Interpreter
@@ -46,6 +118,8 @@ where
     Spec::StateId: Copy + Default,
     Value: self::Value,
     Value: Clone,
+    Value: waymark_vm_runtime_exception::FromException<RootValue = Value>,
+    Value: waymark_vm_runtime_exception::IntoException<RootValue = Value>,
     Value: waymark_vm_runtime_promise_core::Suspendable,
     Value: waymark_vm_runtime_promise_core::Resolvable,
     Value::ReadyValue: Clone,
@@ -56,6 +130,34 @@ where
     type Instruction = waymark_vm_instructions_coreset::CoreSet<Spec>;
     type Error = Error<Spec>;
     type Effect = Effect<Value::ReadyValue>;
+
+    fn enter_state<'r>(
+        &self,
+        runtime_view: Self::RuntimeView<'r>,
+        frame: Frame<Spec::FunctionId, Spec::StateId, Value>,
+    ) -> Result<ExecutionOutcome<Self::Frame, Self::Effect>, Self::Error> {
+        let Self::RuntimeView { state, .. } = runtime_view;
+
+        if frame.exception.is_none() {
+            return Ok(ExecutionOutcome::Continue(frame));
+        }
+
+        Self::bubble_exception(state, frame).map_err(Error::BubbleException)
+    }
+
+    fn after_execute<'r>(
+        &self,
+        runtime_view: Self::RuntimeView<'r>,
+        frame: Frame<Spec::FunctionId, Spec::StateId, Value>,
+    ) -> Result<ExecutionOutcome<Self::Frame, Self::Effect>, Self::Error> {
+        let Self::RuntimeView { state, .. } = runtime_view;
+
+        if frame.exception.is_none() {
+            return Ok(ExecutionOutcome::Continue(frame));
+        }
+
+        Self::bubble_exception(state, frame).map_err(Error::BubbleException)
+    }
 
     fn execute<'r>(
         &self,
@@ -95,6 +197,8 @@ where
                     func: *function_id,
                     state: Spec::StateId::default(),
                     regs,
+                    exception: None,
+                    exception_handler_blocks: ExceptionHandlers::new(),
                     kind: FrameKind::FnCall {
                         ret: promise_state_id,
                     },
@@ -114,12 +218,21 @@ where
                             .map_err(AwaitError::SourcePromiseStateNotFound)
                             .map_err(Error::Await)?;
                         return Ok(match promise_state {
-                            PromiseState::Ready(value) => {
+                            PromiseState::Resolved(value) => {
                                 Continuation::immediate_resume(
                                     &mut frame,
                                     *resume,
                                     *dst,
                                     value.clone(),
+                                );
+                                state.ready.push_back(frame);
+                                ExecutionOutcome::ExitFrame
+                            }
+                            PromiseState::Rejected(exception) => {
+                                Continuation::<_, _, _, ()>::immediate_raise_exception(
+                                    &mut frame,
+                                    *resume,
+                                    exception.clone(),
                                 );
                                 state.ready.push_back(frame);
                                 ExecutionOutcome::ExitFrame
@@ -130,8 +243,21 @@ where
                             }
                         });
                     }
-                    Ok(value) => frame.regs.set(*dst, Value::from_ready(value.clone())),
+                    Ok(value) => {
+                        frame.regs.set(*dst, Value::from_ready(value.clone()));
+                        frame.state = *resume;
+                    }
                 }
+            }
+            waymark_vm_instructions_coreset::CoreSet::PushExceptionHandlers { handlers } => {
+                frame.exception_handler_blocks.push(handlers.clone());
+            }
+            waymark_vm_instructions_coreset::CoreSet::PopExceptionHandlers { count } => {
+                frame
+                    .exception_handler_blocks
+                    .pop(*count)
+                    .map_err(ExceptionHandlersError::Pop)
+                    .map_err(Error::ExceptionHandlers)?;
             }
             waymark_vm_instructions_coreset::CoreSet::Jump { target_state } => {
                 frame.state = *target_state;
@@ -147,6 +273,16 @@ where
                 if should_jump {
                     frame.state = *target_state;
                 }
+            }
+            waymark_vm_instructions_coreset::CoreSet::Raise { src } => {
+                let exception = frame.regs[*src]
+                    .clone()
+                    .into_exception()
+                    .map_err(|_| RaiseError::SourceNotException)
+                    .map_err(Error::Raise)?;
+                frame.exception = Some(exception);
+
+                return Self::bubble_exception(state, frame).map_err(Error::BubbleException);
             }
             waymark_vm_instructions_coreset::CoreSet::Return { src } => {
                 let val = frame.regs[*src].clone();
@@ -165,14 +301,14 @@ where
                                 ) => ReturnFnCallError::ReturnPromiseAlreadyResolved,
                             }
                             })
-                            .map_err(ReturnError::FnCall)
+                            .map_err(FnExitError::FnCall)
                             .map_err(Error::Return)?;
                         ExecutionOutcome::ExitFrame
                     }
                     FrameKind::TopLevel => {
                         let val = val
                             .into_ready()
-                            .map_err(|(error, _)| ReturnError::TopLevel(error))
+                            .map_err(|(error, _)| FnExitError::TopLevel(error))
                             .map_err(Error::Return)?;
                         ExecutionOutcome::ExitFrameWithEffect(Effect::Complete(val))
                     }

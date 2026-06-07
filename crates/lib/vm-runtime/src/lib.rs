@@ -10,8 +10,8 @@ pub mod step;
 use std::collections::VecDeque;
 
 use waymark_vm_runtime_core::{
-    Frame, FrameKind, PromiseStates, Registers, ResolvePromiseError,
-    ResolvingAlreadyResolvedPromiseError, RuntimeState,
+    ExceptionHandlers, Frame, FrameKind, PromiseStates, Registers, RejectPromiseError,
+    ResolvePromiseError, RuntimeState,
 };
 use waymark_vm_runtime_promise_core::PromiseStateId;
 
@@ -103,6 +103,8 @@ where
             func,
             state: Executable::StateId::default(),
             regs,
+            exception: None,
+            exception_handler_blocks: ExceptionHandlers::new(),
             kind: FrameKind::TopLevel,
         });
 
@@ -200,22 +202,45 @@ where
     ) -> Result<(), ResolvePromiseError<Value::ReadyValue>> {
         self.state
             .resolve_promise(promise_state_id, Value::from_ready(value))
-            .map_err(|error| match error {
-                ResolvePromiseError::PromiseStateNotFound(error) => {
-                    ResolvePromiseError::PromiseStateNotFound(error)
-                }
-                ResolvePromiseError::AlreadyResolved(error) => {
-                    let ResolvingAlreadyResolvedPromiseError { new_value } = error;
+            .map_err(|error| {
+                error.map(|new_value| {
                     let Ok(new_value) = new_value.into_ready() else {
                         // We've wrapped this value with `Value::from_ready`
                         // ourselves just a couple lines above.
                         // It is guaranteed to be resolved here.
                         unreachable!();
                     };
-                    ResolvePromiseError::AlreadyResolved(ResolvingAlreadyResolvedPromiseError {
-                        new_value,
-                    })
-                }
+                    new_value
+                })
+            })
+    }
+
+    /// Reject an async computation for a given promise.
+    pub fn reject_promise(
+        &mut self,
+        promise_state_id: PromiseStateId,
+        exception: waymark_vm_runtime_exception::Exception<Value::ReadyValue>,
+    ) -> Result<(), RejectPromiseError<Value::ReadyValue>> {
+        let exception = waymark_vm_runtime_exception::Exception {
+            type_id: exception.type_id,
+            details: Value::from_ready(exception.details),
+        };
+
+        self.state
+            .reject_promise(promise_state_id, exception)
+            .map_err(|error| {
+                error.map(|new_value| {
+                    let waymark_vm_runtime_exception::Exception { type_id, details } = new_value;
+
+                    let Ok(details) = details.into_ready() else {
+                        // We've wrapped this value with `Value::from_ready`
+                        // ourselves just a couple lines above.
+                        // It is guaranteed to be resolved here.
+                        unreachable!();
+                    };
+
+                    waymark_vm_runtime_exception::Exception { type_id, details }
+                })
             })
     }
 }

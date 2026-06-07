@@ -1,4 +1,5 @@
 mod coreset;
+mod exception;
 mod extcallset;
 mod promisable;
 mod pureset;

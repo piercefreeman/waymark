@@ -120,7 +120,7 @@ impl ReadyConditionalJoin {
     fn finish(self) -> ConditionalJoinFinish {
         ConditionalJoinFinish::Join {
             join_state: self.join_state,
-            merged_flow: FlowState::merge_branches(self.continuation_flows),
+            merged_flow: FlowState::intersect_branches(self.continuation_flows),
         }
     }
 }
