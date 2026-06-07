@@ -1,0 +1,190 @@
+//! Poll loop — polls for unpinned instances and dispatches handles.
+
+mod error;
+
+pub use self::error::*;
+
+use std::num::NonZeroUsize;
+use std::sync::Arc;
+
+use chrono::Utc;
+use nonempty_collections::{IntoNonEmptyIterator as _, NEVec, NonEmptyIterator as _};
+use tokio_util::sync::CancellationToken;
+use tracing::info;
+use waymark_nonzero_duration::NonZeroDuration;
+
+use crate::PinnedHandle;
+
+pub(super) struct PollParams<Backend>
+where
+    Backend: waymark_workload_pinning_backend::HasNodeId,
+    Backend: waymark_workload_pinning_backend::HasInstanceId,
+{
+    pub backend: Arc<Backend>,
+    pub node_id: Backend::NodeId,
+    pub pinned_tx: tokio::sync::mpsc::Sender<NEVec<PinnedHandle<Backend::InstanceId>>>,
+    pub evict_tx: tokio::sync::mpsc::UnboundedSender<Backend::InstanceId>,
+    pub batch_tx: tokio::sync::mpsc::Sender<(
+        NEVec<Backend::InstanceId>,
+        tokio::sync::oneshot::Sender<usize>,
+    )>,
+    pub count_rx: tokio::sync::mpsc::UnboundedReceiver<usize>,
+    pub shutdown_token: CancellationToken,
+    pub max_pinned: NonZeroUsize,
+    pub pinning_ttl: NonZeroDuration,
+}
+
+pub(super) async fn run_poll_loop<Backend>(
+    params: PollParams<Backend>,
+) -> Result<(), PollLoopErrorFor<Backend>>
+where
+    Backend: waymark_workload_pinning_backend::PollUnpinnedInstances<
+            Timestamp = chrono::DateTime<chrono::Utc>,
+        >,
+    Backend: waymark_workload_pinning_backend::HasTimestamp,
+    Backend::NodeId: Clone,
+    Backend::InstanceId: Clone + std::hash::Hash + Eq,
+{
+    let PollParams {
+        backend,
+        node_id,
+        pinned_tx,
+        evict_tx,
+        batch_tx,
+        mut count_rx,
+        shutdown_token,
+        max_pinned,
+        pinning_ttl,
+    } = params;
+
+    let mut current_count = 0usize;
+    let shutdown = shutdown_token.child_token().cancelled_owned();
+    let mut shutdown = std::pin::pin!(shutdown);
+
+    loop {
+        let available = max_pinned.get().saturating_sub(current_count);
+        if let Some(max_items) = NonZeroUsize::new(available) {
+            tokio::select! {
+                _ = &mut shutdown => {
+                    info!("poll loop shutting down");
+                    break Ok(());
+                }
+                Some(updated) = count_rx.recv() => {
+                    current_count = updated;
+                }
+                result = poll_and_dispatch(
+                    &*backend,
+                    node_id.clone(),
+                    max_items,
+                    pinning_ttl,
+                    &batch_tx,
+                    &pinned_tx,
+                    &evict_tx,
+                ) => {
+                    match result {
+                        Ok(Some(count)) => current_count = count,
+                        Ok(None) => { /* no instances — count unchanged */ }
+                        Err(error) => break Err(error),
+                    }
+                }
+            }
+        } else {
+            tokio::select! {
+                _ = &mut shutdown => {
+                    info!("poll loop shutting down");
+                    break Ok(());
+                }
+                Some(updated) = count_rx.recv() => {
+                    current_count = updated;
+                }
+            }
+        }
+    }
+}
+
+/// Poll for new workloads and pin them.
+///
+/// Returns the newly pinned instance IDs, or `None` if no instances were available.
+pub(super) async fn poll_and_pin<Backend>(
+    backend: &Backend,
+    node_id: Backend::NodeId,
+    max_items: NonZeroUsize,
+    pinning_ttl: NonZeroDuration,
+) -> Result<
+    Option<NEVec<Backend::InstanceId>>,
+    <Backend as waymark_workload_pinning_backend::PollUnpinnedInstances>::Error,
+>
+where
+    Backend: waymark_workload_pinning_backend::PollUnpinnedInstances<
+            Timestamp = chrono::DateTime<chrono::Utc>,
+        >,
+{
+    let now = Utc::now();
+
+    let expires_at =
+        now + chrono::Duration::from_std(pinning_ttl.get()).unwrap_or(chrono::Duration::MAX);
+
+    let pinning = waymark_workload_pinning_backend::Pinning {
+        node_id,
+        expires_at,
+    };
+
+    backend.poll_unlocked(now, pinning, max_items).await
+}
+
+/// Poll, register with the maintain loop, and publish handles.
+///
+/// Returns the updated active count from the maintain loop, or `None` if no
+/// instances were available to dispatch (count is unchanged).
+async fn poll_and_dispatch<Backend>(
+    backend: &Backend,
+    node_id: Backend::NodeId,
+    max_items: NonZeroUsize,
+    pinning_ttl: NonZeroDuration,
+    batch_tx: &tokio::sync::mpsc::Sender<(
+        NEVec<Backend::InstanceId>,
+        tokio::sync::oneshot::Sender<usize>,
+    )>,
+    pinned_tx: &tokio::sync::mpsc::Sender<NEVec<PinnedHandle<Backend::InstanceId>>>,
+    evict_tx: &tokio::sync::mpsc::UnboundedSender<Backend::InstanceId>,
+) -> Result<Option<usize>, PollLoopErrorFor<Backend>>
+where
+    Backend: waymark_workload_pinning_backend::PollUnpinnedInstances<
+            Timestamp = chrono::DateTime<chrono::Utc>,
+        >,
+    Backend: waymark_workload_pinning_backend::HasTimestamp,
+    Backend::InstanceId: Clone,
+{
+    let ids = poll_and_pin(backend, node_id, max_items, pinning_ttl)
+        .await
+        .map_err(PollLoopError::Poll)?;
+
+    let Some(ids) = ids else {
+        // No instances to dispatch — count unchanged.
+        return Ok(None);
+    };
+
+    let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+    batch_tx
+        .send((ids.clone(), reply_tx))
+        .await
+        .map_err(|_| PollLoopError::MaintenanceClosed)?;
+
+    let count = reply_rx
+        .await
+        .map_err(|_| PollLoopError::MaintenanceUnresponsive)?;
+
+    let handles: NEVec<_> = ids
+        .into_nonempty_iter()
+        .map(|id| PinnedHandle::new(id, evict_tx.clone()))
+        .collect();
+    pinned_tx
+        .send(handles)
+        .await
+        .map_err(|_| PollLoopError::PinnedReceiverClosed)?;
+
+    Ok(Some(count))
+}
+
+#[cfg(test)]
+mod tests;

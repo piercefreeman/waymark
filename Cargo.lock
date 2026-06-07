@@ -5955,6 +5955,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-workload-pinning-manager"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "mockall",
+ "nonempty-collections",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "waymark-nonzero-duration",
+ "waymark-workload-pinning-backend",
+]
+
+[[package]]
 name = "web-sys"
 version = "0.3.90"
 source = "registry+https://github.com/rust-lang/crates.io-index"

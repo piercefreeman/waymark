@@ -1,0 +1,27 @@
+[package]
+name = "waymark-workload-pinning-manager"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-nonzero-duration = { workspace = true }
+waymark-workload-pinning-backend = { workspace = true }
+
+chrono = { workspace = true, default-features = false, features = ["clock"] }
+nonempty-collections = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["macros", "sync", "time"] }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+waymark-nonzero-duration = { workspace = true }
+waymark-workload-pinning-backend = { workspace = true }
+
+chrono = { workspace = true, default-features = false, features = ["clock"] }
+mockall = { workspace = true }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread"] }
+
+[lib]
+doctest = false
