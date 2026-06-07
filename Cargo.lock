@@ -5948,6 +5948,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-workload-pinning-backend"
+version = "0.1.0"
+dependencies = [
+ "nonempty-collections",
+]
+
+[[package]]
 name = "web-sys"
 version = "0.3.90"
 source = "registry+https://github.com/rust-lang/crates.io-index"
