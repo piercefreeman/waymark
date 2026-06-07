@@ -1,0 +1,8 @@
+[package]
+name = "waymark-workload-pinning-backend"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+nonempty-collections = { workspace = true }

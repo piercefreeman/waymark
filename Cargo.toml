@@ -125,6 +125,7 @@ waymark-worker-status-backend = { path = "crates/lib/worker-status-backend" }
 waymark-worker-status-core = { path = "crates/lib/worker-status-core" }
 waymark-worker-status-reporter = { path = "crates/lib/worker-status-reporter" }
 waymark-workflow-registry-backend = { path = "crates/lib/workflow-registry-backend" }
+waymark-workload-pinning-backend = { path = "crates/lib/workload-pinning-backend" }
 
 anyhow = "1"
 async-stream = "0.3"
