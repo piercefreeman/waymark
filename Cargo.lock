@@ -5376,6 +5376,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-vm-driver-thread"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "tokio",
+ "tracing",
+ "waymark-blocking-future",
+ "waymark-vm-codec-core",
+ "waymark-vm-driver",
+ "waymark-vm-driver-core",
+ "waymark-vm-executable",
+ "waymark-vm-interpreter",
+ "waymark-vm-runtime",
+ "waymark-vm-runtime-core",
+ "waymark-vm-runtime-promise-core",
+]
+
+[[package]]
 name = "waymark-vm-exception-handler"
 version = "0.1.0"
 dependencies = [
