@@ -29,11 +29,11 @@ pub struct PreparedConfig {
 #[derive(Debug, thiserror::Error)]
 pub enum PrepareError {
     /// The current working directory could not be resolved.
-    #[error("resolve current working directory")]
+    #[error("resolve current working directory: {0}")]
     CurrentDir(#[source] std::io::Error),
 
     /// The blocking preparation task panicked or was cancelled.
-    #[error("config preparation task failed")]
+    #[error("config preparation task failed: {0}")]
     Join(#[source] tokio::task::JoinError),
 }
 
