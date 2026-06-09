@@ -228,8 +228,8 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn is_executable_file_rejects_non_executable_file() {
-        // `main` accepted any `is_file()`; this crate adds the 0o111 exec-bit
-        // gate. The crate's own Cargo.toml sits next to it and is not executable.
+        // A regular file without any exec bit (0o111) must not be treated as
+        // executable. The crate's own Cargo.toml is such a file.
         let manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
         assert!(!is_executable_file(&manifest));
     }
