@@ -4536,6 +4536,31 @@ name = "waymark-extcall-core"
 version = "0.1.0"
 
 [[package]]
+name = "waymark-extcall-reconciler"
+version = "0.1.0"
+dependencies = [
+ "mockall",
+ "nonempty-collections",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "uuid",
+ "waymark-convert-core",
+ "waymark-extcall-convert",
+ "waymark-extcall-core",
+ "waymark-ids",
+ "waymark-nonzero-duration",
+ "waymark-runner-executor-core",
+ "waymark-vm-driver-core",
+ "waymark-vm-interpreter-extcallset",
+ "waymark-vm-runtime-exception",
+ "waymark-vm-runtime-promise-core",
+ "waymark-vm-value",
+ "waymark-worker-core",
+]
+
+[[package]]
 name = "waymark-fn-main-common"
 version = "0.1.0"
 dependencies = [
