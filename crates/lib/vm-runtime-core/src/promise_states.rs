@@ -59,6 +59,18 @@ impl<FunctionId, StateId, Value> PromiseStates<FunctionId, StateId, Value> {
             .get_mut(promise_state_id)
             .ok_or(PromiseStateNotFoundError { promise_state_id })
     }
+
+    /// Return an iterator over the IDs of all currently waiting
+    /// (i.e. [`PromiseState::Waiting`]) promise states.
+    pub fn waiting_ids(&self) -> impl Iterator<Item = PromiseStateId> + '_ {
+        self.0.iter_enumerated().filter_map(|(id, state)| {
+            if matches!(state, PromiseState::Waiting(_)) {
+                Some(id)
+            } else {
+                None
+            }
+        })
+    }
 }
 
 /// Errors returned when resolving a promise state.
