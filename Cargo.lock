@@ -4241,6 +4241,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-action-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "waymark-backend-fault-injection"
 version = "0.1.0"
 dependencies = [
