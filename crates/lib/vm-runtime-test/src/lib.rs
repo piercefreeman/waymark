@@ -30,6 +30,7 @@
 //! - Per-interpreter `TestSpec`/`TestValue` aliases — those live in each
 //!   interpreter crate's `tests/support/mod.rs`.
 
+use serde::{Deserialize, Serialize};
 use waymark_vm_interpreter::{ExecutionOutcome, Interpreter};
 use waymark_vm_runtime::{CallSpec, FunctionNotFoundError, Runtime};
 use waymark_vm_runtime_core::{
@@ -76,7 +77,7 @@ pub type TestExecutable = waymark_vm_bytecode::Executable<TestInstruction>;
 
 pub type TestFunction = waymark_vm_bytecode::Function<TestInstruction>;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TestReadyValue {
     Int(i32),
     Exception(Box<Exception<PromiseValue<TestReadyValue>>>),

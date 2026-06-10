@@ -15,6 +15,8 @@ pub struct ResolvingAlreadyResolvedPromiseError<Value> {
 }
 
 /// A runtime internal state associated with a promise.
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum PromiseState<FunctionId, StateId, Value> {
     /// A list of continuations to resume when a promise resolves.
     ///

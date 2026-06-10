@@ -6,13 +6,14 @@ publish.workspace = true
 
 [dependencies]
 waymark-vm-bytecode = { workspace = true }
-waymark-vm-bytecode-core = { workspace = true }
+waymark-vm-bytecode-core = { workspace = true, features = ["serde"] }
 waymark-vm-interpreter = { workspace = true }
 waymark-vm-interpreter-coreset = { workspace = true }
 waymark-vm-runtime = { workspace = true }
 waymark-vm-runtime-core = { workspace = true }
 waymark-vm-runtime-exception = { workspace = true }
-waymark-vm-runtime-promise-value = { workspace = true }
+waymark-vm-runtime-promise-value = { workspace = true, features = ["serde"] }
 waymark-vm-runtime-value = { workspace = true }
 
+serde = { workspace = true, features = ["derive"] }
 thiserror = { workspace = true }

@@ -13,6 +13,7 @@ mod pythonic;
 
 /// The VM value that is ready.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum ReadyValue {
     /// Integer value.
     Int(i64),

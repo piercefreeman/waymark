@@ -4,6 +4,7 @@
 
 /// The exception type.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Exception<Details> {
     /// The exception's type identifier.
     pub type_id: String,

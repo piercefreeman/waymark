@@ -6,3 +6,9 @@ publish.workspace = true
 
 [dependencies]
 index_type = { workspace = true }
+serde = { workspace = true, optional = true }
+
+[features]
+default = []
+
+serde = ["dep:serde", "serde/derive"]
