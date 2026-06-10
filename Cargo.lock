@@ -5327,6 +5327,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-vm-compiler-for-ast-old-action-ref"
+version = "0.1.0"
+dependencies = [
+ "waymark-extcall-core",
+ "waymark-vm-ast-old",
+]
+
+[[package]]
 name = "waymark-vm-compiler-for-ast-old-const-value"
 version = "0.1.0"
 dependencies = [

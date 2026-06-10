@@ -1,0 +1,9 @@
+[package]
+name = "waymark-vm-compiler-for-ast-old-action-ref"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-extcall-core = { workspace = true }
+waymark-vm-ast-old = { workspace = true }

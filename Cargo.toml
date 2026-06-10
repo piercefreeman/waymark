@@ -79,6 +79,7 @@ waymark-vm-bytecode-fmt = { path = "crates/lib/vm-bytecode-fmt" }
 waymark-vm-codec-core = { path = "crates/lib/vm-codec-core" }
 waymark-vm-codec-rmp = { path = "crates/lib/vm-codec-rmp" }
 waymark-vm-compiler-for-ast-old = { path = "crates/lib/vm-compiler-for-ast-old" }
+waymark-vm-compiler-for-ast-old-action-ref = { path = "crates/lib/vm-compiler-for-ast-old-action-ref" }
 waymark-vm-compiler-for-ast-old-const-value = { path = "crates/lib/vm-compiler-for-ast-old-const-value" }
 waymark-vm-compiler-for-ast-old-core = { path = "crates/lib/vm-compiler-for-ast-old-core" }
 waymark-vm-compiler-for-ast-old-test-support = { path = "crates/lib/vm-compiler-for-ast-old-test-support" }
