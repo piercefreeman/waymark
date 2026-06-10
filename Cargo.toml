@@ -23,6 +23,7 @@ waymark-dag-builder = { path = "crates/lib/dag-builder" }
 waymark-dag-validator = { path = "crates/lib/dag-validator" }
 waymark-dag-viz = { path = "crates/lib/dag-viz" }
 waymark-extcall-convert = { path = "crates/lib/extcall-convert" }
+waymark-extcall-reconciler = { path = "crates/lib/extcall-reconciler" }
 waymark-fn-main-common = { path = "crates/lib/fn-main-common" }
 waymark-garbage-collector-backend = { path = "crates/lib/garbage-collector-backend" }
 waymark-garbage-collector-config = { path = "crates/lib/garbage-collector-config" }
