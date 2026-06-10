@@ -4621,6 +4621,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-extcall-reconciler"
+version = "0.1.0"
+dependencies = [
+ "mockall",
+ "nonempty-collections",
+ "thiserror",
+ "tokio",
+ "waymark-action-core",
+ "waymark-action-reconciler",
+ "waymark-action-runtime-core",
+ "waymark-extcall-reconciler-core",
+ "waymark-nonzero-duration",
+ "waymark-sleep-reconciler",
+ "waymark-vm-driver-core",
+ "waymark-vm-interpreter-extcallset",
+ "waymark-vm-runtime-effect",
+ "waymark-vm-runtime-promise-core",
+ "waymark-vm-value",
+]
+
+[[package]]
 name = "waymark-extcall-reconciler-core"
 version = "0.1.0"
 dependencies = [

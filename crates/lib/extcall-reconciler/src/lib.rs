@@ -1,0 +1,147 @@
+//! Support for running extcalls emitted by the extcall interpreter.
+//!
+//! This crate handles the VM extcall interpreter's effects
+//! ([`waymark_vm_interpreter_extcallset::Effect`]) by delegating to
+//! pluggable [`waymark_extcall_reconciler_core::ActionEffectHandler`],
+//! [`waymark_extcall_reconciler_core::SleepEffectHandler`],
+//! [`waymark_extcall_reconciler_core::ActionPromiseSettler`], and
+//! [`waymark_extcall_reconciler_core::SleepPromiseSettler`] implementations.
+//!
+//! # To do
+//!
+//! - Retries / Timeouts / Persistence
+//!   See the concrete reconciler crates.
+
+#![warn(missing_docs)]
+
+#[cfg(test)]
+mod tests;
+
+use nonempty_collections::NEVec;
+use waymark_action_core::ActionRef;
+use waymark_extcall_reconciler_core::Ack;
+use waymark_vm_driver_core::{PromiseSettlement, PromiseSettlementAck};
+use waymark_vm_interpreter_extcallset::Effect;
+use waymark_vm_runtime_promise_core::PromiseStateId;
+
+/// Error returned when handling an extcall effect fails.
+#[derive(Debug, thiserror::Error)]
+pub enum HandleEffectError<ActionEffectHandlerError> {
+    /// The action effect handler rejected the request.
+    #[error("failed to request action call: {0}")]
+    Action(#[source] ActionEffectHandlerError),
+}
+
+/// Error returned when there are no pending promises to wait for.
+#[derive(Debug, thiserror::Error)]
+pub enum NoSettlementsError {
+    /// No pending actions or sleeps remain - nothing to wait for.
+    #[error("no pending promises to settle")]
+    NoPendingPromises,
+}
+
+/// Handles extcall effects emitted by the VM — dispatches actions and
+/// records sleep deadlines.
+pub struct EffectHandler<ActionHandler, SleepHandler> {
+    /// Action effect handler — dispatches action calls to workers.
+    pub action: ActionHandler,
+
+    /// Sleep effect handler — records sleep deadlines.
+    pub sleep: SleepHandler,
+}
+
+/// Produces promise settlements from completed actions and elapsed
+/// sleeps.
+pub struct PromiseSettler<ActionSettler, SleepSettler> {
+    /// Action promise settler — polls for completed action settlements.
+    pub action: ActionSettler,
+
+    /// Sleep promise settler — polls for elapsed sleep settlements.
+    pub sleep: SleepSettler,
+}
+
+/// Create a paired handler and settler from pre-built reconciler pairs.
+pub fn new<ActionHandler, SleepHandler, ActionSettler, SleepSettler>(
+    action_handler: ActionHandler,
+    sleep_handler: SleepHandler,
+    action_poller: ActionSettler,
+    sleep_poller: SleepSettler,
+) -> (
+    EffectHandler<ActionHandler, SleepHandler>,
+    PromiseSettler<ActionSettler, SleepSettler>,
+) {
+    let handler = EffectHandler {
+        action: action_handler,
+        sleep: sleep_handler,
+    };
+    let settler = PromiseSettler {
+        action: action_poller,
+        sleep: sleep_poller,
+    };
+    (handler, settler)
+}
+
+impl<ActionHandler, SleepHandler> waymark_vm_driver_core::EffectHandler
+    for EffectHandler<ActionHandler, SleepHandler>
+where
+    ActionHandler: waymark_extcall_reconciler_core::ActionEffectHandler + Send,
+    ActionHandler::Error: core::fmt::Debug,
+    ActionHandler::Argument: Send,
+    SleepHandler: waymark_extcall_reconciler_core::SleepEffectHandler + Send,
+{
+    type Effect = Effect<ActionRef, ActionHandler::Argument>;
+    type Error = HandleEffectError<ActionHandler::Error>;
+
+    async fn handle_effect(
+        &mut self,
+        emitted_effect: waymark_vm_runtime_effect::EmittedEffect<Self::Effect>,
+    ) -> Result<(), Self::Error> {
+        match emitted_effect.effect {
+            Effect::ActionCall {
+                promise_state_id,
+                action_ref,
+                args,
+            } => {
+                self.action
+                    .request_action(emitted_effect.number, promise_state_id, action_ref, args)
+                    .await
+                    .map_err(HandleEffectError::Action)?;
+            }
+            Effect::Sleep {
+                promise_state_id,
+                duration,
+            } => {
+                self.sleep.record_sleep(promise_state_id, duration);
+            }
+        }
+
+        Ok(())
+    }
+}
+
+impl<ActionSettler, SleepSettler> waymark_vm_driver_core::PromiseSettler
+    for PromiseSettler<ActionSettler, SleepSettler>
+where
+    ActionSettler: waymark_extcall_reconciler_core::ActionPromiseSettler + Send,
+    ActionSettler::Ack: PromiseSettlementAck,
+    ActionSettler::Value: From<()>,
+    Ack<ActionSettler::Ack, SleepSettler::Ack>: From<ActionSettler::Ack>,
+    SleepSettler: waymark_extcall_reconciler_core::SleepPromiseSettler + Send,
+    SleepSettler::Ack: PromiseSettlementAck,
+    Ack<ActionSettler::Ack, SleepSettler::Ack>: From<SleepSettler::Ack>,
+{
+    type Value = ActionSettler::Value;
+    type Error = NoSettlementsError;
+    type Ack = Ack<ActionSettler::Ack, SleepSettler::Ack>;
+
+    async fn get_promise_settlements(
+        &mut self,
+        _waiting_ids: NEVec<PromiseStateId>,
+    ) -> Result<NEVec<PromiseSettlement<Self::Value, Self::Ack>>, Self::Error> {
+        Ok(tokio::select! {
+            Some(settlements) = self.sleep.poll_sleep_settlements::<Self::Ack, Self::Value>() => settlements,
+            Some(settlements) = self.action.poll_action_settlements::<Self::Ack>() => settlements,
+            else => return Err(NoSettlementsError::NoPendingPromises),
+        })
+    }
+}

@@ -1,0 +1,27 @@
+[package]
+name = "waymark-extcall-reconciler"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-action-core = { workspace = true }
+waymark-extcall-reconciler-core = { workspace = true }
+waymark-nonzero-duration = { workspace = true }
+waymark-vm-driver-core = { workspace = true }
+waymark-vm-interpreter-extcallset = { workspace = true }
+waymark-vm-runtime-effect = { workspace = true }
+waymark-vm-runtime-promise-core = { workspace = true }
+
+nonempty-collections = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
+
+[dev-dependencies]
+waymark-action-reconciler = { workspace = true }
+waymark-action-runtime-core = { workspace = true }
+waymark-sleep-reconciler = { workspace = true }
+waymark-vm-value = { workspace = true }
+
+mockall = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
