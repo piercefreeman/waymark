@@ -4520,6 +4520,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-extcall-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "waymark-fn-main-common"
 version = "0.1.0"
 dependencies = [
