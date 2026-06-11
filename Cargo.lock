@@ -4520,6 +4520,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-extcall-convert"
+version = "0.1.0"
+dependencies = [
+ "indexmap 2.13.0",
+ "serde_json",
+ "typed_floats",
+ "waymark-convert-core",
+ "waymark-vm-runtime-exception",
+ "waymark-vm-value",
+ "waymark-vm-value-convert-core",
+]
+
+[[package]]
 name = "waymark-extcall-core"
 version = "0.1.0"
 dependencies = [
