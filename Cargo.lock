@@ -4440,6 +4440,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-convert-core"
+version = "0.1.0"
+
+[[package]]
 name = "waymark-core-backend"
 version = "0.1.0"
 dependencies = [
