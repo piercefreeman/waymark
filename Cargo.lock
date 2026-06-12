@@ -5219,6 +5219,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-state-manager"
+version = "0.1.0"
+dependencies = [
+ "dashmap 6.2.1",
+ "tokio",
+ "tracing",
+ "waymark-nonzero-duration",
+ "waymark-state-manager-core",
+]
+
+[[package]]
+name = "waymark-state-manager-core"
+version = "0.1.0"
+
+[[package]]
 name = "waymark-support-integration"
 version = "0.1.0"
 dependencies = [
