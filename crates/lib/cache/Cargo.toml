@@ -7,5 +7,5 @@ publish.workspace = true
 [dependencies]
 waymark-nonzero-duration = { workspace = true }
 
-dashmap = { workspace = true }
+papaya = { workspace = true }
 tracing = { workspace = true }

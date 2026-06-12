@@ -28,9 +28,14 @@ impl<T> ControlledArc<T> {
         RestrictedArc(Arc::clone(&value.0))
     }
 
-    /// See [`Arc::into_inner`].
-    pub fn into_inner(value: Self) -> Option<T> {
-        Arc::into_inner(value.0)
+    /// Return the strong count of the underlying [`Arc`].
+    ///
+    /// **Caveat:** this is a point-in-time snapshot.  Only use it inside
+    /// a papaya `compute` closure where the check and the action are
+    /// atomic with respect to this key — otherwise the count may be
+    /// stale by the time you act on it.
+    pub fn strong_count(value: &Self) -> usize {
+        Arc::strong_count(&value.0)
     }
 }
 
@@ -62,6 +67,15 @@ impl<T> RestrictedArc<T> {
         let weak = Arc::downgrade(&value.0);
         drop(value);
         StrongCountAccess(weak)
+    }
+
+    /// Try to extract the inner `T` if this [`RestrictedArc`] is the
+    /// last strong reference.
+    ///
+    /// This is the [`RestrictedArc`] equivalent of
+    /// [`Arc::try_unwrap`].
+    pub fn try_into_inner(self) -> Option<T> {
+        Arc::into_inner(self.0)
     }
 }
 

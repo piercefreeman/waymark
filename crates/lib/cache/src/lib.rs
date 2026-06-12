@@ -7,7 +7,7 @@ mod arc;
 use core::hash::Hash;
 use std::sync::Arc;
 
-use dashmap::DashMap;
+use papaya::{Compute, HashMap, Operation};
 use waymark_nonzero_duration::NonZeroDuration;
 
 use self::arc::*;
@@ -17,10 +17,10 @@ use self::arc::*;
 /// `Value`s are only exposed as read-only to the consumers.
 pub struct Cache<Key, Value> {
     /// A map of keys to [`Arc`]-values.
-    values: DashMap<Key, ControlledArc<Value>>,
+    values: HashMap<Key, ControlledArc<Value>>,
 
     /// The eviction queue, shared with the [`Handle`]s.
-    eviction_queue: Arc<DashMap<Key, std::time::Instant>>,
+    eviction_queue: Arc<HashMap<Key, std::time::Instant>>,
 }
 
 /// The sweeper for a particular cache that performs the eviction for stale
@@ -43,10 +43,10 @@ where
 
     /// The value.
     ///
-    /// SAFETY: there are safety invariants that depend in this field.
+    /// SAFETY: there are safety invariants that depend on this field.
     value: Option<RestrictedArc<Value>>,
 
-    eviction_queue: std::sync::Weak<DashMap<Key, std::time::Instant>>,
+    eviction_queue: std::sync::Weak<HashMap<Key, std::time::Instant>>,
 }
 
 impl<Key, Value> std::ops::Deref for Handle<Key, Value>
@@ -100,15 +100,17 @@ where
             unreachable!();
         };
 
+        // If the map holds the only remaining strong reference after this
+        // handle is dropped, register the key for potential eviction.
+
         // Decrement strong count but retain access to read it.
         let strong_count_access = RestrictedArc::into_strong_count_access(value);
 
         if strong_count_access.strong_count() == 1 {
-            // Only the cache's `values` map itself holds an `Arc` to the value.
-            // If there was another entry at the eviction queue due to some
-            // sort of a race - the last one wins, so overwrite the preexisting
-            // one with a new one.
-            let previous = eviction_queue.insert(self.key.clone(), std::time::Instant::now());
+            // Only the cache's `values` map itself holds a `ControlledArc`
+            // to the value.
+            let queue = eviction_queue.pin();
+            let previous = queue.insert(self.key.clone(), std::time::Instant::now());
 
             if previous.is_some() {
                 // Found a race! Nothing special to do really, but we'll log
@@ -137,8 +139,8 @@ where
     /// this cache to allow eviction of stale entries.
     pub fn new(retention: NonZeroDuration) -> (Arc<Self>, Sweeper<Key, Value>) {
         let cache = Self {
-            values: DashMap::new(),
-            eviction_queue: Arc::new(DashMap::new()),
+            values: HashMap::new(),
+            eviction_queue: Arc::new(HashMap::new()),
         };
 
         let cache = Arc::new(cache);
@@ -165,29 +167,43 @@ where
     where
         Factory: for<'a> FnOnce(&'a Key) -> Value,
     {
-        let value: RestrictedArc<Value> = match self.values.entry(key.clone()) {
-            dashmap::Entry::Occupied(occupied) => {
-                // Bump value-`Arc` strong count before removing from
-                // the eviction queue!
-                let handle_value = ControlledArc::restricted_clone(occupied.get());
-                self.eviction_queue.remove(&key);
+        // `OnceCell` lets us smuggle the `RestrictedArc` out of the
+        // `compute` closure, which is the only papaya operation that
+        // atomically pairs the strong-count bump with the get/insert.
+        // `get_or_insert_with` cannot do this — the sweeper can remove
+        // the entry between the get and the clone, causing spurious
+        // re-creation of values that should still be alive.
+        let cell = std::cell::OnceCell::new();
 
-                handle_value
+        let values = self.values.pin();
+        let queue = self.eviction_queue.pin();
+
+        // `compute` requires `FnMut`, but `factory` is `FnOnce`.  Wrap
+        // it in an `Option` so we can take it out inside the closure.
+        let mut factory = Some(factory);
+
+        let _compute = values.compute(key.clone(), |entry| match entry {
+            Some((_k, existing)) => {
+                let handle = ControlledArc::restricted_clone(existing);
+                queue.remove(&key);
+                let _ = cell.set(handle);
+                Operation::Abort(())
             }
-            dashmap::Entry::Vacant(vacant) => {
-                let value = ControlledArc::new(factory(&key));
-
-                // Bump value-`Arc` string count before inserting into
-                // the `values` map.
-                let handle_value = ControlledArc::restricted_clone(&value);
-                vacant.insert(value);
-
-                // Remove possibly lingering stale eviction requests.
-                self.eviction_queue.remove(&key);
-
-                handle_value
+            None => {
+                let f = factory
+                    .take()
+                    .expect("compute closure is called at most once");
+                let value = ControlledArc::new(f(&key));
+                let handle = ControlledArc::restricted_clone(&value);
+                queue.remove(&key);
+                let _ = cell.set(handle);
+                Operation::Insert(value)
             }
-        };
+        });
+
+        let value = cell
+            .into_inner()
+            .expect("compute closure must populate the OnceCell");
 
         Handle {
             key,
@@ -212,53 +228,51 @@ where
         let retention = self.retention.get();
         let now = std::time::Instant::now();
 
-        let mut cleanup_queue = Vec::with_capacity(cache.eviction_queue.len());
-        cache.eviction_queue.retain(|key, orphaned_since| {
-            let retain = now.duration_since(*orphaned_since) <= retention;
-            if !retain {
-                cleanup_queue.push((*key).clone())
+        // Phase 1 — inside papaya pin scope: remove stale entries from
+        // both the eviction queue and the values map, collecting a
+        // `RestrictedArc` of each removed value.  The epoch garbage holds
+        // the original `ControlledArc` alive while the pin is held, so our
+        // clone brings the strong count to 2.
+        let evictions: Vec<(Key, RestrictedArc<Value>)> = {
+            let queue = cache.eviction_queue.pin();
+            let mut cleanup_queue = Vec::with_capacity(queue.len());
+            queue.retain(|key, orphaned_since| {
+                let retain = now.duration_since(*orphaned_since) <= retention;
+                if !retain {
+                    cleanup_queue.push(key.clone());
+                }
+                retain
+            });
+            drop(queue);
+
+            let mut evictions = Vec::new();
+            for key in cleanup_queue {
+                let values = cache.values.pin();
+                let compute_result = values.compute(key.clone(), |entry| match entry {
+                    Some((_k, v)) if ControlledArc::strong_count(v) == 1 => Operation::Remove,
+                    _ => Operation::Abort(()),
+                });
+
+                if let Compute::Removed(_k, v) = compute_result {
+                    evictions.push((key, ControlledArc::restricted_clone(v)));
+                }
             }
-            retain
-        });
 
-        for key in cleanup_queue {
-            let Some((key, value)) = cache.values.remove(&key) else {
-                // The value was already evicted - this can happen due to a
-                // legitimate race between `sweep` and
-                // `Handle::drop`/`get_or_create`:
-                //
-                // 1. `retain` above removes key K from the eviction queue and
-                //    adds it to `cleanup_queue`.
-                // 2. `get_or_create(K)` runs concurrently: the occupied
-                //    branch bumps the strong count and calls
-                //    `eviction_queue.remove(&K)` - a no-op since K was
-                //    already stripped in step 1. A fresh `Handle` is
-                //    returned.
-                // 3. The `Handle` is dropped. The strong count is now 1
-                //    (only the `values` map still holds a `ControlledArc`),
-                //    so `Handle::drop` inserts K *back* into the eviction
-                //    queue with a new timestamp.
-                // 4. The sweep loop reaches K and removes it from
-                //    `cache.values`; `into_inner` succeeds and
-                //    `on_eviction` fires.
-                // 5. On a subsequent sweep, K is discovered in the
-                //    eviction queue again but is no longer in
-                //    `cache.values` - we hit this branch.
-                //
-                // This is harmless: the value has already been evicted,
-                // so we simply skip it.
-                continue;
-            };
+            evictions
+        }; // All papaya pins dropped — epoch releases originals.
 
-            let Some(value) = ControlledArc::into_inner(value) else {
-                // The failure to unwrap the value in here means there was
-                // a race where some `Handle` came into existence while we were
-                // doing the clean-up; so we just skip this value -
-                // the newly created `Handle` with do its own cleanup later.
-                continue;
-            };
-
-            on_eviction(key, value);
+        // Phase 2 — no pins held: `try_into_inner` is the atomic gate.
+        // If the `RestrictedArc` is the sole owner (strong_count == 1
+        // after epoch cleanup), we extract the owned `Value`.  If
+        // another handle still references the value, `try_into_inner`
+        // returns `None` and we skip — the entry was removed from the
+        // map in phase 1, so no new handles can be created for this
+        // key; the existing handles keep the value alive until they
+        // are dropped.
+        for (key, arc) in evictions {
+            if let Some(value) = arc.try_into_inner() {
+                on_eviction(key, value);
+            }
         }
     }
 }
