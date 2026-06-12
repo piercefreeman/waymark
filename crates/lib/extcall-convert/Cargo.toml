@@ -6,8 +6,8 @@ publish.workspace = true
 
 [dependencies]
 waymark-convert-core = { workspace = true }
-waymark-vm-value = { workspace = true }
 waymark-vm-runtime-exception = { workspace = true }
+waymark-vm-value = { workspace = true }
 
 indexmap = { workspace = true }
 serde_json = { workspace = true }
