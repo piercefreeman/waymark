@@ -59,6 +59,7 @@ waymark-scheduler-loop = { path = "crates/lib/scheduler-loop" }
 waymark-scheduler-loop-core = { path = "crates/lib/scheduler-loop-core" }
 waymark-secret-string = { path = "crates/lib/secret-string" }
 waymark-smoke-sources = { path = "crates/lib/smoke-sources" }
+waymark-state-manager-core = { path = "crates/lib/state-manager-core" }
 waymark-support-integration = { path = "crates/lib/support-integration" }
 waymark-support-test = { path = "crates/lib/support-test" }
 waymark-support-test-python = { path = "crates/lib/support-test-python" }
@@ -143,6 +144,7 @@ color-eyre = "0.6"
 console-subscriber = "0.5"
 const-sub-array = "0.1"
 cron = "0.12"
+dashmap = "6"
 derive-where = "1"
 either = "1"
 envfury = "0.2"
