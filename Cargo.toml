@@ -62,6 +62,7 @@ waymark-scheduler-loop-core = { path = "crates/lib/scheduler-loop-core" }
 waymark-secret-string = { path = "crates/lib/secret-string" }
 waymark-sleep-reconciler = { path = "crates/lib/sleep-reconciler" }
 waymark-smoke-sources = { path = "crates/lib/smoke-sources" }
+waymark-state-manager-core = { path = "crates/lib/state-manager-core" }
 waymark-support-integration = { path = "crates/lib/support-integration" }
 waymark-support-test = { path = "crates/lib/support-test" }
 waymark-support-test-python = { path = "crates/lib/support-test-python" }
