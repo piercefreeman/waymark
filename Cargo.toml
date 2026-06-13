@@ -61,6 +61,7 @@ waymark-secret-string = { path = "crates/lib/secret-string" }
 waymark-smoke-sources = { path = "crates/lib/smoke-sources" }
 waymark-state-manager = { path = "crates/lib/state-manager" }
 waymark-state-manager-core = { path = "crates/lib/state-manager-core" }
+waymark-state-vm-executables-compat = { path = "crates/lib/state-vm-executables-compat" }
 waymark-state-vm-runtimes-backend = { path = "crates/lib/state-vm-runtimes-backend" }
 waymark-state-vm-runtimes-core = { path = "crates/lib/state-vm-runtimes-core" }
 waymark-support-integration = { path = "crates/lib/support-integration" }
