@@ -9,6 +9,7 @@ mod scheduler;
 mod test_helpers;
 mod vm_runtimes;
 mod webapp;
+mod workload_pinning;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};

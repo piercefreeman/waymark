@@ -1,0 +1,177 @@
+//! Postgres backend for workload pinning.
+//!
+//! Implements [`waymark_workload_pinning_backend::Backend`] so that the
+//! workload pinning manager can claim, refresh, and release instance
+//! pinnings via Postgres.
+
+pub mod error;
+
+#[cfg(test)]
+mod tests;
+
+use std::num::NonZeroUsize;
+
+use chrono::{DateTime, Utc};
+use nonempty_collections::{
+    IntoIteratorExt as _, IntoNonEmptyIterator as _, NEVec, NonEmptyIterator as _,
+};
+use sqlx::Row;
+use waymark_ids::InstanceId;
+use waymark_observability::obs;
+use waymark_timed_future::TimedFutureExt as _;
+use waymark_workload_pinning_backend::{Pinning, PinningStatus};
+
+use crate::PostgresBackend;
+
+impl waymark_workload_pinning_backend::HasTimestamp for PostgresBackend {
+    type Timestamp = DateTime<Utc>;
+}
+
+impl waymark_workload_pinning_backend::HasNodeId for PostgresBackend {
+    type NodeId = uuid::Uuid;
+}
+
+impl waymark_workload_pinning_backend::HasInstanceId for PostgresBackend {
+    type InstanceId = InstanceId;
+}
+
+impl waymark_workload_pinning_backend::PollUnpinnedInstances for PostgresBackend {
+    type Error = error::PollError;
+
+    #[obs]
+    #[function_name::named]
+    async fn poll_unlocked(
+        &self,
+        now: Self::Timestamp,
+        pinning: Pinning<Self::NodeId, Self::Timestamp>,
+        max_items: NonZeroUsize,
+    ) -> Result<Option<NEVec<Self::InstanceId>>, Self::Error> {
+        Self::count_query(&self.query_counts, "update:workload_pinnings_poll");
+        let rows = sqlx::query(
+            r#"
+            UPDATE workload_pinnings
+            SET node_id = $3, expires_at = $4, updated_at = NOW()
+            WHERE instance_id IN (
+                SELECT instance_id
+                FROM workload_pinnings
+                WHERE node_id IS NULL OR expires_at <= $1
+                ORDER BY updated_at
+                LIMIT $2
+                FOR UPDATE SKIP LOCKED
+            )
+            RETURNING instance_id
+            "#,
+        )
+        .bind(now)
+        .bind(max_items.get() as i64)
+        .bind(pinning.node_id)
+        .bind(pinning.expires_at)
+        .fetch_all(&self.pool)
+        .timed(crate::query_timing_histogram!(
+            "update:workload_pinnings_poll"
+        ))
+        .await
+        .map_err(error::PollError::Sqlx)?;
+
+        let Some(rows) = rows.try_into_nonempty_iter() else {
+            return Ok(None);
+        };
+
+        Ok(Some(rows.map(|row| row.get("instance_id")).collect()))
+    }
+}
+
+impl waymark_workload_pinning_backend::KeepaliveInstancePinnings for PostgresBackend {
+    type Error = error::RefreshError;
+
+    #[obs]
+    #[function_name::named]
+    fn refresh_pinnings<'a>(
+        &'a self,
+        _now: Self::Timestamp,
+        pinning: Pinning<Self::NodeId, Self::Timestamp>,
+        instance_ids: impl nonempty_collections::IntoNonEmptyIterator<Item = Self::InstanceId> + 'a,
+    ) -> impl Future<
+        Output = Result<
+            NEVec<PinningStatus<Self::InstanceId, Pinning<Self::NodeId, Self::Timestamp>>>,
+            Self::Error,
+        >,
+    > + Send
+    + 'a {
+        let ids: NEVec<InstanceId> = instance_ids.into_nonempty_iter().collect();
+        async move {
+            Self::count_query(&self.query_counts, "update:workload_pinnings_refresh");
+            let rows = sqlx::query(
+                r#"
+                UPDATE workload_pinnings
+                SET expires_at = $3, updated_at = NOW()
+                WHERE node_id = $1 AND instance_id = ANY($2) AND expires_at > NOW()
+                RETURNING instance_id
+                "#,
+            )
+            .bind(pinning.node_id)
+            .bind(ids.as_ref())
+            .bind(pinning.expires_at)
+            .fetch_all(&self.pool)
+            .timed(crate::query_timing_histogram!(
+                "update:workload_pinnings_refresh"
+            ))
+            .await
+            .map_err(error::RefreshError::Sqlx)?;
+
+            let refreshed: std::collections::HashSet<InstanceId> =
+                rows.iter().map(|row| row.get("instance_id")).collect();
+
+            let statuses = ids
+                .into_nonempty_iter()
+                .map(|id| PinningStatus {
+                    instance_id: id,
+                    pinning: if refreshed.contains(&id) {
+                        Some(Pinning {
+                            node_id: pinning.node_id,
+                            expires_at: pinning.expires_at,
+                        })
+                    } else {
+                        None
+                    },
+                })
+                .collect();
+
+            Ok(statuses)
+        }
+    }
+}
+
+impl waymark_workload_pinning_backend::ReleasePinnings for PostgresBackend {
+    type Error = error::ReleaseError;
+
+    #[obs]
+    #[function_name::named]
+    fn release_pinnings<'a>(
+        &'a self,
+        node_id: Self::NodeId,
+        instance_ids: impl nonempty_collections::IntoNonEmptyIterator<Item = Self::InstanceId> + 'a,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send + 'a {
+        let ids: Vec<InstanceId> = instance_ids.into_iter().collect();
+        async move {
+            Self::count_query(&self.query_counts, "update:workload_pinnings_release");
+            sqlx::query(
+                r#"
+                UPDATE workload_pinnings
+                SET node_id = NULL, expires_at = NULL, updated_at = NOW()
+                WHERE node_id = $1 AND instance_id = ANY($2)
+                "#,
+            )
+            .bind(node_id)
+            .bind(&ids)
+            .execute(&self.pool)
+            .timed(crate::query_timing_histogram!(
+                "delete:workload_pinnings_release"
+            ))
+            .await
+            .map_err(error::ReleaseError::Sqlx)?;
+
+            Ok(())
+        }
+    }
+}

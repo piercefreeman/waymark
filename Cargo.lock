@@ -4340,6 +4340,7 @@ dependencies = [
  "waymark-webapp-core",
  "waymark-worker-status-backend",
  "waymark-workflow-registry-backend",
+ "waymark-workload-pinning-backend",
 ]
 
 [[package]]
