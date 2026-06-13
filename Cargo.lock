@@ -4333,6 +4333,7 @@ dependencies = [
  "waymark-scheduler-backend",
  "waymark-scheduler-core",
  "waymark-secret-string",
+ "waymark-state-vm-runtimes-backend",
  "waymark-support-test",
  "waymark-timed-future",
  "waymark-webapp-backend",
