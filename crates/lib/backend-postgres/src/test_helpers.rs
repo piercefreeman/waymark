@@ -17,7 +17,8 @@ pub(super) async fn reset_database(pool: &PgPool) {
                  runner_instances,
                  workflow_versions,
                  workflow_schedules,
-                 worker_status
+                 worker_status,
+                 vm_runtime_snapshots
         RESTART IDENTITY CASCADE
         "#,
     )
