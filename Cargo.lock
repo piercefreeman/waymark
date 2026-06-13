@@ -5146,6 +5146,22 @@ name = "waymark-state-manager-core"
 version = "0.1.0"
 
 [[package]]
+name = "waymark-state-vm-executables-compat"
+version = "0.1.0"
+dependencies = [
+ "prost 0.12.6",
+ "thiserror",
+ "waymark-backends-core",
+ "waymark-ids",
+ "waymark-proto",
+ "waymark-state-manager-core",
+ "waymark-vm-ast-old-proto",
+ "waymark-vm-compiler-for-ast-old",
+ "waymark-vm-compiler-for-ast-old-core",
+ "waymark-workflow-registry-backend",
+]
+
+[[package]]
 name = "waymark-state-vm-runtimes"
 version = "0.1.0"
 dependencies = [
