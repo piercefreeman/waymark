@@ -7,6 +7,7 @@ mod registry;
 mod scheduler;
 #[cfg(test)]
 mod test_helpers;
+mod vm_runtimes;
 mod webapp;
 
 use std::collections::HashMap;
