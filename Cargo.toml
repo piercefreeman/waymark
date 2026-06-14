@@ -22,6 +22,7 @@ waymark-dag = { path = "crates/lib/dag" }
 waymark-dag-builder = { path = "crates/lib/dag-builder" }
 waymark-dag-validator = { path = "crates/lib/dag-validator" }
 waymark-dag-viz = { path = "crates/lib/dag-viz" }
+waymark-execution-driver = { path = "crates/lib/execution-driver" }
 waymark-extcall-convert = { path = "crates/lib/extcall-convert" }
 waymark-extcall-reconciler = { path = "crates/lib/extcall-reconciler" }
 waymark-fn-main-common = { path = "crates/lib/fn-main-common" }
@@ -64,6 +65,7 @@ waymark-state-manager-core = { path = "crates/lib/state-manager-core" }
 waymark-state-vm-executables = { path = "crates/lib/state-vm-executables" }
 waymark-state-vm-executables-backend = { path = "crates/lib/state-vm-executables-backend" }
 waymark-state-vm-executables-compat = { path = "crates/lib/state-vm-executables-compat" }
+waymark-state-vm-runtimes = { path = "crates/lib/state-vm-runtimes" }
 waymark-state-vm-runtimes-backend = { path = "crates/lib/state-vm-runtimes-backend" }
 waymark-state-vm-runtimes-core = { path = "crates/lib/state-vm-runtimes-core" }
 waymark-support-integration = { path = "crates/lib/support-integration" }
@@ -141,6 +143,7 @@ waymark-worker-status-reporter = { path = "crates/lib/worker-status-reporter" }
 waymark-workflow-registry-backend = { path = "crates/lib/workflow-registry-backend" }
 waymark-workflow-service-vm-runtimes-backend = { path = "crates/lib/workflow-service-vm-runtimes-backend" }
 waymark-workload-pinning-backend = { path = "crates/lib/workload-pinning-backend" }
+waymark-workload-pinning-manager = { path = "crates/lib/workload-pinning-manager" }
 
 anyhow = "1"
 async-stream = "0.3"

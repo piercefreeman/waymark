@@ -1,0 +1,19 @@
+[package]
+name = "waymark-execution-driver"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-state-manager = { workspace = true }
+waymark-state-manager-core = { workspace = true }
+waymark-state-vm-runtimes = { workspace = true }
+waymark-workload-pinning-manager = { workspace = true }
+
+nonempty-collections = { workspace = true }
+tokio = { workspace = true, features = ["sync", "macros", "rt"] }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+
+[lib]
+doctest = false
