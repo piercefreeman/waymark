@@ -65,6 +65,7 @@ waymark-smoke-sources = { path = "crates/lib/smoke-sources" }
 waymark-state-manager = { path = "crates/lib/state-manager" }
 waymark-state-manager-core = { path = "crates/lib/state-manager-core" }
 waymark-state-vm-executables-backend = { path = "crates/lib/state-vm-executables-backend" }
+waymark-state-vm-runtimes = { path = "crates/lib/state-vm-runtimes" }
 waymark-state-vm-runtimes-backend = { path = "crates/lib/state-vm-runtimes-backend" }
 waymark-state-vm-runtimes-core = { path = "crates/lib/state-vm-runtimes-core" }
 waymark-support-integration = { path = "crates/lib/support-integration" }
@@ -142,6 +143,7 @@ waymark-worker-status-reporter = { path = "crates/lib/worker-status-reporter" }
 waymark-workflow-registry-backend = { path = "crates/lib/workflow-registry-backend" }
 waymark-workflow-service-vm-runtimes-backend = { path = "crates/lib/workflow-service-vm-runtimes-backend" }
 waymark-workload-pinning-backend = { path = "crates/lib/workload-pinning-backend" }
+waymark-workload-pinning-manager = { path = "crates/lib/workload-pinning-manager" }
 
 anyhow = "1"
 async-stream = "0.3"
