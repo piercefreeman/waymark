@@ -1,14 +1,10 @@
 use std::path::PathBuf;
 
-mod prepared;
-
-pub use prepared::{PrepareError, PreparedConfig};
-
 /// Configuration for spawning Python workers.
 #[derive(Clone, Debug, Default)]
 pub struct Config {
     /// Explicit path to the script/executable to run (e.g. "uv" or
-    /// "waymark-worker"). `None` means auto-detect during `Config::prepare`.
+    /// "waymark-worker"). `None` means auto-detect during `resolve`.
     pub script_path: Option<PathBuf>,
 
     /// Arguments to pass before the worker-specific args

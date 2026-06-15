@@ -5,19 +5,27 @@
 use std::time::Duration;
 
 mod config;
+mod resolve;
 
-pub use config::{Config, PrepareError, PreparedConfig};
+pub use config::Config;
+pub use resolve::{ResolveError, SpecFactory, resolve};
 
 /// Python worker process spec.
 ///
-/// Holds a resolved [`PreparedConfig`] plus the late-bound bridge address.
+/// Holds a resolved [`SpecFactory`] plus the late-bound bridge address.
 #[derive(Clone, Debug)]
 pub struct Spec {
-    /// The address of the bridge server to connect the worker to.
-    pub bridge_server_addr: std::net::SocketAddr,
+    bridge_server_addr: std::net::SocketAddr,
+    factory: SpecFactory,
+}
 
-    /// The resolved worker configuration.
-    pub prepared: PreparedConfig,
+impl Spec {
+    pub(crate) fn new(factory: SpecFactory, bridge_server_addr: std::net::SocketAddr) -> Self {
+        Self {
+            bridge_server_addr,
+            factory,
+        }
+    }
 }
 
 impl waymark_worker_process_spec::Spec for Spec {
@@ -25,27 +33,27 @@ impl waymark_worker_process_spec::Spec for Spec {
         &self,
         reservation_id: waymark_worker_reservation::Id,
     ) -> waymark_worker_process::SpawnParams {
-        let prepared = &self.prepared;
+        let factory = &self.factory;
 
-        let mut command = tokio::process::Command::new(&prepared.program);
-        command.args(&prepared.args);
+        let mut command = tokio::process::Command::new(&factory.program);
+        command.args(&factory.args);
         command
             .arg("--bridge")
             .arg(self.bridge_server_addr.to_string())
             .arg("--worker-id")
             .arg(reservation_id.to_string());
 
-        for module in &prepared.user_modules {
+        for module in &factory.user_modules {
             command.arg("--user-module").arg(module);
         }
 
-        command.env("PYTHONPATH", &prepared.python_path);
-        command.current_dir(&prepared.working_dir);
+        command.env("PYTHONPATH", &factory.python_path);
+        command.current_dir(&factory.working_dir);
 
         tracing::info!(
             ?reservation_id,
-            working_dir = %prepared.working_dir.display(),
-            python_path = %prepared.python_path,
+            working_dir = %factory.working_dir.display(),
+            python_path = %factory.python_path,
             "prepared python worker spawn params"
         );
 
@@ -70,17 +78,13 @@ mod tests {
 
     #[tokio::test]
     async fn spawn_params_assembles_expected_command() {
-        let prepared = Config::new()
+        let config = Config::new()
             .with_script(PathBuf::from("python3"), vec![])
-            .with_user_module("mod_a")
-            .prepare()
+            .with_user_module("mod_a");
+        let factory = crate::resolve(config)
             .await
-            .expect("prepare should succeed");
-
-        let spec = Spec {
-            bridge_server_addr: "127.0.0.1:9000".parse().expect("valid addr"),
-            prepared,
-        };
+            .expect("resolve should succeed");
+        let spec = factory.build("127.0.0.1:9000".parse().expect("addr"));
 
         let params = spec.prepare_spawn_params(waymark_worker_reservation::Id::from(42));
         let std_command = params.command.as_std();

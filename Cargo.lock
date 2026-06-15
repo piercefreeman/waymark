@@ -4609,7 +4609,7 @@ dependencies = [
  "waymark-worker-process-pool",
  "waymark-worker-process-spec",
  "waymark-worker-python",
- "waymark-worker-remote-bringup",
+ "waymark-worker-python-bringup",
  "waymark-worker-remote-pool",
  "waymark-workflow-registry-backend",
 ]
@@ -4979,7 +4979,7 @@ dependencies = [
  "waymark-smoke-sources",
  "waymark-worker-process-spec",
  "waymark-worker-python",
- "waymark-worker-remote-bringup",
+ "waymark-worker-python-bringup",
  "waymark-worker-remote-pool",
  "waymark-workflow-registry-backend",
 ]
@@ -5053,7 +5053,7 @@ dependencies = [
  "waymark-tokio-metrics-bringup",
  "waymark-webapp-bringup",
  "waymark-worker-python",
- "waymark-worker-remote-bringup",
+ "waymark-worker-python-bringup",
  "waymark-worker-remote-pool",
  "waymark-worker-status-reporter",
 ]
@@ -5692,6 +5692,18 @@ dependencies = [
  "waymark-worker-process",
  "waymark-worker-process-spec",
  "waymark-worker-reservation",
+]
+
+[[package]]
+name = "waymark-worker-python-bringup"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "waymark-worker-process-pool",
+ "waymark-worker-python",
+ "waymark-worker-remote-bringup",
 ]
 
 [[package]]

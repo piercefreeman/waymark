@@ -166,28 +166,16 @@ async fn run_smoke(base: i64) -> i32 {
     let config =
         waymark_worker_python::Config::new().with_user_module("tests.fixtures.test_actions");
 
-    let prepared = match config.prepare().await {
-        Ok(prepared) => prepared,
-        Err(err) => {
-            eprintln!("failed to prepare python worker config: {err}");
-            return 1;
-        }
-    };
-
-    let result = waymark_worker_remote_bringup::start(
+    let (process_pool, bridge_server_task) = match waymark_worker_python_bringup::start(
         Default::default(),
         None,
-        move |bridge_server_addr| waymark_worker_python::Spec {
-            prepared,
-            bridge_server_addr,
-        },
+        config,
         2.try_into().unwrap(),
         None,
         10.try_into().unwrap(),
     )
-    .await;
-
-    let (process_pool, bridge_server_task) = match result {
+    .await
+    {
         Ok(val) => val,
         Err(err) => {
             println!("Failed to start python worker pool: {err}");
