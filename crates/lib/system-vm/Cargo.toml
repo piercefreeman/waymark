@@ -1,0 +1,36 @@
+[package]
+name = "waymark-system-vm"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[features]
+serde = [
+  "waymark-action-core/serde",
+  "waymark-vm-bytecode/serde",
+  "waymark-vm-bytecode-core/serde",
+  "waymark-vm-compiler-for-ast-old-const-value/serde",
+  "waymark-vm-instructions-fullset/serde",
+  "waymark-vm-runtime-core/serde",
+  "waymark-vm-value/serde",
+]
+
+[dependencies]
+waymark-action-core = { workspace = true }
+waymark-vm-ast-old = { workspace = true }
+waymark-vm-bytecode = { workspace = true }
+waymark-vm-bytecode-core = { workspace = true }
+waymark-vm-compiler-for-ast-old-action-ref = { workspace = true }
+waymark-vm-compiler-for-ast-old-const-value = { workspace = true }
+waymark-vm-compiler-for-ast-old-core = { workspace = true }
+waymark-vm-instructions-coreset = { workspace = true }
+waymark-vm-instructions-extcallset = { workspace = true }
+waymark-vm-instructions-fullset = { workspace = true }
+waymark-vm-instructions-pureset = { workspace = true }
+waymark-vm-interpreter-fullset = { workspace = true }
+waymark-vm-runtime = { workspace = true }
+waymark-vm-runtime-core = { workspace = true }
+waymark-vm-value = { workspace = true }
+
+[dev-dependencies]
+static_assertions = { workspace = true }
