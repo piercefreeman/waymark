@@ -31,7 +31,10 @@ impl SpecFactory {
     ///
     /// Pure and infallible — all host probing already happened in [`resolve`].
     pub fn build(self, bridge_server_addr: SocketAddr) -> Spec {
-        Spec::new(self, bridge_server_addr)
+        Spec {
+            bridge_server_addr,
+            factory: self,
+        }
     }
 }
 

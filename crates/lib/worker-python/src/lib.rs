@@ -15,17 +15,11 @@ pub use spec_factory::{ResolveError, SpecFactory, resolve};
 /// Holds a resolved [`SpecFactory`] plus the late-bound bridge address.
 #[derive(Clone, Debug)]
 pub struct Spec {
-    bridge_server_addr: std::net::SocketAddr,
-    factory: SpecFactory,
-}
+    /// The address of the bridge server to connect the worker to.
+    pub bridge_server_addr: std::net::SocketAddr,
 
-impl Spec {
-    pub(crate) fn new(factory: SpecFactory, bridge_server_addr: std::net::SocketAddr) -> Self {
-        Self {
-            bridge_server_addr,
-            factory,
-        }
-    }
+    /// The resolved worker configuration.
+    pub factory: SpecFactory,
 }
 
 impl waymark_worker_process_spec::Spec for Spec {
