@@ -64,7 +64,10 @@ mod tests {
         let factory = crate::resolve(config)
             .await
             .expect("resolve should succeed");
-        let spec = factory.build("127.0.0.1:9000".parse().expect("addr"));
+        let spec = Spec {
+            bridge_server_addr: "127.0.0.1:9000".parse().expect("addr"),
+            factory,
+        };
 
         let params = spec.prepare_spawn_params(waymark_worker_reservation::Id::from(42));
         let std_command = params.command.as_std();

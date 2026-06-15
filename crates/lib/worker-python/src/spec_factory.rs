@@ -8,10 +8,10 @@
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
-use crate::{Config, Spec};
+use crate::Config;
 
-/// A fully resolved worker configuration, ready to mint a [`Spec`] without any
-/// further I/O once the late-bound bridge address is known.
+/// A fully resolved worker configuration, ready to mint a [`crate::Spec`]
+/// without any further I/O once the late-bound bridge address is known.
 ///
 /// The environment (`PYTHONPATH`, current working directory, and the
 /// `<crate>/python` package-root probe) is snapshotted once at [`resolve`]
@@ -24,18 +24,6 @@ pub struct SpecFactory {
     pub(crate) working_dir: PathBuf,
     pub(crate) python_path: String,
     pub(crate) user_modules: Vec<String>,
-}
-
-impl SpecFactory {
-    /// Bind the late-bound bridge address into a [`Spec`].
-    ///
-    /// Pure and infallible — all host probing already happened in [`resolve`].
-    pub fn build(self, bridge_server_addr: SocketAddr) -> Spec {
-        Spec {
-            bridge_server_addr,
-            factory: self,
-        }
-    }
 }
 
 /// Errors that can occur while resolving a [`Config`] into a [`SpecFactory`].

@@ -30,7 +30,10 @@ pub async fn start(
     waymark_worker_remote_bringup::start(
         shutdown_token,
         bind_addr,
-        move |bridge_server_addr| factory.build(bridge_server_addr),
+        move |bridge_server_addr| Spec {
+            bridge_server_addr,
+            factory,
+        },
         worker_pool_size,
         max_action_lifecycle,
         max_concurrent_per_worker,
