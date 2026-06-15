@@ -1,0 +1,25 @@
+[package]
+name = "waymark-execution-effector"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-action-core = { workspace = true }
+waymark-convert-core = { workspace = true }
+waymark-extcall-reconciler = { workspace = true }
+waymark-state-vm-runtimes-core = { workspace = true }
+waymark-vm-codec-core = { workspace = true }
+waymark-vm-driver-core = { workspace = true }
+waymark-vm-interpreter-fullset = { workspace = true }
+waymark-vm-runtime-effect = { workspace = true }
+waymark-vm-runtime-exception = { workspace = true }
+waymark-vm-runtime-promise-core = { workspace = true }
+waymark-worker-core = { workspace = true }
+waymark-workflow-completion = { workspace = true }
+waymark-workflow-completion-backend = { workspace = true }
+
+nonempty-collections = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }

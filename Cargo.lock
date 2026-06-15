@@ -4558,6 +4558,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-execution-effector"
+version = "0.1.0"
+dependencies = [
+ "nonempty-collections",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "waymark-action-core",
+ "waymark-convert-core",
+ "waymark-extcall-reconciler",
+ "waymark-state-vm-runtimes-core",
+ "waymark-vm-codec-core",
+ "waymark-vm-driver-core",
+ "waymark-vm-interpreter-fullset",
+ "waymark-vm-runtime-effect",
+ "waymark-vm-runtime-exception",
+ "waymark-vm-runtime-promise-core",
+ "waymark-worker-core",
+ "waymark-workflow-completion",
+ "waymark-workflow-completion-backend",
+]
+
+[[package]]
 name = "waymark-extcall-convert"
 version = "0.1.0"
 dependencies = [
