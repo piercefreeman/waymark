@@ -5339,6 +5339,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-system-vm"
+version = "0.1.0"
+dependencies = [
+ "static_assertions",
+ "waymark-action-core",
+ "waymark-vm-ast-old",
+ "waymark-vm-bytecode",
+ "waymark-vm-bytecode-core",
+ "waymark-vm-compiler-for-ast-old-action-ref",
+ "waymark-vm-compiler-for-ast-old-const-value",
+ "waymark-vm-compiler-for-ast-old-core",
+ "waymark-vm-instructions-coreset",
+ "waymark-vm-instructions-extcallset",
+ "waymark-vm-instructions-fullset",
+ "waymark-vm-instructions-pureset",
+ "waymark-vm-interpreter-fullset",
+ "waymark-vm-runtime",
+ "waymark-vm-runtime-core",
+ "waymark-vm-value",
+]
+
+[[package]]
 name = "waymark-tick-loop"
 version = "0.1.0"
 dependencies = [
