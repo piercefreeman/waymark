@@ -1,3 +1,5 @@
+//! Bringup for the Python worker bridge + worker pool.
+
 use std::{
     net::SocketAddr,
     num::{NonZeroU64, NonZeroUsize},
@@ -6,16 +8,19 @@ use std::{
 use tokio::task::JoinHandle;
 use waymark_worker_python::{Config, ResolveError, Spec};
 
+/// Errors returned by [`start`].
 #[derive(Debug, thiserror::Error)]
 pub enum StartError {
+    /// Failed to resolve the Python worker configuration.
     #[error("resolve python worker config: {0}")]
     Resolve(#[source] ResolveError),
 
+    /// Failed to bring up the bridge + worker pool.
     #[error("start worker pool: {0}")]
     Start(#[source] waymark_worker_remote_bringup::StartError),
 }
 
-/// Resolve a python worker [`Config`] and bring up the bridge + worker pool.
+/// Resolve a Python worker [`Config`] and bring up the bridge + worker pool.
 pub async fn start(
     shutdown_token: tokio_util::sync::CancellationToken,
     bind_addr: Option<SocketAddr>,

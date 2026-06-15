@@ -43,6 +43,12 @@ pub enum ResolveError {
 /// Runs all filesystem probing on a blocking thread (via
 /// [`tokio::task::spawn_blocking`]) so the async runtime is never blocked,
 /// and returns errors instead of panicking.
+///
+/// # Errors
+///
+/// Returns [`ResolveError::CurrentDir`] if the current working directory cannot
+/// be read, or [`ResolveError::Join`] if the blocking resolution task panics or
+/// is cancelled.
 pub async fn resolve(config: Config) -> Result<SpecFactory, ResolveError> {
     // A panic inside `resolve_blocking` is surfaced as `ResolveError::Join` (via
     // `JoinError`) rather than resumed: config resolution holds no partial
@@ -162,7 +168,7 @@ fn find_executable(bin: impl AsRef<Path>) -> Option<PathBuf> {
     None
 }
 
-/// Returns true if `path` resolves (following symlinks) to a regular file that
+/// Return true if `path` resolves (following symlinks) to a regular file that
 /// is executable.
 fn is_executable_file(path: &Path) -> bool {
     // `std::fs::metadata` follows symlinks (unlike `symlink_metadata`).
@@ -172,7 +178,7 @@ fn is_executable_file(path: &Path) -> bool {
     }
 }
 
-/// Whether `metadata` grants execute permission to anyone (owner/group/other).
+/// Return whether `metadata` grants execute permission to anyone (owner/group/other).
 ///
 /// `std` has no `is_executable`, so on unix we test the mode bits directly; on
 /// other platforms executability is governed by file extension/ACLs rather than
@@ -190,7 +196,7 @@ fn is_executable(_metadata: &std::fs::Metadata) -> bool {
     true
 }
 
-/// Assemble the launch [`Command`](tokio::process::Command) for a worker from a
+/// Assemble the launch [`tokio::process::Command`] for a worker from a
 /// resolved [`SpecFactory`] and the late-bound bridge address.
 pub(crate) fn build_command(
     factory: &SpecFactory,

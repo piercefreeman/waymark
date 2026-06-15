@@ -4,7 +4,7 @@ use std::path::PathBuf;
 #[derive(Clone, Debug, Default)]
 pub struct Config {
     /// Explicit path to the script/executable to run (e.g. "uv" or
-    /// "waymark-worker"). `None` means auto-detect during `resolve`.
+    /// "waymark-worker"). `None` means auto-detect during [`crate::resolve`].
     pub script_path: Option<PathBuf>,
 
     /// Arguments to pass before the worker-specific args
