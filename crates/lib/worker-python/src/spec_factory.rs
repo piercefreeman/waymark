@@ -53,18 +53,18 @@ pub enum ResolveError {
 /// [`tokio::task::spawn_blocking`]) so the async runtime is never blocked,
 /// and returns errors instead of panicking.
 pub async fn resolve(config: Config) -> Result<SpecFactory, ResolveError> {
-    // A panic inside `probe` is surfaced as `ResolveError::Join` (via
+    // A panic inside `resolve_blocking` is surfaced as `ResolveError::Join` (via
     // `JoinError`) rather than resumed: config resolution holds no partial
     // state to corrupt, so a clean error is preferable to aborting.
     // (Contrast worker-process, which `resume_unwind`s associated-task panics.)
-    tokio::task::spawn_blocking(move || probe(config))
+    tokio::task::spawn_blocking(move || resolve_blocking(config))
         .await
         .map_err(ResolveError::Join)?
 }
 
 /// The blocking half of [`resolve`]. Must only be called from a blocking
 /// context (e.g. inside `spawn_blocking`).
-fn probe(config: Config) -> Result<SpecFactory, ResolveError> {
+fn resolve_blocking(config: Config) -> Result<SpecFactory, ResolveError> {
     let (program, args) = match config.script_path {
         Some(path) => (path, config.script_args),
         None => default_runner(),
@@ -197,6 +197,31 @@ fn is_executable(metadata: &std::fs::Metadata) -> bool {
 #[cfg(not(unix))]
 fn is_executable(_metadata: &std::fs::Metadata) -> bool {
     true
+}
+
+/// Assemble the launch [`Command`](tokio::process::Command) for a worker from a
+/// resolved [`SpecFactory`] and the late-bound bridge address.
+pub(crate) fn build_command(
+    factory: &SpecFactory,
+    bridge_server_addr: SocketAddr,
+    reservation_id: waymark_worker_reservation::Id,
+) -> tokio::process::Command {
+    let mut command = tokio::process::Command::new(&factory.program);
+    command.args(&factory.args);
+    command
+        .arg("--bridge")
+        .arg(bridge_server_addr.to_string())
+        .arg("--worker-id")
+        .arg(reservation_id.to_string());
+
+    for module in &factory.user_modules {
+        command.arg("--user-module").arg(module);
+    }
+
+    command.env("PYTHONPATH", &factory.python_path);
+    command.current_dir(&factory.working_dir);
+
+    command
 }
 
 #[cfg(test)]

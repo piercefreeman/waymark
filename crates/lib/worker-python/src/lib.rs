@@ -5,10 +5,10 @@
 use std::time::Duration;
 
 mod config;
-mod resolve;
+mod spec_factory;
 
 pub use config::Config;
-pub use resolve::{ResolveError, SpecFactory, resolve};
+pub use spec_factory::{ResolveError, SpecFactory, resolve};
 
 /// Python worker process spec.
 ///
@@ -33,27 +33,13 @@ impl waymark_worker_process_spec::Spec for Spec {
         &self,
         reservation_id: waymark_worker_reservation::Id,
     ) -> waymark_worker_process::SpawnParams {
-        let factory = &self.factory;
-
-        let mut command = tokio::process::Command::new(&factory.program);
-        command.args(&factory.args);
-        command
-            .arg("--bridge")
-            .arg(self.bridge_server_addr.to_string())
-            .arg("--worker-id")
-            .arg(reservation_id.to_string());
-
-        for module in &factory.user_modules {
-            command.arg("--user-module").arg(module);
-        }
-
-        command.env("PYTHONPATH", &factory.python_path);
-        command.current_dir(&factory.working_dir);
+        let command =
+            spec_factory::build_command(&self.factory, self.bridge_server_addr, reservation_id);
 
         tracing::info!(
             ?reservation_id,
-            working_dir = %factory.working_dir.display(),
-            python_path = %factory.python_path,
+            working_dir = %self.factory.working_dir.display(),
+            python_path = %self.factory.python_path,
             "prepared python worker spawn params"
         );
 
