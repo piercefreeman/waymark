@@ -1,6 +1,8 @@
 #[cfg(feature = "either")]
 mod either;
 
+use std::sync::Arc;
+
 pub use waymark_backends_core::{BackendError, BackendResult};
 use waymark_ids::WorkflowVersionId;
 
@@ -36,4 +38,20 @@ pub trait WorkflowRegistryBackend {
         &'a self,
         ids: &'a [WorkflowVersionId],
     ) -> impl Future<Output = BackendResult<Vec<WorkflowVersion>>> + Send + 'a;
+}
+
+impl<T: WorkflowRegistryBackend + Send + Sync> WorkflowRegistryBackend for Arc<T> {
+    fn upsert_workflow_version<'a>(
+        &'a self,
+        registration: &'a WorkflowRegistration,
+    ) -> impl Future<Output = BackendResult<WorkflowVersionId>> + Send + 'a {
+        (**self).upsert_workflow_version(registration)
+    }
+
+    fn get_workflow_versions<'a>(
+        &'a self,
+        ids: &'a [WorkflowVersionId],
+    ) -> impl Future<Output = BackendResult<Vec<WorkflowVersion>>> + Send + 'a {
+        (**self).get_workflow_versions(ids)
+    }
 }
