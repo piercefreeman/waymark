@@ -22,6 +22,7 @@ waymark-dag = { path = "crates/lib/dag" }
 waymark-dag-builder = { path = "crates/lib/dag-builder" }
 waymark-dag-validator = { path = "crates/lib/dag-validator" }
 waymark-dag-viz = { path = "crates/lib/dag-viz" }
+waymark-execution-bringup = { path = "crates/lib/execution-bringup" }
 waymark-execution-driver = { path = "crates/lib/execution-driver" }
 waymark-execution-effector = { path = "crates/lib/execution-effector" }
 waymark-extcall-convert = { path = "crates/lib/extcall-convert" }
@@ -65,7 +66,6 @@ waymark-state-manager = { path = "crates/lib/state-manager" }
 waymark-state-manager-core = { path = "crates/lib/state-manager-core" }
 waymark-state-vm-executables = { path = "crates/lib/state-vm-executables" }
 waymark-state-vm-executables-backend = { path = "crates/lib/state-vm-executables-backend" }
-waymark-state-vm-executables-compat = { path = "crates/lib/state-vm-executables-compat" }
 waymark-state-vm-runtimes = { path = "crates/lib/state-vm-runtimes" }
 waymark-state-vm-runtimes-backend = { path = "crates/lib/state-vm-runtimes-backend" }
 waymark-state-vm-runtimes-core = { path = "crates/lib/state-vm-runtimes-core" }
@@ -73,6 +73,7 @@ waymark-support-integration = { path = "crates/lib/support-integration" }
 waymark-support-test = { path = "crates/lib/support-test" }
 waymark-support-test-python = { path = "crates/lib/support-test-python" }
 waymark-synthetic-exception = { path = "crates/lib/synthetic-exception" }
+waymark-system-vm = { path = "crates/lib/system-vm" }
 waymark-tick-loop = { path = "crates/lib/tick-loop" }
 waymark-timed = { path = "crates/lib/timed" }
 waymark-timed-channel = { path = "crates/lib/timed-channel" }
