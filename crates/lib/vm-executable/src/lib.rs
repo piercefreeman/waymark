@@ -2,6 +2,8 @@
 
 #![warn(missing_docs)]
 
+use std::sync::Arc;
+
 /// A trait of an abstract executable having functions.
 pub trait Functions {
     /// The function ID.
@@ -58,4 +60,34 @@ pub trait InstructionsProvider: FunctionStates {
         function_id: Self::FunctionId,
         state_id: Self::StateId,
     ) -> Option<impl IntoIterator<Item = &Self::Instruction> + '_>;
+}
+
+// ---------------------------------------------------------------------------
+// Blanket impls for Arc
+// ---------------------------------------------------------------------------
+
+impl<T: Functions> Functions for Arc<T> {
+    type FunctionId = T::FunctionId;
+}
+
+impl<T: FunctionStates> FunctionStates for Arc<T> {
+    type StateId = T::StateId;
+}
+
+impl<T: FunctionInfo> FunctionInfo for Arc<T> {
+    fn function_num_regs(&self, function_id: Self::FunctionId) -> Option<usize> {
+        (**self).function_num_regs(function_id)
+    }
+}
+
+impl<T: InstructionsProvider> InstructionsProvider for Arc<T> {
+    type Instruction = T::Instruction;
+
+    fn function_state_instructions(
+        &self,
+        function_id: Self::FunctionId,
+        state_id: Self::StateId,
+    ) -> Option<impl IntoIterator<Item = &Self::Instruction> + '_> {
+        (**self).function_state_instructions(function_id, state_id)
+    }
 }
