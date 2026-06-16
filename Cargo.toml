@@ -11,6 +11,7 @@ waymark-action-core = { path = "crates/lib/action-core" }
 waymark-action-reconciler = { path = "crates/lib/action-reconciler" }
 waymark-action-runtime-convert = { path = "crates/lib/action-runtime-convert" }
 waymark-action-runtime-core = { path = "crates/lib/action-runtime-core" }
+waymark-action-runtime-worker-pool = { path = "crates/lib/action-runtime-worker-pool" }
 waymark-backend-fault-injection = { path = "crates/lib/backend-fault-injection" }
 waymark-backend-memory = { path = "crates/lib/backend-memory" }
 waymark-backend-postgres = { path = "crates/lib/backend-postgres" }
@@ -25,8 +26,11 @@ waymark-dag = { path = "crates/lib/dag" }
 waymark-dag-builder = { path = "crates/lib/dag-builder" }
 waymark-dag-validator = { path = "crates/lib/dag-validator" }
 waymark-dag-viz = { path = "crates/lib/dag-viz" }
+waymark-execution-driver = { path = "crates/lib/execution-driver" }
+waymark-extcall-reconciler = { path = "crates/lib/extcall-reconciler" }
 waymark-extcall-reconciler-core = { path = "crates/lib/extcall-reconciler-core" }
 waymark-fn-main-common = { path = "crates/lib/fn-main-common" }
+waymark-fullset-effect-handler = { path = "crates/lib/fullset-effect-handler" }
 waymark-garbage-collector-backend = { path = "crates/lib/garbage-collector-backend" }
 waymark-garbage-collector-config = { path = "crates/lib/garbage-collector-config" }
 waymark-garbage-collector-loop = { path = "crates/lib/garbage-collector-loop" }
@@ -64,6 +68,7 @@ waymark-sleep-reconciler = { path = "crates/lib/sleep-reconciler" }
 waymark-smoke-sources = { path = "crates/lib/smoke-sources" }
 waymark-state-manager = { path = "crates/lib/state-manager" }
 waymark-state-manager-core = { path = "crates/lib/state-manager-core" }
+waymark-state-vm-executables = { path = "crates/lib/state-vm-executables" }
 waymark-state-vm-executables-backend = { path = "crates/lib/state-vm-executables-backend" }
 waymark-state-vm-runtimes = { path = "crates/lib/state-vm-runtimes" }
 waymark-state-vm-runtimes-backend = { path = "crates/lib/state-vm-runtimes-backend" }
@@ -72,6 +77,7 @@ waymark-support-integration = { path = "crates/lib/support-integration" }
 waymark-support-test = { path = "crates/lib/support-test" }
 waymark-support-test-python = { path = "crates/lib/support-test-python" }
 waymark-synthetic-exception = { path = "crates/lib/synthetic-exception" }
+waymark-system-vm = { path = "crates/lib/system-vm" }
 waymark-tick-loop = { path = "crates/lib/tick-loop" }
 waymark-timed = { path = "crates/lib/timed" }
 waymark-timed-channel = { path = "crates/lib/timed-channel" }
@@ -141,6 +147,7 @@ waymark-worker-reservation = { path = "crates/lib/worker-reservation" }
 waymark-worker-status-backend = { path = "crates/lib/worker-status-backend" }
 waymark-worker-status-core = { path = "crates/lib/worker-status-core" }
 waymark-worker-status-reporter = { path = "crates/lib/worker-status-reporter" }
+waymark-workflow-completion = { path = "crates/lib/workflow-completion" }
 waymark-workflow-completion-backend = { path = "crates/lib/workflow-completion-backend" }
 waymark-workflow-registry-backend = { path = "crates/lib/workflow-registry-backend" }
 waymark-workflow-service-vm-runtimes-backend = { path = "crates/lib/workflow-service-vm-runtimes-backend" }
