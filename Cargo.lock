@@ -4545,6 +4545,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-execution-bringup"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "waymark-execution-driver",
+ "waymark-execution-effector",
+ "waymark-extcall-convert",
+ "waymark-ids",
+ "waymark-nonzero-duration",
+ "waymark-state-manager",
+ "waymark-state-vm-executables",
+ "waymark-state-vm-executables-backend",
+ "waymark-state-vm-runtimes",
+ "waymark-state-vm-runtimes-backend",
+ "waymark-state-vm-runtimes-core",
+ "waymark-system-vm",
+ "waymark-vm-codec-rmp",
+ "waymark-vm-interpreter-fullset",
+ "waymark-worker-core",
+ "waymark-workflow-completion-backend",
+ "waymark-workload-pinning-backend",
+ "waymark-workload-pinning-manager",
+]
+
+[[package]]
 name = "waymark-execution-driver"
 version = "0.1.0"
 dependencies = [
