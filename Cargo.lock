@@ -6136,6 +6136,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-workflow-completion"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "thiserror",
+ "tracing",
+ "waymark-vm-codec-core",
+ "waymark-vm-driver-core",
+ "waymark-vm-interpreter-coreset",
+ "waymark-vm-runtime-effect",
+ "waymark-vm-runtime-exception",
+ "waymark-workflow-completion-backend",
+]
+
+[[package]]
+name = "waymark-workflow-completion-backend"
+version = "0.1.0"
+
+[[package]]
 name = "waymark-workflow-registry-backend"
 version = "0.1.0"
 dependencies = [
