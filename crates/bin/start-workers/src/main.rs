@@ -32,25 +32,17 @@
 //! - WAYMARK_WEBAPP_ENABLED / WAYMARK_WEBAPP_ADDR: Web dashboard configuration
 //! - WAYMARK_RUNNER_PROFILE_INTERVAL_MS: Status reporting interval (default: 5000)
 
-use std::num::NonZeroUsize;
 use std::sync::{Arc, atomic::AtomicUsize};
 use std::time::Duration;
 
 use anyhow::Result;
-use prost::Message;
-use sqlx::{PgPool, Row};
+use sqlx::PgPool;
 use tokio::signal;
 use tracing::{error, info, warn};
-
 use uuid::Uuid;
+
 use waymark_backend_postgres::PostgresBackend;
 use waymark_config::WorkerConfig;
-use waymark_dag_builder::convert_to_dag;
-use waymark_ids::{LockId, WorkflowVersionId};
-use waymark_nonzero_duration::NonZeroDuration;
-use waymark_proto::ast as ir;
-use waymark_runloop::RunLoopConfig;
-use waymark_scheduler_loop_core::WorkflowDag;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -64,60 +56,29 @@ async fn main() -> Result<()> {
     // Load configuration and announce startup.
     let config = WorkerConfig::from_env()?;
 
-    // Prepare a new Lock ID to use in the runloop.
-    let lock_uuid = LockId::new_uuid_v4();
-
-    tracing::debug!(target: "raw-config", ?config, %lock_uuid, "raw config");
+    tracing::debug!(target: "raw-config", ?config, "raw config");
 
     info!(
         worker_count = config.worker_count,
         concurrent_per_worker = config.concurrent_per_worker,
         user_modules = ?config.user_modules,
-        executor_shards = config.executor_shards,
-        lock_ttl_ms = config.lock_ttl.as_millis(),
-        lock_heartbeat_ms = config.lock_heartbeat.as_millis(),
-        evict_sleep_threshold_ms = config.evict_sleep_threshold.as_millis(),
-        expired_lock_reclaimer_interval_ms = config.expired_lock_reclaimer_interval.as_millis(),
-        expired_lock_reclaimer_batch_size = config.expired_lock_reclaimer_batch_size,
-        garbage_collector_interval_ms = config.garbage_collector.interval.as_millis(),
-        garbage_collector_batch_size = config.garbage_collector.batch_size,
-        garbage_collector_retention_secs = config.garbage_collector.retention.as_secs(),
-        max_action_lifecycle = ?config.max_action_lifecycle,
-        %lock_uuid,
         "starting worker infrastructure"
     );
 
     metrics::gauge!(
         "waymark_start_workers_up",
-
         "worker_count" => config.worker_count.to_string(),
         "concurrent_per_worker" => config.concurrent_per_worker.to_string(),
         "user_modules" => format!("{:?}", config.user_modules),
-
-        "lock_ttl_seconds" => config.lock_ttl.as_secs_f64().to_string(),
-        "lock_heartbeat_seconds" => config.lock_heartbeat.as_secs_f64().to_string(),
-
-        "evict_sleep_threshold_seconds" => config.evict_sleep_threshold.as_secs_f64().to_string(),
-
-        "expired_lock_reclaimer_interval_seconds" => config.expired_lock_reclaimer_interval.as_secs_f64().to_string(),
-        "expired_lock_reclaimer_interval_seconds" => config.expired_lock_reclaimer_interval.as_secs_f64().to_string(),
-        "expired_lock_reclaimer_batch_size" => config.expired_lock_reclaimer_batch_size.to_string(),
-
-        "garbage_collector_interval_seconds" => config.garbage_collector.interval.as_secs_f64().to_string(),
-        "garbage_collector_batch_size" => config.garbage_collector.batch_size.to_string(),
-        "garbage_collector_retention_seconds" => config.garbage_collector.retention.as_secs_f64().to_string(),
-
         "max_action_lifecycle" => config.max_action_lifecycle.map(|val| val.to_string()).unwrap_or("no".into()),
-
-        "executor_shards" => config.executor_shards.to_string(),
-        "poll_interval_seconds" => config.poll_interval.map(|val| val.as_secs_f64().to_string()).unwrap_or("no".into()),
         "max_concurrent_instances" => config.max_concurrent_instances.to_string(),
-        "instance_done_batch_size" => config.instance_done_batch_size.map(|val| val.to_string()).unwrap_or("no".into()),
-        "persistence_interval_seconds" => config.persistence_interval.map(|val| val.as_secs_f64().to_string()).unwrap_or("no".into()),
-
+        "pinning_ttl_seconds" => config.lock_ttl.as_secs_f64().to_string(),
+        "pinning_heartbeat_seconds" => config.lock_heartbeat.as_secs_f64().to_string(),
+        "vm_retention_seconds" => config.vm_retention.as_secs_f64().to_string(),
+        "vm_sweep_interval_seconds" => config.vm_sweep_interval.as_secs_f64().to_string(),
+        "executable_retention_seconds" => config.executable_retention.as_secs_f64().to_string(),
+        "executable_sweep_interval_seconds" => config.executable_sweep_interval.as_secs_f64().to_string(),
         "profile_interval_seconds" => config.profile_interval.as_secs_f64().to_string(),
-
-        "lock_uuid" => lock_uuid.to_string(),
     )
     .set(1);
 
@@ -161,40 +122,6 @@ async fn main() -> Result<()> {
     )
     .await?;
 
-    // Start the scheduler loop.
-    let dag_resolver = SchedulerDagResolver {
-        pool: backend.pool().clone(),
-    };
-    let scheduler_handle = {
-        let shutdown = shutdown_token.clone().cancelled_owned();
-        let task = waymark_scheduler_loop::SchedulerTask {
-            backend: backend.clone(),
-            config: config.scheduler.clone(),
-            dag_resolver,
-        };
-        tokio::spawn(task.run(shutdown))
-    };
-    info!(
-        poll_interval_ms = config.scheduler.poll_interval.as_millis(),
-        batch_size = config.scheduler.batch_size,
-        "scheduler task started"
-    );
-
-    let garbage_collector_handle = {
-        let shutdown = shutdown_token.clone().cancelled_owned();
-        let task = waymark_garbage_collector_loop::GarbageCollectorTask {
-            backend: backend.clone(),
-            config: config.garbage_collector.clone(),
-        };
-        tokio::spawn(task.run(shutdown))
-    };
-    info!(
-        interval_ms = config.garbage_collector.interval.as_millis(),
-        batch_size = config.garbage_collector.batch_size,
-        retention_secs = config.garbage_collector.retention.as_secs(),
-        "garbage collector task started"
-    );
-
     let active_instance_gauge = Arc::new(AtomicUsize::new(0));
 
     // Start status reporting.
@@ -207,12 +134,6 @@ async fn main() -> Result<()> {
         config.profile_interval,
         shutdown_token.clone().cancelled_owned(),
     ));
-    let expired_lock_reclaimer_handle = spawn_expired_lock_reclaimer(
-        backend.clone(),
-        config.expired_lock_reclaimer_interval,
-        config.expired_lock_reclaimer_batch_size,
-        shutdown_token.clone().cancelled_owned(),
-    );
 
     let shutdown_handle = tokio::spawn({
         let shutdown_token = shutdown_token.clone();
@@ -226,45 +147,36 @@ async fn main() -> Result<()> {
         }
     });
 
-    // Run the runloop.
-    let remote_pool = waymark_worker_remote_pool::RemoteWorkerPool::new(process_pool.clone());
-    let runloop = waymark_runloop::RunLoop::new_with_shutdown(
-        remote_pool,
-        backend.clone(),
-        RunLoopConfig {
-            max_concurrent_instances: config.max_concurrent_instances,
-            executor_shards: config.executor_shards,
-            instance_done_batch_size: config.instance_done_batch_size,
-            poll_interval: config.poll_interval,
-            persistence_interval: config.persistence_interval,
-            lock_uuid,
-            lock_ttl: config.lock_ttl,
-            lock_heartbeat: config.lock_heartbeat,
-            evict_sleep_threshold: config.evict_sleep_threshold,
-            skip_sleep: false,
-            active_instance_gauge: Some(active_instance_gauge),
-        },
-        shutdown_token.child_token(),
-    );
-    let result = {
-        let _guard = shutdown_token.drop_guard();
-        runloop.run().await
+    // Start the execution subsystem (workload pinning + execution driver).
+    let bringup_config = waymark_execution_bringup::Config {
+        node_id: Uuid::new_v4(),
+        max_pinned: config.max_concurrent_instances,
+        pinning_ttl: config.lock_ttl,
+        pinning_heartbeat: config.lock_heartbeat,
+        vm_retention: config.vm_retention,
+        vm_sweep_interval: config.vm_sweep_interval,
+        executable_retention: config.executable_retention,
+        executable_sweep_interval: config.executable_sweep_interval,
     };
-    match result {
-        Ok(_) => {
-            warn!("runloop exited cleanly (unexpected)");
-        }
-        Err(err) => {
-            error!(error = %err, "runloop exited with error");
-        }
-    }
+    let remote_pool = Arc::new(waymark_worker_remote_pool::RemoteWorkerPool::new(
+        process_pool.clone(),
+    ));
+    let execution_handles = waymark_execution_bringup::start(
+        bringup_config,
+        Arc::new(backend.clone()),
+        remote_pool,
+        shutdown_token.child_token(),
+    )
+    .await;
 
     let _ = shutdown_handle.await;
+    let _ = tokio::time::timeout(Duration::from_secs(5), execution_handles.pinning_manager).await;
+    let _ = tokio::time::timeout(Duration::from_secs(5), execution_handles.execution_driver).await;
+    let _ =
+        tokio::time::timeout(Duration::from_secs(2), execution_handles.executable_sweeper).await;
+    let _ = tokio::time::timeout(Duration::from_secs(2), execution_handles.vm_sweeper).await;
     let _ = tokio::time::timeout(Duration::from_secs(5), bridge_task).await;
-    let _ = tokio::time::timeout(Duration::from_secs(5), scheduler_handle).await;
-    let _ = tokio::time::timeout(Duration::from_secs(5), garbage_collector_handle).await;
     let _ = tokio::time::timeout(Duration::from_secs(2), status_reporter_handle).await;
-    let _ = tokio::time::timeout(Duration::from_secs(2), expired_lock_reclaimer_handle).await;
 
     if let Err(err) = process_pool.shutdown_arc().await {
         warn!(error = %err, "worker pool shutdown failed");
@@ -277,107 +189,6 @@ async fn main() -> Result<()> {
 
     info!("shutdown complete");
     Ok(())
-}
-
-struct SchedulerDagResolver {
-    pub pool: sqlx::PgPool,
-}
-
-#[derive(Debug, thiserror::Error)]
-enum SchedulerDagResolverError {
-    #[error("database: {0}")]
-    Database(sqlx::Error),
-
-    #[error("dag proto decode: {0}")]
-    DagProtoDecode(prost::DecodeError),
-
-    #[error("database: {0}")]
-    DagConversion(waymark_dag_builder::DagConversionError),
-}
-
-impl waymark_scheduler_loop_core::DagResolver for SchedulerDagResolver {
-    type Error = SchedulerDagResolverError;
-
-    async fn resolve_dag<'a>(
-        &'a self,
-        workflow_name: &'a str,
-    ) -> Result<Option<waymark_scheduler_loop_core::WorkflowDag>, Self::Error> {
-        let maybe_row = sqlx::query(
-            r#"
-                    SELECT id, program_proto
-                    FROM workflow_versions
-                    WHERE workflow_name = $1
-                    ORDER BY created_at DESC
-                    LIMIT 1
-                    "#,
-        )
-        .bind(workflow_name)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(SchedulerDagResolverError::Database)?;
-
-        let Some(row) = maybe_row else {
-            return Ok(None);
-        };
-
-        let version_id: WorkflowVersionId = row.get("id");
-        let payload: Vec<u8> = row.get("program_proto");
-        let program =
-            ir::Program::decode(&payload[..]).map_err(SchedulerDagResolverError::DagProtoDecode)?;
-        let dag = convert_to_dag(&program).map_err(SchedulerDagResolverError::DagConversion)?;
-        Ok(Some(WorkflowDag {
-            version_id,
-            dag: Arc::new(dag),
-        }))
-    }
-}
-
-fn spawn_expired_lock_reclaimer(
-    backend: PostgresBackend,
-    interval: NonZeroDuration,
-    batch_size: NonZeroUsize,
-    shutdown: tokio_util::sync::WaitForCancellationFutureOwned,
-) -> tokio::task::JoinHandle<()> {
-    tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(interval.get());
-        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        info!(
-            interval_ms = interval.as_millis(),
-            batch_size, "expired lock reclaimer started"
-        );
-        let mut shutdown = std::pin::pin!(shutdown);
-        loop {
-            tokio::select! {
-                _ = ticker.tick() => {
-                    let mut reclaimed_total = 0usize;
-                    loop {
-                        match backend.reclaim_expired_instance_locks(batch_size.get()).await {
-                            Ok(reclaimed) => {
-                                reclaimed_total += reclaimed;
-                                if reclaimed < batch_size.get() {
-                                    break;
-                                }
-                            }
-                            Err(err) => {
-                                warn!(error = %err, "failed to reclaim expired instance locks");
-                                break;
-                            }
-                        }
-                    }
-                    if reclaimed_total > 0 {
-                        warn!(
-                            reclaimed_total,
-                            "reclaimed expired instance locks"
-                        );
-                    }
-                }
-                _ = &mut shutdown => {
-                    info!("expired lock reclaimer shutting down");
-                    break;
-                }
-            }
-        }
-    })
 }
 
 async fn wait_for_shutdown() -> Result<()> {
