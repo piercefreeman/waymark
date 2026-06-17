@@ -29,6 +29,7 @@ waymark-timed-future = { workspace = true }
 waymark-webapp-backend = { workspace = true }
 waymark-webapp-core = { workspace = true }
 waymark-worker-status-backend = { workspace = true }
+waymark-workflow-completion-backend = { workspace = true }
 waymark-workflow-registry-backend = { workspace = true }
 waymark-workflow-service-vm-runtimes-backend = { workspace = true }
 waymark-workload-pinning-backend = { workspace = true }
