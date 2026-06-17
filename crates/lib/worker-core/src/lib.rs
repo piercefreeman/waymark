@@ -71,6 +71,23 @@ pub fn error_to_value(error: &WorkerPoolError) -> serde_json::Value {
     Value::Object(map)
 }
 
+impl<T> BaseWorkerPool for std::sync::Arc<T>
+where
+    T: BaseWorkerPool + Send + Sync,
+{
+    async fn launch(&self) -> Result<(), WorkerPoolError> {
+        (**self).launch().await
+    }
+
+    fn queue(&self, request: ActionRequest) -> Result<(), WorkerPoolError> {
+        (**self).queue(request)
+    }
+
+    async fn poll_complete(&self) -> Option<NEVec<ActionCompletion>> {
+        (**self).poll_complete().await
+    }
+}
+
 #[cfg(feature = "either")]
 impl<Left: BaseWorkerPool, Right: BaseWorkerPool> BaseWorkerPool for either::Either<Left, Right> {
     fn launch(&self) -> impl Future<Output = Result<(), WorkerPoolError>> + Send + '_ {
