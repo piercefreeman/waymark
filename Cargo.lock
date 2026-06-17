@@ -6191,6 +6191,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-workflow-service-vm-runtimes-backend"
+version = "0.1.0"
+
+[[package]]
 name = "waymark-workload-pinning-backend"
 version = "0.1.0"
 dependencies = [
