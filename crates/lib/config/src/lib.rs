@@ -33,6 +33,10 @@ pub struct WorkerConfig {
     pub garbage_collector: GarbageCollectorConfig,
     pub webapp: waymark_webapp_config::WebappConfig,
     pub profile_interval: NonZeroDuration,
+    pub vm_retention: NonZeroDuration,
+    pub vm_sweep_interval: NonZeroDuration,
+    pub executable_retention: NonZeroDuration,
+    pub executable_sweep_interval: NonZeroDuration,
 }
 
 impl WorkerConfig {
@@ -114,6 +118,17 @@ impl WorkerConfig {
         let FromMillisMin::<_, 1>(profile_interval) =
             envfury::or_parse("WAYMARK_RUNNER_PROFILE_INTERVAL_MS", "5000")?;
 
+        let FromMillis(vm_retention) = envfury::or_parse("WAYMARK_VM_RETENTION_MS", "60000")?;
+
+        let FromMillis(vm_sweep_interval) =
+            envfury::or_parse("WAYMARK_VM_SWEEP_INTERVAL_MS", "10000")?;
+
+        let FromMillis(executable_retention) =
+            envfury::or_parse("WAYMARK_EXECUTABLE_RETENTION_MS", "300000")?;
+
+        let FromMillis(executable_sweep_interval) =
+            envfury::or_parse("WAYMARK_EXECUTABLE_SWEEP_INTERVAL_MS", "60000")?;
+
         Ok(Self {
             database_url,
             worker_grpc_addr,
@@ -135,6 +150,10 @@ impl WorkerConfig {
             garbage_collector,
             webapp,
             profile_interval,
+            vm_retention,
+            vm_sweep_interval,
+            executable_retention,
+            executable_sweep_interval,
         })
     }
 }
