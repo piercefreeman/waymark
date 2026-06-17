@@ -1,0 +1,15 @@
+[package]
+name = "waymark-workflow-service-vm-runtimes"
+version.workspace = true
+publish.workspace = true
+edition = "2024"
+
+[dependencies]
+waymark-vm-codec-core = { workspace = true }
+waymark-vm-runtime-exception = { workspace = true, features = ["serde"] }
+waymark-workflow-completion-backend = { workspace = true }
+waymark-workflow-service-vm-runtimes-backend = { workspace = true }
+
+serde = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["time"] }
