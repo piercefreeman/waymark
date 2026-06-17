@@ -10,12 +10,11 @@
 //! - WAYMARK_BRIDGE_IN_MEMORY: enable in-memory execution mode for streaming workflows
 
 mod bridge_service;
-mod stream_worker_pool;
+mod transient_execution;
 mod utils;
 mod workflow_store;
 
 use self::bridge_service::*;
-use self::stream_worker_pool::*;
 use self::workflow_store::*;
 
 use std::sync::Arc;
