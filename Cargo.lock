@@ -6227,6 +6227,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-workflow-service-vm-runtimes"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "thiserror",
+ "tokio",
+ "waymark-vm-codec-core",
+ "waymark-vm-runtime-exception",
+ "waymark-workflow-completion-backend",
+ "waymark-workflow-service-vm-runtimes-backend",
+]
+
+[[package]]
 name = "waymark-workflow-service-vm-runtimes-backend"
 version = "0.1.0"
 
