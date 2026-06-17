@@ -26,6 +26,7 @@ waymark-dag = { path = "crates/lib/dag" }
 waymark-dag-builder = { path = "crates/lib/dag-builder" }
 waymark-dag-validator = { path = "crates/lib/dag-validator" }
 waymark-dag-viz = { path = "crates/lib/dag-viz" }
+waymark-execution-bringup = { path = "crates/lib/execution-bringup" }
 waymark-execution-driver = { path = "crates/lib/execution-driver" }
 waymark-extcall-reconciler = { path = "crates/lib/extcall-reconciler" }
 waymark-extcall-reconciler-core = { path = "crates/lib/extcall-reconciler-core" }
@@ -33,7 +34,6 @@ waymark-fn-main-common = { path = "crates/lib/fn-main-common" }
 waymark-fullset-effect-handler = { path = "crates/lib/fullset-effect-handler" }
 waymark-garbage-collector-backend = { path = "crates/lib/garbage-collector-backend" }
 waymark-garbage-collector-config = { path = "crates/lib/garbage-collector-config" }
-waymark-garbage-collector-loop = { path = "crates/lib/garbage-collector-loop" }
 waymark-ids = { path = "crates/lib/ids" }
 waymark-ir-conversions = { path = "crates/lib/ir-conversions" }
 waymark-ir-format = { path = "crates/lib/ir-format" }
@@ -61,7 +61,6 @@ waymark-runner-state = { path = "crates/lib/runner-state" }
 waymark-scheduler-backend = { path = "crates/lib/scheduler-backend" }
 waymark-scheduler-config = { path = "crates/lib/scheduler-config" }
 waymark-scheduler-core = { path = "crates/lib/scheduler-core" }
-waymark-scheduler-loop = { path = "crates/lib/scheduler-loop" }
 waymark-scheduler-loop-core = { path = "crates/lib/scheduler-loop-core" }
 waymark-secret-string = { path = "crates/lib/secret-string" }
 waymark-sleep-reconciler = { path = "crates/lib/sleep-reconciler" }
