@@ -88,7 +88,7 @@ impl waymark_workload_pinning_backend::KeepaliveInstancePinnings for PostgresBac
     #[function_name::named]
     fn refresh_pinnings<'a>(
         &'a self,
-        _now: Self::Timestamp,
+        now: Self::Timestamp,
         pinning: Pinning<Self::NodeId, Self::Timestamp>,
         instance_ids: impl nonempty_collections::IntoNonEmptyIterator<Item = Self::InstanceId> + 'a,
     ) -> impl Future<
@@ -104,13 +104,14 @@ impl waymark_workload_pinning_backend::KeepaliveInstancePinnings for PostgresBac
             let rows = sqlx::query(
                 r#"
                 UPDATE workload_pinnings
-                SET expires_at = $3, updated_at = NOW()
-                WHERE node_id = $1 AND instance_id = ANY($2) AND expires_at > NOW()
+                SET expires_at = $4, updated_at = NOW()
+                WHERE node_id = $1 AND instance_id = ANY($2) AND expires_at > $3
                 RETURNING instance_id
                 "#,
             )
             .bind(pinning.node_id)
             .bind(ids.as_ref())
+            .bind(now)
             .bind(pinning.expires_at)
             .fetch_all(&self.pool)
             .timed(crate::query_timing_histogram!(

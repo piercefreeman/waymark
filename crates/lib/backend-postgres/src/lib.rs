@@ -9,6 +9,7 @@ mod scheduler;
 mod test_helpers;
 mod vm_runtimes;
 mod webapp;
+mod workflow_service_vm_runtimes;
 mod workload_pinning;
 
 use std::collections::HashMap;

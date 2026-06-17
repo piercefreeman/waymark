@@ -4420,6 +4420,7 @@ dependencies = [
  "waymark-webapp-core",
  "waymark-worker-status-backend",
  "waymark-workflow-registry-backend",
+ "waymark-workflow-service-vm-runtimes-backend",
  "waymark-workload-pinning-backend",
 ]
 
