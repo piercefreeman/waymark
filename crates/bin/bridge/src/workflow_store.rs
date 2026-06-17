@@ -1,108 +1,153 @@
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
-use sqlx::{PgPool, Row};
-use uuid::Uuid;
+use prost::Message as _;
+use serde::Deserialize as _;
 
 use waymark_backend_postgres::PostgresBackend;
-use waymark_core_backend::QueuedInstance;
-use waymark_ids::WorkflowVersionId;
+use waymark_convert_core::TryConvert as _;
+use waymark_ids::{InstanceId, WorkflowVersionId};
 use waymark_proto::messages as proto;
-use waymark_runner_executor_core::{ExecutionException, ExecutionSuccess};
 use waymark_secret_string::SecretStr;
-use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBackend};
+use waymark_state_vm_executables_backend::LoadExecutable as _;
+use waymark_vm_codec_core::DeserializerProvider as _;
 
-#[derive(Clone)]
 pub struct WorkflowStore {
     pub backend: PostgresBackend,
+    codec: waymark_vm_codec_rmp::RmpCodec,
+    registration: waymark_workflow_service_vm_runtimes::RegistrationService<
+        PostgresBackend,
+        waymark_vm_codec_rmp::RmpCodec,
+    >,
+    executables: waymark_workflow_service_vm_executables::ExecutablesService<
+        PostgresBackend,
+        waymark_vm_codec_rmp::RmpCodec,
+        waymark_system_vm::Spec,
+        waymark_system_vm::Lowering,
+    >,
+    outcome_polling: waymark_workflow_service_vm_runtimes::OutcomePollingService<
+        PostgresBackend,
+        waymark_vm_codec_rmp::RmpCodec,
+        waymark_system_vm::ReadyValue,
+    >,
 }
 
 impl WorkflowStore {
     pub async fn connect(dsn: &SecretStr) -> Result<Self> {
-        let pool = PgPool::connect(dsn.expose_secret()).await?;
+        let pool = sqlx::PgPool::connect(dsn.expose_secret()).await?;
         waymark_backend_postgres_migrations::run(&pool).await?;
         let backend = PostgresBackend::new(pool);
-        Ok(Self { backend })
+        let codec = waymark_vm_codec_rmp::RmpCodec;
+        let executables = waymark_workflow_service_vm_executables::ExecutablesService::new(
+            backend.clone(),
+            codec,
+        );
+        let registration =
+            waymark_workflow_service_vm_runtimes::RegistrationService::new(backend.clone(), codec);
+        let outcome_polling = waymark_workflow_service_vm_runtimes::OutcomePollingService::new(
+            backend.clone(),
+            codec,
+        );
+        Ok(Self {
+            backend,
+            codec,
+            registration,
+            executables,
+            outcome_polling,
+        })
     }
 
-    fn pool(&self) -> &sqlx::PgPool {
-        self.backend.pool()
-    }
-
-    pub async fn upsert_workflow_version(
+    pub async fn compile_and_store(
         &self,
         registration: &proto::WorkflowRegistration,
-    ) -> Result<WorkflowVersionId> {
+    ) -> Result<(WorkflowVersionId, Vec<String>)> {
         let workflow_version = if registration.workflow_version.is_empty() {
             registration.ir_hash.clone()
         } else {
             registration.workflow_version.clone()
         };
-        let backend_registration = WorkflowRegistration {
-            workflow_name: registration.workflow_name.clone(),
-            workflow_version,
-            ir_hash: registration.ir_hash.clone(),
-            program_proto: registration.ir.clone(),
-            concurrent: registration.concurrent,
-        };
-        self.backend
-            .upsert_workflow_version(&backend_registration)
+
+        let ir_program = waymark_proto::ast::Program::decode(&registration.ir[..])
+            .map_err(|err| anyhow::anyhow!("decode IR: {err}"))?;
+        let ast_program = waymark_vm_ast_old_proto::convert(ir_program)
+            .map_err(|err| anyhow::anyhow!("convert IR to AST: {err}"))?;
+
+        let (id, metadata) = self
+            .executables
+            .compile_and_store(&registration.workflow_name, &workflow_version, &ast_program)
             .await
-            .map_err(|err| anyhow::anyhow!(err))
+            .map_err(|err| anyhow::anyhow!("compile and store: {err}"))?;
+
+        let entry_input_names = metadata
+            .input_names(Default::default())
+            .map(<[String]>::to_vec)
+            .unwrap_or_default();
+
+        Ok((id, entry_input_names))
     }
 
-    pub async fn queue_instances(&self, instances: &[QueuedInstance]) -> Result<()> {
-        self.backend
-            .queue_instances(instances)
+    pub async fn register_vm_runtime(
+        &self,
+        vm_id: InstanceId,
+        executable_id: WorkflowVersionId,
+        call_spec: waymark_vm_runtime::CallSpec<
+            <waymark_system_vm::Executable as waymark_vm_executable::Functions>::FunctionId,
+            waymark_system_vm::Value,
+        >,
+    ) -> Result<()> {
+        let bytes = self
+            .backend
+            .load_executable(&executable_id)
             .await
-            .map_err(|err| anyhow::anyhow!(err))
+            .map_err(|err| anyhow::anyhow!("load executable: {err:?}"))?;
+
+        let executable = self
+            .codec
+            .with_deserializer(&bytes, |de| waymark_system_vm::Executable::deserialize(de))
+            .map_err(|err| anyhow::anyhow!("deserialize executable: {err:?}"))?;
+
+        let interpreter = waymark_vm_interpreter_fullset::FullSetInterpreter::<
+            waymark_system_vm::Spec,
+            Arc<waymark_system_vm::Executable>,
+            waymark_system_vm::Value,
+        >::default();
+
+        let runtime: waymark_vm_runtime::Runtime<_, _, waymark_system_vm::Value> =
+            waymark_vm_runtime::Runtime::with_custom_entrypoint(interpreter, executable, call_spec)
+                .map_err(|err| anyhow::anyhow!("create runtime: {err}"))?;
+
+        self.registration
+            .register_vm(vm_id, executable_id, |ser| runtime.snapshot(ser))
+            .await
+            .map_err(|err| anyhow::anyhow!("register vm: {err}"))
     }
 
+    /// Poll for the outcome of a workflow instance.
+    ///
+    /// Blocks until an outcome is recorded or the caller cancels.
     pub async fn wait_for_instance(
         &self,
-        instance_id: Uuid,
+        instance_id: InstanceId,
         poll_interval: Duration,
     ) -> Result<Option<proto::WorkflowArguments>> {
-        loop {
-            let row = sqlx::query(
-                r#"
-                SELECT result, error
-                FROM runner_instances
-                WHERE instance_id = $1
-                "#,
-            )
-            .bind(instance_id)
-            .fetch_optional(self.pool())
-            .await?;
+        let outcome = self
+            .outcome_polling
+            .wait_for_outcome(&instance_id, poll_interval)
+            .await
+            .map_err(|err| anyhow::anyhow!("wait for outcome: {err}"))?;
 
-            let Some(row) = row else {
-                return Ok(None);
-            };
-
-            let result_bytes: Option<Vec<u8>> = row.get("result");
-            let error_bytes: Option<Vec<u8>> = row.get("error");
-
-            if result_bytes.is_some() || error_bytes.is_some() {
-                let result_value = result_bytes
-                    .as_deref()
-                    .map(rmp_serde::from_slice::<serde_json::Value>)
-                    .transpose()
-                    .map_err(|err| anyhow::anyhow!(err))?;
-                let result_value = result_value.map(ExecutionSuccess);
-                let error_value = error_bytes
-                    .as_deref()
-                    .map(rmp_serde::from_slice::<serde_json::Value>)
-                    .transpose()
-                    .map_err(|err| anyhow::anyhow!(err))?;
-                let error_value = error_value.map(ExecutionException);
-
-                return Ok(Some(crate::utils::build_workflow_arguments(
-                    result_value,
-                    error_value,
-                )));
+        let arguments = match outcome {
+            waymark_workflow_service_vm_runtimes::Outcome::Completion(value) => {
+                waymark_workflow_completion_convert_proto::Converter::try_convert(value)
+                    .map_err(|err| anyhow::anyhow!("convert completion: {err}"))?
             }
+            waymark_workflow_service_vm_runtimes::Outcome::Exception(exception) => {
+                waymark_workflow_completion_convert_proto::Converter::try_convert(exception)
+                    .map_err(|err| anyhow::anyhow!("convert exception: {err}"))?
+            }
+        };
 
-            tokio::time::sleep(poll_interval).await;
-        }
+        Ok(Some(arguments))
     }
 }

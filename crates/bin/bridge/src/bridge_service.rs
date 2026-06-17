@@ -1,36 +1,16 @@
-use std::collections::{HashMap, VecDeque};
-use std::pin::Pin;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::Result;
-use futures_core::Stream;
 use prost::Message;
-use tokio::sync::mpsc;
-use tokio_stream::{StreamExt, wrappers::ReceiverStream};
+use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
-use tracing::debug;
-use uuid::Uuid;
-
-use waymark_backend_memory::MemoryBackend;
-use waymark_core_backend::{InstanceDone, QueuedInstance};
-use waymark_dag_builder::convert_to_dag;
-use waymark_ids::{InstanceId, LockId, WorkflowVersionId};
-use waymark_ir_conversions::literal_from_json_value;
-use waymark_proto::{ast as ir, messages as proto};
-use waymark_runloop::{RunLoop, RunLoopConfig};
-use waymark_runner_executor_core::ExecutionException;
-use waymark_runner_state::RunnerState;
+use waymark_convert_core::TryConvert as _;
+use waymark_ids::InstanceId;
+use waymark_proto::messages as proto;
 use waymark_scheduler_backend::SchedulerBackend as _;
 use waymark_scheduler_core::{CreateScheduleParams, ScheduleStatus, ScheduleType};
-use waymark_worker_core::ActionCompletion;
-use waymark_workflow_registry_backend::{WorkflowRegistration, WorkflowRegistryBackend as _};
 
-use crate::StreamWorkerPool;
 use crate::WorkflowStore;
-
-#[cfg(test)]
-mod tests;
 
 pub struct BridgeService {
     pub store: Option<Arc<WorkflowStore>>,
@@ -38,8 +18,13 @@ pub struct BridgeService {
 
 #[tonic::async_trait]
 impl proto::workflow_service_server::WorkflowService for BridgeService {
-    type ExecuteWorkflowStream =
-        Pin<Box<dyn Stream<Item = Result<proto::WorkflowStreamResponse, Status>> + Send + 'static>>;
+    type ExecuteWorkflowStream = std::pin::Pin<
+        Box<
+            dyn futures_core::Stream<Item = Result<proto::WorkflowStreamResponse, Status>>
+                + Send
+                + 'static,
+        >,
+    >;
 
     async fn register_workflow(
         &self,
@@ -55,35 +40,27 @@ impl proto::workflow_service_server::WorkflowService for BridgeService {
             .registration
             .ok_or_else(|| Status::invalid_argument("registration missing"))?;
 
-        let program = ir::Program::decode(&registration.ir[..])
-            .map_err(|err| Status::invalid_argument(format!("invalid IR: {err}")))?;
-        let dag = Arc::new(
-            convert_to_dag(&program)
-                .map_err(|err| Status::invalid_argument(format!("invalid DAG: {err}")))?,
-        );
-
-        let version_id = store
-            .upsert_workflow_version(&registration)
+        let (executable_id, entry_input_names) = store
+            .compile_and_store(&registration)
             .await
-            .map_err(|err| Status::internal(format!("database error: {err}")))?;
+            .map_err(|err| Status::internal(err.to_string()))?;
 
-        let instance_id = InstanceId::new_uuid_v4();
-        let queued = build_queued_instance(
-            instance_id,
-            version_id,
-            Arc::clone(&dag),
-            registration.initial_context,
-        )
-        .map_err(Status::invalid_argument)?;
+        let call_spec =
+            waymark_workflow_initialization_convert_proto::InitialContextConverter::try_convert((
+                registration.initial_context.as_ref(),
+                &entry_input_names[..],
+            ))
+            .map_err(|err| Status::internal(format!("build entry call spec: {err}")))?;
 
+        let vm_id = InstanceId::new_uuid_v4();
         store
-            .queue_instances(&[queued])
+            .register_vm_runtime(vm_id, executable_id, call_spec)
             .await
-            .map_err(|err| Status::internal(format!("queue failed: {err}")))?;
+            .map_err(|err| Status::internal(format!("register vm runtime: {err}")))?;
 
         Ok(Response::new(proto::RegisterWorkflowResponse {
-            workflow_version_id: version_id.to_string(),
-            workflow_instance_id: instance_id.to_string(),
+            workflow_version_id: executable_id.to_string(),
+            workflow_instance_id: vm_id.to_string(),
         }))
     }
 
@@ -100,68 +77,41 @@ impl proto::workflow_service_server::WorkflowService for BridgeService {
             .registration
             .ok_or_else(|| Status::invalid_argument("registration missing"))?;
 
-        let program = ir::Program::decode(&registration.ir[..])
-            .map_err(|err| Status::invalid_argument(format!("invalid IR: {err}")))?;
-        let dag = Arc::new(
-            convert_to_dag(&program)
-                .map_err(|err| Status::invalid_argument(format!("invalid DAG: {err}")))?,
-        );
-
-        let version_id = store
-            .upsert_workflow_version(&registration)
+        let (executable_id, entry_input_names) = store
+            .compile_and_store(&registration)
             .await
-            .map_err(|err| Status::internal(format!("database error: {err}")))?;
+            .map_err(|err| Status::internal(err.to_string()))?;
 
-        let mut inputs_list = request.inputs_list;
-        let mut target_count = request.count as usize;
-        if !inputs_list.is_empty() {
-            target_count = inputs_list.len();
-        }
+        let target_count = request.count as usize;
         if target_count == 0 {
             return Err(Status::invalid_argument("count must be >= 1"));
         }
 
-        let mut instances = Vec::new();
-        let mut instance_ids = Vec::new();
-        let default_inputs = request.inputs;
-        let batch_size = request.batch_size.max(1) as usize;
+        let call_spec: waymark_system_vm::CallSpec =
+            waymark_workflow_initialization_convert_proto::InitialContextConverter::try_convert((
+                registration.initial_context.as_ref(),
+                &entry_input_names[..],
+            ))
+            .map_err(|err| Status::internal(format!("build entry call spec: {err}")))?;
+
+        let mut vm_ids = Vec::new();
         let include_ids = request.include_instance_ids;
 
         for _ in 0..target_count {
-            let instance_id = InstanceId::new_uuid_v4();
-            let inputs = if !inputs_list.is_empty() {
-                inputs_list.remove(0)
-            } else {
-                default_inputs.clone().unwrap_or_default()
-            };
-
-            let queued =
-                build_queued_instance(instance_id, version_id, Arc::clone(&dag), Some(inputs))
-                    .map_err(Status::invalid_argument)?;
-            instances.push(queued);
+            let vm_id = InstanceId::new_uuid_v4();
             if include_ids {
-                instance_ids.push(instance_id.to_string());
+                vm_ids.push(vm_id.to_string());
             }
 
-            if instances.len() >= batch_size {
-                store
-                    .queue_instances(&instances)
-                    .await
-                    .map_err(|err| Status::internal(format!("queue failed: {err}")))?;
-                instances.clear();
-            }
-        }
-
-        if !instances.is_empty() {
             store
-                .queue_instances(&instances)
+                .register_vm_runtime(vm_id, executable_id, call_spec.clone())
                 .await
-                .map_err(|err| Status::internal(format!("queue failed: {err}")))?;
+                .map_err(|err| Status::internal(format!("register vm runtime: {err}")))?;
         }
 
         Ok(Response::new(proto::RegisterWorkflowBatchResponse {
-            workflow_version_id: version_id.to_string(),
-            workflow_instance_ids: instance_ids,
+            workflow_version_id: executable_id.to_string(),
+            workflow_instance_ids: vm_ids,
             queued: target_count as u32,
         }))
     }
@@ -175,7 +125,9 @@ impl proto::workflow_service_server::WorkflowService for BridgeService {
             .as_ref()
             .ok_or_else(|| Status::failed_precondition("bridge running in memory mode"))?;
         let request = request.into_inner();
-        let instance_id = Uuid::parse_str(&request.instance_id)
+        let instance_id: InstanceId = request
+            .instance_id
+            .parse()
             .map_err(|_| Status::invalid_argument("invalid instance_id"))?;
         let poll_interval = Duration::from_secs_f64(request.poll_interval_secs.max(0.1));
 
@@ -194,179 +146,58 @@ impl proto::workflow_service_server::WorkflowService for BridgeService {
         &self,
         request: Request<tonic::Streaming<proto::WorkflowStreamRequest>>,
     ) -> Result<Response<Self::ExecuteWorkflowStream>, Status> {
-        let mut stream = request.into_inner();
-        let first = stream
+        let mut in_stream = request.into_inner();
+
+        // The first message must carry a WorkflowRegistration.
+        let first_msg = in_stream
             .message()
             .await
-            .map_err(|err| Status::internal(format!("stream error: {err}")))?;
-        let Some(first) = first else {
-            return Err(Status::invalid_argument("missing registration"));
-        };
+            .map_err(|err| Status::internal(format!("stream error: {err}")))?
+            .ok_or_else(|| Status::invalid_argument("stream closed before registration"))?;
 
-        let skip_sleep = first.skip_sleep;
-        let registration = match first.kind {
-            Some(proto::workflow_stream_request::Kind::Registration(registration)) => registration,
+        let registration = match first_msg.kind {
+            Some(proto::workflow_stream_request::Kind::Registration(reg)) => reg,
             _ => {
                 return Err(Status::invalid_argument(
-                    "first stream message must include registration",
+                    "first message must be a WorkflowRegistration",
                 ));
             }
         };
+        let _skip_sleep = first_msg.skip_sleep;
 
-        let program = ir::Program::decode(&registration.ir[..])
-            .map_err(|err| Status::invalid_argument(format!("invalid IR: {err}")))?;
-        let dag = Arc::new(
-            convert_to_dag(&program)
-                .map_err(|err| Status::invalid_argument(format!("invalid DAG: {err}")))?,
-        );
-
-        let queue = Arc::new(Mutex::new(VecDeque::new()));
-        let backend = MemoryBackend::with_queue(Arc::clone(&queue));
-
-        let workflow_version = if registration.workflow_version.is_empty() {
-            registration.ir_hash.clone()
-        } else {
-            registration.workflow_version.clone()
-        };
-        let version_id = backend
-            .upsert_workflow_version(&WorkflowRegistration {
-                workflow_name: registration.workflow_name.clone(),
-                workflow_version,
-                ir_hash: registration.ir_hash.clone(),
-                program_proto: registration.ir.clone(),
-                concurrent: registration.concurrent,
-            })
+        let runtime = waymark_transient_execution_bringup::setup_runtime(&registration)
             .await
-            .map_err(|err| Status::internal(format!("workflow upsert failed: {err}")))?;
+            .map_err(|err| Status::internal(format!("setup runtime: {err}")))?;
 
-        let instance_id = InstanceId::new_uuid_v4();
-        let queued = build_queued_instance(
-            instance_id,
-            version_id,
-            Arc::clone(&dag),
-            registration.initial_context,
-        )
-        .map_err(Status::invalid_argument)?;
-        queue
-            .lock()
-            .expect("in-memory queue lock")
-            .push_back(queued);
+        let waymark_transient_execution_bringup::ExecuteChannels {
+            out_rx,
+            action_result_tx,
+        } = waymark_transient_execution_bringup::execute(runtime);
 
-        let (response_tx, response_rx) = mpsc::channel::<proto::WorkflowStreamResponse>(64);
-        let (completion_tx, completion_rx) = mpsc::channel::<ActionCompletion>(64);
-
-        let worker_pool = StreamWorkerPool::new(response_tx.clone(), completion_rx);
-        let inflight = worker_pool.inflight();
-
-        let response_tx_for_run = response_tx.clone();
-        let backend_for_run = backend.clone();
-        tokio::task::spawn_blocking(move || {
-            let runtime = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build();
-
-            let Ok(runtime) = runtime else {
-                let payload = crate::utils::build_workflow_arguments(
-                    None,
-                    Some(ExecutionException(error_value(
-                        "RunLoopError",
-                        "failed to start runtime",
-                    ))),
-                );
-                let response = proto::WorkflowStreamResponse {
-                    kind: Some(proto::workflow_stream_response::Kind::WorkflowResult(
-                        proto::WorkflowExecutionResult {
-                            payload: payload.encode_to_vec(),
-                        },
-                    )),
-                };
-                let _ = response_tx_for_run.blocking_send(response);
-                return;
-            };
-
-            runtime.block_on(async move {
-                let runloop = RunLoop::new(
-                    worker_pool,
-                    backend,
-                    RunLoopConfig {
-                        max_concurrent_instances: 25.try_into().unwrap(),
-                        executor_shards: 1.try_into().unwrap(),
-                        instance_done_batch_size: None,
-                        // TODO: do we really want no interval here?
-                        poll_interval: None,
-                        persistence_interval: Some(
-                            Duration::from_secs_f64(0.1).try_into().unwrap(),
-                        ),
-                        lock_uuid: LockId::new_uuid_v4(),
-                        lock_ttl: Duration::from_secs(15).try_into().unwrap(),
-                        lock_heartbeat: Duration::from_secs(5).try_into().unwrap(),
-                        evict_sleep_threshold: Duration::from_secs(10).try_into().unwrap(),
-                        skip_sleep,
-                        active_instance_gauge: None,
-                    },
-                );
-                let run_result = runloop.run().await;
-
-                let payload = match run_result {
-                    Ok(_) => {
-                        let done = find_latest_instance_done(&backend_for_run, instance_id);
-                        if let Some(done) = done {
-                            crate::utils::build_workflow_arguments(done.result, done.error)
-                        } else {
-                            crate::utils::build_workflow_arguments(
-                                None,
-                                Some(ExecutionException(error_value("RunLoopError", "no result"))),
-                            )
-                        }
-                    }
-                    Err(err) => crate::utils::build_workflow_arguments(
-                        None,
-                        Some(ExecutionException(error_value(
-                            "RunLoopError",
-                            &err.to_string(),
-                        ))),
-                    ),
-                };
-
-                let response = proto::WorkflowStreamResponse {
-                    kind: Some(proto::workflow_stream_response::Kind::WorkflowResult(
-                        proto::WorkflowExecutionResult {
-                            payload: payload.encode_to_vec(),
-                        },
-                    )),
-                };
-                let _ = response_tx_for_run.send(response).await;
-            });
-        });
-
+        // Feed ActionResult messages from the gRPC input stream into the
+        // execution's action-result channel.
         tokio::spawn(async move {
             loop {
-                let message = stream.message().await;
-                match message {
-                    Ok(Some(request)) => {
+                match in_stream.message().await {
+                    Ok(Some(msg)) => {
                         if let Some(proto::workflow_stream_request::Kind::ActionResult(result)) =
-                            request.kind
-                            && let Some(completion) =
-                                crate::stream_worker_pool::action_result_to_completion(
-                                    result, &inflight,
-                                )
+                            msg.kind
+                            && action_result_tx.send(result).await.is_err()
                         {
-                            let _ = completion_tx.send(completion).await;
+                            break;
                         }
                     }
                     Ok(None) => break,
                     Err(err) => {
-                        debug!(error = %err, "workflow stream closed");
+                        tracing::warn!(?err, "gRPC input stream error");
                         break;
                     }
                 }
             }
         });
 
-        let output_stream = ReceiverStream::new(response_rx).map(Ok);
-        Ok(Response::new(
-            Box::pin(output_stream) as Self::ExecuteWorkflowStream
-        ))
+        let out_stream = ReceiverStream::new(out_rx);
+        Ok(Response::new(Box::pin(out_stream)))
     }
 
     async fn register_schedule(
@@ -381,7 +212,7 @@ impl proto::workflow_service_server::WorkflowService for BridgeService {
 
         if let Some(registration) = request.registration {
             store
-                .upsert_workflow_version(&registration)
+                .compile_and_store(&registration)
                 .await
                 .map_err(|err| Status::internal(format!("workflow upsert failed: {err}")))?;
         }
@@ -572,84 +403,6 @@ impl proto::workflow_service_server::WorkflowService for BridgeService {
 
         Ok(Response::new(proto::ListSchedulesResponse { schedules }))
     }
-}
-
-fn error_value(kind: &str, message: &str) -> serde_json::Value {
-    let mut map = serde_json::Map::new();
-    map.insert(
-        "type".to_string(),
-        serde_json::Value::String(kind.to_string()),
-    );
-    map.insert(
-        "message".to_string(),
-        serde_json::Value::String(message.to_string()),
-    );
-    serde_json::Value::Object(map)
-}
-
-fn find_latest_instance_done(
-    backend: &MemoryBackend,
-    instance_id: InstanceId,
-) -> Option<InstanceDone> {
-    backend
-        .instances_done()
-        .into_iter()
-        .rev()
-        .find(|instance| instance.executor_id == instance_id)
-}
-
-fn build_queued_instance(
-    instance_id: InstanceId,
-    workflow_version_id: WorkflowVersionId,
-    dag: Arc<waymark_dag::DAG>,
-    initial_context: Option<proto::WorkflowArguments>,
-) -> Result<QueuedInstance, String> {
-    let mut state = RunnerState::from_dag(Arc::clone(&dag));
-
-    if let Some(context) = initial_context {
-        let inputs = workflow_arguments_to_json_map(&context);
-        for (name, value) in inputs {
-            let expr = literal_from_json_value(&value);
-            let label = format!("input {name} = {value}");
-            let _ = state
-                .record_assignment(vec![name.clone()], &expr, None, Some(label))
-                .map_err(|err| err.0)?;
-        }
-    }
-
-    let entry_node = dag
-        .entry_node
-        .as_ref()
-        .ok_or_else(|| "DAG entry node not found".to_string())?;
-
-    let entry_exec = state
-        .queue_template_node(entry_node, None)
-        .map_err(|err| err.0)?;
-
-    Ok(QueuedInstance {
-        workflow_version_id,
-        schedule_id: None,
-        entry_node: entry_exec.node_id,
-        graph: state.graph,
-        action_results: HashMap::new(),
-        instance_id,
-        scheduled_at: None,
-    })
-}
-
-fn workflow_arguments_to_json_map(
-    args: &proto::WorkflowArguments,
-) -> HashMap<String, serde_json::Value> {
-    let mut map = HashMap::new();
-    for arg in &args.arguments {
-        if let Some(value) = &arg.value {
-            map.insert(
-                arg.key.clone(),
-                waymark_message_conversions::workflow_argument_value_to_json(value),
-            );
-        }
-    }
-    map
 }
 
 fn proto_schedule_type(value: i32) -> Option<ScheduleType> {
