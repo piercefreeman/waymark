@@ -1,0 +1,131 @@
+export const metadata = {
+  title: 'Configuration',
+  description:
+    'Reference for the WAYMARK_* environment variables that configure the worker pool, the bridge, and the Python SDK.',
+}
+
+export const sections = [
+  { title: 'Worker pool', id: 'worker-pool' },
+  { title: 'Worker pool advanced', id: 'worker-pool-advanced' },
+  { title: 'Bridge', id: 'bridge' },
+  { title: 'Python SDK & bootstrap', id: 'python-sdk' },
+  { title: 'Worker recycling', id: 'worker-recycling' },
+  { title: 'Garbage collection', id: 'garbage-collection' },
+]
+
+# Configuration
+
+Waymark is designed to run with almost no configuration: most deployments
+set `WAYMARK_DATABASE_URL` and `WAYMARK_USER_MODULE` and never touch
+another variable. Everything else has a default tuned for a single-host
+deployment.
+
+Configuration is entirely through environment variables. The runtime
+reads them directly from the process environment - there's no auto-loading
+of `.env` files, so set them before launching `waymark-start-workers` (or
+import `python-dotenv` yourself if that's your preference).
+
+The variables are grouped by which process reads them: the worker pool,
+the bridge, and the Python SDK / boot helpers.
+
+## Worker pool {{ id: 'worker-pool' }}
+
+These are the variables you'll touch most often when running
+`waymark-start-workers`.
+
+| Variable | Description | Default |
+| --- | --- | --- |
+| `WAYMARK_DATABASE_URL` | PostgreSQL DSN for runtime state. | Required |
+| `WAYMARK_WORKER_COUNT` | Number of Python worker processes. | Host CPU count |
+| `WAYMARK_CONCURRENT_PER_WORKER` | Max concurrent actions per worker. | `10` |
+| `WAYMARK_MAX_CONCURRENT_INSTANCES` | Max in-memory instances across runloop shards. | `500` |
+| `WAYMARK_EXECUTOR_SHARDS` | Number of executor shards. | Host CPU count |
+| `WAYMARK_USER_MODULE` | Comma-separated Python modules preloaded in workers. | Unset |
+| `WAYMARK_MAX_ACTION_LIFECYCLE` | Actions per worker before recycle (memory mitigation). | Unset (no limit) |
+| `WAYMARK_WEBAPP_ENABLED` | Enable embedded web UI. | `false` |
+| `WAYMARK_WEBAPP_ADDR` | Web UI bind address. | `0.0.0.0:24119` |
+
+<Note>
+`WAYMARK_USER_MODULE` is the one most people miss on first setup. The
+worker pool needs to import the modules where your `@action` and
+`@workflow` decorators run, otherwise it has no handlers registered when
+queue rows arrive - and it won't fail loudly, it will just idle.
+</Note>
+
+## Worker pool advanced {{ id: 'worker-pool-advanced' }}
+
+These tune the runloop scheduler. The defaults are well-chosen for a
+single-host deployment; you usually only reach for them once you're
+running multiple hosts and have a measured reason.
+
+| Variable | Description | Default |
+| --- | --- | --- |
+| `WAYMARK_WORKER_GRPC_ADDR` | gRPC bind for the Python worker bridge server. | `127.0.0.1:24118` |
+| `WAYMARK_POLL_INTERVAL_MS` | Queue poll interval. | `100` |
+| `WAYMARK_INSTANCE_DONE_BATCH_SIZE` | Batch size for persisting completed instances. | Falls back to `WAYMARK_MAX_CONCURRENT_INSTANCES` |
+| `WAYMARK_PERSIST_INTERVAL_MS` | Persistence flush interval. | `500` |
+| `WAYMARK_LOCK_TTL_MS` | Queue lock TTL. | `15000` |
+| `WAYMARK_LOCK_HEARTBEAT_MS` | Queue lock heartbeat interval. | `5000` |
+| `WAYMARK_EVICT_SLEEP_THRESHOLD_MS` | Sleep threshold for evicting idle instances. | `10000` |
+| `WAYMARK_EXPIRED_LOCK_RECLAIMER_INTERVAL_MS` | Expired lock reclaim sweep. | `15000` |
+| `WAYMARK_EXPIRED_LOCK_RECLAIMER_BATCH_SIZE` | Max locks reclaimed per sweep. | `1000` |
+| `WAYMARK_SCHEDULER_POLL_INTERVAL_MS` | Scheduler poll interval. | `1000` |
+| `WAYMARK_SCHEDULER_BATCH_SIZE` | Scheduler due-item batch size. | `100` |
+| `WAYMARK_RUNNER_PROFILE_INTERVAL_MS` | Worker status / profile publish interval. | `5000` |
+
+## Bridge {{ id: 'bridge' }}
+
+`waymark-bridge` is the gRPC server that translates between the Python
+SDK and the Rust runtime. Most users never run this binary directly - the
+Python SDK boots a singleton bridge automatically on first workflow
+invocation. You'd set these only when you want to run the bridge as its
+own service (e.g., a sidecar container).
+
+| Variable | Description | Default |
+| --- | --- | --- |
+| `WAYMARK_BRIDGE_GRPC_ADDR` | gRPC bind address. | `127.0.0.1:24117` |
+| `WAYMARK_BRIDGE_IN_MEMORY` | Run with no Postgres backend (test / dev only). | `false` |
+| `WAYMARK_DATABASE_URL` | PostgreSQL DSN. | Required unless in-memory |
+
+## Python SDK & bootstrap {{ id: 'python-sdk' }}
+
+These influence how the Python SDK connects to a bridge - useful when
+you've split processes across containers or hosts.
+
+| Variable | Description | Default |
+| --- | --- | --- |
+| `WAYMARK_BOOT_COMMAND` | Full command to boot the singleton bridge. | Unset |
+| `WAYMARK_BOOT_BINARY` | Boot binary used when `WAYMARK_BOOT_COMMAND` is unset. | `waymark-boot-singleton` |
+| `WAYMARK_BRIDGE_GRPC_ADDR` | Explicit `host:port` for the SDK to connect to. | Unset |
+| `WAYMARK_BRIDGE_GRPC_HOST` | Bridge gRPC host (used by the singleton helper and the SDK). | `127.0.0.1` |
+| `WAYMARK_BRIDGE_GRPC_PORT` | Bridge gRPC base port. | `24117` |
+| `WAYMARK_BRIDGE_BASE_PORT` | Fallback alias for `WAYMARK_BRIDGE_GRPC_PORT`. | Unset |
+| `WAYMARK_SKIP_WAIT_FOR_INSTANCE` | Return immediately after queueing instead of awaiting completion. | `false` |
+| `WAYMARK_LOG_LEVEL` | Python SDK logger level. | `INFO` |
+
+## Worker recycling {{ id: 'worker-recycling' }}
+
+`WAYMARK_MAX_ACTION_LIFECYCLE` controls how many actions a Python worker
+can execute before it's automatically replaced. Useful when a third-party
+library leaks memory: set the variable to something like `1000` or
+`10000` and Waymark will spin up a fresh worker before retiring the old
+one. In-flight actions on the old worker complete normally before the
+process exits, so recycling costs you no downtime.
+
+By default this is unset, meaning workers run indefinitely.
+
+## Garbage collection {{ id: 'garbage-collection' }}
+
+The runtime periodically purges completed instances from Postgres to keep
+the active tables small:
+
+| Variable | Description | Default |
+| --- | --- | --- |
+| `WAYMARK_GARBAGE_COLLECTOR_RETENTION_HOURS` | How long finished instances are kept. | `24` |
+| `WAYMARK_GARBAGE_COLLECTOR_INTERVAL_MS` | Sweep interval. | `300000` (5 min) |
+| `WAYMARK_GARBAGE_COLLECTOR_BATCH_SIZE` | Max rows deleted per sweep. | `100` |
+
+The retention window is the one to think about: it bounds how far back
+the webapp's run history goes and how long results stay queryable.
+If you audit workflow runs or debug with day-old history, raise
+`WAYMARK_GARBAGE_COLLECTOR_RETENTION_HOURS` to match your needs.

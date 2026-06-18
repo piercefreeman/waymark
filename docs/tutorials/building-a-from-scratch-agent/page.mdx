@@ -1,0 +1,466 @@
+export const metadata = {
+  title: 'Building an Agent From Scratch',
+  description:
+    'Build a tiny durable agent by hand: one model round trip, explicit Waymark actions for tools, and a loop that feeds results back to the model.',
+}
+
+export const sections = [
+  { title: 'Stub the workflow', id: 'stub-the-workflow' },
+  { title: 'Messages and turns', id: 'messages-and-turns' },
+  { title: 'Tool actions', id: 'tool-actions' },
+  { title: 'Round trip the model', id: 'round-trip-the-model' },
+  { title: 'Run it', id: 'run-it' },
+  { title: 'Where to go next', id: 'where-to-go-next' },
+]
+
+# Building an Agent From Scratch
+
+You can't go two minutes online without hearing about agents or agentic workflows.
+
+Agents are actually dead simple conceptually. You give it a first message,
+the model returns either a message or a request to call a function. When it
+asks for a function, you execute that function and return the
+results. The loop continues and now you have a (potentially) infinite
+loop where your system can learn from past mistakes, adjust its
+approaches, ask for more data, etc.
+
+That's literally it. But because of how they're trained and how generic you can
+make these functions, they can be incredibly powerful. The magic is in which
+tools you expose and how cleanly you format the results.
+
+This tutorial builds the smallest useful agent with Waymark. By the end of it you'll
+have a complete agent from scratch. And because you're building it with Waymark, you'll inherit Waymark's
+guarantees so even if your cluster crashes, sleeps, or needs to retry it'll do so
+transparently and without failing your job. This is exactly what billion-dollar companies are doing today. Let's jump into it!
+
+## Setting up your environment
+
+If you haven't already set up Waymark locally, you might want to check out our [Quickstart guide](/guides/quickstart)
+to get you running asap. This tutorial assumes you'll be writing this workflow into a new workflow file.
+
+## Stub the workflow {{ id: 'stub-the-workflow' }}
+
+In practice, sketching out your workflow is usually the best place to start. The puzzle
+pieces of your individual actions are intended to work together, so it's easier to
+think top down about how data will need to pass around your workflow.
+
+Start with the smallest possible workflow shell:
+
+```python
+from waymark import Workflow, workflow
+
+@workflow
+class SupportAgentWorkflow(Workflow):
+    async def run(self, message: str) -> str:
+        pass
+```
+
+This looks almost too small to be useful, but it gives us the right
+question: what does `run()` need to remember between model calls? For an
+agent, the answer is a message list.
+
+Now replace `pass` with the first model call. We'll start with a single loop
+of this conversation: sending a message to the server, getting back new model
+items, and keeping track of those items as part of the overall conversation.
+
+```python diff
+@workflow
+class SupportAgentWorkflow(Workflow):
+    async def run(self, message: str) -> str:
++        messages: list[ModelItem] = [Message(role="user", content=message)]
++        new_items = await self.single_turn(messages)
++        for item in new_items:
++            if item.kind == "message":
++                return item.content
++        raise RuntimeError("Tool requests are handled in the next step.")
+
++    async def single_turn(self, messages: list[ModelItem]) -> list[ModelItem]:
++        new_items = await roundtrip_agent(messages)
++        for item in new_items:
++            messages.append(item)
++        return new_items
+```
+
+So far we're just keeping track of the conversation history. We're not actually _doing_
+anything as part of the conversation. Which is pretty boring! Let's look at building
+some functions (officially called tool calls) that will help.
+
+Let's add a helper for that next. If one of those items asks for a tool, the
+workflow dispatches the matching Waymark action and turns the result into the
+next tool result item.
+
+```python diff
+@workflow
+class SupportAgentWorkflow(Workflow):
+    async def run(self, message: str) -> str:
+        messages: list[ModelItem] = [Message(role="user", content=message)]
+        new_items = await self.single_turn(messages)
+        for item in new_items:
+            if item.kind == "message":
+                return item.content
+        raise RuntimeError("Tool requests are handled in the next step.")
+
+    async def single_turn(self, messages: list[ModelItem]) -> list[ModelItem]:
+        new_items = await roundtrip_agent(messages)
+        for item in new_items:
+            messages.append(item)
+        return new_items
+
++    async def handle_tools(self, request: ToolRequest) -> ToolResult:
++        if request.tool_name == "lookup_order":
++            content = await lookup_order(
++                LookupOrderInput.model_validate(request.arguments),
++            )
++        elif request.tool_name == "refund_order":
++            content = await refund_order(
++                RefundOrderInput.model_validate(request.arguments),
++            )
++        else:
++            content = await unknown_tool(
++                UnknownToolInput(tool_name=request.tool_name),
++            )
++
++        tool_result = ToolResult(
++            tool_call_id=request.tool_call_id,
++            content=content,
++        )
++        return tool_result
+```
+
+Now `run()` can become the actual agent loop. It's usually bad form to have a generic
+while True loop, but that's exactly what we want here. The model should keep looping forever
+until it decides it's done (or we break because we've exceeded some total calls or something).
+
+```python diff
+@workflow
+class SupportAgentWorkflow(Workflow):
+    async def run(self, message: str) -> str:
+        messages: list[ModelItem] = [Message(role="user", content=message)]
+
+-        new_items = await self.single_turn(messages)
+-        for item in new_items:
+-            if item.kind == "message":
+-                return item.content
+-        raise RuntimeError("Tool requests are handled in the next step.")
+
++        while True:
++            new_items = await self.single_turn(messages)
++            for item in new_items:
++                if item.kind == "message":
++                    return item.content
+
++                if item.kind == "tool_request":
++                    tool_result = await self.handle_tools(item)
++                    messages.append(tool_result)
+
+    async def single_turn(self, messages: list[ModelItem]) -> list[ModelItem]:
+        new_items = await roundtrip_agent(messages)
+        for item in new_items:
+            messages.append(item)
+        return new_items
+
+    async def handle_tools(self, request: ToolRequest) -> ToolResult:
+        if request.tool_name == "lookup_order":
+            content = await lookup_order(
+                LookupOrderInput.model_validate(request.arguments),
+            )
+        elif request.tool_name == "refund_order":
+            content = await refund_order(
+                RefundOrderInput.model_validate(request.arguments),
+            )
+        else:
+            content = await unknown_tool(
+                UnknownToolInput(tool_name=request.tool_name),
+            )
+
+        tool_result = ToolResult(
+            tool_call_id=request.tool_call_id,
+            content=content,
+        )
+        return tool_result
+```
+
+Workflows often read like the English description of an agent. We ask the model what
+to do next. If it asks for a tool, run the tool, append the tool result item,
+and ask again. When the model returns a message instead of a tool request,
+return its content.
+
+At this point it's a good time to pause. You've just architected a workflow! But we'll keep on chugging
+and jump into the implementation of the models that we just assumed we had.
+
+## Messages and turns {{ id: 'messages-and-turns' }}
+
+The line we have in `run()` is this:
+
+```python
+messages: list[ModelItem] = [Message(role="user", content=message)]
+```
+
+That line tells us the first type we need. Messages can be produced either
+by users or by the agents outputting some text.
+
+We try to keep these contracts boring. We emphasize type hints to make the state obvious when
+you inspect a run later. Start with the conversation message itself:
+
+```python
+from typing import Any, Literal
+from pydantic import BaseModel
+
+class Message(BaseModel):
+    kind: Literal["message"] = "message"
+    role: Literal["user", "assistant"]
+    content: str
+```
+
+A tool request is a separate typed object that requests to run one named
+tool with one set of arguments. It has more detailed parameters that define
+how to actually call the tool.
+
+```python
+class ToolRequest(BaseModel):
+    kind: Literal["tool_request"] = "tool_request"
+    tool_name: str = ""
+    tool_call_id: str = ""
+    arguments: dict[str, Any]
+```
+
+Once a tool call is in-flight, we need to prepare the result values. These mostly
+just correlate the input requests with the output via a `tool_call_id` identifier.
+
+```python
+class ToolResult(BaseModel):
+    kind: Literal["tool_result"] = "tool_result"
+    tool_call_id: str
+    content: str
+```
+
+`ToolResult` can be kept small because the workflow doesn't need every internal
+detail from the order system or billing system. Tool results often work
+well as JSON strings, but they can be normal text too.
+
+
+Now we can name the union that the workflow keeps in memory. A model-visible item
+is a normal message, a tool request, or a tool result.
+
+```python
+ModelItem = Message | ToolRequest | ToolResult
+```
+
+Any time we interact with the remote model we'll want it to be one of these three types.
+
+## Tool actions {{ id: 'tool-actions' }}
+
+Tools are regular functions. They're basically the capabilities the model can ask for. Here we implement
+them as
+ordinary Waymark actions, so each invocation is retried, persisted, and
+visible to the runtime.
+
+```python
+from waymark import action
+
+class LookupOrderInput(BaseModel):
+    order_id: str
+
+class RefundOrderInput(BaseModel):
+    order_id: str
+    reason: str
+
+class UnknownToolInput(BaseModel):
+    tool_name: str
+
+@action
+async def lookup_order(params: LookupOrderInput) -> str:
+    """Look up the latest status for an order."""
+    status = "packed and waiting for carrier pickup"
+    return f"Order {params.order_id} is {status}."
+
+@action
+async def refund_order(params: RefundOrderInput) -> str:
+    """Create a refund for an order."""
+    # Replace this with your billing system call.
+    return f"Refund for order {params.order_id} was created. Reason: {params.reason}"
+
+@action
+async def unknown_tool(params: UnknownToolInput) -> str:
+    return f"The tool {params.tool_name!r} is not available."
+```
+
+Each exposed tool takes exactly one Pydantic model so we can reuse
+that model for validation and schema generation. At this point we have the key
+pieces of our _own_ business logic. Now we just need to wire up the scaffolding
+code to let you talk to a remote LLM.
+
+Note that you'll only have to prepare this next bit a single time across your project. What
+we just did is what makes the individual agent unique.
+
+## Round trip the model {{ id: 'round-trip-the-model' }}
+
+We implement the model call lives in a separate action because it can fail in a myriad
+of ways: the API might be down, it might timeout, you might hit token pressure, etc. By wrapping
+it in an action, it will backoff until it eventually succeeds.
+
+We first need to translate our local items into the message dictionaries the
+OpenAI client expects. This is provider-specific, so we waited until now to add
+it. Each item already knows what it represents, so give each one a small
+`to_remote_message()` method.
+
+```python diff
++import json
+
+class Message(BaseModel):
+    kind: Literal["message"] = "message"
+    role: Literal["user", "assistant"]
+    content: str
+
++    def to_remote_message(self) -> dict[str, Any]:
++        return {"role": self.role, "content": self.content}
+
+
+class ToolResult(BaseModel):
+    kind: Literal["tool_result"] = "tool_result"
+    tool_call_id: str
+    content: str
+
++    def to_remote_message(self) -> dict[str, Any]:
++        return {
++            "role": "tool",
++            "tool_call_id": self.tool_call_id,
++            "content": self.content,
++        }
+
+
+class ToolRequest(BaseModel):
+    kind: Literal["tool_request"] = "tool_request"
+    tool_name: str = ""
+    tool_call_id: str = ""
+    arguments: dict[str, Any]
+
++    def to_remote_message(self) -> dict[str, Any]:
++        return {
++            "role": "assistant",
++            "tool_calls": [
++                {
++                    "id": self.tool_call_id,
++                    "type": "function",
++                    "function": {
++                        "name": self.tool_name,
++                        "arguments": json.dumps(self.arguments),
++                    },
++                }
++            ],
++        }
+```
+
+OpenAI's tool calling relies on JSON Schema to describe the arguments the model
+is allowed to produce for each tool. That is useful because it nudges the model's
+tool requests into the shape our code expects. But writing those schemas by hand
+is annoying, and worse, it creates duplicate bookkeeping: if you change a
+function's input model, you also have to remember to change the hand-written
+schema.
+
+Instead, we can write a small `function_to_schema(...)` helper that finds the
+function's single type-hinted argument, then piggybacks on
+Pydantic's output. As long as each exposed tool takes one
+Pydantic value, the schema and runtime validation stay in sync. Let's enforce
+that in this parser code for now.
+
+```python
+import inspect
+from typing import Callable, get_type_hints
+
+def function_to_schema(fn: Callable[..., Any]) -> dict[str, Any]:
+    fn = inspect.unwrap(fn)
+    parameters = list(inspect.signature(fn).parameters.values())
+    if len(parameters) != 1:
+        raise TypeError(f"{fn.__name__} must take exactly one input model.")
+
+    parameter = parameters[0]
+    input_type = get_type_hints(fn).get(parameter.name)
+    if not isinstance(input_type, type) or not issubclass(input_type, BaseModel):
+        raise TypeError(f"{fn.__name__} must take one Pydantic model argument.")
+
+    return {
+        "type": "function",
+        "function": {
+            "name": fn.__name__,
+            "description": inspect.getdoc(fn) or "",
+            "parameters": input_type.model_json_schema(),
+        },
+    }
+```
+
+Now we can implement the actual round trip logic. This will bundle up our messages, send them
+to the API, and wait for the tokens to finish generating so we get our next round of tool calls.
+
+```python
+from openai import AsyncOpenAI
+
+client = AsyncOpenAI()
+
+SUPPORT_TOOLS = [
+    function_to_schema(lookup_order),
+    function_to_schema(refund_order),
+]
+
+async def call_model(
+    messages: list[ModelItem],
+    tools: list[dict[str, Any]],
+) -> list[ModelItem]:
+    response = await client.chat.completions.create(
+        model="gpt-5.5",
+        messages=[item.to_remote_message() for item in messages],
+        tools=tools,
+    )
+
+    message = response.choices[0].message
+    if message.tool_calls:
+        requests: list[ModelItem] = []
+        for tool_call in message.tool_calls:
+            arguments = json.loads(tool_call.function.arguments or "{}")
+            requests.append(
+                ToolRequest(
+                    tool_name=tool_call.function.name,
+                    tool_call_id=tool_call.id,
+                    arguments=arguments,
+                )
+            )
+        return requests
+
+    return [Message(role="assistant", content=message.content or "")]
+
+@action
+async def roundtrip_agent(messages: list[ModelItem]) -> list[ModelItem]:
+    return await call_model(messages, SUPPORT_TOOLS)
+```
+
+The OpenAI Python
+client defaults to OpenAI (obviously), but most model providers expose an OpenAI-compatible
+API now, so the same client can point at them with `base_url` and `api_key`.
+Pays to be the first one to market.
+
+## Run it {{ id: 'run-it' }}
+
+Run it like any other workflow:
+
+```python
+answer = await SupportAgentWorkflow().run(
+    "Where is order A100? If it has not shipped, refund it."
+)
+print(answer)
+```
+
+That is the whole agent: model items, tool requests, tool result messages, next
+model call. Waymark makes the loop resumable; your tool design makes it useful.
+
+## Where to go next {{ id: 'where-to-go-next' }}
+
+There's a lot of power to building your loops like this. They're super inspectable and
+they keep the representation of agents as what they actually are: strings of messages that sometimes
+call tools. It's best to not abstract them too far away from the underlying language models that
+are generating tokens. Personally, we usually build agents with exactly this convention until they
+really grow unwieldy: at which point we'll refactor.
+
+But sometimes it's helpful to add some additional abstractions on top to support more complex
+graph modeling or logging.
+[Durable Agents with Pydantic AI](/tutorials/durable-agents-with-pydantic-ai)
+builds the same pattern with Pydantic AI's `Agent`.

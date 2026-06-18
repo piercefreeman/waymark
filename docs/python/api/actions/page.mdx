@@ -1,0 +1,58 @@
+# Actions
+
+Actions are the distributed work primitive. An `@action`-decorated
+async function is registered with the worker bridge and gets dispatched
+to a worker each time a workflow calls it. Action arguments and results
+round-trip through Postgres, so anything you pass needs to survive
+Waymark's serializer - pydantic models, dataclasses, primitives,
+containers, and common stdlib types. See
+[Inputs and outputs](/python/authoring) for the full list.
+
+## Decorator
+
+::: waymark.actions.action
+
+---
+
+## Registry
+
+The action registry is the runtime's map from action name to handler.
+The worker pool consults it when claiming queue rows.
+
+::: waymark.registry.ActionRegistry
+
+---
+
+## Dependencies
+
+Actions can declare dependencies the same way Mountaineer and FastAPI
+controllers do - via `Annotated[T, Depends(...)]` parameters. `Depends`
+is re-exported from `mountaineer-di`; the `Depend` documented below is
+its backward-compatible alias with the identical signature, so import
+`Depends` and read on.
+
+::: waymark.dependencies.Depend
+
+---
+
+## Result payloads
+
+These helpers handle the serialization layer between an action's
+in-process Python objects and the bytes that land in Postgres. Most
+users don't touch them directly - the `@action` decorator handles
+serialization automatically - but they're exposed for tooling that
+needs to interpret persisted results.
+
+::: waymark.actions.ActionResultPayload
+
+---
+
+::: waymark.actions.serialize_result_payload
+
+---
+
+::: waymark.actions.deserialize_result_payload
+
+---
+
+::: waymark.actions.serialize_error_payload
