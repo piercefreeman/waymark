@@ -5143,6 +5143,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-typed-vec-serde"
+version = "0.1.0"
+dependencies = [
+ "index_type",
+ "serde",
+]
+
+[[package]]
 name = "waymark-utils-futures"
 version = "0.1.0"
 dependencies = [
