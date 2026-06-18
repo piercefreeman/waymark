@@ -33,11 +33,12 @@ pub(super) async fn reset_database(pool: &PgPool) {
         TRUNCATE runner_actions_done,
                  queued_instances,
                  runner_instances,
-                 workflow_versions,
-                 workflow_schedules,
-                 worker_status,
+                 vm_executables,
                  vm_runtime_snapshots,
-                 workload_pinnings
+                 workflow_schedules,
+                 workflow_versions,
+                 workload_pinnings,
+                 worker_status
         RESTART IDENTITY CASCADE
         "#,
     )
