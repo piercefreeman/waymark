@@ -5501,6 +5501,7 @@ dependencies = [
  "index_type",
  "serde",
  "thiserror",
+ "waymark-typed-vec-serde",
  "waymark-vm-exception-handler",
  "waymark-vm-runtime-exception",
  "waymark-vm-runtime-promise-core",
