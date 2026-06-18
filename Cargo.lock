@@ -5146,6 +5146,21 @@ name = "waymark-state-manager-core"
 version = "0.1.0"
 
 [[package]]
+name = "waymark-state-vm-executables"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "thiserror",
+ "waymark-state-manager-core",
+ "waymark-state-vm-executables-backend",
+ "waymark-vm-codec-core",
+]
+
+[[package]]
+name = "waymark-state-vm-executables-backend"
+version = "0.1.0"
+
+[[package]]
 name = "waymark-state-vm-executables-compat"
 version = "0.1.0"
 dependencies = [
