@@ -1,0 +1,22 @@
+# Retry Policy
+
+`RetryPolicy` configures how Waymark responds when an action raises an
+exception. It's passed to `Workflow.run_action(...)` per call. See the
+[Retries & Timeouts guide](/guides/retries) for the conceptual
+walk-through; this page is the precise API surface.
+
+Semantics to know:
+
+- `attempts` counts total executions: `attempts=5` is one initial try
+  plus up to four retries, and `attempts=1` means fail immediately.
+- Omitting `attempts` compiles to a budget of 100 retries. Set it
+  explicitly unless you want that.
+- `backoff_seconds` is parsed and persisted, but the runtime currently
+  dispatches retries immediately. Don't rely on it for pacing yet; put
+  an `await asyncio.sleep(...)` inside the action instead.
+- Field values must be literal constants in the workflow body. The
+  compiler reads them from the AST at registration, so a policy built
+  from a runtime variable won't be picked up. The exception:
+  `self.retry_policy` instance attributes resolve fine.
+
+::: waymark.workflow.RetryPolicy

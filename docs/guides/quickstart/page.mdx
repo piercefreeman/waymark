@@ -1,0 +1,210 @@
+export const metadata = {
+  title: 'Quickstart',
+  description:
+    'Install Waymark, define your first workflow, and run it against a local Postgres in under five minutes.',
+}
+
+export const sections = [
+  { title: 'Install', id: 'install' },
+  { title: 'Define a workflow', id: 'define-a-workflow' },
+  { title: 'Setting up your env', id: 'setting-up-your-env' },
+  { title: 'Boot the worker pool', id: 'boot-the-worker-pool' },
+  { title: 'Kick off a run', id: 'kick-off-a-run' },
+  { title: 'Where to look next', id: 'where-to-look-next' },
+]
+
+# Quickstart
+
+The best way to get a sense for Waymark is just to jump in. This quickstart covers writing
+a super simple fibonacci calculator; obviously there's not a ton of practicality in making this
+a background job - but it's standalone and shows all of the key parts of the library.
+
+When you're ready to ship, [Production Deployment](/guides/production) covers the full
+instructions of what you'll need. With our simple runtime requirements it's not much else.
+
+## Install {{ id: 'install' }}
+
+Waymark ships as a single Python package. Install it with whichever package
+manager you prefer:
+
+```bash
+uv add waymark
+```
+
+This wheel ships with our Python library, which lets you write your workflows. It also ships with
+our rust backend which allows you to run your code: you can call this with `uv run waymark-start-workers`.
+
+## Define a workflow {{ id: 'define-a-workflow' }}
+
+It's helpful to think of workflows as the coordination layer of your code, orchestrating
+from the top down. You connect the data flow of how you want the more atomic bits of code
+to run. We'll create the full workflow first here: run two computations in parallel, then merge their
+results into a summary.
+
+```python
+import asyncio
+from waymark import Workflow, workflow
+
+@workflow
+class ParallelMathWorkflow(Workflow):
+    async def run(self, number: int) -> str:
+        # Fan out: both computations run in parallel.
+        factorial_value, fibonacci_value = await asyncio.gather(
+            compute_factorial(number),
+            compute_fibonacci(number),
+            return_exceptions=True,
+        )
+        # Fan in: one action merges the results.
+        return await summarize(
+            n=number,
+            factorial_value=factorial_value,
+            fibonacci_value=fibonacci_value,
+        )
+```
+
+As with all workflows, this is fully native Python code that Waymark will later compile
+into its internal language. But you don't have to concern yourself with that translation.
+Just write deterministic code as you normally do. Just flesh out the run() definitions and
+any helper functions with your logic in a `Workflow` class with its decorator.
+
+The two computations are similarly plain async functions, each doing one isolated piece
+of work. Note the similar action decorator.
+
+```python
+from waymark import action
+
+@action
+async def compute_factorial(n: int) -> int:
+    total = 1
+    for value in range(2, n + 1):
+        total *= value
+    return total
+
+@action
+async def compute_fibonacci(n: int) -> int:
+    previous, current = 0, 1
+    for _ in range(n):
+        previous, current = current, previous + current
+    return previous
+```
+
+And the fan-in, which formats both results into the final summary:
+
+```python
+@action
+async def summarize(*, n: int, factorial_value: int, fibonacci_value: int) -> str:
+    return f"{n}! = {factorial_value}; fib({n}) = {fibonacci_value}"
+```
+
+In practice, developing workflows is more organic than writing a workflow definition once
+and filling in all the actions. It's often a back and forth: sketch the workflow,
+stub the action signatures, fill in the implementations, reshape the
+workflow as the contracts firm up. The compiler keeps you honest the
+whole way - every registration re-verifies the workflow against what it
+can actually execute.
+
+## Setting up your env {{ id: 'setting-up-your-env' }}
+
+Before we run this fully we'll need a Postgres database and the variables that
+tell Waymark where to find it. For the sake of this quickstart guide you can use
+a throwaway Docker container with default credentials:
+
+```bash
+docker run -d --name waymark-postgres \
+  -p 5432:5432 \
+  -e POSTGRES_USER=postgres \
+  -e POSTGRES_PASSWORD=postgres \
+  -e POSTGRES_DB=waymark \
+  postgres:16
+```
+
+Then write a `.env` file with the connection string and the module where
+your actions live:
+
+```bash
+export WAYMARK_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/waymark
+export WAYMARK_USER_MODULE=workflows  # or "yourpkg.workflows"
+```
+
+`WAYMARK_USER_MODULE` tells each worker which module to preload, so it has
+the action handlers registered before it starts pulling from the queue.
+
+## Boot the worker pool {{ id: 'boot-the-worker-pool' }}
+
+With the environment in place, the worker pool is one command:
+
+```bash
+source .env && uv run waymark-start-workers
+```
+
+## Kick off a run {{ id: 'kick-off-a-run' }}
+
+You can launch this workflow from any Python process - a FastAPI route, a script, a notebook. The
+client process boots its own bridge to Postgres, so it needs the same
+environment:
+
+```bash
+source .env && uv run python
+```
+
+```python
+import asyncio
+from workflows import ParallelMathWorkflow
+
+async def main() -> None:
+    workflow = ParallelMathWorkflow()
+    result = await workflow.run(7)
+    print(result)
+
+asyncio.run(main())
+```
+
+```
+7! = 5040; fib(7) = 13
+```
+
+<Note>
+If the script hangs instead of printing: check that Postgres is up, and
+check that the worker pool was started with `WAYMARK_USER_MODULE` set.
+A worker that can't find your module doesn't fail loudly - it idles and
+never claims work.
+</Note>
+
+From here you can plug `workflow.run(...)` straight into a FastAPI
+handler:
+
+```python
+from fastapi import FastAPI
+from workflows import ParallelMathWorkflow
+
+app = FastAPI()
+
+@app.post("/compute/{number}")
+async def compute(number: int) -> str:
+    return await ParallelMathWorkflow().run(number)
+```
+
+## Conclusion
+
+And that's basically it! You can play around with adding `asyncio.sleep()`, cancelling the
+runner as it's still processing a job, and seeing everything resume perfectly when you resume
+the job. Just like what you want in production when you're running longer jobs, agents, or
+long duration sleeps.
+
+## Where to look next {{ id: 'where-to-look-next' }}
+
+- [Production Deployment](/guides/production) covers shipping this for
+  real: one image, a worker pool, your app, and the Postgres you already
+  run.
+- [Introduction to Python](/python/authoring) covers the
+  Python-specific surface - pydantic for inputs and outputs, `Depends`
+  for dependency injection, and how the worker discovers your modules.
+- [Workflows & Actions](/guides/workflows-and-actions) walks through the
+  split between durable control flow and distributed work in more depth.
+- [Control Flow](/guides/control-flow) covers what AST patterns the
+  compiler supports - loops, conditionals, parallel fan-out, durable
+  sleep, `try/except`.
+- [Retries & Timeouts](/guides/retries) covers how to configure
+  resilience when actions flake.
+- [Configuration](/guides/configuration) is the full reference for the
+  `WAYMARK_*` environment variables you can set.

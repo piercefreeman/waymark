@@ -1,0 +1,139 @@
+export const metadata = {
+  title: 'Retries & Timeouts',
+  description:
+    'Configure how Waymark handles failed and slow actions: retry counts, backoff, exception filters, and timeouts.',
+}
+
+export const sections = [
+  { title: 'Default behavior', id: 'default-behavior' },
+  { title: 'Configuring with run_action', id: 'configuring-with-run-action' },
+  { title: 'Filtering by exception', id: 'filtering-by-exception' },
+  { title: 'Timeouts', id: 'timeouts' },
+  { title: 'What is enforced today', id: 'what-is-enforced-today' },
+]
+
+# Retries & Timeouts
+
+Background tasks fail. Sometimes they raise; sometimes they hang. Waymark
+gives you a single place to express how each action should respond to
+either failure mode, applied per call.
+
+## Default behavior {{ id: 'default-behavior' }}
+
+If you don't configure anything, you get conservative defaults that
+mirror how a regular program would execute:
+
+- A bare `await some_action(...)` runs the action **once**. If it raises,
+  the failure propagates out of the workflow. No automatic retries.
+- There is no default timeout. An action runs until it completes or its
+  worker dies. You opt into a deadline per call with `timeout=`.
+
+When a failure exhausts its retries (or has none), the workflow fails and
+the `await workflow.run(...)` call raises a `RuntimeError` carrying the
+failure - unless a `try/except` in the workflow body catches the
+exception first.
+
+## Configuring with run_action {{ id: 'configuring-with-run-action' }}
+
+To override the defaults, wrap the action call in `self.run_action(...)`
+and supply a `RetryPolicy`:
+
+```python
+from waymark import RetryPolicy
+from waymark.workflow import Workflow
+
+@workflow
+class FlakyApiWorkflow(Workflow):
+    async def run(self, payload: dict) -> Result:
+        return await self.run_action(
+            call_third_party_api(payload),
+            retry=RetryPolicy(attempts=5),
+        )
+```
+
+`RetryPolicy(attempts=N)` is total executions - five attempts means up to
+four retries after the initial try. `RetryPolicy()` with no `attempts`
+defaults to a generous retry budget (100 internally), suitable for
+external calls that you really expect to succeed eventually.
+
+## Filtering by exception {{ id: 'filtering-by-exception' }}
+
+You usually don't want to retry on every exception - a `ValueError` from
+a bad input is permanent, but a `ConnectionError` is worth another shot.
+Pass `exception_types` to scope retries to specific classes (referenced
+by name, since the workflow body doesn't import the exception):
+
+```python
+await self.run_action(
+    call_third_party_api(payload),
+    retry=RetryPolicy(
+        attempts=5,
+        exception_types=["ConnectionError", "TimeoutError"],
+    ),
+)
+```
+
+If the action raises something not in the list, the policy doesn't
+match - the failure propagates immediately. Each `run_action` call takes
+exactly one `RetryPolicy`; to treat different exceptions differently,
+list them all in `exception_types` or split the work into separate
+actions with their own policies.
+
+## Timeouts {{ id: 'timeouts' }}
+
+A per-call `timeout` caps how long an individual action attempt is
+allowed to run. The runtime stamps a deadline when the action is
+dispatched; if the deadline passes without a result, the attempt fails
+with an `ActionTimeout` exception:
+
+```python
+from datetime import timedelta
+
+await self.run_action(
+    slow_summary(report_id),
+    retry=RetryPolicy(attempts=3),
+    timeout=timedelta(minutes=2),
+)
+```
+
+<Note>
+**Timeouts are not retried by a catch-all policy.** A plain
+`RetryPolicy(attempts=3)` retries exceptions your action raises, but
+`ActionTimeout` is runtime-generated and excluded from catch-all
+matching. To retry timeouts, opt in by name.
+</Note>
+
+```python
+await self.run_action(
+    slow_summary(report_id),
+    retry=RetryPolicy(attempts=3, exception_types=["ActionTimeout"]),
+    timeout=timedelta(minutes=2),
+)
+```
+
+This keeps a hung downstream system from silently consuming your whole
+retry budget unless you've decided that's what you want.
+
+## What is enforced today {{ id: 'what-is-enforced-today' }}
+
+Waymark is alpha. The retry-policy surface is slightly broader than what
+the runtime currently honors, and we want to be precise about the
+difference:
+
+| Field | Parsed | Enforced today |
+| --- | --- | --- |
+| `attempts` | ✓ | ✓ |
+| `exception_types` | ✓ | ✓ |
+| `timeout` | ✓ | ✓ - deadline at dispatch, fails as `ActionTimeout` |
+| `backoff_seconds` | ✓ | ✗ - retries are immediate |
+
+Retry counts, exception filtering, and timeouts work as documented.
+`backoff_seconds` is accepted by the API and persisted in IR, but the
+runloop dispatches retries immediately; delay between attempts is next on
+the enforcement path. Until it lands, encode the wait into the action
+itself with an explicit `await asyncio.sleep(...)` before the work.
+
+## API reference
+
+For the precise signatures and field types, see the
+[Python RetryPolicy reference](/python/api/retry).

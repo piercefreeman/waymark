@@ -1,0 +1,38 @@
+# Workflow
+
+The `Workflow` base class is the durable control-flow primitive in
+Waymark. You subclass it and decorate the subclass with @workflow: this handles
+compiling the definition to Waymark's intermediate representation.
+
+Calling run(...) on an instance accepts two keyword arguments beyond
+your own inputs:
+
+- `_blocking=False` queues the workflow and returns its instance id
+  immediately instead of waiting for completion - the fire-and-forget
+  form.
+- `_priority=` sets the queue priority for this instance.
+
+A blocking run(...) raises `RuntimeError` if the workflow fails and
+`TimeoutError` if the instance doesn't complete in time.
+
+::: waymark.workflow.Workflow
+
+---
+
+## Decorator
+
+The `@workflow` decorator runs the AST compiler against your class's
+`run()` method and registers the resulting IR with the runtime.
+
+::: waymark.workflow.workflow
+
+---
+
+## Registry
+
+`workflow_registry` exposes the in-process map of registered
+workflows. You usually don't interact with it directly - the
+`@workflow` decorator handles registration - but it's useful when
+inspecting registration state or building tools on top of Waymark.
+
+::: waymark.workflow.WorkflowRegistry

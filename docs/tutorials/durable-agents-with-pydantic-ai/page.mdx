@@ -1,0 +1,567 @@
+export const metadata = {
+  title: 'Durable Agents with Pydantic AI',
+  description:
+    'Use Pydantic AI Agent inside Waymark while serializing typed dependencies and JSONable message history.',
+}
+
+export const sections = [
+  { title: 'Define the agent', id: 'define-the-agent' },
+  { title: 'Type the state', id: 'type-the-state' },
+  { title: 'Own the loop', id: 'own-the-loop' },
+  { title: 'Initialize state', id: 'initialize-state' },
+  { title: 'Defer tool calls', id: 'defer-tool-calls' },
+  { title: 'Run tools durably', id: 'run-tools-durably' },
+  { title: 'Wire the workflow', id: 'wire-the-workflow' },
+  { title: 'What stays live', id: 'what-stays-live' },
+]
+
+# Durable Agents with Pydantic AI
+
+Pydantic-AI is one of the most popular libraries for writing agents, because it
+abstracts away all of the per-provider complexities. You can write your agent once
+and switch to OpenAI, Anthropic, Mistral, Deepseek, or whatever. It also has a
+simple Python API that makes it easy to wrap native logic.
+
+[Building an Agent From Scratch](/tutorials/building-a-from-scratch-agent)
+made our agent loop explicit: send messages, run tools, send tool results back. We recommend
+reading that first since it leaves nothing to the imagination.
+
+If you're already super comfortable writing agent loops yourself, and that's what has brought you
+to this page - we see your game. Pydantic AI puts your loop behind a common `Agent` abstraction but it does not
+remove the durability question. If your process crashes you still have to worry
+about recovery, retries, and resumption.
+
+Waymark takes care of that for you. This tutorial covers a realistic workflow
+implemented with pydantic-ai, including some deep cut typehinting with generics.
+This should be fun!
+
+## Define the agent {{ id: 'define-the-agent' }}
+
+Define the Pydantic AI agent the same way you normally would: as a module-level
+object. Waymark actions run in the same Python interpreter as the rest of your
+code, so they can read global names.
+
+```python
+from pydantic import BaseModel
+from pydantic_ai import Agent
+
+class SupportDeps(BaseModel):
+    customer_id: str
+    tenant: str = "default"
+
+support_agent = Agent(
+    "openai:gpt-5.5",
+    deps_type=SupportDeps,
+    output_type=str,
+    instructions=(
+        "You are a concise support agent. Use tools before making "
+        "claims about orders."
+    ),
+)
+```
+
+Pydantic AI tools are native Python functions. When you decorate one with
+`agent.tool`, Pydantic AI reads the function signature for the parameter names
+and types, reads the docstring for the tool description, and sends that metadata
+with the model request. This way the model doesn't need a handwritten schema that can
+drift away from the code.
+
+Tool registration also validates the model's requested arguments before your function runs. If
+`order_id` is typed as `str`, your tool receives a string. If it tries to pass an
+integer it will raise (or prompt the model to try again).
+
+```python
+from pydantic_ai import RunContext
+
+@support_agent.tool
+async def lookup_order(ctx: RunContext[SupportDeps], order_id: str) -> str:
+    """Look up the current status for a customer order."""
+    return (
+        f"Customer {ctx.deps.customer_id} has order {order_id}: "
+        "packed and waiting for carrier pickup."
+    )
+```
+
+SupportDeps is the main context that's passed across multiple tools that happen in a row. For
+that reason it makes the natural location for the data structure that we want to persist to the
+database with Waymark so we can pick it up later.
+
+## Type the state {{ id: 'type-the-state' }}
+
+Our manual dependencies make up one element of the agent lifecycle. The other are the past messages
+that are in the current conversation. These usually contain text messages, tool requests, and tool call
+results. This whole payload together composes your linear agent history.
+
+Since pydantic-ai doesn't natively provide a clean serialization of these elements, we create a wrapper
+that will typehint these properly.
+
+```python
+from typing import Generic, TypeVar
+
+DepsT = TypeVar("DepsT", bound=BaseModel)
+OutputT = TypeVar("OutputT")
+
+class DurableAgentState(BaseModel, Generic[DepsT, OutputT]):
+    deps: DepsT
+    user_prompt: str | None = None
+    messages_json: str | None = None
+    is_done: bool = False
+    final_output: OutputT | None = None
+```
+
+We are creating this in a generic way so it can apply to multiple future agents.
+`DepsT` and `OutputT` in particular keep this wrapper reusable. A support agent can store
+`SupportDeps` and return `str`, while another agent could use a different deps
+model and a structured Pydantic output.
+
+We also want to track _which_ agent is responsible for this conversation history. Since
+messages and tools are firmly tied to the underlying Agent implementation. We could keep track
+of a pointer to the global `support_agent` variable, but this wouldn't survive reloads of
+your environment. A critical issue for long term persistence.
+
+Instead we would rather triage where this variable is defined (module/file) and use that
+as the permanent indicator. If we don't yet have it imported, we'll always be able to do so
+dynamically on the fly.
+
+```python
+def _agent_ref(agent: Agent[DepsT, OutputT]) -> tuple[str, str]:
+    # Hard-coded module paths and variable names are invisible to linters, so
+    # derive the durable reference from the actual global agent object instead.
+    for name, value in globals().items():
+        if value is agent:
+            return __name__, name
+    raise ValueError("Agent must be assigned to a module-level variable")
+```
+
+We write a little helper to aid in this lookup. Unlike hard-coding the module and variable,
+this helper will let typehinters flag any issues in the future and won't break during a large
+project refactor and rename. Let's wire that into the agent state.
+
+```python diff
++import importlib
++from typing import Generic, Self, TypeVar, cast
+
++from pydantic import Field, InstanceOf, model_validator
+
+DepsT = TypeVar("DepsT", bound=BaseModel)
+OutputT = TypeVar("OutputT")
+
+class DurableAgentState(BaseModel, Generic[DepsT, OutputT]):
++    agent: InstanceOf[Agent[DepsT, OutputT]] | None = Field(
++        default=None,
++        exclude=True,
++        repr=False,
++    )
++    agent_module: str | None = None
++    agent_variable: str | None = None
+
+    deps: DepsT
+    user_prompt: str | None = None
+    messages_json: str | None = None
+    is_done: bool = False
+    final_output: OutputT | None = None
+
++    @model_validator(mode="after")
++    def resolve_agent_ref(self) -> Self:
++        if self.agent is not None:
++            if not isinstance(self.deps, self.agent.deps_type):
++                raise TypeError("Agent deps_type does not match deps")
++            self.agent_module, self.agent_variable = _agent_ref(self.agent)
++            self.agent = None
++
++        if self.agent_module is None or self.agent_variable is None:
++            raise ValueError("Pass agent=... when creating agent state")
++
++        return self
++
++    def get_agent(self) -> Agent[DepsT, OutputT]:
++        if self.agent_module is None or self.agent_variable is None:
++            raise ValueError("Agent reference has not been resolved")
++        module = importlib.import_module(self.agent_module)
++        agent = getattr(module, self.agent_variable)
++        return cast(Agent[DepsT, OutputT], agent)
+```
+
+From here we can create a state object with our agent, and get the agent back
+from the state object on another device. And everything stays strongly typed.
+
+We're well on our way to wiring up our full agent to have background persistence. Now
+just to save the conversation history.
+
+The message history needs its own translation layer. Pydantic AI messages are
+polymorphic: the list can contain model requests and model responses, and each
+message can contain different part types such as user prompts, tool calls, tool
+returns, and text output. A plain `list[dict[str, object]]` loses the Python
+types Pydantic AI expects on resume.
+
+`ModelMessagesTypeAdapter` is Pydantic AI's adapter for that whole
+union of types. We can serialize and deserialize from the adapter to restore
+our expected typehints on resume.
+
+```python diff
++from collections.abc import Sequence
++from pydantic_ai.messages import ModelMessage, ModelMessagesTypeAdapter
+
+class DurableAgentState(BaseModel, Generic[DepsT, OutputT]):
+    agent: InstanceOf[Agent[DepsT, OutputT]] | None = Field(
+        default=None,
+        exclude=True,
+        repr=False,
+    )
+    agent_module: str | None = None
+    agent_variable: str | None = None
+
+    deps: DepsT
+    user_prompt: str | None = None
+    messages_json: str | None = None
+    is_done: bool = False
+    final_output: OutputT | None = None
+
+    @model_validator(mode="after")
+    def resolve_agent_ref(self) -> Self:
+        if self.agent is not None:
+            if not isinstance(self.deps, self.agent.deps_type):
+                raise TypeError("Agent deps_type does not match deps")
+            self.agent_module, self.agent_variable = _agent_ref(self.agent)
+            self.agent = None
+
+        if self.agent_module is None or self.agent_variable is None:
+            raise ValueError("Pass agent=... when creating agent state")
+
+        return self
+
+    def get_agent(self) -> Agent[DepsT, OutputT]:
+        if self.agent_module is None or self.agent_variable is None:
+            raise ValueError("Agent reference has not been resolved")
+        module = importlib.import_module(self.agent_module)
+        agent = getattr(module, self.agent_variable)
+        return cast(Agent[DepsT, OutputT], agent)
+
++    def get_messages(self) -> list[ModelMessage]:
++        if not self.messages_json:
++            return []
++        return ModelMessagesTypeAdapter.validate_json(self.messages_json)
+
++    def set_messages(self, messages: Sequence[ModelMessage]) -> None:
++        self.messages_json = ModelMessagesTypeAdapter.dump_json(
++            list(messages)
++        ).decode("utf-8")
+```
+
+## Own the loop {{ id: 'own-the-loop' }}
+
+Before we implement the actions, sketch the workflow loop they need to serve.
+The workflow is going to keep handing one durable state payload from action to
+action until `state.is_done` flips to `True`.
+
+`roundtrip_agent` will own one model turn. It either updates the state with final
+output or returns tool calls. `handle_tool_call` will run each requested tool and
+return results for the next roundtrip.
+
+```python
+from waymark import Workflow
+
+
+class AgentWorkflowBase(Workflow, Generic[DepsT, OutputT]):
+    async def run_agent(
+        self,
+        state: DurableAgentState[DepsT, OutputT],
+    ) -> DurableAgentState[DepsT, OutputT]:
+        tool_results: list[AgentToolResult[DepsT, OutputT]] = []
+        while True:
+            roundtrip = await self.run_action(
+                roundtrip_agent(state, tool_results=tool_results)
+            )
+            state = roundtrip.state
+            tool_results = []
+
+            if state.is_done:
+                return state
+
+            if not roundtrip.tool_calls:
+                raise RuntimeError("Agent stopped without output or tool calls")
+
+            tool_results = [
+                await self.run_action(
+                    handle_tool_call(
+                        AgentToolCall(state=state, tool_call=tool_call)
+                    )
+                )
+                for tool_call in roundtrip.tool_calls
+            ]
+```
+
+The base workflow does not know anything about support tickets, Pydantic AI
+message objects, or provider return payloads. It just keeps asking for the next
+state transition until the durable state says the agent is done.
+
+## Initialize state {{ id: 'initialize-state' }}
+
+Before we start the agent, we need to provide the initial context for the agent to run. We
+start by creating our wrapper object that includes both the immediate state and the augmentary
+structures we'll use to store messages, the agent reference, and the like.
+
+Note the `@action` decorator. This is a Waymark action because Waymark owns the state from
+here on out.
+
+```python
+from waymark import action
+
+@action
+async def initialize_support_agent(
+    customer_id: str,
+    user_prompt: str,
+) -> DurableAgentState[SupportDeps, str]:
+    return DurableAgentState[SupportDeps, str](
+        agent=support_agent,
+        deps=SupportDeps(customer_id=customer_id),
+        user_prompt=user_prompt,
+    )
+```
+
+## Defer tool calls {{ id: 'defer-tool-calls' }}
+
+If we call `support_agent.run(...)` directly, Pydantic AI will run the model and
+the tools inside one action. That works, but it hides the interesting durable
+boundary. We want the model request to stop when it asks for tools, then let
+Waymark execute those tools as separate actions.
+
+Pydantic AI already has that escape hatch: a tool can raise `CallDeferred`.
+When the run's `output_type` includes `DeferredToolRequests`, Pydantic AI
+returns the requested calls instead of treating the exception as a failure.
+
+Ideally we want our tools to work normally when called from waymark. But we want
+them to always defer when called internally from pydantic-ai. We can provide this
+necessary conditional switch with a context manager.
+
+```python
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
+
+_DEFER_TOOLS = ContextVar("_DEFER_TOOLS", default=False)
+
+@contextmanager
+def defer_tool_calls() -> Iterator[None]:
+    token = _DEFER_TOOLS.set(True)
+    try:
+        yield
+    finally:
+        _DEFER_TOOLS.reset(token)
+```
+
+Now anything running within a `with defer_tool_calls` block will be able
+to skip the immediate tool call. We'll place all of our single turn .run()
+calls within this wrapper.
+
+```python
+from collections.abc import Callable
+from functools import wraps
+from inspect import isawaitable
+from typing import Any
+
+from pydantic_ai import CallDeferred
+
+ToolFuncT = TypeVar("ToolFuncT", bound=Callable[..., object])
+
+def deferable_tool(
+    agent: Agent[DepsT, OutputT],
+) -> Callable[[ToolFuncT], ToolFuncT]:
+    def decorator(fn: ToolFuncT) -> ToolFuncT:
+        @wraps(fn)
+        async def wrapper(*args: Any, **kwargs: Any) -> object:
+            if _DEFER_TOOLS.get():
+                raise CallDeferred()
+
+            result = fn(*args, **kwargs)
+            if isawaitable(result):
+                return await result
+            return result
+
+        agent.tool(wrapper)
+        return fn
+
+    return decorator
+```
+
+Wrapping functions in our `deferable_tool` will provide a strict superset of the
+functionality that the normal `tool` call will. Pydantic AI still sees the function
+name, signature, and docstring, so it generates the same tool schema as it would
+have originally. Now let's switch the tool registration to use it.
+
+```python diff
+from pydantic_ai import RunContext
+
+-@support_agent.tool
++@deferable_tool(support_agent)
+async def lookup_order(ctx: RunContext[SupportDeps], order_id: str) -> str:
+    """Look up the current status for a customer order."""
+    return (
+        f"Customer {ctx.deps.customer_id} has order {order_id}: "
+        "packed and waiting for carrier pickup."
+    )
+```
+
+Our agent "roundtrip" is issuing a remote call to the LLM provider. We do this only
+for a single turn to get the new messages and requested tool calls. Then it's up to
+our durable waymark to handle them properly.
+
+```python
+from pydantic import Field
+from pydantic_ai import DeferredToolRequests, DeferredToolResults
+from pydantic_ai.messages import ToolCallPart
+
+class AgentRoundtrip(BaseModel, Generic[DepsT, OutputT]):
+    state: DurableAgentState[DepsT, OutputT]
+    tool_calls: list[ToolCallPart] = Field(default_factory=list)
+
+class AgentToolResult(BaseModel, Generic[DepsT, OutputT]):
+    tool_call: ToolCallPart
+    content: object
+
+@action
+async def roundtrip_agent(
+    state: DurableAgentState[DepsT, OutputT],
+    tool_results: list[AgentToolResult[DepsT, OutputT]] | None = None,
+) -> AgentRoundtrip[DepsT, OutputT]:
+    next_state = state.model_copy(deep=True)
+    history = next_state.get_messages()
+    agent = next_state.get_agent()
+    with defer_tool_calls():
+        result = await agent.run(
+            user_prompt=next_state.user_prompt if not history else None,
+            deps=next_state.deps,
+            message_history=history or None,
+            deferred_tool_results=(
+                DeferredToolResults(
+                    calls={
+                        result.tool_call.tool_call_id: result.content
+                        for result in tool_results
+                    }
+                )
+                if tool_results
+                else None
+            ),
+            output_type=[agent.output_type, DeferredToolRequests],
+        )
+    next_state.set_messages(result.all_messages())
+
+    if isinstance(result.output, DeferredToolRequests):
+        return AgentRoundtrip(
+            state=next_state,
+            tool_calls=[*result.output.calls, *result.output.approvals],
+        )
+
+    next_state.is_done = True
+    next_state.final_output = result.output
+    return AgentRoundtrip(state=next_state)
+```
+
+After the first model call, every later
+roundtrip is driven by the stored Pydantic AI message history. When the previous
+step produced tool results, Pydantic AI's `deferred_tool_results` parameter
+turns them into the right tool-return messages before asking the model to
+continue.
+
+## Run tools durably {{ id: 'run-tools-durably' }}
+
+When the model asks for a tool, we want to run that tool in its own action. This is where
+the real `support_agent` comes back. We ask the agent's public `toolsets` for
+the registered tools, let Pydantic AI validate the arguments, and call the same
+function it would have called inside a normal agent run.
+
+```python
+from pydantic_ai.models.test import TestModel
+from pydantic_ai.usage import RunUsage
+
+class AgentToolCall(BaseModel, Generic[DepsT, OutputT]):
+    state: DurableAgentState[DepsT, OutputT]
+    tool_call: ToolCallPart
+
+@action
+async def handle_tool_call(
+    payload: AgentToolCall[DepsT, OutputT],
+) -> AgentToolResult[DepsT, OutputT]:
+    next_state = payload.state.model_copy(deep=True)
+    agent = next_state.get_agent()
+
+    ctx = RunContext(
+        deps=next_state.deps,
+        model=TestModel(),
+        usage=RunUsage(),
+        agent=agent,
+        prompt=next_state.user_prompt,
+        messages=next_state.get_messages(),
+        tool_call_id=payload.tool_call.tool_call_id,
+        tool_name=payload.tool_call.tool_name,
+    )
+
+    for toolset in agent.toolsets:
+        tools = await toolset.get_tools(ctx)
+        if payload.tool_call.tool_name not in tools:
+            continue
+
+        tool = tools[payload.tool_call.tool_name]
+        content = await toolset.call_tool(
+            payload.tool_call.tool_name,
+            payload.tool_call.args_as_dict(),
+            ctx,
+            tool,
+        )
+        return AgentToolResult(
+            tool_call=payload.tool_call,
+            content=content,
+        )
+
+    raise ValueError(f"Unknown tool: {payload.tool_call.tool_name}")
+```
+
+For this tutorial, tools return plain JSONable values. Pydantic AI also supports
+richer return shapes for retry prompts and other tool results; those can go into
+the same `DeferredToolResults` object later.
+
+`TestModel()` is only there because we are constructing `RunContext` ourselves.
+The real provider call already happened in `roundtrip_agent`. The next
+roundtrip will pair this content with the original `tool_call_id` through
+Pydantic AI's `DeferredToolResults`, so we do not need to hand-build
+`ToolReturnPart`.
+
+## Wire the workflow {{ id: 'wire-the-workflow' }}
+
+The concrete workflow is finally boring, which is what we wanted. It does not
+thread ad hoc messages through a support-specific action. It starts the agent,
+runs the generic durable loop, and returns the final output.
+
+```python
+from waymark import action, workflow
+
+@action
+async def require_support_output(
+    state: DurableAgentState[SupportDeps, str],
+) -> str:
+    if state.final_output is None:
+        raise ValueError("Agent finished without output")
+    return state.final_output
+
+@workflow
+class DurableSupportAgentWorkflow(AgentWorkflowBase[SupportDeps, str]):
+    async def run(self, customer_id: str, user_prompt: str) -> str:
+        state = await self.run_action(
+            initialize_support_agent(
+                customer_id=customer_id,
+                user_prompt=user_prompt,
+            )
+        )
+        state = await self.run_agent(state)
+        return await self.run_action(require_support_output(state))
+```
+
+## Production
+
+At this point you could flesh out your customer support agent to talk to your database, have
+addition tool calls, or retro fit it for some other purpose. But the nice part of all the work that
+we've done in this tutorial (coupled with the magic of Python generics) is you'll be able to reuse 95%
+of this same logic for any agent you build in the future.
+
+Just implement a new `Agent`, a fresh workflow that inherits from `AgentWorkflowBase` and you're off
+to the races.

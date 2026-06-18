@@ -1,0 +1,218 @@
+export const metadata = {
+  title: 'Integrating with FastAPI',
+  description:
+    'Call Waymark workflows from FastAPI routes while keeping HTTP handling, durable work, and worker setup cleanly separated.',
+}
+
+export const sections = [
+  { title: 'Project layout', id: 'project-layout' },
+  { title: 'Define the contract', id: 'define-the-contract' },
+  { title: 'Write the workflow', id: 'write-the-workflow' },
+  { title: 'Await short work', id: 'await-short-work' },
+  { title: 'Queue long work', id: 'queue-long-work' },
+  { title: 'Runtime setup', id: 'runtime-setup' },
+  { title: 'Production habits', id: 'production-habits' },
+]
+
+# Integrating with FastAPI
+
+FastAPI is one of the most popular API libraries in Python. If you're already using it,
+adopting Waymark should make you feel right at home with its native typehinting, dependency
+injection, and simple backend.
+
+Waymark is most commonly used to replace logic that you're currently implementing as
+[background tasks](https://fastapi.tiangolo.com/tutorial/background-tasks/). It also is
+useful for refactoring any POST requests that might be unreliable or you want to view
+archived progress as they continue. If
+the work should retry, survive a deploy, show up in run history, or outlive a
+normal request timeout, hand it to a workflow.
+
+Whenever it's not a super simple database query, format,
+and return - you might want to consider Waymark.
+
+## Project layout {{ id: 'project-layout' }}
+
+Let's start with the world's simplest FastAPI app. We can ship the code side by
+side because it's helpful to have your workflow code importable by both
+processes (the normal uvicorn web process and the waymark runner).
+
+Your FastAPI app imports it to start runs; the Waymark worker imports it to register workflows and actions.
+
+```text
+app/
+  api.py
+  models.py
+  workflows.py
+```
+
+## Define the contract {{ id: 'define-the-contract' }}
+
+Start with the data that crosses the boundary. FastAPI and Waymark both speak
+Pydantic well, so use the same request and response models on both sides.
+
+```python
+# app/models.py
+from pydantic import BaseModel
+
+class ReceiptRequest(BaseModel):
+    order_id: str
+    email: str
+
+class ReceiptResult(BaseModel):
+    order_id: str
+    email_id: str
+```
+
+This is the first best practice: do not let your route pass loose dicts into a
+background system. A typed request makes the HTTP contract obvious and gives
+Waymark something boring to serialize through Postgres.
+
+## Write the workflow {{ id: 'write-the-workflow' }}
+
+The email provider call is the slow, flaky part, so it belongs in an action.
+Here we call Resend's HTTP API directly. This does network I/O, raises on
+provider errors, and returns the provider's email id.
+
+```python
+# app/workflows.py
+import os
+
+import httpx
+from waymark import action
+
+from app.models import ReceiptRequest, ReceiptResult
+
+@action
+async def send_receipt_email(request: ReceiptRequest) -> ReceiptResult:
+    async with httpx.AsyncClient(timeout=10) as client:
+        response = await client.post(
+            "https://api.resend.com/emails",
+            headers={
+                "Authorization": f"Bearer {os.environ['RESEND_API_KEY']}",
+                "User-Agent": "waymark-fastapi-tutorial/1.0",
+            },
+            json={
+                "from": os.environ["RECEIPTS_FROM_EMAIL"],
+                "to": [request.email],
+                "subject": f"Receipt for order {request.order_id}",
+                "html": f"<p>Your receipt for order {request.order_id} is ready.</p>",
+            },
+        )
+    response.raise_for_status()
+    data = response.json()
+    return ReceiptResult(order_id=request.order_id, email_id=data["id"])
+```
+
+Now wrap that action in a workflow.
+
+```python
+from waymark import Workflow, workflow
+
+@workflow
+class ReceiptWorkflow(Workflow):
+    async def run(self, request: ReceiptRequest) -> ReceiptResult:
+        return await send_receipt_email(request)
+```
+
+This is by definition the simplest workflow you can imagine; a single action call with
+no additional business logic. But even with this little code and a few decorators, you now
+have firm guarantees that let this function run to completion and flag errors if they occur.
+
+## Await short work {{ id: 'await-short-work' }}
+
+If the workflow is short enough for a normal HTTP request budget, await it and
+return the result directly.
+
+```python
+# app/api.py
+from fastapi import FastAPI
+
+from app.models import ReceiptRequest, ReceiptResult
+from app.workflows import ReceiptWorkflow
+
+app = FastAPI()
+
+@app.post("/receipts", response_model=ReceiptResult)
+async def send_receipt(request: ReceiptRequest) -> ReceiptResult:
+    return await ReceiptWorkflow().run(request)
+```
+
+This still goes through Waymark. The action can be retried by a worker, the run
+is visible to the runtime, and a worker crash does not turn into mystery state in
+your web process.
+
+## Queue long work {{ id: 'queue-long-work' }}
+
+If the work might take longer than a client should wait, return as soon as the
+workflow is queued. This is the shape for imports, report generation, slow third
+party APIs, and agent runs.
+
+```python
+from pydantic import BaseModel
+
+class QueuedReceipt(BaseModel):
+    workflow_instance_id: str
+```
+
+The route changes by one important flag: `_blocking=False`.
+
+```python
+@app.post("/receipts/async", response_model=QueuedReceipt, status_code=202)
+async def queue_receipt(request: ReceiptRequest) -> QueuedReceipt:
+    instance_id = await ReceiptWorkflow().run(request, _blocking=False)
+    return QueuedReceipt(workflow_instance_id=instance_id)
+```
+
+Do not use FastAPI `BackgroundTasks` for work you actually care about. Those
+tasks belong to the web process. A deploy, crash, or process restart can erase
+them. Waymark queues the run in Postgres and lets workers claim it durably.
+
+## Runtime setup {{ id: 'runtime-setup' }}
+
+The Resend action uses `httpx`, so install it with your web dependencies if it
+is not already in your app.
+
+```bash
+uv add fastapi uvicorn httpx
+```
+
+Your API process and worker process need the same database, and the worker needs
+to know which module registers your workflows.
+
+```bash
+export WAYMARK_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/waymark
+export WAYMARK_USER_MODULE=app.workflows
+export RESEND_API_KEY=re_xxxxxxxxx
+export RECEIPTS_FROM_EMAIL="Acme <onboarding@resend.dev>"
+```
+
+Run workers separately from the web server.
+
+```bash
+uv run waymark-start-workers
+```
+
+Then run FastAPI however you normally do.
+
+```bash
+uvicorn app.api:app --reload
+```
+
+The API process creates workflow runs. The worker pool imports `app.workflows`,
+claims action work from Postgres, and sends results back to the workflow runtime.
+
+## Production habits {{ id: 'production-habits' }}
+
+- Keep HTTP-only concerns in FastAPI: auth, headers, status codes, request
+  parsing, and response models.
+- Keep slow I/O in actions: email, billing, imports, file processing, model
+  calls, and anything that needs retries.
+- Keep workflow inputs and outputs as Pydantic models when they are more than a
+  couple of scalars.
+- Keep `WAYMARK_USER_MODULE` pointed at the module that imports and registers
+  every workflow/action your workers need.
+- Use `_blocking=False` when a client does not need the final answer in the same
+  request.
+
+That's the whole integration. FastAPI gets to stay a web framework. Waymark gets
+to own the durable work.

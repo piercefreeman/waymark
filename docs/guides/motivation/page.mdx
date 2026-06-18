@@ -1,0 +1,130 @@
+export const metadata = {
+  title: 'Why Waymark',
+  description:
+    'The motivation behind Waymark, the design tradeoffs, and the workloads we explicitly do not target.',
+}
+
+export const sections = [
+  { title: 'The pitch', id: 'pitch' },
+  { title: 'Compile-once vs replay', id: 'compile-once-vs-replay' },
+  { title: 'When to reach for Waymark', id: 'when-to-reach-for-waymark' },
+  { title: 'When not to', id: 'when-not-to' },
+]
+
+# Why Waymark
+
+Background jobs in webapps are common enough that they deserve to be a
+primitive of your full-stack toolkit: next to the database, the
+backend, and the frontend. Without a first-class background-job primitive,
+you're stuck either making blocking requests to your API or spinning up
+ephemeral tasks that die during an unlucky container crash.
+
+After a few years of running almost all of the available job libraries and
+services in production, I came away with a short list of things a
+background-job library should provide:
+
+- Control flow you write as ordinary Python/Javascript/Golang.
+- The same execution path locally as in production.
+- Reasonable defaults that get you to product-market fit before you have to
+  performance-tune anything.
+
+Nothing on the market quite balances these priorities. Waymark is built to.
+
+## The pitch {{ id: 'pitch' }}
+
+A workflow is a durable definition: it defines how units of work
+relate to one another - what runs first, what runs in parallel, what
+happens when something fails. An action is a unit of distributed work: it
+runs in isolation with just its own context, so it can execute on any
+worker and be repeated safely on retry. You write both as plain
+`async def` Python:
+
+```python
+import asyncio
+from waymark import Workflow, action, workflow
+
+@action
+async def fetch_users(user_ids: list[str]) -> list[User]:
+    ...
+
+@action
+async def send_email(to: str, subject: str) -> EmailResult:
+    ...
+
+@workflow
+class WelcomeEmailWorkflow(Workflow):
+    async def run(self, user_ids: list[str]) -> list[EmailResult]:
+        users = await fetch_users(user_ids)
+        active_users = [user for user in users if user.active]
+
+        return await asyncio.gather(
+            *[send_email(to=user.email, subject="Welcome") for user in active_users],
+            return_exceptions=True,
+        )
+```
+
+Waymark parses the AST of `run()` and compiles it like you would in a language like Rust or C++:
+
+- each `await` on an action dispatches it to another machine
+- the comprehension becomes a filter
+- the `asyncio.gather` a parallel fan-out
+
+The compiled program is
+stored in Postgres. From that point on, your authored body never executes
+again - our Rust runtime executes the compiled program, dispatches actions
+to workers, and records progress.
+
+## Compile-once vs replay {{ id: 'compile-once-vs-replay' }}
+
+Replay-based engines like Temporal and Vercel Workflows treat your workflow
+function as the source of truth. To make recovery work, they re-run your code
+from the top on each step, returning cached results for already-completed
+activities. The price is determinism: you're not allowed to have any `random()`, `datetime.now()`, or
+side effects in the workflow body or call any functions that do. Get any of that wrong and your bug shows
+up at recovery time instead of registration time. If you have large workflows this replay within a Python
+interpreter can also be relatively inefficient to resume state.
+
+Waymark inverts the tradeoff. Your code is compiled *once* - at
+registration - into a program the runtime executes directly. We'll tell you the supported
+patterns and violations up front. Want
+non-determinism? That's exactly what an `@action` is for. If it compiles with Waymark, it's guaranteed
+to work as you expect in production.
+
+## When to reach for Waymark {{ id: 'when-to-reach-for-waymark' }}
+
+- You're already on Python and Postgres. Mountaineer, FastAPI, Django,
+  Flask - any framework works.
+- You have async-heavy code that needs to be durable and retryable: third-party
+  API calls, slow database jobs, fan-outs.
+- You want local and production behavior to match.
+- You want background-job code to slot into your existing unit-test and
+  static-analysis pipeline.
+- You're focused on getting to product-market fit, not on the next 10×.
+
+Performance is a priority - Waymark has a Rust core and continuous
+benchmarks in CI - but it isn't the *only* priority.
+Postgres is an excellent backing store for ACID workflow state up to some
+scale. Once you're stressing Postgres' write capacity, you're in territory
+where a more specialized system is worth the operational cost.
+
+## When not to {{ id: 'when-not-to' }}
+
+- You have latency-sensitive jobs that need sub-100 ms acknowledgement and
+  dispatch.
+- You're coordinating tens of thousands of concurrent actions or more.
+- You've already outgrown another task coordinator and you need the next 10×
+  of headroom.
+
+Open-source brokers like RabbitMQ have decades of battle-testing, and hosted
+products like Temporal bundle SLA guarantees with their cloud packages.
+Both are great choices for those scopes. But they can bring significant setup,
+operational, and per-event-billing costs.
+
+## Status
+
+Waymark is in early alpha. The runtime spec is changing quickly and we don't
+guarantee backward compatibility before 1.0.0. If you hit a workflow that you
+think should compile but doesn't, please file an issue - the compiler error
+includes the offending pattern and line, which is exactly what we need.
+
+Ready to try it? Start with the [Quickstart](/guides/quickstart).

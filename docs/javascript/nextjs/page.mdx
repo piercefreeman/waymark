@@ -1,0 +1,69 @@
+export const metadata = {
+  title: 'Next.js Spec',
+  description:
+    'The planned authoring model for Waymark workflows and actions in TypeScript inside a Next.js project.',
+}
+
+export const sections = [
+  { title: 'Status', id: 'status' },
+  { title: 'The authoring model', id: 'authoring-model' },
+  { title: 'What carries over from Python', id: 'parity' },
+]
+
+# Next.js Spec
+
+<Note>
+**Not built yet.** Python is the Waymark SDK today. This page is the
+design we intend to ship for JavaScript, published so you can see where
+the project is headed. Expect the details to change before release.
+</Note>
+
+Waymark's first JavaScript target is Next.js. The runtime model is the
+same - workflows define durable control flow, actions define distributed
+work - but the front-end will be a TypeScript compiler that lowers your
+authored source into the same Waymark IR the Rust runtime already
+executes. The runtime, Postgres persistence, and worker pool need no
+changes; only the compiler in front of them is new.
+
+## Status {{ id: 'status' }}
+
+Design stage. The Python SDK proved out the compile-once model end to
+end; the JavaScript compiler reuses that runtime contract. When an
+implementation lands, this page becomes the reference for it.
+
+## The authoring model {{ id: 'authoring-model' }}
+
+The intended shape mirrors Python directly. Actions are exported async
+functions; workflows are classes extending `Workflow` with a durable
+`run()` entrypoint; parallel fan-out uses the language's native
+primitive:
+
+```ts
+export class WelcomeEmailWorkflow extends Workflow {
+  async run(userIds: string[]): Promise<EmailResult[]> {
+    const users = await fetchUsers(userIds);
+    const activeUsers = users.filter((user) => user.active);
+
+    return await Promise.all(
+      activeUsers.map((user) => sendWelcomeEmail({ to: user.email })),
+    );
+  }
+}
+```
+
+As in Python, the authored `run()` body is compiler input, not runtime
+business logic. The build compiles it to IR once; the runtime executes
+the compiled program durably, with no replay.
+
+## What carries over from Python {{ id: 'parity' }}
+
+- Actions are the retryable, distributed work units.
+- Workflows are the durable control-flow layer.
+- The workflow definition is compiled once, not re-run during recovery.
+- Retry and timeout policy attach to action calls, not the workflow as
+  a whole.
+- Parallel fan-out uses the language's native primitive: `Promise.all`
+  in TypeScript, `asyncio.gather` in Python.
+
+If you want durable workflows today, start with the
+[Quickstart](/guides/quickstart).

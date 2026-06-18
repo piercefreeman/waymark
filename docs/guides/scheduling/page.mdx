@@ -1,0 +1,144 @@
+export const metadata = {
+  title: 'Scheduled Workflows',
+  description:
+    'Run workflows on a cron expression or a fixed interval, with pause, resume, and overlap suppression.',
+}
+
+export const sections = [
+  { title: 'What a schedule targets', id: 'what-a-schedule-targets' },
+  { title: 'Cron schedules', id: 'cron-schedules' },
+  { title: 'Interval schedules', id: 'interval-schedules' },
+  { title: 'Pause, resume, delete', id: 'pause-resume-delete' },
+  { title: 'List schedules', id: 'list-schedules' },
+  { title: 'Overlap suppression', id: 'overlap-suppression' },
+]
+
+# Scheduled Workflows
+
+Waymark workflows can run on a recurring cadence - a cron expression or a
+fixed interval - without any extra infrastructure. The scheduler is part
+of the runloop that you already run via `waymark-start-workers`. Schedules
+live in Postgres alongside workflow IR and queue rows, so a schedule
+survives restarts of every component.
+
+## What a schedule targets {{ id: 'what-a-schedule-targets' }}
+
+Schedules are keyed by `(workflow_name, schedule_name)`:
+
+- `workflow_name` is the workflow's short name. By default this is derived
+  from the class; if you want a stable name across renames, set the class
+  attribute `name = "..."`.
+- `schedule_name` is yours to pick. It's how you let a single workflow run
+  on more than one cadence - e.g., `hourly-us-east` and `hourly-us-west`
+  for the same `DataSyncWorkflow`.
+
+At fire time, the scheduler resolves the workflow by name and uses the
+most recently registered version in the `workflow_versions` table. That
+means redeploying with a changed `run()` body picks up the newly compiled
+workflow on the next fire - older schedules don't pin you to old code.
+
+## Cron schedules {{ id: 'cron-schedules' }}
+
+```python
+from waymark import Workflow, workflow, schedule_workflow
+
+@workflow
+class DataSyncWorkflow(Workflow):
+    name = "data_sync"
+
+    async def run(self, region: str) -> None:
+        ...
+
+await schedule_workflow(
+    DataSyncWorkflow,
+    schedule_name="hourly-us-east",
+    schedule="0 * * * *",
+    inputs={"region": "us-east"},
+)
+```
+
+Standard 5-field cron syntax is accepted (Waymark normalizes to 6 fields
+internally). Common shapes:
+
+| Cron | Cadence |
+| --- | --- |
+| `0 * * * *` | Every hour, on the hour |
+| `*/15 * * * *` | Every 15 minutes |
+| `0 0 * * *` | Daily at midnight UTC |
+| `0 0 * * 1` | Every Monday at midnight |
+
+## Interval schedules {{ id: 'interval-schedules' }}
+
+If you'd rather express "every N seconds", pass a `timedelta`:
+
+```python
+from datetime import timedelta
+
+await schedule_workflow(
+    DataSyncWorkflow,
+    schedule_name="every-5-min",
+    schedule=timedelta(minutes=5),
+    inputs={"region": "us-west"},
+)
+```
+
+The first run fires at `now + interval`. Each subsequent fire is computed
+when the run is queued, not when it finishes, so a slow run doesn't drift
+the cadence. What prevents pile-up when runs outlast the interval is
+overlap suppression, covered below.
+
+You can add `jitter=timedelta(seconds=N)` to get a random delay of up to
+N seconds applied to each fire - useful when many hosts schedule the same
+workflow and you want to spread the queue load.
+
+## Pause, resume, delete {{ id: 'pause-resume-delete' }}
+
+```python
+from waymark import pause_schedule, resume_schedule, delete_schedule
+
+await pause_schedule(DataSyncWorkflow, schedule_name="hourly-us-east")
+await resume_schedule(DataSyncWorkflow, schedule_name="hourly-us-east")
+await delete_schedule(DataSyncWorkflow, schedule_name="hourly-us-east")
+```
+
+Pausing keeps the schedule row but stops firing. Deleting marks the
+schedule deleted - you can recreate it under the same name later.
+
+<Note>
+Resuming flips the schedule back to active. Missed fires are not
+replayed, but if the next fire time passed while paused, the schedule
+fires once immediately and then returns to its cadence.
+</Note>
+
+If you call `schedule_workflow(...)` with a `(workflow_name,
+schedule_name)` that already exists, it updates the schedule's cadence,
+inputs, and flags in place and sets the status back to `active`. The
+existing next fire time is preserved, so a deployment script that
+re-registers schedules on every deploy won't perturb the cadence.
+
+## List schedules {{ id: 'list-schedules' }}
+
+```python
+from waymark import list_schedules
+
+all_schedules = await list_schedules()
+active_only = await list_schedules(status_filter="active")
+paused_only = await list_schedules(status_filter="paused")
+```
+
+The result includes scheduling fields (cron expression, interval, jitter),
+state fields (`next_run_at`, `last_run_at`, `last_instance_id`), and
+behavior flags (`priority`, `allow_duplicate`).
+
+## Overlap suppression {{ id: 'overlap-suppression' }}
+
+By default a schedule with `allow_duplicate=False` won't queue a new run
+if a previous instance of the same schedule is still queued or running.
+The check runs in Postgres - the scheduler looks for any unfinished
+instance belonging to the schedule - so two replicas of the scheduler can
+race to fire the same schedule and Postgres serializes them
+deterministically.
+
+If you genuinely want concurrent runs (e.g., scrape multiple sources
+independently), set `allow_duplicate=True` when calling
+`schedule_workflow(...)`.

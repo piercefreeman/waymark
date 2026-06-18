@@ -1,0 +1,46 @@
+# Exceptions
+
+The exception classes Waymark raises out of the SDK. You'll hit these at
+registration time, at the call site of `workflow.run(...)`, or when
+managing schedules.
+
+## Unsupported patterns
+
+Raised at registration when the compiler hits something in your `run()`
+body it can't lower to IR. This is the exception you'll see most while
+authoring: it carries the offending pattern, the source line, and a
+recommendation for how to restructure. See
+[Control Flow](/guides/control-flow) for the full list of supported and
+rejected patterns.
+
+::: waymark.ir_builder.UnsupportedPatternError
+
+---
+
+## Workflow failure
+
+A workflow whose action fails without a matching retry or `try/except`
+fails as a whole. The `await workflow.run(...)` call raises a
+`RuntimeError` carrying the failure detail. Handle expected failures
+inside the workflow with `try/except`; treat a `RuntimeError` at the call
+site as the unexpected case.
+
+## Retry exhaustion
+
+Defined for retry-budget exhaustion. Today, exhausting a `RetryPolicy`
+surfaces the action's own final exception through the workflow rather
+than raising this class; catch the underlying exception type in your
+workflow `try/except`.
+
+::: waymark.exceptions.ExhaustedRetriesError
+
+---
+
+## Schedule conflicts
+
+Raised by `schedule_workflow(...)` when the bridge reports a conflicting
+schedule for the same `(workflow_name, schedule_name)`. In the common
+path, re-registering an existing schedule updates it in place; see
+[Scheduled Workflows](/guides/scheduling).
+
+::: waymark.exceptions.ScheduleAlreadyExistsError

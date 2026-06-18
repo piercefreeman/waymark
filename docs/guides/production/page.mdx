@@ -1,0 +1,168 @@
+export const metadata = {
+  title: 'Production Deployment',
+  description:
+    'Deploy Waymark to production: one image, a worker pool, your app, and the Postgres you already run.',
+}
+
+export const sections = [
+  { title: 'Topology', id: 'topology' },
+  { title: 'One image, two commands', id: 'one-image' },
+  { title: 'Compose the services', id: 'compose' },
+  { title: 'Production settings', id: 'production-settings' },
+  { title: 'The webapp', id: 'webapp' },
+  { title: 'Scaling out', id: 'scaling-out' },
+]
+
+# Production Deployment
+
+A production Waymark deployment is three pieces: your application, a
+worker pool, and Postgres. It should be basically plug and play with any stack: self-hosted
+or in the cloud. There's no broker to host, no scheduler service, no replay servers. Postgres
+holds every piece of shared state, and everything else is a stateless container you can
+kill and restart at will.
+
+## Topology {{ id: 'topology' }}
+
+- **Your app** is whatever serves traffic today - a FastAPI service, a
+  script, a cron job. It queues workflows when it wants to delegate processing to the job cluster. The SDK boots a singleton
+  `waymark-bridge` inside the container on first use, so the app needs
+  nothing beyond a connection to the database.
+- **The worker pool** is one container running
+  `waymark-start-workers`. It pulls queued actions from Postgres,
+  executes them across a pool of Python processes, and persists results.
+- **Postgres** is the only stateful piece. Anything 14+ works, including
+  the managed instance you already have.
+
+Because both app and workers coordinate purely through Postgres, they
+don't need to reach each other over the network. Scale them, restart
+them, and deploy them independently.
+
+## Share an image {{ id: 'one-image' }}
+
+Build a single image that contains your application code and the
+waymark package. They're both referencing the same underlying workflow and action
+code, so it makes sense for the image to have parity. The app service and the worker
+service only need different commands in the entrypoint.
+
+If you already have Dockerfile, you just need a new service that mounts
+with `waymark-start-workers`. If you don't already have one, this basic one should
+get you started.
+
+```dockerfile
+FROM python:3.12-slim
+
+RUN pip install uv
+
+WORKDIR /app
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev
+COPY src ./src
+
+ENV PATH="/app/.venv/bin:${PATH}"
+
+# The default command serves the app; the worker service
+# overrides it with `waymark-start-workers`.
+CMD ["uvicorn", "yourapp.web:app", "--host", "0.0.0.0", "--port", "8000"]
+```
+
+## Compose the services {{ id: 'compose' }}
+
+The same shape works in Docker Compose, Kubernetes, or anything that runs
+containers. In Compose:
+
+```yaml
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: app
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app"]
+      interval: 5s
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  workers:
+    build: .
+    command: ["waymark-start-workers"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      WAYMARK_DATABASE_URL: postgresql://app:app@postgres:5432/app
+      WAYMARK_USER_MODULE: yourapp.workflows
+      WAYMARK_WEBAPP_ENABLED: "true"
+    ports:
+      - "24119:24119"
+
+  app:
+    build: .
+    depends_on:
+      workers:
+        condition: service_started
+    environment:
+      WAYMARK_DATABASE_URL: postgresql://app:app@postgres:5432/app
+    ports:
+      - "8000:8000"
+
+volumes:
+  postgres-data: {}
+```
+
+## Production settings {{ id: 'production-settings' }}
+
+The defaults are tuned for a single host. Tuning in production is usually governed by:
+
+| Variable | What it controls |
+| --- | --- |
+| `WAYMARK_WORKER_COUNT` | Python worker processes in the pool. Defaults to host CPU count to effectively allow Python to saturate each core. |
+| `WAYMARK_CONCURRENT_PER_WORKER` | Concurrent actions per worker. Raise it for IO-bound actions like api requests. |
+
+If a third-party library leaks memory inside your actions, set
+`WAYMARK_MAX_ACTION_LIFECYCLE` to recycle workers after a fixed number of
+actions. In-flight work completes before the old process exits.
+
+One retention default to know: finished workflow instances are garbage
+collected after 24 hours. If you want longer run history in the webapp
+or for audits, increase the value of `WAYMARK_GARBAGE_COLLECTOR_RETENTION_HOURS`.
+
+The full list of environment variables, including queue polling, lock
+TTLs, and scheduler intervals, lives in [Configuration](/guides/configuration).
+
+## The webapp {{ id: 'webapp' }}
+
+Setting `WAYMARK_WEBAPP_ENABLED=true` on the worker pool serves the
+built-in webapp on port `24119`: live workflow progress, run history,
+and per-action inputs, retries, and outputs. The
+[Webapp guide](/guides/webapp) covers everything it can do.
+
+<Note>
+The webapp binds to `0.0.0.0` by default and has no built-in auth.
+Keep the port on your private network, or by firewalling your worker service
+to not be exposed to the open Internet. We suggest the latter since there's
+usually no reason why workers have to be externally accessible.
+</Note>
+
+## Scaling out {{ id: 'scaling-out' }}
+
+The first approach to scale is to run a new worker on a fresh box. Each
+pool claims queued work through
+Postgres row locks with heartbeats, so pools on different hosts never
+double-execute an action, and a crashed host's locks expire and get
+reclaimed automatically. Your app tier scales the same way it always
+has - queueing a workflow is just a database write.
+
+The same mechanism is what makes deploys safe. When a worker container
+is killed mid-run, its lock expires (15 seconds by default) and another
+pool picks the instance up from the last persisted state. No work is
+lost; the worst case is a partially-completed action attempt running
+again, which is the whole point of durable execution.
+
+When Postgres is the bottleneck, you'll see it in queue latency long
+before correctness suffers. Until then, one database is all the
+infrastructure Waymark asks for. On very large deployments, we've seen some users
+benefit from adding another separate Postgres service that just owns Waymark jobs.
+Either way you should also make sure that you've tuned Postgres properly, which
+we can also [help with](https://www.autopg.sh/).
