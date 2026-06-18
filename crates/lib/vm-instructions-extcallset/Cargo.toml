@@ -6,3 +6,7 @@ publish.workspace = true
 
 [dependencies]
 derive-where = { workspace = true }
+serde = { workspace = true, optional = true }
+
+[features]
+serde = ["dep:serde", "serde/derive"]

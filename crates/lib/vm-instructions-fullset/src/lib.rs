@@ -31,6 +31,22 @@ impl<T> Spec for T where
 
 /// The full instructions set.
 #[derive_where(Debug)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(bound(
+        serialize = "
+            waymark_vm_instructions_coreset::CoreSet<Spec>: serde::Serialize,
+            waymark_vm_instructions_extcallset::ExtCallSet<Spec>: serde::Serialize,
+            waymark_vm_instructions_pureset::PureSet<Spec>: serde::Serialize,
+        ",
+        deserialize = "
+            waymark_vm_instructions_coreset::CoreSet<Spec>: serde::Deserialize<'de>,
+            waymark_vm_instructions_extcallset::ExtCallSet<Spec>: serde::Deserialize<'de>,
+            waymark_vm_instructions_pureset::PureSet<Spec>: serde::Deserialize<'de>,
+        ",
+    ))
+)]
 pub enum FullSet<Spec: self::Spec> {
     /// Core instructions set.
     CoreSet(waymark_vm_instructions_coreset::CoreSet<Spec>),

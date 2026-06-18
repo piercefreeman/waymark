@@ -5361,6 +5361,7 @@ name = "waymark-vm-instructions-coreset"
 version = "0.1.0"
 dependencies = [
  "derive-where",
+ "serde",
  "waymark-vm-exception-handler",
 ]
 
@@ -5369,6 +5370,7 @@ name = "waymark-vm-instructions-extcallset"
 version = "0.1.0"
 dependencies = [
  "derive-where",
+ "serde",
 ]
 
 [[package]]
@@ -5376,6 +5378,7 @@ name = "waymark-vm-instructions-fullset"
 version = "0.1.0"
 dependencies = [
  "derive-where",
+ "serde",
  "waymark-vm-instructions-coreset",
  "waymark-vm-instructions-extcallset",
  "waymark-vm-instructions-pureset",
@@ -5386,6 +5389,7 @@ name = "waymark-vm-instructions-pureset"
 version = "0.1.0"
 dependencies = [
  "derive-where",
+ "serde",
 ]
 
 [[package]]

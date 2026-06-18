@@ -21,6 +21,7 @@ pub trait Spec: 'static {
 
 /// An unary operation.
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct UnaryOp<RegisterId> {
     /// The register to store the result of the operation at.
     pub dst: RegisterId,
@@ -31,6 +32,7 @@ pub struct UnaryOp<RegisterId> {
 
 /// A binary operation.
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct BinaryOp<RegisterId> {
     /// The register to store the result of the operation at.
     pub dst: RegisterId,
@@ -44,6 +46,7 @@ pub struct BinaryOp<RegisterId> {
 
 /// The kind of binary operation to apply.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum BinaryOpKind {
     /// Add two values together.
     Add,
@@ -96,6 +99,7 @@ pub enum BinaryOpKind {
 
 /// The kind of unary operation to apply.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum UnaryOpKind {
     /// Negate a value.
     Neg,
@@ -106,6 +110,7 @@ pub enum UnaryOpKind {
 
 /// One dictionary entry.
 #[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DictEntry<RegisterId> {
     /// The register that contains the entry key.
     pub key: RegisterId,
@@ -116,6 +121,20 @@ pub struct DictEntry<RegisterId> {
 
 /// Pure instructions set.
 #[derive_where(Debug)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(bound(
+        serialize = "
+            Spec::RegisterId: serde::Serialize,
+            Spec::ConstValue: serde::Serialize,
+        ",
+        deserialize = "
+            Spec::RegisterId: serde::Deserialize<'de>,
+            Spec::ConstValue: serde::Deserialize<'de>,
+        ",
+    ))
+)]
 pub enum PureSet<Spec: self::Spec> {
     /// Load a constant value into the register.
     LoadConst {

@@ -20,6 +20,22 @@ pub trait Spec: 'static {
 
 /// The external-call instructions set.
 #[derive_where(Debug)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(bound(
+        serialize = "
+            Spec::RegisterId: serde::Serialize,
+            Spec::StateId: serde::Serialize,
+            Spec::ActionRef: serde::Serialize,
+        ",
+        deserialize = "
+            Spec::RegisterId: serde::Deserialize<'de>,
+            Spec::StateId: serde::Deserialize<'de>,
+            Spec::ActionRef: serde::Deserialize<'de>,
+        ",
+    ))
+)]
 pub enum ExtCallSet<Spec: self::Spec> {
     /// Start an action call execution.
     ///
