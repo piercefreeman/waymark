@@ -10,6 +10,7 @@ use typed_floats::NonNaNFinite;
 /// A subset of [`waymark_vm_value::Value`] that can be lowered from
 /// the [`waymark_vm_ast_old::Literal`].
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum ConstValue {
     /// Integer value.
     Int(i64),

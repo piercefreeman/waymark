@@ -5295,6 +5295,7 @@ dependencies = [
 name = "waymark-vm-compiler-for-ast-old-const-value"
 version = "0.1.0"
 dependencies = [
+ "serde",
  "thiserror",
  "typed_floats",
  "waymark-vm-ast-old",
