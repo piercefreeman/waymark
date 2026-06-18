@@ -5,6 +5,7 @@ mod core;
 mod macros;
 mod registry;
 mod scheduler;
+mod state_vm_executables;
 #[cfg(test)]
 mod test_helpers;
 mod vm_runtimes;
