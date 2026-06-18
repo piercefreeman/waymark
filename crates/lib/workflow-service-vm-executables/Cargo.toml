@@ -1,0 +1,15 @@
+[package]
+name = "waymark-workflow-service-vm-executables"
+version.workspace = true
+publish.workspace = true
+edition = "2024"
+
+[dependencies]
+waymark-vm-ast-old = { workspace = true }
+waymark-vm-codec-core = { workspace = true }
+waymark-vm-compiler-for-ast-old = { workspace = true }
+waymark-vm-compiler-for-ast-old-core = { workspace = true }
+waymark-workflow-service-vm-executables-backend = { workspace = true }
+
+serde = { workspace = true }
+thiserror = { workspace = true }
