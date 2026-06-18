@@ -8,7 +8,7 @@ pub type RejectPromiseError<Value> =
     ResolvePromiseError<waymark_vm_runtime_exception::Exception<Value>>;
 
 /// A list of promise states.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct PromiseStates<FunctionId, StateId, Value>(
     TypedVec<PromiseStateId, PromiseState<FunctionId, StateId, Value>>,
 );

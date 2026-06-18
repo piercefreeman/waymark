@@ -4,7 +4,7 @@ use waymark_vm_runtime_promise_core::PromiseStateId;
 use crate::{ExceptionHandlers, Registers};
 
 /// A frame shape used in runtime.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Frame<FunctionId, StateId, Value> {
     /// A function this frame is executing.
@@ -27,7 +27,7 @@ pub struct Frame<FunctionId, StateId, Value> {
 }
 
 /// The kind of a frame.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum FrameKind {
     /// Top level frame.

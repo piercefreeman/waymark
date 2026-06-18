@@ -17,12 +17,6 @@ pub struct RegisterId(pub usize);
 #[derive(Debug)]
 pub struct Registers<Value>(TypedVec<RegisterId, Option<Value>>);
 
-impl<Value: Clone> Clone for Registers<Value> {
-    fn clone(&self) -> Self {
-        Self(self.0.clone())
-    }
-}
-
 impl<Value> std::ops::Index<RegisterId> for Registers<Value> {
     type Output = Value;
 
