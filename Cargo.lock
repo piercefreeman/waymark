@@ -5203,6 +5203,8 @@ name = "waymark-vm-bytecode"
 version = "0.1.0"
 dependencies = [
  "index_type",
+ "serde",
+ "waymark-typed-vec-serde",
  "waymark-vm-bytecode-core",
  "waymark-vm-executable",
 ]

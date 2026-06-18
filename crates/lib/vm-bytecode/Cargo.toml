@@ -9,3 +9,8 @@ waymark-vm-bytecode-core = { workspace = true }
 waymark-vm-executable = { workspace = true }
 
 index_type = { workspace = true }
+serde = { workspace = true, optional = true }
+waymark-typed-vec-serde = { workspace = true, optional = true }
+
+[features]
+serde = ["dep:serde", "dep:waymark-typed-vec-serde", "waymark-vm-bytecode-core/serde"]
