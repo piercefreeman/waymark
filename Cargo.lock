@@ -4296,6 +4296,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-backend-memory2"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "nonempty-collections",
+ "thiserror",
+ "uuid",
+ "waymark-ids",
+ "waymark-state-vm-executables-backend",
+ "waymark-state-vm-runtimes-backend",
+ "waymark-workflow-completion-backend",
+ "waymark-workflow-service-vm-executables-backend",
+ "waymark-workflow-service-vm-runtimes-backend",
+ "waymark-workload-pinning-backend",
+]
+
+[[package]]
 name = "waymark-backend-postgres"
 version = "0.1.0"
 dependencies = [

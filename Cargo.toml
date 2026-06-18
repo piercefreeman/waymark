@@ -10,6 +10,7 @@ publish = false
 waymark-action-core = { path = "crates/lib/action-core" }
 waymark-backend-fault-injection = { path = "crates/lib/backend-fault-injection" }
 waymark-backend-memory = { path = "crates/lib/backend-memory" }
+waymark-backend-memory2 = { path = "crates/lib/backend-memory2" }
 waymark-backend-postgres = { path = "crates/lib/backend-postgres" }
 waymark-backend-postgres-migrations = { path = "crates/lib/backend-postgres-migrations" }
 waymark-backends-core = { path = "crates/lib/backends-core" }
