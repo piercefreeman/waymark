@@ -1,0 +1,23 @@
+[package]
+name = "waymark-backend-memory2"
+version.workspace = true
+publish.workspace = true
+edition = "2024"
+
+[dependencies]
+waymark-ids = { workspace = true }
+waymark-state-vm-executables-backend = { workspace = true }
+waymark-state-vm-runtimes-backend = { workspace = true }
+waymark-workflow-completion-backend = { workspace = true }
+waymark-workflow-service-vm-executables-backend = { workspace = true }
+waymark-workflow-service-vm-runtimes-backend = { workspace = true }
+waymark-workload-pinning-backend = { workspace = true }
+
+chrono = { workspace = true }
+nonempty-collections = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+
+[lib]
+test = false
+doctest = false
