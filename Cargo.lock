@@ -4421,6 +4421,7 @@ dependencies = [
  "waymark-worker-status-backend",
  "waymark-workflow-completion-backend",
  "waymark-workflow-registry-backend",
+ "waymark-workflow-service-vm-executables-backend",
  "waymark-workflow-service-vm-runtimes-backend",
  "waymark-workload-pinning-backend",
 ]
