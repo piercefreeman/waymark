@@ -12,7 +12,7 @@ services:
     ports:
       - "5435:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U waymark"]
+      test: ["CMD-SHELL", "pg_isready -U waymark -d waymark_example"]
       interval: 5s
       timeout: 3s
       retries: 5
