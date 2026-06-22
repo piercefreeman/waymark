@@ -1,0 +1,13 @@
+[package]
+name = "waymark-vm-value-convert-core"
+version.workspace = true
+publish.workspace = true
+edition = "2024"
+
+[dependencies]
+waymark-vm-runtime-promise-core = { workspace = true }
+
+thiserror = { workspace = true }
+
+[lib]
+doctest = false
