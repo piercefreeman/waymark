@@ -4642,6 +4642,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-extcall-convert-proto"
+version = "0.1.0"
+dependencies = [
+ "waymark-convert-core",
+ "waymark-extcall-convert",
+ "waymark-message-conversions",
+ "waymark-proto",
+ "waymark-vm-value",
+ "waymark-vm-value-convert-core",
+]
+
+[[package]]
 name = "waymark-extcall-reconciler"
 version = "0.1.0"
 dependencies = [

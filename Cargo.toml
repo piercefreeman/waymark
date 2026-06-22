@@ -27,6 +27,7 @@ waymark-execution-bringup = { path = "crates/lib/execution-bringup" }
 waymark-execution-driver = { path = "crates/lib/execution-driver" }
 waymark-execution-effector = { path = "crates/lib/execution-effector" }
 waymark-extcall-convert = { path = "crates/lib/extcall-convert" }
+waymark-extcall-convert-proto = { path = "crates/lib/extcall-convert-proto" }
 waymark-extcall-reconciler = { path = "crates/lib/extcall-reconciler" }
 waymark-fn-main-common = { path = "crates/lib/fn-main-common" }
 waymark-garbage-collector-backend = { path = "crates/lib/garbage-collector-backend" }

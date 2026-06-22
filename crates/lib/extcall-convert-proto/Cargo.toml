@@ -1,0 +1,16 @@
+[package]
+name = "waymark-extcall-convert-proto"
+version.workspace = true
+publish.workspace = true
+edition = "2024"
+
+[dependencies]
+waymark-convert-core = { workspace = true }
+waymark-extcall-convert = { workspace = true }
+waymark-message-conversions = { workspace = true }
+waymark-proto = { workspace = true }
+waymark-vm-value = { workspace = true }
+waymark-vm-value-convert-core = { workspace = true }
+
+[lib]
+doctest = false
