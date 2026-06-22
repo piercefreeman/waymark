@@ -32,6 +32,7 @@ where
 }
 
 /// A specification of a VM function call.
+#[derive(Debug, Clone)]
 pub struct CallSpec<FunctionId, Arg> {
     /// A function to call.
     pub func: FunctionId,
