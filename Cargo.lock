@@ -5595,6 +5595,7 @@ dependencies = [
  "waymark-vm-ast-old",
  "waymark-vm-bytecode",
  "waymark-vm-bytecode-core",
+ "waymark-vm-compiler-metadata",
  "waymark-vm-instructions-coreset",
  "waymark-vm-instructions-extcallset",
  "waymark-vm-instructions-fullset",
