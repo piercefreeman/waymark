@@ -42,3 +42,7 @@ pub type InstructionFor<Spec> = waymark_vm_instructions_fullset::FullSet<Spec>;
 
 /// Convenience alias for an executable produced by an AST-old compiler.
 pub type ExecutableFor<Spec> = waymark_vm_bytecode::Executable<InstructionFor<Spec>>;
+
+/// Convenience alias for [`Metadata`](waymark_vm_compiler_metadata::Metadata)
+/// using this compiler's [`FunctionId`](waymark_vm_bytecode_core::FunctionId).
+pub type Metadata = waymark_vm_compiler_metadata::Metadata<waymark_vm_bytecode_core::FunctionId>;
