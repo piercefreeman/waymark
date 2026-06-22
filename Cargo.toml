@@ -100,6 +100,7 @@ waymark-vm-compiler-for-ast-old-action-ref = { path = "crates/lib/vm-compiler-fo
 waymark-vm-compiler-for-ast-old-const-value = { path = "crates/lib/vm-compiler-for-ast-old-const-value" }
 waymark-vm-compiler-for-ast-old-core = { path = "crates/lib/vm-compiler-for-ast-old-core" }
 waymark-vm-compiler-for-ast-old-test-support = { path = "crates/lib/vm-compiler-for-ast-old-test-support" }
+waymark-vm-compiler-metadata = { path = "crates/lib/vm-compiler-metadata" }
 waymark-vm-driver = { path = "crates/lib/vm-driver" }
 waymark-vm-driver-core = { path = "crates/lib/vm-driver-core" }
 waymark-vm-driver-thread = { path = "crates/lib/vm-driver-thread" }
