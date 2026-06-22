@@ -1,0 +1,14 @@
+[package]
+name = "waymark-workflow-initialization-convert-proto"
+version.workspace = true
+publish.workspace = true
+edition = "2024"
+
+[dependencies]
+waymark-convert-core = { workspace = true }
+waymark-extcall-convert-proto = { workspace = true }
+waymark-proto = { workspace = true }
+waymark-vm-value = { workspace = true }
+
+[lib]
+doctest = false
