@@ -6264,10 +6264,39 @@ name = "waymark-workflow-completion-backend"
 version = "0.1.0"
 
 [[package]]
+name = "waymark-workflow-completion-convert-proto"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "waymark-convert-core",
+ "waymark-message-conversions",
+ "waymark-proto",
+ "waymark-vm-runtime-exception",
+ "waymark-vm-value",
+ "waymark-vm-value-convert-core",
+ "waymark-vm-value-convert-json",
+ "waymark-workflow-completion-core",
+]
+
+[[package]]
 name = "waymark-workflow-completion-core"
 version = "0.1.0"
 dependencies = [
  "waymark-vm-runtime-exception",
+]
+
+[[package]]
+name = "waymark-workflow-initialization-convert-proto"
+version = "0.1.0"
+dependencies = [
+ "index_type",
+ "thiserror",
+ "waymark-action-runtime-convert",
+ "waymark-convert-core",
+ "waymark-proto",
+ "waymark-vm-compiler-metadata",
+ "waymark-vm-runtime",
+ "waymark-vm-value",
 ]
 
 [[package]]
