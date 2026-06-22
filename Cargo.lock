@@ -5598,6 +5598,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-vm-compiler-metadata"
+version = "0.1.0"
+dependencies = [
+ "index_type",
+ "indexmap 2.13.0",
+ "serde",
+ "waymark-typed-vec-serde",
+]
+
+[[package]]
 name = "waymark-vm-driver"
 version = "0.1.0"
 dependencies = [
