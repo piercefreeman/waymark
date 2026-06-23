@@ -5259,6 +5259,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-vm-codec-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "waymark-vm-codec-rmp"
+version = "0.1.0"
+dependencies = [
+ "rmp-serde",
+ "waymark-vm-codec-core",
+]
+
+[[package]]
 name = "waymark-vm-compiler-for-ast-old"
 version = "0.1.0"
 dependencies = [
