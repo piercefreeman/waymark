@@ -4741,19 +4741,6 @@ name = "waymark-garbage-collector-config"
 version = "0.1.0"
 
 [[package]]
-name = "waymark-garbage-collector-loop"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "tokio",
- "tokio-util",
- "tracing",
- "waymark-backends-core",
- "waymark-garbage-collector-backend",
- "waymark-garbage-collector-config",
-]
-
-[[package]]
 name = "waymark-ids"
 version = "0.1.0"
 dependencies = [
@@ -5095,40 +5082,6 @@ dependencies = [
  "cron",
  "rand 0.9.3",
  "serde",
- "waymark-ids",
-]
-
-[[package]]
-name = "waymark-scheduler-loop"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "prost 0.12.6",
- "serde_json",
- "tokio",
- "tokio-util",
- "tracing",
- "waymark-backend-memory",
- "waymark-core-backend",
- "waymark-dag-builder",
- "waymark-ids",
- "waymark-ir-conversions",
- "waymark-ir-parser",
- "waymark-message-conversions",
- "waymark-proto",
- "waymark-runner",
- "waymark-runner-state",
- "waymark-scheduler-backend",
- "waymark-scheduler-config",
- "waymark-scheduler-core",
- "waymark-scheduler-loop-core",
-]
-
-[[package]]
-name = "waymark-scheduler-loop-core"
-version = "0.1.0"
-dependencies = [
- "waymark-dag",
  "waymark-ids",
 ]
 
