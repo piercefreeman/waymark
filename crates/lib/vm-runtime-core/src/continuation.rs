@@ -4,7 +4,7 @@ use crate::{Frame, RegisterId};
 /// after a certain async value is resolved.
 ///
 /// `Resumer` determines how we resume the execution for this continuation.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Continuation<FunctionId, StateId, Value, Resumer> {
     /// The frame to resume the execution from.
@@ -20,7 +20,7 @@ pub struct Continuation<FunctionId, StateId, Value, Resumer> {
 ///
 /// Typical use is for continuations that suspend on an asynchronously obtained
 /// value.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ResumeWithValue {
     /// The register to assign the resulting value of this continuation to.

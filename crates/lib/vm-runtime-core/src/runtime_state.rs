@@ -11,7 +11,7 @@ use crate::{Frame, PromiseStates, RejectPromiseError, ResolvePromiseError};
 ///
 /// The access to the runtime state is indirectly provided to the interpreters
 /// via the [`crate::CaptureRuntimeView`].
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct RuntimeState<FunctionId, StateId, Value> {
     /// The queue of the ready-to-execute frames.

@@ -5143,6 +5143,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-typed-vec-serde"
+version = "0.1.0"
+dependencies = [
+ "index_type",
+ "serde",
+]
+
+[[package]]
 name = "waymark-utils-futures"
 version = "0.1.0"
 dependencies = [
@@ -5195,6 +5203,8 @@ name = "waymark-vm-bytecode"
 version = "0.1.0"
 dependencies = [
  "index_type",
+ "serde",
+ "waymark-typed-vec-serde",
  "waymark-vm-bytecode-core",
  "waymark-vm-executable",
 ]
@@ -5285,6 +5295,7 @@ dependencies = [
 name = "waymark-vm-compiler-for-ast-old-const-value"
 version = "0.1.0"
 dependencies = [
+ "serde",
  "thiserror",
  "typed_floats",
  "waymark-vm-ast-old",
@@ -5351,6 +5362,7 @@ name = "waymark-vm-instructions-coreset"
 version = "0.1.0"
 dependencies = [
  "derive-where",
+ "serde",
  "waymark-vm-exception-handler",
 ]
 
@@ -5359,6 +5371,7 @@ name = "waymark-vm-instructions-extcallset"
 version = "0.1.0"
 dependencies = [
  "derive-where",
+ "serde",
 ]
 
 [[package]]
@@ -5366,6 +5379,7 @@ name = "waymark-vm-instructions-fullset"
 version = "0.1.0"
 dependencies = [
  "derive-where",
+ "serde",
  "waymark-vm-instructions-coreset",
  "waymark-vm-instructions-extcallset",
  "waymark-vm-instructions-pureset",
@@ -5376,6 +5390,7 @@ name = "waymark-vm-instructions-pureset"
 version = "0.1.0"
 dependencies = [
  "derive-where",
+ "serde",
 ]
 
 [[package]]
@@ -5493,6 +5508,7 @@ dependencies = [
  "index_type",
  "serde",
  "thiserror",
+ "waymark-typed-vec-serde",
  "waymark-vm-exception-handler",
  "waymark-vm-runtime-exception",
  "waymark-vm-runtime-promise-core",

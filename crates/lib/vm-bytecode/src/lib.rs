@@ -9,15 +9,33 @@ use waymark_vm_bytecode_core::{FunctionId, InstructionId, StateId};
 ///
 /// A collection of functions.
 #[derive(Debug)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(bound(
+        serialize = "Instruction: serde::Serialize",
+        deserialize = "Instruction: serde::Deserialize<'de>",
+    ))
+)]
 pub struct Executable<Instruction> {
     /// Functions this executable contains.
+    #[cfg_attr(feature = "serde", serde(with = "waymark_typed_vec_serde"))]
     pub functions: TypedVec<FunctionId, Function<Instruction>>,
 }
 
 /// A function with the given `Instruction`s.
 #[derive(Debug)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(bound(
+        serialize = "Instruction: serde::Serialize",
+        deserialize = "Instruction: serde::Deserialize<'de>",
+    ))
+)]
 pub struct Function<Instruction> {
     /// States (as in state-machine states) this function consists of.
+    #[cfg_attr(feature = "serde", serde(with = "waymark_typed_vec_serde"))]
     pub states: TypedVec<StateId, State<Instruction>>,
 
     /// The number of registers this function uses;
@@ -26,8 +44,17 @@ pub struct Function<Instruction> {
 
 /// A state (as in state-machine states) with the given `Instruction`s.
 #[derive(Debug)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(bound(
+        serialize = "Instruction: serde::Serialize",
+        deserialize = "Instruction: serde::Deserialize<'de>",
+    ))
+)]
 pub struct State<Instruction> {
     /// The sequence of `Instruction`s.
+    #[cfg_attr(feature = "serde", serde(with = "waymark_typed_vec_serde"))]
     pub instructions: TypedVec<InstructionId, Instruction>,
 }
 

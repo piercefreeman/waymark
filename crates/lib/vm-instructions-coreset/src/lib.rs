@@ -23,6 +23,22 @@ pub trait Spec: 'static {
 
 /// The core instructions set.
 #[derive_where(Debug)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(bound(
+        serialize = "
+            Spec::RegisterId: serde::Serialize,
+            Spec::FunctionId: serde::Serialize,
+            Spec::StateId: serde::Serialize,
+        ",
+        deserialize = "
+            Spec::RegisterId: serde::Deserialize<'de>,
+            Spec::FunctionId: serde::Deserialize<'de>,
+            Spec::StateId: serde::Deserialize<'de>,
+        ",
+    ))
+)]
 pub enum CoreSet<Spec: self::Spec> {
     /// Call a function.
     ///
