@@ -52,6 +52,11 @@ pub enum TestInstruction {
     },
     EmitRegister(RegisterId),
     EmitException,
+    EnqueueFrame {
+        func: FunctionId,
+        state: StateId,
+        num_regs: usize,
+    },
     EnqueueFrameAndExit {
         func: FunctionId,
         state: StateId,
@@ -181,6 +186,22 @@ impl Interpreter for TestInterpreter {
                 Ok(ExecutionOutcome::ExitFrameWithEffect(
                     TestEffect::UnhandledException(Exception { type_id, details }),
                 ))
+            }
+            TestInstruction::EnqueueFrame {
+                func,
+                state: next_state,
+                num_regs,
+            } => {
+                let FullRuntimeView { state, .. } = runtime;
+                state.ready.push_back(Frame {
+                    func,
+                    state: next_state,
+                    regs: Registers::new(num_regs),
+                    exception: None,
+                    exception_handler_blocks: ExceptionHandlers::new(),
+                    kind: FrameKind::TopLevel,
+                });
+                Ok(ExecutionOutcome::Continue(frame))
             }
             TestInstruction::EnqueueFrameAndExit {
                 func,

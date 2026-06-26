@@ -205,13 +205,14 @@ fn action_call_can_resume_with_an_exception_error() {
     )
     .expect("function 0 should exist");
 
+    let emitted_effect = runtime
+        .run()
+        .expect("first run should emit the action call");
     let TestEffect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall {
         promise_state_id,
         action_ref,
         args,
-    }) = runtime
-        .run()
-        .expect("first run should emit the action call")
+    }) = emitted_effect.effect
     else {
         panic!("first run should emit an action call");
     };
@@ -229,13 +230,14 @@ fn action_call_can_resume_with_an_exception_error() {
         )
         .expect("action call promise should reject cleanly");
 
+    let emitted_effect = runtime.run().expect("rejected action call should surface");
     assert!(matches!(
-        runtime.run(),
-        Ok(TestEffect::CoreSet(
+        emitted_effect.effect,
+        TestEffect::CoreSet(
             waymark_vm_interpreter_coreset::Effect::UnhandledException(Exception {
                 type_id,
                 details: ReadyValue::String(details),
             })
-        )) if type_id == "ValueError" && details == "boom"
+        ) if type_id == "ValueError" && details == "boom"
     ));
 }

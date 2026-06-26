@@ -22,11 +22,11 @@ fn runtime_raises_exception_values_from_registers() {
 
     let mut runtime = new_runtime_with_args(executable, vec![raised]);
 
-    let effect = runtime
+    let emitted_effect = runtime
         .run()
         .expect("raise program should emit an unhandled exception");
 
-    match effect {
+    match emitted_effect.effect {
         Effect::UnhandledException(Exception { type_id, details }) => {
             assert_eq!(type_id, "ValueError");
             assert_eq!(details, TestReadyValue::Int(7));
@@ -82,11 +82,11 @@ fn bubble_exception_handles_same_frame_exceptions_with_local_handlers() {
 
     let mut runtime = new_runtime_with_args(executable, vec![raised]);
 
-    let effect = runtime
+    let emitted_effect = runtime
         .run()
         .expect("local handler should catch the raised exception");
 
-    match effect {
+    match emitted_effect.effect {
         Effect::Complete(TestReadyValue::Exception(exception)) => {
             assert_eq!(exception.type_id, "ValueError");
             assert_eq!(exception.details, TestValue::Ready(TestReadyValue::Int(7)));

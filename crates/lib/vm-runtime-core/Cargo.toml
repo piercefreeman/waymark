@@ -7,6 +7,7 @@ publish.workspace = true
 [dependencies]
 waymark-typed-vec-serde = { workspace = true, optional = true }
 waymark-vm-exception-handler = { workspace = true }
+waymark-vm-runtime-effect = { workspace = true }
 waymark-vm-runtime-exception = { workspace = true }
 waymark-vm-runtime-promise-core = { workspace = true }
 
@@ -21,6 +22,7 @@ serde = [
   "dep:serde",
   "dep:waymark-typed-vec-serde",
   "waymark-vm-exception-handler/serde",
+  "waymark-vm-runtime-effect/serde",
   "waymark-vm-runtime-exception/serde",
   "waymark-vm-runtime-promise-core/serde",
 ]

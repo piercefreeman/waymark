@@ -21,7 +21,13 @@ async fn forwards_emitted_effects_to_the_effect_channel() {
         promise_resolutions_rx,
     }));
 
-    assert_eq!(effects_rx.recv().await, Some(TestEffect::Message("tick")));
+    assert_eq!(
+        effects_rx.recv().await,
+        Some(waymark_vm_runtime_effect::EmittedEffect {
+            effect: TestEffect::Message("tick"),
+            number: waymark_vm_runtime_effect::EffectNumber(0),
+        })
+    );
     drop(promise_resolutions_tx);
 
     assert!(matches!(
@@ -60,7 +66,10 @@ async fn resumes_waiting_promises_and_forwards_the_resolved_effect() {
 
     assert_eq!(
         effects_rx.recv().await,
-        Some(TestEffect::Value(TestReadyValue::Int(41)))
+        Some(waymark_vm_runtime_effect::EmittedEffect {
+            effect: TestEffect::Value(TestReadyValue::Int(41)),
+            number: waymark_vm_runtime_effect::EffectNumber(0),
+        })
     );
     drop(promise_resolutions_tx);
 
@@ -251,10 +260,13 @@ async fn resumes_waiting_promises_with_exception_errors() {
 
     assert_eq!(
         effects_rx.recv().await,
-        Some(TestEffect::UnhandledException(Exception {
-            type_id: "ValueError".to_owned(),
-            details: TestReadyValue::Int(41),
-        }))
+        Some(waymark_vm_runtime_effect::EmittedEffect {
+            effect: TestEffect::UnhandledException(Exception {
+                type_id: "ValueError".to_owned(),
+                details: TestReadyValue::Int(41),
+            }),
+            number: waymark_vm_runtime_effect::EffectNumber(0),
+        })
     );
     drop(promise_resolutions_tx);
 
