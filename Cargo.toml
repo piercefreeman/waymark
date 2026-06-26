@@ -93,6 +93,7 @@ waymark-vm-interpreter-pureset = { path = "crates/lib/vm-interpreter-pureset" }
 waymark-vm-interpreter-utils = { path = "crates/lib/vm-interpreter-utils" }
 waymark-vm-runtime = { path = "crates/lib/vm-runtime" }
 waymark-vm-runtime-core = { path = "crates/lib/vm-runtime-core" }
+waymark-vm-runtime-effect = { path = "crates/lib/vm-runtime-effect" }
 waymark-vm-runtime-exception = { path = "crates/lib/vm-runtime-exception" }
 waymark-vm-runtime-promise-core = { path = "crates/lib/vm-runtime-promise-core" }
 waymark-vm-runtime-promise-value = { path = "crates/lib/vm-runtime-promise-value" }

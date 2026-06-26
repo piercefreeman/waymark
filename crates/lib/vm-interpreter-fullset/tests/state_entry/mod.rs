@@ -100,13 +100,14 @@ fn pending_exceptions_are_consumed_before_execute_dispatch() {
     )
     .expect("function 0 should exist");
 
+    let emitted_effect = runtime
+        .run()
+        .expect("first run should suspend on the action call");
     let waymark_vm_interpreter_fullset::Effect::ExtCallSet(
         waymark_vm_interpreter_extcallset::Effect::ActionCall {
             promise_state_id, ..
         },
-    ) = runtime
-        .run()
-        .expect("first run should suspend on the action call")
+    ) = emitted_effect.effect
     else {
         panic!("first run should emit an action call");
     };
@@ -121,11 +122,11 @@ fn pending_exceptions_are_consumed_before_execute_dispatch() {
         )
         .expect("action-call promise should resolve exceptionally");
 
-    let effect = runtime
+    let emitted_effect = runtime
         .run()
         .expect("state entry should bubble the pending exception before execute dispatch");
 
-    match effect {
+    match emitted_effect.effect {
         waymark_vm_interpreter_fullset::Effect::CoreSet(
             waymark_vm_interpreter_coreset::Effect::UnhandledException(Exception {
                 type_id,

@@ -29,22 +29,23 @@ fn runtime_emits_a_sleep_effect_and_queues_the_resumed_frame() {
         vec![TestReadyValue(5)],
     );
 
+    let emitted_effect = runtime
+        .run()
+        .expect("first run should emit the sleep effect");
     let TestEffect::ExtCallSet(Effect::Sleep {
         promise_state_id,
         duration,
-    }) = runtime
-        .run()
-        .expect("first run should emit the sleep effect")
+    }) = emitted_effect.effect
     else {
         panic!("first run should emit a sleep effect");
     };
 
     assert_eq!(duration, NonZeroDuration::from_secs(5).unwrap());
 
-    let TestEffect::PendingPromiseStateId(resumed_promise_state_id) = runtime
+    let emitted_effect = runtime
         .run()
-        .expect("second run should execute the resumed frame")
-    else {
+        .expect("second run should execute the resumed frame");
+    let TestEffect::PendingPromiseStateId(resumed_promise_state_id) = emitted_effect.effect else {
         panic!("second run should inspect the resumed pending promise");
     };
 

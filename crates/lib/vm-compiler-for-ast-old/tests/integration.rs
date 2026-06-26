@@ -16,17 +16,23 @@ use waymark_vm_bytecode_core::{FunctionId, InstructionId, StateId};
 use waymark_vm_compiler_for_ast_old_test_support::{TestActionRef, TestReadyValue, TestValue};
 use waymark_vm_interpreter_fullset::Effect;
 
-fn completed_int(effect: Effect<TestReadyValue, TestActionRef, TestReadyValue>) -> i64 {
-    match completed_value(effect) {
+fn completed_int(
+    emitted_effect: waymark_vm_runtime_effect::EmittedEffect<
+        Effect<TestReadyValue, TestActionRef, TestReadyValue>,
+    >,
+) -> i64 {
+    match completed_value(emitted_effect) {
         TestReadyValue::Int(value) => value,
         other => panic!("unexpected runtime effect: {other:?}"),
     }
 }
 
 fn completed_value(
-    effect: Effect<TestReadyValue, TestActionRef, TestReadyValue>,
+    emitted_effect: waymark_vm_runtime_effect::EmittedEffect<
+        Effect<TestReadyValue, TestActionRef, TestReadyValue>,
+    >,
 ) -> TestReadyValue {
-    match effect {
+    match emitted_effect.effect {
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(value)) => value,
         other => panic!("unexpected runtime effect: {other:?}"),
     }
@@ -51,9 +57,9 @@ fn compiles_assignments_and_addition_to_completion() {
     let executable = compile_program(&program);
     let mut runtime = runtime(executable);
 
-    let effect = runtime.run().expect("program should complete");
+    let emitted_effect = runtime.run().expect("program should complete");
 
-    match effect {
+    match emitted_effect.effect {
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(TestReadyValue::Int(
             value,
         ))) => assert_eq!(value, 5),
@@ -368,9 +374,9 @@ fn compiles_user_function_calls() {
     let executable = compile_program(&program);
     let mut runtime = runtime(executable);
 
-    let effect = runtime.run().expect("program should complete");
+    let emitted_effect = runtime.run().expect("program should complete");
 
-    match effect {
+    match emitted_effect.effect {
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(TestReadyValue::Int(
             value,
         ))) => assert_eq!(value, 42),
@@ -392,9 +398,9 @@ fn compiles_action_calls_into_extcalls() {
     let executable = compile_program(&program);
     let mut runtime = runtime(executable);
 
-    let effect = runtime.run().expect("program should emit an extcall");
+    let emitted_effect = runtime.run().expect("program should emit an extcall");
 
-    let promise_state_id = match effect {
+    let promise_state_id = match emitted_effect.effect {
         Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall {
             promise_state_id,
             action_ref,
@@ -411,11 +417,11 @@ fn compiles_action_calls_into_extcalls() {
         .resolve_promise(promise_state_id, TestReadyValue::Int(42))
         .expect("extcall promise should resolve");
 
-    let effect = runtime
+    let emitted_effect = runtime
         .run()
         .expect("program should complete after resolution");
 
-    match effect {
+    match emitted_effect.effect {
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(TestReadyValue::Int(
             value,
         ))) => assert_eq!(value, 42),
@@ -607,7 +613,9 @@ fn compiles_sleep_statements_into_resumable_sleep_effects() {
     let executable = compile_program(&program);
     let mut runtime = runtime(executable);
 
-    let promise_state_id = match runtime.run().expect("program should emit a sleep effect") {
+    let emitted_effect = runtime.run().expect("program should emit a sleep effect");
+
+    let promise_state_id = match emitted_effect.effect {
         Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::Sleep {
             promise_state_id,
             duration,
@@ -716,10 +724,10 @@ fn compiles_parallel_action_blocks_with_multiple_outstanding_extcalls() {
     let executable = compile_program(&program);
     let mut runtime = runtime(executable);
 
-    let first_promise = match runtime
+    let emitted_effect = runtime
         .run()
-        .expect("first run should emit the first extcall")
-    {
+        .expect("first run should emit the first extcall");
+    let first_promise = match emitted_effect.effect {
         Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall {
             promise_state_id,
             action_ref,
@@ -732,10 +740,10 @@ fn compiles_parallel_action_blocks_with_multiple_outstanding_extcalls() {
         other => panic!("unexpected first runtime effect: {other:?}"),
     };
 
-    let second_promise = match runtime
+    let emitted_effect = runtime
         .run()
-        .expect("second run should emit the second extcall")
-    {
+        .expect("second run should emit the second extcall");
+    let second_promise = match emitted_effect.effect {
         Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall {
             promise_state_id,
             action_ref,
@@ -755,11 +763,11 @@ fn compiles_parallel_action_blocks_with_multiple_outstanding_extcalls() {
         .resolve_promise(first_promise, TestReadyValue::Int(10))
         .expect("first extcall promise should resolve");
 
-    let effect = runtime
+    let emitted_effect = runtime
         .run()
         .expect("program should complete after resolving both extcalls");
 
-    match effect {
+    match emitted_effect.effect {
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(TestReadyValue::Int(
             value,
         ))) => assert_eq!(value, 7),
@@ -798,11 +806,12 @@ fn compiles_spread_expressions_to_completion() {
     let mut pending_promises = Vec::new();
 
     for input in [1, 2, 3] {
-        let promise = match runtime.run().unwrap_or_else(|error| {
+        let emitted_effect = runtime.run().unwrap_or_else(|error| {
             panic!(
                 "spread action for {input} should start before earlier promises resolve: {error:?}"
             )
-        }) {
+        });
+        let promise = match emitted_effect.effect {
             Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall {
                 promise_state_id,
                 action_ref,
@@ -865,10 +874,10 @@ fn compiles_mixed_parallel_blocks_with_leading_action_before_awaiting() {
     let executable = compile_program(&program);
     let mut runtime = runtime(executable);
 
-    let first_promise = match runtime
+    let emitted_effect = runtime
         .run()
-        .expect("first run should emit the first extcall")
-    {
+        .expect("first run should emit the first extcall");
+    let first_promise = match emitted_effect.effect {
         Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall {
             promise_state_id,
             action_ref,
@@ -881,10 +890,10 @@ fn compiles_mixed_parallel_blocks_with_leading_action_before_awaiting() {
         other => panic!("unexpected first runtime effect: {other:?}"),
     };
 
-    let second_promise = match runtime
+    let emitted_effect = runtime
         .run()
-        .expect("second run should emit the second extcall before awaiting the first")
-    {
+        .expect("second run should emit the second extcall before awaiting the first");
+    let second_promise = match emitted_effect.effect {
         Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall {
             promise_state_id,
             action_ref,
@@ -904,11 +913,11 @@ fn compiles_mixed_parallel_blocks_with_leading_action_before_awaiting() {
         .resolve_promise(first_promise, TestReadyValue::Int(10))
         .expect("first extcall promise should resolve");
 
-    let effect = runtime
+    let emitted_effect = runtime
         .run()
         .expect("program should complete after resolving both extcalls");
 
-    match effect {
+    match emitted_effect.effect {
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(TestReadyValue::Int(
             value,
         ))) => assert_eq!(value, 7),
@@ -927,7 +936,7 @@ fn compiles_empty_parallel_blocks_as_noops() {
     let executable = compile_program(&program);
     let mut runtime = runtime(executable);
 
-    let effect = runtime.run().expect("program should complete");
+    let effect = runtime.run().expect("program should complete").effect;
 
     match effect {
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(TestReadyValue::Int(
@@ -972,7 +981,8 @@ fn compiles_parallel_expressions_into_positional_assignments() {
     let executable = compile_program(&program);
     let mut runtime = runtime(executable);
 
-    let promise_state_id = match runtime.run().expect("program should emit an extcall") {
+    let emitted_effect = runtime.run().expect("program should emit an extcall");
+    let promise_state_id = match emitted_effect.effect {
         Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall {
             promise_state_id,
             action_ref,
@@ -989,11 +999,11 @@ fn compiles_parallel_expressions_into_positional_assignments() {
         .resolve_promise(promise_state_id, TestReadyValue::Int(5))
         .expect("extcall promise should resolve");
 
-    let effect = runtime
+    let emitted_effect = runtime
         .run()
         .expect("program should complete after resolving the parallel expression");
 
-    match effect {
+    match emitted_effect.effect {
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(TestReadyValue::Int(
             value,
         ))) => assert_eq!(value, 9),
@@ -1037,10 +1047,10 @@ fn compiles_mixed_parallel_expressions_with_leading_action_before_awaiting() {
     let executable = compile_program(&program);
     let mut runtime = runtime(executable);
 
-    let first_promise = match runtime
+    let emitted_effect = runtime
         .run()
-        .expect("first run should emit the first extcall")
-    {
+        .expect("first run should emit the first extcall");
+    let first_promise = match emitted_effect.effect {
         Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall {
             promise_state_id,
             action_ref,
@@ -1053,10 +1063,10 @@ fn compiles_mixed_parallel_expressions_with_leading_action_before_awaiting() {
         other => panic!("unexpected first runtime effect: {other:?}"),
     };
 
-    let second_promise = match runtime
+    let emitted_effect = runtime
         .run()
-        .expect("second run should emit the second extcall before awaiting the first")
-    {
+        .expect("second run should emit the second extcall before awaiting the first");
+    let second_promise = match emitted_effect.effect {
         Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall {
             promise_state_id,
             action_ref,
@@ -1076,11 +1086,11 @@ fn compiles_mixed_parallel_expressions_with_leading_action_before_awaiting() {
         .resolve_promise(first_promise, TestReadyValue::Int(10))
         .expect("first extcall promise should resolve");
 
-    let effect = runtime
+    let emitted_effect = runtime
         .run()
         .expect("program should complete after resolving both extcalls");
 
-    match effect {
+    match emitted_effect.effect {
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(TestReadyValue::Int(
             value,
         ))) => assert_eq!(value, 43),
@@ -1119,7 +1129,8 @@ fn compiles_parallel_expressions_into_aggregate_lists() {
     let executable = compile_program(&program);
     let mut runtime = runtime(executable);
 
-    let promise_state_id = match runtime.run().expect("program should emit an extcall") {
+    let emitted_effect = runtime.run().expect("program should emit an extcall");
+    let promise_state_id = match emitted_effect.effect {
         Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall {
             promise_state_id,
             action_ref,
@@ -1136,11 +1147,11 @@ fn compiles_parallel_expressions_into_aggregate_lists() {
         .resolve_promise(promise_state_id, TestReadyValue::Int(5))
         .expect("extcall promise should resolve");
 
-    let effect = runtime
+    let emitted_effect = runtime
         .run()
         .expect("program should complete after resolving the parallel expression");
 
-    match effect {
+    match emitted_effect.effect {
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(
             TestReadyValue::List(values),
         )) => assert_eq!(
@@ -1178,10 +1189,10 @@ fn compiles_parallel_expression_results_by_call_position() {
     let executable = compile_program(&program);
     let mut runtime = runtime(executable);
 
-    let first_promise = match runtime
+    let emitted_effect = runtime
         .run()
-        .expect("first run should emit the first extcall")
-    {
+        .expect("first run should emit the first extcall");
+    let first_promise = match emitted_effect.effect {
         Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall {
             promise_state_id,
             action_ref,
@@ -1194,10 +1205,10 @@ fn compiles_parallel_expression_results_by_call_position() {
         other => panic!("unexpected first runtime effect: {other:?}"),
     };
 
-    let second_promise = match runtime
+    let emitted_effect = runtime
         .run()
-        .expect("second run should emit the second extcall")
-    {
+        .expect("second run should emit the second extcall");
+    let second_promise = match emitted_effect.effect {
         Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall {
             promise_state_id,
             action_ref,
@@ -1217,11 +1228,11 @@ fn compiles_parallel_expression_results_by_call_position() {
         .resolve_promise(first_promise, TestReadyValue::Int(10))
         .expect("first extcall promise should resolve");
 
-    let effect = runtime
+    let emitted_effect = runtime
         .run()
         .expect("program should complete after resolving both parallel expression calls");
 
-    match effect {
+    match emitted_effect.effect {
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(TestReadyValue::Int(
             value,
         ))) => assert_eq!(value, 30),

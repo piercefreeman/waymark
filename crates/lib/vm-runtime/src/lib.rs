@@ -112,6 +112,7 @@ where
         let state = RuntimeState {
             ready,
             promise_states: PromiseStates::new(),
+            effect_counter: waymark_vm_runtime_effect::EffectNumber(0),
         };
 
         Ok(Self {
@@ -168,7 +169,16 @@ where
     Value: core::fmt::Debug,
 {
     /// Run the VM steps until the next event is encountered.
-    pub fn run(&mut self) -> Result<Interpreter::Effect, RunError<Interpreter::Error>> {
+    ///
+    /// Returns the emitted effect paired with its zero-based sequence number.
+    /// The counter is embedded in the runtime snapshot so numbering survives
+    /// revivals.
+    pub fn run(
+        &mut self,
+    ) -> Result<
+        waymark_vm_runtime_effect::EmittedEffect<Interpreter::Effect>,
+        RunError<Interpreter::Error>,
+    > {
         loop {
             let Some(frame) = self.state.ready.pop_front() else {
                 // No frames but also no valid exit either,
@@ -182,7 +192,11 @@ where
                 step::StepOutcome::Yield => continue,
             };
 
-            return Ok(effect);
+            let number = self.state.effect_counter;
+            self.state.effect_counter =
+                waymark_vm_runtime_effect::EffectNumber(self.state.effect_counter.0 + 1);
+
+            return Ok(waymark_vm_runtime_effect::EmittedEffect { effect, number });
         }
     }
 }

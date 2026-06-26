@@ -29,13 +29,14 @@ fn runtime_emits_an_action_call_and_queues_the_resumed_frame() {
         vec![TestReadyValue(41)],
     );
 
+    let emitted_effect = runtime
+        .run()
+        .expect("first run should emit the action call");
     let TestEffect::ExtCallSet(Effect::ActionCall {
         promise_state_id,
         action_ref,
         args,
-    }) = runtime
-        .run()
-        .expect("first run should emit the action call")
+    }) = emitted_effect.effect
     else {
         panic!("first run should emit an action call");
     };
@@ -43,10 +44,10 @@ fn runtime_emits_an_action_call_and_queues_the_resumed_frame() {
     assert_eq!(action_ref, 7);
     assert_eq!(args, vec![41]);
 
-    let TestEffect::PendingPromiseStateId(resumed_promise_state_id) = runtime
+    let emitted_effect = runtime
         .run()
-        .expect("second run should execute the resumed frame")
-    else {
+        .expect("second run should execute the resumed frame");
+    let TestEffect::PendingPromiseStateId(resumed_promise_state_id) = emitted_effect.effect else {
         panic!("second run should inspect the resumed pending promise");
     };
 

@@ -1,5 +1,6 @@
 use std::collections::VecDeque;
 
+use waymark_vm_runtime_effect::EffectNumber;
 use waymark_vm_runtime_promise_core::PromiseStateId;
 
 use crate::{Frame, PromiseStates, RejectPromiseError, ResolvePromiseError};
@@ -29,6 +30,11 @@ pub struct RuntimeState<FunctionId, StateId, Value> {
     // a full garbage-collector by holding the promises in a weak-rc-map
     // or something like that.
     pub promise_states: PromiseStates<FunctionId, StateId, Value>,
+
+    /// Sequential counter of effects produced by this runtime.
+    ///
+    /// Incremented each time the runtime emits an effect.
+    pub effect_counter: EffectNumber,
 }
 
 impl<FunctionId, StateId, Value> RuntimeState<FunctionId, StateId, Value>
@@ -80,6 +86,7 @@ where
 mod tests {
     use std::collections::VecDeque;
 
+    use waymark_vm_runtime_effect::EffectNumber;
     use waymark_vm_runtime_exception::Exception;
     use waymark_vm_runtime_promise_value::PromiseValue;
 
@@ -133,6 +140,7 @@ mod tests {
         let mut runtime = RuntimeState {
             ready: VecDeque::new(),
             promise_states,
+            effect_counter: EffectNumber(0),
         };
 
         runtime
@@ -182,6 +190,7 @@ mod tests {
         let mut runtime = RuntimeState {
             ready: VecDeque::new(),
             promise_states,
+            effect_counter: EffectNumber(0),
         };
 
         let err = runtime
@@ -223,6 +232,7 @@ mod tests {
         let mut runtime = RuntimeState {
             ready: VecDeque::new(),
             promise_states,
+            effect_counter: EffectNumber(0),
         };
 
         let exception = Exception {
@@ -264,6 +274,7 @@ mod tests {
         let mut runtime = RuntimeState {
             ready: VecDeque::new(),
             promise_states,
+            effect_counter: EffectNumber(0),
         };
 
         runtime

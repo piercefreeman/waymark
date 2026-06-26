@@ -56,11 +56,11 @@ fn runtime_resumes_extcalls_and_finishes_with_pure_work() {
 
     let mut runtime = new_runtime_with_args(executable, vec![TestReadyValue::Int(41)]);
 
-    let effect = runtime
+    let emitted_effect = runtime
         .run()
         .expect("first run should emit the action call");
 
-    let promise_state_id = match effect {
+    let promise_state_id = match emitted_effect.effect {
         Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::ActionCall {
             promise_state_id,
             action_ref,
@@ -86,11 +86,11 @@ fn runtime_resumes_extcalls_and_finishes_with_pure_work() {
         .resolve_promise(promise_state_id, TestReadyValue::Int(41))
         .expect("action call promise should resolve cleanly");
 
-    let effect = runtime
+    let emitted_effect = runtime
         .run()
         .expect("second run should finish after resuming the action call");
 
-    match effect {
+    match emitted_effect.effect {
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(value)) => {
             assert_eq!(value, TestReadyValue::Int(42));
         }

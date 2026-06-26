@@ -379,5 +379,5 @@ pub fn run(regs: usize, instrs: Vec<RuntimeInstruction>) -> Result<TestValue, Ru
     let exec = executable(vec![function::<RuntimeInstruction>(regs, vec![instrs])]);
     let mut runtime = Runtime::with_conventional_entrypoint(RuntimeInterpreter::default(), exec)
         .expect("function 0 should exist");
-    runtime.run()
+    runtime.run().map(|emitted_effect| emitted_effect.effect)
 }

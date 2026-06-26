@@ -97,8 +97,9 @@ where
 
     loop {
         match runtime.run() {
-            Ok(effect) => {
-                tracing::info!(?effect, "effect");
+            Ok(emitted_effect) => {
+                let waymark_vm_runtime::EmittedEffect { effect, number } = emitted_effect;
+                tracing::info!(?effect, %number, "effect");
                 if effects_tx.send(effect).await.is_err() {
                     return Err(Error::EffectSenderClosed);
                 }
