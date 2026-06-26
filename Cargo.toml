@@ -9,6 +9,7 @@ publish = false
 [workspace.dependencies]
 waymark-action-core = { path = "crates/lib/action-core" }
 waymark-action-runtime-core = { path = "crates/lib/action-runtime-core" }
+waymark-action-runtime-worker-stream = { path = "crates/lib/action-runtime-worker-stream" }
 waymark-backend-fault-injection = { path = "crates/lib/backend-fault-injection" }
 waymark-backend-memory = { path = "crates/lib/backend-memory" }
 waymark-backend-postgres = { path = "crates/lib/backend-postgres" }
