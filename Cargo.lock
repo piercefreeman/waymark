@@ -4275,6 +4275,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-action-runtime-worker-stream"
+version = "0.1.0"
+dependencies = [
+ "nonempty-collections",
+ "tokio",
+ "tonic 0.11.0",
+ "waymark-action-core",
+ "waymark-action-runtime-convert",
+ "waymark-action-runtime-core",
+ "waymark-convert-core",
+ "waymark-proto",
+ "waymark-vm-runtime-effect",
+ "waymark-vm-runtime-promise-core",
+ "waymark-vm-value",
+]
+
+[[package]]
 name = "waymark-backend-fault-injection"
 version = "0.1.0"
 dependencies = [
