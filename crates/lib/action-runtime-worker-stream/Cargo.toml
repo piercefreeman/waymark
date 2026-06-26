@@ -1,0 +1,23 @@
+[package]
+name = "waymark-action-runtime-worker-stream"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-action-core = { workspace = true }
+waymark-action-runtime-core = { workspace = true }
+waymark-convert-core = { workspace = true }
+waymark-extcall-convert-proto = { workspace = true }
+waymark-proto = { workspace = true }
+waymark-vm-runtime-exception = { workspace = true }
+waymark-vm-value = { workspace = true }
+
+nonempty-collections = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["sync"] }
+tonic = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+
+[lib]
+doctest = false
