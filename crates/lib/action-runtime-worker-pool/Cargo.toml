@@ -1,0 +1,26 @@
+[package]
+name = "waymark-action-runtime-worker-pool"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-action-runtime-convert = { workspace = true }
+waymark-action-runtime-core = { workspace = true }
+waymark-convert-core = { workspace = true }
+waymark-ids = { workspace = true }
+waymark-vm-runtime-effect = { workspace = true }
+waymark-vm-runtime-promise-core = { workspace = true }
+waymark-vm-value = { workspace = true }
+waymark-vm-value-convert-core = { workspace = true }
+waymark-worker-core = { workspace = true }
+
+dashmap = { workspace = true }
+nonempty-collections = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["sync"] }
+tracing = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+
+[lib]
+doctest = false
