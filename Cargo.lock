@@ -4273,6 +4273,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-action-runtime-worker-pool"
+version = "0.1.0"
+dependencies = [
+ "nonempty-collections",
+ "serde_json",
+ "uuid",
+ "waymark-action-core",
+ "waymark-action-runtime-core",
+ "waymark-convert-core",
+ "waymark-extcall-convert",
+ "waymark-ids",
+ "waymark-runner-executor-core",
+ "waymark-vm-runtime-exception",
+ "waymark-vm-value",
+ "waymark-worker-core",
+]
+
+[[package]]
 name = "waymark-action-runtime-worker-stream"
 version = "0.1.0"
 dependencies = [
