@@ -43,6 +43,7 @@ use uuid::Uuid;
 
 use waymark_backend_postgres::PostgresBackend;
 use waymark_config::WorkerConfig;
+use waymark_worker_core::BaseWorkerPool;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -158,9 +159,16 @@ async fn main() -> Result<()> {
         executable_retention: config.executable_retention,
         executable_sweep_interval: config.executable_sweep_interval,
     };
+
     let remote_pool = Arc::new(waymark_worker_remote_pool::RemoteWorkerPool::new(
         process_pool.clone(),
     ));
+
+    remote_pool
+        .launch()
+        .await
+        .map_err(|err| anyhow::anyhow!("failed to launch remote worker pool: {err}"))?;
+
     let execution_handles = waymark_execution_bringup::start(
         bringup_config,
         Arc::new(backend.clone()),
