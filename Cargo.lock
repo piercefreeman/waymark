@@ -4369,6 +4369,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-blocking-future"
+version = "0.1.0"
+dependencies = [
+ "tokio",
+]
+
+[[package]]
 name = "waymark-boot-singleton"
 version = "0.1.0"
 dependencies = [
@@ -5242,9 +5249,11 @@ dependencies = [
  "waymark-vm-ast-old-helpers",
  "waymark-vm-bytecode",
  "waymark-vm-bytecode-core",
+ "waymark-vm-codec-rmp",
  "waymark-vm-compiler-for-ast-old",
  "waymark-vm-compiler-for-ast-old-core",
  "waymark-vm-driver",
+ "waymark-vm-driver-core",
  "waymark-vm-instructions-coreset",
  "waymark-vm-instructions-extcallset",
  "waymark-vm-instructions-fullset",
@@ -5351,14 +5360,53 @@ dependencies = [
 name = "waymark-vm-driver"
 version = "0.1.0"
 dependencies = [
+ "nonempty-collections",
+ "serde",
  "tokio",
+ "tokio-util",
  "tracing",
+ "waymark-vm-codec-core",
+ "waymark-vm-codec-rmp",
+ "waymark-vm-driver-core",
  "waymark-vm-executable",
  "waymark-vm-interpreter",
  "waymark-vm-runtime",
  "waymark-vm-runtime-core",
  "waymark-vm-runtime-effect",
  "waymark-vm-runtime-exception",
+ "waymark-vm-runtime-promise-core",
+ "waymark-vm-runtime-test",
+]
+
+[[package]]
+name = "waymark-vm-driver-core"
+version = "0.1.0"
+dependencies = [
+ "nonempty-collections",
+ "tokio",
+ "waymark-vm-runtime-effect",
+ "waymark-vm-runtime-exception",
+ "waymark-vm-runtime-promise-core",
+]
+
+[[package]]
+name = "waymark-vm-driver-thread"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "waymark-blocking-future",
+ "waymark-vm-codec-core",
+ "waymark-vm-codec-rmp",
+ "waymark-vm-driver",
+ "waymark-vm-driver-core",
+ "waymark-vm-executable",
+ "waymark-vm-interpreter",
+ "waymark-vm-runtime",
+ "waymark-vm-runtime-core",
+ "waymark-vm-runtime-effect",
  "waymark-vm-runtime-promise-core",
  "waymark-vm-runtime-test",
 ]

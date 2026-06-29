@@ -268,4 +268,11 @@ where
     pub fn has_ready_frames(&self) -> bool {
         !self.state.ready.is_empty()
     }
+
+    /// Return an iterator over all currently waiting promise state IDs.
+    pub fn waiting_promise_state_ids(
+        &self,
+    ) -> impl Iterator<Item = waymark_vm_runtime_promise_core::PromiseStateId> + '_ {
+        self.state.promise_states.waiting_ids()
+    }
 }
