@@ -1,0 +1,18 @@
+[package]
+name = "waymark-action-runtime-convert"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-action-runtime-core = { workspace = true }
+waymark-convert-core = { workspace = true }
+waymark-message-conversions = { workspace = true }
+waymark-proto = { workspace = true }
+waymark-runner-executor-core = { workspace = true }
+waymark-vm-runtime-exception = { workspace = true }
+waymark-vm-value = { workspace = true }
+waymark-vm-value-convert-core = { workspace = true }
+waymark-vm-value-convert-json = { workspace = true }
+
+serde_json = { workspace = true }

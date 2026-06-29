@@ -8,6 +8,7 @@ publish = false
 
 [workspace.dependencies]
 waymark-action-core = { path = "crates/lib/action-core" }
+waymark-action-runtime-core = { path = "crates/lib/action-runtime-core" }
 waymark-backend-fault-injection = { path = "crates/lib/backend-fault-injection" }
 waymark-backend-memory = { path = "crates/lib/backend-memory" }
 waymark-backend-postgres = { path = "crates/lib/backend-postgres" }
@@ -106,6 +107,7 @@ waymark-vm-runtime-test = { path = "crates/lib/vm-runtime-test" }
 waymark-vm-runtime-value = { path = "crates/lib/vm-runtime-value" }
 waymark-vm-value = { path = "crates/lib/vm-value" }
 waymark-vm-value-convert-core = { path = "crates/lib/vm-value-convert-core" }
+waymark-vm-value-convert-json = { path = "crates/lib/vm-value-convert-json" }
 waymark-webapp-backend = { path = "crates/lib/webapp-backend" }
 waymark-webapp-bringup = { path = "crates/lib/webapp-bringup" }
 waymark-webapp-config = { path = "crates/lib/webapp-config" }

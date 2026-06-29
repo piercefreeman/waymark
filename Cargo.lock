@@ -4248,6 +4248,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-action-runtime-convert"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "waymark-action-runtime-core",
+ "waymark-convert-core",
+ "waymark-message-conversions",
+ "waymark-proto",
+ "waymark-runner-executor-core",
+ "waymark-vm-runtime-exception",
+ "waymark-vm-value",
+ "waymark-vm-value-convert-core",
+ "waymark-vm-value-convert-json",
+]
+
+[[package]]
 name = "waymark-action-runtime-core"
 version = "0.1.0"
 dependencies = [
