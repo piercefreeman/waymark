@@ -14,6 +14,7 @@ waymark-backend-postgres-migrations = { path = "crates/lib/backend-postgres-migr
 waymark-backends-core = { path = "crates/lib/backends-core" }
 waymark-blocking-future = { path = "crates/lib/blocking-future" }
 waymark-config = { path = "crates/lib/config" }
+waymark-convert-core = { path = "crates/lib/convert-core" }
 waymark-core-backend = { path = "crates/lib/core-backend" }
 waymark-core-backend-metadata = { path = "crates/lib/core-backend-metadata" }
 waymark-dag = { path = "crates/lib/dag" }
@@ -103,6 +104,7 @@ waymark-vm-runtime-promise-value = { path = "crates/lib/vm-runtime-promise-value
 waymark-vm-runtime-test = { path = "crates/lib/vm-runtime-test" }
 waymark-vm-runtime-value = { path = "crates/lib/vm-runtime-value" }
 waymark-vm-value = { path = "crates/lib/vm-value" }
+waymark-vm-value-convert-core = { path = "crates/lib/vm-value-convert-core" }
 waymark-webapp-backend = { path = "crates/lib/webapp-backend" }
 waymark-webapp-bringup = { path = "crates/lib/webapp-bringup" }
 waymark-webapp-config = { path = "crates/lib/webapp-config" }
