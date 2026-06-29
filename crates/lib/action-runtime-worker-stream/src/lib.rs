@@ -8,8 +8,8 @@
 
 #![warn(missing_docs)]
 
-mod dispatcher;
-mod receiver;
+mod completions_provider;
+mod requester;
 
-pub use crate::dispatcher::ActionDispatchSender;
-pub use crate::receiver::ActionResultReceiver;
+pub use self::completions_provider::WorkerStreamActionCallCompletionsProvider;
+pub use self::requester::WorkerStreamActionRequester;

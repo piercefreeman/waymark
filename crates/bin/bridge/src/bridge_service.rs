@@ -188,6 +188,8 @@ impl proto::workflow_service_server::WorkflowService for BridgeService {
             Arc::clone(&shared),
         );
 
+        // waymark_action_runtime_worker_stream::WorkerStreamActionCallCompletionsProvider { rx };
+
         // Feed ActionResult messages from the input stream as promise settlements.
         tokio::spawn(async move {
             if let Err(err) =

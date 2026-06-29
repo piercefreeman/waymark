@@ -1,6 +1,6 @@
 //! Tests for the top-level EffectHandler, PromiseSettler, and Ack types.
 
-use waymark_action_core::ActionRef;
+use nonempty_collections::NEVec;
 use waymark_nonzero_duration::NonZeroDuration;
 use waymark_vm_driver_core::{EffectHandler as _, PromiseSettlementAck, PromiseSettler as _};
 use waymark_vm_interpreter_extcallset::Effect;
@@ -14,21 +14,14 @@ use crate::Ack;
 // ------------------------------------------------------------------
 
 #[tokio::test]
-async fn ack_action_sends_on_channel() {
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    let token = uuid::Uuid::new_v4();
-
-    let ack = Ack::Action(token, tx);
+async fn ack_action_is_noop() {
+    let ack = Ack::Action;
     ack.acknowledge_promise_settlement();
-
-    let received = rx.try_recv().unwrap();
-    assert_eq!(received, token);
 }
 
 #[tokio::test]
 async fn ack_sleep_is_noop() {
     let ack = Ack::Sleep;
-    // Should not panic — sleep ack is a no-op.
     ack.acknowledge_promise_settlement();
 }
 
@@ -37,11 +30,10 @@ async fn ack_sleep_is_noop() {
 // ------------------------------------------------------------------
 
 use mockall::mock;
-use nonempty_collections::NEVec;
 use waymark_worker_core::{ActionCompletion, ActionRequest, BaseWorkerPool, WorkerPoolError};
 
 mock! {
-    WorkerPool {}
+    pub WorkerPool {}
 
     impl BaseWorkerPool for WorkerPool {
         fn queue(&self, request: ActionRequest) -> Result<(), WorkerPoolError>;
@@ -50,22 +42,38 @@ mock! {
     }
 }
 
+fn make_requester(
+    mock: MockWorkerPool,
+) -> waymark_action_runtime_worker_pool::WorkerPoolRequester<std::sync::Arc<MockWorkerPool>> {
+    waymark_action_runtime_worker_pool::WorkerPoolRequester {
+        pool: std::sync::Arc::new(mock),
+        executor_id: waymark_ids::InstanceId::new_uuid_v4(),
+    }
+}
+
+fn make_provider(
+    mock: MockWorkerPool,
+) -> waymark_action_runtime_worker_pool::WorkerPoolCompletionsProvider<std::sync::Arc<MockWorkerPool>>
+{
+    waymark_action_runtime_worker_pool::WorkerPoolCompletionsProvider {
+        pool: std::sync::Arc::new(mock),
+    }
+}
+
 #[tokio::test]
 async fn effect_handler_dispatches_action_call() {
     let mut mock = MockWorkerPool::new();
     mock.expect_queue().returning(|_| Ok(()));
 
-    let (mut handler, _settler) = crate::new::<
-        (),
-        MockWorkerPool,
-        waymark_extcall_convert::Converter,
-        serde_json::Value,
-        waymark_vm_value::Value,
-    >((), mock);
+    let requester = make_requester(mock);
+    let mock = MockWorkerPool::new();
+    let provider = make_provider(mock);
+
+    let (mut handler, _settler) = crate::new((), requester, provider);
 
     let effect = Effect::ActionCall {
         promise_state_id: PromiseStateId(0),
-        action_ref: ActionRef {
+        action_ref: waymark_action_core::ActionRef {
             action_name: "test".into(),
             module_name: None,
             call_args: vec!["arg".into()],
@@ -73,7 +81,7 @@ async fn effect_handler_dispatches_action_call() {
             max_retries: 0,
             exception_types: vec![],
         },
-        args: vec![serde_json::Value::String("hi".into())],
+        args: vec![waymark_vm_value::ReadyValue::String("hi".into())],
     };
 
     let effect_number = EffectNumber(0);
@@ -89,20 +97,21 @@ async fn effect_handler_dispatches_action_call() {
 
 #[tokio::test]
 async fn effect_handler_records_sleep() {
-    let mock = {
+    let requester_mock = {
         let mut m = MockWorkerPool::new();
         m.expect_queue().returning(|_| Ok(()));
+        m
+    };
+    let requester = make_requester(requester_mock);
+
+    let provider_mock = {
+        let mut m = MockWorkerPool::new();
         m.expect_poll_complete().returning(|| None);
         m
     };
+    let provider = make_provider(provider_mock);
 
-    let (mut handler, mut settler) = crate::new::<
-        (),
-        MockWorkerPool,
-        waymark_extcall_convert::Converter,
-        serde_json::Value,
-        waymark_vm_value::Value,
-    >((), mock);
+    let (mut handler, mut settler) = crate::new((), requester, provider);
 
     let effect = Effect::Sleep {
         promise_state_id: PromiseStateId(0),
@@ -119,9 +128,8 @@ async fn effect_handler_records_sleep() {
         .await
         .unwrap();
 
-    // Sleep should have been recorded — poll should return it.
     let settlements = settler
-        .get_promise_settlements(nonempty_collections::NEVec::new(PromiseStateId(0)))
+        .get_promise_settlements(NEVec::new(PromiseStateId(0)))
         .await
         .unwrap();
     assert_eq!(settlements.len().get(), 1);
@@ -130,20 +138,21 @@ async fn effect_handler_records_sleep() {
 
 #[tokio::test]
 async fn promise_settler_no_sources_returns_error() {
+    let mock = {
+        let mut m = MockWorkerPool::new();
+        m.expect_queue().returning(|_| Ok(()));
+        m
+    };
+    let requester = make_requester(mock);
     let mut mock = MockWorkerPool::new();
     mock.expect_poll_complete().returning(|| None);
+    let provider = make_provider(mock);
 
-    let (handler, mut settler) = crate::new::<
-        (),
-        MockWorkerPool,
-        waymark_extcall_convert::Converter,
-        serde_json::Value,
-        waymark_vm_value::Value,
-    >((), mock);
+    let (handler, mut settler) = crate::new((), requester, provider);
     drop(handler);
 
     let result = settler
-        .get_promise_settlements(nonempty_collections::NEVec::new(PromiseStateId(0)))
+        .get_promise_settlements(NEVec::new(PromiseStateId(0)))
         .await;
 
     assert!(

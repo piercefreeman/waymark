@@ -68,3 +68,31 @@ impl<Interpreter: Default, VmId> InterpreterProvider
         Interpreter::default()
     }
 }
+
+/// An [`EffectorProvider`] that wraps a closure.
+pub struct FnEffectorProvider<F, VmId> {
+    f: F,
+    phantom_data: std::marker::PhantomData<fn(&VmId)>,
+}
+
+impl<F, VmId> FnEffectorProvider<F, VmId> {
+    /// Create a new [`FnEffectorProvider`] from a given `f`.
+    pub fn new(f: F) -> Self {
+        Self {
+            f,
+            phantom_data: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<F, VmId, Effector> EffectorProvider for FnEffectorProvider<F, VmId>
+where
+    F: Fn(&VmId) -> Effector,
+{
+    type VmId = VmId;
+    type Effector = Effector;
+
+    fn provide_effector(&self, vm_id: &Self::VmId) -> Self::Effector {
+        (self.f)(vm_id)
+    }
+}

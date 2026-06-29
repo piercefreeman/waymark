@@ -6,17 +6,21 @@ publish.workspace = true
 
 [dependencies]
 waymark-action-core = { workspace = true }
+waymark-action-runtime-convert = { workspace = true }
 waymark-action-runtime-core = { workspace = true }
 waymark-convert-core = { workspace = true }
-waymark-extcall-convert = { workspace = true }
 waymark-ids = { workspace = true }
 waymark-runner-executor-core = { workspace = true }
+waymark-vm-runtime-effect = { workspace = true }
 waymark-vm-runtime-exception = { workspace = true }
+waymark-vm-runtime-promise-core = { workspace = true }
 waymark-vm-value = { workspace = true }
+waymark-vm-value-convert-core = { workspace = true }
 waymark-worker-core = { workspace = true }
 
 nonempty-collections = { workspace = true }
 serde_json = { workspace = true }
+thiserror = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 
 [lib]

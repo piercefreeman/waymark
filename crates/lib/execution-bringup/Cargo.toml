@@ -5,9 +5,10 @@ version.workspace = true
 publish.workspace = true
 
 [dependencies]
+waymark-action-runtime-worker-pool = { workspace = true }
 waymark-execution-driver = { workspace = true }
 waymark-execution-effector = { workspace = true }
-waymark-extcall-convert = { workspace = true }
+waymark-fullset-effect-handler = { workspace = true }
 waymark-ids = { workspace = true }
 waymark-nonzero-duration = { workspace = true }
 waymark-state-manager = { workspace = true }

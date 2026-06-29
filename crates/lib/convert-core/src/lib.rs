@@ -27,6 +27,9 @@ where
     }
 }
 
+/// The error type produced by a converter for a given source and target type.
+pub type ConvertErrorFor<Converter, From, To> = <Converter as TryConvert<From, To>>::Error;
+
 /// A converter based on [`core::convert::TryFrom`].
 pub struct StdConverter;
 

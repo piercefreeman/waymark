@@ -41,6 +41,7 @@ pub fn decode_action_result(
     metrics: &waymark_worker_metrics::RoundTripMetrics,
 ) -> serde_json::Value {
     let payload = proto::WorkflowArguments::decode(metrics.response_payload.as_slice())
+        .as_ref()
         .map(waymark_message_conversions::workflow_arguments_to_json)
         .unwrap_or(serde_json::Value::Null);
 

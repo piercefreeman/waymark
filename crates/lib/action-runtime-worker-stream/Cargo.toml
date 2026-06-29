@@ -6,11 +6,13 @@ publish.workspace = true
 
 [dependencies]
 waymark-action-core = { workspace = true }
+waymark-action-runtime-convert = { workspace = true }
 waymark-action-runtime-core = { workspace = true }
 waymark-convert-core = { workspace = true }
-waymark-extcall-convert-proto = { workspace = true }
 waymark-proto = { workspace = true }
+waymark-vm-runtime-effect = { workspace = true }
 waymark-vm-runtime-exception = { workspace = true }
+waymark-vm-runtime-promise-core = { workspace = true }
 waymark-vm-value = { workspace = true }
 
 nonempty-collections = { workspace = true }

@@ -24,7 +24,7 @@ impl TryConvert<waymark_vm_value::ReadyValue, waymark_proto::messages::WorkflowA
     fn try_convert(
         value: waymark_vm_value::ReadyValue,
     ) -> Result<waymark_proto::messages::WorkflowArguments, PendingPromiseError> {
-        let json = waymark_extcall_convert::Converter::try_convert(value)?;
+        let json = waymark_vm_value_convert_json::Converter::try_convert(value)?;
         Ok(completion_workflow_arguments(json))
     }
 }
@@ -40,7 +40,7 @@ impl
     fn try_convert(
         exception: waymark_vm_runtime_exception::Exception<waymark_vm_value::ReadyValue>,
     ) -> Result<waymark_proto::messages::WorkflowArguments, PendingPromiseError> {
-        let error_json = waymark_extcall_convert::Converter::try_convert(exception)?;
+        let error_json = waymark_vm_value_convert_json::Converter::try_convert(exception)?;
         Ok(exception_workflow_arguments(error_json))
     }
 }

@@ -21,28 +21,13 @@ use prost::Message as _;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tonic::Status;
-use waymark_convert_core::{Convert as _, TryConvert as _};
+use waymark_action_runtime_core::ActionCallRequester as _;
+use waymark_convert_core::TryConvert as _;
 use waymark_proto::messages as proto;
 use waymark_vm_driver_core::{
     EffectHandler, PromiseResolution, PromiseSettlement, SnapshotPersister,
 };
-use waymark_vm_runtime::Runtime;
 use waymark_vm_runtime_promise_core::PromiseStateId;
-
-// ---------------------------------------------------------------------------
-// Type aliases
-// ---------------------------------------------------------------------------
-
-/// Interpreter type for the system VM.
-pub type SystemInterpreter = waymark_vm_interpreter_fullset::FullSetInterpreter<
-    waymark_system_vm::Spec,
-    Arc<waymark_system_vm::Executable>,
-    waymark_system_vm::Value,
->;
-
-/// Runtime type for the system VM.
-pub type SystemRuntime =
-    Runtime<Arc<waymark_system_vm::Executable>, SystemInterpreter, waymark_system_vm::Value>;
 
 // ---------------------------------------------------------------------------
 // Streaming effector — bridges the VM driver to the gRPC bidir stream
@@ -70,6 +55,7 @@ pub struct SharedState {
 /// Handles VM effects by converting them to [`proto::WorkflowStreamResponse`]
 /// messages and sending them through the output channel.
 pub struct StreamEffectHandler {
+    action_requester: waymark_action_runtime_worker_stream::WorkerStreamActionRequester,
     tx: mpsc::Sender<Result<proto::WorkflowStreamResponse, Status>>,
     settlement_tx: mpsc::Sender<PromiseSettlement<waymark_system_vm::ReadyValue, ()>>,
     cancel: CancellationToken,
@@ -84,6 +70,10 @@ impl StreamEffectHandler {
         shared: Arc<Mutex<SharedState>>,
     ) -> Self {
         Self {
+            action_requester: waymark_action_runtime_worker_stream::WorkerStreamActionRequester {
+                tx: tx.clone(),
+                instance_id: String::new(),
+            },
             tx,
             settlement_tx,
             cancel,
@@ -93,7 +83,7 @@ impl StreamEffectHandler {
 }
 
 impl EffectHandler for StreamEffectHandler {
-    type Effect = <SystemInterpreter as waymark_vm_interpreter::Interpreter>::Effect;
+    type Effect = <waymark_system_vm::Interpreter as waymark_vm_interpreter::Interpreter>::Effect;
     type Error = mpsc::error::SendError<Result<proto::WorkflowStreamResponse, Status>>;
 
     async fn handle_effect(
@@ -104,50 +94,25 @@ impl EffectHandler for StreamEffectHandler {
         use waymark_vm_interpreter_extcallset::Effect as ExtEffect;
         use waymark_vm_interpreter_fullset::Effect;
 
-        match emitted_effect.effect {
+        let waymark_vm_runtime_effect::EmittedEffect {
+            effect,
+            number: effect_number,
+        } = emitted_effect;
+
+        match effect {
             Effect::ExtCallSet(ExtEffect::ActionCall {
                 action_ref,
                 promise_state_id,
                 args,
             }) => {
-                // Record the promise state ID for the settlement feeder.
-                self.shared.lock().unwrap().last_promise_state_id = Some(promise_state_id);
-
-                // Build kwargs from the action's call-arg names and values.
-                let kwargs = if action_ref.call_args.is_empty() {
-                    None
-                } else {
-                    Some(
-                        waymark_extcall_convert_proto::Converter::try_convert((
-                            &action_ref.call_args[..],
-                            &args[..],
-                        ))
-                        .map_err(|err| {
-                            mpsc::error::SendError(Err(Status::internal(format!(
-                                "failed to convert action arguments: {err}"
-                            ))))
-                        })?,
-                    )
-                };
-
-                let dispatch = proto::ActionDispatch {
-                    action_id: uuid::Uuid::new_v4().to_string(),
-                    instance_id: String::new(),
-                    sequence: 0,
-                    action_name: action_ref.action_name,
-                    module_name: action_ref.module_name.unwrap_or_default(),
-                    kwargs,
-                    timeout_seconds: Some(action_ref.timeout_seconds),
-                    max_retries: Some(action_ref.max_retries),
-                    attempt_number: None,
-                    dispatch_token: None,
-                };
-                let response = proto::WorkflowStreamResponse {
-                    kind: Some(proto::workflow_stream_response::Kind::ActionDispatch(
-                        dispatch,
-                    )),
-                };
-                self.tx.send(Ok(response)).await
+                self.action_requester
+                    .request_action_call(waymark_action_runtime_core::ActionCallRequest {
+                        action_ref,
+                        effect_number,
+                        promise_state_id,
+                        arguments: args,
+                    })
+                    .await
             }
             Effect::ExtCallSet(ExtEffect::Sleep {
                 promise_state_id, ..
@@ -249,25 +214,15 @@ pub async fn settlement_feeder(
             _ => continue,
         };
 
-        let resolution = if action_result.success {
-            let ready = match action_result.payload {
-                Some(payload) => {
-                    waymark_extcall_convert_proto::ActionResultConverter::convert(payload)
-                }
-                None => waymark_system_vm::ReadyValue::None,
-            };
-            PromiseResolution::Resolved(ready)
-        } else {
-            let error_json = serde_json::json!({
-                "type": action_result.error_type.unwrap_or_else(|| "ActionError".into()),
-                "message": action_result.error_message.unwrap_or_default(),
-            });
-            let exception = waymark_extcall_convert::Converter::try_convert(error_json)
-                .unwrap_or_else(|_| waymark_vm_runtime_exception::Exception {
-                    type_id: "ActionError".into(),
-                    details: waymark_system_vm::ReadyValue::None,
-                });
-            PromiseResolution::Rejected(exception)
+        let outcome = waymark_action_runtime_convert::Converter::try_convert(&action_result)?;
+
+        let resolution = match outcome {
+            waymark_action_runtime_core::ActionCallOutcome::Value(value) => {
+                PromiseResolution::Resolved(value)
+            }
+            waymark_action_runtime_core::ActionCallOutcome::Exception(exception) => {
+                PromiseResolution::Rejected(exception)
+            }
         };
 
         // Correlate with the most recently emitted ActionCall.
@@ -303,7 +258,7 @@ pub async fn settlement_feeder(
 /// by matching the entry function's input names.
 pub async fn setup_runtime(
     registration: &proto::WorkflowRegistration,
-) -> Result<SystemRuntime, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<waymark_system_vm::Runtime, Box<dyn std::error::Error + Send + Sync>> {
     let ir_program = waymark_proto::ast::Program::decode(&registration.ir[..])
         .map_err(|err| anyhow::anyhow!("decode IR: {err}"))?;
     let ast_program = waymark_vm_ast_old_proto::convert(ir_program)
@@ -316,7 +271,7 @@ pub async fn setup_runtime(
     .map_err(|err| anyhow::anyhow!("compile: {err}"))?;
 
     let executable = Arc::new(executable);
-    let interpreter = SystemInterpreter::default();
+    let interpreter = waymark_system_vm::Interpreter::default();
 
     let entry_input_names: Vec<String> = metadata
         .input_names(Default::default())
@@ -328,7 +283,8 @@ pub async fn setup_runtime(
         &entry_input_names,
     )?;
 
-    let runtime = Runtime::with_custom_entrypoint(interpreter, executable, call_spec)?;
+    let runtime =
+        waymark_system_vm::Runtime::with_custom_entrypoint(interpreter, executable, call_spec)?;
     Ok(runtime)
 }
 
@@ -344,14 +300,14 @@ type Effector = (
 /// cancelled (by workflow completion, unhandled exception, or external
 /// cancellation), or until a fatal error occurs.
 pub fn spawn_driver(
-    runtime: SystemRuntime,
+    runtime: waymark_system_vm::Runtime,
     out_tx: mpsc::Sender<Result<proto::WorkflowStreamResponse, Status>>,
     settlement_rx: mpsc::Receiver<PromiseSettlement<waymark_system_vm::ReadyValue, ()>>,
     settlement_tx: mpsc::Sender<PromiseSettlement<waymark_system_vm::ReadyValue, ()>>,
     shared: Arc<Mutex<SharedState>>,
 ) -> waymark_vm_driver_thread::HandleFor<
     waymark_system_vm::Value,
-    SystemInterpreter,
+    waymark_system_vm::Interpreter,
     waymark_vm_codec_rmp::RmpCodec,
     NoopPersister,
     Effector,

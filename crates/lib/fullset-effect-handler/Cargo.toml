@@ -1,5 +1,5 @@
 [package]
-name = "waymark-extcall-reconciler"
+name = "waymark-fullset-effect-handler"
 edition = "2024"
 version.workspace = true
 publish.workspace = true
@@ -7,27 +7,24 @@ publish.workspace = true
 [dependencies]
 waymark-action-core = { workspace = true }
 waymark-action-runtime-core = { workspace = true }
+waymark-action-runtime-worker-pool = { workspace = true }
 waymark-convert-core = { workspace = true }
+waymark-extcall-reconciler = { workspace = true }
 waymark-ids = { workspace = true }
-waymark-nonzero-duration = { workspace = true }
+waymark-state-vm-runtimes-core = { workspace = true }
+waymark-vm-codec-core = { workspace = true }
 waymark-vm-driver-core = { workspace = true }
+waymark-vm-interpreter-coreset = { workspace = true }
 waymark-vm-interpreter-extcallset = { workspace = true }
+waymark-vm-interpreter-fullset = { workspace = true }
 waymark-vm-runtime-effect = { workspace = true }
 waymark-vm-runtime-exception = { workspace = true }
 waymark-vm-runtime-promise-core = { workspace = true }
+waymark-worker-core = { workspace = true }
+waymark-workflow-completion = { workspace = true }
+waymark-workflow-completion-backend = { workspace = true }
 
 nonempty-collections = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
-tracing = { workspace = true }
-uuid = { workspace = true }
-
-[dev-dependencies]
-waymark-action-runtime-worker-pool = { workspace = true }
-waymark-ids = { workspace = true }
-waymark-vm-value = { workspace = true }
-waymark-worker-core = { workspace = true }
-
-mockall = { workspace = true }
-tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }

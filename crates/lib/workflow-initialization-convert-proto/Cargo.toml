@@ -5,8 +5,8 @@ publish.workspace = true
 edition = "2024"
 
 [dependencies]
+waymark-action-runtime-convert = { workspace = true }
 waymark-convert-core = { workspace = true }
-waymark-extcall-convert-proto = { workspace = true }
 waymark-proto = { workspace = true }
 waymark-vm-value = { workspace = true }
 

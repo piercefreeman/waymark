@@ -2,8 +2,8 @@
 
 #![warn(missing_docs)]
 
-mod outcomes_provider;
+mod completions_provider;
 mod requester;
 
-pub use crate::outcomes_provider::*;
-pub use crate::requester::*;
+pub use self::completions_provider::*;
+pub use self::requester::*;

@@ -1,5 +1,5 @@
 [package]
-name = "waymark-extcall-reconciler"
+name = "waymark-sleep-reconciler"
 edition = "2024"
 version.workspace = true
 publish.workspace = true

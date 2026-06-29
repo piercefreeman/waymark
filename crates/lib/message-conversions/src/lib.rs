@@ -73,7 +73,7 @@ fn optional_workflow_dict_to_json(dict: &Option<proto::WorkflowDictArgument>) ->
     }
 }
 
-pub fn workflow_arguments_to_json(args: proto::WorkflowArguments) -> serde_json::Value {
+pub fn workflow_arguments_to_json(args: &proto::WorkflowArguments) -> serde_json::Value {
     let mut map = serde_json::Map::new();
     for arg in &args.arguments {
         if let Some(value) = &arg.value {

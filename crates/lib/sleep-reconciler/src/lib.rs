@@ -14,8 +14,6 @@ use waymark_nonzero_duration::NonZeroDuration;
 use waymark_vm_driver_core::{PromiseResolution, PromiseSettlement};
 use waymark_vm_runtime_promise_core::PromiseStateId;
 
-use crate::Ack;
-
 /// Pending sleeps grouped by deadline, earliest first.
 type PendingSleeps<VmId> = BTreeMap<Instant, Vec<(VmId, PromiseStateId)>>;
 
@@ -42,14 +40,21 @@ pub struct Poller<VmId> {
     pub pending: PendingSleeps<VmId>,
 }
 
+pub struct Ack;
+
+impl waymark_vm_driver_core::PromiseSettlementAck for Ack {
+    fn acknowledge_promise_settlement(self) {}
+}
+
 impl<VmId> Poller<VmId>
 where
     VmId: core::fmt::Debug,
 {
     /// Wait for the next batch of elapsed sleep settlements.
-    pub async fn poll<Value>(&mut self) -> Option<NEVec<PromiseSettlement<Value, Ack>>>
+    pub async fn poll<Value, Ack>(&mut self) -> Option<NEVec<PromiseSettlement<Value, Ack>>>
     where
         Value: From<()>,
+        Ack: From<self::Ack>,
     {
         loop {
             // Drain any new sleeps from the channel.
@@ -60,7 +65,7 @@ where
                     .push((vm_id, promise_state_id));
             }
 
-            if let Some(settlements) = collect_elapsed::<VmId, Value>(&mut self.pending) {
+            if let Some(settlements) = collect_elapsed::<VmId, Value, Ack>(&mut self.pending) {
                 return Some(settlements);
             }
 
@@ -85,7 +90,7 @@ where
 }
 
 /// Create a paired sleep handler and poller.
-pub(crate) fn new<VmId>() -> (Handler<VmId>, Poller<VmId>) {
+pub fn new<VmId>() -> (Handler<VmId>, Poller<VmId>) {
     let (tx, rx) = mpsc::unbounded_channel();
     let handler = Handler { tx };
     let poller = Poller {
@@ -96,12 +101,13 @@ pub(crate) fn new<VmId>() -> (Handler<VmId>, Poller<VmId>) {
 }
 
 /// Move any elapsed sleeps into settlements.
-fn collect_elapsed<VmId, Value>(
+fn collect_elapsed<VmId, Value, Ack>(
     pending: &mut PendingSleeps<VmId>,
 ) -> Option<NEVec<PromiseSettlement<Value, Ack>>>
 where
     VmId: core::fmt::Debug,
     Value: From<()>,
+    Ack: From<self::Ack>,
 {
     let now = Instant::now();
     let mut settlements = Vec::new();
@@ -115,7 +121,7 @@ where
             settlements.push(PromiseSettlement {
                 promise_state_id,
                 resolution: PromiseResolution::Resolved(Value::from(())),
-                ack: Ack::Sleep,
+                ack: Ack::from(self::Ack),
             });
         }
     }

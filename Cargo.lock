@@ -4262,6 +4262,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-action-runtime-convert"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "waymark-action-runtime-core",
+ "waymark-convert-core",
+ "waymark-message-conversions",
+ "waymark-proto",
+ "waymark-runner-executor-core",
+ "waymark-vm-runtime-exception",
+ "waymark-vm-value",
+ "waymark-vm-value-convert-core",
+ "waymark-vm-value-convert-json",
+]
+
+[[package]]
 name = "waymark-action-runtime-core"
 version = "0.1.0"
 dependencies = [
@@ -4278,15 +4294,19 @@ version = "0.1.0"
 dependencies = [
  "nonempty-collections",
  "serde_json",
+ "thiserror",
  "uuid",
  "waymark-action-core",
+ "waymark-action-runtime-convert",
  "waymark-action-runtime-core",
  "waymark-convert-core",
- "waymark-extcall-convert",
  "waymark-ids",
  "waymark-runner-executor-core",
+ "waymark-vm-runtime-effect",
  "waymark-vm-runtime-exception",
+ "waymark-vm-runtime-promise-core",
  "waymark-vm-value",
+ "waymark-vm-value-convert-core",
  "waymark-worker-core",
 ]
 
@@ -4300,11 +4320,13 @@ dependencies = [
  "tonic 0.11.0",
  "uuid",
  "waymark-action-core",
+ "waymark-action-runtime-convert",
  "waymark-action-runtime-core",
  "waymark-convert-core",
- "waymark-extcall-convert-proto",
  "waymark-proto",
+ "waymark-vm-runtime-effect",
  "waymark-vm-runtime-exception",
+ "waymark-vm-runtime-promise-core",
  "waymark-vm-value",
 ]
 
@@ -4496,11 +4518,12 @@ dependencies = [
  "tonic-health",
  "tracing",
  "uuid",
+ "waymark-action-runtime-convert",
+ "waymark-action-runtime-core",
+ "waymark-action-runtime-worker-stream",
  "waymark-backend-postgres",
  "waymark-backend-postgres-migrations",
  "waymark-convert-core",
- "waymark-extcall-convert",
- "waymark-extcall-convert-proto",
  "waymark-fn-main-common",
  "waymark-ids",
  "waymark-proto",
@@ -4632,9 +4655,10 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+ "waymark-action-runtime-worker-pool",
  "waymark-execution-driver",
  "waymark-execution-effector",
- "waymark-extcall-convert",
+ "waymark-fullset-effect-handler",
  "waymark-ids",
  "waymark-nonzero-duration",
  "waymark-state-manager",
@@ -4675,43 +4699,23 @@ dependencies = [
  "serde_json",
  "thiserror",
  "waymark-action-core",
+ "waymark-action-runtime-core",
+ "waymark-action-runtime-worker-pool",
  "waymark-convert-core",
  "waymark-extcall-reconciler",
+ "waymark-fullset-effect-handler",
+ "waymark-ids",
  "waymark-state-vm-runtimes-core",
  "waymark-vm-codec-core",
  "waymark-vm-driver-core",
- "waymark-vm-interpreter-fullset",
+ "waymark-vm-interpreter-coreset",
+ "waymark-vm-interpreter-extcallset",
  "waymark-vm-runtime-effect",
  "waymark-vm-runtime-exception",
  "waymark-vm-runtime-promise-core",
  "waymark-worker-core",
  "waymark-workflow-completion",
  "waymark-workflow-completion-backend",
-]
-
-[[package]]
-name = "waymark-extcall-convert"
-version = "0.1.0"
-dependencies = [
- "indexmap 2.13.0",
- "serde_json",
- "typed_floats",
- "waymark-convert-core",
- "waymark-vm-runtime-exception",
- "waymark-vm-value",
- "waymark-vm-value-convert-core",
-]
-
-[[package]]
-name = "waymark-extcall-convert-proto"
-version = "0.1.0"
-dependencies = [
- "waymark-convert-core",
- "waymark-extcall-convert",
- "waymark-message-conversions",
- "waymark-proto",
- "waymark-vm-value",
- "waymark-vm-value-convert-core",
 ]
 
 [[package]]
@@ -4726,11 +4730,11 @@ dependencies = [
  "tracing",
  "uuid",
  "waymark-action-core",
+ "waymark-action-runtime-core",
+ "waymark-action-runtime-worker-pool",
  "waymark-convert-core",
- "waymark-extcall-convert",
  "waymark-ids",
  "waymark-nonzero-duration",
- "waymark-runner-executor-core",
  "waymark-vm-driver-core",
  "waymark-vm-interpreter-extcallset",
  "waymark-vm-runtime-effect",
@@ -4747,6 +4751,34 @@ dependencies = [
  "color-eyre",
  "thiserror",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "waymark-fullset-effect-handler"
+version = "0.1.0"
+dependencies = [
+ "nonempty-collections",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "waymark-action-core",
+ "waymark-action-runtime-core",
+ "waymark-action-runtime-worker-pool",
+ "waymark-convert-core",
+ "waymark-extcall-reconciler",
+ "waymark-ids",
+ "waymark-state-vm-runtimes-core",
+ "waymark-vm-codec-core",
+ "waymark-vm-driver-core",
+ "waymark-vm-interpreter-coreset",
+ "waymark-vm-interpreter-extcallset",
+ "waymark-vm-interpreter-fullset",
+ "waymark-vm-runtime-effect",
+ "waymark-vm-runtime-exception",
+ "waymark-vm-runtime-promise-core",
+ "waymark-worker-core",
+ "waymark-workflow-completion",
+ "waymark-workflow-completion-backend",
 ]
 
 [[package]]
@@ -5139,6 +5171,32 @@ dependencies = [
  "serde",
  "serde_json",
  "zeroize",
+]
+
+[[package]]
+name = "waymark-sleep-reconciler"
+version = "0.1.0"
+dependencies = [
+ "mockall",
+ "nonempty-collections",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "uuid",
+ "waymark-action-core",
+ "waymark-action-runtime-core",
+ "waymark-action-runtime-worker-pool",
+ "waymark-convert-core",
+ "waymark-ids",
+ "waymark-nonzero-duration",
+ "waymark-vm-driver-core",
+ "waymark-vm-interpreter-extcallset",
+ "waymark-vm-runtime-effect",
+ "waymark-vm-runtime-exception",
+ "waymark-vm-runtime-promise-core",
+ "waymark-vm-value",
+ "waymark-worker-core",
 ]
 
 [[package]]
@@ -6272,20 +6330,20 @@ version = "0.1.0"
 dependencies = [
  "serde_json",
  "waymark-convert-core",
- "waymark-extcall-convert",
  "waymark-message-conversions",
  "waymark-proto",
  "waymark-vm-runtime-exception",
  "waymark-vm-value",
  "waymark-vm-value-convert-core",
+ "waymark-vm-value-convert-json",
 ]
 
 [[package]]
 name = "waymark-workflow-initialization-convert-proto"
 version = "0.1.0"
 dependencies = [
+ "waymark-action-runtime-convert",
  "waymark-convert-core",
- "waymark-extcall-convert-proto",
  "waymark-proto",
  "waymark-vm-value",
 ]

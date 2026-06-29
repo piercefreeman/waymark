@@ -5,11 +5,12 @@ publish.workspace = true
 edition = "2024"
 
 [dependencies]
+waymark-action-runtime-convert = { workspace = true }
+waymark-action-runtime-core = { workspace = true }
+waymark-action-runtime-worker-stream = { workspace = true }
 waymark-backend-postgres = { workspace = true }
 waymark-backend-postgres-migrations = { workspace = true }
 waymark-convert-core = { workspace = true }
-waymark-extcall-convert = { workspace = true }
-waymark-extcall-convert-proto = { workspace = true }
 waymark-fn-main-common = { workspace = true }
 waymark-ids = { workspace = true }
 waymark-proto = { workspace = true }

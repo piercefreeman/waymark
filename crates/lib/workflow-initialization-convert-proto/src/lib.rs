@@ -35,7 +35,7 @@ impl
     fn try_convert(
         (initial_context, input_names): (waymark_proto::messages::WorkflowArguments, &[String]),
     ) -> Result<Vec<waymark_vm_value::Value>, Self::Error> {
-        let args_dict = waymark_extcall_convert_proto::Converter::convert(initial_context);
+        let args_dict = waymark_action_runtime_convert::Converter::convert(&initial_context);
         let waymark_vm_value::ReadyValue::Dict(args_map) = args_dict else {
             // Should never happen — Converter always produces a Dict for
             // WorkflowArguments.

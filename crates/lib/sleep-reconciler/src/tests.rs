@@ -19,7 +19,7 @@ async fn record_and_collect_single_sleep() {
     );
 
     // Should collect immediately.
-    let settlements = poller.poll::<ReadyValue>().await.unwrap();
+    let settlements = poller.poll::<ReadyValue, crate::Ack>().await.unwrap();
     assert_eq!(settlements.len().get(), 1);
     assert_eq!(settlements[0].promise_state_id, psid);
 }
@@ -41,7 +41,7 @@ async fn multiple_sleeps_collected_in_order() {
         NonZeroDuration::try_from(Duration::from_nanos(1)).unwrap(),
     );
 
-    let settlements = poller.poll::<ReadyValue>().await.unwrap();
+    let settlements = poller.poll::<ReadyValue, crate::Ack>().await.unwrap();
     assert_eq!(settlements.len().get(), 2);
 }
 
@@ -61,7 +61,7 @@ async fn poll_waits_for_new_sleep() {
         );
     });
 
-    let settlements = poller.poll::<ReadyValue>().await.unwrap();
+    let settlements = poller.poll::<ReadyValue, crate::Ack>().await.unwrap();
     assert_eq!(settlements[0].promise_state_id, psid);
 }
 
@@ -72,7 +72,7 @@ async fn poll_returns_none_when_handler_dropped() {
 
     // Poll should return None — no handler to record sleeps.
     tokio::select! {
-        result = poller.poll::<ReadyValue>() => {
+        result = poller.poll::<ReadyValue, crate::Ack>() => {
             assert!(result.is_none());
         }
         _ = tokio::time::sleep(Duration::from_secs(1)) => {
@@ -92,7 +92,7 @@ async fn sleep_resolution_is_null_value() {
         NonZeroDuration::try_from(Duration::from_nanos(1)).unwrap(),
     );
 
-    let settlements = poller.poll::<ReadyValue>().await.unwrap();
+    let settlements = poller.poll::<ReadyValue, crate::Ack>().await.unwrap();
     let s = &settlements[0];
     match &s.resolution {
         waymark_vm_driver_core::PromiseResolution::Resolved(v) => {

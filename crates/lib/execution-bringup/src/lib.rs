@@ -143,27 +143,47 @@ where
         shutdown_token.child_token(),
     );
 
-    let effector_provider = waymark_execution_effector::EffectorProvider::<
-        Backend,
-        WorkerPool,
-        waymark_extcall_convert::Converter,
-        _,
-        waymark_system_vm::ReadyValue,
-        waymark_system_vm::ReadyValue,
-        waymark_system_vm::ReadyValue,
-    >::new(Arc::clone(&backend), worker_pool, Arc::clone(&codec));
+    let effector_provider = waymark_state_vm_runtimes_core::FnEffectorProvider::new({
+        let backend = Arc::clone(&backend);
+        let codec = Arc::clone(&codec);
+        move |vm_id: &<Backend as waymark_state_vm_runtimes_backend::HasVmId>::VmId| {
+            // TODO: apply vm id filtering and binding
 
-    let vm_factory = waymark_state_vm_runtimes::SpawningFactory::new(
-        backend.clone(),
+            let action_call_requester = waymark_action_runtime_worker_pool::WorkerPoolRequester {
+                pool: worker_pool.clone(),
+                executor_id: waymark_ids::InstanceId::new_uuid_v4(),
+            };
+
+            let action_call_complations_provider =
+                waymark_action_runtime_worker_pool::WorkerPoolCompletionsProvider {
+                    pool: worker_pool.clone(),
+                };
+
+            waymark_execution_effector::new(
+                vm_id.clone(),
+                Arc::clone(&backend),
+                Arc::clone(&codec),
+                action_call_requester,
+                action_call_complations_provider,
+            )
+        }
+    });
+
+    let vm_runtimes_factory = waymark_state_vm_runtimes::SpawningFactory::new(
+        Arc::clone(&backend),
         Arc::clone(&codec),
         executable_state,
         interpreter_provider,
         effector_provider,
     );
 
-    let (vm_state, vm_sweeper) = waymark_state_manager::State::new(vm_retention, vm_factory);
-    let vm_sweeper_handle =
-        spawn_state_sweeper(vm_sweeper, vm_sweep_interval, shutdown_token.child_token());
+    let (vm_runtimes_state, vm_runtimes_sweeper) =
+        waymark_state_manager::State::new(vm_retention, vm_runtimes_factory);
+    let vm_runtimes_sweeper_handle = spawn_state_sweeper(
+        vm_runtimes_sweeper,
+        vm_sweep_interval,
+        shutdown_token.child_token(),
+    );
 
     let pinning_params = waymark_workload_pinning_manager::Params {
         shutdown_token: shutdown_token.child_token(),
@@ -191,7 +211,7 @@ where
 
     let execution_driver = tokio::spawn(waymark_execution_driver::run(
         pinned_rx,
-        Arc::new(vm_state),
+        Arc::new(vm_runtimes_state),
         shutdown_token.child_token(),
     ));
 
@@ -199,7 +219,7 @@ where
         pinning_manager,
         execution_driver,
         executable_sweeper: executable_sweeper_handle,
-        vm_sweeper: vm_sweeper_handle,
+        vm_sweeper: vm_runtimes_sweeper_handle,
     }
 }
 
