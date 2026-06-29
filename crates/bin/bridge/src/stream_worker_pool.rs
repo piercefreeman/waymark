@@ -121,7 +121,7 @@ pub fn action_result_to_completion(
         .as_ref()
         .map(|payload| payload.encode_to_vec())
         .and_then(|bytes| proto::WorkflowArguments::decode(bytes.as_slice()).ok())
-        .map(waymark_message_conversions::workflow_arguments_to_json)
+        .map(|payload| waymark_message_conversions::workflow_arguments_to_json(&payload))
         .unwrap_or(serde_json::Value::Null);
 
     let value = if result.success {

@@ -128,7 +128,7 @@ where
         if let Some(input_payload) = schedule.input_payload.as_deref() {
             let input_payload = proto::WorkflowArguments::decode(input_payload)
                 .map_err(|_| "failed to decode schedule input payload".to_string())?;
-            let inputs = waymark_message_conversions::workflow_arguments_to_json(input_payload);
+            let inputs = waymark_message_conversions::workflow_arguments_to_json(&input_payload);
             let Value::Object(input_map) = inputs else {
                 return Err("schedule input payload must decode to an object".into());
             };
