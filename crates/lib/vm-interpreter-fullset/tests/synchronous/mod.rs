@@ -38,11 +38,11 @@ fn runtime_executes_pure_and_core_instructions_to_completion() {
 
     let mut runtime = new_runtime(executable);
 
-    let effect = runtime
+    let emitted_effect = runtime
         .run()
         .expect("mixed fullset program should complete successfully");
 
-    match effect {
+    match emitted_effect.effect {
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(value)) => {
             assert_eq!(value, TestReadyValue::Int(5));
         }

@@ -50,11 +50,11 @@ fn runtime_resumes_sleep_effects_and_finishes_with_pure_work() {
 
     let mut runtime = new_runtime(executable);
 
-    let effect = runtime
+    let emitted_effect = runtime
         .run()
         .expect("first run should emit the sleep effect");
 
-    let promise_state_id = match effect {
+    let promise_state_id = match emitted_effect.effect {
         Effect::ExtCallSet(waymark_vm_interpreter_extcallset::Effect::Sleep {
             promise_state_id,
             duration,
@@ -78,11 +78,11 @@ fn runtime_resumes_sleep_effects_and_finishes_with_pure_work() {
         .resolve_promise(promise_state_id, TestReadyValue::Int(0))
         .expect("sleep promise should resolve cleanly");
 
-    let effect = runtime
+    let emitted_effect = runtime
         .run()
         .expect("second run should finish after resuming sleep");
 
-    match effect {
+    match emitted_effect.effect {
         Effect::CoreSet(waymark_vm_interpreter_coreset::Effect::Complete(value)) => {
             assert_eq!(value, TestReadyValue::Int(7));
         }

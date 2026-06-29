@@ -31,6 +31,7 @@ waymark-vm-interpreter-coreset = { workspace = true }
 waymark-vm-interpreter-extcallset = { workspace = true }
 waymark-vm-interpreter-fullset = { workspace = true }
 waymark-vm-runtime = { workspace = true }
+waymark-vm-runtime-effect = { workspace = true }
 
 async-walkdir = { workspace = true }
 futures-util = { workspace = true }

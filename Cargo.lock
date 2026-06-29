@@ -5304,6 +5304,7 @@ dependencies = [
  "waymark-vm-interpreter-fullset",
  "waymark-vm-runtime",
  "waymark-vm-runtime-core",
+ "waymark-vm-runtime-effect",
 ]
 
 [[package]]
@@ -5356,6 +5357,7 @@ dependencies = [
  "waymark-vm-interpreter",
  "waymark-vm-runtime",
  "waymark-vm-runtime-core",
+ "waymark-vm-runtime-effect",
  "waymark-vm-runtime-exception",
  "waymark-vm-runtime-promise-core",
  "waymark-vm-runtime-test",
@@ -5511,6 +5513,7 @@ dependencies = [
  "waymark-vm-executable",
  "waymark-vm-interpreter",
  "waymark-vm-runtime-core",
+ "waymark-vm-runtime-effect",
  "waymark-vm-runtime-exception",
  "waymark-vm-runtime-promise-core",
  "waymark-vm-runtime-test",
@@ -5525,10 +5528,18 @@ dependencies = [
  "thiserror",
  "waymark-typed-vec-serde",
  "waymark-vm-exception-handler",
+ "waymark-vm-runtime-effect",
  "waymark-vm-runtime-exception",
  "waymark-vm-runtime-promise-core",
  "waymark-vm-runtime-promise-value",
  "waymark-vm-runtime-value",
+]
+
+[[package]]
+name = "waymark-vm-runtime-effect"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

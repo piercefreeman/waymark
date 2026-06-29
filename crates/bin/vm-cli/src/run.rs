@@ -54,11 +54,11 @@ pub async fn run(
     tasks.spawn({
         async move {
             loop {
-                let Some(effect) = effects_rx.recv().await else {
+                let Some(emitted_effect) = effects_rx.recv().await else {
                     break;
                 };
 
-                match effect {
+                match emitted_effect.effect {
                     waymark_vm_interpreter_fullset::Effect::CoreSet(effect) => match effect {
                         waymark_vm_interpreter_coreset::Effect::Complete(value) => {
                             completion_tx.send(Ok(value)).unwrap();
@@ -76,6 +76,7 @@ pub async fn run(
                             args,
                         } => {
                             tracing::info!(
+                                effect_number = %emitted_effect.number,
                                 ?action_ref,
                                 ?promise_state_id,
                                 ?args,
@@ -89,6 +90,7 @@ pub async fn run(
 
                                     let value = integration::SampleReadyValue::Int(42);
                                     tracing::info!(
+                                        effect_number = %emitted_effect.number,
                                         ?action_ref,
                                         ?promise_state_id,
                                         ?args,
@@ -109,7 +111,12 @@ pub async fn run(
                             promise_state_id,
                             duration,
                         } => {
-                            tracing::info!(?promise_state_id, ?duration, "sleep received");
+                            tracing::info!(
+                                effect_number = %emitted_effect.number,
+                                ?promise_state_id,
+                                ?duration,
+                                "sleep received"
+                            );
 
                             tokio::spawn({
                                 let promise_resolutions_tx = promise_resolutions_tx.clone();
@@ -117,7 +124,12 @@ pub async fn run(
                                     tokio::time::sleep(duration.get()).await;
 
                                     let value = integration::SampleReadyValue::None;
-                                    tracing::info!(?promise_state_id, ?value, "resolving sleep");
+                                    tracing::info!(
+                                        effect_number = %emitted_effect.number,
+                                        ?promise_state_id,
+                                        ?value,
+                                        "resolving sleep"
+                                    );
                                     promise_resolutions_tx
                                         .send((
                                             promise_state_id,

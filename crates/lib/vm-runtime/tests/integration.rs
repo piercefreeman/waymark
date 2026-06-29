@@ -2,6 +2,7 @@ use waymark_vm_runtime::{CallSpec, RunError};
 use waymark_vm_runtime_core::{
     CaptureRuntimeView, FullRuntimeView, RegisterId, ResolvePromiseError,
 };
+use waymark_vm_runtime_effect::EffectNumber;
 use waymark_vm_runtime_exception::Exception;
 use waymark_vm_runtime_promise_core::PromiseStateId;
 use waymark_vm_runtime_test::{
@@ -82,8 +83,9 @@ fn with_custom_entrypoint_uses_requested_function_and_ready_arguments() {
         },
     );
 
+    let emitted_effect = runtime.run().expect("custom entrypoint should emit");
     assert_eq!(
-        runtime.run().expect("custom entrypoint should emit"),
+        emitted_effect.effect,
         TestEffect::Value(TestReadyValue::Int(9))
     );
 }
@@ -118,10 +120,8 @@ fn run_skips_yielded_frames_until_an_effect_is_emitted() {
         function(0, vec![vec![TestInstruction::Emit("next")]]),
     ]));
 
-    assert_eq!(
-        runtime.run().expect("queued frame should emit"),
-        TestEffect::Message("next")
-    );
+    let emitted_effect = runtime.run().expect("queued frame should emit");
+    assert_eq!(emitted_effect.effect, TestEffect::Message("next"));
 }
 
 #[test]
@@ -180,8 +180,9 @@ fn resolve_promise_resumes_a_suspended_frame_and_emits_the_resolved_value() {
         .resolve_promise(PromiseStateId(0), TestReadyValue::Int(41))
         .expect("prepared promise should resolve");
 
+    let emitted_effect = runtime.run().expect("resumed frame should emit");
     assert_eq!(
-        runtime.run().expect("resumed frame should emit"),
+        emitted_effect.effect,
         TestEffect::Value(TestReadyValue::Int(41))
     );
 }
@@ -214,8 +215,9 @@ fn resolve_promise_rejects_unknown_promise_ids_without_disturbing_waiting_work()
         .resolve_promise(PromiseStateId(0), TestReadyValue::Int(41))
         .expect("the waiting promise should still resolve cleanly");
 
+    let emitted_effect = runtime.run().expect("resumed frame should still emit");
     assert_eq!(
-        runtime.run().expect("resumed frame should still emit"),
+        emitted_effect.effect,
         TestEffect::Value(TestReadyValue::Int(41))
     );
 }
@@ -248,10 +250,11 @@ fn resolve_promise_preserves_the_first_value_when_duplicate_resolution_occurs() 
     };
 
     assert_eq!(err.new_value, TestReadyValue::Int(11));
+    let emitted_effect = runtime
+        .run()
+        .expect("resumed frame should keep the first value");
     assert_eq!(
-        runtime
-            .run()
-            .expect("resumed frame should keep the first value"),
+        emitted_effect.effect,
         TestEffect::Value(TestReadyValue::Int(7))
     );
 }
@@ -281,10 +284,11 @@ fn reject_promise_bubbles_uncaught_exceptions() {
         )
         .expect("exceptional promise result should resolve");
 
+    let emitted_effect = runtime
+        .run()
+        .expect("resumed frame should emit the raised exception");
     assert_eq!(
-        runtime
-            .run()
-            .expect("resumed frame should emit the raised exception"),
+        emitted_effect.effect,
         TestEffect::UnhandledException(Exception {
             type_id: "ValueError".to_owned(),
             details: TestReadyValue::Int(41),
@@ -309,12 +313,10 @@ fn state_entry_hook_can_exit_before_instruction_dispatch() {
     )
     .expect("entrypoint should exist");
 
-    assert_eq!(
-        runtime
-            .run()
-            .expect("state-entry hook should emit before dispatch"),
-        TestEffect::Message("hook")
-    );
+    let emitted_effect = runtime
+        .run()
+        .expect("state-entry hook should emit before dispatch");
+    assert_eq!(emitted_effect.effect, TestEffect::Message("hook"));
 }
 
 #[test]
@@ -353,12 +355,10 @@ fn state_entry_hook_can_redirect_exceptional_resumes_when_the_interpreter_wants(
         )
         .expect("exceptional promise result should resolve");
 
-    assert_eq!(
-        runtime
-            .run()
-            .expect("state-entry hook should redirect into the handler state"),
-        TestEffect::Message("handled")
-    );
+    let emitted_effect = runtime
+        .run()
+        .expect("state-entry hook should redirect into the handler state");
+    assert_eq!(emitted_effect.effect, TestEffect::Message("handled"));
 }
 
 #[test]
@@ -402,8 +402,9 @@ fn snapshot_suspended_and_from_snapshot_preserves_suspended_promises() {
         .resolve_promise(PromiseStateId(0), TestReadyValue::Int(42))
         .expect("promise should resolve after restore");
 
+    let emitted_effect = restored.run().expect("restored runtime should emit");
     assert_eq!(
-        restored.run().expect("restored runtime should emit"),
+        emitted_effect.effect,
         TestEffect::Value(TestReadyValue::Int(42))
     );
 }
@@ -454,10 +455,11 @@ fn snapshot_suspended_and_from_snapshot_preserves_rejected_promises() {
         )
         .expect("promise should reject after restore");
 
+    let emitted_effect = restored
+        .run()
+        .expect("restored runtime should emit exception");
     assert_eq!(
-        restored
-            .run()
-            .expect("restored runtime should emit exception"),
+        emitted_effect.effect,
         TestEffect::UnhandledException(Exception {
             type_id: "ValueError".to_owned(),
             details: TestReadyValue::Int(41),
@@ -488,8 +490,149 @@ fn allow_live_snapshots_runtime_with_ready_frames() {
     )
     .expect("live snapshot should restore");
 
+    let emitted_effect = restored.run().expect("restored runtime should emit");
+    assert_eq!(emitted_effect.effect, TestEffect::Message("still-alive"));
+}
+
+// ---------------------------------------------------------------------------
+// Effect counting
+// ---------------------------------------------------------------------------
+
+#[test]
+fn effect_numbers_start_at_zero() {
+    let mut runtime = runtime(executable(vec![function(
+        0,
+        vec![vec![TestInstruction::Emit("first")]],
+    )]));
+
+    let emitted_effect = runtime.run().expect("first effect should be emitted");
+    assert_eq!(emitted_effect.number, EffectNumber(0));
+    assert_eq!(emitted_effect.effect, TestEffect::Message("first"));
+}
+
+#[test]
+fn effect_numbers_increment_sequentially() {
+    // Emit three effects across successive run() calls and verify
+    // that the effect number increments 0 → 1 → 2 each time.
+    let mut runtime = runtime(executable(vec![function(
+        0,
+        vec![
+            vec![
+                TestInstruction::EnqueueFrame {
+                    func: FunctionId(0),
+                    state: StateId(1),
+                    num_regs: 0,
+                },
+                TestInstruction::Emit("first"),
+            ],
+            vec![
+                TestInstruction::EnqueueFrame {
+                    func: FunctionId(0),
+                    state: StateId(2),
+                    num_regs: 0,
+                },
+                TestInstruction::Emit("second"),
+            ],
+            vec![TestInstruction::Emit("third")],
+        ],
+    )]));
+
+    let first = runtime.run().expect("first emit should succeed");
+    assert_eq!(first.number, EffectNumber(0));
+    assert_eq!(first.effect, TestEffect::Message("first"));
+
+    let second = runtime.run().expect("second emit should succeed");
+    assert_eq!(second.number, EffectNumber(1));
+    assert_eq!(second.effect, TestEffect::Message("second"));
+
+    let third = runtime.run().expect("third emit should succeed");
+    assert_eq!(third.number, EffectNumber(2));
+    assert_eq!(third.effect, TestEffect::Message("third"));
+
+    // No more frames after the third emission.
+    assert!(matches!(runtime.run(), Err(RunError::NoReadyFrame)));
+}
+
+#[test]
+fn effect_counter_survives_snapshot_roundtrip() {
+    // Emit two effects to bump the counter past the default (0), then
+    // suspend so we can snapshot a runtime whose counter is ≥ 2.
+    // After restore the resumed emit must carry the continuing number.
+    let make_executable = || {
+        executable(vec![function(
+            1,
+            vec![
+                // Enqueue the next frame then emit an effect.
+                // After the emit the frame exits but the enqueued frame
+                // will be picked up by the next run() call.
+                vec![
+                    TestInstruction::EnqueueFrame {
+                        func: FunctionId(0),
+                        state: StateId(1),
+                        num_regs: 1,
+                    },
+                    TestInstruction::Emit("first"),
+                ],
+                // Same pattern: enqueue the suspending frame, then emit.
+                vec![
+                    TestInstruction::EnqueueFrame {
+                        func: FunctionId(0),
+                        state: StateId(2),
+                        num_regs: 1,
+                    },
+                    TestInstruction::Emit("second"),
+                ],
+                // Now suspend. The counter is 2.
+                vec![TestInstruction::Suspend {
+                    dst: RegisterId(0),
+                    resume: StateId(3),
+                }],
+                // After resolve, emit the resolved value with the
+                // continuing effect number.
+                vec![TestInstruction::EmitRegister(RegisterId(0))],
+            ],
+        )])
+    };
+
+    let mut runtime = waymark_vm_runtime::Runtime::with_conventional_entrypoint(
+        TestInterpreter,
+        make_executable(),
+    )
+    .expect("entrypoint should exist");
+
+    // First effect bumps counter 0 → 1.
+    let emitted_first = runtime.run().expect("first emit should succeed");
+    assert_eq!(emitted_first.number, EffectNumber(0));
+    assert_eq!(emitted_first.effect, TestEffect::Message("first"));
+
+    // Second effect bumps counter 1 → 2.
+    let emitted_second = runtime.run().expect("second emit should succeed");
+    assert_eq!(emitted_second.number, EffectNumber(1));
+    assert_eq!(emitted_second.effect, TestEffect::Message("second"));
+
+    // Now the suspending frame runs → counter stays at 2.
+    assert!(matches!(runtime.run(), Err(RunError::NoReadyFrame)));
+
+    // Snapshot while suspended (counter is 2).
+    let mut buf = Vec::new();
+    runtime
+        .snapshot(&mut rmp_serde::Serializer::new(&mut buf))
+        .expect("suspended runtime should snapshot");
+
+    // Restore and resolve the suspend → emits with the continuing
+    // number that was stored in the snapshot.
+    let mut de = rmp_serde::Deserializer::new(&buf[..]);
+    let mut restored =
+        waymark_vm_runtime::Runtime::from_snapshot(TestInterpreter, make_executable(), &mut de)
+            .expect("snapshot should restore");
+
+    restored
+        .resolve_promise(PromiseStateId(0), TestReadyValue::Int(20))
+        .expect("promise should resolve after restore");
+    let emitted_effect = restored.run().expect("emit after restore");
+    assert_eq!(emitted_effect.number, EffectNumber(2));
     assert_eq!(
-        restored.run().expect("restored runtime should emit"),
-        TestEffect::Message("still-alive")
+        emitted_effect.effect,
+        TestEffect::Value(TestReadyValue::Int(20))
     );
 }

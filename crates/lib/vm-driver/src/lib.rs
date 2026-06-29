@@ -48,7 +48,8 @@ where
     pub runtime: Runtime<Executable, Interpreter, Value>,
 
     /// Channel used to publish effects emitted by the runtime.
-    pub effects_tx: tokio::sync::mpsc::Sender<Interpreter::Effect>,
+    pub effects_tx:
+        tokio::sync::mpsc::Sender<waymark_vm_runtime_effect::EmittedEffect<Interpreter::Effect>>,
 
     /// Channel used to receive promise resolutions for pending promises.
     pub promise_resolutions_rx:
@@ -97,9 +98,10 @@ where
 
     loop {
         match runtime.run() {
-            Ok(effect) => {
-                tracing::info!(?effect, "effect");
-                if effects_tx.send(effect).await.is_err() {
+            Ok(emitted_effect) => {
+                let waymark_vm_runtime_effect::EmittedEffect { effect, number } = &emitted_effect;
+                tracing::info!(?effect, %number, "effect");
+                if effects_tx.send(emitted_effect).await.is_err() {
                     return Err(Error::EffectSenderClosed);
                 }
             }

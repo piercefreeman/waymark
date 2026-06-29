@@ -33,11 +33,11 @@ fn runtime_executes_call_await_and_return_to_completion() {
 
     let mut runtime = new_runtime_with_args(executable, vec![TestReadyValue::Int(7)]);
 
-    let effect = runtime
+    let emitted_effect = runtime
         .run()
         .expect("call/await/return program should complete");
 
-    match effect {
+    match emitted_effect.effect {
         Effect::Complete(value) => assert_eq!(value, TestReadyValue::Int(7)),
         Effect::UnhandledException(exception) => {
             panic!("program should complete successfully, got {exception:?}")

@@ -28,9 +28,9 @@ fn runtime_follows_jump_and_jump_if_before_returning() {
         vec![TestReadyValue::Int(1), TestReadyValue::Int(9)],
     );
 
-    let effect = runtime.run().expect("jump program should complete");
+    let emitted_effect = runtime.run().expect("jump program should complete");
 
-    match effect {
+    match emitted_effect.effect {
         Effect::Complete(value) => assert_eq!(value, TestReadyValue::Int(9)),
         Effect::UnhandledException(exception) => {
             panic!("jump program should not raise an exception: {exception:?}")
