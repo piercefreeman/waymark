@@ -4440,6 +4440,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-convert-core"
+version = "0.1.0"
+
+[[package]]
 name = "waymark-core-backend"
 version = "0.1.0"
 dependencies = [
@@ -5669,6 +5673,14 @@ dependencies = [
  "waymark-vm-runtime-promise-value",
  "waymark-vm-runtime-test",
  "waymark-vm-runtime-value",
+]
+
+[[package]]
+name = "waymark-vm-value-convert-core"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+ "waymark-vm-runtime-promise-core",
 ]
 
 [[package]]
