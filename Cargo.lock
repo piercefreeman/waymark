@@ -5067,6 +5067,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-sleep-reconciler"
+version = "0.1.0"
+dependencies = [
+ "nonempty-collections",
+ "tokio",
+ "tracing",
+ "waymark-extcall-reconciler-core",
+ "waymark-nonzero-duration",
+ "waymark-vm-driver-core",
+ "waymark-vm-runtime-promise-core",
+ "waymark-vm-value",
+]
+
+[[package]]
 name = "waymark-smoke"
 version = "0.1.0"
 dependencies = [
