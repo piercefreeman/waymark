@@ -5450,6 +5450,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-transient-execution-bringup"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "prost 0.12.6",
+ "tokio",
+ "tokio-util",
+ "tonic 0.11.0",
+ "tracing",
+ "waymark-action-reconciler",
+ "waymark-action-runtime-worker-stream",
+ "waymark-convert-core",
+ "waymark-extcall-reconciler",
+ "waymark-fullset-effect-handler",
+ "waymark-ids",
+ "waymark-proto",
+ "waymark-sleep-reconciler",
+ "waymark-system-vm",
+ "waymark-vm-ast-old-proto",
+ "waymark-vm-codec-rmp",
+ "waymark-vm-compiler-for-ast-old",
+ "waymark-vm-driver",
+ "waymark-vm-driver-core",
+ "waymark-vm-driver-thread",
+ "waymark-workflow-completion-convert-proto",
+ "waymark-workflow-completion-core",
+ "waymark-workflow-completion-direct",
+ "waymark-workflow-initialization-convert-proto",
+]
+
+[[package]]
 name = "waymark-typed-vec-serde"
 version = "0.1.0"
 dependencies = [

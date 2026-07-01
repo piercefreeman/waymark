@@ -1,0 +1,36 @@
+[package]
+name = "waymark-transient-execution-bringup"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-action-reconciler = { workspace = true }
+waymark-action-runtime-worker-stream = { workspace = true }
+waymark-convert-core = { workspace = true }
+waymark-extcall-reconciler = { workspace = true }
+waymark-fullset-effect-handler = { workspace = true }
+waymark-ids = { workspace = true }
+waymark-proto = { workspace = true }
+waymark-sleep-reconciler = { workspace = true }
+waymark-system-vm = { workspace = true, features = ["serde"] }
+waymark-vm-ast-old-proto = { workspace = true }
+waymark-vm-codec-rmp = { workspace = true }
+waymark-vm-compiler-for-ast-old = { workspace = true }
+waymark-vm-driver = { workspace = true }
+waymark-vm-driver-core = { workspace = true, features = ["tokio"] }
+waymark-vm-driver-thread = { workspace = true }
+waymark-workflow-completion-convert-proto = { workspace = true }
+waymark-workflow-completion-core = { workspace = true }
+waymark-workflow-completion-direct = { workspace = true }
+waymark-workflow-initialization-convert-proto = { workspace = true }
+
+anyhow = { workspace = true }
+prost = { workspace = true }
+tokio = { workspace = true, features = ["sync", "macros", "rt"] }
+tokio-util = { workspace = true }
+tonic = { workspace = true }
+tracing = { workspace = true }
+
+[lib]
+doctest = false
