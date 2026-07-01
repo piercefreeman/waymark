@@ -12,6 +12,7 @@ waymark-action-reconciler = { path = "crates/lib/action-reconciler" }
 waymark-action-runtime-convert = { path = "crates/lib/action-runtime-convert" }
 waymark-action-runtime-core = { path = "crates/lib/action-runtime-core" }
 waymark-action-runtime-worker-pool = { path = "crates/lib/action-runtime-worker-pool" }
+waymark-action-runtime-worker-stream = { path = "crates/lib/action-runtime-worker-stream" }
 waymark-backend-fault-injection = { path = "crates/lib/backend-fault-injection" }
 waymark-backend-memory = { path = "crates/lib/backend-memory" }
 waymark-backend-postgres = { path = "crates/lib/backend-postgres" }
@@ -149,6 +150,9 @@ waymark-worker-status-core = { path = "crates/lib/worker-status-core" }
 waymark-worker-status-reporter = { path = "crates/lib/worker-status-reporter" }
 waymark-workflow-completion = { path = "crates/lib/workflow-completion" }
 waymark-workflow-completion-backend = { path = "crates/lib/workflow-completion-backend" }
+waymark-workflow-completion-convert-proto = { path = "crates/lib/workflow-completion-convert-proto" }
+waymark-workflow-completion-direct = { path = "crates/lib/workflow-completion-direct" }
+waymark-workflow-initialization-convert-proto = { path = "crates/lib/workflow-initialization-convert-proto" }
 waymark-workflow-registry-backend = { path = "crates/lib/workflow-registry-backend" }
 waymark-workflow-service-vm-executables-backend = { path = "crates/lib/workflow-service-vm-executables-backend" }
 waymark-workflow-service-vm-runtimes-backend = { path = "crates/lib/workflow-service-vm-runtimes-backend" }
