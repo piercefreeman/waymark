@@ -6286,6 +6286,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-workflow-completion-direct"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
+ "tokio",
+ "tracing",
+ "waymark-vm-driver-core",
+ "waymark-vm-interpreter-coreset",
+ "waymark-vm-runtime-effect",
+ "waymark-vm-runtime-exception",
+ "waymark-workflow-completion-core",
+]
+
+[[package]]
 name = "waymark-workflow-initialization-convert-proto"
 version = "0.1.0"
 dependencies = [
