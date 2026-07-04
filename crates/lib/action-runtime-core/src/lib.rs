@@ -4,6 +4,8 @@
 
 mod completions_provider;
 mod requester;
+mod shared;
 
 pub use self::completions_provider::*;
 pub use self::requester::*;
+pub use self::shared::*;

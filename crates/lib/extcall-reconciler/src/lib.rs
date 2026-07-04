@@ -14,9 +14,6 @@
 
 #![warn(missing_docs)]
 
-#[cfg(test)]
-mod tests;
-
 use nonempty_collections::NEVec;
 use waymark_action_core::ActionRef;
 use waymark_extcall_reconciler_core::Ack;

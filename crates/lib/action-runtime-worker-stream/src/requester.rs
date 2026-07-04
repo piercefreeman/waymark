@@ -1,43 +1,65 @@
 use tokio::sync::mpsc;
 use waymark_action_core::ActionRef;
-use waymark_action_runtime_core::ActionCallRequest;
+use waymark_action_runtime_core::{ActionCallRequest, ActionCallRequestFor};
 use waymark_convert_core::TryConvert;
 use waymark_proto::messages as proto;
 
 /// Sends action dispatches as [`proto::WorkflowStreamResponse`] messages
 /// on a tokio mpsc channel.
-pub struct WorkerStreamActionRequester {
+pub struct WorkerStreamActionRequester<Metadata> {
     /// Channel for sending workflow stream responses.
     pub tx: mpsc::Sender<Result<proto::WorkflowStreamResponse, tonic::Status>>,
 
-    /// Instance identifier included in each dispatch.
-    pub instance_id: String,
+    /// The phantom data.
+    pub phantom_data: std::marker::PhantomData<Metadata>,
 }
 
-impl waymark_action_runtime_core::ActionCallRequester for WorkerStreamActionRequester {
+impl<Metadata> WorkerStreamActionRequester<Metadata> {
+    /// Create a new [`WorkerStreamActionRequester`].
+    pub fn new(tx: mpsc::Sender<Result<proto::WorkflowStreamResponse, tonic::Status>>) -> Self {
+        Self {
+            tx,
+            phantom_data: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<Metadata> waymark_action_runtime_core::WithActionCallMetadata
+    for WorkerStreamActionRequester<Metadata>
+{
+    type ActionCallMetadata = Metadata;
+}
+
+impl<Metadata> waymark_action_runtime_core::ActionCallRequester
+    for WorkerStreamActionRequester<Metadata>
+where
+    (String, String, u32): From<Metadata>,
+    Metadata: std::marker::Sync,
+{
     type Error = mpsc::error::SendError<Result<proto::WorkflowStreamResponse, tonic::Status>>;
 
     type Argument = waymark_vm_value::ReadyValue;
 
     fn request_action_call(
         &self,
-        request: ActionCallRequest<Self::Argument>,
+        request: ActionCallRequestFor<Self>,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send + '_ {
-        let result = build_dispatch(&self.instance_id, request);
+        let result = build_dispatch(request);
         async move { self.tx.send(result).await }
     }
 }
 
 #[allow(clippy::result_large_err)]
-fn build_dispatch(
-    instance_id: &str,
-    request: ActionCallRequest<waymark_vm_value::ReadyValue>,
-) -> Result<proto::WorkflowStreamResponse, tonic::Status> {
+fn build_dispatch<Metadata>(
+    request: ActionCallRequest<waymark_vm_value::ReadyValue, Metadata>,
+) -> Result<proto::WorkflowStreamResponse, tonic::Status>
+where
+    (String, String, u32): From<Metadata>,
+{
     let ActionCallRequest {
         action_ref,
-        effect_number,
-        promise_state_id,
         arguments,
+        metadata,
     } = request;
 
     let ActionRef {
@@ -53,10 +75,12 @@ fn build_dispatch(
         waymark_action_runtime_convert::Converter::try_convert((&call_args[..], &arguments[..]))
             .map_err(|err| tonic::Status::internal(format!("action argument conversion: {err}")))?;
 
+    let (action_id, instance_id, sequence) = metadata.into();
+
     let dispatch = proto::ActionDispatch {
-        action_id: format!("{}/{:?}", effect_number, promise_state_id),
-        instance_id: instance_id.to_owned(),
-        sequence: u32::try_from(request.effect_number.0).unwrap_or(0),
+        action_id,
+        instance_id,
+        sequence,
         action_name: action_name.clone(),
         module_name: module_name.clone().unwrap_or_default(),
         kwargs,

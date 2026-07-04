@@ -47,75 +47,6 @@ pub struct Poller<ActionCallCompletionsProvider> {
     provider: ActionCallCompletionsProvider,
 }
 
-impl<ActionCallRequester> Handler<ActionCallRequester>
-where
-    ActionCallRequester: waymark_action_runtime_core::ActionCallRequester,
-{
-    /// Dispatch an action call.
-    pub async fn request(
-        &self,
-        effect_number: waymark_vm_runtime_effect::EffectNumber,
-        promise_state_id: PromiseStateId,
-        action_ref: ActionRef,
-        arguments: Vec<ActionCallRequester::Argument>,
-    ) -> Result<(), HandleEffectError<ActionCallRequester::Error>> {
-        let request = ActionCallRequest {
-            action_ref,
-            effect_number,
-            promise_state_id,
-            arguments,
-        };
-
-        self.requester
-            .request_action_call(request)
-            .await
-            .map_err(HandleEffectError::RequestActionCall)?;
-
-        Ok(())
-    }
-}
-
-impl<ActionCallCompletionsProvider> Poller<ActionCallCompletionsProvider>
-where
-    ActionCallCompletionsProvider: waymark_action_runtime_core::ActionCallCompletionsProvider,
-{
-    /// Wait for the next batch of action-completion settlements.
-    pub async fn poll<Ack>(
-        &mut self,
-    ) -> Option<NEVec<PromiseSettlement<ActionCallCompletionsProvider::Value, Ack>>>
-    where
-        Ack: From<self::Ack>,
-    {
-        let completions = self.provider.wait_for_completions().await.ok()?;
-
-        let settlements: NEVec<_> = completions
-            .into_nonempty_iter()
-            .map(|completion| {
-                let ActionCallCompletion {
-                    effect_number: _,
-                    promise_state_id,
-                    outcome,
-                } = completion;
-
-                let resolution = match outcome {
-                    ActionCallOutcome::Value(value) => PromiseResolution::Resolved(value),
-                    ActionCallOutcome::Exception(exception) => {
-                        PromiseResolution::Rejected(exception)
-                    }
-                };
-
-                PromiseSettlement {
-                    promise_state_id,
-                    resolution,
-                    ack: Ack.into(),
-                }
-            })
-            .collect();
-
-        Some(settlements)
-    }
-}
-
 /// Create a paired action handler and poller.
 pub fn new<ActionCallRequester, ActionCallCompletionsProvider>(
     requester: ActionCallRequester,
@@ -133,14 +64,37 @@ where
     (handler, poller)
 }
 
-// ---------------------------------------------------------------------------
-// extcall-reconciler-core trait impls
-// ---------------------------------------------------------------------------
+impl<ActionCallRequester> Handler<ActionCallRequester>
+where
+    ActionCallRequester: waymark_action_runtime_core::ActionCallRequester,
+{
+    /// Dispatch an action call.
+    pub async fn request(
+        &self,
+        metadata: ActionCallRequester::ActionCallMetadata,
+        action_ref: ActionRef,
+        arguments: Vec<ActionCallRequester::Argument>,
+    ) -> Result<(), HandleEffectError<ActionCallRequester::Error>> {
+        let request = ActionCallRequest {
+            action_ref,
+            arguments,
+            metadata,
+        };
+
+        self.requester
+            .request_action_call(request)
+            .await
+            .map_err(HandleEffectError::RequestActionCall)?;
+
+        Ok(())
+    }
+}
 
 impl<Requester> waymark_extcall_reconciler_core::ActionEffectHandler for Handler<Requester>
 where
     Requester: waymark_action_runtime_core::ActionCallRequester + Send + Sync,
     Requester::Argument: Send,
+    Requester::ActionCallMetadata: From<(waymark_vm_runtime_effect::EffectNumber, PromiseStateId)>,
 {
     type Error = HandleEffectError<Requester::Error>;
     type Argument = Requester::Argument;
@@ -152,16 +106,31 @@ where
         action_ref: ActionRef,
         arguments: Vec<Self::Argument>,
     ) -> Result<(), Self::Error> {
-        self.request(effect_number, promise_state_id, action_ref, arguments)
+        let metadata = Requester::ActionCallMetadata::from((effect_number, promise_state_id));
+
+        let request = ActionCallRequest {
+            action_ref,
+            arguments,
+            metadata,
+        };
+
+        self.requester
+            .request_action_call(request)
             .await
+            .map_err(HandleEffectError::RequestActionCall)?;
+
+        Ok(())
     }
 }
 
-impl<Provider> waymark_extcall_reconciler_core::ActionPromiseSettler for Poller<Provider>
+impl<ActionCallCompletionsProvider> waymark_extcall_reconciler_core::ActionPromiseSettler
+    for Poller<ActionCallCompletionsProvider>
 where
-    Provider: waymark_action_runtime_core::ActionCallCompletionsProvider + Send + Sync,
+    ActionCallCompletionsProvider:
+        waymark_action_runtime_core::ActionCallCompletionsProvider + Send + Sync,
+    ActionCallCompletionsProvider::ActionCallMetadata: Into<PromiseStateId>,
 {
-    type Value = Provider::Value;
+    type Value = ActionCallCompletionsProvider::Value;
     type Ack = Ack;
 
     async fn poll_action_settlements<UnifiedAck>(
@@ -170,6 +139,30 @@ where
     where
         UnifiedAck: From<Self::Ack>,
     {
-        self.poll::<UnifiedAck>().await
+        let completions = self.provider.wait_for_completions().await.ok()?;
+
+        let settlements: NEVec<_> = completions
+            .into_nonempty_iter()
+            .map(|completion| {
+                let ActionCallCompletion { outcome, metadata } = completion;
+
+                let promise_state_id = metadata.into();
+
+                let resolution = match outcome {
+                    ActionCallOutcome::Value(value) => PromiseResolution::Resolved(value),
+                    ActionCallOutcome::Exception(exception) => {
+                        PromiseResolution::Rejected(exception)
+                    }
+                };
+
+                PromiseSettlement {
+                    promise_state_id,
+                    resolution,
+                    ack: Ack.into(),
+                }
+            })
+            .collect();
+
+        Some(settlements)
     }
 }

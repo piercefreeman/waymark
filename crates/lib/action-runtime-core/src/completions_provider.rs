@@ -1,6 +1,6 @@
 use nonempty_collections::NEVec;
-use waymark_vm_runtime_effect::EffectNumber;
-use waymark_vm_runtime_promise_core::PromiseStateId;
+
+use crate::WithActionCallMetadata;
 
 /// The outcome of a completed action call — either a value or an exception.
 pub enum ActionCallOutcome<Value> {
@@ -13,22 +13,27 @@ pub enum ActionCallOutcome<Value> {
 
 /// A completed action call, pairing its originating effect and promise
 /// with the outcome.
-pub struct ActionCallCompletion<Value> {
-    /// The sequential number of the effect that triggered this call.
-    pub effect_number: EffectNumber,
-
-    /// The id of a promise state this action completion is for.
-    pub promise_state_id: PromiseStateId,
-
+pub struct ActionCallCompletion<Value, Metadata> {
     /// The outcome of the action call.
     pub outcome: ActionCallOutcome<Value>,
+
+    /// Metadata about the action call.
+    pub metadata: Metadata,
 }
+
+/// A convenience alias for [`ActionCallCompletion`] that infers the `Value` and
+/// `Metadata` type parameters from a provider that implements
+/// [`ActionCallCompletionsProvider`].
+pub type ActionCallCompletionFor<Provider> = ActionCallCompletion<
+    <Provider as self::ActionCallCompletionsProvider>::Value,
+    crate::ActionCallMetadataFor<Provider>,
+>;
 
 /// A provider of completions for previously dispatched action calls.
 ///
 /// Implementations check whether previously dispatched action calls have
 /// finished and surface the results when they become available.
-pub trait ActionCallCompletionsProvider {
+pub trait ActionCallCompletionsProvider: WithActionCallMetadata {
     /// The type of a successful action result.
     type Value;
 
@@ -42,5 +47,5 @@ pub trait ActionCallCompletionsProvider {
     /// (e.g., the provider has shut down).
     fn wait_for_completions(
         &mut self,
-    ) -> impl Future<Output = Result<NEVec<ActionCallCompletion<Self::Value>>, Self::Error>> + Send + '_;
+    ) -> impl Future<Output = Result<NEVec<ActionCallCompletionFor<Self>>, Self::Error>> + Send + '_;
 }

@@ -1,18 +1,22 @@
 use waymark_convert_core::TryConvert;
 
-use crate::DispatchCorrelationMap;
-
 /// Dispatches action calls through a [`waymark_worker_core::BaseWorkerPool`].
-pub struct WorkerPoolRequester<Pool> {
+pub struct WorkerPoolRequester<Pool, Metadata> {
     /// The worker pool to submit action requests to.
     pub pool: Pool,
 
-    /// The executor (workflow instance) identifier.
-    pub executor_id: waymark_ids::InstanceId,
+    /// Phantom data.
+    pub phantom_data: std::marker::PhantomData<Metadata>,
+}
 
-    /// Map from dispatch tokens to (effect_number, promise_state_id)
-    /// for correlating action completions back to VM promises.
-    pub correlation_map: DispatchCorrelationMap,
+impl<Pool, Metadata> WorkerPoolRequester<Pool, Metadata> {
+    /// Create a new worker pool requester.
+    pub fn new(pool: Pool) -> Self {
+        Self {
+            pool,
+            phantom_data: std::marker::PhantomData,
+        }
+    }
 }
 
 /// Errors that can occur when requesting an action call through
@@ -28,9 +32,18 @@ pub enum RequestActionCallError {
     PoolQueue(#[source] waymark_worker_core::WorkerPoolError),
 }
 
-impl<Pool> waymark_action_runtime_core::ActionCallRequester for WorkerPoolRequester<Pool>
+impl<Pool, Metadata> waymark_action_runtime_core::WithActionCallMetadata
+    for WorkerPoolRequester<Pool, Metadata>
+{
+    type ActionCallMetadata = Metadata;
+}
+
+impl<Pool, Metadata> waymark_action_runtime_core::ActionCallRequester
+    for WorkerPoolRequester<Pool, Metadata>
 where
     Pool: waymark_worker_core::BaseWorkerPool + Send + Sync + 'static,
+    (waymark_ids::InstanceId, waymark_ids::ExecutionId): From<Metadata>,
+    Metadata: Send + Sync,
 {
     type Error = RequestActionCallError;
 
@@ -38,33 +51,31 @@ where
 
     async fn request_action_call(
         &self,
-        request: waymark_action_runtime_core::ActionCallRequest<Self::Argument>,
+        request: waymark_action_runtime_core::ActionCallRequestFor<Self>,
     ) -> Result<(), Self::Error> {
+        let waymark_action_runtime_core::ActionCallRequest {
+            action_ref,
+            arguments,
+            metadata,
+        } = request;
+
         let kwargs = waymark_action_runtime_convert::Converter::try_convert((
-            &request.action_ref.call_args[..],
-            &request.arguments[..],
+            &action_ref.call_args[..],
+            &arguments[..],
         ))
         .map_err(RequestActionCallError::ArgumentsConversion)?;
 
         let dispatch_token = uuid::Uuid::new_v4();
 
-        // Store the correlation so the completions provider can route
-        // the result back to the correct VM promise.
-        {
-            let mut map = self.correlation_map.lock().unwrap();
-            map.insert(
-                dispatch_token,
-                (request.effect_number, request.promise_state_id),
-            );
-        }
+        let (executor_id, execution_id) = metadata.into();
 
         let worker_request = waymark_worker_core::ActionRequest {
-            executor_id: self.executor_id,
-            execution_id: waymark_ids::ExecutionId::new_uuid_v4(),
-            action_name: request.action_ref.action_name,
-            module_name: request.action_ref.module_name,
+            executor_id,
+            execution_id,
+            action_name: action_ref.action_name,
+            module_name: action_ref.module_name,
             kwargs,
-            timeout_seconds: request.action_ref.timeout_seconds,
+            timeout_seconds: action_ref.timeout_seconds,
             attempt_number: 1,
             dispatch_token,
         };

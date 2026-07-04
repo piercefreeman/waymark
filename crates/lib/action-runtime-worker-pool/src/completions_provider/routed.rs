@@ -27,10 +27,9 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use nonempty_collections::NEVec;
 use tokio::sync::mpsc;
-use waymark_action_runtime_core::ActionCallCompletion;
+use waymark_action_runtime_core::ActionCallCompletionFor;
 
 use super::shared::{ResolveError, resolve_completion};
-use crate::DispatchCorrelationMap;
 
 /// Errors that can occur when waiting for action completions via the
 /// routed provider.
@@ -59,9 +58,24 @@ pub enum PollRouteError {
 // Route table
 // ---------------------------------------------------------------------------
 
-type CompletionTx = mpsc::UnboundedSender<waymark_worker_core::ActionCompletion>;
-type CompletionRx = mpsc::UnboundedReceiver<waymark_worker_core::ActionCompletion>;
-type RouteTable = Arc<DashMap<waymark_ids::InstanceId, CompletionTx>>;
+type CompletionTx<Metadata> =
+    mpsc::UnboundedSender<(waymark_worker_core::ActionCompletion, Metadata)>;
+
+type CompletionRx<Metadata> =
+    mpsc::UnboundedReceiver<(waymark_worker_core::ActionCompletion, Metadata)>;
+
+type RouteTable<Metadata> =
+    Arc<DashMap<<Metadata as ToRoutingKey>::RoutingKey, CompletionTx<Metadata>>>;
+
+/// Metadata that can be converted into a routing key for the routed
+/// completions provider.
+pub trait ToRoutingKey {
+    /// The raw key used to route completions to a specific VM.
+    type RoutingKey: core::hash::Hash + Eq + Clone;
+
+    /// Convert the metadata into its routing key.
+    fn to_routing_key(&self) -> Self::RoutingKey;
+}
 
 // ---------------------------------------------------------------------------
 // RoutedCompletionsProvider
@@ -74,15 +88,21 @@ type RouteTable = Arc<DashMap<waymark_ids::InstanceId, CompletionTx>>;
 /// for each VM.  The returned [`RoutedCompletionsHandle`] satisfies
 /// [`waymark_action_runtime_core::ActionCallCompletionsProvider`] and
 /// automatically cleans up its route on drop.
-pub struct RoutedCompletionsProvider<Pool> {
+pub struct RoutedCompletionsProvider<Pool, Metadata>
+where
+    Metadata: ToRoutingKey,
+{
     /// The worker pool to poll for completed actions.
     pub pool: Pool,
 
     /// Table mapping VM identifiers to per-VM completion channels.
-    pub routes: RouteTable,
+    pub routes: RouteTable<Metadata>,
 }
 
-impl<Pool> RoutedCompletionsProvider<Pool> {
+impl<Pool, Metadata> RoutedCompletionsProvider<Pool, Metadata>
+where
+    Metadata: ToRoutingKey,
+{
     /// Create a new routed completions provider backed by the given pool.
     pub fn new(pool: Pool) -> Self {
         Self {
@@ -96,25 +116,22 @@ impl<Pool> RoutedCompletionsProvider<Pool> {
     /// The handle implements [`waymark_action_runtime_core::ActionCallCompletionsProvider`].
     /// When the handle is dropped the route is automatically removed — no
     /// explicit unregistration is needed.
-    pub fn register(
-        &self,
-        vm_id: waymark_ids::InstanceId,
-        correlation_map: DispatchCorrelationMap,
-    ) -> RoutedCompletionsHandle {
+    pub fn register(&self, routing_key: Metadata::RoutingKey) -> RoutedCompletionsHandle<Metadata> {
         let (tx, rx) = mpsc::unbounded_channel();
-        self.routes.insert(vm_id, tx);
+        self.routes.insert(routing_key.clone(), tx);
         RoutedCompletionsHandle {
             completion_rx: rx,
-            vm_id,
-            correlation_map,
+            routing_key,
             routes: Arc::clone(&self.routes),
         }
     }
 }
 
-impl<Pool> RoutedCompletionsProvider<Pool>
+impl<Pool, Metadata> RoutedCompletionsProvider<Pool, Metadata>
 where
     Pool: waymark_worker_core::BaseWorkerPool + Send + Sync,
+    Metadata: ToRoutingKey<RoutingKey: std::fmt::Debug>,
+    Metadata: for<'a> From<&'a waymark_worker_core::ActionCompletion> + Send,
 {
     /// Poll the worker pool once and route every completion to its target VM.
     ///
@@ -127,21 +144,22 @@ where
 
         let routes = &self.routes;
         for completion in completions {
-            let executor_id = completion.executor_id;
-            match routes.get(&executor_id) {
+            let metadata = Metadata::from(&completion);
+            let routing_key = metadata.to_routing_key();
+            match routes.get(&routing_key) {
                 Some(tx) => {
-                    if let Err(err) = tx.send(completion) {
+                    if let Err(error) = tx.send((completion, metadata)) {
                         tracing::warn!(
-                            ?err,
-                            %executor_id,
-                            "failed to push completion to VM channel"
+                            ?error,
+                            ?routing_key,
+                            "failed to push completion to routed channel"
                         );
                     }
                 }
                 None => {
                     tracing::warn!(
-                        %executor_id,
-                        "completion for unregistered VM — discarding"
+                        ?routing_key,
+                        "completion for unregistered routing key — discarding"
                     );
                 }
             }
@@ -163,37 +181,55 @@ where
 ///
 /// When dropped, the handle removes its route from the central provider's
 /// route table, ensuring no further completions are sent to it.
-pub struct RoutedCompletionsHandle {
-    completion_rx: CompletionRx,
-    vm_id: waymark_ids::InstanceId,
-    correlation_map: DispatchCorrelationMap,
-    routes: RouteTable,
+pub struct RoutedCompletionsHandle<Metadata>
+where
+    Metadata: ToRoutingKey,
+{
+    completion_rx: CompletionRx<Metadata>,
+    routing_key: Metadata::RoutingKey,
+    routes: RouteTable<Metadata>,
 }
 
-impl Drop for RoutedCompletionsHandle {
+impl<Metadata> Drop for RoutedCompletionsHandle<Metadata>
+where
+    Metadata: ToRoutingKey,
+{
     fn drop(&mut self) {
-        self.routes.remove(&self.vm_id);
+        self.routes.remove(&self.routing_key);
     }
 }
 
-impl waymark_action_runtime_core::ActionCallCompletionsProvider for RoutedCompletionsHandle {
+impl<Metadata> waymark_action_runtime_core::WithActionCallMetadata
+    for RoutedCompletionsHandle<Metadata>
+where
+    Metadata: ToRoutingKey,
+{
+    type ActionCallMetadata = Metadata;
+}
+
+impl<Metadata> waymark_action_runtime_core::ActionCallCompletionsProvider
+    for RoutedCompletionsHandle<Metadata>
+where
+    Metadata: ToRoutingKey<RoutingKey: Send + Sync>,
+    Metadata: for<'a> From<&'a waymark_worker_core::ActionCompletion> + Send,
+{
     type Value = waymark_vm_value::ReadyValue;
     type Error = RoutedCompletionsError;
 
     async fn wait_for_completions(
         &mut self,
-    ) -> Result<NEVec<ActionCallCompletion<Self::Value>>, Self::Error> {
+    ) -> Result<NEVec<ActionCallCompletionFor<Self>>, Self::Error> {
         // Block until at least one completion arrives, then drain any
         // additional ones that are immediately available.
-        let first = self
+        let (first_completion, first_metadata) = self
             .completion_rx
             .recv()
             .await
             .ok_or(RoutedCompletionsError::ChannelClosed)?;
 
-        let mut batch = NEVec::new(resolve_completion(&self.correlation_map, first)?);
-        while let Ok(completion) = self.completion_rx.try_recv() {
-            batch.push(resolve_completion(&self.correlation_map, completion)?);
+        let mut batch = NEVec::new(resolve_completion(first_completion, first_metadata)?);
+        while let Ok((completion, metadata)) = self.completion_rx.try_recv() {
+            batch.push(resolve_completion(completion, metadata)?);
         }
 
         Ok(batch)

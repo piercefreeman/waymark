@@ -103,21 +103,17 @@ pub struct ExecuteChannels {
 /// the gRPC bidir input stream) and convert
 /// [`ExecuteChannels::out_rx`] into the gRPC response stream.
 pub fn execute(runtime: waymark_system_vm::Runtime) -> ExecuteChannels {
-    let vm_id = InstanceId::new_uuid_v4();
     let codec = waymark_vm_codec_rmp::RmpCodec;
 
     let (out_tx, out_rx) = mpsc::channel::<Result<proto::WorkflowStreamResponse, Status>>(32);
     let (action_result_tx, action_result_rx) = mpsc::channel::<proto::ActionResult>(32);
     let (completion_tx, completion_rx) = tokio::sync::oneshot::channel::<Outcome>();
 
-    let requester = waymark_action_runtime_worker_stream::WorkerStreamActionRequester {
-        tx: out_tx.clone(),
-        instance_id: vm_id.to_string(),
-    };
+    let requester = waymark_action_runtime_worker_stream::WorkerStreamActionRequester::new(out_tx);
     let provider =
-        waymark_action_runtime_worker_stream::WorkerStreamActionCallCompletionsProvider {
-            rx: action_result_rx,
-        };
+        waymark_action_runtime_worker_stream::WorkerStreamActionCallCompletionsProvider::new(
+            action_result_rx,
+        );
 
     let (action_handler, action_poller) = waymark_action_reconciler::new(requester, provider);
     let (sleep_handler, sleep_poller) = waymark_sleep_reconciler::new(false);

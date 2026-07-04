@@ -193,13 +193,10 @@ where
             let correlation_map: waymark_action_runtime_worker_pool::DispatchCorrelationMap =
                 Default::default();
 
-            let action_call_requester = waymark_action_runtime_worker_pool::WorkerPoolRequester {
-                pool: worker_pool.clone(),
-                executor_id: *vm_id,
-                correlation_map: Arc::clone(&correlation_map),
-            };
+            let action_call_requester =
+                waymark_action_runtime_worker_pool::WorkerPoolRequester::new(worker_pool.clone());
 
-            let action_call_complations_provider = completions.register(*vm_id, correlation_map);
+            let action_call_complations_provider = completions.register(*vm_id);
 
             let (action_handler, action_poller) = waymark_action_reconciler::new(
                 action_call_requester,

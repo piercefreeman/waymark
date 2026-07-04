@@ -4303,6 +4303,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-action-runtime-router"
+version = "0.1.0"
+dependencies = [
+ "dashmap 6.2.1",
+ "nonempty-collections",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "uuid",
+ "waymark-action-runtime-convert",
+ "waymark-action-runtime-core",
+ "waymark-action-runtime-router-core",
+ "waymark-convert-core",
+ "waymark-ids",
+ "waymark-runner-executor-core",
+ "waymark-vm-runtime-effect",
+ "waymark-vm-runtime-promise-core",
+ "waymark-vm-value",
+ "waymark-vm-value-convert-core",
+ "waymark-worker-core",
+]
+
+[[package]]
+name = "waymark-action-runtime-router-core"
+version = "0.1.0"
+
+[[package]]
 name = "waymark-action-runtime-worker-pool"
 version = "0.1.0"
 dependencies = [
