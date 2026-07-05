@@ -825,6 +825,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "dashmap"
+version = "6.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e6361d5c062261c78a176addb82d4c821ae42bed6089de0e12603cd25de2059c"
+dependencies = [
+ "cfg-if",
+ "crossbeam-utils",
+ "hashbrown 0.14.5",
+ "lock_api",
+ "once_cell",
+ "parking_lot_core",
+]
+
+[[package]]
 name = "der"
 version = "0.7.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2188,9 +2202,9 @@ dependencies = [
 
 [[package]]
 name = "once_cell"
-version = "1.21.3"
+version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "42f5e15c9953c5e4ccceeb2e7382a716482c34515315f7b03532b8b4e8393d2d"
+checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
 name = "once_cell_polyfill"
@@ -3059,7 +3073,7 @@ version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0e56dd856803e253c8f298af3f4d7eb0ae5e23a737252cd90bb4f3b435033b2d"
 dependencies = [
- "dashmap",
+ "dashmap 5.5.3",
  "futures",
  "lazy_static",
  "log",
@@ -4241,6 +4255,93 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-action-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "waymark-action-reconciler"
+version = "0.1.0"
+dependencies = [
+ "nonempty-collections",
+ "thiserror",
+ "waymark-action-core",
+ "waymark-action-runtime-core",
+ "waymark-extcall-reconciler-core",
+ "waymark-vm-driver-core",
+ "waymark-vm-runtime-effect",
+ "waymark-vm-runtime-promise-core",
+]
+
+[[package]]
+name = "waymark-action-runtime-convert"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "waymark-action-runtime-core",
+ "waymark-convert-core",
+ "waymark-message-conversions",
+ "waymark-proto",
+ "waymark-runner-executor-core",
+ "waymark-vm-runtime-exception",
+ "waymark-vm-value",
+ "waymark-vm-value-convert-core",
+ "waymark-vm-value-convert-json",
+]
+
+[[package]]
+name = "waymark-action-runtime-core"
+version = "0.1.0"
+dependencies = [
+ "nonempty-collections",
+ "waymark-action-core",
+ "waymark-vm-runtime-effect",
+ "waymark-vm-runtime-exception",
+ "waymark-vm-runtime-promise-core",
+]
+
+[[package]]
+name = "waymark-action-runtime-worker-pool"
+version = "0.1.0"
+dependencies = [
+ "dashmap 6.2.1",
+ "nonempty-collections",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "uuid",
+ "waymark-action-runtime-convert",
+ "waymark-action-runtime-core",
+ "waymark-convert-core",
+ "waymark-ids",
+ "waymark-vm-runtime-effect",
+ "waymark-vm-runtime-promise-core",
+ "waymark-vm-value",
+ "waymark-vm-value-convert-core",
+ "waymark-worker-core",
+]
+
+[[package]]
+name = "waymark-action-runtime-worker-stream"
+version = "0.1.0"
+dependencies = [
+ "nonempty-collections",
+ "tokio",
+ "tonic 0.11.0",
+ "tracing",
+ "waymark-action-core",
+ "waymark-action-runtime-convert",
+ "waymark-action-runtime-core",
+ "waymark-convert-core",
+ "waymark-proto",
+ "waymark-vm-runtime-effect",
+ "waymark-vm-runtime-promise-core",
+ "waymark-vm-value",
+]
+
+[[package]]
 name = "waymark-backend-fault-injection"
 version = "0.1.0"
 dependencies = [
@@ -4517,6 +4618,39 @@ version = "0.1.0"
 dependencies = [
  "thiserror",
  "waymark-dag",
+]
+
+[[package]]
+name = "waymark-extcall-reconciler"
+version = "0.1.0"
+dependencies = [
+ "mockall",
+ "nonempty-collections",
+ "thiserror",
+ "tokio",
+ "waymark-action-core",
+ "waymark-action-reconciler",
+ "waymark-action-runtime-core",
+ "waymark-extcall-reconciler-core",
+ "waymark-nonzero-duration",
+ "waymark-sleep-reconciler",
+ "waymark-vm-driver-core",
+ "waymark-vm-interpreter-extcallset",
+ "waymark-vm-runtime-effect",
+ "waymark-vm-runtime-promise-core",
+ "waymark-vm-value",
+]
+
+[[package]]
+name = "waymark-extcall-reconciler-core"
+version = "0.1.0"
+dependencies = [
+ "nonempty-collections",
+ "waymark-action-core",
+ "waymark-nonzero-duration",
+ "waymark-vm-driver-core",
+ "waymark-vm-runtime-effect",
+ "waymark-vm-runtime-promise-core",
 ]
 
 [[package]]
@@ -4968,6 +5102,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-sleep-reconciler"
+version = "0.1.0"
+dependencies = [
+ "nonempty-collections",
+ "tokio",
+ "tracing",
+ "waymark-extcall-reconciler-core",
+ "waymark-nonzero-duration",
+ "waymark-vm-driver-core",
+ "waymark-vm-runtime-promise-core",
+ "waymark-vm-value",
+]
+
+[[package]]
 name = "waymark-smoke"
 version = "0.1.0"
 dependencies = [
@@ -5318,6 +5466,14 @@ dependencies = [
  "waymark-vm-runtime",
  "waymark-vm-runtime-core",
  "waymark-vm-runtime-effect",
+]
+
+[[package]]
+name = "waymark-vm-compiler-for-ast-old-action-ref"
+version = "0.1.0"
+dependencies = [
+ "waymark-action-core",
+ "waymark-vm-ast-old",
 ]
 
 [[package]]

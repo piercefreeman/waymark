@@ -72,5 +72,11 @@ impl waymark_vm_runtime_value::RootValueAccess for ReadyValue {
     type RootValue = Value;
 }
 
+impl From<()> for ReadyValue {
+    fn from((): ()) -> Self {
+        ReadyValue::None
+    }
+}
+
 #[cfg(test)]
 static_assertions::assert_impl_all!(Value: waymark_vm_interpreter_fullset::Value);

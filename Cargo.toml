@@ -7,6 +7,10 @@ version = "0.1.0"
 publish = false
 
 [workspace.dependencies]
+waymark-action-core = { path = "crates/lib/action-core" }
+waymark-action-reconciler = { path = "crates/lib/action-reconciler" }
+waymark-action-runtime-convert = { path = "crates/lib/action-runtime-convert" }
+waymark-action-runtime-core = { path = "crates/lib/action-runtime-core" }
 waymark-backend-fault-injection = { path = "crates/lib/backend-fault-injection" }
 waymark-backend-memory = { path = "crates/lib/backend-memory" }
 waymark-backend-postgres = { path = "crates/lib/backend-postgres" }
@@ -21,6 +25,7 @@ waymark-dag = { path = "crates/lib/dag" }
 waymark-dag-builder = { path = "crates/lib/dag-builder" }
 waymark-dag-validator = { path = "crates/lib/dag-validator" }
 waymark-dag-viz = { path = "crates/lib/dag-viz" }
+waymark-extcall-reconciler-core = { path = "crates/lib/extcall-reconciler-core" }
 waymark-fn-main-common = { path = "crates/lib/fn-main-common" }
 waymark-garbage-collector-backend = { path = "crates/lib/garbage-collector-backend" }
 waymark-garbage-collector-config = { path = "crates/lib/garbage-collector-config" }
@@ -55,6 +60,7 @@ waymark-scheduler-core = { path = "crates/lib/scheduler-core" }
 waymark-scheduler-loop = { path = "crates/lib/scheduler-loop" }
 waymark-scheduler-loop-core = { path = "crates/lib/scheduler-loop-core" }
 waymark-secret-string = { path = "crates/lib/secret-string" }
+waymark-sleep-reconciler = { path = "crates/lib/sleep-reconciler" }
 waymark-smoke-sources = { path = "crates/lib/smoke-sources" }
 waymark-support-integration = { path = "crates/lib/support-integration" }
 waymark-support-test = { path = "crates/lib/support-test" }
@@ -105,6 +111,7 @@ waymark-vm-runtime-test = { path = "crates/lib/vm-runtime-test" }
 waymark-vm-runtime-value = { path = "crates/lib/vm-runtime-value" }
 waymark-vm-value = { path = "crates/lib/vm-value" }
 waymark-vm-value-convert-core = { path = "crates/lib/vm-value-convert-core" }
+waymark-vm-value-convert-json = { path = "crates/lib/vm-value-convert-json" }
 waymark-webapp-backend = { path = "crates/lib/webapp-backend" }
 waymark-webapp-bringup = { path = "crates/lib/webapp-bringup" }
 waymark-webapp-config = { path = "crates/lib/webapp-config" }
@@ -139,6 +146,7 @@ color-eyre = "0.6"
 console-subscriber = "0.5"
 const-sub-array = "0.1"
 cron = "0.12"
+dashmap = "6"
 derive-where = "1"
 either = "1"
 envfury = "0.2"
