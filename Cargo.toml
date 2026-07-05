@@ -8,6 +8,7 @@ publish = false
 
 [workspace.dependencies]
 waymark-action-core = { path = "crates/lib/action-core" }
+waymark-action-reconciler = { path = "crates/lib/action-reconciler" }
 waymark-action-runtime-convert = { path = "crates/lib/action-runtime-convert" }
 waymark-action-runtime-core = { path = "crates/lib/action-runtime-core" }
 waymark-backend-fault-injection = { path = "crates/lib/backend-fault-injection" }
@@ -59,6 +60,7 @@ waymark-scheduler-core = { path = "crates/lib/scheduler-core" }
 waymark-scheduler-loop = { path = "crates/lib/scheduler-loop" }
 waymark-scheduler-loop-core = { path = "crates/lib/scheduler-loop-core" }
 waymark-secret-string = { path = "crates/lib/secret-string" }
+waymark-sleep-reconciler = { path = "crates/lib/sleep-reconciler" }
 waymark-smoke-sources = { path = "crates/lib/smoke-sources" }
 waymark-support-integration = { path = "crates/lib/support-integration" }
 waymark-support-test = { path = "crates/lib/support-test" }
