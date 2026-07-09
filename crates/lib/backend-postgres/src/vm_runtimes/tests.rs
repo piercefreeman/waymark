@@ -1,40 +1,20 @@
 use serial_test::serial;
 
-use super::super::test_helpers::setup_backend;
-use waymark_ids::{InstanceId, WorkflowVersionId};
+use super::super::test_helpers::{TEST_VM_SNAPSHOT, register_test_vm, setup_backend};
+use waymark_ids::InstanceId;
 
 #[serial(postgres)]
 #[tokio::test]
 async fn store_and_load_snapshot_happy_path() {
     let backend = setup_backend().await;
-    let vm_id = InstanceId::new_uuid_v4();
-    let executable_id = WorkflowVersionId::new_uuid_v4();
-    let initial_snapshot = b"initial-snapshot";
+    let (vm_id, executable_id) = register_test_vm(&backend).await;
     let updated_snapshot = b"updated-snapshot";
-
-    // Insert the initial snapshot and workload pinning rows directly
-    // for precise control over the test scenario.
-    sqlx::query(
-        "INSERT INTO vm_runtime_snapshots (vm_id, executable_id, snapshot) VALUES ($1, $2, $3)",
-    )
-    .bind(vm_id)
-    .bind(executable_id)
-    .bind(initial_snapshot)
-    .execute(backend.pool())
-    .await
-    .expect("insert vm runtime snapshot");
-
-    sqlx::query("INSERT INTO workload_pinnings (instance_id) VALUES ($1)")
-        .bind(vm_id)
-        .execute(backend.pool())
-        .await
-        .expect("insert workload pinning");
 
     let payload =
         waymark_state_vm_runtimes_backend::LoadForRevive::load_for_revive(&backend, &vm_id)
             .await
             .expect("load for revive");
-    assert_eq!(payload.snapshot, initial_snapshot);
+    assert_eq!(payload.snapshot, TEST_VM_SNAPSHOT);
     assert_eq!(payload.executable_id, executable_id);
 
     waymark_state_vm_runtimes_backend::StoreSnapshot::store_snapshot(

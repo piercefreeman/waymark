@@ -3,9 +3,9 @@ use std::num::NonZeroUsize;
 use chrono::Duration;
 use serial_test::serial;
 use uuid::Uuid;
-use waymark_ids::{InstanceId, WorkflowVersionId};
+use waymark_ids::InstanceId;
 
-use super::super::test_helpers::setup_backend;
+use super::super::test_helpers::{register_test_vm, setup_backend};
 
 fn test_now() -> chrono::DateTime<chrono::Utc> {
     chrono::Utc::now()
@@ -22,29 +22,6 @@ fn test_pinning(
 
 fn test_max_items() -> NonZeroUsize {
     NonZeroUsize::new(10).expect("10 > 0")
-}
-
-async fn register_test_vm(backend: &super::PostgresBackend) -> (InstanceId, WorkflowVersionId) {
-    let vm_id = InstanceId::new_uuid_v4();
-    let executable_id = WorkflowVersionId::new_uuid_v4();
-
-    sqlx::query(
-        "INSERT INTO vm_runtime_snapshots (vm_id, executable_id, snapshot) VALUES ($1, $2, $3)",
-    )
-    .bind(vm_id)
-    .bind(executable_id)
-    .bind(b"test-snapshot")
-    .execute(backend.pool())
-    .await
-    .expect("insert vm runtime snapshot");
-
-    sqlx::query("INSERT INTO workload_pinnings (instance_id) VALUES ($1)")
-        .bind(vm_id)
-        .execute(backend.pool())
-        .await
-        .expect("insert workload pinning");
-
-    (vm_id, executable_id)
 }
 
 #[serial(postgres)]
