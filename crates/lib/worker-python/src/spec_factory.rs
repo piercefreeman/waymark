@@ -133,24 +133,23 @@ fn find_executable(bin: impl AsRef<Path>) -> Option<PathBuf> {
 /// Return true if `path` resolves (following symlinks) to a regular file that
 /// is executable.
 fn is_executable_file(path: &Path) -> bool {
+    #[cfg(unix)]
+    fn is_executable(metadata: &std::fs::Metadata) -> bool {
+        use std::os::unix::fs::PermissionsExt;
+        // owner, group, and other (`--x--x--x`).
+        const EXECUTABLE_BITS: u32 = 0o111;
+        metadata.permissions().mode() & EXECUTABLE_BITS != 0
+    }
+
+    #[cfg(not(unix))]
+    fn is_executable(_metadata: &std::fs::Metadata) -> bool {
+        true
+    }
+
     match std::fs::metadata(path) {
         Ok(metadata) if metadata.is_file() => is_executable(&metadata),
         _ => false,
     }
-}
-
-/// Return whether `metadata` grants execute permission to anyone (owner/group/other).
-#[cfg(unix)]
-fn is_executable(metadata: &std::fs::Metadata) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    // owner, group, and other (`--x--x--x`).
-    const EXECUTABLE_BITS: u32 = 0o111;
-    metadata.permissions().mode() & EXECUTABLE_BITS != 0
-}
-
-#[cfg(not(unix))]
-fn is_executable(_metadata: &std::fs::Metadata) -> bool {
-    true
 }
 
 pub(crate) fn build_command(
