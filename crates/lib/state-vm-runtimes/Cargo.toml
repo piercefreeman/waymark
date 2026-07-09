@@ -1,0 +1,26 @@
+[package]
+name = "waymark-state-vm-runtimes"
+edition = "2024"
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+waymark-state-manager = { workspace = true }
+waymark-state-manager-core = { workspace = true }
+waymark-state-vm-runtimes-backend = { workspace = true }
+waymark-state-vm-runtimes-core = { workspace = true }
+waymark-vm-codec-core = { workspace = true }
+waymark-vm-driver = { workspace = true }
+waymark-vm-driver-core = { workspace = true }
+waymark-vm-driver-thread = { workspace = true }
+waymark-vm-executable = { workspace = true }
+waymark-vm-interpreter = { workspace = true }
+waymark-vm-runtime = { workspace = true }
+waymark-vm-runtime-core = { workspace = true }
+waymark-vm-runtime-promise-core = { workspace = true }
+
+serde = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["sync", "macros", "rt", "time"] }
+tokio-util = { workspace = true }
+tracing = { workspace = true }

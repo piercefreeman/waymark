@@ -5219,6 +5219,68 @@ dependencies = [
 ]
 
 [[package]]
+name = "waymark-state-manager"
+version = "0.1.0"
+dependencies = [
+ "dashmap 6.2.1",
+ "tokio",
+ "tracing",
+ "waymark-nonzero-duration",
+ "waymark-state-manager-core",
+]
+
+[[package]]
+name = "waymark-state-manager-core"
+version = "0.1.0"
+
+[[package]]
+name = "waymark-state-vm-executables"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "thiserror",
+ "waymark-state-manager-core",
+ "waymark-state-vm-executables-backend",
+ "waymark-vm-codec-core",
+]
+
+[[package]]
+name = "waymark-state-vm-executables-backend"
+version = "0.1.0"
+
+[[package]]
+name = "waymark-state-vm-runtimes"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "waymark-state-manager",
+ "waymark-state-manager-core",
+ "waymark-state-vm-runtimes-backend",
+ "waymark-state-vm-runtimes-core",
+ "waymark-vm-codec-core",
+ "waymark-vm-driver",
+ "waymark-vm-driver-core",
+ "waymark-vm-driver-thread",
+ "waymark-vm-executable",
+ "waymark-vm-interpreter",
+ "waymark-vm-runtime",
+ "waymark-vm-runtime-core",
+ "waymark-vm-runtime-promise-core",
+]
+
+[[package]]
+name = "waymark-state-vm-runtimes-backend"
+version = "0.1.0"
+
+[[package]]
+name = "waymark-state-vm-runtimes-core"
+version = "0.1.0"
+
+[[package]]
 name = "waymark-support-integration"
 version = "0.1.0"
 dependencies = [
