@@ -41,6 +41,7 @@ fn resolve_blocking(config: Config) -> Result<SpecFactory, ResolveError> {
         None => default_runner(),
     };
 
+    // Determine working directory and module paths
     let package_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("python");
     let package_root_is_dir = package_root.is_dir();
 
@@ -50,6 +51,7 @@ fn resolve_blocking(config: Config) -> Result<SpecFactory, ResolveError> {
         std::env::current_dir().map_err(ResolveError::CurrentDir)?
     };
 
+    // Build PYTHONPATH with all necessary directories
     let mut module_paths: Vec<PathBuf> = Vec::new();
     if package_root_is_dir {
         module_paths.push(package_root.clone());
@@ -91,6 +93,8 @@ fn resolve_blocking(config: Config) -> Result<SpecFactory, ResolveError> {
     })
 }
 
+/// Find the default Python runner.
+/// Prefers `waymark-worker` if in PATH, otherwise uses `uv run`.
 fn default_runner() -> (PathBuf, Vec<String>) {
     if let Some(path) = find_executable("waymark-worker") {
         return (path, Vec::new());
@@ -106,6 +110,7 @@ fn default_runner() -> (PathBuf, Vec<String>) {
     )
 }
 
+/// Search PATH for an executable.
 fn find_executable(bin: impl AsRef<Path>) -> Option<PathBuf> {
     let bin = bin.as_ref();
     let path_var = std::env::var_os("PATH")?;

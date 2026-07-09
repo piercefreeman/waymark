@@ -16,7 +16,7 @@ pub struct Spec {
     /// The address of the bridge server to connect the worker to.
     pub bridge_server_addr: std::net::SocketAddr,
 
-    /// The params for building a spec.
+    /// The params for preparing the spec.
     pub factory: SpecFactory,
 }
 
