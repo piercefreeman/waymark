@@ -3,7 +3,8 @@ use std::path::PathBuf;
 /// Configuration for spawning Python workers.
 #[derive(Clone, Debug, Default)]
 pub struct Config {
-    /// Explicit path to the script. Auto-detects when None.
+    /// Path to the script/executable to run (e.g., "uv" or "waymark-worker"). Auto-detects when
+    /// None.
     pub script_path: Option<PathBuf>,
 
     /// Arguments to pass before the worker-specific args

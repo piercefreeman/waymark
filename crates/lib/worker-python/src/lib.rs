@@ -8,17 +8,15 @@ mod config;
 mod spec_factory;
 
 pub use config::Config;
-pub use spec_factory::{ResolveError, SpecFactory, resolve};
+pub use spec_factory::{resolve, ResolveError, SpecFactory};
 
 /// Python worker process spec.
-///
-/// Holds a resolved [`SpecFactory`] plus the late-bound bridge address.
 #[derive(Clone, Debug)]
 pub struct Spec {
     /// The address of the bridge server to connect the worker to.
     pub bridge_server_addr: std::net::SocketAddr,
 
-    /// The resolved worker configuration.
+    /// The params for building a spec.
     pub factory: SpecFactory,
 }
 

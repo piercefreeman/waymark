@@ -28,14 +28,13 @@ pub enum ResolveError {
     Join(#[source] tokio::task::JoinError),
 }
 
-/// Resolve a declarative [`Config`] into a [`SpecFactory`] without blocking the runtime.
+/// Resolve a [`Config`] into a [`SpecFactory`] without blocking the runtime.
 pub async fn resolve(config: Config) -> Result<SpecFactory, ResolveError> {
     tokio::task::spawn_blocking(move || resolve_blocking(config))
         .await
         .map_err(ResolveError::Join)?
 }
 
-/// Perform blocking work to resolve a config.
 fn resolve_blocking(config: Config) -> Result<SpecFactory, ResolveError> {
     let (program, args) = match config.script_path {
         Some(path) => (path, config.script_args),
@@ -92,7 +91,6 @@ fn resolve_blocking(config: Config) -> Result<SpecFactory, ResolveError> {
     })
 }
 
-/// Find the default Python runner.
 fn default_runner() -> (PathBuf, Vec<String>) {
     if let Some(path) = find_executable("waymark-worker") {
         return (path, Vec::new());
@@ -108,7 +106,6 @@ fn default_runner() -> (PathBuf, Vec<String>) {
     )
 }
 
-/// Search PATH for an executable file, following symlinks.
 fn find_executable(bin: impl AsRef<Path>) -> Option<PathBuf> {
     let bin = bin.as_ref();
     let path_var = std::env::var_os("PATH")?;
@@ -151,7 +148,6 @@ fn is_executable(_metadata: &std::fs::Metadata) -> bool {
     true
 }
 
-/// Assemble the launch command.
 pub(crate) fn build_command(
     factory: &SpecFactory,
     bridge_server_addr: SocketAddr,
